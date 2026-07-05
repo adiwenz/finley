@@ -1,11 +1,12 @@
 # Financial Life Simulator — FINAL Build Spec (decisions interleaved)
 
-> **THIS IS THE CANONICAL SOURCE OF TRUTH** (interleaved final spec). It is `BUILD_SPEC.md` verbatim with the grill-session
-> resolutions injected inline as **✔ RESOLVED** blocks at the end of each affected section. Where a
+> **THIS IS THE CANONICAL SOURCE OF TRUTH** (interleaved final spec). It carries the original build
+> spec verbatim with the grill-session resolutions injected inline as **✔ RESOLVED** blocks at the
+> end of each affected section. Where a
 > ✔ RESOLVED block and the surrounding prose conflict, **the RESOLVED block wins** — it post-dates
-> the prose and reflects a deliberate decision (full rationale in `DECISIONS.md`; build-step mapping
-> in `PRD.md`; glossary in `CONTEXT.md`). Every §11 "open decision" is now resolved; see the inline
-> blocks and the annotated §11.
+> the prose and reflects a deliberate decision (full rationale in the inline ✔ RESOLVED blocks;
+> build-step mapping in `PRD.md`; glossary in `CONTEXT.md`). Every §11 "open decision" is now
+> resolved; see the inline blocks and the annotated §11.
 
 A browser-based financial life simulator. Inputs are a person's (household's) income,
 expenses, accounts, and discrete life events; output is a month-by-month net-worth
@@ -393,7 +394,7 @@ Event set:
 > - **`HomeSaleEvent` selling cost (§11.7):** default **7%** (editable per sale). Underwater
 >   (negative net proceeds) is funded that month from liquid assets, then the §5.1 cascade.
 > - **Backdated obligations (child / house / spouse):** enter via structure-at-historical-origin +
->   value-entered-as-of-now, producing no cash flow before "now" (see `DECISIONS.md`). Child support
+>   value-entered-as-of-now, producing no cash flow before "now" (see §4.6). Child support
 >   is income-linked, so it is naturally current with no reconstruction.
 
 ### 4.4 Support obligations
@@ -1376,11 +1377,11 @@ using the frontend-design skill.
 ## 11. Open decisions (resolve during the "grill me" step — do NOT let the loop guess these)
 
 > **✔ ALL 17 RESOLVED (grill session, 2026-07-05), plus 13 found gaps.** Each item below is
-> resolved — see the inline ✔ RESOLVED blocks in the relevant sections above, and `DECISIONS.md`
-> for full rationale. The list is retained for reference and traceability; do NOT treat any item as
+> resolved — see the inline ✔ RESOLVED blocks in the relevant sections above for full rationale.
+> The list is retained for reference and traceability; do NOT treat any item as
 > still open. Found gaps beyond this list (determinism tie-break, zero-income 0/0, future-year rules
 > indexing, SS earnings seed, backdated obligations, post-deferral generalization, and more) are
-> captured in the RESOLVED blocks and `DECISIONS.md`.
+> captured in the RESOLVED blocks.
 
 These were deliberately left unresolved in design. Each has a real consequence; the implementer
 must not silently pick one. Decide them explicitly before the components that depend on them are
