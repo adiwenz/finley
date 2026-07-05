@@ -187,6 +187,9 @@ todo("combined 401k deferral across jobs shares one annual limit; employer match
 todo("contribution never exceeds applicable cap; overflow redirects to next priority destination (§5.0, §5.4)");
 todo("catch-up applies by age and account type (401k vs IRA), only at/after trigger age (§5.4)");
 todo("Social Security derives from earnings record: computed from accumulated history; higher history => >= benefit; zero before claiming age (§5.4)");
+todo("SS is engine-accumulated (EarningsRecord, no jurisdiction knowledge), rules-computed (benefit seam) (§5.4)");
+todo("SS enters post-deferral and is partially taxed via taxCategory tag, not as wages (§5.4)");
+todo("ANCHOR (rules repo): known earnings history => expected SS benefit, pinned to the cent (§5.4)");
 todo("SS claiming age monotonicity: later claiming (<=70) => higher monthly benefit (§5.4)");
 todo("Medicare step lowers health cost at 65; pre-65 early-retiree health cost modeled elevated (§5.4)");
 todo("RMDs force taxable withdrawals from pre-tax accounts past RMD age regardless of need (§5.4)");

@@ -123,6 +123,14 @@ creates the component.
 - `[ ]` **Social Security derives from the earnings record** — SS benefit is computed from the
   accumulated lifetime-earnings record; a higher earnings history yields a ≥ benefit; benefit is
   zero before the claiming age and a stream after (§5.4).
+- `[ ]` **SS is engine-accumulated, rules-computed** — the engine builds the `EarningsRecord`
+  (no jurisdiction knowledge); the benefit formula lives behind the jurisdiction seam (§5.4).
+- `[ ]` **SS enters post-deferral and is partially taxed** — SS income is not subject to 401(k)
+  deferral (enters the waterfall after the pre-tax step) and is taxed by the jurisdiction's
+  partial-taxation rule via its `taxCategory` tag, not as wages (§5.4).
+- `[ ]` **ANCHOR (rules repo): known earnings history → expected SS benefit** — pin a hand-computed
+  (or authoritative-calculator) benefit for a known earnings record, asserted to the cent within
+  rounding. The single most important external-truth anchor in the system (§5.4).
 - `[ ]` **SS claiming age monotonicity** — later claiming (up to 70) yields a higher monthly
   benefit; earlier (down to 62) lower — directionally correct (§5.4).
 - `[ ]` **Medicare step lowers health cost at 65** — the health-cost stream steps down at the

@@ -1,9 +1,11 @@
-# Financial Life Simulator — Build Spec
+# Financial Life Simulator — FINAL Build Spec (decisions interleaved)
 
-> **⚠ SUPERSEDED — NOT CANONICAL.** The canonical source of truth is now **`FINAL_BUILD_SPEC.md`**
-> (this spec with all grill-session decisions interleaved as ✔ RESOLVED blocks). This file is
-> retained only for historical reference — do not edit it or build from it. See `DECISIONS.md`
-> (rationale), `PRD.md` (build plan), and `CONTEXT.md` (glossary).
+> **THIS IS THE CANONICAL SOURCE OF TRUTH** (interleaved final spec). It is `BUILD_SPEC.md` verbatim with the grill-session
+> resolutions injected inline as **✔ RESOLVED** blocks at the end of each affected section. Where a
+> ✔ RESOLVED block and the surrounding prose conflict, **the RESOLVED block wins** — it post-dates
+> the prose and reflects a deliberate decision (full rationale in `DECISIONS.md`; build-step mapping
+> in `PRD.md`; glossary in `CONTEXT.md`). Every §11 "open decision" is now resolved; see the inline
+> blocks and the annotated §11.
 
 A browser-based financial life simulator. Inputs are a person's (household's) income,
 expenses, accounts, and discrete life events; output is a month-by-month net-worth
@@ -167,6 +169,16 @@ growth *clock* are independent axes. Three real edits look identical in the UI:
 
 ---
 
+> **✔ RESOLVED — §2 additions (grill session):**
+> - **New field `taxCategory`** on every income series (v1-ignored seam, a third tax seam):
+>   `wages|socialSecurity|ordinaryIncome|capitalGains|taxExempt`, default `wages`. Orthogonal to
+>   waterfall placement — placement reads `planDescriptor`, taxation reads `taxCategory`.
+> - **History correction** = a THIRD edit op beyond the two override scopes: an in-place edit of a
+>   closed historical segment's value, creating no new segment; boundaries stay event-owned (§10.7).
+> - **Backdated streams** need **anchor ≠ financial-start** (growth clock in the past, no value
+>   before "now") and the next escalation at the next own-cycle **anniversary** (may be <12 months) —
+>   not 12 months from "now." Same for `calendar` anchors at the next calendar boundary.
+
 ## 3. `Account`
 
 Every account has an **`ownerId`** (a `Person` id, or the special `"shared"` owner).
@@ -229,6 +241,15 @@ step then continues from the new balance. Transfers between two accounts conserv
 
 ---
 
+> **✔ RESOLVED — §3 Account (grill session):**
+> - **`liquid` (§11.1):** checking/savings/brokerage = liquid; 401k/Roth/HSA = not. Binary flag,
+>   no partial-liquidity tier.
+> - **Credit-card minimum payment (§11.2):** greater of **2% of balance or $25** — applies to
+>   user-entered cards and the synthetic default shortfall card.
+> - **Goal fund account = any account with a user-set rate/type** (brokerage/HYSA/bonds/cash),
+>   already supported via a goal's `fundAccountId` + the account's editable rate (§3.1). See the
+>   §5.2 RESOLVED block for the short-horizon-risk flag.
+
 ## 4. Entities & Events
 
 ### 4.1 Entities
@@ -266,6 +287,10 @@ step then continues from the new balance. Transfers between two accounts conserv
   partner's accounts on the partner, and a house's mortgage on the house — never by digging up
   the origin event. (This corrects an earlier over-strong "edit through the creating event"
   rule.) See §10.3.
+
+> **✔ RESOLVED — §4.1 Property appreciation (§11.9):** model appreciation in v1 (not flat-until-
+> sale); default growth mode `inflationLinked`, user-overridable per property via the same
+> segment+override machinery as any other growth-bearing quantity.
 
 ### 4.2 Ownership rule
 
@@ -360,6 +385,17 @@ Event set:
 - **`DebtPayoffEvent`** — a one-time lump-sum transfer against a liability. (Ongoing extra
   payments are handled by the allocation policy's priority list, not an event.)
 
+> **✔ RESOLVED — §4.3 Events (grill session):**
+> - **New event `JobChangeEvent` (§11.8):** reference-scoped to ONE income source; ends its series
+>   + plan descriptor, starts a new series (`resetAnchor:true`, new anchor) + optional new plan
+>   descriptor; must not touch a person's other concurrent jobs. A same-employer raise stays a plain
+>   `fromHereForward` override (no event).
+> - **`HomeSaleEvent` selling cost (§11.7):** default **7%** (editable per sale). Underwater
+>   (negative net proceeds) is funded that month from liquid assets, then the §5.1 cascade.
+> - **Backdated obligations (child / house / spouse):** enter via structure-at-historical-origin +
+>   value-entered-as-of-now, producing no cash flow before "now" (see `DECISIONS.md`). Child support
+>   is income-linked, so it is naturally current with no reconstruction.
+
 ### 4.4 Support obligations
 
 - **Child support → income-linked.** Modeled after real "percentage/income-shares"
@@ -403,6 +439,10 @@ Two separate constraints, modeling how real underwriting actually works:
 Summary: **down-payment coverage = hard block; ongoing-payment affordability = soft warning
 with visible downstream consequences.**
 
+> **✔ RESOLVED — §4.5 affordability (§11.6):** DTI soft-warning thresholds are **28% front-end**
+> (housing ÷ gross) / **36% back-end** (total debt ÷ gross). Soft warning only — does not block.
+> Down-payment coverage remains a hard block from liquid/sourced funds (credit is never a source).
+
 ### 4.6 Backdating — historical events & the "now" marker (past is STRUCTURAL ONLY)
 
 Users can enter events that already happened ("I had a kid 2 years ago"). This means **"now" is
@@ -443,6 +483,19 @@ Rules:
 deferred. v1 past is purely structural scaffolding for the forward projection.)*
 
 ---
+
+> **✔ RESOLVED — §4.6 Backdating (grill session):**
+> - **Mid-year start (§11.17):** "now" is an arbitrary month, never snapped to January. The first
+>   calendar year is partial; contribution caps prorate against YTD; `calendar` escalations fire at
+>   the next boundary (may be <12 months). YTD 401(k) is optional and nudged; absent → zero YTD,
+>   flagged as possibly overstating remaining cap room.
+> - **TWO permitted historical financial inputs, not one:** (1) YTD 401(k) contributions and (2) a
+>   **pre-now earnings summary** seeding the `EarningsRecord` for Social Security — this resolves the
+>   §4.6 ↔ §5.4 contradiction (a mid-career `EarningsRecord` cannot be built from post-"now" earnings
+>   alone; the 35-year AIME would be systematically understated). Rule 4's "only historical financial
+>   input" is corrected accordingly. Everything else backdated remains structural-only.
+> - **In-flight state entered as of now** (mortgage current balance/remaining term, partner current
+>   balances) — never re-amortized or re-derived from origin.
 
 ## 5. `Simulator` — fixed monthly pipeline
 
@@ -508,6 +561,33 @@ shared-contribution scheme (proportional default vs. even); the goal priority or
 math, the shortfall drawdown — do not let users rearrange the waterfall; pre-tax → take-home →
 shared → personal is how money works, and making it configurable invites incoherent models.
 
+> **✔ RESOLVED — §5 pipeline & §5.0 waterfall (grill session):**
+> - **Same-month determinism tie-break:** after the producer-before-consumer rule (§5), order
+>   remaining same-month events by **ledger-insertion order** (a monotonic sequence number on each
+>   event record). Required for byte-identical replay (§6).
+> - **Waterfall stays FIXED; FOUR exposed levers, not three:** per-person 401(k) %, shared-
+>   contribution scheme (proportional default / even), goal priority order, **and surplus-cash
+>   destination** (idle-in-liquid default / swept-to-investment). Surplus-cash is the backstop
+>   destination when the goal priority list is exhausted. The ordering itself is never user-
+>   configurable (pushed back on making the waterfall a user choice — it is money-flow plumbing, not
+>   a strategy; every "I don't do the waterfall" case is a waterfall whose inapplicable steps are 0).
+> - **Non-wage income enters POST-DEFERRAL by default:** pre-tax deferral is taken only off wage
+>   income carrying a `planDescriptor`; SS, alimony/child-support received, rental, and dividends all
+>   skip step 1. Placement reads `planDescriptor` presence, never `taxCategory`.
+> - **"Post-deferral" ≠ "post-tax":** post-deferral income (including SS) still joins the taxable
+>   pool feeding `computeTax` (tagged by `taxCategory`); only the post-tax net lands in the personal
+>   cash pool. Dropping it in the post-tax pool under-taxes it; putting it at the top over-taxes it as
+>   wages — both wrong.
+> - **Overflow (caps, §11.14 / §5.4):** cap at the applicable limit and redirect to the **next
+>   destination in the user's goal priority order** (not hardcoded to taxable brokerage); the capped
+>   deferral re-enters the waterfall as **taxable** cash following that order. The user sets the
+>   priority order (drag-to-reorder); default order is emergency fund → tax-advantaged →
+>   taxable/brokerage → extra debt.
+> - **Zero total household income:** short-circuit the proportional math (no 0/0); the shared-
+>   shortfall drawdown order is shared liquid → shared credit → members' personal liquid → personal
+>   credit → hard-infeasibility (deterministic by owner insertion order). Even-split's zero-income-
+>   partner personal shortfall is intended behavior, not to be smoothed over.
+
 ### 5.1 Shortfall cascade (replaces the old "never go negative" rule)
 
 The rule is **not** "net worth can't go negative" — negative net worth is normal and modeled
@@ -536,6 +616,12 @@ cases:
   and show the plunging line, but surface the most-severe marker: "**you run out of money and
   credit in [month] — this plan doesn't work.**" This is arguably the single most valuable
   warning the app produces, and the reason to model credit limits precisely.
+
+> **✔ RESOLVED — §5.1 shortfall cascade (grill session):** the synthetic default card uses the
+> §11.2 minimum-payment rule (greater of 2% / $25). For a SHARED shortfall exceeding shared
+> resources, the drawdown reaches members' personal liquid/credit after shared, in deterministic
+> owner-insertion order (see the §5.0 RESOLVED block). Underwater home-sale proceeds route here too
+> (§4.3 / §11.7).
 
 ### 5.2 Goals
 
@@ -572,6 +658,16 @@ cash. Prioritizing "house in 3 years" above retirement funds the house first and
 lowers* retirement's on-track number. The tool shows this tension rather than pretending all
 goals can be maxed at once — reprioritizing one goal moves the others on screen.
 
+> **✔ RESOLVED — §5.2 goals (grill session):**
+> - **Near-month-0 verdict threshold (§11.3):** a **horizon** goal with target date **< 12 months**
+>   routes to the §8.6 immediate feasibility-verdict branch (asset-ratio path). **One-time** goals
+>   always use the projection path regardless of proximity.
+> - **Goal fund account type/rate + short-horizon-risk flag:** a goal may accumulate into any
+>   account with a user-set rate/type (brokerage/HYSA/bonds/cash) — already supported. Because v1 uses
+>   fixed rates with NO risk modeling, add an honesty flag on a short-horizon goal held in a high-
+>   return/high-risk account ("does not model short-term market risk, which matters most for near-term
+>   goals").
+
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 
 Tax is deferred for v1, but unlike Monte Carlo or asset-division (which are localized bolt-ons),
@@ -603,6 +699,13 @@ especially for the recommendation engine (§8) — untaxed projections overstate
 retirement readiness, so recommendations built on them are confidently wrong in the dangerous
 direction. Until real tax is in, show a visible "estimates exclude taxes" disclaimer on
 projections.
+
+> **✔ RESOLVED — §5.3 tax seams (grill session):** a THIRD income-side seam joins the two here —
+> **`taxCategory` on income `CashFlowSeries`** (`wages|socialSecurity|ordinaryIncome|capitalGains|
+> taxExempt`), distinct from `taxTreatment` on `Account`. Both are present but v1-ignored.
+> **Orthogonality rule:** taxation reads `taxCategory`; deferral / waterfall placement reads
+> `planDescriptor` presence — never conflate them (a no-plan wage job is still `wages` but defers
+> nothing).
 
 ### 5.4 Government programs (eligibility-derived income & cost changes)
 
@@ -691,6 +794,33 @@ ACA matters for pre-Medicare early retirees); Child Tax Credit / dependent benef
 (supported later by the `taxTreatment` seam); FMLA / parental leave (temporary income reduction
 around a `ChildEvent`).
 
+> **✔ RESOLVED — §5.4 government programs (grill session):**
+> - **Social Security fidelity (§11.11):** FULL AIME→PIA bend-point formula + 35-year indexing
+>   (forced by the cent-pinned anchor; a replacement-rate shortcut is incompatible with it).
+>   "Estimate" applies to the FORWARD projection (projected AWI / bend-points / COLA / law), not the
+>   formula; the cent-pinned anchor uses a known HISTORICAL claiming case. **Claiming age is user-
+>   configurable 62–70, default 67**, and is separate from retirement age.
+> - **SS engine/rules split:** the engine accumulates the `EarningsRecord` (+ the pre-now earnings
+>   seed, §4.6); `rules` computes the benefit via `socialSecurityMonthlyBenefitCents(record, ctx)`.
+>   The null jurisdiction returns 0 (the record still accumulates). The **cent-pinned SS benefit
+>   anchor and monotonicity tests live in the `rules` repo**, not the engine (the engine can only
+>   test accumulation + the null path).
+> - **Medicare / health costs (§11.12):** health is an ordinary `category:"health"` budget item
+>   (uninsured = no item / $0). Job-change / early-retirement → a **nudge** (pre-filled ~$1,200/mo/
+>   person self-funded, UNSUBSIDIZED in v1 → conservative). Medicare at 65 = a **visible attributed
+>   stepped segment** (~$500/mo/person residual), not a silent auto-step. An **honesty flag** fires
+>   if pre-65 retirement is not reflected in an elevated health cost.
+> - **RMDs (§11.13):** birth-year start age **73 (1951–59) / 75 (1960+)**; rules-side seam;
+>   **preTax accounts only** (Roth/HSA exempt); binds as **max(desired, required)** — NOT additive;
+>   the forced withdrawal is taxed and routed to a taxable account.
+> - **Contribution limits (§11.14):** a structured set of caps (employee-deferral shared across a
+>   person's jobs; total-additions; separate IRA; age-banded per-type catch-up). Dollar values live
+>   in `rules`, year-parameterized. Overflow → next priority destination (see §5.0 RESOLVED).
+> - **Future-year figures are INDEXED FORWARD, not held flat** (nominal-engine correctness): the
+>   per-figure basis is rules-side (CPI / wage / legislated / flat), the rate is engine-supplied via
+>   seam context; known future legislation stays authored. All §5.4 programs are US-only, behind the
+>   pluggable jurisdiction concept.
+
 ### 5.5 Employer retirement plans & equity/deferred comp (per-job, feeding person-owned accounts)
 
 **A retirement plan is an employer benefit, so it attaches to the JOB (income source), not the
@@ -738,6 +868,18 @@ slots in later by composition:
   tax model (§5.3)** — do not attempt it now.
 
 ---
+
+> **✔ RESOLVED — §5.5 plans & equity (grill session):**
+> - **Employer-plan account on job change (§11.15):** each plan-bearing job creates its OWN
+>   person-owned account that persists after the job ends (contributions stop, balance stays &
+>   compounds). A new job's plan funds a new account by default, but may point at an existing one.
+>   Rollover = a deferred one-time transfer (§3.2). v1 match is immediately vested (forfeits nothing).
+> - **Equity / deferred comp (§11.16 — DEFERRED, shape confirmed):** grant on an income source →
+>   schedule of conditional payouts → one-time transfers; value is fixed-cents OR a formula over a
+>   live series (the §4.4 child-support pattern generalized to a price series); vesting =
+>   `checkPreconditions`. `condition` is present but unevaluated in v1 (always vests); forfeiture-on-
+>   leave composes with `JobChangeEvent`. The price-derived branch is blocked on a future price-series
+>   primitive. Multiple grants per income source allowed. Equity tax stays with the deferred tax model.
 
 ## 6. Undo, preconditions, cascade
 
@@ -818,6 +960,13 @@ So there is one survival check and one binary search; "mode" is only *which ages
 and which are searched* (Mode 1 pins nothing, Mode 2 pins all but one). **No upfront choice is
 forced on the user:** show Mode 1 as the headline, and let the user click any individual person
 to see their Mode 2 number. Each person's retirement age is independently editable.
+
+> **✔ RESOLVED — §7 retirement (grill session):**
+> - **Headline default (§11.5):** Mode 1 ("when can we all retire") is the headline number;
+>   per-person Mode 2 is one click away. No upfront mode choice is forced.
+> - **Claiming-age pinned:** the solver stays 1D (searches retirement age with the Mode-1/2 pins);
+>   the SS claiming age is a PINNED INPUT to the survival check, not a searched dimension. "Suggest
+>   optimal claiming age" is a future §8 recommendation (sweep 62→70, diff), never a solver change.
 
 ### 7.1 Solve mode vs. target mode
 
@@ -922,6 +1071,10 @@ changes other things afterward, that cached number may no longer hold. Two accep
   real current effect ("this now gets you to 92%, not 100%"), and apply that — never commit
   under a stale promise.
 
+> **✔ RESOLVED — §8.3 stale previews (§11.4):** **live-regenerate** — recommendations recompute
+> whenever the plan changes, so a stale preview never sits on screen (anti-deception, §10.3).
+> Debouncing rapid unrelated edits is an implementation detail.
+
 ### 8.4 Un-applying — two locations, one mechanism
 
 An applied recommendation surfaces in **two** places, because the card is transient:
@@ -979,6 +1132,10 @@ This is a verdict, not an Apply-able recommendation set. (The partner-still-work
 household survival check handles it, but test this boundary.)
 
 ---
+
+> **✔ RESOLVED — §8.6 degenerate case (grill session):** the near-month-0 verdict branch is
+> triggered for **horizon goals < 12 months out** (§11.3); one-time goals stay on the projection
+> path. The output is a yes/no feasibility verdict, not an Apply-able recommendation set.
 
 ## 9. Data-model summary (schema to hand Claude Code)
 
@@ -1040,6 +1197,12 @@ orthogonal to the event/undo machinery — adding N-person support does not dist
 event-sourcing spine.
 
 ---
+
+> **✔ RESOLVED — §9 data-model additions (grill session):** add to the schema — **`taxCategory`**
+> on income `CashFlowSeries`; a **monotonic ledger sequence number** on each `Event` record (the
+> same-month tie-break); **`JobChangeEvent`** in the `Event` subclass list; an optional entered
+> **pre-now earnings seed** on `EarningsRecord` (§4.6). `Property.value` defaults to `inflationLinked`
+> growth. All new tax fields (`taxCategory`, `taxTreatment`) are present but v1-ignored.
 
 ## 10. Interaction model — authoring surfaces (UX that the architecture requires)
 
@@ -1201,7 +1364,23 @@ using the frontend-design skill.
 
 ---
 
+> **✔ RESOLVED — §10 interaction model (grill session):**
+> - **Snapshot (§11.10):** end-of-month (events-applied) convention; edit-scope = scrubber position
+>   **from "now" forward only**; pre-now scrubbing is **view-only** (no financial curve to edit
+>   against). Past values are edited via **history correction** (see §2 RESOLVED), not the scrubber.
+> - **Nudges** (insurance at job-change/retirement; end-housing-item on purchase; YTD 401(k) on
+>   mid-year start) are explicit prompts, never silent value changes — consistent with §10.3.
+> - **Must-surface honesty flags** now also include: pre-65 early-retiree health cost (§11.12) and
+>   short-horizon high-risk goal (§5.2 RESOLVED), alongside the existing infeasibility/disclaimer set.
+
 ## 11. Open decisions (resolve during the "grill me" step — do NOT let the loop guess these)
+
+> **✔ ALL 17 RESOLVED (grill session, 2026-07-05), plus 13 found gaps.** Each item below is
+> resolved — see the inline ✔ RESOLVED blocks in the relevant sections above, and `DECISIONS.md`
+> for full rationale. The list is retained for reference and traceability; do NOT treat any item as
+> still open. Found gaps beyond this list (determinism tie-break, zero-income 0/0, future-year rules
+> indexing, SS earnings seed, backdated obligations, post-deferral generalization, and more) are
+> captured in the RESOLVED blocks and `DECISIONS.md`.
 
 These were deliberately left unresolved in design. Each has a real consequence; the implementer
 must not silently pick one. Decide them explicitly before the components that depend on them are
