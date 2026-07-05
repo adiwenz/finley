@@ -1,7 +1,8 @@
 # Financial Life Simulator — FINAL Build Spec (decisions interleaved)
 
-> **THIS IS THE CANONICAL SOURCE OF TRUTH** (interleaved final spec). It is `BUILD_SPEC.md` verbatim with the grill-session
-> resolutions injected inline as **✔ RESOLVED** blocks at the end of each affected section. Where a
+> **THIS IS THE CANONICAL SOURCE OF TRUTH** (interleaved final spec). It carries the original build
+> spec verbatim with the grill-session resolutions injected inline as **✔ RESOLVED** blocks at the
+> end of each affected section. Where a
 > ✔ RESOLVED block and the surrounding prose conflict, **the RESOLVED block wins** — it post-dates
 > the prose and reflects a deliberate decision (full rationale in the inline ✔ RESOLVED blocks;
 > build-step mapping in `PRD.md`; glossary in `CONTEXT.md`). Every §11 "open decision" is now
