@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -6,6 +7,7 @@ import { fileURLToPath } from "node:url";
  * are visible in the UI immediately, with no build step (issue #1).
  */
 export default defineConfig({
+  plugins: [react()],
   resolve: {
     alias: {
       "@finley/engine": fileURLToPath(
