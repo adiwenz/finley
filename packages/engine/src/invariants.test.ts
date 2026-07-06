@@ -15,6 +15,7 @@
  * that stops code + tests converging on the same wrong answer.
  */
 
+import { it } from "vitest";
 import {
   CashFlowSeries,
   splitAnnualToMonths,
@@ -22,27 +23,13 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---- minimal test harness (no external deps) -------------------------------
-let passed = 0;
-let failed = 0;
-const todos: string[] = [];
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed++;
-    console.log(`  ok    ${name}`);
-  } catch (e) {
-    failed++;
-    console.log(`  FAIL  ${name}`);
-    console.log(`        ${(e as Error).message}`);
-  }
-}
-/** A not-yet-implementable invariant: records the target without failing the run. */
-function todo(name: string) {
-  todos.push(name);
-  console.log(`  todo  ${name}`);
-}
+// ---- harness ---------------------------------------------------------------
+// Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
+// `test(...)` registers a real Vitest case (a thrown assertion fails it); a
+// `todo(...)` is a not-yet-implementable invariant recorded as a pending target
+// for a later build step — DO NOT delete these or change the anchor numbers.
+const test = (name: string, fn: () => void) => it(name, fn);
+const todo = (name: string) => it.todo(name);
 
 const assert = {
   eq(actual: unknown, expected: unknown, msg?: string) {
@@ -262,9 +249,3 @@ test("ANCHOR: preciseMonthlyRate compounds back to the annual rate over 12 month
   const r = preciseMonthlyRate(0.07);
   assert.ok(Math.abs(Math.pow(1 + r, 12) - 1 - 0.07) < 1e-9);
 });
-
-// ---- summary ---------------------------------------------------------------
-console.log(
-  `\n${passed} passed, ${failed} failed, ${todos.length} todo (targets for later build steps)`
-);
-if (failed > 0) throw new Error(`${failed} invariant test(s) failed`);
