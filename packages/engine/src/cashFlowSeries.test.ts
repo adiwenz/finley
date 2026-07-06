@@ -1,3 +1,4 @@
+import { it as test } from "vitest";
 import {
   CashFlowSeries,
   splitAnnualToMonths,
@@ -15,18 +16,6 @@ const assert = {
     if (!cond) throw new Error(msg ?? "Assertion failed");
   },
 };
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    console.log(`  ok  - ${name}`);
-  } catch (e) {
-    console.log(`FAIL  - ${name}`);
-    throw e;
-  }
-}
-
-console.log("CashFlowSeries tests\n");
 
 test("cumulative rounding: 12 months sum exactly to an awkward annual total", () => {
   const annual = dollarsToCents(100000.37); // not evenly divisible by 12
@@ -130,5 +119,3 @@ test("preciseMonthlyRate compounds to the annual rate over 12 months", () => {
   const compounded = Math.pow(1 + monthlyRate, 12) - 1;
   assert.ok(Math.abs(compounded - annualRate) < 1e-9);
 });
-
-console.log("\nAll tests passed.");

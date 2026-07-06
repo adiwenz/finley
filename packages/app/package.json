@@ -1,0 +1,25 @@
+{
+  "name": "@finley/app",
+  "version": "0.0.0",
+  "description": "Private app: UI, persistence, user data. Imports the public engine + rules.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@finley/engine": "*",
+    "@finley/rules": "*",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^5.4.10"
+  }
+}

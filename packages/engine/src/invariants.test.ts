@@ -15,6 +15,7 @@
  * that stops code + tests converging on the same wrong answer.
  */
 
+import { assert, it } from "vitest";
 import {
   CashFlowSeries,
   splitAnnualToMonths,
@@ -22,45 +23,13 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---- minimal test harness (no external deps) -------------------------------
-let passed = 0;
-let failed = 0;
-const todos: string[] = [];
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed++;
-    console.log(`  ok    ${name}`);
-  } catch (e) {
-    failed++;
-    console.log(`  FAIL  ${name}`);
-    console.log(`        ${(e as Error).message}`);
-  }
-}
-/** A not-yet-implementable invariant: records the target without failing the run. */
-function todo(name: string) {
-  todos.push(name);
-  console.log(`  todo  ${name}`);
-}
-
-const assert = {
-  eq(actual: unknown, expected: unknown, msg?: string) {
-    if (actual !== expected)
-      throw new Error(msg ?? `expected ${expected}, got ${actual}`);
-  },
-  ok(cond: unknown, msg?: string) {
-    if (!cond) throw new Error(msg ?? "assertion failed");
-  },
-  /** within `tol` cents */
-  near(actual: number, expected: number, tol: number, msg?: string) {
-    if (Math.abs(actual - expected) > tol)
-      throw new Error(msg ?? `expected ${expected} ±${tol}, got ${actual}`);
-  },
-  isInteger(n: number, msg?: string) {
-    if (!Number.isInteger(n)) throw new Error(msg ?? `not an integer: ${n}`);
-  },
-};
+// ---- harness ---------------------------------------------------------------
+// Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
+// `test(...)` registers a real Vitest case (a thrown assertion fails it); a
+// `todo(...)` is a not-yet-implementable invariant recorded as a pending target
+// for a later build step — DO NOT delete these or change the anchor numbers.
+const test = (name: string, fn: () => void) => it(name, fn);
+const todo = (name: string) => it.todo(name);
 
 // ===========================================================================
 // 1. MONEY INTEGRITY
@@ -73,14 +42,14 @@ test("all monetary state is integer cents (CashFlowSeries)", () => {
     annualRate: 0.037,
   });
   // sample 5 years of months; every value must be an integer number of cents
-  for (let m = 0; m <= 60; m++) assert.isInteger(s.getMonthlyCents(m));
+  for (let m = 0; m <= 60; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
 });
 
 test("cumulative rounding sums exactly to the annual total (awkward figure)", () => {
   const annual = dollarsToCents(100000.37);
   const months = splitAnnualToMonths(annual);
-  assert.eq(months.reduce((a, b) => a + b, 0), annual);
-  assert.eq(months.length, 12);
+  assert.strictEqual(months.reduce((a, b) => a + b, 0), annual);
+  assert.strictEqual(months.length, 12);
 });
 
 test("cumulative rounding still sums exactly AFTER a fromHereForward override", () => {
@@ -91,8 +60,8 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
   s.addOverride(18, dollarsToCents(6500), "fromHereForward"); // typed monthly
   // the 12 months of the year following the override must sum to a whole-cent annual total
   const year = s.getRangeCents(18, 29).reduce((a, b) => a + b, 0);
-  assert.isInteger(year);
-  for (let m = 18; m <= 29; m++) assert.isInteger(s.getMonthlyCents(m));
+  assert.ok(Number.isInteger(year));
+  for (let m = 18; m <= 29; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
 });
 
 todo("net worth = Σassets − Σliabilities, every month; property contributes equity value−mortgage (needs Account + Property)");
@@ -122,7 +91,7 @@ test("CashFlowSeries is query-order independent (cache determinism)", () => {
   const b = mk();
   for (let m = 0; m <= 60; m++) a.getMonthlyCents(m); // sequential
   const late = b.getMonthlyCents(60); // jump straight to late month
-  assert.eq(late, a.getMonthlyCents(60));
+  assert.strictEqual(late, a.getMonthlyCents(60));
 });
 
 todo("replaying the same ledger twice yields byte-identical output (needs Simulator + ledger)");
@@ -153,7 +122,7 @@ test("independent series do not couple: a salary edit never changes a rent serie
   });
   const rentBefore = rent.getMonthlyCents(30);
   salary.addOverride(12, dollarsToCents(3000), "fromHereForward"); // pay cut
-  assert.eq(rent.getMonthlyCents(30), rentBefore, "rent must not react to salary changes");
+  assert.strictEqual(rent.getMonthlyCents(30), rentBefore, "rent must not react to salary changes");
 });
 
 todo("endMonth truncates: a series yields nothing past endMonth (needs endMonth — build step 1)");
@@ -211,7 +180,7 @@ test("real-dollar conversion is a pure function of nominal/inflation/horizon", (
     Math.round(nominalCents / Math.pow(1 + infl, years));
   const a = toReal(dollarsToCents(100000), 0.03, 10);
   const b = toReal(dollarsToCents(100000), 0.03, 10);
-  assert.eq(a, b, "same inputs must give same output");
+  assert.strictEqual(a, b, "same inputs must give same output");
   // sanity: real < nominal when inflation positive
   assert.ok(a < dollarsToCents(100000));
 });
@@ -229,8 +198,8 @@ test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {
   const factor = Math.pow(1 + c, n);
   const payment = Math.round((L * (c * factor)) / (factor - 1));
 
-  assert.near(payment, 119910, 1, "monthly payment ≈ $1,199.10");
-  assert.eq(Math.round(L * c), 100000, "first-month interest is exactly $1,000.00");
+  assert.closeTo(payment, 119910, 1, "monthly payment ≈ $1,199.10");
+  assert.strictEqual(Math.round(L * c), 100000, "first-month interest is exactly $1,000.00");
 
   // amortize forward; final balance must be ~0 (last-payment rounding only)
   let bal = L;
@@ -239,15 +208,15 @@ test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {
     const principal = payment - interest;
     bal -= principal;
   }
-  assert.near(bal, 0, 200, "balance after 360 payments ≈ $0 (within rounding)");
+  assert.closeTo(bal, 0, 200, "balance after 360 payments ≈ $0 (within rounding)");
 });
 
 test("ANCHOR: fixed salary at 0% growth is constant forever", () => {
   const s = new CashFlowSeries(0, dollarsToCents(120000), { type: "fixed" });
   const y0 = s.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
   const y10 = s.getRangeCents(120, 131).reduce((a, b) => a + b, 0);
-  assert.eq(y0, dollarsToCents(120000));
-  assert.eq(y10, dollarsToCents(120000));
+  assert.strictEqual(y0, dollarsToCents(120000));
+  assert.strictEqual(y10, dollarsToCents(120000));
 });
 
 test("ANCHOR: known compounding matches closed form — $10k @ 7%, monthly, 10y", () => {
@@ -255,16 +224,10 @@ test("ANCHOR: known compounding matches closed form — $10k @ 7%, monthly, 10y"
   let bal = dollarsToCents(10000);
   for (let i = 0; i < 120; i++) bal = Math.round(bal * (1 + monthly));
   // closed form ≈ $19,671.51; integer-cents rounding lands at $19,671.46
-  assert.near(bal, dollarsToCents(19671.51), 10, "≈ $19,671.51 within a dime");
+  assert.closeTo(bal, dollarsToCents(19671.51), 10, "≈ $19,671.51 within a dime");
 });
 
 test("ANCHOR: preciseMonthlyRate compounds back to the annual rate over 12 months", () => {
   const r = preciseMonthlyRate(0.07);
   assert.ok(Math.abs(Math.pow(1 + r, 12) - 1 - 0.07) < 1e-9);
 });
-
-// ---- summary ---------------------------------------------------------------
-console.log(
-  `\n${passed} passed, ${failed} failed, ${todos.length} todo (targets for later build steps)`
-);
-if (failed > 0) throw new Error(`${failed} invariant test(s) failed`);

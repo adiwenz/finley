@@ -1,0 +1,25 @@
+{
+  "name": "finley",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/engine",
+    "packages/rules",
+    "packages/app"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @finley/app",
+    "build": "npm run build -w @finley/app",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:purity": "node scripts/check-engine-purity.mjs",
+    "check": "npm run check:purity && npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Engine-purity gate (§0.8): fails the build if the engine does I/O or
+      # imports app/rules code. Runs first — it's the cheapest, hardest boundary.
+      - run: npm run check:purity
+      - run: npm run typecheck
+      - run: npm run test
