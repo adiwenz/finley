@@ -125,7 +125,15 @@ test("independent series do not couple: a salary edit never changes a rent serie
   assert.strictEqual(rent.getMonthlyCents(30), rentBefore, "rent must not react to salary changes");
 });
 
-todo("endMonth truncates: a series yields nothing past endMonth (needs endMonth — build step 1)");
+test("endMonth truncates: a series yields nothing past endMonth", () => {
+  const s = new CashFlowSeries(0, dollarsToCents(200), { type: "fixed" }, {
+    baselineUnit: "monthly",
+    endMonth: 10,
+  });
+  assert.ok(s.getMonthlyCents(10) > 0, "at endMonth should still yield value");
+  assert.strictEqual(s.getMonthlyCents(11), 0, "one past endMonth must be 0");
+  assert.strictEqual(s.getMonthlyCents(100), 0, "far past endMonth must be 0");
+});
 todo("separation tagging isolation: ending partner income leaves child/mortgage streams intact (§4.3)");
 todo("buy does not end any budget item: HomePurchaseEvent leaves all budget items untouched (§4.3)");
 todo("multiple housing items coexist: DTI/% -on-housing sums all category:housing items");
