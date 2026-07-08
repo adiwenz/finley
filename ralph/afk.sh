@@ -6,6 +6,18 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
+# --- Preflight: platform-native dependencies in the sandbox -----------------
+# node_modules is a shared virtiofs mount between the macOS host and the linux
+# sandbox, and native deps (esbuild) ship per-OS binaries that can't be shared,
+# so a node_modules built on the host segfaults here. sandbox-preflight.sh
+# clean-reinstalls for the sandbox's platform when the toolchain is broken.
+# (This makes the SANDBOX own node_modules; if you later run the app on the
+# macOS host, run `npm install` there once to rebuild its binaries.)
+SANDBOX="claude-$(basename "$PWD")"
+docker sandbox create claude . >/dev/null 2>&1 || true
+echo "Preflight: verifying sandbox dependencies…"
+docker sandbox exec "$SANDBOX" sh -lc "cd '$PWD' && bash ralph/sandbox-preflight.sh"
+
 # jq filter to extract streaming text from assistant messages
 stream_text='select(.type == "assistant").message.content[]? | select(.type == "text").text // empty | gsub("\n"; "\r\n") | . + "\r\n\n"'
 
