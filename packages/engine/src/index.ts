@@ -8,5 +8,6 @@
  */
 export type { Cents } from "./money";
 export * from "./cashFlowSeries";
+export * from "./account";
 export * from "./jurisdiction";
 export * from "./projection";

@@ -2,22 +2,20 @@
  * CashFlowSeries
  * --------------
  * The single reusable primitive for any recurring dollar amount that changes
- * over time: salary, rent, groceries, debt payments, etc.
+ * over time: salary, rent, groceries, debt payments, support obligations.
  *
- * Design rules encoded here (from prior architecture decisions):
+ * Design rules:
  *  1. All math is done in integer CENTS. Never floats for money.
- *  2. Annual amounts are broken into 12 monthly values using CUMULATIVE
- *     ROUNDING so the 12 months always sum exactly to the annual total:
- *       month(m) = round(annual * m/12) - round(annual * (m-1)/12)
- *  3. Year-over-year growth compounds from the previous year's ACTUAL cents
- *     value (iteratively), never re-derived from the original baseline —
- *     this avoids compounding float/rounding error over long horizons.
- *  4. A user "editing a point on the timeline" is modeled as an Override,
- *     which is either:
- *       - fromHereForward: resets the baseline going forward (a new segment)
- *       - thisMonthOnly: perturbs exactly one month, nothing else
- *  5. Recompute is lazy and cached; adding an override only invalidates
- *     cached months from that point forward.
+ *  2. Annual-native amounts: split via cumulative rounding so 12 months sum
+ *     exactly to the annual total.
+ *  3. Monthly-native amounts: repeat exactly each month — no split, no drift.
+ *  4. Year-over-year growth compounds iteratively from the prior year's actual
+ *     cents value (cached per segment), never re-derived from the baseline.
+ *  5. Three edit operations:
+ *     - thisMonthOnly: perturbs exactly one month.
+ *     - fromHereForward: starts a new segment (optionally with resetAnchor).
+ *     - correctHistory: edits a prior segment's baseCents in-place; no new segment.
+ *  6. Recompute is lazy and cached; an override invalidates from that month forward.
  */
 
 export type GrowthMode =
@@ -28,13 +26,50 @@ export type GrowthMode =
 
 export type OverrideScope = "thisMonthOnly" | "fromHereForward";
 
-/** A contiguous stretch of time governed by one baseline + growth mode. */
+/** v1-ignored seam: tax routing category for income series. */
+export type TaxCategory =
+  | "wages"
+  | "socialSecurity"
+  | "ordinaryIncome"
+  | "capitalGains"
+  | "taxExempt";
+
+export interface CashFlowSeriesOptions {
+  /**
+   * "annual" (default): baseCents is the annual amount; monthly via cumulative
+   * rounding. Use for salary, annual subscriptions.
+   * "monthly": baseCents is the monthly amount; repeats exactly — no rounding
+   * drift. Use for rent, groceries, fixed debt payments.
+   */
+  baselineUnit?: "annual" | "monthly";
+  /**
+   * "ownCycle" (default): growth fires every 12 months from anchorMonth.
+   * "calendar": growth fires on simulation calendar year boundaries (months 12, 24…).
+   */
+  growthAnchor?: "ownCycle" | "calendar";
+  /**
+   * Absolute month (from sim start) where the growth clock started.
+   * May be negative for backdated streams. Defaults to startMonth.
+   * Ignored for "calendar" anchor (always anchors to month 0).
+   */
+  anchorMonth?: number;
+  /** Inclusive end month; getMonthlyCents returns 0 for month > endMonth. */
+  endMonth?: number;
+  /** v1-ignored seam: category for future tax routing. */
+  taxCategory?: TaxCategory;
+}
+
 interface Segment {
-  /** Absolute month index (0-based from series start) this segment begins at. */
   startMonth: number;
-  /** Annual amount, in cents, effective for the 12-month cycle starting at startMonth. */
-  annualCents: number;
+  /**
+   * Annual cents when baselineUnit="annual"; monthly cents when
+   * baselineUnit="monthly". The iteration cache preserves the actual
+   * compounded value at each year to avoid re-deriving from the baseline.
+   */
+  baseCents: number;
   growthMode: GrowthMode;
+  /** The month from which this segment's growth clock counts (ownCycle only). */
+  anchorMonth: number;
 }
 
 function rateFor(mode: GrowthMode): number {
@@ -48,7 +83,7 @@ function rateFor(mode: GrowthMode): number {
   }
 }
 
-/** Cumulative-rounding split of an annual cents figure into its 12 monthly cents values. */
+/** Cumulative-rounding split of an annual cents figure into its 12 monthly values. */
 export function splitAnnualToMonths(annualCents: number): number[] {
   const months: number[] = [];
   let prevCum = 0;
@@ -76,53 +111,70 @@ export function centsToDollars(cents: number): number {
 export class CashFlowSeries {
   private segments: Segment[];
   private singleMonthOverrides: Map<number, number> = new Map();
+  private readonly baselineUnit: "annual" | "monthly";
+  private readonly growthAnchorMode: "ownCycle" | "calendar";
+  readonly endMonth: number | undefined;
+  readonly taxCategory: TaxCategory | undefined;
 
-  /** Per-segment cache of annualCents by yearsElapsed, built iteratively. */
-  private yearlyAnnualCache: Map<Segment, Map<number, number>> = new Map();
-  /** Final monthly cents cache, keyed by absolute month. Invalidated forward on override. */
+  /** Per-segment cache: yearsElapsed → compounded baseCents at that year. */
+  private yearlyBaseCache: Map<Segment, Map<number, number>> = new Map();
+  /** Final monthly cents cache, keyed by absolute month. */
   private monthlyCache: Map<number, number> = new Map();
 
-  constructor(startMonth: number, initialAnnualCents: number, growthMode: GrowthMode) {
-    this.segments = [{ startMonth, annualCents: initialAnnualCents, growthMode }];
+  constructor(
+    startMonth: number,
+    initialBaseCents: number,
+    growthMode: GrowthMode,
+    options?: CashFlowSeriesOptions,
+  ) {
+    this.baselineUnit = options?.baselineUnit ?? "annual";
+    this.growthAnchorMode = options?.growthAnchor ?? "ownCycle";
+    this.endMonth = options?.endMonth;
+    this.taxCategory = options?.taxCategory;
+    const anchorMonth = options?.anchorMonth ?? startMonth;
+    this.segments = [{ startMonth, baseCents: initialBaseCents, growthMode, anchorMonth }];
   }
 
-  /**
-   * Apply a user edit at a point on the timeline.
-   * @param month absolute month index being edited
-   * @param newMonthlyCents the new monthly amount the user typed in
-   * @param scope thisMonthOnly | fromHereForward
-   * @param newGrowthMode optional: change the growth mode going forward (fromHereForward only)
-   */
   addOverride(
     month: number,
     newMonthlyCents: number,
     scope: OverrideScope,
-    newGrowthMode?: GrowthMode
+    options?: { newGrowthMode?: GrowthMode; resetAnchor?: boolean },
   ): void {
     if (scope === "thisMonthOnly") {
       this.singleMonthOverrides.set(month, newMonthlyCents);
-      this.invalidateFrom(month, /*onlyThisMonth*/ true);
+      this.invalidateFrom(month, true);
       return;
     }
 
-    // fromHereForward: start a brand new segment from this month.
-    // We approximate the new annual baseline as 12x the typed monthly value.
-    // This is a deliberate simplification: the user is telling us "this is
-    // what it looks like now", and cumulative rounding will re-derive the
-    // exact monthly split going forward.
     const priorSegment = this.segmentFor(month);
+    const newAnchor = options?.resetAnchor === true ? month : priorSegment.anchorMonth;
+    const newBaseCents =
+      this.baselineUnit === "monthly" ? newMonthlyCents : newMonthlyCents * 12;
+
     const newSegment: Segment = {
       startMonth: month,
-      annualCents: newMonthlyCents * 12,
-      growthMode: newGrowthMode ?? priorSegment.growthMode,
+      baseCents: newBaseCents,
+      growthMode: options?.newGrowthMode ?? priorSegment.growthMode,
+      anchorMonth: newAnchor,
     };
 
-    // Drop any existing segments that start at or after this month (they're superseded).
     this.segments = this.segments.filter((s) => s.startMonth < month);
     this.segments.push(newSegment);
     this.segments.sort((a, b) => a.startMonth - b.startMonth);
+    this.invalidateFrom(month, false);
+  }
 
-    this.invalidateFrom(month, /*onlyThisMonth*/ false);
+  /**
+   * History correction: edit a prior segment's base value in-place.
+   * No new segment is created; the boundary stays where it is.
+   */
+  correctHistory(segmentStartMonth: number, newBaseCents: number): void {
+    const segment = this.segments.find((s) => s.startMonth === segmentStartMonth);
+    if (!segment) return;
+    segment.baseCents = newBaseCents;
+    this.yearlyBaseCache.delete(segment);
+    this.invalidateFrom(segmentStartMonth, false);
   }
 
   private invalidateFrom(month: number, onlyThisMonth: boolean): void {
@@ -130,8 +182,8 @@ export class CashFlowSeries {
       this.monthlyCache.delete(month);
       return;
     }
-    for (const cachedMonth of Array.from(this.monthlyCache.keys())) {
-      if (cachedMonth >= month) this.monthlyCache.delete(cachedMonth);
+    for (const m of Array.from(this.monthlyCache.keys())) {
+      if (m >= month) this.monthlyCache.delete(m);
     }
   }
 
@@ -144,21 +196,33 @@ export class CashFlowSeries {
     return best;
   }
 
-  /** Annual cents for the segment's year-cycle containing `month`, grown iteratively. */
-  private annualCentsAt(segment: Segment, month: number): number {
-    const yearsElapsed = Math.floor((month - segment.startMonth) / 12);
-    let cache = this.yearlyAnnualCache.get(segment);
+  private yearsElapsedFor(segment: Segment, month: number): number {
+    if (this.growthAnchorMode === "calendar") {
+      return Math.floor(month / 12);
+    }
+    return Math.max(0, Math.floor((month - segment.anchorMonth) / 12));
+  }
+
+  private monthInCycleFor(segment: Segment, month: number): number {
+    if (this.growthAnchorMode === "calendar") {
+      return month % 12;
+    }
+    const fromAnchor = month - segment.anchorMonth;
+    return ((fromAnchor % 12) + 12) % 12;
+  }
+
+  private baseCentsAt(segment: Segment, yearsElapsed: number): number {
+    let cache = this.yearlyBaseCache.get(segment);
     if (!cache) {
       cache = new Map();
-      this.yearlyAnnualCache.set(segment, cache);
+      this.yearlyBaseCache.set(segment, cache);
     }
     if (cache.has(yearsElapsed)) return cache.get(yearsElapsed)!;
 
     const rate = rateFor(segment.growthMode);
-    // Iteratively compound from year 0 using each year's actual cents value
-    // (never re-derived from the original baseline), caching every year we pass.
-    let cents = cache.get(0) ?? segment.annualCents;
-    if (!cache.has(0)) cache.set(0, segment.annualCents);
+    let cents = cache.get(0) ?? segment.baseCents;
+    if (!cache.has(0)) cache.set(0, segment.baseCents);
+
     for (let y = 1; y <= yearsElapsed; y++) {
       if (cache.has(y)) {
         cents = cache.get(y)!;
@@ -170,8 +234,9 @@ export class CashFlowSeries {
     return cents;
   }
 
-  /** Get the monthly cents value for an absolute month index. */
   getMonthlyCents(month: number): number {
+    if (this.endMonth != null && month > this.endMonth) return 0;
+
     if (this.singleMonthOverrides.has(month)) {
       return this.singleMonthOverrides.get(month)!;
     }
@@ -180,16 +245,21 @@ export class CashFlowSeries {
     }
 
     const segment = this.segmentFor(month);
-    const annualCents = this.annualCentsAt(segment, month);
-    const monthInCycle = (month - segment.startMonth) % 12;
-    const monthlyValues = splitAnnualToMonths(annualCents);
-    const value = monthlyValues[monthInCycle];
+    const yearsElapsed = this.yearsElapsedFor(segment, month);
+    const baseCents = this.baseCentsAt(segment, yearsElapsed);
+
+    let value: number;
+    if (this.baselineUnit === "monthly") {
+      value = baseCents;
+    } else {
+      const monthInCycle = this.monthInCycleFor(segment, month);
+      value = splitAnnualToMonths(baseCents)[monthInCycle];
+    }
 
     this.monthlyCache.set(month, value);
     return value;
   }
 
-  /** Convenience: monthly cents values for an inclusive range of absolute months. */
   getRangeCents(startMonth: number, endMonthInclusive: number): number[] {
     const out: number[] = [];
     for (let m = startMonth; m <= endMonthInclusive; m++) {
