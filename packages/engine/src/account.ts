@@ -24,10 +24,18 @@ interface RateSegment {
   annualRate: number;
 }
 
-/** A one-time transfer: positive = influx into the account, negative = outflow. */
+/**
+ * A one-time transfer applied to an account at the given month.
+ *
+ * Fixed: amountCents > 0 = influx, < 0 = outflow.
+ * Proportional: proportionalFraction of the account's balance at that month
+ *   (e.g., -0.2 applies a 20% loss — useful for modelling a market crash).
+ * Both may be combined; total applied = amountCents + round(balance * fraction).
+ */
 export interface OneTimeTransfer {
   readonly month: number;
-  readonly amountCents: Cents;
+  readonly amountCents?: Cents;
+  readonly proportionalFraction?: number;
 }
 
 export class Account {
