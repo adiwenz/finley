@@ -4,9 +4,11 @@ import {
   simulateHousehold,
   CashFlowSeries,
   Account,
+  Liability,
   dollarsToCents,
   type HouseholdSimInput,
   type Person,
+  type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./netWorthChart";
@@ -20,6 +22,9 @@ function buildInput(
   monthlyExpenseDollars: number,
   openingBalanceDollars: number,
   annualReturnPct: number,
+  mortgageBalanceDollars: number,
+  mortgageAprPct: number,
+  mortgageTermYears: number,
 ): HouseholdSimInput {
   const person: Person = { id: "p1", name };
   const income = new CashFlowSeries(
@@ -42,6 +47,21 @@ function buildInput(
     openingBalanceCents: dollarsToCents(openingBalanceDollars),
     initialAnnualRate: annualReturnPct / 100,
   });
+
+  const liabilities: Liability[] = [];
+  if (mortgageBalanceDollars > 0) {
+    liabilities.push(
+      new Liability({
+        id: "mortgage",
+        ownerId: "p1",
+        kind: "mortgage",
+        openingBalanceCents: dollarsToCents(mortgageBalanceDollars),
+        apr: mortgageAprPct / 100,
+        termMonths: mortgageTermYears * 12,
+      }),
+    );
+  }
+
   return {
     horizonMonths: HORIZON_MONTHS,
     annualInflationRate: INFLATION,
@@ -50,7 +70,38 @@ function buildInput(
     accounts: [account],
     incomeSeries: [{ series: income, ownerId: "p1" }],
     expenseSeries: [{ series: expense, ownerId: "p1" }],
+    liabilities,
   };
+}
+
+function firstInsolventMonth(series: ProjectionSeries): number | null {
+  for (const m of series.months) {
+    if (m.isInsolvent) return m.month;
+  }
+  return null;
+}
+
+function peakCreditDebt(series: ProjectionSeries): { cents: number; month: number } | null {
+  let peak = 0;
+  let peakMonth = 0;
+  for (const m of series.months) {
+    const total = Object.entries(m.liabilityBalancesCents)
+      .filter(([id]) => id !== "mortgage")
+      .reduce((s, [, v]) => s + v, 0);
+    if (total > peak) {
+      peak = total;
+      peakMonth = m.month;
+    }
+  }
+  return peak > 0 ? { cents: peak, month: peakMonth } : null;
+}
+
+function formatDollars(cents: number): string {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
 }
 
 function NumInput({
@@ -94,11 +145,17 @@ function App() {
   const [expense, setExpense] = useState(3500);
   const [openingBalance, setOpeningBalance] = useState(10000);
   const [returnPct, setReturnPct] = useState(7);
+  const [mortgageBalance, setMortgageBalance] = useState(0);
+  const [mortgageApr, setMortgageApr] = useState(6.5);
+  const [mortgageTerm, setMortgageTerm] = useState(30);
 
   const series = simulateHousehold(
-    buildInput(name, income, expense, openingBalance, returnPct),
+    buildInput(name, income, expense, openingBalance, returnPct, mortgageBalance, mortgageApr, mortgageTerm),
     usJurisdiction,
   );
+
+  const insolventMonth = firstInsolventMonth(series);
+  const peakDebt = peakCreditDebt(series);
 
   return (
     <>
@@ -132,6 +189,9 @@ function App() {
         .name-field input { border: 1px solid #d4cbb0; border-radius: 4px; padding: 5px 8px;
                             font: inherit; font-size: 13px; background: #fff; }
         .divider { border: none; border-top: 1px solid #e3dcc6; margin: 4px 0; }
+        .alert { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
+        .alert-red { background: #fde8e8; border: 1px solid #e8a0a0; color: #7a1a1a; }
+        .alert-amber { background: #fef3e2; border: 1px solid #e8c870; color: #6b4800; }
       `}</style>
 
       <h1>Net-worth projection</h1>
@@ -152,8 +212,23 @@ function App() {
               Real (today's dollars)
             </span>
           </div>
+
+          {insolventMonth !== null && (
+            <div className="alert alert-red">
+              Plan becomes unfinanceable at month {insolventMonth} (year {Math.round(insolventMonth / 12)}).
+              Credit is exhausted — structural changes required.
+            </div>
+          )}
+
+          {peakDebt !== null && insolventMonth === null && (
+            <div className="alert alert-amber">
+              Peak credit card debt: {formatDollars(peakDebt.cents)} at month {peakDebt.month}.
+              Shortfall is financed by borrowing.
+            </div>
+          )}
+
           <p className="disclaimer">
-            Estimates exclude taxes. Not a licensed financial advisor.
+            Estimates exclude taxes. Not a licensed financial advisor. Jurisdiction: {usJurisdiction.id}.
           </p>
         </div>
 
@@ -202,6 +277,37 @@ function App() {
             min={0}
             step={0.5}
           />
+
+          <hr className="divider" />
+          <h2>Mortgage (optional)</h2>
+
+          <NumInput
+            label="Remaining balance"
+            value={mortgageBalance}
+            onChange={setMortgageBalance}
+            prefix="$"
+            step={10000}
+          />
+          {mortgageBalance > 0 && (
+            <>
+              <NumInput
+                label="APR"
+                value={mortgageApr}
+                onChange={setMortgageApr}
+                suffix="%"
+                min={0}
+                step={0.125}
+              />
+              <NumInput
+                label="Remaining term"
+                value={mortgageTerm}
+                onChange={setMortgageTerm}
+                suffix="yr"
+                min={1}
+                step={1}
+              />
+            </>
+          )}
         </div>
       </div>
     </>
