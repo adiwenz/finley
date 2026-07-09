@@ -113,6 +113,8 @@ export class CashFlowSeries {
   private singleMonthOverrides: Map<number, number> = new Map();
   private readonly baselineUnit: "annual" | "monthly";
   private readonly growthAnchorMode: "ownCycle" | "calendar";
+  /** The construction-time start month; getMonthlyCents returns 0 for month < startMonth. */
+  readonly startMonth: number;
   readonly endMonth: number | undefined;
   readonly taxCategory: TaxCategory | undefined;
 
@@ -127,6 +129,7 @@ export class CashFlowSeries {
     growthMode: GrowthMode,
     options?: CashFlowSeriesOptions,
   ) {
+    this.startMonth = startMonth;
     this.baselineUnit = options?.baselineUnit ?? "annual";
     this.growthAnchorMode = options?.growthAnchor ?? "ownCycle";
     this.endMonth = options?.endMonth;
@@ -235,6 +238,7 @@ export class CashFlowSeries {
   }
 
   getMonthlyCents(month: number): number {
+    if (month < this.startMonth) return 0;
     if (this.endMonth != null && month > this.endMonth) return 0;
 
     if (this.singleMonthOverrides.has(month)) {
