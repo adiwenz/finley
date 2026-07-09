@@ -12,3 +12,4 @@ export * from "./account";
 export * from "./liability";
 export * from "./jurisdiction";
 export * from "./projection";
+export * from "./events";
