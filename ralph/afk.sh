@@ -2,9 +2,18 @@
 set -eo pipefail
 
 if [ -z "$1" ]; then
-  echo "Usage: $0 <iterations>"
+  echo "Usage: $0 <iterations> [local|commit]"
+  echo "  local  (default) report-only: no commits, pushes, or issue writes"
+  echo "  commit           commits changes and closes/comments the issue"
   exit 1
 fi
+
+# Select the prompt flow. Defaults to local (report-only).
+case "${2:-local}" in
+  local)  prompt_file="ralph/local_prompt.md" ;;
+  commit) prompt_file="ralph/commit_prompt.md" ;;
+  *) echo "Unknown mode '$2' (expected 'local' or 'commit')"; exit 1 ;;
+esac
 
 # --- Preflight: platform-native dependencies in the sandbox -----------------
 # node_modules is a shared virtiofs mount between the macOS host and the linux
@@ -32,9 +41,10 @@ for ((i=1; i<=$1; i++)); do
   issues=$(gh issue list --label "ready-for-agent" --state open --json number,title,body \
     --jq '.[] | "## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
   issues=${issues:-"No open AFK issues found."}
-  prompt=$(cat ralph/prompt.md)
+  prompt=$(cat "$prompt_file")
 
   docker sandbox run claude . -- \
+    --model claude-opus-4-8 \
     --verbose \
     --print \
     --output-format stream-json \

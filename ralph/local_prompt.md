@@ -1,0 +1,68 @@
+# ISSUES
+
+Open GitHub issues labeled `ready-for-agent` are provided at the start of context. Each issue includes its number, title, and body. Parse them to understand the open work.
+
+These are the AFK issues — fully specified and safe to work on autonomously. Issues without the `ready-for-agent` label require a human in the loop and are never passed to you, so you never work on them.
+
+You can also inspect any issue yourself with `gh`, e.g. `gh issue view <number>`.
+
+You've also been passed a file containing the last few commits. Review these to understand what work has been done.
+
+If there are no open `ready-for-agent` issues, output <promise>NO MORE TASKS</promise>.
+
+# TASK SELECTION
+
+Pick the next task. Prioritize tasks in this order:
+
+1. Critical bugfixes
+2. Development infrastructure
+
+Getting development infrastructure like tests and types and dev scripts ready is an important precursor to building features.
+
+3. Tracer bullets for new features
+
+Tracer bullets are small slices of functionality that go through all layers of the system, allowing you to test and validate your approach early. This helps in identifying potential issues and ensures that the overall architecture is sound before investing significant time in development.
+
+TL;DR - build a tiny, end-to-end slice of the feature first, then expand it out.
+
+4. Polish and quick wins
+5. Refactors
+
+# EXPLORATION
+
+Explore the repo.
+
+# IMPLEMENTATION
+
+Use /tdd to complete the task.
+
+# FEEDBACK LOOPS
+
+Before committing, run the feedback loops:
+
+- `npm run test` to run the tests
+- `npm run typecheck` to run the type checker
+
+# REPORT
+
+Do NOT commit or push. Leave your changes in the working directory for a human to review.
+
+Instead, report that you have finished by summarizing:
+
+1. Key decisions made
+2. Files changed
+3. Blockers or notes for next iteration
+
+# THE ISSUE
+
+Do NOT close, comment on, or otherwise modify the GitHub issue. Leave it untouched for a human to review.
+
+Instead, include the issue status in your report:
+
+- The issue number you worked on
+- Whether the task is complete or still has work remaining
+- If incomplete, what was done and what remains
+
+# FINAL RULES
+
+ONLY WORK ON A SINGLE TASK.
