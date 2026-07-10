@@ -2,9 +2,10 @@
 set -eo pipefail
 
 if [ -z "$1" ]; then
-  echo "Usage: $0 <iterations> [local|commit]"
+  echo "Usage: $0 <iterations> [local|commit] [issue-number]"
   echo "  local  (default) report-only: no commits, pushes, or issue writes"
   echo "  commit           commits changes and closes/comments the issue"
+  echo "  issue-number     pin Ralph to one issue (default 5); \"\" = all ready-for-agent"
   exit 1
 fi
 
@@ -14,6 +15,10 @@ case "${2:-local}" in
   commit) prompt_file="ralph/commit_prompt.md" ;;
   *) echo "Unknown mode '$2' (expected 'local' or 'commit')"; exit 1 ;;
 esac
+
+# Pin Ralph to a single issue. Defaults to #5 (Slice 3b); override with the 3rd
+# argument, or pass "" to let Ralph pick from all open `ready-for-agent` issues.
+ISSUE="${3-5}"
 
 # --- Preflight: platform-native dependencies in the sandbox -----------------
 # node_modules is a shared virtiofs mount between the macOS host and the linux
@@ -38,8 +43,13 @@ for ((i=1; i<=$1; i++)); do
   trap "rm -f $tmpfile" EXIT
 
   commits=$(git log -n 5 --format="%H%n%ad%n%B---" --date=short 2>/dev/null || echo "No commits found")
-  issues=$(gh issue list --label "ready-for-agent" --state open --json number,title,body \
-    --jq '.[] | "## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
+  if [ -n "$ISSUE" ]; then
+    issues=$(gh issue view "$ISSUE" --json number,title,body \
+      --jq '"## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
+  else
+    issues=$(gh issue list --label "ready-for-agent" --state open --json number,title,body \
+      --jq '.[] | "## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
+  fi
   issues=${issues:-"No open AFK issues found."}
   prompt=$(cat "$prompt_file")
 
