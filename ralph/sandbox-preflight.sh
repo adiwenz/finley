@@ -5,11 +5,12 @@
 #
 # Why this is needed: the sandbox mounts the workspace over virtiofs, so
 # node_modules is SHARED between the macOS host (darwin-arm64) and the linux
-# sandbox. Native deps like esbuild ship per-OS binaries that can't be shared,
-# and npm won't swap platform-optional binaries incrementally (npm/cli#4828), so
-# a node_modules last built on the host segfaults here (and vice versa). Rollup
-# is aliased to the platform-independent WASM build in package.json, which
-# removes rollup from this problem — esbuild is the remaining native binary.
+# sandbox. Native deps like esbuild and rollup ship their compiled code as a
+# per-OS companion package (e.g. @rollup/rollup-linux-arm64-gnu, an ELF .node);
+# only one platform's can exist in the shared mount at a time, and npm won't swap
+# platform-optional binaries incrementally (npm/cli#4828). So a node_modules last
+# built on the host fails here (and vice versa): esbuild's mismatched binary can
+# SIGSEGV, while rollup throws "Cannot find module @rollup/rollup-<plat>" at load.
 #
 # Strategy: functionally test the native toolchain; only clean-reinstall if it's
 # broken (missing, or built for the other platform). Fast no-op when it's fine.
