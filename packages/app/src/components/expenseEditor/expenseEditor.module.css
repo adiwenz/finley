@@ -1,0 +1,56 @@
+/* Value editor with the first-edit scope prompt (§10.5). */
+
+.valueEdit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.valueRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.valueBtn {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px dashed #c9a86a;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-tint);
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.editPop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-tint);
+}
+
+.scopeQ {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.scopeBtns {
+  display: flex;
+  gap: 6px;
+}
+
+.overrideList {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.endedNote {
+  color: var(--color-danger);
+}

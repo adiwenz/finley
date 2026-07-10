@@ -1,0 +1,47 @@
+/**
+ * Design tokens — the shared palette, radii, and spacing scale.
+ * Values were lifted verbatim from the old STYLES string so the UI is
+ * pixel-identical; only the indirection is new.
+ */
+
+:root {
+  /* Typeface */
+  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+
+  /* Surfaces & backgrounds */
+  --color-background: #f4efe1;
+  --color-surface: #fbf8ef;
+  --color-surface-sunken: #efe8d3;
+  --color-surface-tint: #fffdf6;
+  --color-white: #fff;
+
+  /* Text */
+  --color-text: #1f3a2e;
+  --color-text-muted: #6b6552;
+  --color-text-faint: #8a8368;
+
+  /* Accent & borders */
+  --color-accent: #b5761f;
+  --color-border: #e3dcc6;
+  --color-border-input: #d4cbb0;
+
+  /* Danger / alerts */
+  --color-danger: #7a1a1a;
+  --color-alert-bg: #fde8e8;
+  --color-alert-border: #e8a0a0;
+
+  /* Border radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 11px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
