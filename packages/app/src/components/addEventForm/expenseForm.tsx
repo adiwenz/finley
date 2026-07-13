@@ -1,7 +1,7 @@
 /** A recurring expense starts — a BudgetItemStartEvent. */
 
 import { useState } from "react";
-import { dollarsToCents, membersAt, type ReplayedHousehold } from "@finley/engine";
+import { dollarsToCents, membersAt, type Household } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, OwnerSelect, type FormProps } from "./formControls";
 
@@ -10,7 +10,7 @@ export function ExpenseForm({
   defaultMonth,
   nextId,
   onAdd,
-}: FormProps & { household: ReplayedHousehold }) {
+}: FormProps & { household: Household }) {
   const [month, setMonth] = useState(defaultMonth);
   const [amount, setAmount] = useState(2000);
   const [ownerId, setOwnerId] = useState("p1");

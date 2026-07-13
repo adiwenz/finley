@@ -9,6 +9,7 @@ import {
   type LedgerBaseConfig,
   type NewLifeEvent,
 } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
 
 export interface UseLedger {
   ledger: Ledger;
@@ -30,7 +31,9 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     setLedger((current) => {
       // The engine rejects an event whose preconditions fail (e.g. separating
       // before partnering); a rejected event never enters the ledger.
-      const result = addEvent(current, baseRef.current, event);
+      // The same jurisdiction the displayed projection uses, so the §4.5
+      // down-payment affordability check sees the same liquid balances.
+      const result = addEvent(current, baseRef.current, event, usJurisdiction);
       setConflict(result.ok ? null : result.conflict);
       return result.ok ? result.ledger : current;
     });

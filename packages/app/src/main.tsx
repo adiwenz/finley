@@ -1,6 +1,6 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { replayHousehold, buildProjection } from "@finley/engine";
+import { interpretLedger, buildProjection } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { timelineMarkers } from "./ledgerView";
@@ -25,7 +25,7 @@ export function App() {
 
   // One replay-derived household feeds both the projection and the snapshot,
   // so the two can never disagree about the ledger's meaning.
-  const household = useMemo(() => replayHousehold(ledger, base), [ledger, base]);
+  const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
   const series = useMemo(
     () => buildProjection(household, base, usJurisdiction),
     [household, base],

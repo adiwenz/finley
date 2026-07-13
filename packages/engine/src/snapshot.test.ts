@@ -4,7 +4,7 @@ import {
   addEvent,
   snapshotAt,
   replayLedger,
-  replayHousehold,
+  interpretLedger,
   buildProjection,
   buildSnapshot,
   type Ledger,
@@ -269,7 +269,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       initialIncomeSeries: [{ series: monthly(dollarsToCents(4_000)), ownerId: "p1" }],
       initialExpenseSeries: [{ series: monthly(dollarsToCents(1_000)), ownerId: "p1" }],
     };
-    const household = replayHousehold(emptyLedger, base);
+    const household = interpretLedger(emptyLedger, base);
     const projection = buildProjection(household, base, nullJurisdiction);
     expect(projection.months[12].netWorthNominalCents).toBe(dollarsToCents(36_000));
 
@@ -287,7 +287,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       initialIncomeSeries: [{ series: monthly(dollarsToCents(4_000)), ownerId: "p1" }],
       initialExpenseSeries: [{ series: monthly(dollarsToCents(1_000)), ownerId: "p1" }],
     };
-    const household = replayHousehold(emptyLedger, base);
+    const household = interpretLedger(emptyLedger, base);
     const projection = buildProjection(household, base, nullJurisdiction);
     const snap = buildSnapshot(household, 3, projection);
 
@@ -313,7 +313,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       id: "r1", type: "RelationshipEvent", month: 30, person: { id: "p2", name: "Sam" },
     });
     const projection = replayLedger(ledger, base, nullJurisdiction);
-    const household = replayHousehold(ledger, base);
+    const household = interpretLedger(ledger, base);
     const snap = buildSnapshot(household, 999, projection);
 
     expect(snap.month).toBe(24); // clamped to last simulated month
@@ -337,10 +337,75 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       id: "payoff1", type: "DebtPayoffEvent", month: 3, liabilityId: "car",
       accountId: "checking", amountCents: dollarsToCents(5_000),
     });
-    const household = replayHousehold(ledger, base);
+    const household = interpretLedger(ledger, base);
     const projection = buildProjection(household, base, nullJurisdiction);
 
     expect(buildSnapshot(household, 1, projection).liabilities.map((l) => l.id)).toContain("car");
     expect(buildSnapshot(household, 6, projection).liabilities.find((l) => l.id === "car")).toBeUndefined();
+  });
+});
+
+// ─── Properties (equity = value − mortgage, §4.1) ─────────────────────────────
+
+const PROPERTY_PRICE = 30_000_000; // $300k
+const PROPERTY_DOWN = 6_000_000; // $60k
+const PROPERTY_FINANCED = PROPERTY_PRICE - PROPERTY_DOWN; // $240k
+
+function propertyBase(openingCents: number): LedgerBaseConfig {
+  return {
+    horizonMonths: 24,
+    annualInflationRate: 0,
+    initialPersons: primary,
+    initialAccounts: [
+      new Account({
+        id: "savings",
+        ownerId: "p1",
+        liquid: true,
+        taxTreatment: "taxable",
+        openingBalanceCents: openingCents,
+        initialAnnualRate: 0,
+      }),
+    ],
+  };
+}
+
+function purchaseFixture(): NewLifeEvent {
+  return {
+    id: "buy1",
+    type: "HomePurchaseEvent",
+    month: 3,
+    propertyId: "house1",
+    ownerId: "p1",
+    purchasePriceCents: PROPERTY_PRICE,
+    downPaymentCents: PROPERTY_DOWN,
+    downPaymentAccountId: "savings",
+    mortgageLiabilityId: "mtg1",
+    mortgageApr: 0,
+    mortgageTermMonths: 360,
+  } as NewLifeEvent;
+}
+
+describe("buildSnapshot — properties", () => {
+  it("reports the property with equity = value − mortgage", () => {
+    const base = propertyBase(10_000_000);
+    const ledger = addEvent(emptyLedger, base, purchaseFixture());
+    if (!ledger.ok) throw new Error(`event rejected: ${ledger.conflict}`);
+    const household = interpretLedger(ledger.ledger, base);
+    const series = buildProjection(household, base, nullJurisdiction);
+    const snap = buildSnapshot(household, 3, series);
+
+    expect(snap.properties).toHaveLength(1);
+    expect(snap.properties[0].valueCents).toBe(PROPERTY_PRICE);
+    expect(snap.properties[0].mortgageBalanceCents).toBe(PROPERTY_FINANCED);
+    expect(snap.properties[0].equityCents).toBe(PROPERTY_DOWN);
+  });
+
+  it("does not report a property before its purchase month", () => {
+    const base = propertyBase(10_000_000);
+    const ledger = addEvent(emptyLedger, base, purchaseFixture());
+    if (!ledger.ok) throw new Error(`event rejected: ${ledger.conflict}`);
+    const household = interpretLedger(ledger.ledger, base);
+    const series = buildProjection(household, base, nullJurisdiction);
+    expect(buildSnapshot(household, 2, series).properties).toHaveLength(0);
   });
 });

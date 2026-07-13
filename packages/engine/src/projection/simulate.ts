@@ -12,7 +12,7 @@ import {
   type PaymentStatus,
   type LoanStatus,
 } from "../liability";
-import { CashFlowSeries } from "../cashFlowSeries";
+import { CashFlowSeries, preciseMonthlyRate } from "../cashFlowSeries";
 
 /**
  * The projection series — the engine's public output and the chart's data
@@ -54,6 +54,13 @@ export interface ProjectionMonth {
    */
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
   /**
+   * Value of each owned property at this month (positive = asset), keyed by
+   * property id. A property appears from its purchase month and drops out once
+   * sold; its value contributes to net worth, and equity = value − the associated
+   * mortgage balance in `liabilityBalancesCents` (§4.1).
+   */
+  readonly propertyValuesCents: Readonly<Record<string, Cents>>;
+  /**
    * True in any month where the §5.1 shortfall cascade exhausted all available
    * credit and could not cover the deficit. Once true, the plan is unfinanceable
    * from this month forward without structural changes.
@@ -93,6 +100,22 @@ export interface OwnedSeries {
   readonly ownerId: string;
 }
 
+/**
+ * A property as the simulator consumes it: an appreciating asset stock (§4.1).
+ * Value opens at `openingValueCents` at `startMonth`, then compounds monthly at
+ * `preciseMonthlyRate(appreciationAnnualRate)` (0 for a flat/`fixed` property).
+ * It contributes to net worth through `endMonth` inclusive (a sale month), then
+ * drops to 0. Growth-mode → annual-rate resolution happens at the sim boundary.
+ */
+export interface SimProperty {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly startMonth: number;
+  readonly endMonth: number | null;
+  readonly openingValueCents: Cents;
+  readonly appreciationAnnualRate: number;
+}
+
 export interface HouseholdSimInput {
   readonly horizonMonths: number;
   readonly annualInflationRate: number;
@@ -112,6 +135,11 @@ export interface HouseholdSimInput {
    * If no credit cards are provided, a synthetic 22% APR card absorbs shortfalls (§5.1).
    */
   readonly liabilities?: readonly Liability[];
+  /**
+   * Owned properties (§4.1). Each is an appreciating asset stock whose value
+   * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
+   */
+  readonly properties?: readonly SimProperty[];
 }
 
 /**
@@ -140,6 +168,9 @@ interface SimState {
    * static schedule.
    */
   readonly liabilityBalances: Map<string, Cents>;
+  readonly properties: readonly SimProperty[];
+  /** Authoritative, mutable current value of each property — updated by advanceProperties. */
+  readonly propertyValues: Map<string, Cents>;
 }
 
 /** Build the run's static config and opening balances (the pre-loop setup). */
@@ -147,6 +178,14 @@ function initSimState(input: HouseholdSimInput): SimState {
   const assetBalances = new Map<string, Cents>();
   for (const acc of input.accounts) {
     assetBalances.set(acc.id, acc.openingBalanceCents);
+  }
+
+  const properties = input.properties ?? [];
+  const propertyValues = new Map<string, Cents>();
+  for (const p of properties) {
+    // A property bought later opens at 0; advanceProperties opens it at its
+    // startMonth. One present from the start (startMonth ≤ 0) opens here.
+    propertyValues.set(p.id, p.startMonth <= 0 ? p.openingValueCents : 0);
   }
 
   const userLiabilities = input.liabilities ?? [];
@@ -206,6 +245,8 @@ function initSimState(input: HouseholdSimInput): SimState {
     amortSchedules,
     assetBalances,
     liabilityBalances,
+    properties,
+    propertyValues,
   };
 }
 
@@ -369,7 +410,34 @@ function advanceLiabilities(
   }
 }
 
-/** Step 11: snapshot net worth = Σassets − Σliabilities; real = nominal / (1+infl)^yrs (§0.4). */
+/**
+ * Advance every property's value one month. A property not yet purchased stays
+ * at 0; at its purchase month it opens at `openingValueCents` with no appreciation
+ * (mirroring an account opening or a loan origination); after a sale (`endMonth`)
+ * its value is 0 and stops contributing to net worth; otherwise it appreciates
+ * once at `preciseMonthlyRate(appreciationAnnualRate)`. Runs after the liability
+ * step so a same-month sale (future) settles consistently.
+ */
+function advanceProperties(state: SimState, month: number): void {
+  for (const p of state.properties) {
+    if (month < p.startMonth) continue; // not purchased yet — stays at 0
+    if (p.endMonth !== null && month > p.endMonth) {
+      state.propertyValues.set(p.id, 0); // sold — value gone
+      continue;
+    }
+    if (month === p.startMonth) {
+      state.propertyValues.set(p.id, p.openingValueCents);
+      continue;
+    }
+    const value = state.propertyValues.get(p.id) ?? 0;
+    state.propertyValues.set(
+      p.id,
+      Math.round(value * (1 + preciseMonthlyRate(p.appreciationAnnualRate))),
+    );
+  }
+}
+
+/** Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal / (1+infl)^yrs (§0.4). */
 function snapshotMonth(
   state: SimState,
   month: number,
@@ -393,6 +461,13 @@ function snapshotMonth(
     nominalNetWorth -= bal;
   }
 
+  const propertyValuesCents: Record<string, Cents> = {};
+  for (const p of state.properties) {
+    const value = state.propertyValues.get(p.id) ?? 0;
+    propertyValuesCents[p.id] = value;
+    nominalNetWorth += value;
+  }
+
   return {
     month,
     netWorthNominalCents: nominalNetWorth,
@@ -400,6 +475,7 @@ function snapshotMonth(
     accountBalancesCents,
     liabilityBalancesCents,
     liabilityPaymentRecords,
+    propertyValuesCents,
     isInsolvent,
   };
 }
@@ -411,6 +487,7 @@ function snapshotMonth(
  *  6–7. Deposit, then §5.1 shortfall cascade              → depositNetFlow / applyShortfallCascade
  *  8–9. Asset one-time transfers, then compounding        → applyAssetTransfers / compoundAssets
  *   10. Liability transfers, interest, payments           → advanceLiabilities
+ *  10b. Property appreciation                             → advanceProperties
  *   11. Snapshot                                          → snapshotMonth
  * Month 0 is the opening snapshot only — no month is processed before "now" (§4.6).
  */
@@ -443,6 +520,7 @@ export function simulateHousehold(
       applyAssetTransfers(state, month);
       compoundAssets(state, month);
       advanceLiabilities(state, month, payments);
+      advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
     }
 

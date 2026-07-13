@@ -4,7 +4,7 @@ import {
   buildSnapshot,
   type Ledger,
   type ProjectionSeries,
-  type ReplayedHousehold,
+  type Household,
 } from "@finley/engine";
 import { formatDollars, monthLabel } from "../../format";
 import { seriesLabel, splitMarkers } from "../../ledgerView";
@@ -17,7 +17,7 @@ export function SnapshotPanel({
   month,
 }: {
   ledger: Ledger;
-  household: ReplayedHousehold;
+  household: Household;
   series: ProjectionSeries;
   month: number;
 }) {
@@ -45,6 +45,23 @@ export function SnapshotPanel({
           ))}
         </ul>
       </div>
+
+      {snap.properties.length > 0 && (
+        <div className={styles.snapSection}>
+          <h3>Property <span className={`${styles.tag} ${styles.stock}`}>stock</span></h3>
+          <ul className={styles.snapList}>
+            {snap.properties.map((p) => (
+              <li key={p.id}>
+                <span>{p.id}</span>
+                <span>
+                  {formatDollars(p.valueCents)}
+                  {p.equityCents !== null && ` · ${formatDollars(p.equityCents)} equity`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className={styles.snapSection}>
         <h3>Monthly flows <span className={`${styles.tag} ${styles.flow}`}>rate</span></h3>
