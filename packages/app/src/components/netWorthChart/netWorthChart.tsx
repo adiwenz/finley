@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatDollars } from "../../format";
 
 /**
  * Net-worth chart (issue #1 acceptance: render the engine's projection series).
@@ -21,14 +22,6 @@ const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
-
-function centsToDollarLabel(cents: number): string {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
 
 type Point = {
   month: number;
@@ -64,14 +57,14 @@ export function NetWorthChart({ series }: { series: ProjectionSeries }) {
           />
           <YAxis
             width={72}
-            tickFormatter={centsToDollarLabel}
+            tickFormatter={formatDollars}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
           <ReferenceLine y={0} stroke="#c9bfa5" />
           <Tooltip
             formatter={(value, name) => [
-              centsToDollarLabel(Number(value)),
+              formatDollars(Number(value)),
               name,
             ]}
             labelFormatter={(label) =>

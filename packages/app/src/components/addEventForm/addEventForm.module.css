@@ -1,0 +1,7 @@
+/* Add-event authoring form (§10.5). */
+
+.authoring {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

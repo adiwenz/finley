@@ -95,6 +95,26 @@ export class Account {
     this.transfers.sort((a, b) => a.month - b.month);
   }
 
+  /**
+   * A copy of this account with extra one-time transfers attached — used at the
+   * simulation boundary to fold in ledger-derived payoff outflows without
+   * reconstructing the account from a subset of its state (§5). Preserves the
+   * full rate-segment history and any existing transfers.
+   */
+  withAdditionalTransfers(transfers: readonly OneTimeTransfer[]): Account {
+    const clone = new Account({
+      id: this.id,
+      ownerId: this.ownerId,
+      liquid: this.liquid,
+      taxTreatment: this.taxTreatment,
+      openingBalanceCents: this.openingBalanceCents,
+      initialAnnualRate: this.rateSegments[0].annualRate,
+    });
+    clone.rateSegments = this.rateSegments.map((s) => ({ ...s }));
+    clone.transfers = [...this.transfers, ...transfers].sort((a, b) => a.month - b.month);
+    return clone;
+  }
+
   /** All one-time transfers scheduled at exactly `month`. */
   getTransfersAt(month: number): OneTimeTransfer[] {
     return this.transfers.filter((t) => t.month === month);

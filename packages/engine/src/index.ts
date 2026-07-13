@@ -11,5 +11,18 @@ export * from "./cashFlowSeries";
 export * from "./account";
 export * from "./liability";
 export * from "./jurisdiction";
-export * from "./projection";
-export * from "./events";
+export * from "./ids";
+
+// Simulator (low-level) + the ledger→projection→snapshot pipeline.
+export * from "./projection/simulate";
+export * from "./projection/buildHouseholdInput";
+export * from "./projection/snapshot";
+
+// Event ledger.
+export * from "./ledger/eventTypes";
+export * from "./ledger/ledger";
+export * from "./ledger/replayState";
+export * from "./ledger/replay";
+export * from "./ledger/eventValidation";
+export * from "./ledger/dependencies";
+export * from "./ledger/removeEvent";
