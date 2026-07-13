@@ -3,14 +3,10 @@
  * (§0.3, §6). Everything else (projection, snapshot) is a pure derivation.
  */
 
-import type { LifeEvent, NewLifeEvent } from "./eventTypes";
-import { validateEventData } from "./eventValidation";
+import type { LifeEvent } from "./eventTypes";
 
 /** Success, or a failure carrying a human-readable reason. */
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
-
-/** Thrown by {@link appendEvent} when an event's own fields are malformed. */
-export class EventValidationError extends Error {}
 
 export interface Ledger {
   readonly events: readonly LifeEvent[];
@@ -27,20 +23,6 @@ export interface Ledger {
 }
 
 export const emptyLedger: Ledger = { events: [], nextSequenceNumber: 0 };
-
-/** Append an event, stamping it with the next sequence number. */
-export function appendEvent(ledger: Ledger, event: NewLifeEvent): Ledger {
-  const data = validateEventData(event);
-  if (!data.ok) throw new EventValidationError(data.reason);
-  const stamped = {
-    ...event,
-    sequenceNumber: ledger.nextSequenceNumber,
-  } as LifeEvent;
-  return {
-    events: [...ledger.events, stamped],
-    nextSequenceNumber: ledger.nextSequenceNumber + 1,
-  };
-}
 
 /**
  * Structural validation of a ledger's own invariants (independent of replay):

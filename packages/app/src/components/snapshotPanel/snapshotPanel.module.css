@@ -26,11 +26,6 @@
   color: var(--color-danger);
 }
 
-.snapList li.ended span:last-child {
-  color: var(--color-text-faint);
-  font-style: italic;
-}
-
 .tag {
   font-size: 10px;
   font-weight: 400;

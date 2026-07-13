@@ -50,7 +50,3 @@
   font-size: 11px;
   color: var(--color-text-muted);
 }
-
-.endedNote {
-  color: var(--color-danger);
-}

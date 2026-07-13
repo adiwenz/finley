@@ -127,8 +127,8 @@ export function replayHousehold(ledger: Ledger, base: LedgerBaseConfig): Replaye
 
 /**
  * Validate a would-be appended event against the current ledger+base: its own
- * fields, then its preconditions relative to the replayed state. Lets a caller
- * pre-check before {@link appendEvent} (which enforces the data half and throws).
+ * fields, then its preconditions relative to the replayed state. A standalone
+ * pre-check; {@link addEvent} runs this internally before appending.
  */
 export function validateNewEvent(
   ledger: Ledger,
@@ -139,4 +139,32 @@ export function validateNewEvent(
   if (!data.ok) return data;
   const stamped = { ...event, sequenceNumber: ledger.nextSequenceNumber } as LifeEvent;
   return checkEvent(stamped, replayToState(ledger, base), contextFrom(base));
+}
+
+/** Success carries the grown ledger; failure carries a human-readable conflict. */
+export type AddResult =
+  | { ok: true; ledger: Ledger }
+  | { ok: false; conflict: string };
+
+/**
+ * The safe, base-aware way to grow the ledger — symmetric with {@link removeEvent}.
+ * Validates the event's own fields and its preconditions against the replayed
+ * state; on success appends it (stamped with the next sequence number), on
+ * failure returns the conflict and leaves the ledger untouched.
+ */
+export function addEvent(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  event: NewLifeEvent,
+): AddResult {
+  const check = validateNewEvent(ledger, base, event);
+  if (!check.ok) return { ok: false, conflict: check.reason };
+  const stamped = { ...event, sequenceNumber: ledger.nextSequenceNumber } as LifeEvent;
+  return {
+    ok: true,
+    ledger: {
+      events: [...ledger.events, stamped],
+      nextSequenceNumber: ledger.nextSequenceNumber + 1,
+    },
+  };
 }

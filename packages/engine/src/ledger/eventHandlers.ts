@@ -89,6 +89,12 @@ const separation: EventHandler<SeparationEvent> = {
     if (!membership) {
       return fail(event, `person "${event.partnerPersonId}" not found; cannot separate`);
     }
+    if (event.month < membership.startMonth) {
+      return fail(
+        event,
+        `cannot separate at month ${event.month}, before partnering at month ${membership.startMonth}`,
+      );
+    }
     if (membership.endMonth !== null) {
       return fail(event, `person "${event.partnerPersonId}" is already separated`);
     }

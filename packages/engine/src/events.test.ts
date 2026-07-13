@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   emptyLedger,
-  appendEvent,
+  addEvent,
   replayLedger,
   replayHousehold,
   removeEvent,
@@ -12,6 +12,7 @@ import {
   type Ledger,
   type LedgerBaseConfig,
   type LifeEvent,
+  type NewLifeEvent,
 } from "./index";
 import { Account } from "./account";
 import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
@@ -36,6 +37,18 @@ const baseConfig: LedgerBaseConfig = {
   initialPersons: [{ id: "p1", name: "Alice" }],
 };
 
+// Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff
+// fixtures (which require an account to draw from) pass. Used only to validate
+// fixture events; each test still replays against its own base.
+const addBase: LedgerBaseConfig = { ...baseConfig, initialAccounts: [makeLiquidAccount()] };
+
+/** Append a fixture event, asserting it passes validation. */
+function add(ledger: Ledger, event: NewLifeEvent): Ledger {
+  const result = addEvent(ledger, addBase, event);
+  if (!result.ok) throw new Error(`fixture event rejected: ${result.conflict}`);
+  return result.ledger;
+}
+
 // ─── Replay basics ────────────────────────────────────────────────────────────
 
 describe("replayLedger — empty ledger", () => {
@@ -52,7 +65,7 @@ describe("replayLedger — empty ledger", () => {
 describe("RelationshipEvent", () => {
   it("adds a person to the household", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
@@ -74,7 +87,7 @@ describe("JobChangeEvent", () => {
       initialAccounts: [makeLiquidAccount()],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -96,7 +109,7 @@ describe("JobChangeEvent", () => {
     };
     let ledger = emptyLedger;
     // First job: $3000/mo from month 0
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -107,7 +120,7 @@ describe("JobChangeEvent", () => {
       taxCategory: "wages",
     });
     // Job change at month 6: $6000/mo, replaces s1
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j2",
       type: "JobChangeEvent",
       month: 6,
@@ -134,7 +147,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(24_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "b1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -155,7 +168,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(12_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "b1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -166,7 +179,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       growthMode: { type: "fixed" },
     });
     // End rent at month 6 (stops after month 5, last active = month 5)
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "b2",
       type: "BudgetItemEndEvent",
       month: 6,
@@ -188,14 +201,14 @@ describe("SeparationEvent", () => {
     };
     let ledger = emptyLedger;
     // Add partner
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Bob" },
     });
     // Partner income: $2000/mo from month 0
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -206,7 +219,7 @@ describe("SeparationEvent", () => {
       taxCategory: "wages",
     });
     // Separate at month 6 — partner income ends at month 5
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 6,
@@ -226,13 +239,13 @@ describe("SeparationEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(20_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Bob" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 1,
@@ -252,13 +265,13 @@ describe("SeparationEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(12_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Bob" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 0,
@@ -282,7 +295,7 @@ describe("LoanEvent + DebtPayoffEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(20_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 0,
@@ -305,7 +318,7 @@ describe("LoanEvent + DebtPayoffEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(20_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 12,
@@ -336,7 +349,7 @@ describe("LoanEvent + DebtPayoffEvent", () => {
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(20_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 0,
@@ -348,7 +361,7 @@ describe("LoanEvent + DebtPayoffEvent", () => {
       termMonths: 120,
     });
     // Lump-sum payoff at month 6: $5000
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "payoff1",
       type: "DebtPayoffEvent",
       month: 6,
@@ -367,10 +380,10 @@ describe("LoanEvent + DebtPayoffEvent", () => {
 
 // ─── Sequence number + same-month ordering ────────────────────────────────────
 
-describe("appendEvent — sequence numbers", () => {
+describe("addEvent — sequence numbers", () => {
   it("assigns monotonically increasing sequence numbers", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "e1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -380,7 +393,7 @@ describe("appendEvent — sequence numbers", () => {
       monthlyCents: 1000,
       growthMode: { type: "fixed" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "e2",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -398,7 +411,7 @@ describe("appendEvent — sequence numbers", () => {
   it("does not recycle a removed sequence number (§13)", () => {
     let ledger = emptyLedger;
     for (const id of ["a", "b", "c"]) {
-      ledger = appendEvent(ledger, {
+      ledger = add(ledger, {
         id,
         type: "BudgetItemStartEvent",
         month: 0,
@@ -416,7 +429,7 @@ describe("appendEvent — sequence numbers", () => {
     if (removed.ok) ledger = removed.ledger;
     expect(ledger.nextSequenceNumber).toBe(3); // not decremented
 
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "d",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -437,7 +450,7 @@ describe("JobChangeEvent — annual precision", () => {
   it("distributes annual income across months summing exactly to the annual cents", () => {
     const annualCents = dollarsToCents(100_000) + 7; // deliberately not divisible by 12
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -459,7 +472,7 @@ describe("JobChangeEvent — annual precision", () => {
 describe("removeEvent — replays against base-seeded people", () => {
   it("succeeds when a remaining event's owner is a base person; fails without that person", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -469,7 +482,7 @@ describe("removeEvent — replays against base-seeded people", () => {
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "b1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -498,7 +511,7 @@ describe("removeEvent — replays against base-seeded people", () => {
 describe("computeDependents — transitive cascade", () => {
   it("returns the whole causedBy chain, and removeEvent cascades all of it", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 0,
@@ -509,7 +522,7 @@ describe("computeDependents — transitive cascade", () => {
       apr: 0,
       termMonths: 120,
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "pay1",
       type: "DebtPayoffEvent",
       month: 3,
@@ -518,7 +531,7 @@ describe("computeDependents — transitive cascade", () => {
       accountId: "checking",
       amountCents: dollarsToCents(1_000),
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "pay2",
       type: "DebtPayoffEvent",
       month: 6,
@@ -553,7 +566,7 @@ describe("event validation", () => {
   });
 
   it("validateNewEvent rejects a duplicate person id", () => {
-    const ledger = appendEvent(emptyLedger, {
+    const ledger = add(emptyLedger, {
       id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" },
     });
     const result = validateNewEvent(ledger, baseConfig, {
@@ -580,8 +593,8 @@ describe("event validation", () => {
 
   it("validateNewEvent rejects separating from an already-separated partner", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" } });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" } });
+    ledger = add(ledger, {
       id: "sep1", type: "SeparationEvent", month: 6, partnerPersonId: "p2",
       alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
     });
@@ -591,6 +604,19 @@ describe("event validation", () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  it("validateNewEvent rejects separating before the partnership month", () => {
+    // Partner joins at month 60; a separation dated month 12 predates the partnership.
+    const ledger = add(emptyLedger, {
+      id: "r1", type: "RelationshipEvent", month: 60, person: { id: "p2", name: "Sam" },
+    });
+    const result = validateNewEvent(ledger, baseConfig, {
+      id: "sep1", type: "SeparationEvent", month: 12, partnerPersonId: "p2",
+      alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("before partnering");
+  });
 });
 
 // ─── Replay order — (month, sequenceNumber) (§5, §6) ──────────────────────────
@@ -598,11 +624,11 @@ describe("event validation", () => {
 describe("replay order", () => {
   it("same-month producer-before-consumer: a replacement applies after the series it replaces", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1", type: "JobChangeEvent", month: 12, seriesId: "s1", ownerId: "p1",
       annualIncomeCents: dollarsToCents(36_000), growthMode: { type: "fixed" }, taxCategory: "wages",
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j2", type: "JobChangeEvent", month: 12, seriesId: "s2", ownerId: "p1",
       annualIncomeCents: dollarsToCents(60_000), growthMode: { type: "fixed" }, taxCategory: "wages",
       replacesSeriesId: "s1",
@@ -634,7 +660,7 @@ describe("replay order", () => {
 describe("ChildEvent", () => {
   it("records a child as a durable entity", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "c1",
       type: "ChildEvent",
       month: 3,
@@ -653,13 +679,13 @@ describe("ChildEvent", () => {
 describe("removeEvent — Strategy A", () => {
   it("blocks removing a RelationshipEvent if a SeparationEvent depends on the person", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Bob" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 6,
@@ -678,7 +704,7 @@ describe("removeEvent — Strategy A", () => {
 
   it("blocks removing a LoanEvent if a DebtPayoffEvent targets that liability", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 0,
@@ -689,7 +715,7 @@ describe("removeEvent — Strategy A", () => {
       apr: 0.05,
       termMonths: 60,
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "payoff1",
       type: "DebtPayoffEvent",
       month: 6,
@@ -703,7 +729,7 @@ describe("removeEvent — Strategy A", () => {
 
   it("allows removing a standalone event with no dependents", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "b1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -726,7 +752,7 @@ describe("removeEvent — Strategy A", () => {
 describe("computeDependents", () => {
   it("returns just the event id when there are no dependents", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "e1",
       type: "BudgetItemStartEvent",
       month: 0,
@@ -741,7 +767,7 @@ describe("computeDependents", () => {
 
   it("includes events whose sourceEventId matches the target", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 0,
@@ -753,7 +779,7 @@ describe("computeDependents", () => {
       termMonths: 60,
     });
     // Tag a payoff as a child of loan1 via sourceEventId
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "payoff1",
       type: "DebtPayoffEvent",
       month: 6,
@@ -771,14 +797,14 @@ describe("computeDependents", () => {
 describe("removeEvent — Strategy B cascade", () => {
   it("removes dependent events (sourceEventId chain) along with the target", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Bob" },
     });
     // Job event tagged as child of r1 via sourceEventId
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -832,7 +858,7 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       initialExpenseSeries: [{ series: expense, ownerId: "p1" }],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { simulate, dollarsToCents } from "@finley/engine";
+import { simulateHousehold, CashFlowSeries, Account, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "./index";
 
 // Proves rules can consume the engine (app → rules → engine direction) and that
@@ -10,13 +10,31 @@ describe("usJurisdiction (placeholder US-2026)", () => {
     expect(usJurisdiction.computeTaxCents(dollarsToCents(1000), { year: 2026 })).toBe(0);
   });
 
-  it("drives the engine's simulate() end to end", () => {
-    const series = simulate(
+  it("drives the engine's household simulator end to end", () => {
+    // $100/mo income into a non-compounding cash account, no expenses; the
+    // placeholder US-2026 jurisdiction takes no tax, so net worth = 100 * 12.
+    const series = simulateHousehold(
       {
         horizonMonths: 12,
-        openingNetWorthCents: dollarsToCents(0),
-        monthlyNetFlowCents: dollarsToCents(100),
         annualInflationRate: 0.02,
+        persons: [{ id: "p1", name: "You" }],
+        accounts: [
+          new Account({
+            id: "cash",
+            ownerId: "p1",
+            liquid: true,
+            taxTreatment: "taxable",
+            openingBalanceCents: 0,
+            initialAnnualRate: 0,
+          }),
+        ],
+        incomeSeries: [
+          {
+            series: new CashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, { baselineUnit: "monthly" }),
+            ownerId: "p1",
+          },
+        ],
+        expenseSeries: [],
       },
       usJurisdiction,
     );

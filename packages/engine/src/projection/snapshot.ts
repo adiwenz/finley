@@ -77,6 +77,18 @@ function clampMonth(month: number, projection?: ProjectionSeries): number {
 }
 
 /**
+ * The people in the household as of `month` (end-of-month convention, §10.8):
+ * present from their `startMonth` and not yet separated (`endMonth > month`).
+ * The single authoritative answer to "who is in the household at M" — the
+ * snapshot and any UI that offers people to act on should read through this.
+ */
+export function membersAt(household: ReplayedHousehold, month: number): Person[] {
+  return household.memberships
+    .filter((mem) => mem.startMonth <= month && (mem.endMonth === null || mem.endMonth > month))
+    .map((mem) => mem.person);
+}
+
+/**
  * Household cross-section as of `month` (end-of-month convention, §10.8): an
  * event at month M is applied at M. Presence is derived from `household`;
  * balances (stocks) are read from `projection` when supplied.
@@ -88,9 +100,7 @@ export function buildSnapshot(
 ): HouseholdSnapshot {
   const m = clampMonth(month, projection);
 
-  const persons = household.memberships
-    .filter((mem) => mem.startMonth <= m && (mem.endMonth === null || mem.endMonth > m))
-    .map((mem) => mem.person);
+  const persons = membersAt(household, m);
 
   const children: SnapshotChild[] = household.children
     .filter((c) => c.birthMonth <= m)

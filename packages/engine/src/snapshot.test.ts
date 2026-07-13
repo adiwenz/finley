@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   emptyLedger,
-  appendEvent,
+  addEvent,
   snapshotAt,
   replayLedger,
   replayHousehold,
   buildProjection,
   buildSnapshot,
+  type Ledger,
   type LedgerBaseConfig,
+  type NewLifeEvent,
 } from "./index";
 import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
 import { Account } from "./account";
@@ -15,6 +17,31 @@ import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
 
 const primary = [{ id: "p1", name: "Alex" }];
+// Validation base for fixtures — includes a liquid account so DebtPayoff
+// fixtures (which require an account to draw from) pass. Used only to validate
+// fixture events; each test still snapshots/replays against its own base.
+const addBase: LedgerBaseConfig = {
+  horizonMonths: 360,
+  annualInflationRate: 0,
+  initialPersons: primary,
+  initialAccounts: [
+    new Account({
+      id: "checking",
+      ownerId: "p1",
+      liquid: true,
+      taxTreatment: "taxable",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    }),
+  ],
+};
+
+/** Append a fixture event, asserting it passes validation. */
+function add(ledger: Ledger, event: NewLifeEvent): Ledger {
+  const result = addEvent(ledger, addBase, event);
+  if (!result.ok) throw new Error(`fixture event rejected: ${result.conflict}`);
+  return result.ledger;
+}
 
 describe("snapshotAt — active entities as of a month (end-of-month convention)", () => {
   it("empty ledger shows only the initial persons; no projection means no balances", () => {
@@ -26,7 +53,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("a partner is present from the marriage month (end-of-month)", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 36,
@@ -39,13 +66,13 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("a separated partner is gone from the separation month", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 12,
       person: { id: "p2", name: "Sam" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 60,
@@ -60,7 +87,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("children appear at birth month and carry their age", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "c1",
       type: "ChildEvent",
       month: 24,
@@ -76,7 +103,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("income from a job is active from its start and ends when replaced", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -86,7 +113,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j2",
       type: "JobChangeEvent",
       month: 24,
@@ -108,13 +135,13 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("separation ends the departing partner's income and starts alimony", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
       person: { id: "p2", name: "Sam" },
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j2",
       type: "JobChangeEvent",
       month: 0,
@@ -125,7 +152,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
       month: 36,
@@ -146,7 +173,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("a loan is present from its origination month", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1",
       type: "LoanEvent",
       month: 12,
@@ -197,7 +224,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
   it("reports the grown monthly rate at the snapshot month, not the baseline", () => {
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
@@ -282,7 +309,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       initialAccounts: [liquid("savings", dollarsToCents(5_000))],
     };
     // Partner joins beyond the horizon — must not appear at the clamped month.
-    const ledger = appendEvent(emptyLedger, {
+    const ledger = add(emptyLedger, {
       id: "r1", type: "RelationshipEvent", month: 30, person: { id: "p2", name: "Sam" },
     });
     const projection = replayLedger(ledger, base, nullJurisdiction);
@@ -302,11 +329,11 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       initialAccounts: [liquid("checking", dollarsToCents(20_000))],
     };
     let ledger = emptyLedger;
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "loan1", type: "LoanEvent", month: 0, liabilityId: "car", ownerId: "p1",
       kind: "auto", openingBalanceCents: dollarsToCents(5_000), apr: 0, termMonths: 120,
     });
-    ledger = appendEvent(ledger, {
+    ledger = add(ledger, {
       id: "payoff1", type: "DebtPayoffEvent", month: 3, liabilityId: "car",
       accountId: "checking", amountCents: dollarsToCents(5_000),
     });
