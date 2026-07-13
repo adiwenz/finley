@@ -16,6 +16,59 @@ import type { TaxTreatment, OneTimeTransfer } from "./account";
 export type LiabilityKind = "mortgage" | "auto" | "studentLoan" | "creditCard";
 
 /**
+ * How a single scheduled payment was serviced this month — the payment-record
+ * seam for future partial-payment / negative-amortization work.
+ *
+ * v1-seam: only `full` is reachable today. The projection always applies the
+ * exact scheduled (payoff-capped) payment, so no payment ever comes in short.
+ * `partial` and `missed` exist so that when a future underpayment channel lands
+ * (e.g. a forbearance or missed-payment event), the model already has a place to
+ * record the outcome — no data-shape migration required. See derivePaymentStatus.
+ */
+export type PaymentStatus = "full" | "partial" | "missed";
+
+/**
+ * The servicing state of a loan for a given month — the loan-record seam.
+ *
+ * v1-seam: only `current` is reachable today (every payment is `full`). Room is
+ * deliberately left in the enum for future states such as `forbearance` and
+ * `default`; those are NOT populated yet. Delinquency here is derived fresh each
+ * month from that month's payment status — there is no arrearage/past-due memory
+ * (that state is explicitly deferred). See deriveLoanStatus.
+ */
+export type LoanStatus = "current" | "delinquent";
+
+/**
+ * Classify a payment by comparing what was actually applied against what the
+ * engine intended to charge this month. `expectedCents` is the payoff-capped
+ * scheduled payment (the figure the projection decided to charge), NOT the raw
+ * amortization-table level payment — so a legitimately-smaller final payoff
+ * payment (applied === expected) reads as `full`, not `partial`.
+ *
+ * v1-seam: today the call site passes the same figure for both arguments, so the
+ * result is always `full`. The two-argument shape is the seam: a future channel
+ * that applies less than expected will surface `partial`/`missed` with no change
+ * to this function.
+ */
+export function derivePaymentStatus(
+  amountAppliedCents: Cents,
+  expectedCents: Cents,
+): PaymentStatus {
+  if (expectedCents <= 0 || amountAppliedCents >= expectedCents) return "full";
+  if (amountAppliedCents <= 0) return "missed";
+  return "partial";
+}
+
+/**
+ * The loan's servicing status for a month, derived purely from that month's
+ * payment status. No cross-month state: a `full` payment is `current`; anything
+ * short is `delinquent`. Recovers to `current` the next month a full payment lands.
+ */
+export function deriveLoanStatus(paymentStatus: PaymentStatus): LoanStatus {
+  return paymentStatus === "full" ? "current" : "delinquent";
+}
+
+/**
  * Amortizing monthly payment using nominal monthly rate (APR / 12).
  * Matches the convention used in published mortgage/loan amortization tables.
  */

@@ -7,6 +7,10 @@ import {
   SYNTHETIC_CREDIT_CARD_APR,
   minCreditCardPaymentCents,
   amortizationScheduleCents,
+  derivePaymentStatus,
+  deriveLoanStatus,
+  type PaymentStatus,
+  type LoanStatus,
 } from "../liability";
 import { CashFlowSeries } from "../cashFlowSeries";
 
@@ -19,6 +23,22 @@ import { CashFlowSeries } from "../cashFlowSeries";
  * carries both `netWorthNominalCents` and `netWorthRealCents`, so the chart can
  * draw the real and nominal curves without recomputing the conversion.
  */
+/**
+ * How one liability's scheduled payment was serviced in a single month — the
+ * payment-record seam (see PaymentStatus / LoanStatus). One entry is emitted per
+ * liability that had a payment due that month; paid-off, not-yet-originated, and
+ * origination-month liabilities have no entry (they still appear in
+ * liabilityBalancesCents). `amountAppliedCents` is the payment actually run
+ * against the balance in advanceLiabilities.
+ *
+ * v1-seam: paymentStatus is always `full` and loanStatus always `current` today.
+ */
+export interface LiabilityPaymentRecord {
+  readonly paymentStatus: PaymentStatus;
+  readonly amountAppliedCents: Cents;
+  readonly loanStatus: LoanStatus;
+}
+
 export interface ProjectionMonth {
   readonly month: number;
   readonly netWorthNominalCents: Cents;
@@ -26,6 +46,13 @@ export interface ProjectionMonth {
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   /** Balance owed on each liability at this month (positive = owed). */
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
+  /**
+   * Per-liability payment record for this month, keyed by liability id — the
+   * partial-payment / forbearance seam. Only liabilities with a payment due this
+   * month appear (see LiabilityPaymentRecord). Empty at month 0 (no month is
+   * processed before "now", §4.6).
+   */
+  readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
   /**
    * True in any month where the §5.1 shortfall cascade exhausted all available
    * credit and could not cover the deficit. Once true, the plan is unfinanceable
@@ -103,6 +130,15 @@ interface SimState {
   /** liab.id → exact amortization schedule (amortizing loans only). */
   readonly amortSchedules: ReadonlyMap<string, readonly Cents[]>;
   readonly assetBalances: Map<string, Cents>;
+  /**
+   * The authoritative, mutable current balance of each liability — updated in
+   * place after each month's payment is applied (advanceLiabilities). This Map,
+   * NOT the origination amortization schedule, is the source of truth for what
+   * is owed: a lump-sum payoff or (future) capitalization/negative-amortization
+   * mutates it directly, and the schedule serves only as a payment lookup. This
+   * is the `current_balance` seam — do not re-derive owed amounts from the
+   * static schedule.
+   */
   readonly liabilityBalances: Map<string, Cents>;
 }
 
@@ -210,6 +246,33 @@ function computeLiabilityPayments(state: SimState, month: number): Map<string, C
   return payments;
 }
 
+/**
+ * Build this month's per-liability payment records from the computed payments.
+ * One entry per liability with a payment due (exactly the `payments` map, which
+ * already skips paid-off / not-yet-originated / origination-month liabilities).
+ *
+ * v1-seam: `amountApplied` and `expected` are the same figure today — the
+ * payoff-capped payment the engine both intends to charge and actually applies —
+ * so every record is `full` / `current`. When a future underpayment channel
+ * applies less than expected, it passes a smaller `amountApplied` here and
+ * `partial`/`missed`/`delinquent` surface automatically (see derivePaymentStatus).
+ */
+function buildLiabilityPaymentRecords(
+  payments: ReadonlyMap<string, Cents>,
+): Record<string, LiabilityPaymentRecord> {
+  const records: Record<string, LiabilityPaymentRecord> = {};
+  for (const [id, appliedCents] of payments) {
+    const expectedCents = appliedCents;
+    const paymentStatus = derivePaymentStatus(appliedCents, expectedCents);
+    records[id] = {
+      paymentStatus,
+      amountAppliedCents: appliedCents,
+      loanStatus: deriveLoanStatus(paymentStatus),
+    };
+  }
+  return records;
+}
+
 /** Step 6: deposit net cash flow into the first liquid account (pre-waterfall simplification). */
 function depositNetFlow(state: SimState, netFlowCents: Cents): void {
   if (state.liquidAccount === null) return;
@@ -312,6 +375,7 @@ function snapshotMonth(
   month: number,
   annualInflationRate: number,
   isInsolvent: boolean,
+  liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>,
 ): ProjectionMonth {
   let nominalNetWorth: Cents = 0;
 
@@ -335,6 +399,7 @@ function snapshotMonth(
     netWorthRealCents: toRealCents(nominalNetWorth, annualInflationRate, month),
     accountBalancesCents,
     liabilityBalancesCents,
+    liabilityPaymentRecords,
     isInsolvent,
   };
 }
@@ -359,6 +424,7 @@ export function simulateHousehold(
 
   for (let month = 0; month <= input.horizonMonths; month++) {
     let isInsolvent = false;
+    let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
 
     if (month > 0) {
       const ctx: JurisdictionContext = { year: startYear + Math.floor(month / 12) };
@@ -377,9 +443,12 @@ export function simulateHousehold(
       applyAssetTransfers(state, month);
       compoundAssets(state, month);
       advanceLiabilities(state, month, payments);
+      paymentRecords = buildLiabilityPaymentRecords(payments);
     }
 
-    months.push(snapshotMonth(state, month, input.annualInflationRate, isInsolvent));
+    months.push(
+      snapshotMonth(state, month, input.annualInflationRate, isInsolvent, paymentRecords),
+    );
   }
 
   return { months };

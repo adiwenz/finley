@@ -535,4 +535,117 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     expect(series.months[1].liabilityBalancesCents["visa"]).toBeGreaterThan(0);
     expect(series.months[1].isInsolvent).toBe(true);
   });
+
+  describe("liabilityPaymentRecords (v1-seam)", () => {
+    it("every serviced payment is full/current through payoff, incl. the payoff month", () => {
+      const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
+      const loan = new Liability({
+        id: "car",
+        ownerId: "p1",
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(10_000),
+        apr: 0.06,
+        termMonths: 12,
+      });
+      const card = new Liability({
+        id: "visa",
+        ownerId: "p1",
+        kind: "creditCard",
+        openingBalanceCents: dollarsToCents(1_000),
+        apr: 0.2,
+        creditLimitCents: dollarsToCents(5_000),
+      });
+      const series = simulateHousehold(
+        {
+          horizonMonths: 18, // run past the loan term to cover its payoff month
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [acc],
+          incomeSeries: [{ series: monthlyIncome(dollarsToCents(5_000)), ownerId: "p1" }],
+          expenseSeries: [],
+          liabilities: [loan, card],
+        },
+        nullJurisdiction,
+      );
+
+      // The payoff month pays less than the level payment but is still `full`.
+      const loanPayoffMonth = series.months.findIndex(
+        (m, i) => i > 0 && m.liabilityBalancesCents["car"] === 0,
+      );
+      expect(loanPayoffMonth).toBeGreaterThan(0);
+      expect(series.months[loanPayoffMonth].liabilityPaymentRecords["car"]).toEqual({
+        paymentStatus: "full",
+        amountAppliedCents: expect.any(Number),
+        loanStatus: "current",
+      });
+
+      // Across the whole run, nothing is ever partial/missed/delinquent, and every
+      // record carries a positive applied amount (a real payment occurred).
+      for (const month of series.months) {
+        for (const rec of Object.values(month.liabilityPaymentRecords)) {
+          expect(rec.paymentStatus).toBe("full");
+          expect(rec.loanStatus).toBe("current");
+          expect(rec.amountAppliedCents).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("month 0 has no payment records; a due payment produces one", () => {
+      const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
+      const loan = new Liability({
+        id: "car",
+        ownerId: "p1",
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(10_000),
+        apr: 0.06,
+        termMonths: 12,
+      });
+      const series = simulateHousehold(
+        {
+          horizonMonths: 3,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [acc],
+          incomeSeries: [{ series: monthlyIncome(dollarsToCents(5_000)), ownerId: "p1" }],
+          expenseSeries: [],
+          liabilities: [loan],
+        },
+        nullJurisdiction,
+      );
+
+      expect(series.months[0].liabilityPaymentRecords).toEqual({});
+      // Month 1 charges the first scheduled payment → a full record with a
+      // positive applied amount.
+      const rec = series.months[1].liabilityPaymentRecords["car"];
+      expect(rec.paymentStatus).toBe("full");
+      expect(rec.amountAppliedCents).toBeGreaterThan(0);
+    });
+
+    it("a paid-off liability drops out of the records once nothing is due", () => {
+      const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
+      const loan = new Liability({
+        id: "car",
+        ownerId: "p1",
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(10_000),
+        apr: 0,
+        termMonths: 12,
+      });
+      const series = simulateHousehold(
+        {
+          horizonMonths: 18,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [acc],
+          incomeSeries: [{ series: monthlyIncome(dollarsToCents(5_000)), ownerId: "p1" }],
+          expenseSeries: [],
+          liabilities: [loan],
+        },
+        nullJurisdiction,
+      );
+      // After the 12-month term the balance is 0 and no payment is due → no record.
+      expect(series.months[12].liabilityBalancesCents["car"]).toBe(0);
+      expect(series.months[13].liabilityPaymentRecords["car"]).toBeUndefined();
+    });
+  });
 });

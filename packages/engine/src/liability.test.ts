@@ -3,6 +3,8 @@ import {
   computeAmortizingPaymentCents,
   amortizationScheduleCents,
   minCreditCardPaymentCents,
+  derivePaymentStatus,
+  deriveLoanStatus,
   Liability,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_ID,
@@ -183,5 +185,44 @@ describe("Liability one-time transfers (v1-seam)", () => {
     loan.addTransfer({ month: 12, amountCents: -dollarsToCents(1_000) });
     loan.addTransfer({ month: 12, proportionalFraction: -0.5 });
     expect(loan.getTransfersAt(12)).toHaveLength(2);
+  });
+});
+
+describe("derivePaymentStatus (v1-seam: partial/missed not reachable in-sim yet)", () => {
+  it("applied === expected → full (the everyday case, and the payoff month)", () => {
+    // The payoff month legitimately pays LESS than the level payment; because
+    // `expected` is the payoff-capped figure it equals `applied`, so it is full.
+    expect(derivePaymentStatus(120_000, 120_000)).toBe("full");
+    expect(derivePaymentStatus(3_711, 3_711)).toBe("full");
+  });
+
+  it("applied > expected → full (overpayment is never short)", () => {
+    expect(derivePaymentStatus(150_000, 120_000)).toBe("full");
+  });
+
+  it("0 < applied < expected → partial (future underpayment channel)", () => {
+    expect(derivePaymentStatus(80_000, 120_000)).toBe("partial");
+  });
+
+  it("applied === 0 with a payment due → missed", () => {
+    expect(derivePaymentStatus(0, 120_000)).toBe("missed");
+  });
+
+  it("no payment expected → full (nothing was owed to fall short on)", () => {
+    expect(derivePaymentStatus(0, 0)).toBe("full");
+  });
+});
+
+describe("deriveLoanStatus (v1-seam: delinquent not reachable in-sim yet)", () => {
+  it("full → current", () => {
+    expect(deriveLoanStatus("full")).toBe("current");
+  });
+
+  it("partial → delinquent", () => {
+    expect(deriveLoanStatus("partial")).toBe("delinquent");
+  });
+
+  it("missed → delinquent", () => {
+    expect(deriveLoanStatus("missed")).toBe("delinquent");
   });
 });
