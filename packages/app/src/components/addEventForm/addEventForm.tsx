@@ -1,12 +1,13 @@
 /** Add-event form (§10.5 — plain-language authoring, one label = one event). */
 
 import { useState } from "react";
-import type { LifeEvent, NewLifeEvent, ReplayedHousehold } from "@finley/engine";
+import type { LifeEvent, NewLifeEvent, Household } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
 import { JobForm } from "./jobForm";
 import { ExpenseForm } from "./expenseForm";
 import { LoanForm } from "./loanForm";
+import { HomePurchaseForm } from "./homePurchaseForm";
 import { SeparationForm } from "./separationForm";
 import styles from "./addEventForm.module.css";
 
@@ -22,6 +23,7 @@ type EventKind = Extract<
   | "JobChangeEvent"
   | "BudgetItemStartEvent"
   | "LoanEvent"
+  | "HomePurchaseEvent"
   | "RelationshipEvent"
   | "ChildEvent"
   | "SeparationEvent"
@@ -31,6 +33,7 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "JobChangeEvent", label: "Started a job" },
   { value: "BudgetItemStartEvent", label: "Added an expense" },
   { value: "LoanEvent", label: "Took out a loan" },
+  { value: "HomePurchaseEvent", label: "Bought a home" },
   { value: "RelationshipEvent", label: "Partnered" },
   { value: "ChildEvent", label: "Had a child" },
   { value: "SeparationEvent", label: "Separated" },
@@ -42,7 +45,7 @@ export function AddEventForm({
   nextId,
   onAdd,
 }: {
-  household: ReplayedHousehold;
+  household: Household;
   defaultMonth: number;
   nextId: number;
   onAdd: (event: NewLifeEvent) => void;
@@ -72,6 +75,7 @@ export function AddEventForm({
       {kind === "JobChangeEvent" && <JobForm {...formProps} household={household} />}
       {kind === "BudgetItemStartEvent" && <ExpenseForm {...formProps} household={household} />}
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
+      {kind === "HomePurchaseEvent" && <HomePurchaseForm {...formProps} />}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} household={household} />}

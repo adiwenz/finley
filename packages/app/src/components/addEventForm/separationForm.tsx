@@ -1,7 +1,7 @@
 /** A partner leaves the household — a SeparationEvent (§4.3). */
 
 import { useState } from "react";
-import { dollarsToCents, membersAt, type ReplayedHousehold } from "@finley/engine";
+import { dollarsToCents, membersAt, type Household } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { monthLabel } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
@@ -11,7 +11,7 @@ export function SeparationForm({
   defaultMonth,
   nextId,
   onAdd,
-}: FormProps & { household: ReplayedHousehold }) {
+}: FormProps & { household: Household }) {
   const [month, setMonth] = useState(defaultMonth);
   const [partnerId, setPartnerId] = useState("");
   const [alimony, setAlimony] = useState(0);

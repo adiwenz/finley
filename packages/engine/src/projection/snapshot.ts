@@ -1,7 +1,7 @@
 /**
  * Snapshot — the household cross-section as of one month (§10.8).
  *
- * Built from the same {@link ReplayedHousehold} the projection consumes, so
+ * Built from the same {@link Household} the projection consumes, so
  * presence (who/what is active) can never drift from the projection's stocks
  * (§1, §14). The requested month is clamped once (to the projection horizon)
  * and that single clamped month drives every field — people, children, flows,
@@ -11,10 +11,11 @@
 import type { Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { ChildId, LiabilityId, PersonId, SeriesId } from "../ids";
+import type { ChildId, LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
 import type { Child, SeriesRole } from "../ledger/eventTypes";
-import type { LedgerBaseConfig, ReplayedHousehold } from "../ledger/replayState";
-import { replayHousehold } from "../ledger/replay";
+import type { LedgerBaseConfig } from "../ledger/ledgerBase";
+import type { Household } from "../ledger/household";
+import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import type { Person, ProjectionSeries } from "./simulate";
 
@@ -50,6 +51,22 @@ export interface BalanceEntry {
   readonly balanceCents: Cents;
 }
 
+/**
+ * A property in the snapshot cross-section (§4.1). `valueCents` and
+ * `mortgageBalanceCents` come from the projection month; `equityCents` is their
+ * difference (value − mortgage). Without a projection, value falls back to the
+ * opening value and mortgage/equity are unknown (null).
+ */
+export interface SnapshotProperty {
+  readonly id: PropertyId;
+  readonly ownerId: PersonId;
+  readonly causedByEventId: string;
+  readonly startMonth: number;
+  readonly valueCents: Cents;
+  readonly mortgageBalanceCents: Cents | null;
+  readonly equityCents: Cents | null;
+}
+
 export interface SnapshotBalances {
   readonly accounts: readonly BalanceEntry[];
   /** Amounts owed, positive. */
@@ -65,6 +82,7 @@ export interface HouseholdSnapshot {
   readonly income: readonly SnapshotSeries[];
   readonly expenses: readonly SnapshotSeries[];
   readonly liabilities: readonly SnapshotLiability[];
+  readonly properties: readonly SnapshotProperty[];
   /** Null unless a projection was supplied. */
   readonly balances: SnapshotBalances | null;
 }
@@ -82,7 +100,7 @@ function clampMonth(month: number, projection?: ProjectionSeries): number {
  * The single authoritative answer to "who is in the household at M" — the
  * snapshot and any UI that offers people to act on should read through this.
  */
-export function membersAt(household: ReplayedHousehold, month: number): Person[] {
+export function membersAt(household: Household, month: number): Person[] {
   return household.memberships
     .filter((mem) => mem.startMonth <= month && (mem.endMonth === null || mem.endMonth > month))
     .map((mem) => mem.person);
@@ -94,7 +112,7 @@ export function membersAt(household: ReplayedHousehold, month: number): Person[]
  * balances (stocks) are read from `projection` when supplied.
  */
 export function buildSnapshot(
-  household: ReplayedHousehold,
+  household: Household,
   month: number,
   projection?: ProjectionSeries,
 ): HouseholdSnapshot {
@@ -143,6 +161,33 @@ export function buildSnapshot(
       startMonth: l.startMonth,
     }));
 
+  // Properties active at the month: present from purchase, not yet sold. With a
+  // projection, a property with 0 value (sold, or pre-purchase) drops out; value,
+  // mortgage balance and equity are read from the projection month.
+  const properties: SnapshotProperty[] = household.properties
+    .filter((p) => {
+      const active = p.startMonth <= m && (p.endMonth === null || m <= p.endMonth);
+      if (!active) return false;
+      if (projectionMonth) return (projectionMonth.propertyValuesCents[p.id] ?? 0) > 0;
+      return true;
+    })
+    .map((p) => {
+      const valueCents = projectionMonth?.propertyValuesCents[p.id] ?? p.openingValueCents;
+      const mortgageBalanceCents =
+        projectionMonth && p.mortgageLiabilityId !== null
+          ? projectionMonth.liabilityBalancesCents[p.mortgageLiabilityId] ?? 0
+          : null;
+      return {
+        id: p.id,
+        ownerId: p.ownerId,
+        causedByEventId: p.causedByEventId,
+        startMonth: p.startMonth,
+        valueCents,
+        mortgageBalanceCents,
+        equityCents: mortgageBalanceCents === null ? null : valueCents - mortgageBalanceCents,
+      };
+    });
+
   let balances: SnapshotBalances | null = null;
   if (projectionMonth) {
     balances = {
@@ -157,12 +202,12 @@ export function buildSnapshot(
     };
   }
 
-  return { month: m, persons, children, income, expenses, liabilities, balances };
+  return { month: m, persons, children, income, expenses, liabilities, properties, balances };
 }
 
 /**
  * Convenience wrapper: replay `ledger` (seeded with `opts.initialPersons`) and
- * snapshot it. Goes through the same {@link replayHousehold} interpreter as the
+ * snapshot it. Goes through the same {@link interpretLedger} interpreter as the
  * projection, so it cannot interpret events differently.
  */
 export function snapshotAt(
@@ -178,5 +223,5 @@ export function snapshotAt(
     annualInflationRate: 0,
     initialPersons: opts?.initialPersons,
   };
-  return buildSnapshot(replayHousehold(ledger, base), month, opts?.projection);
+  return buildSnapshot(interpretLedger(ledger, base), month, opts?.projection);
 }

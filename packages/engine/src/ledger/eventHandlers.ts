@@ -14,6 +14,7 @@ import type {
   BudgetItemStartEvent,
   ChildEvent,
   DebtPayoffEvent,
+  HomePurchaseEvent,
   JobChangeEvent,
   LifeEvent,
   LifeEventType,
@@ -21,23 +22,20 @@ import type {
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
-import type {
-  AccountTransfer,
-  ReplayContext,
-  ReplayState,
-  SeriesDef,
-} from "./replayState";
+import type { InterpretContext, InterpretState, SeriesDef } from "./interpretState";
+import type { AccountTransfer } from "./transfers";
 import {
   asAccountId,
   asChildId,
   asLiabilityId,
   asPersonId,
+  asPropertyId,
   asSeriesId,
 } from "../ids";
 
 export interface EventHandler<E extends LifeEvent> {
-  check(event: E, state: ReplayState, context: ReplayContext): ValidationResult;
-  apply(event: E, state: ReplayState, context: ReplayContext): void;
+  check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
+  apply(event: E, state: InterpretState, context: InterpretContext): void;
 }
 
 const ok: ValidationResult = { ok: true };
@@ -46,7 +44,7 @@ function fail(event: LifeEvent, requirement: string): ValidationResult {
 }
 
 /** Owner must be a known household member (present at some point). */
-function ownerExists(state: ReplayState, ownerId: string): boolean {
+function ownerExists(state: InterpretState, ownerId: string): boolean {
   return state.personsById.has(asPersonId(ownerId));
 }
 
@@ -167,6 +165,78 @@ const loan: EventHandler<LoanEvent> = {
   },
 };
 
+const homePurchase: EventHandler<HomePurchaseEvent> = {
+  check(event, state, context) {
+    if (state.propertiesById.has(asPropertyId(event.propertyId))) {
+      return fail(event, `property "${event.propertyId}" already exists`);
+    }
+    if (state.liabilitiesById.has(asLiabilityId(event.mortgageLiabilityId))) {
+      return fail(event, `mortgage "${event.mortgageLiabilityId}" already exists`);
+    }
+    if (!ownerExists(state, event.ownerId)) {
+      return fail(event, `owner "${event.ownerId}" not found`);
+    }
+    if (!context.accountIds.has(asAccountId(event.downPaymentAccountId))) {
+      return fail(event, `down-payment account "${event.downPaymentAccountId}" not found`);
+    }
+    if (event.purchasePriceCents <= 0) {
+      return fail(event, `purchase price must be positive`);
+    }
+    if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
+      return fail(event, `down payment must be between 0 and the purchase price`);
+    }
+    // §4.5 HARD BLOCK: the down payment must be coverable from liquid, sourced
+    // funds at the purchase month. `liquidBalanceAt` (present only on the authoring
+    // path) never counts credit, so the §5.1 shortfall cascade can never fund a
+    // down payment. Absent a projection (ordinary replay/undo) this check is skipped.
+    const liquid = context.liquidBalanceAt?.(event.month);
+    if (liquid !== undefined && liquid < event.downPaymentCents) {
+      return fail(
+        event,
+        `down payment ${event.downPaymentCents}¢ exceeds ${liquid}¢ of liquid funds at month ${event.month}; credit is not a valid down-payment source (§4.5)`,
+      );
+    }
+    return ok;
+  },
+  apply(event, state, context) {
+    // Property: the appreciating stock. Default appreciation is inflation-linked
+    // at the base inflation rate (§4.1), user-overridable via appreciationMode.
+    state.propertiesById.set(asPropertyId(event.propertyId), {
+      id: asPropertyId(event.propertyId),
+      causedByEventId: event.id,
+      ownerId: asPersonId(event.ownerId),
+      startMonth: event.month,
+      endMonth: null,
+      openingValueCents: event.purchasePriceCents,
+      appreciationMode:
+        event.appreciationMode ??
+        { type: "inflationLinked", annualRate: context.annualInflationRate },
+      mortgageLiabilityId: asLiabilityId(event.mortgageLiabilityId),
+    });
+    // Mortgage: financed amount = price − down payment. Reuses the liability
+    // machinery — amortizes from its origination month like any other loan.
+    state.liabilitiesById.set(asLiabilityId(event.mortgageLiabilityId), {
+      id: asLiabilityId(event.mortgageLiabilityId),
+      causedByEventId: event.id,
+      ownerId: asPersonId(event.ownerId),
+      startMonth: event.month,
+      kind: "mortgage",
+      openingBalanceCents: event.purchasePriceCents - event.downPaymentCents,
+      apr: event.mortgageApr,
+      termMonths: event.mortgageTermMonths,
+      transfers: [],
+    });
+    // Down payment: the paired liquid-account outflow (§3.2). Property value +
+    // mortgage together equal the price, so this outflow is the only net-worth
+    // change at purchase — the purchase itself conserves net worth.
+    pushAccountTransfer(state, {
+      accountId: asAccountId(event.downPaymentAccountId),
+      month: event.month,
+      amountCents: -event.downPaymentCents,
+    });
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -275,11 +345,11 @@ const budgetItemEnd: EventHandler<BudgetItemEndEvent> = {
   },
 };
 
-function addSeries(state: ReplayState, def: SeriesDef): void {
+function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
 
-function pushAccountTransfer(state: ReplayState, transfer: AccountTransfer): void {
+function pushAccountTransfer(state: InterpretState, transfer: AccountTransfer): void {
   const list = state.accountTransfersByAccountId.get(transfer.accountId);
   if (list) list.push(transfer);
   else state.accountTransfersByAccountId.set(transfer.accountId, [transfer]);
@@ -293,6 +363,7 @@ const handlers: HandlerRegistry = {
   RelationshipEvent: relationship,
   ChildEvent: child,
   SeparationEvent: separation,
+  HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
   JobChangeEvent: jobChange,
@@ -312,8 +383,8 @@ function handlerFor(event: LifeEvent): EventHandler<LifeEvent> {
 /** Preconditions for `event` against the state accumulated so far. */
 export function checkEvent(
   event: LifeEvent,
-  state: ReplayState,
-  context: ReplayContext,
+  state: InterpretState,
+  context: InterpretContext,
 ): ValidationResult {
   return handlerFor(event).check(event, state, context);
 }
@@ -321,8 +392,8 @@ export function checkEvent(
 /** Fold `event` into the replay state (mutating). */
 export function applyEvent(
   event: LifeEvent,
-  state: ReplayState,
-  context: ReplayContext,
+  state: InterpretState,
+  context: InterpretContext,
 ): void {
   handlerFor(event).apply(event, state, context);
 }

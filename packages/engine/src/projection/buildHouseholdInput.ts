@@ -4,24 +4,27 @@
  * Series arrive already materialized (one `CashFlowSeries` each, built in
  * replay); liabilities and account outflows are instantiated *here*, at the
  * simulation boundary, from immutable data (§5). Both projection and snapshot
- * read the same {@link ReplayedHousehold}, so they cannot disagree (§1, §14).
+ * read the same {@link Household}, so they cannot disagree (§1, §14).
  */
 
 import type { Jurisdiction } from "../jurisdiction";
 import { Liability } from "../liability";
+import { growthAnnualRate } from "../cashFlowSeries";
 import {
   simulateHousehold,
   type HouseholdSimInput,
   type OwnedSeries,
   type Person,
   type ProjectionSeries,
+  type SimProperty,
 } from "./simulate";
-import type { LedgerBaseConfig, ReplayedHousehold } from "../ledger/replayState";
-import { replayHousehold } from "../ledger/replay";
+import type { LedgerBaseConfig } from "../ledger/ledgerBase";
+import type { Household } from "../ledger/household";
+import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 
 export function buildHouseholdSimInput(
-  household: ReplayedHousehold,
+  household: Household,
   base: LedgerBaseConfig,
 ): HouseholdSimInput {
   const incomeSeries: OwnedSeries[] = [];
@@ -57,6 +60,18 @@ export function buildHouseholdSimInput(
     return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
   });
 
+  // Properties: durable appreciating stocks (§4.1). Resolve each growth mode to
+  // its annual rate here, at the sim boundary — the simulator compounds value at
+  // that rate exactly as it compounds accounts.
+  const properties: SimProperty[] = household.properties.map((p) => ({
+    id: p.id,
+    ownerId: p.ownerId,
+    startMonth: p.startMonth,
+    endMonth: p.endMonth,
+    openingValueCents: p.openingValueCents,
+    appreciationAnnualRate: growthAnnualRate(p.appreciationMode),
+  }));
+
   // Durable household roster (§3): membership intervals govern each person's
   // income series lifetime; the roster itself is the set of people who ever joined.
   const persons: Person[] = household.memberships.map((m) => m.person);
@@ -70,12 +85,13 @@ export function buildHouseholdSimInput(
     incomeSeries,
     expenseSeries,
     liabilities: liabilities.length > 0 ? liabilities : undefined,
+    properties: properties.length > 0 ? properties : undefined,
   };
 }
 
 /** Run the simulation for an already-replayed household (§1). */
 export function buildProjection(
-  household: ReplayedHousehold,
+  household: Household,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): ProjectionSeries {
@@ -88,5 +104,5 @@ export function replayLedger(
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): ProjectionSeries {
-  return buildProjection(replayHousehold(ledger, base), base, jurisdiction);
+  return buildProjection(interpretLedger(ledger, base), base, jurisdiction);
 }

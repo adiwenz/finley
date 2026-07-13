@@ -2,7 +2,7 @@
  * Event types — the serializable data at the heart of the event-sourcing spine
  * (§0.3, §6). Events are plain discriminated-union objects; they are never
  * classes and are never mutated. Their meaning is defined in exactly one place
- * (the handler registry consumed by `replayHousehold`), never re-interpreted.
+ * (the handler registry consumed by `interpretLedger`), never re-interpreted.
  */
 
 import type { Cents } from "../money";
@@ -78,6 +78,32 @@ export interface SeparationEvent extends EventBase {
   readonly childSupportMonthlyCents: Cents;
 }
 
+/**
+ * Buys a house (§4.3). Property-only: creates a durable {@link Property} entity
+ * with its appreciating value, originates its mortgage liability, and pays the
+ * down payment as a one-time outflow from a liquid account. Does NOT touch any
+ * budget item (ceasing to rent is a separate, user-authored decision). Subject
+ * to the §4.5 down-payment hard block. The financed mortgage balance is
+ * `purchasePriceCents − downPaymentCents`.
+ */
+export interface HomePurchaseEvent extends EventBase {
+  readonly type: "HomePurchaseEvent";
+  readonly propertyId: string;
+  readonly ownerId: string;
+  /** The property's value at purchase — the appreciating stock's opening value. */
+  readonly purchasePriceCents: Cents;
+  /** Paid at the purchase month from `downPaymentAccountId` (§4.5 hard block). */
+  readonly downPaymentCents: Cents;
+  /** The liquid account funding the down payment; receives the paired outflow. */
+  readonly downPaymentAccountId: string;
+  /** The mortgage liability this purchase originates (financed = price − down). */
+  readonly mortgageLiabilityId: string;
+  readonly mortgageApr: number;
+  readonly mortgageTermMonths: number;
+  /** Value appreciation; defaults to `inflationLinked` at base inflation (§4.1). */
+  readonly appreciationMode?: GrowthMode;
+}
+
 /** Creates a new liability (mortgage, auto, student loan, or credit card). */
 export interface LoanEvent extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
@@ -141,6 +167,7 @@ export type LifeEvent =
   | RelationshipEvent
   | ChildEvent
   | SeparationEvent
+  | HomePurchaseEvent
   | LoanEvent
   | DebtPayoffEvent
   | JobChangeEvent

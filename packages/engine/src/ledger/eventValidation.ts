@@ -12,7 +12,7 @@
 
 import type { ValidationResult } from "./ledger";
 import type { LifeEvent, NewLifeEvent } from "./eventTypes";
-import type { ReplayContext, ReplayState } from "./replayState";
+import type { InterpretContext, InterpretState } from "./interpretState";
 import { checkEvent } from "./eventHandlers";
 
 function bad(event: { id: string; type: string }, requirement: string): ValidationResult {
@@ -75,6 +75,14 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       }
       return { ok: true };
     }
+    case "HomePurchaseEvent": {
+      const money =
+        nonNegative(event, "purchasePriceCents", event.purchasePriceCents) ??
+        nonNegative(event, "downPaymentCents", event.downPaymentCents) ??
+        (event.mortgageApr >= 0 ? null : bad(event, `mortgageApr must be ≥ 0 (got ${event.mortgageApr})`));
+      if (money) return money;
+      return positiveInteger(event, "mortgageTermMonths", event.mortgageTermMonths) ?? { ok: true };
+    }
     case "DebtPayoffEvent":
       return event.amountCents > 0
         ? { ok: true }
@@ -91,8 +99,8 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
 /** Preconditions for `event` against the state accumulated so far. */
 export function validateEventPreconditions(
   event: LifeEvent,
-  state: ReplayState,
-  context: ReplayContext,
+  state: InterpretState,
+  context: InterpretContext,
 ): ValidationResult {
   return checkEvent(event, state, context);
 }

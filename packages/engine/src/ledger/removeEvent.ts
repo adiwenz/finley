@@ -12,9 +12,9 @@
  */
 
 import type { Ledger } from "./ledger";
-import type { LedgerBaseConfig } from "./replayState";
+import type { LedgerBaseConfig } from "./ledgerBase";
 import { applyEvent, checkEvent } from "./eventHandlers";
-import { contextFrom, seedState, sortedEvents } from "./replay";
+import { contextFrom, seedState, sortedEvents } from "./interpret";
 import { computeDependents } from "./dependencies";
 
 export type RemoveResult =

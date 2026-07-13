@@ -48,6 +48,11 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
         bits.push(`child support ${formatDollars(e.childSupportMonthlyCents)}/mo`);
       return { label: "Separated", detail: bits.join(", ") || "no support" };
     }
+    case "HomePurchaseEvent":
+      return {
+        label: "Bought a home",
+        detail: `${formatDollars(e.purchasePriceCents)}, ${formatDollars(e.downPaymentCents)} down`,
+      };
     case "LoanEvent":
       return {
         label: "Took out a loan",
