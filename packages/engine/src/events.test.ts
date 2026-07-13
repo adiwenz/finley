@@ -3,12 +3,18 @@ import {
   emptyLedger,
   appendEvent,
   replayLedger,
+  replayHousehold,
   removeEvent,
   computeDependents,
+  snapshotAt,
+  validateLedgerStructure,
+  validateNewEvent,
+  type Ledger,
   type LedgerBaseConfig,
-} from "./events";
+  type LifeEvent,
+} from "./index";
 import { Account } from "./account";
-import { dollarsToCents } from "./cashFlowSeries";
+import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -292,6 +298,38 @@ describe("LoanEvent + DebtPayoffEvent", () => {
     expect(series.months[0].netWorthNominalCents).toBe(dollarsToCents(10_000));
   });
 
+  it("a LoanEvent at month M originates the liability at M, not at month 0", () => {
+    const cfg: LedgerBaseConfig = {
+      ...baseConfig,
+      horizonMonths: 24,
+      initialAccounts: [makeLiquidAccount("checking", dollarsToCents(20_000))],
+    };
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "loan1",
+      type: "LoanEvent",
+      month: 12,
+      liabilityId: "car",
+      ownerId: "p1",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000),
+      apr: 0,
+      termMonths: 60,
+    });
+    const series = replayLedger(ledger, cfg, nullJurisdiction);
+
+    // Balance (a stock) is 0 until the loan originates, then the opening balance.
+    expect(series.months[11].liabilityBalancesCents["car"]).toBe(0);
+    expect(series.months[12].liabilityBalancesCents["car"]).toBe(dollarsToCents(10_000));
+    // Net worth only carries the loan from month 12 onward.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(20_000));
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
+
+    // Snapshot presence and projected balance now agree about when it starts.
+    expect(snapshotAt(ledger, 11).liabilities).toHaveLength(0);
+    expect(snapshotAt(ledger, 12).liabilities.map((l) => l.id)).toEqual(["car"]);
+  });
+
   it("DebtPayoffEvent reduces liability balance and account balance", () => {
     const cfg: LedgerBaseConfig = {
       ...baseConfig,
@@ -354,7 +392,240 @@ describe("appendEvent — sequence numbers", () => {
     });
     expect(ledger.events[0].sequenceNumber).toBe(0);
     expect(ledger.events[1].sequenceNumber).toBe(1);
-    expect(ledger.nextSeq).toBe(2);
+    expect(ledger.nextSequenceNumber).toBe(2);
+  });
+
+  it("does not recycle a removed sequence number (§13)", () => {
+    let ledger = emptyLedger;
+    for (const id of ["a", "b", "c"]) {
+      ledger = appendEvent(ledger, {
+        id,
+        type: "BudgetItemStartEvent",
+        month: 0,
+        seriesId: `s-${id}`,
+        ownerId: "p1",
+        seriesType: "expense",
+        monthlyCents: dollarsToCents(100),
+        growthMode: { type: "fixed" },
+      });
+    }
+    expect(ledger.nextSequenceNumber).toBe(3);
+
+    const removed = removeEvent(ledger, "b", baseConfig);
+    expect(removed.ok).toBe(true);
+    if (removed.ok) ledger = removed.ledger;
+    expect(ledger.nextSequenceNumber).toBe(3); // not decremented
+
+    ledger = appendEvent(ledger, {
+      id: "d",
+      type: "BudgetItemStartEvent",
+      month: 0,
+      seriesId: "s-d",
+      ownerId: "p1",
+      seriesType: "expense",
+      monthlyCents: dollarsToCents(100),
+      growthMode: { type: "fixed" },
+    });
+    expect(ledger.events.at(-1)?.sequenceNumber).toBe(3); // reuses next, not the freed 1
+    expect(ledger.nextSequenceNumber).toBe(4);
+  });
+});
+
+// ─── Annual income precision (§4) ─────────────────────────────────────────────
+
+describe("JobChangeEvent — annual precision", () => {
+  it("distributes annual income across months summing exactly to the annual cents", () => {
+    const annualCents = dollarsToCents(100_000) + 7; // deliberately not divisible by 12
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "j1",
+      type: "JobChangeEvent",
+      month: 0,
+      seriesId: "s1",
+      ownerId: "p1",
+      annualIncomeCents: annualCents,
+      growthMode: { type: "fixed" },
+      taxCategory: "wages",
+    });
+    const household = replayHousehold(ledger, baseConfig);
+    const income = household.series.find((s) => s.role === "primaryIncome")!;
+    const total = income.series.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
+    expect(total).toBe(annualCents);
+  });
+});
+
+// ─── removeEvent — base replay context (§7) ───────────────────────────────────
+
+describe("removeEvent — replays against base-seeded people", () => {
+  it("succeeds when a remaining event's owner is a base person; fails without that person", () => {
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "j1",
+      type: "JobChangeEvent",
+      month: 0,
+      seriesId: "s1",
+      ownerId: "p1",
+      annualIncomeCents: dollarsToCents(60_000),
+      growthMode: { type: "fixed" },
+      taxCategory: "wages",
+    });
+    ledger = appendEvent(ledger, {
+      id: "b1",
+      type: "BudgetItemStartEvent",
+      month: 0,
+      seriesId: "rent",
+      ownerId: "p1",
+      seriesType: "expense",
+      monthlyCents: dollarsToCents(1_000),
+      growthMode: { type: "fixed" },
+    });
+    // j1 (owned by base person p1) still validates when replayed after removal.
+    expect(removeEvent(ledger, "b1", baseConfig).ok).toBe(true);
+    // Without p1 in the base, j1's owner precondition fails.
+    const noPeople: LedgerBaseConfig = { horizonMonths: 12, annualInflationRate: 0, initialPersons: [] };
+    expect(removeEvent(ledger, "b1", noPeople).ok).toBe(false);
+  });
+
+  it("returns a failure when the event id does not exist", () => {
+    const result = removeEvent(emptyLedger, "does-not-exist", baseConfig);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toContain("does-not-exist");
+  });
+});
+
+// ─── computeDependents — transitive cascade (§8) ──────────────────────────────
+
+describe("computeDependents — transitive cascade", () => {
+  it("returns the whole causedBy chain, and removeEvent cascades all of it", () => {
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "loan1",
+      type: "LoanEvent",
+      month: 0,
+      liabilityId: "car",
+      ownerId: "p1",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000),
+      apr: 0,
+      termMonths: 120,
+    });
+    ledger = appendEvent(ledger, {
+      id: "pay1",
+      type: "DebtPayoffEvent",
+      month: 3,
+      causedByEventId: "loan1",
+      liabilityId: "car",
+      accountId: "checking",
+      amountCents: dollarsToCents(1_000),
+    });
+    ledger = appendEvent(ledger, {
+      id: "pay2",
+      type: "DebtPayoffEvent",
+      month: 6,
+      causedByEventId: "pay1",
+      liabilityId: "car",
+      accountId: "checking",
+      amountCents: dollarsToCents(1_000),
+    });
+
+    const deps = computeDependents(ledger, "loan1");
+    expect(deps).toEqual(expect.arrayContaining(["loan1", "pay1", "pay2"]));
+    expect(deps).toHaveLength(3);
+
+    const result = removeEvent(ledger, "loan1", baseConfig);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.ledger.events).toHaveLength(0);
+  });
+});
+
+// ─── Event validation (§6, §13) ───────────────────────────────────────────────
+
+describe("event validation", () => {
+  it("validateLedgerStructure rejects a duplicate event id", () => {
+    const dup: Ledger = {
+      events: [
+        { id: "x", type: "ChildEvent", sequenceNumber: 0, month: 0, childId: "k1", childName: "A", birthMonth: 0 },
+        { id: "x", type: "ChildEvent", sequenceNumber: 1, month: 0, childId: "k2", childName: "B", birthMonth: 0 },
+      ],
+      nextSequenceNumber: 2,
+    };
+    expect(validateLedgerStructure(dup).ok).toBe(false);
+  });
+
+  it("validateNewEvent rejects a duplicate person id", () => {
+    const ledger = appendEvent(emptyLedger, {
+      id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" },
+    });
+    const result = validateNewEvent(ledger, baseConfig, {
+      id: "r2", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Other" },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("validateNewEvent rejects a JobChange replacing a nonexistent series", () => {
+    const result = validateNewEvent(emptyLedger, baseConfig, {
+      id: "j1", type: "JobChangeEvent", month: 0, seriesId: "s1", ownerId: "p1",
+      annualIncomeCents: dollarsToCents(1_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+      replacesSeriesId: "ghost",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("validateNewEvent rejects ending a nonexistent series", () => {
+    const result = validateNewEvent(emptyLedger, baseConfig, {
+      id: "e1", type: "BudgetItemEndEvent", month: 0, seriesId: "ghost",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("validateNewEvent rejects separating from an already-separated partner", () => {
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" } });
+    ledger = appendEvent(ledger, {
+      id: "sep1", type: "SeparationEvent", month: 6, partnerPersonId: "p2",
+      alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
+    });
+    const result = validateNewEvent(ledger, baseConfig, {
+      id: "sep2", type: "SeparationEvent", month: 12, partnerPersonId: "p2",
+      alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+// ─── Replay order — (month, sequenceNumber) (§5, §6) ──────────────────────────
+
+describe("replay order", () => {
+  it("same-month producer-before-consumer: a replacement applies after the series it replaces", () => {
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "j1", type: "JobChangeEvent", month: 12, seriesId: "s1", ownerId: "p1",
+      annualIncomeCents: dollarsToCents(36_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+    });
+    ledger = appendEvent(ledger, {
+      id: "j2", type: "JobChangeEvent", month: 12, seriesId: "s2", ownerId: "p1",
+      annualIncomeCents: dollarsToCents(60_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+      replacesSeriesId: "s1",
+    });
+    const snap = snapshotAt(ledger, 12, { initialPersons: [{ id: "p1", name: "Alice" }] });
+    expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
+  });
+
+  it("orders by sequenceNumber, not array position", () => {
+    // Hand-built ledger with the events stored in reverse of their sequence.
+    const j1: LifeEvent = {
+      id: "j1", type: "JobChangeEvent", sequenceNumber: 0, month: 0, seriesId: "s1", ownerId: "p1",
+      annualIncomeCents: dollarsToCents(12_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+    };
+    const j2: LifeEvent = {
+      id: "j2", type: "JobChangeEvent", sequenceNumber: 1, month: 0, seriesId: "s2", ownerId: "p1",
+      annualIncomeCents: dollarsToCents(24_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+      replacesSeriesId: "s1",
+    };
+    const ledger: Ledger = { events: [j2, j1], nextSequenceNumber: 2 };
+    const snap = snapshotAt(ledger, 0, { initialPersons: [{ id: "p1", name: "Alice" }] });
+    // Sorted by (month, seq): j1 creates s1, then j2 replaces it → only s2 active.
+    expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
   });
 });
 
@@ -398,7 +669,7 @@ describe("removeEvent — Strategy A", () => {
       childSupportMonthlyCents: 0,
     });
     // Removing r1 would leave sep1 referencing a non-existent person.
-    const result = removeEvent(ledger, "r1");
+    const result = removeEvent(ledger, "r1", baseConfig);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflict).toContain("p2");
@@ -426,7 +697,7 @@ describe("removeEvent — Strategy A", () => {
       accountId: "checking",
       amountCents: dollarsToCents(3_000),
     });
-    const result = removeEvent(ledger, "loan1");
+    const result = removeEvent(ledger, "loan1", baseConfig);
     expect(result.ok).toBe(false);
   });
 
@@ -442,7 +713,7 @@ describe("removeEvent — Strategy A", () => {
       monthlyCents: dollarsToCents(1_000),
       growthMode: { type: "fixed" },
     });
-    const result = removeEvent(ledger, "b1");
+    const result = removeEvent(ledger, "b1", baseConfig);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.ledger.events).toHaveLength(0);
@@ -486,7 +757,7 @@ describe("computeDependents", () => {
       id: "payoff1",
       type: "DebtPayoffEvent",
       month: 6,
-      sourceEventId: "loan1",
+      causedByEventId: "loan1",
       liabilityId: "car",
       accountId: "checking",
       amountCents: dollarsToCents(3_000),
@@ -511,7 +782,7 @@ describe("removeEvent — Strategy B cascade", () => {
       id: "j1",
       type: "JobChangeEvent",
       month: 0,
-      sourceEventId: "r1",
+      causedByEventId: "r1",
       seriesId: "s1",
       ownerId: "p2",
       annualIncomeCents: dollarsToCents(60_000),
@@ -519,11 +790,81 @@ describe("removeEvent — Strategy B cascade", () => {
       taxCategory: "wages",
     });
     // No SeparationEvent — so removing r1 is not blocked by Strategy A.
-    const result = removeEvent(ledger, "r1");
+    const result = removeEvent(ledger, "r1", baseConfig);
     expect(result.ok).toBe(true);
     if (result.ok) {
       // Both r1 and j1 (its dependent) are removed.
       expect(result.ledger.events).toHaveLength(0);
     }
+  });
+});
+
+// ─── Base series (value-editing surface, §10.2) ───────────────────────────────
+
+describe("initialIncomeSeries / initialExpenseSeries", () => {
+  it("base income series drive net worth without any events", () => {
+    const income = new CashFlowSeries(
+      0,
+      dollarsToCents(4_000),
+      { type: "fixed" },
+      { baselineUnit: "monthly" },
+    );
+    const cfg: LedgerBaseConfig = {
+      ...baseConfig,
+      initialAccounts: [makeLiquidAccount()],
+      initialIncomeSeries: [{ series: income, ownerId: "p1" }],
+    };
+    const series = replayLedger(emptyLedger, cfg, nullJurisdiction);
+    // $4000/mo × 12 = $48,000
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(48_000));
+  });
+
+  it("base expense series net against event-derived income", () => {
+    const expense = new CashFlowSeries(
+      0,
+      dollarsToCents(1_000),
+      { type: "fixed" },
+      { baselineUnit: "monthly" },
+    );
+    const cfg: LedgerBaseConfig = {
+      ...baseConfig,
+      initialAccounts: [makeLiquidAccount()],
+      initialExpenseSeries: [{ series: expense, ownerId: "p1" }],
+    };
+    let ledger = emptyLedger;
+    ledger = appendEvent(ledger, {
+      id: "j1",
+      type: "JobChangeEvent",
+      month: 0,
+      seriesId: "s1",
+      ownerId: "p1",
+      annualIncomeCents: dollarsToCents(36_000), // $3000/mo
+      growthMode: { type: "fixed" },
+      taxCategory: "wages",
+    });
+    const series = replayLedger(ledger, cfg, nullJurisdiction);
+    // ($3000 − $1000)/mo × 12 = $24,000
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(24_000));
+  });
+
+  it("a fromHereForward value override on a base series changes the trajectory", () => {
+    const expense = new CashFlowSeries(
+      0,
+      dollarsToCents(1_000),
+      { type: "fixed" },
+      { baselineUnit: "monthly" },
+    );
+    // Value edit (override), NOT an event: expenses rise to $2000 from month 6.
+    expense.addOverride(6, dollarsToCents(2_000), "fromHereForward");
+    const cfg: LedgerBaseConfig = {
+      ...baseConfig,
+      // Large opening balance so no shortfall cascade / interest muddies the math.
+      initialAccounts: [makeLiquidAccount("checking", dollarsToCents(100_000))],
+      initialExpenseSeries: [{ series: expense, ownerId: "p1" }],
+    };
+    const series = replayLedger(emptyLedger, cfg, nullJurisdiction);
+    // Flow lands months 1–12. Override at month 6 (fromHereForward) covers
+    // months 6–12: 5 months × $1000 + 7 months × $2000 = $19,000 spent.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(81_000));
   });
 });

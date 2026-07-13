@@ -1,14 +1,14 @@
-import type { Cents } from "./money";
-import type { Jurisdiction, JurisdictionContext } from "./jurisdiction";
-import type { Account } from "./account";
+import type { Cents } from "../money";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
+import type { Account } from "../account";
 import {
   Liability,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
   minCreditCardPaymentCents,
   amortizationScheduleCents,
-} from "./liability";
-import { CashFlowSeries } from "./cashFlowSeries";
+} from "../liability";
+import { CashFlowSeries } from "../cashFlowSeries";
 
 /**
  * The projection series — the engine's public output and the chart's data
@@ -50,52 +50,7 @@ function toRealCents(
 }
 
 // ---------------------------------------------------------------------------
-// Slice-0 walking skeleton — kept for backward compat with existing tests
-// ---------------------------------------------------------------------------
-
-/**
- * Slice-0 walking-skeleton input. Deliberately minimal. Slice 1 (issue #2)
- * adds the real income/expense/account pipeline via simulateHousehold(); the
- * ProjectionSeries output shape is the stable contract that survives that change.
- */
-export interface SimulationInput {
-  readonly horizonMonths: number;
-  readonly openingNetWorthCents: Cents;
-  readonly monthlyNetFlowCents: Cents;
-  readonly annualInflationRate: number;
-  readonly startYear?: number;
-}
-
-export function simulate(
-  input: SimulationInput,
-  jurisdiction: Jurisdiction,
-): ProjectionSeries {
-  const startYear = input.startYear ?? DEFAULT_START_YEAR;
-  const months: ProjectionMonth[] = [];
-
-  let nominal = input.openingNetWorthCents;
-  for (let month = 0; month <= input.horizonMonths; month++) {
-    if (month > 0) {
-      const ctx: JurisdictionContext = { year: startYear + Math.floor(month / 12) };
-      const taxable = input.monthlyNetFlowCents > 0 ? input.monthlyNetFlowCents : 0;
-      const taxCents = jurisdiction.computeTaxCents(taxable, ctx);
-      nominal += input.monthlyNetFlowCents - taxCents;
-    }
-    months.push({
-      month,
-      netWorthNominalCents: nominal,
-      netWorthRealCents: toRealCents(nominal, input.annualInflationRate, month),
-      accountBalancesCents: {},
-      liabilityBalancesCents: {},
-      isInsolvent: false,
-    });
-  }
-
-  return { months };
-}
-
-// ---------------------------------------------------------------------------
-// Slice-1 household simulator — real income/expense series + compounding accounts
+// Household simulator — real income/expense series + compounding accounts
 // Slice-2 extension — liabilities, shortfall cascade (§5.1), infeasibility flag
 // ---------------------------------------------------------------------------
 
@@ -177,7 +132,9 @@ function initSimState(input: HouseholdSimInput): SimState {
 
   const liabilityBalances = new Map<string, Cents>();
   for (const liab of liabilities) {
-    liabilityBalances.set(liab.id, liab.openingBalanceCents);
+    // A loan that originates later starts at 0; advanceLiabilities opens it at
+    // its startMonth. Loans present from the start (startMonth ≤ 0) open here.
+    liabilityBalances.set(liab.id, liab.startMonth <= 0 ? liab.openingBalanceCents : 0);
   }
 
   const cascadeCards = liabilities
@@ -243,9 +200,10 @@ function computeLiabilityPayments(state: SimState, month: number): Map<string, C
       // Revolving balance: minimum payment.
       payments.set(liab.id, Math.min(minCreditCardPaymentCents(bal), owedWithInterest));
     } else {
-      // Amortizing loan: schedule[month-1] is this month's payment (month 0 is the
-      // pre-payment snapshot; past the term the loan is paid off → 0).
-      const scheduled = state.amortSchedules.get(liab.id)?.[month - 1] ?? 0;
+      // Amortizing loan: the schedule counts from origination, so the first
+      // payment (index 0) falls on startMonth+1 (past the term → 0). A loan not
+      // yet originated has a 0 balance and was skipped above.
+      const scheduled = state.amortSchedules.get(liab.id)?.[month - liab.startMonth - 1] ?? 0;
       payments.set(liab.id, Math.min(scheduled, owedWithInterest));
     }
   }
@@ -264,7 +222,7 @@ function depositNetFlow(state: SimState, netFlowCents: Cents): void {
  * route the deficit onto credit cards lowest-APR-first (a null limit = the synthetic
  * card = unlimited). Returns true when credit is exhausted and the plan is infeasible.
  */
-function applyShortfallCascade(state: SimState): boolean {
+function applyShortfallCascade(state: SimState, month: number): boolean {
   if (state.liquidAccount === null) return false;
   const liquidBal = state.assetBalances.get(state.liquidAccount.id) ?? 0;
   if (liquidBal >= 0) return false;
@@ -273,6 +231,9 @@ function applyShortfallCascade(state: SimState): boolean {
   state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
+    // A card that hasn't originated yet (opened in advanceLiabilities at its
+    // startMonth) can't absorb a shortfall — borrowing onto it would be lost.
+    if (month <= card.startMonth) continue;
     const currentBal = state.liabilityBalances.get(card.id) ?? 0;
     const limit = card.creditLimitCents;
     const available = limit === null ? deficit : Math.max(0, limit - currentBal);
@@ -323,6 +284,13 @@ function advanceLiabilities(
   payments: ReadonlyMap<string, Cents>,
 ): void {
   for (const liab of state.liabilities) {
+    if (month < liab.startMonth) continue; // not originated yet — stays at 0
+    if (month === liab.startMonth) {
+      // Origination: the balance appears with no interest or payment this month,
+      // mirroring an account's opening balance at month 0.
+      state.liabilityBalances.set(liab.id, liab.openingBalanceCents);
+      continue;
+    }
     let bal = state.liabilityBalances.get(liab.id) ?? 0;
     for (const t of liab.getTransfersAt(month)) {
       const fixed = t.amountCents ?? 0;
@@ -404,7 +372,7 @@ export function simulateHousehold(
       const netFlowCents = grossIncomeCents - taxCents - expenseCents - totalPaymentsCents;
 
       depositNetFlow(state, netFlowCents);
-      isInsolvent = applyShortfallCascade(state);
+      isInsolvent = applyShortfallCascade(state, month);
 
       applyAssetTransfers(state, month);
       compoundAssets(state, month);

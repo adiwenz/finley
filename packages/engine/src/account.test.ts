@@ -111,6 +111,27 @@ describe("Account", () => {
     expect(acc.getTransfersAt(0)).toHaveLength(0);
   });
 
+  it("withAdditionalTransfers preserves rate history and existing transfers, and does not mutate the original", () => {
+    const acc = new Account({
+      id: "a",
+      ownerId: "p1",
+      liquid: true,
+      taxTreatment: "taxable",
+      openingBalanceCents: dollarsToCents(10000),
+      initialAnnualRate: 0.12,
+    });
+    acc.addRateChange(12, 0.05);
+    acc.addTransfer({ month: 3, amountCents: dollarsToCents(500) });
+
+    const clone = acc.withAdditionalTransfers([{ month: 6, amountCents: -dollarsToCents(200) }]);
+
+    expect(clone.getRateAt(0)).toBe(0.12); // rate segment preserved
+    expect(clone.getRateAt(12)).toBe(0.05); // later rate change preserved
+    expect(clone.getTransfersAt(3)).toEqual([{ month: 3, amountCents: dollarsToCents(500) }]); // existing kept
+    expect(clone.getTransfersAt(6)).toEqual([{ month: 6, amountCents: -dollarsToCents(200) }]); // new added
+    expect(acc.getTransfersAt(6)).toEqual([]); // original untouched
+  });
+
   it("liquid flag is preserved", () => {
     const liquid = new Account({
       id: "checking",

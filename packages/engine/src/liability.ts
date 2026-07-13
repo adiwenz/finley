@@ -86,8 +86,14 @@ export class Liability {
   readonly id: string;
   readonly ownerId: string;
   readonly kind: LiabilityKind;
-  /** Amount owed at simulation start (positive = owed). */
+  /** Amount owed when the loan originates (positive = owed). */
   readonly openingBalanceCents: Cents;
+  /**
+   * Absolute simulation month the loan originates (§4.3). Before it the balance
+   * is 0; at it the balance is the opening balance; after it the loan amortizes.
+   * Defaults to 0 (present from simulation start).
+   */
+  readonly startMonth: number;
   readonly apr: number;
   /** Months remaining; null for credit cards. */
   readonly termMonths: number | null;
@@ -113,6 +119,7 @@ export class Liability {
     ownerId: string;
     kind: LiabilityKind;
     openingBalanceCents: Cents;
+    startMonth?: number;
     apr: number;
     termMonths?: number;
     creditLimitCents?: Cents;
@@ -122,6 +129,7 @@ export class Liability {
     this.ownerId = params.ownerId;
     this.kind = params.kind;
     this.openingBalanceCents = params.openingBalanceCents;
+    this.startMonth = params.startMonth ?? 0;
     this.apr = params.apr;
     this.termMonths = params.termMonths ?? null;
     this.creditLimitCents = params.creditLimitCents ?? null;
