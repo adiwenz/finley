@@ -34,6 +34,11 @@ export const PLAN_DEFAULTS: BudgetValues = {
       annualReturnPct: 7,
     },
   ],
+  currentAge: 35,
+  retirementAge: 65,
+  lifeExpectancy: 90,
+  ssClaimingAge: 67,
+  socialSecurityAnnualCents: dollarsToCents(24000),
 };
 
 export const DEFAULT_SCRUB_MONTH = 0;

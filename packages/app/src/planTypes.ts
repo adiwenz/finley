@@ -61,4 +61,14 @@ export interface BudgetValues {
   readonly surplusSwept: boolean;
   /** Lever 3 (§5.0): funding goals in priority order (array index = priority). */
   readonly goals: readonly GoalPlan[];
+  /** Age at "now" — the base the retirement solver counts years from (§7). */
+  readonly currentAge: number;
+  /** The pinned/desired retirement age; target mode reports on-track % against it (§7.1). */
+  readonly retirementAge: number;
+  /** Age the portfolio must last to — the retirement survival horizon (§7). */
+  readonly lifeExpectancy: number;
+  /** Pinned Social Security claiming age — an input to the check, never searched (§7). */
+  readonly ssClaimingAge: number;
+  /** Real annual Social Security benefit once claiming, in cents. */
+  readonly socialSecurityAnnualCents: number;
 }

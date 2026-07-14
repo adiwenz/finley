@@ -11,6 +11,8 @@ import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
+import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
+import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
 import type { BudgetValues } from "./planTypes";
 import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
@@ -34,6 +36,7 @@ export function App() {
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
+  const retirement = useMemo(() => retirementView(budget), [budget]);
 
   return (
     <>
@@ -45,7 +48,7 @@ export function App() {
       <div className="layout">
         <div className="main-col">
           <div className="card">
-            <NetWorthChart series={series} />
+            <NetWorthChart series={series} retirementMonth={retirement.headlineMonth} />
 
             <Timeline
               markers={markers}
@@ -100,6 +103,10 @@ export function App() {
 
           <div className="card">
             <GoalsPanel budget={budget} series={series} setBudget={setBudget} />
+          </div>
+
+          <div className="card">
+            <RetirementPanel view={retirement} budget={budget} />
           </div>
         </div>
       </div>
