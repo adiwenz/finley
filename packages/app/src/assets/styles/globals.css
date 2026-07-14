@@ -170,6 +170,98 @@ select,
   color: var(--color-danger);
 }
 
+.alert-amber {
+  background: var(--color-warn-bg);
+  border: 1px solid var(--color-warn-border);
+  color: var(--color-warn);
+}
+
+/* Budget/Accounts panel — person-partitioned sections (§4.2) */
+.budget-member,
+.budget-shared {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.budget-shared h3 {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* Progressive disclosure (§10.4) — advanced knobs behind the plain number */
+.advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0;
+}
+
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Goals panel (§5.2) */
+.goal-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.goal-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.goal-name {
+  font-weight: 600;
+}
+
+.goal-track {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.goal-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.goal-actions button {
+  font: inherit;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border-input);
+  background: var(--color-white);
+  cursor: pointer;
+}
+
+.goal-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Buttons */
 .btn {
   font: inherit;

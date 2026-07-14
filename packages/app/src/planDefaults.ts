@@ -9,7 +9,31 @@ export const PLAN_DEFAULTS: BudgetValues = {
   expenseCents: dollarsToCents(3500),
   expenseOverrides: [],
   openingBalanceCents: dollarsToCents(10000),
-  annualReturnPct: 7,
+  savingsReturnPct: 7,
+  retirementReturnPct: 7,
+  brokerageReturnPct: 7,
+  retirementDeferralPct: 0,
+  sharedScheme: "proportional",
+  surplusSwept: false,
+  // Two goals that outrun the surplus, so the priority tradeoff is visible (§5.2).
+  goals: [
+    {
+      id: "emergency",
+      name: "Emergency fund",
+      targetCents: dollarsToCents(15000),
+      targetDate: 24,
+      type: "horizon",
+      annualReturnPct: 7,
+    },
+    {
+      id: "home",
+      name: "Home down payment",
+      targetCents: dollarsToCents(60000),
+      targetDate: 60,
+      type: "oneTime",
+      annualReturnPct: 7,
+    },
+  ],
 };
 
 export const DEFAULT_SCRUB_MONTH = 0;
