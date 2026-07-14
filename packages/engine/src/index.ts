@@ -13,6 +13,7 @@ export * from "./liability";
 export * from "./affordability";
 export * from "./jurisdiction";
 export * from "./goal";
+export * from "./retirement";
 export * from "./ids";
 
 // Simulator (low-level) + the ledger→projection→snapshot pipeline.
