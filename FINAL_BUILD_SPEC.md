@@ -992,6 +992,14 @@ to see their Mode 2 number. Each person's retirement age is independently editab
 > - **Claiming-age pinned:** the solver stays 1D (searches retirement age with the Mode-1/2 pins);
 >   the SS claiming age is a PINNED INPUT to the survival check, not a searched dimension. "Suggest
 >   optimal claiming age" is a future §8 recommendation (sweep 62→70, diff), never a solver change.
+> - **Withdrawal model — need-based, not a fixed SWR (code review):** v1 withdraws the *actual*
+>   yearly shortfall (post-retirement expenses − remaining income: SS, a still-working partner),
+>   not a fixed safe-withdrawal-rate stream. The 4%-rule SWR exists to guard **sequence-of-returns
+>   risk**, which only appears under volatile returns; v1's single fixed real return has none, so
+>   need-based drawdown is the more honest feasibility answer. The SWR guardrail is deferred to the
+>   Monte Carlo slice (the §7.1 "flagged for later" note), where sequence risk is actually modelled.
+>   This supersedes the "safe-withdrawal-rate stream" wording in the survival-check sketch above **for
+>   v1**.
 
 ### 7.1 Solve mode vs. target mode
 
