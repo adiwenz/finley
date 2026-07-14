@@ -682,6 +682,17 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 > destination, `asap` fallback, catch-up behavior) live in #26. Until resolved, the strict-priority
 > rule above stands.
 
+> **◐ OPEN — §5.2 goal disposition (see issue #28):**
+> The `type` field (one-time / horizon) says *when* a goal's money is used but not *what happens to
+> it*, and the "one-time = spent / horizon = drawn down" framing above is wrong for most goals. Add
+> a per-goal **disposition**, orthogonal to `type`: **`retain`** (emergency fund — held as a liquid
+> reserve; contributions stop at target; stays in net worth), **`convertToEquity`** (down payment —
+> an equity transfer into home equity via `HomePurchaseEvent`, net worth unchanged), **`spend`**
+> (vacation / wedding — leaves net worth), **`drawDown`** (retirement / college — withdrawn over the
+> horizon). Disposition also drives **retirement-portfolio inclusion**: `retain` counts toward the
+> nest egg, while `convertToEquity` / `spend` drop out — correcting the current blanket exclusion of
+> goal funds in the retirement check. Not yet decided — see #28.
+
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 
 Tax is deferred for v1, but unlike Monte Carlo or asset-division (which are localized bolt-ons),
@@ -981,6 +992,14 @@ to see their Mode 2 number. Each person's retirement age is independently editab
 > - **Claiming-age pinned:** the solver stays 1D (searches retirement age with the Mode-1/2 pins);
 >   the SS claiming age is a PINNED INPUT to the survival check, not a searched dimension. "Suggest
 >   optimal claiming age" is a future §8 recommendation (sweep 62→70, diff), never a solver change.
+> - **Withdrawal model — need-based, not a fixed SWR (code review):** v1 withdraws the *actual*
+>   yearly shortfall (post-retirement expenses − remaining income: SS, a still-working partner),
+>   not a fixed safe-withdrawal-rate stream. The 4%-rule SWR exists to guard **sequence-of-returns
+>   risk**, which only appears under volatile returns; v1's single fixed real return has none, so
+>   need-based drawdown is the more honest feasibility answer. The SWR guardrail is deferred to the
+>   Monte Carlo slice (the §7.1 "flagged for later" note), where sequence risk is actually modelled.
+>   This supersedes the "safe-withdrawal-rate stream" wording in the survival-check sketch above **for
+>   v1**.
 
 ### 7.1 Solve mode vs. target mode
 

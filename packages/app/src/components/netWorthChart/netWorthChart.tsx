@@ -29,7 +29,18 @@ type Point = {
   realCents: number;
 };
 
-export function NetWorthChart({ series }: { series: ProjectionSeries }) {
+/**
+ * `retirementMonth`: the solved Mode-1 retirement age as a month offset (§7). When
+ * present, a labelled vertical reference line marks where retirement begins on the
+ * net-worth curve.
+ */
+export function NetWorthChart({
+  series,
+  retirementMonth,
+}: {
+  series: ProjectionSeries;
+  retirementMonth?: number | null;
+}) {
   const data: Point[] = series.months.map((m) => ({
     month: m.month,
     nominalCents: m.netWorthNominalCents,
@@ -62,6 +73,14 @@ export function NetWorthChart({ series }: { series: ProjectionSeries }) {
             stroke={GRID}
           />
           <ReferenceLine y={0} stroke="#c9bfa5" />
+          {retirementMonth != null && (
+            <ReferenceLine
+              x={retirementMonth}
+              stroke={AMBER}
+              strokeDasharray="4 4"
+              label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
+            />
+          )}
           <Tooltip
             formatter={(value, name) => [
               formatDollars(Number(value)),

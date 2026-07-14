@@ -7,7 +7,7 @@ if [ -z "$1" ]; then
   echo "  local  (default) report-only: no commits, pushes, or issue writes"
   echo "  commit           commits changes and closes/comments the issue"
   echo "  issues           one issue, or a quoted space-separated list worked one"
-  echo "                   after another (default \"8\"); \"\" = all ready-for-agent"
+  echo "                   after another (default \"9\"); \"\" = all ready-for-agent"
   exit 1
 fi
 
@@ -23,7 +23,7 @@ esac
 # Pin Ralph to a list of issues, worked one after another. Defaults to "8";
 # override with the 3rd argument (one number, or a quoted list like "8 9"), or
 # pass "" to let Ralph pick from all open `ready-for-agent` issues in one pass.
-ISSUES="${3-8}"
+ISSUES="${3-9}"
 
 # --- Preflight: platform-native dependencies in the sandbox -----------------
 # node_modules is a shared virtiofs mount between the macOS host and the linux

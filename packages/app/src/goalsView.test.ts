@@ -17,6 +17,11 @@ const baseBudget: BudgetValues = {
   sharedScheme: "proportional",
   surplusSwept: false,
   goals: [],
+  currentAge: 35,
+  retirementAge: 65,
+  lifeExpectancy: 90,
+  ssClaimingAge: 67,
+  socialSecurityAnnualCents: dollarsToCents(24000),
 };
 
 /** Two goals that together outstrip the $1,500/mo surplus, so priority decides. */

@@ -22,6 +22,7 @@ import {
   preciseMonthlyRate,
   dollarsToCents,
 } from "./cashFlowSeries";
+import { findRetirementAge, assessRetirementTarget } from "./retirement";
 
 // ---- harness ---------------------------------------------------------------
 // Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
@@ -155,7 +156,40 @@ todo("backdated in-flight state uses entered current values: 3y-old mortgage use
 console.log("\n6. Goals & retirement");
 todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero (§8.6)");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
-todo("solve mode and target mode agree at the same pinned age (§7.1)");
+test("solve mode and target mode agree at the same pinned age (§7.1)", () => {
+  // Both modes run the ONE §7 survival check; they must never disagree about
+  // whether a given age is feasible. Solve mode finds the earliest feasible age;
+  // target mode, pinned at that age, must report it feasible with the nearest
+  // feasible age equal to the pin — and pinned one year earlier, infeasible with
+  // the nearest feasible falling back to exactly the solved age.
+  const scenario = {
+    persons: [
+      {
+        id: "p1",
+        currentAge: 40,
+        lifeExpectancy: 90,
+        ssClaimingAge: 67,
+        annualEmploymentIncomeCents: dollarsToCents(60_000),
+        annualSocialSecurityCents: dollarsToCents(24_000),
+        plannedRetirementAge: 65,
+      },
+    ],
+    startingPortfolioCents: dollarsToCents(200_000),
+    annualExpenseCents: dollarsToCents(40_000),
+    realReturnRate: 0.04,
+  };
+  const earliest = findRetirementAge(scenario, { mode: "group" }).earliestFeasibleAge;
+  assert.ok(earliest !== null);
+  const age = earliest as number;
+
+  const atSolved = assessRetirementTarget(scenario, age, { mode: "group" });
+  assert.strictEqual(atSolved.feasible, true);
+  assert.strictEqual(atSolved.nearestFeasibleAge, age);
+
+  const oneEarlier = assessRetirementTarget(scenario, age - 1, { mode: "group" });
+  assert.strictEqual(oneEarlier.feasible, false);
+  assert.strictEqual(oneEarlier.nearestFeasibleAge, age);
+});
 todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross (§5.0)");
 todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account (§5.5)");
 todo("employer-plan account belongs to person and persists after job ends (contributions stop, balance stays) (§5.5)");

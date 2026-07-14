@@ -30,7 +30,7 @@ describe("App — initial values", () => {
     render(<App />);
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Alex");
     expect((screen.getByLabelText(/Opening balance/) as HTMLInputElement).value).toBe("10000");
-    expect((screen.getByLabelText(/Annual return/) as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText(/Savings return/) as HTMLInputElement).value).toBe("7");
     expect(screen.getByText(/No life events yet/)).toBeTruthy();
   });
 });
@@ -158,7 +158,7 @@ describe("App — budget edits", () => {
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
-    fireEvent.change(screen.getByLabelText(/Annual return/), {
+    fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount + 1);
