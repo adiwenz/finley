@@ -682,6 +682,17 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 > destination, `asap` fallback, catch-up behavior) live in #26. Until resolved, the strict-priority
 > rule above stands.
 
+> **◐ OPEN — §5.2 goal disposition (see issue #28):**
+> The `type` field (one-time / horizon) says *when* a goal's money is used but not *what happens to
+> it*, and the "one-time = spent / horizon = drawn down" framing above is wrong for most goals. Add
+> a per-goal **disposition**, orthogonal to `type`: **`retain`** (emergency fund — held as a liquid
+> reserve; contributions stop at target; stays in net worth), **`convertToEquity`** (down payment —
+> an equity transfer into home equity via `HomePurchaseEvent`, net worth unchanged), **`spend`**
+> (vacation / wedding — leaves net worth), **`drawDown`** (retirement / college — withdrawn over the
+> horizon). Disposition also drives **retirement-portfolio inclusion**: `retain` counts toward the
+> nest egg, while `convertToEquity` / `spend` drop out — correcting the current blanket exclusion of
+> goal funds in the retirement check. Not yet decided — see #28.
+
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 
 Tax is deferred for v1, but unlike Monte Carlo or asset-division (which are localized bolt-ons),
