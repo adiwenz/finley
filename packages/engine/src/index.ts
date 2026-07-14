@@ -20,6 +20,7 @@ export * from "./ids";
 // Simulator (low-level) + the ledger→projection→snapshot pipeline.
 export * from "./projection/waterfall";
 export * from "./projection/simulate";
+export * from "./projection/rmd";
 export * from "./projection/buildHouseholdInput";
 export * from "./projection/snapshot";
 

@@ -20,6 +20,7 @@ import {
   type SurplusDestination,
 } from "./waterfall";
 import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
+import { buildRmdSources } from "./rmd";
 import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
@@ -539,9 +540,13 @@ export function simulateHousehold(
       // Fold this month's covered wages into each person's SS earnings record
       // before assembling income, so a claim landing this month sees them (§5.4).
       accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year);
+      // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
+      // the waterfall runs and re-enter it here as taxable ordinary income, so the
+      // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const incomeSources = [
         ...buildIncomeSources(input.incomeSeries, month),
         ...buildSocialSecuritySources(state, jurisdiction, month, startYear),
+        ...buildRmdSources(state, jurisdiction, month, startYear),
       ];
 
       const expenseCents = sumMonthlySeries(input.expenseSeries, month);

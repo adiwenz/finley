@@ -31,6 +31,19 @@ export interface SocialSecurityContext extends JurisdictionContext {
   readonly currentAge: number;
 }
 
+/**
+ * Context for the Required Minimum Distribution seam (§5.4). The engine owns the
+ * pre-tax account balances and calls this once per year for each account holder;
+ * `rules` decides the start age (birth-year-dependent) and, at/after it, the
+ * required withdrawal from the supplied pre-tax balance (0 before the start age).
+ */
+export interface RmdContext extends JurisdictionContext {
+  /** The account holder's age in `year` (`year − birthYear`). */
+  readonly age: number;
+  /** Birth year — sets the rules-side RMD start age (73 vs. 75 under current US law). */
+  readonly birthYear: number;
+}
+
 export interface Jurisdiction {
   /** Stable identifier, e.g. `"null"` or `"US-2026"`. */
   readonly id: string;
@@ -65,6 +78,23 @@ export interface Jurisdiction {
   socialSecurityMonthlyBenefitCents?(
     record: EarningsRecord,
     ctx: SocialSecurityContext,
+  ): Cents;
+
+  /**
+   * §5.4 seam: the Required Minimum Distribution a pre-tax account holder must
+   * withdraw this year, given their aggregate pre-tax balance and age. `rules`
+   * owns the start age (birth-year-dependent, e.g. 73 vs. 75) and the life-
+   * expectancy divisor table; it returns 0 before the start age. The engine
+   * accumulates the pre-tax balances (pure bookkeeping), calls this once per
+   * year, and forces the returned amount out of pre-tax accounts as taxable
+   * ordinary income routed to a taxable destination (the withdrawal binds as
+   * `max(desired, required)`; the base sim has no desired draw, so `required`
+   * binds). Optional and legislation-set: absent (v1 null jurisdiction) → no RMD
+   * while the balances still compound.
+   */
+  requiredMinimumDistributionCents?(
+    preTaxBalanceCents: Cents,
+    ctx: RmdContext,
   ): Cents;
 }
 
