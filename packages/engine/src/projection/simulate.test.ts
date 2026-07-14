@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, type Person } from "./projection/simulate";
-import { Account } from "./account";
-import { Liability, SYNTHETIC_CARD_ID } from "./liability";
-import { CashFlowSeries, dollarsToCents } from "./cashFlowSeries";
-import { nullJurisdiction } from "./jurisdiction";
+import { simulateHousehold, type Person } from "./simulate";
+import { Account } from "../account";
+import { Liability, SYNTHETIC_CARD_ID } from "../liability";
+import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction";
 
 function makePerson(id = "p1", name = "Alice"): Person {
   return { id, name };

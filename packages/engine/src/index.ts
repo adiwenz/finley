@@ -12,6 +12,7 @@ export * from "./account";
 export * from "./liability";
 export * from "./affordability";
 export * from "./jurisdiction";
+export * from "./earningsRecord";
 export * from "./goal";
 export * from "./retirement";
 export * from "./ids";

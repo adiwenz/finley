@@ -1,4 +1,5 @@
 import type { Cents } from "./money";
+import type { EarningsRecord } from "./earningsRecord";
 
 /**
  * The jurisdiction interface — the plug-and-play seam (ARCHITECTURE.md, §5.3–5.5).
@@ -15,6 +16,19 @@ import type { Cents } from "./money";
 export interface JurisdictionContext {
   /** Calendar year the figure applies to; all rules facts are year-parameterized. */
   readonly year: number;
+}
+
+/**
+ * Context for the Social Security benefit seam (§5.4). The engine supplies the
+ * pinned claiming age (62–70, a decision variable, never searched by the solver),
+ * the person's age in the year benefits begin, and that calendar year; `rules`
+ * computes the benefit from the {@link EarningsRecord} plus these.
+ */
+export interface SocialSecurityContext extends JurisdictionContext {
+  /** Pinned claiming age (62 earliest, 67 full, 70 max). An input, never searched. */
+  readonly claimingAge: number;
+  /** The person's age in the year benefits begin (equals claimingAge at first claim). */
+  readonly currentAge: number;
 }
 
 export interface Jurisdiction {
@@ -37,6 +51,21 @@ export interface Jurisdiction {
    * jurisdiction). The employer match is separate and does NOT share this cap.
    */
   retirementDeferralLimitCents?(ctx: JurisdictionContext): Cents;
+
+  /**
+   * §5.4 seam: a person's monthly Social Security benefit, derived from their
+   * accumulated lifetime {@link EarningsRecord} at claiming age. The engine owns
+   * and accumulates the record (pure bookkeeping) and calls this once when the
+   * person reaches their claiming age; `rules` implements the AIME→PIA bend-point
+   * formula. Optional and legislation-set: when absent (v1 null jurisdiction) the
+   * benefit is 0 while the record still accumulates. The result is nominal cents
+   * and enters the waterfall POST-deferral, tagged `socialSecurity` for the
+   * partial-taxation seam — SS is not earned wages (§5.4).
+   */
+  socialSecurityMonthlyBenefitCents?(
+    record: EarningsRecord,
+    ctx: SocialSecurityContext,
+  ): Cents;
 }
 
 /**

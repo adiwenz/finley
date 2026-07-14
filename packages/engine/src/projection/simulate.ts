@@ -1,6 +1,7 @@
 import type { Cents } from "../money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import type { Account } from "../account";
+import { seedEarnings, type EarningsAccumulator } from "../earningsRecord";
 import {
   Liability,
   SYNTHETIC_CARD_ID,
@@ -9,76 +10,29 @@ import {
   amortizationScheduleCents,
   derivePaymentStatus,
   deriveLoanStatus,
-  type PaymentStatus,
-  type LoanStatus,
 } from "../liability";
-import { CashFlowSeries, preciseMonthlyRate } from "../cashFlowSeries";
+import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { Goal } from "../goal";
 import {
   runWaterfall,
   type IncomeSourceMonth,
-  type PlanDescriptor,
   type SharedContributionScheme,
   type SurplusDestination,
 } from "./waterfall";
+import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
+import type {
+  HouseholdSimInput,
+  LiabilityPaymentRecord,
+  OwnedSeries,
+  Person,
+  ProjectionMonth,
+  ProjectionSeries,
+  SimProperty,
+} from "./simulate.types";
 
-/**
- * The projection series — the engine's public output and the chart's data
- * contract (§10.6). One entry per simulated month, starting at the "now"
- * marker (month 0); there is no pre-"now" financial curve (§4.6).
- *
- * Simulate in nominal dollars, report in real dollars (§0.4): every point
- * carries both `netWorthNominalCents` and `netWorthRealCents`, so the chart can
- * draw the real and nominal curves without recomputing the conversion.
- */
-/**
- * How one liability's scheduled payment was serviced in a single month — the
- * payment-record seam (see PaymentStatus / LoanStatus). One entry is emitted per
- * liability that had a payment due that month; paid-off, not-yet-originated, and
- * origination-month liabilities have no entry (they still appear in
- * liabilityBalancesCents). `amountAppliedCents` is the payment actually run
- * against the balance in advanceLiabilities.
- *
- * v1-seam: paymentStatus is always `full` and loanStatus always `current` today.
- */
-export interface LiabilityPaymentRecord {
-  readonly paymentStatus: PaymentStatus;
-  readonly amountAppliedCents: Cents;
-  readonly loanStatus: LoanStatus;
-}
-
-export interface ProjectionMonth {
-  readonly month: number;
-  readonly netWorthNominalCents: Cents;
-  readonly netWorthRealCents: Cents;
-  readonly accountBalancesCents: Readonly<Record<string, Cents>>;
-  /** Balance owed on each liability at this month (positive = owed). */
-  readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
-  /**
-   * Per-liability payment record for this month, keyed by liability id — the
-   * partial-payment / forbearance seam. Only liabilities with a payment due this
-   * month appear (see LiabilityPaymentRecord). Empty at month 0 (no month is
-   * processed before "now", §4.6).
-   */
-  readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
-  /**
-   * Value of each owned property at this month (positive = asset), keyed by
-   * property id. A property appears from its purchase month and drops out once
-   * sold; its value contributes to net worth, and equity = value − the associated
-   * mortgage balance in `liabilityBalancesCents` (§4.1).
-   */
-  readonly propertyValuesCents: Readonly<Record<string, Cents>>;
-  /**
-   * True in any month where the §5.1 shortfall cascade exhausted all available
-   * credit and could not cover the deficit. Once true, the plan is unfinanceable
-   * from this month forward without structural changes.
-   */
-  readonly isInsolvent: boolean;
-}
-
-export interface ProjectionSeries {
-  readonly months: readonly ProjectionMonth[];
-}
+// Re-exported so existing importers (and the engine barrel in index.ts) keep
+// resolving the simulator's public types through ./simulate.
+export type * from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
 
@@ -95,86 +49,6 @@ function toRealCents(
 // Household simulator — real income/expense series + compounding accounts
 // Slice-2 extension — liabilities, shortfall cascade (§5.1), infeasibility flag
 // ---------------------------------------------------------------------------
-
-/** A person in the household. */
-export interface Person {
-  readonly id: string;
-  readonly name: string;
-}
-
-/** An income or expense series tied to an owner. */
-export interface OwnedSeries {
-  readonly series: CashFlowSeries;
-  readonly ownerId: string;
-  /**
-   * Retirement-plan descriptor (§5.5) for an income source that funds a
-   * person-owned account. Presence makes the source eligible for pre-tax deferral
-   * in the §5.0 waterfall (step 1); absence means it enters post-deferral. Only
-   * meaningful on income series.
-   */
-  readonly planDescriptor?: PlanDescriptor;
-}
-
-/**
- * A property as the simulator consumes it: an appreciating asset stock (§4.1).
- * Value opens at `openingValueCents` at `startMonth`, then compounds monthly at
- * `preciseMonthlyRate(appreciationAnnualRate)` (0 for a flat/`fixed` property).
- * It contributes to net worth through `endMonth` inclusive (a sale month), then
- * drops to 0. Growth-mode → annual-rate resolution happens at the sim boundary.
- */
-export interface SimProperty {
-  readonly id: string;
-  readonly ownerId: string;
-  readonly startMonth: number;
-  readonly endMonth: number | null;
-  readonly openingValueCents: Cents;
-  readonly appreciationAnnualRate: number;
-}
-
-export interface HouseholdSimInput {
-  readonly horizonMonths: number;
-  readonly annualInflationRate: number;
-  readonly startYear?: number;
-  readonly persons: readonly Person[];
-  /**
-   * Asset accounts. Net cash flow is routed through the §5.0 waterfall; leftover
-   * surplus idles in the first liquid account by default (see `surplusDestination`).
-   * Every account a goal or the surplus destination targets must be one of these —
-   * a deposit to an unknown account id would not be counted toward net worth.
-   */
-  readonly accounts: readonly Account[];
-  readonly incomeSeries: readonly OwnedSeries[];
-  readonly expenseSeries: readonly OwnedSeries[];
-  /**
-   * Liabilities (mortgages, auto loans, student loans, credit cards).
-   * Amortizing payments are computed from opening balance/rate/term (§3);
-   * credit card minimum payments are computed each month from the current balance.
-   * If no credit cards are provided, a synthetic 22% APR card absorbs shortfalls (§5.1).
-   */
-  readonly liabilities?: readonly Liability[];
-  /**
-   * Owned properties (§4.1). Each is an appreciating asset stock whose value
-   * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
-   */
-  readonly properties?: readonly SimProperty[];
-  /**
-   * Funding goals — prioritized destinations in the §5.0 waterfall (§5.2). Shared
-   * goals draw from the household pool; personal goals from their owner's leftover.
-   * Retirement is just the highest-priority horizon goal. Defaults to none.
-   */
-  readonly goals?: readonly Goal[];
-  /**
-   * Lever 2 (§5.0): how partners split shared obligations. Defaults to
-   * `"proportional"` (to take-home) — the robust default that degrades gracefully
-   * under unequal or zero incomes.
-   */
-  readonly sharedScheme?: SharedContributionScheme;
-  /**
-   * Lever 4 (§5.0): where leftover cash lands once every goal is funded. Defaults
-   * to `{ kind: "idle" }` — surplus idles in the first liquid account.
-   */
-  readonly surplusDestination?: SurplusDestination;
-}
 
 /**
  * The resolved, mutable state a single `simulateHousehold` run threads through
@@ -215,6 +89,21 @@ interface SimState {
    * The §5.4 annual contribution cap is enforced against this running total.
    */
   readonly deferredByPersonYear: Map<string, Cents>;
+  /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
+  readonly personsById: ReadonlyMap<string, Person>;
+  /**
+   * Per-person lifetime SS-covered earnings accumulator (§5.4), seeded from the
+   * §4.6 pre-now summary. Every month's covered wages are folded in; the record
+   * is frozen and handed to the jurisdiction seam at claiming age.
+   */
+  readonly earningsByPerson: Map<string, EarningsAccumulator>;
+  /**
+   * The monthly Social Security benefit (nominal cents) computed once at each
+   * person's claiming month and held flat thereafter. Absent until claimed; 0
+   * when the jurisdiction supplies no benefit seam (v1 null). COLA indexing is
+   * deferred — the benefit is held nominal-flat once claimed.
+   */
+  readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
 }
 
 /** Build the run's static config and opening balances (the pre-loop setup). */
@@ -295,6 +184,14 @@ function initSimState(input: HouseholdSimInput): SimState {
     }
   }
 
+  const personsById = new Map<string, Person>();
+  for (const p of input.persons) personsById.set(p.id, p);
+
+  const earningsByPerson = new Map<string, EarningsAccumulator>();
+  for (const p of input.persons) {
+    earningsByPerson.set(p.id, seedEarnings(p.priorEarningsCents));
+  }
+
   return {
     accounts: input.accounts,
     liquidAccount: input.accounts.find((a) => a.liquid) ?? null,
@@ -310,6 +207,9 @@ function initSimState(input: HouseholdSimInput): SimState {
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
+    personsById,
+    earningsByPerson,
+    ssMonthlyBenefitByPerson: new Map<string, Cents>(),
   };
 }
 
@@ -408,8 +308,7 @@ function buildIncomeSources(
  */
 function allocateMonth(
   state: SimState,
-  input: HouseholdSimInput,
-  month: number,
+  incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
@@ -418,7 +317,7 @@ function allocateMonth(
 
   const result = runWaterfall({
     personIds: state.personIds,
-    incomeSources: buildIncomeSources(input.incomeSeries, month),
+    incomeSources,
     sharedObligationCents,
     sharedScheme: state.sharedScheme,
     surplusDestination: state.surplusDestination,
@@ -634,13 +533,22 @@ export function simulateHousehold(
     let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
 
     if (month > 0) {
-      const ctx: JurisdictionContext = { year: startYear + Math.floor(month / 12) };
+      const year = startYear + Math.floor(month / 12);
+      const ctx: JurisdictionContext = { year };
+
+      // Fold this month's covered wages into each person's SS earnings record
+      // before assembling income, so a claim landing this month sees them (§5.4).
+      accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year);
+      const incomeSources = [
+        ...buildIncomeSources(input.incomeSeries, month),
+        ...buildSocialSecuritySources(state, jurisdiction, month, startYear),
+      ];
 
       const expenseCents = sumMonthlySeries(input.expenseSeries, month);
       const payments = computeLiabilityPayments(state, month);
       const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
 
-      allocateMonth(state, input, month, ctx, jurisdiction, expenseCents + totalPaymentsCents);
+      allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents);
       isInsolvent = applyShortfallCascade(state, month);
 
       applyAssetTransfers(state, month);
