@@ -28,6 +28,15 @@ export interface Jurisdiction {
    * logic across allocation code.
    */
   computeTaxCents(taxableIncomeCents: Cents, ctx: JurisdictionContext): Cents;
+
+  /**
+   * §5.4 seam: a person's annual employee pre-tax deferral limit (401k-style) for
+   * the given year. The waterfall caps each person's combined deferral at this and
+   * redirects the overflow to the next destination in the priority order (§5.0).
+   * Optional and legislation-set; when absent, deferrals are uncapped (v1 null
+   * jurisdiction). The employer match is separate and does NOT share this cap.
+   */
+  retirementDeferralLimitCents?(ctx: JurisdictionContext): Cents;
 }
 
 /**

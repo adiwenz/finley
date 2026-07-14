@@ -10,6 +10,7 @@ import type { GrowthMode } from "../cashFlowSeries";
 import type { CashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
 import type { Person } from "../projection/simulate";
+import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
@@ -36,6 +37,12 @@ export interface HouseholdSeries {
   readonly startMonth: number;
   readonly endMonth: number | null;
   readonly series: CashFlowSeries;
+  /**
+   * Retirement-plan descriptor (§5.5) for an income series funding a person-owned
+   * account. Presence makes the source eligible for pre-tax deferral in the §5.0
+   * waterfall. Only meaningful on income series; absent otherwise.
+   */
+  readonly planDescriptor?: PlanDescriptor;
 }
 
 export interface HouseholdLiability {

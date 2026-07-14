@@ -15,8 +15,8 @@
 import type { Cents } from "./money";
 import { preciseMonthlyRate } from "./cashFlowSeries";
 
-/** v1-seam: distinguishes how withdrawals/contributions are taxed. */
-export type TaxTreatment = "preTax" | "roth" | "taxable";
+/** v1-seam: distinguishes how withdrawals/contributions are taxed (§5.3 seam 2). */
+export type TaxTreatment = "preTax" | "roth" | "taxable" | "hsa";
 
 /** Contiguous rate period. Rate changes create new segments from that month forward. */
 interface RateSegment {

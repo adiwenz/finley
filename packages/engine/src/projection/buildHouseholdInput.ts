@@ -30,9 +30,13 @@ export function buildHouseholdSimInput(
   const incomeSeries: OwnedSeries[] = [];
   const expenseSeries: OwnedSeries[] = [];
   for (const s of household.series) {
-    const owned: OwnedSeries = { series: s.series, ownerId: s.ownerId };
-    if (s.seriesType === "income") incomeSeries.push(owned);
-    else expenseSeries.push(owned);
+    if (s.seriesType === "income") {
+      // Preserve the §5.5 plan descriptor so plan-bearing income defers pre-tax
+      // in the waterfall; expenses never carry one.
+      incomeSeries.push({ series: s.series, ownerId: s.ownerId, planDescriptor: s.planDescriptor });
+    } else {
+      expenseSeries.push({ series: s.series, ownerId: s.ownerId });
+    }
   }
 
   const liabilities = household.liabilities.map((def) => {
@@ -86,6 +90,11 @@ export function buildHouseholdSimInput(
     expenseSeries,
     liabilities: liabilities.length > 0 ? liabilities : undefined,
     properties: properties.length > 0 ? properties : undefined,
+    // §5.0 waterfall config lives on the value-editing surface (§10.2), not the
+    // ledger, so it rides along on the base rather than being derived from events.
+    goals: base.goals,
+    sharedScheme: base.sharedScheme,
+    surplusDestination: base.surplusDestination,
   };
 }
 

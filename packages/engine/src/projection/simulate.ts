@@ -13,6 +13,14 @@ import {
   type LoanStatus,
 } from "../liability";
 import { CashFlowSeries, preciseMonthlyRate } from "../cashFlowSeries";
+import type { Goal } from "../goal";
+import {
+  runWaterfall,
+  type IncomeSourceMonth,
+  type PlanDescriptor,
+  type SharedContributionScheme,
+  type SurplusDestination,
+} from "./waterfall";
 
 /**
  * The projection series — the engine's public output and the chart's data
@@ -98,6 +106,13 @@ export interface Person {
 export interface OwnedSeries {
   readonly series: CashFlowSeries;
   readonly ownerId: string;
+  /**
+   * Retirement-plan descriptor (§5.5) for an income source that funds a
+   * person-owned account. Presence makes the source eligible for pre-tax deferral
+   * in the §5.0 waterfall (step 1); absence means it enters post-deferral. Only
+   * meaningful on income series.
+   */
+  readonly planDescriptor?: PlanDescriptor;
 }
 
 /**
@@ -122,8 +137,10 @@ export interface HouseholdSimInput {
   readonly startYear?: number;
   readonly persons: readonly Person[];
   /**
-   * Asset accounts. The first liquid account receives net cash flow each month
-   * (simplified Slice-1/2 allocation; full waterfall comes in Slice 5a, issue #7).
+   * Asset accounts. Net cash flow is routed through the §5.0 waterfall; leftover
+   * surplus idles in the first liquid account by default (see `surplusDestination`).
+   * Every account a goal or the surplus destination targets must be one of these —
+   * a deposit to an unknown account id would not be counted toward net worth.
    */
   readonly accounts: readonly Account[];
   readonly incomeSeries: readonly OwnedSeries[];
@@ -140,6 +157,23 @@ export interface HouseholdSimInput {
    * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
    */
   readonly properties?: readonly SimProperty[];
+  /**
+   * Funding goals — prioritized destinations in the §5.0 waterfall (§5.2). Shared
+   * goals draw from the household pool; personal goals from their owner's leftover.
+   * Retirement is just the highest-priority horizon goal. Defaults to none.
+   */
+  readonly goals?: readonly Goal[];
+  /**
+   * Lever 2 (§5.0): how partners split shared obligations. Defaults to
+   * `"proportional"` (to take-home) — the robust default that degrades gracefully
+   * under unequal or zero incomes.
+   */
+  readonly sharedScheme?: SharedContributionScheme;
+  /**
+   * Lever 4 (§5.0): where leftover cash lands once every goal is funded. Defaults
+   * to `{ kind: "idle" }` — surplus idles in the first liquid account.
+   */
+  readonly surplusDestination?: SurplusDestination;
 }
 
 /**
@@ -171,6 +205,16 @@ interface SimState {
   readonly properties: readonly SimProperty[];
   /** Authoritative, mutable current value of each property — updated by advanceProperties. */
   readonly propertyValues: Map<string, Cents>;
+  /** Every person who appears as an income owner or roster member — waterfall pools. */
+  readonly personIds: readonly string[];
+  readonly goals: readonly Goal[];
+  readonly sharedScheme: SharedContributionScheme;
+  readonly surplusDestination: SurplusDestination;
+  /**
+   * Cumulative pre-tax deferral per person per calendar year, keyed `${personId}|${year}`.
+   * The §5.4 annual contribution cap is enforced against this running total.
+   */
+  readonly deferredByPersonYear: Map<string, Cents>;
 }
 
 /** Build the run's static config and opening balances (the pre-loop setup). */
@@ -237,6 +281,20 @@ function initSimState(input: HouseholdSimInput): SimState {
     }
   }
 
+  // Everyone who can hold a cash pool in the waterfall: roster members plus any
+  // income owner (an income series can be owned by someone not in `persons`).
+  const personIds: string[] = [];
+  const seen = new Set<string>();
+  for (const id of [
+    ...input.persons.map((p) => p.id),
+    ...input.incomeSeries.map((s) => s.ownerId),
+  ]) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      personIds.push(id);
+    }
+  }
+
   return {
     accounts: input.accounts,
     liquidAccount: input.accounts.find((a) => a.liquid) ?? null,
@@ -247,6 +305,11 @@ function initSimState(input: HouseholdSimInput): SimState {
     liabilityBalances,
     properties,
     propertyValues,
+    personIds,
+    goals: input.goals ?? [],
+    sharedScheme: input.sharedScheme ?? "proportional",
+    surplusDestination: input.surplusDestination ?? { kind: "idle" },
+    deferredByPersonYear: new Map<string, Cents>(),
   };
 }
 
@@ -314,11 +377,75 @@ function buildLiabilityPaymentRecords(
   return records;
 }
 
-/** Step 6: deposit net cash flow into the first liquid account (pre-waterfall simplification). */
-function depositNetFlow(state: SimState, netFlowCents: Cents): void {
-  if (state.liquidAccount === null) return;
-  const prev = state.assetBalances.get(state.liquidAccount.id) ?? 0;
-  state.assetBalances.set(state.liquidAccount.id, prev + netFlowCents);
+/** This month's income sources for the waterfall — one per active income series. */
+function buildIncomeSources(
+  incomeSeries: readonly OwnedSeries[],
+  month: number,
+): IncomeSourceMonth[] {
+  const sources: IncomeSourceMonth[] = [];
+  for (const s of incomeSeries) {
+    const grossCents = s.series.getMonthlyCents(month);
+    if (grossCents === 0 && s.planDescriptor === undefined) continue;
+    sources.push({
+      ownerId: s.ownerId,
+      grossCents,
+      taxCategory: s.series.taxCategory ?? "ordinaryIncome",
+      planDescriptor: s.planDescriptor,
+    });
+  }
+  return sources;
+}
+
+/**
+ * Step 3/6: route this month's income through the §5.0 allocation waterfall.
+ * Applies the waterfall's per-account deposits (pre-tax deferrals + match, goal
+ * funding, and the surplus destination) to the asset balances, then charges any
+ * uncovered obligation as a deficit on the first liquid account so the §5.1
+ * cascade (called next) drains liquid assets before reaching for credit.
+ *
+ * Returns the tax charged this month (already reflected in take-home). The
+ * per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
+ */
+function allocateMonth(
+  state: SimState,
+  input: HouseholdSimInput,
+  month: number,
+  ctx: JurisdictionContext,
+  jurisdiction: Jurisdiction,
+  sharedObligationCents: Cents,
+): void {
+  const limit = jurisdiction.retirementDeferralLimitCents?.(ctx) ?? Infinity;
+
+  const result = runWaterfall({
+    personIds: state.personIds,
+    incomeSources: buildIncomeSources(input.incomeSeries, month),
+    sharedObligationCents,
+    sharedScheme: state.sharedScheme,
+    surplusDestination: state.surplusDestination,
+    goals: state.goals,
+    accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
+    liquidAccountId: state.liquidAccount?.id ?? null,
+    computeTaxCents: (taxable) => jurisdiction.computeTaxCents(taxable, ctx),
+    remainingDeferralRoomCents: (pid) => {
+      if (limit === Infinity) return Infinity;
+      const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
+      return Math.max(0, limit - used);
+    },
+  });
+
+  for (const [id, amount] of result.accountDepositsCents) {
+    state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
+  }
+
+  if (result.shortfallCents > 0 && state.liquidAccount !== null) {
+    const id = state.liquidAccount.id;
+    state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - result.shortfallCents);
+  }
+
+  for (const [pid, amount] of result.deferredByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
+  }
 }
 
 /**
@@ -482,13 +609,16 @@ function snapshotMonth(
 
 /**
  * Household simulator. Fixed pipeline per month (§5), each step a named helper:
- *  1–3. Gross income, tax (jurisdiction seam), expenses  → sumMonthlySeries
- *  4–5. Liability payments → net flow                     → computeLiabilityPayments
- *  6–7. Deposit, then §5.1 shortfall cascade              → depositNetFlow / applyShortfallCascade
+ *   3–6. §5.0 allocation waterfall: per-source pre-tax deferrals, tax seam,
+ *        take-home pools, shared/personal goals, surplus — plus the deficit charge
+ *        that feeds the cascade                            → allocateMonth
+ *     7. §5.1 shortfall cascade                            → applyShortfallCascade
  *  8–9. Asset one-time transfers, then compounding        → applyAssetTransfers / compoundAssets
  *   10. Liability transfers, interest, payments           → advanceLiabilities
  *  10b. Property appreciation                             → advanceProperties
  *   11. Snapshot                                          → snapshotMonth
+ * Expenses and liability payments are the month's shared obligations; the tax
+ * chokepoint (§5.3) lives inside the waterfall and nowhere else.
  * Month 0 is the opening snapshot only — no month is processed before "now" (§4.6).
  */
 export function simulateHousehold(
@@ -506,15 +636,11 @@ export function simulateHousehold(
     if (month > 0) {
       const ctx: JurisdictionContext = { year: startYear + Math.floor(month / 12) };
 
-      const grossIncomeCents = sumMonthlySeries(input.incomeSeries, month);
-      const taxCents = jurisdiction.computeTaxCents(Math.max(0, grossIncomeCents), ctx);
       const expenseCents = sumMonthlySeries(input.expenseSeries, month);
-
       const payments = computeLiabilityPayments(state, month);
       const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
-      const netFlowCents = grossIncomeCents - taxCents - expenseCents - totalPaymentsCents;
 
-      depositNetFlow(state, netFlowCents);
+      allocateMonth(state, input, month, ctx, jurisdiction, expenseCents + totalPaymentsCents);
       isInsolvent = applyShortfallCascade(state, month);
 
       applyAssetTransfers(state, month);
