@@ -10,6 +10,7 @@ import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
+import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { useLedger } from "./hooks/useLedger";
 import type { BudgetValues } from "./planTypes";
 import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
@@ -95,6 +96,10 @@ export function App() {
               setBudget={setBudget}
               scrubMonth={scrubMonth}
             />
+          </div>
+
+          <div className="card">
+            <GoalsPanel budget={budget} series={series} setBudget={setBudget} />
           </div>
         </div>
       </div>

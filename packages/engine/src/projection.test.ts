@@ -649,3 +649,163 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     });
   });
 });
+
+describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
+  const person: Person = { id: "p1", name: "Alice" };
+
+  function retirementAccount(): Account {
+    // A non-liquid pre-tax account — deferrals land here, but the surplus/idle
+    // step never does (it targets the liquid account).
+    return new Account({
+      id: "401k",
+      ownerId: "p1",
+      liquid: false,
+      taxTreatment: "preTax",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+  }
+
+  it("a plan-bearing job defers pre-tax into its retirement account each month", () => {
+    const checking = makeInvestmentAccount(0, 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 3,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [checking, retirementAccount()],
+        incomeSeries: [
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p1",
+            planDescriptor: { deferralFraction: 0.1, fundAccountId: "401k" },
+          },
+        ],
+        expenseSeries: [],
+      },
+      nullJurisdiction,
+    );
+    // $500/mo deferred → $1500 after 3 months; take-home $4500/mo → $13,500 in checking.
+    expect(series.months[3].accountBalancesCents["401k"]).toBe(dollarsToCents(1500));
+    expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(13500));
+  });
+
+  it("the annual deferral cap is enforced across the calendar year (§5.4)", () => {
+    // Wants to defer $5000/mo but the annual limit is $12,000 → capped mid-year,
+    // and reset the next calendar year.
+    const cappingJurisdiction = {
+      id: "cap-test",
+      computeTaxCents: () => 0,
+      retirementDeferralLimitCents: () => dollarsToCents(12000),
+    };
+    const checking = makeInvestmentAccount(0, 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 24,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [checking, retirementAccount()],
+        incomeSeries: [
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p1",
+            planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k" },
+          },
+        ],
+        expenseSeries: [],
+      },
+      cappingJurisdiction,
+    );
+    // Calendar year one is months 0–11 (ctx.year = startYear + floor(month/12));
+    // deferrals in months 1–11 cap at $12,000 (vs. an uncapped 11×$5000 = $55,000).
+    expect(series.months[11].accountBalancesCents["401k"]).toBe(dollarsToCents(12000));
+    // Month 12 opens the next calendar year → the room resets; by month 23 a second
+    // full $12,000 has been deferred → $24,000 cumulative.
+    expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(24000));
+  });
+
+  it("routing income through the waterfall conserves net worth vs. the naive path", () => {
+    // With no goals, no plan, and idle surplus, the waterfall must reproduce the
+    // old 'net flow into the liquid account' behavior exactly (backward compat).
+    const checking = makeInvestmentAccount(dollarsToCents(1000), 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [checking],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(2000)), ownerId: "p1" }],
+      },
+      nullJurisdiction,
+    );
+    // $1000 opening + $1000/mo net for 12 months = $13,000.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(13000));
+  });
+
+  it("surplus swept to an investment account instead of idling in liquid (lever 4)", () => {
+    const checking = makeInvestmentAccount(0, 0);
+    const brokerage = new Account({
+      id: "brokerage",
+      ownerId: "p1",
+      liquid: false,
+      taxTreatment: "taxable",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 6,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [checking, brokerage],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(2000)), ownerId: "p1" }],
+        expenseSeries: [],
+        surplusDestination: { kind: "swept", accountId: "brokerage" },
+      },
+      nullJurisdiction,
+    );
+    expect(series.months[6].accountBalancesCents["brokerage"]).toBe(dollarsToCents(12000));
+    expect(series.months[6].accountBalancesCents["investment"]).toBe(0);
+  });
+
+  it("a shared goal is funded ahead of idle surplus, up to its target", () => {
+    const checking = makeInvestmentAccount(0, 0);
+    const emergency = new Account({
+      id: "emergency",
+      ownerId: "p1",
+      liquid: false,
+      taxTreatment: "taxable",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 6,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [checking, emergency],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(2000)), ownerId: "p1" }],
+        expenseSeries: [],
+        goals: [
+          {
+            id: "ef",
+            name: "Emergency fund",
+            targetCents: dollarsToCents(5000),
+            targetDate: "asap",
+            fundAccountId: "emergency",
+            priority: 1,
+            type: "horizon",
+            scope: "shared",
+          },
+        ],
+      },
+      nullJurisdiction,
+    );
+    // Months 1–2 fill the goal to $5000 ($2000 + $2000 + $1000), then surplus idles.
+    expect(series.months[3].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    expect(series.months[6].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    // After the goal is capped, the rest idles in checking: month 3 gets $1000, 4–6 get $2000.
+    expect(series.months[6].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
+  });
+});

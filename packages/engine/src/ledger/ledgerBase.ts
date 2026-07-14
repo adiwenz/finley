@@ -8,6 +8,11 @@
 
 import type { Person, OwnedSeries } from "../projection/simulate";
 import type { Account } from "../account";
+import type { Goal } from "../goal";
+import type {
+  SharedContributionScheme,
+  SurplusDestination,
+} from "../projection/waterfall";
 
 export interface LedgerBaseConfig {
   readonly horizonMonths: number;
@@ -25,4 +30,14 @@ export interface LedgerBaseConfig {
   readonly initialIncomeSeries?: readonly OwnedSeries[];
   /** Ongoing expense series on the value-editing surface (see initialIncomeSeries). */
   readonly initialExpenseSeries?: readonly OwnedSeries[];
+  /**
+   * Funding goals — prioritized destinations in the §5.0 waterfall (§5.2). Like
+   * the budget series, goals live on the value-editing surface, not the event
+   * ledger (§10.2): reprioritizing a goal is a plan edit, not a life event.
+   */
+  readonly goals?: readonly Goal[];
+  /** Lever 2 (§5.0): how partners split shared obligations. Default proportional. */
+  readonly sharedScheme?: SharedContributionScheme;
+  /** Lever 4 (§5.0): where leftover cash lands once every goal is funded. */
+  readonly surplusDestination?: SurplusDestination;
 }

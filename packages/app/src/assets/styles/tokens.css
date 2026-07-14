@@ -30,6 +30,11 @@
   --color-alert-bg: #fde8e8;
   --color-alert-border: #e8a0a0;
 
+  /* Advisory / soft-warning (amber, distinct from the red hard block) */
+  --color-warn: #7a4a12;
+  --color-warn-bg: #fbefd7;
+  --color-warn-border: #e3c081;
+
   /* Border radii */
   --radius-sm: 4px;
   --radius-md: 6px;

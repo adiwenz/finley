@@ -2,12 +2,16 @@
 set -eo pipefail
 
 if [ -z "$1" ]; then
-  echo "Usage: $0 <iterations> [local|commit] [issue-number]"
+  echo "Usage: $0 <iterations> [local|commit] [issues]"
+  echo "  iterations       max iterations PER issue"
   echo "  local  (default) report-only: no commits, pushes, or issue writes"
   echo "  commit           commits changes and closes/comments the issue"
-  echo "  issue-number     pin Ralph to one issue (default 5); \"\" = all ready-for-agent"
+  echo "  issues           one issue, or a quoted space-separated list worked one"
+  echo "                   after another (default \"8\"); \"\" = all ready-for-agent"
   exit 1
 fi
+
+ITERATIONS="$1"
 
 # Select the prompt flow. Defaults to local (report-only).
 case "${2:-local}" in
@@ -16,9 +20,10 @@ case "${2:-local}" in
   *) echo "Unknown mode '$2' (expected 'local' or 'commit')"; exit 1 ;;
 esac
 
-# Pin Ralph to a single issue. Defaults to #5 (Slice 3b); override with the 3rd
-# argument, or pass "" to let Ralph pick from all open `ready-for-agent` issues.
-ISSUE="${3-5}"
+# Pin Ralph to a list of issues, worked one after another. Defaults to "8";
+# override with the 3rd argument (one number, or a quoted list like "8 9"), or
+# pass "" to let Ralph pick from all open `ready-for-agent` issues in one pass.
+ISSUES="${3-8}"
 
 # --- Preflight: platform-native dependencies in the sandbox -----------------
 # node_modules is a shared virtiofs mount between the macOS host and the linux
@@ -38,35 +43,55 @@ stream_text='select(.type == "assistant").message.content[]? | select(.type == "
 # jq filter to extract final result
 final_result='select(.type == "result").result // empty'
 
-for ((i=1; i<=$1; i++)); do
-  tmpfile=$(mktemp)
-  trap "rm -f $tmpfile" EXIT
+# Run up to ITERATIONS on a single issues block. Returns 0 as soon as Ralph
+# reports NO MORE TASKS; returns 1 if the iteration budget is exhausted first.
+run_issue() {
+  local label="$1" issues_block="$2"
+  for ((i=1; i<=ITERATIONS; i++)); do
+    local tmpfile commits prompt result
+    tmpfile=$(mktemp)
 
-  commits=$(git log -n 5 --format="%H%n%ad%n%B---" --date=short 2>/dev/null || echo "No commits found")
-  if [ -n "$ISSUE" ]; then
-    issues=$(gh issue view "$ISSUE" --json number,title,body \
+    # Recomputed each iteration: Ralph's own commits become prior context.
+    commits=$(git log -n 5 --format="%H%n%ad%n%B---" --date=short 2>/dev/null || echo "No commits found")
+    prompt=$(cat "$prompt_file")
+
+    docker sandbox run claude . -- \
+      --model claude-opus-4-8 \
+      --verbose \
+      --print \
+      --output-format stream-json \
+      "Previous commits: $commits Issues: $issues_block $prompt" \
+    | grep --line-buffered '^{' \
+    | tee "$tmpfile" \
+    | jq --unbuffered -rj "$stream_text"
+
+    result=$(jq -r "$final_result" "$tmpfile")
+    rm -f "$tmpfile"
+
+    if [[ "$result" == *"<promise>NO MORE TASKS</promise>"* ]]; then
+      echo "Ralph complete on $label after $i iterations."
+      return 0
+    fi
+  done
+  echo "Ralph hit the $ITERATIONS-iteration budget on $label without finishing."
+  return 1
+}
+
+if [ -n "$ISSUES" ]; then
+  # Work each pinned issue in turn; a finished (or budget-exhausted) issue moves
+  # on to the next rather than ending the run.
+  for issue in $ISSUES; do
+    echo "=== Ralph starting issue #$issue ==="
+    block=$(gh issue view "$issue" --json number,title,body \
       --jq '"## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
-  else
-    issues=$(gh issue list --label "ready-for-agent" --state open --json number,title,body \
-      --jq '.[] | "## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
-  fi
-  issues=${issues:-"No open AFK issues found."}
-  prompt=$(cat "$prompt_file")
-
-  docker sandbox run claude . -- \
-    --model claude-opus-4-8 \
-    --verbose \
-    --print \
-    --output-format stream-json \
-    "Previous commits: $commits Issues: $issues $prompt" \
-  | grep --line-buffered '^{' \
-  | tee "$tmpfile" \
-  | jq --unbuffered -rj "$stream_text"
-
-  result=$(jq -r "$final_result" "$tmpfile")
-
-  if [[ "$result" == *"<promise>NO MORE TASKS</promise>"* ]]; then
-    echo "Ralph complete after $i iterations."
-    exit 0
-  fi
-done
+    block=${block:-"Issue #$issue not found."}
+    run_issue "#$issue" "$block" || true
+  done
+  echo "Ralph finished all issues: $ISSUES"
+else
+  # No pins: one pass over every open ready-for-agent issue, as before.
+  block=$(gh issue list --label "ready-for-agent" --state open --json number,title,body \
+    --jq '.[] | "## Issue #\(.number): \(.title)\n\n\(.body)\n\n---\n"' 2>/dev/null)
+  block=${block:-"No open AFK issues found."}
+  run_issue "all ready-for-agent" "$block" || true
+fi

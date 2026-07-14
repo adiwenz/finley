@@ -669,6 +669,19 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 >   return/high-risk account ("does not model short-term market risk, which matters most for near-term
 >   goals").
 
+> **◐ OPEN — §5.2 / §5.0 deadline-paced goal funding (see issue #26):**
+> The funding rule above — §5.0 step 4/5, "funded ... in priority order ... until money runs out" —
+> is under reconsideration. Strict fill-order makes a near-deadline goal read **0% at its target
+> date** when it sits behind a large long-horizon goal, even if the household could fund both,
+> because priority currently does double duty as both **pace** (how fast a goal needs money to hit
+> its date) and **triage** (who gets shorted when cash is scarce). Proposed revision: the
+> **deadline sets a required sinking-fund monthly contribution** and dated goals fund *concurrently*
+> up to that pace, with **priority demoted to scarcity triage**. Consequence: when the household can
+> afford every pace, reordering is a no-op — so the §5.2 "reprioritizing moves the others" demo
+> would only bite under scarcity. **Not yet decided** — open decisions (extra-beyond-pace
+> destination, `asap` fallback, catch-up behavior) live in #26. Until resolved, the strict-priority
+> rule above stands.
+
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 
 Tax is deferred for v1, but unlike Monte Carlo or asset-division (which are localized bolt-ons),

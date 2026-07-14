@@ -12,9 +12,11 @@ export * from "./account";
 export * from "./liability";
 export * from "./affordability";
 export * from "./jurisdiction";
+export * from "./goal";
 export * from "./ids";
 
 // Simulator (low-level) + the ledger→projection→snapshot pipeline.
+export * from "./projection/waterfall";
 export * from "./projection/simulate";
 export * from "./projection/buildHouseholdInput";
 export * from "./projection/snapshot";
