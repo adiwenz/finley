@@ -314,7 +314,11 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
 ): void {
-  const limit = jurisdiction.retirementDeferralLimitCents?.(ctx) ?? Infinity;
+  // The deferral cap is per person, not per household: the annual limit (with any
+  // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
+  // it lazily inside the room callback so each person's birth year drives their
+  // own catch-up; a person with no birth year gets the base limit (age omitted).
+  const deferralLimit = jurisdiction.retirementDeferralLimitCents;
 
   const result = runWaterfall({
     personIds: state.personIds,
@@ -327,7 +331,10 @@ function allocateMonth(
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxable) => jurisdiction.computeTaxCents(taxable, ctx),
     remainingDeferralRoomCents: (pid) => {
-      if (limit === Infinity) return Infinity;
+      if (deferralLimit === undefined) return Infinity;
+      const birthYear = state.personsById.get(pid)?.birthYear;
+      const age = birthYear === undefined ? undefined : ctx.year - birthYear;
+      const limit = deferralLimit({ year: ctx.year, age });
       const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },

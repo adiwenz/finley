@@ -1,9 +1,16 @@
 import type { Jurisdiction } from "@finley/engine";
 import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
+import { retirementDeferralLimitCents } from "./contributionLimits";
 
 export { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 export { requiredMinimumDistributionCents } from "./rmd";
+export {
+  contributionLimits,
+  retirementDeferralLimitCents,
+  CONTRIBUTION_LIMITS_BASE_YEAR,
+  type ContributionLimits,
+} from "./contributionLimits";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -23,4 +30,5 @@ export const usJurisdiction: Jurisdiction = {
   computeTaxCents: () => 0,
   socialSecurityMonthlyBenefitCents,
   requiredMinimumDistributionCents,
+  retirementDeferralLimitCents,
 };

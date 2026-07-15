@@ -32,6 +32,18 @@ export interface SocialSecurityContext extends JurisdictionContext {
 }
 
 /**
+ * Context for the retirement-deferral-limit seam (§5.4). The engine supplies the
+ * calendar year and — when known — the contributing person's age that year, so
+ * `rules` can add the age-banded catch-up (an extra allowance from 50, larger in
+ * the 60–63 band under SECURE 2.0). Age is optional: a person with no birth year
+ * gets the base limit only.
+ */
+export interface DeferralLimitContext extends JurisdictionContext {
+  /** The contributing person's age in `year`; enables age-banded catch-up. Absent → base limit only. */
+  readonly age?: number;
+}
+
+/**
  * Context for the Required Minimum Distribution seam (§5.4). The engine owns the
  * pre-tax account balances and calls this once per year for each account holder;
  * `rules` decides the start age (birth-year-dependent) and, at/after it, the
@@ -58,12 +70,14 @@ export interface Jurisdiction {
 
   /**
    * §5.4 seam: a person's annual employee pre-tax deferral limit (401k-style) for
-   * the given year. The waterfall caps each person's combined deferral at this and
-   * redirects the overflow to the next destination in the priority order (§5.0).
-   * Optional and legislation-set; when absent, deferrals are uncapped (v1 null
-   * jurisdiction). The employer match is separate and does NOT share this cap.
+   * the given year, including the age-banded catch-up when {@link
+   * DeferralLimitContext.age} is supplied. The waterfall caps each person's
+   * combined deferral at this and redirects the overflow to the next destination
+   * in the priority order (§5.0). Optional and legislation-set; when absent,
+   * deferrals are uncapped (v1 null jurisdiction). The employer match is separate
+   * and does NOT share this cap.
    */
-  retirementDeferralLimitCents?(ctx: JurisdictionContext): Cents;
+  retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
    * §5.4 seam: a person's monthly Social Security benefit, derived from their

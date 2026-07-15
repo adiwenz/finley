@@ -724,6 +724,62 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(24000));
   });
 
+  it("the deferral cap is age-aware: an over-50 catch-up raises one person's limit (§5.4)", () => {
+    // Base annual limit $12,000, plus a $3,000 catch-up from age 50. The seam is
+    // called per person with that person's age, so only the older partner's cap lifts.
+    const catchUpJurisdiction = {
+      id: "catchup-test",
+      computeTaxCents: () => 0,
+      retirementDeferralLimitCents: (ctx: { year: number; age?: number }) =>
+        dollarsToCents(12000) + (ctx.age !== undefined && ctx.age >= 50 ? dollarsToCents(3000) : 0),
+    };
+    // startYear defaults to 2026: born 1971 → age 55 (catch-up); born 1990 → age 36 (base).
+    const older: Person = { id: "p1", name: "Alice", birthYear: 1971 };
+    const younger: Person = { id: "p2", name: "Bob", birthYear: 1990 };
+    const older401k = new Account({
+      id: "401k-a",
+      ownerId: "p1",
+      liquid: false,
+      taxTreatment: "preTax",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const younger401k = new Account({
+      id: "401k-b",
+      ownerId: "p2",
+      liquid: false,
+      taxTreatment: "preTax",
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const checking = makeInvestmentAccount(0, 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 11,
+        annualInflationRate: 0,
+        persons: [older, younger],
+        accounts: [checking, older401k, younger401k],
+        incomeSeries: [
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p1",
+            planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k-a" },
+          },
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p2",
+            planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k-b" },
+          },
+        ],
+        expenseSeries: [],
+      },
+      catchUpJurisdiction,
+    );
+    // The over-50 partner caps at $15,000 (base + catch-up); the younger at $12,000.
+    expect(series.months[11].accountBalancesCents["401k-a"]).toBe(dollarsToCents(15000));
+    expect(series.months[11].accountBalancesCents["401k-b"]).toBe(dollarsToCents(12000));
+  });
+
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
     // With no goals, no plan, and idle surplus, the waterfall must reproduce the
     // old 'net flow into the liquid account' behavior exactly (backward compat).
