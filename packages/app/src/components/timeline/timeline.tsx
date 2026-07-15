@@ -1,6 +1,5 @@
 /** Timeline track: markers on the shared time axis (§10.2). */
 
-import { HORIZON_MONTHS } from "../../config";
 import { monthLabel } from "../../format";
 import type { TimelineMarker } from "../../ledgerView";
 import styles from "./timeline.module.css";
@@ -9,21 +8,22 @@ import styles from "./timeline.module.css";
 const TRACK_LEFT = 88;
 const TRACK_RIGHT = 16;
 
-function pct(month: number): string {
-  return `${(month / HORIZON_MONTHS) * 100}%`;
-}
-
 export function Timeline({
   markers,
   scrubMonth,
+  horizonMonths,
   onScrub,
   onUndo,
 }: {
   markers: readonly TimelineMarker[];
   scrubMonth: number;
+  /** Full span of the axis (§7) — matches the net-worth chart so the two align. */
+  horizonMonths: number;
   onScrub: (month: number) => void;
   onUndo: (id: string) => void;
 }) {
+  // Position markers/handle as a fraction of the plan's horizon (to life expectancy).
+  const pct = (month: number): string => `${(month / horizonMonths) * 100}%`;
   return (
     <div className={styles.timeline}>
       <div className={styles.trackWrap} style={{ paddingLeft: TRACK_LEFT, paddingRight: TRACK_RIGHT }}>
@@ -46,7 +46,7 @@ export function Timeline({
           className={styles.scrubber}
           type="range"
           min={0}
-          max={HORIZON_MONTHS}
+          max={horizonMonths}
           step={1}
           value={scrubMonth}
           aria-label="Scrub to a month"

@@ -7,6 +7,7 @@ export function NumInput({
   prefix,
   suffix,
   min,
+  max,
   step,
 }: {
   label: string;
@@ -15,6 +16,7 @@ export function NumInput({
   prefix?: string;
   suffix?: string;
   min?: number;
+  max?: number;
   step?: number;
 }) {
   return (
@@ -26,8 +28,22 @@ export function NumInput({
           type="number"
           value={value}
           min={min ?? 0}
+          max={max}
           step={step ?? 1}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => {
+            const raw = Number(e.target.value);
+            if (!Number.isNaN(raw)) onChange(raw);
+          }}
+          onBlur={() => {
+            // The min/max HTML attributes only bound the spinner arrows, and we let
+            // typing flow through freely above so intermediate digits aren't fought.
+            // Clamp to any explicit bound once the field is committed (on blur);
+            // unbounded dollar fields keep their current behaviour.
+            let next = value;
+            if (min !== undefined) next = Math.max(min, next);
+            if (max !== undefined) next = Math.min(max, next);
+            if (next !== value) onChange(next);
+          }}
         />
         {suffix && <span className="field-affix">{suffix}</span>}
       </span>

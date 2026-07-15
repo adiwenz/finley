@@ -38,6 +38,7 @@ import type {
   SurvivalResult,
   RetirementTargetAssessment,
 } from "./retirementTypes";
+import { healthExpenseAtYear } from "./retirementHealthCost";
 
 // Re-export the retirement vocabulary so `@finley/engine` consumers still reach
 // it through this module; the declarations live in ./retirementTypes.
@@ -118,7 +119,10 @@ function simulateForward(
   for (let year = fromYear; year <= lastYear; year++) {
     enteringByYear.set(year, balance);
     const income = incomeAtYear(scenario, ages, year);
-    const expense = householdAlive(scenario, year) ? scenario.annualExpenseCents : 0;
+    // General spending is household-gated; health is per-person (each line ends with
+    // its own person), so the two are gated separately before they sum (§5.4).
+    const generalExpense = householdAlive(scenario, year) ? scenario.annualExpenseCents : 0;
+    const expense = generalExpense + healthExpenseAtYear(scenario.persons, year);
     const net = income - expense;
     if (net >= 0) {
       balance += net;

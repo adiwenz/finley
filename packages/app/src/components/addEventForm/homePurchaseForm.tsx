@@ -5,7 +5,7 @@ import { dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, type FormProps } from "./formControls";
 
-export function HomePurchaseForm({ defaultMonth, nextId, onAdd }: FormProps) {
+export function HomePurchaseForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
   const [month, setMonth] = useState(defaultMonth);
   const [price, setPrice] = useState(300_000);
   const [down, setDown] = useState(60_000);
@@ -31,7 +31,7 @@ export function HomePurchaseForm({ defaultMonth, nextId, onAdd }: FormProps) {
 
   return (
     <>
-      <MonthSelect value={month} onChange={setMonth} />
+      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
       <NumInput label="Price" value={price} onChange={setPrice} prefix="$" step={10000} />
       <NumInput label="Down payment" value={down} onChange={setDown} prefix="$" step={5000} />
       <NumInput label="Mortgage APR" value={apr} onChange={setApr} suffix="%" step={0.25} />

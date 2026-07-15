@@ -12,13 +12,17 @@ export * from "./account";
 export * from "./liability";
 export * from "./affordability";
 export * from "./jurisdiction";
+export * from "./earningsRecord";
+export * from "./socialSecurityBenefit";
 export * from "./goal";
 export * from "./retirement";
+export * from "./earlyRetireeHealthCheck";
 export * from "./ids";
 
 // Simulator (low-level) + the ledger→projection→snapshot pipeline.
 export * from "./projection/waterfall";
 export * from "./projection/simulate";
+export * from "./projection/rmd";
 export * from "./projection/buildHouseholdInput";
 export * from "./projection/snapshot";
 

@@ -55,6 +55,14 @@ export interface IncomeSourceMonth {
   readonly taxCategory: TaxCategory;
   /** Present → eligible for pre-tax deferral (§5.0 step 1). Absent → post-deferral. */
   readonly planDescriptor?: PlanDescriptor;
+  /**
+   * The fraction (0..1) of this source's gross that is TAXABLE income; the rest is
+   * received tax-free. Defaults to 1 (fully taxable — wages, RMDs, ordinary
+   * income). Social Security sets this below 1 (§5.4 partial taxation): the whole
+   * benefit is still paid as take-home, but only this share reaches the tax seam.
+   * The jurisdiction owns the value; the waterfall just applies it.
+   */
+  readonly taxableFraction?: number;
 }
 
 /** Lever 2: how much each person contributes to shared obligations (§5.0 step 3). */
@@ -105,21 +113,34 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 /**
  * Step 1 — per-income-source pre-tax deferrals, capped per person against the
  * annual limit (§5.4). Writes each deferral plus its employer match into
- * `deposits`; returns each person's summed gross and the amount actually
- * deferred. Overflow past the cap is simply not deferred: it stays in the
- * person's gross and re-enters the waterfall as taxable take-home (§5.0 RESOLVED).
+ * `deposits`; returns each person's summed gross, the taxable share of that gross
+ * (each source's `taxableFraction`, default 1 — SS is partial, §5.4), and the
+ * amount actually deferred. Overflow past the cap is simply not deferred: it stays
+ * in the person's gross and re-enters the waterfall as taxable take-home (§5.0 RESOLVED).
  */
 function applyDeferrals(
   input: WaterfallInput,
   deposits: Map<string, Cents>,
-): { grossByPerson: Map<string, Cents>; deferredByPerson: Map<string, Cents> } {
+): {
+  grossByPerson: Map<string, Cents>;
+  taxableGrossByPerson: Map<string, Cents>;
+  deferredByPerson: Map<string, Cents>;
+} {
   const roomRemaining = new Map<string, number>();
   for (const pid of input.personIds) roomRemaining.set(pid, input.remainingDeferralRoomCents(pid));
 
   const grossByPerson = new Map<string, Cents>();
+  const taxableGrossByPerson = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   for (const src of input.incomeSources) {
     grossByPerson.set(src.ownerId, (grossByPerson.get(src.ownerId) ?? 0) + src.grossCents);
+    // The taxable share of this source (SS < 1, everything else 1) — the untaxed
+    // remainder is still paid out as take-home below, just never taxed (§5.4).
+    const taxableGross = Math.round(src.grossCents * (src.taxableFraction ?? 1));
+    taxableGrossByPerson.set(
+      src.ownerId,
+      (taxableGrossByPerson.get(src.ownerId) ?? 0) + taxableGross,
+    );
     if (!src.planDescriptor || src.grossCents <= 0) continue;
 
     const desired = Math.round(src.grossCents * src.planDescriptor.deferralFraction);
@@ -133,25 +154,29 @@ function applyDeferrals(
     const match = Math.round(deferred * (src.planDescriptor.employerMatchFraction ?? 0));
     addDeposit(deposits, src.planDescriptor.fundAccountId, deferred + match);
   }
-  return { grossByPerson, deferredByPerson };
+  return { grossByPerson, taxableGrossByPerson, deferredByPerson };
 }
 
 /**
- * Step 2 — taxable = gross − deferral, taxed through the single §5.3 seam to give
- * take-home. `computeTaxCents` is called ONCE per person and nowhere else: the
- * whole point of the seam is that no tax logic lives in the allocation code.
+ * Step 2 — taxable = taxable-gross − deferral, taxed through the single §5.3 seam
+ * to give take-home. `computeTaxCents` is called ONCE per person and nowhere else:
+ * the whole point of the seam is that no tax logic lives in the allocation code.
+ * Take-home is charged against the FULL gross (partially-taxed SS still pays its
+ * whole check), but only the taxable share was fed to the seam (§5.4).
  */
 function computeTakeHome(
   input: WaterfallInput,
   grossByPerson: Map<string, Cents>,
+  taxableGrossByPerson: Map<string, Cents>,
   deferredByPerson: Map<string, Cents>,
 ): { taxCents: Cents; takeHomeByPerson: Map<string, Cents> } {
   let taxCents: Cents = 0;
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
+    const taxableGross = taxableGrossByPerson.get(pid) ?? 0;
     const deferral = deferredByPerson.get(pid) ?? 0;
-    const taxable = Math.max(0, gross - deferral);
+    const taxable = Math.max(0, taxableGross - deferral);
     const tax = input.computeTaxCents(taxable);
     taxCents += tax;
     takeHomeByPerson.set(pid, gross - deferral - tax);
@@ -287,8 +312,13 @@ function fundGoals(
 export function runWaterfall(input: WaterfallInput): WaterfallResult {
   const deposits = new Map<string, Cents>();
 
-  const { grossByPerson, deferredByPerson } = applyDeferrals(input, deposits);
-  const { taxCents, takeHomeByPerson } = computeTakeHome(input, grossByPerson, deferredByPerson);
+  const { grossByPerson, taxableGrossByPerson, deferredByPerson } = applyDeferrals(input, deposits);
+  const { taxCents, takeHomeByPerson } = computeTakeHome(
+    input,
+    grossByPerson,
+    taxableGrossByPerson,
+    deferredByPerson,
+  );
   const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
     input,
     takeHomeByPerson,

@@ -31,7 +31,7 @@ export function ExpenseEditor({
 
   return (
     <div className={styles.valueEdit}>
-      <div className="field-label">Monthly expenses</div>
+      <div className="field-label">Monthly expenses (excluding health)</div>
       {!editing ? (
         <div className={styles.valueRow}>
           <button

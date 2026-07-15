@@ -9,6 +9,7 @@ export function ExpenseForm({
   household,
   defaultMonth,
   nextId,
+  horizonMonths,
   onAdd,
 }: FormProps & { household: Household }) {
   const [month, setMonth] = useState(defaultMonth);
@@ -38,7 +39,7 @@ export function ExpenseForm({
 
   return (
     <>
-      <MonthSelect value={month} onChange={setMonth} />
+      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
       <NumInput label="Monthly expense" value={amount} onChange={setAmount} prefix="$" step={100} />
       {owners.length > 1 && (
         <OwnerSelect owners={owners} value={selectedOwner} onChange={setOwnerId} />

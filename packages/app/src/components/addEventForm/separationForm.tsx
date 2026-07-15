@@ -10,6 +10,7 @@ export function SeparationForm({
   household,
   defaultMonth,
   nextId,
+  horizonMonths,
   onAdd,
 }: FormProps & { household: Household }) {
   const [month, setMonth] = useState(defaultMonth);
@@ -40,7 +41,7 @@ export function SeparationForm({
 
   return (
     <>
-      <MonthSelect value={month} onChange={setMonth} />
+      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
       {noPartners ? (
         <p className="hint warn">
           No partner in the household as of {monthLabel(month)} to separate from.

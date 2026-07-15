@@ -51,13 +51,44 @@ export interface RetirementPerson {
    * (§7.1). Ignored by Mode 1 (which ties every age to the searched value).
    */
   readonly plannedRetirementAge: number;
+  /**
+   * Real (today's-dollars) annual health cost for this person BEFORE Medicare —
+   * the self-funded figure, and the lifelong figure when {@link medicareEligibilityAge}
+   * is unset (not enrolled). Grows at {@link healthRealGrowthRate} from year 0.
+   * Health is per-person (its own cost and its own Medicare timing), separate from
+   * and additive to the household {@link RetirementScenario.annualExpenseCents}.
+   * Absent → no modelled health cost for this person (§5.4).
+   */
+  readonly annualHealthExpenseCents?: Cents;
+  /**
+   * The age this person enrolls in Medicare (§5.4): at/after it, health switches
+   * from {@link annualHealthExpenseCents} to the lower
+   * {@link postMedicareHealthAnnualCents} residual. UNSET models "not enrolled" —
+   * the pre-Medicare (self-funded) figure runs for life, with no step. The age is
+   * per-person, so each member steps on their own 65th (not the household's).
+   */
+  readonly medicareEligibilityAge?: number;
+  /**
+   * Real (today's-dollars) annual health cost from {@link medicareEligibilityAge}
+   * onward — the residual Medicare leaves (premiums/Part B/out-of-pocket), an
+   * authored figure, not a fixed fraction of the pre-Medicare cost. Grows at
+   * {@link healthRealGrowthRate}. Ignored when not enrolled. Absent → 0 (e.g. the
+   * user models forgoing coverage entirely).
+   */
+  readonly postMedicareHealthAnnualCents?: Cents;
+  /**
+   * Real (above-CPI) annual growth of this person's health cost: the health
+   * inflation rate net of general inflation, so health rises in real terms while
+   * flat spending holds. Applied from year 0 to whichever figure is in force.
+   */
+  readonly healthRealGrowthRate?: number;
 }
 
 export interface RetirementScenario {
   readonly persons: readonly RetirementPerson[];
   /** Combined real portfolio at "now" (shared + owned assets, §7). */
   readonly startingPortfolioCents: Cents;
-  /** Real household annual spending, held constant across the horizon. */
+  /** Real household annual spending (non-health), held constant across the horizon. */
   readonly annualExpenseCents: Cents;
   /**
    * Real (inflation-adjusted, §0.5) annual portfolio return. This being *real*

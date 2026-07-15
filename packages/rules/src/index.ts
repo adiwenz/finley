@@ -1,4 +1,30 @@
 import type { Jurisdiction } from "@finley/engine";
+import {
+  socialSecurityMonthlyBenefitCents,
+  socialSecurityTaxableFraction,
+} from "./socialSecurity";
+import { requiredMinimumDistributionCents } from "./rmd";
+import { retirementDeferralLimitCents } from "./contributionLimits";
+import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
+
+export {
+  socialSecurityMonthlyBenefitCents,
+  socialSecurityTaxableFraction,
+} from "./socialSecurity";
+export { requiredMinimumDistributionCents } from "./rmd";
+export {
+  contributionLimits,
+  retirementDeferralLimitCents,
+  CONTRIBUTION_LIMITS_BASE_YEAR,
+  type ContributionLimits,
+} from "./contributionLimits";
+export {
+  healthCostBenchmark,
+  healthCostBenchmarkMonthlyCents,
+  HEALTH_COST_BASE_YEAR,
+  MEDICARE_ELIGIBILITY_AGE,
+  type HealthCostBenchmark,
+} from "./healthCosts";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -16,4 +42,9 @@ import type { Jurisdiction } from "@finley/engine";
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   computeTaxCents: () => 0,
+  socialSecurityMonthlyBenefitCents,
+  socialSecurityTaxableFraction,
+  requiredMinimumDistributionCents,
+  retirementDeferralLimitCents,
+  healthCostBenchmarkMonthlyCents,
 };
