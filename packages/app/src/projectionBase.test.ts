@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
+import {
+  emptyLedger,
+  replayLedger,
+  dollarsToCents,
+  nullJurisdiction,
+  SYNTHETIC_CARD_ID,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { createProjectionBase } from "./projectionBase";
 import { PLAN_DEFAULTS } from "./planDefaults";
@@ -38,6 +44,41 @@ describe("createProjectionBase — retirement + Social Security wired into the g
     const withSS = netWorthAtAge(PLAN_DEFAULTS, 80, usJurisdiction);
     const noSS = netWorthAtAge(PLAN_DEFAULTS, 80, nullJurisdiction);
     expect(withSS).toBeGreaterThan(noSS);
+  });
+});
+
+describe("createProjectionBase — retirement decumulation liquidates instead of borrowing (#35)", () => {
+  it("funds the default retiree from investments — the synthetic card never carries a balance", () => {
+    // The reported defect: retirement spending exceeded income, drained the one liquid
+    // account, then piled onto the unlimited synthetic 22% card while six-figure
+    // investments compounded untouched. With the desired-withdrawal channel wired, the
+    // shortfall is met by selling assets, so the card stays flat at 0 the whole horizon.
+    const series = replayLedger(
+      emptyLedger,
+      createProjectionBase({ ...PLAN_DEFAULTS, retirementAge: 63 }),
+      usJurisdiction,
+    );
+    for (const m of series.months) {
+      expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
+    }
+  });
+
+  it("funds late-retirement expenses by liquidating investments, staying solvent (not a -$2.1M crater)", () => {
+    // Once the liquid buffer is spent down (D2), the shortfall is met by SELLING assets:
+    // a taxable-fund sale re-enters as capitalGains at the chokepoint, and the fund it
+    // came from shrinks. Previously this shortfall hit the 22% card and net worth cratered
+    // to ~-$2.1M; now the plan stays solidly solvent.
+    const budget = { ...PLAN_DEFAULTS, retirementAge: 63 };
+    const series = replayLedger(emptyLedger, createProjectionBase(budget), usJurisdiction);
+    // Decumulation actually fires: some retirement month liquidates a taxable investment,
+    // surfacing as capitalGains income (the plan has no other capitalGains source).
+    const liquidated = series.months.some(
+      (m) => (m.flows?.incomeByCategoryCents["capitalGains"] ?? 0) > 0,
+    );
+    expect(liquidated).toBe(true);
+    // Real net worth never craters — it stays positive through the whole horizon.
+    const minRealNetWorth = Math.min(...series.months.map((m) => m.netWorthRealCents));
+    expect(minRealNetWorth).toBeGreaterThan(0);
   });
 });
 

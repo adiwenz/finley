@@ -21,6 +21,7 @@ import {
 } from "./waterfall";
 import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
 import { buildRmdSources } from "./rmd";
+import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
 import type {
   HouseholdSimInput,
@@ -566,7 +567,7 @@ export function simulateHousehold(
       // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
       // the waterfall runs and re-enter it here as taxable ordinary income, so the
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
-      const incomeSources = [
+      const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
         ...buildSocialSecuritySources(state, jurisdiction, month, startYear, input.annualInflationRate),
         ...buildRmdSources(state, jurisdiction, month, startYear),
@@ -575,6 +576,23 @@ export function simulateHousehold(
       const expenseCents = sumMonthlySeries(input.expenseSeries, month);
       const payments = computeLiabilityPayments(state, month);
       const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
+
+      // Decumulation (§7, #35): when non-withdrawal income can't cover the month's
+      // obligations, liquidate investment accounts BEFORE the waterfall — same seam
+      // as RMD/SS — so the shortfall is funded by selling assets (taxed once at the
+      // chokepoint) instead of landing on the synthetic credit card. RMD income is
+      // already counted here, so the desired draw never double-withdraws (#32).
+      const incomeSources = [
+        ...nonWithdrawalSources,
+        ...buildWithdrawalSources(
+          state,
+          jurisdiction,
+          month,
+          nonWithdrawalSources,
+          expenseCents + totalPaymentsCents,
+          ctx,
+        ),
+      ];
 
       allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents);
       isInsolvent = applyShortfallCascade(state, month);
