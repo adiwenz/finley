@@ -1,6 +1,11 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { interpretLedger, buildProjection } from "@finley/engine";
+import {
+  interpretLedger,
+  buildHouseholdSimInput,
+  simulateHousehold,
+  summarizeSimulation,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { timelineMarkers } from "./ledgerView";
@@ -13,6 +18,7 @@ import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
+import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
 import type { BudgetValues } from "./planTypes";
@@ -30,10 +36,14 @@ export function App() {
   // One replay-derived household feeds both the projection and the snapshot,
   // so the two can never disagree about the ledger's meaning.
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
+  // Build the resolved simulator input once, then simulate — sharing that input
+  // lets the debug report reuse the very series the chart draws (no second run).
+  const simInput = useMemo(() => buildHouseholdSimInput(household, base), [household, base]);
   const series = useMemo(
-    () => buildProjection(household, base, usJurisdiction),
-    [household, base],
+    () => simulateHousehold(simInput, usJurisdiction),
+    [simInput],
   );
+  const report = useMemo(() => summarizeSimulation(simInput, series), [simInput, series]);
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
@@ -115,6 +125,10 @@ export function App() {
             <RetirementPanel view={retirement} budget={budget} />
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <DebugPanel report={report} />
       </div>
     </>
   );

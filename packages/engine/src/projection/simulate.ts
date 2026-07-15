@@ -21,12 +21,14 @@ import {
 } from "./waterfall";
 import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
 import { buildRmdSources } from "./rmd";
+import { buildFlows } from "./reportFlows";
 import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
   OwnedSeries,
   Person,
   ProjectionMonth,
+  ProjectionMonthFlows,
   ProjectionSeries,
   SimProperty,
 } from "./simulate.types";
@@ -478,6 +480,7 @@ function snapshotMonth(
   annualInflationRate: number,
   isInsolvent: boolean,
   liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>,
+  flows: ProjectionMonthFlows | undefined,
 ): ProjectionMonth {
   let nominalNetWorth: Cents = 0;
 
@@ -511,6 +514,7 @@ function snapshotMonth(
     liabilityPaymentRecords,
     propertyValuesCents,
     isInsolvent,
+    ...(flows !== undefined ? { flows } : {}),
   };
 }
 
@@ -539,6 +543,7 @@ export function simulateHousehold(
   for (let month = 0; month <= input.horizonMonths; month++) {
     let isInsolvent = false;
     let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
+    let flows: ProjectionMonthFlows | undefined;
 
     if (month > 0) {
       // Calendar year for this month's flows. NOTE (documented simplification):
@@ -579,10 +584,11 @@ export function simulateHousehold(
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
+      flows = buildFlows(incomeSources, expenseCents, totalPaymentsCents);
     }
 
     months.push(
-      snapshotMonth(state, month, input.annualInflationRate, isInsolvent, paymentRecords),
+      snapshotMonth(state, month, input.annualInflationRate, isInsolvent, paymentRecords, flows),
     );
   }
 

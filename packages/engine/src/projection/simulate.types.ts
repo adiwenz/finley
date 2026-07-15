@@ -72,6 +72,39 @@ export interface ProjectionMonth {
    * from this month forward without structural changes.
    */
   readonly isInsolvent: boolean;
+  /**
+   * The month's cash flows (income by category, expenses, liability payments) — a
+   * diagnostic companion to the stock balances above, for inspection surfaces. See
+   * {@link ProjectionMonthFlows}. Absent on month 0 (no flows are processed at "now").
+   */
+  readonly flows?: ProjectionMonthFlows;
+}
+
+/**
+ * Per-month cash *flows* (rates), the diagnostic companion to the stock balances
+ * on {@link ProjectionMonth}. Not needed to draw the net-worth curve — the balances
+ * already encode it — so it is optional and exists for inspection surfaces (the
+ * debug panel, §10) that want to see the income/expense movements the month applied,
+ * not just the resulting balances. Populated straight from the same income sources
+ * and obligations the waterfall consumed, so it can never disagree with the sim.
+ *
+ * Absent on month 0 (the flow-free opening snapshot, §4.6).
+ */
+export interface ProjectionMonthFlows {
+  /**
+   * Gross income this month bucketed by {@link TaxCategory} (`wages`,
+   * `ordinaryIncome`, `socialSecurity`, …) — the authoritative breakdown of every
+   * income source the waterfall saw, including derived Social Security and RMD draws.
+   */
+  readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
+  /** Σ of `incomeByCategoryCents` — total gross income this month. */
+  readonly totalIncomeCents: Cents;
+  /** The Social Security slice of income this month (0 before any claim). Convenience view. */
+  readonly socialSecurityCents: Cents;
+  /** Non-liability expenses this month (general + health + any authored lines). */
+  readonly expensesCents: Cents;
+  /** Scheduled liability payments this month (mortgages, loans, card minimums). */
+  readonly liabilityPaymentsCents: Cents;
 }
 
 export interface ProjectionSeries {
