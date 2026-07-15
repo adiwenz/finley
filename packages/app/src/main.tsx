@@ -43,7 +43,13 @@ export function App() {
     () => simulateHousehold(simInput, usJurisdiction),
     [simInput],
   );
-  const report = useMemo(() => summarizeSimulation(simInput, series), [simInput, series]);
+  // Echo the complete authored config (the value-editing surface) into the report's
+  // meta, so knobs the engine input compiles away — life expectancy, retirement age,
+  // health lines — survive into the debug output and download.
+  const report = useMemo(
+    () => summarizeSimulation(simInput, series, { plan: budget, jurisdictionId: usJurisdiction.id }),
+    [simInput, series, budget],
+  );
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
@@ -128,7 +134,7 @@ export function App() {
       </div>
 
       <div className="card">
-        <DebugPanel report={report} />
+        <DebugPanel report={report} budget={budget} />
       </div>
     </>
   );

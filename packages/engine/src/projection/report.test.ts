@@ -41,12 +41,20 @@ describe("buildSimulationReport", () => {
     expect(report.months[12]).toMatchObject({ month: 12, year: 2027, ageByPerson: { p1: 36 } });
   });
 
-  it("echoes the resolved inputs", () => {
+  it("echoes the resolved inputs, incl. derived horizon and age", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     expect(report.inputs.annualInflationRate).toBe(0.03);
-    expect(report.inputs.persons[0]).toMatchObject({ id: "p1", birthYear: 1991 });
+    expect(report.inputs.persons[0]).toMatchObject({ id: "p1", birthYear: 1991, ageAtStart: 35 });
     expect(report.inputs.accounts[0]).toMatchObject({ id: "savings", openingBalanceCents: dollarsToCents(10000) });
     expect(report.inputs.incomeSources[0].monthlyCentsAtStart).toBe(dollarsToCents(3000));
+    expect(report.inputs).toMatchObject({ horizonMonths: 12, horizonYears: 1, startYear: 2026, endYear: 2027 });
+  });
+
+  it("echoes caller-supplied meta verbatim (and omits it when absent)", () => {
+    expect(buildSimulationReport(baseInput(), nullJurisdiction).meta).toBeUndefined();
+    const meta = { plan: { lifeExpectancy: 90 }, jurisdictionId: "US-2026" };
+    const report = buildSimulationReport(baseInput(), nullJurisdiction, meta);
+    expect(report.meta).toEqual(meta);
   });
 
   it("surfaces cash flows per month (month 0 flow-free; month 1 carries income and expenses)", () => {
