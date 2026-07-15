@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { MonthSelect, type FormProps } from "./formControls";
 
-export function RelationshipForm({ defaultMonth, nextId, onAdd }: FormProps) {
+export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
   const [month, setMonth] = useState(defaultMonth);
   const [name, setName] = useState("");
 
@@ -18,7 +18,7 @@ export function RelationshipForm({ defaultMonth, nextId, onAdd }: FormProps) {
 
   return (
     <>
-      <MonthSelect value={month} onChange={setMonth} />
+      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
       <label className="field">
         <span className="field-label">Name</span>
         <input

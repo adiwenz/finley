@@ -61,6 +61,44 @@ export interface BudgetValues {
   readonly surplusSwept: boolean;
   /** Lever 3 (§5.0): funding goals in priority order (array index = priority). */
   readonly goals: readonly GoalPlan[];
+  /**
+   * Authored monthly PRE-Medicare health-care expense in cents (§5.4) — the
+   * self-funded figure paid until Medicare enrolment (and for life when
+   * {@link enrollsInMedicare} is false). A dedicated budget line, separate from and
+   * ADDITIVE to {@link expenseCents} (which carries non-health spend), modelled as a
+   * real expense in both projections and growing at {@link healthInflationPct}. It
+   * is the figure the early-retiree honesty check compares against the pre-65
+   * self-funded benchmark (understating it while retiring before 65 trips a nudge).
+   */
+  readonly healthMonthlyCents: number;
+  /**
+   * Authored monthly health-care expense in cents from age 65 onward — the Medicare
+   * residual (premiums/Part B/out-of-pocket) that remains after enrolment (§5.4). In
+   * today's dollars, grown at {@link healthInflationPct}. Set to 0 to model forgoing
+   * coverage. Used only when {@link enrollsInMedicare}; ignored otherwise.
+   */
+  readonly postMedicareHealthMonthlyCents: number;
+  /**
+   * Whether the plan enrols in Medicare at 65 (§5.4). True → health steps from
+   * {@link healthMonthlyCents} down to {@link postMedicareHealthMonthlyCents} at 65.
+   * False → the pre-Medicare (self-funded) line runs for life with no step.
+   */
+  readonly enrollsInMedicare: boolean;
+  /**
+   * Annual growth of the health lines, as a whole-number percent (§5.4). Health is
+   * modelled like any other budget item but with its own rate. In the nominal
+   * projection it compounds the health series; in the (real-dollars) retirement
+   * drawdown it compounds health net of {@link inflationPct}, so health rises in
+   * real terms only insofar as it outpaces general inflation.
+   */
+  readonly healthInflationPct: number;
+  /**
+   * General inflation (CPI), as a whole-number percent. Income and general expenses
+   * grow at this rate each year in the nominal projection (so they hold constant in
+   * real terms), and it is the rate every nominal figure is de-inflated by to give
+   * the real (today's-dollars) net-worth line and the retirement drawdown (§0.5).
+   */
+  readonly inflationPct: number;
   /** Age at "now" — the base the retirement solver counts years from (§7). */
   readonly currentAge: number;
   /** The pinned/desired retirement age; target mode reports on-track % against it (§7.1). */
@@ -69,6 +107,12 @@ export interface BudgetValues {
   readonly lifeExpectancy: number;
   /** Pinned Social Security claiming age — an input to the check, never searched (§7). */
   readonly ssClaimingAge: number;
-  /** Real annual Social Security benefit once claiming, in cents. */
-  readonly socialSecurityAnnualCents: number;
+  /**
+   * Optional override for the real annual Social Security benefit (today's dollars).
+   * When unset (the default), the panel computes it from the plan's earnings via the
+   * same AIME→PIA formula the net-worth graph uses, so the two surfaces agree — see
+   * {@link import("./retirementView").buildRetirementScenario}. Set it only to pin a
+   * figure from an actual SSA statement.
+   */
+  readonly socialSecurityAnnualCents?: number;
 }

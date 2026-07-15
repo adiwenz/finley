@@ -56,6 +56,20 @@ export interface RmdContext extends JurisdictionContext {
   readonly birthYear: number;
 }
 
+/**
+ * Context for the health-cost benchmark seam (§5.4). The engine supplies the
+ * calendar year and the person's age that year; `rules` returns the attributed
+ * monthly health cost that applies at that age — the elevated self-funded figure
+ * before the jurisdiction's Medicare-eligibility age, the lower Medicare-residual
+ * figure at/after it. This is the "visible attributed step" (Medicare at 65 lowers
+ * health cost, not to zero) the app surfaces, and the benchmark the early-retiree
+ * honesty flag compares an authored health expense against.
+ */
+export interface HealthCostContext extends JurisdictionContext {
+  /** The person's age in `year`; the benchmark steps down at the Medicare-eligibility age. */
+  readonly age: number;
+}
+
 export interface Jurisdiction {
   /** Stable identifier, e.g. `"null"` or `"US-2026"`. */
   readonly id: string;
@@ -110,6 +124,35 @@ export interface Jurisdiction {
     preTaxBalanceCents: Cents,
     ctx: RmdContext,
   ): Cents;
+
+  /**
+   * §5.4 seam: the attributed monthly health cost for a person of the given age
+   * (Medicare, shape 2). The jurisdiction owns the eligibility age (65 under US
+   * law) and the two figures it steps between: an elevated self-funded cost before
+   * eligibility (a decade of expensive coverage the early-retiree must self-fund,
+   * ~$1,200/mo/person, unsubsidised in v1 → conservative) and a lower residual at/
+   * after it (Medicare replaces self-funded insurance but premiums/Part B/out-of-
+   * pocket remain — ~$500/mo/person, not zero). Its value is making the pre-65 vs.
+   * post-65 gap VISIBLE (§5.4): the app pre-fills the attributed stepped segment
+   * and the early-retirement nudge from it, and the {@link
+   * import("./earlyRetireeHealthCheck").assessEarlyRetireeHealthCost} honesty flag compares an
+   * authored health expense against the pre-eligibility figure. NOT a silent auto-
+   * step in the sim — an authored budget item, disclaimed and legislation-set.
+   * Optional: absent (v1 null jurisdiction) → no benchmark (0).
+   */
+  healthCostBenchmarkMonthlyCents?(ctx: HealthCostContext): Cents;
+
+  /**
+   * §5.4 seam: the fraction (0..1) of a Social Security benefit that is TAXABLE
+   * income. SS is only PARTIALLY taxed — under US law at most 85% of benefits are
+   * included, so a share is always tax-free. The engine multiplies each SS income
+   * source's gross by this fraction before it reaches the single §5.3 tax
+   * chokepoint; the untaxed remainder still arrives as spendable take-home (you
+   * receive the whole check, you are just not taxed on all of it). Optional:
+   * absent (v1 null jurisdiction) → the benefit is treated as fully taxable
+   * (fraction 1, conservative), matching the pre-partial-taxation behaviour.
+   */
+  socialSecurityTaxableFraction?(ctx: JurisdictionContext): number;
 }
 
 /**

@@ -5,7 +5,7 @@ import { dollarsToCents, type LiabilityKind } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, type FormProps } from "./formControls";
 
-export function LoanForm({ defaultMonth, nextId, onAdd }: FormProps) {
+export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
   const [month, setMonth] = useState(defaultMonth);
   const [loanKind, setLoanKind] = useState<LiabilityKind>("auto");
   const [amount, setAmount] = useState(2000);
@@ -29,7 +29,7 @@ export function LoanForm({ defaultMonth, nextId, onAdd }: FormProps) {
 
   return (
     <>
-      <MonthSelect value={month} onChange={setMonth} />
+      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
       <label className="field">
         <span className="field-label">Type</span>
         <select

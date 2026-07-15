@@ -41,7 +41,14 @@ const BASE_CATCH_UP_60_TO_63_CENTS: Cents = 11_250_00;
 const BASE_TOTAL_ADDITIONS_CENTS: Cents = 72_000_00;
 /** Traditional/Roth IRA annual contribution limit (separate, much lower cap). */
 const BASE_IRA_CENTS: Cents = 7_500_00;
-/** Additional IRA contribution allowed from age 50. */
+/**
+ * Additional IRA contribution allowed from age 50 — FLAT from 50 with no upper-age
+ * cliff (post-SECURE, IRA contributions continue as long as there is earned income).
+ * ⚠ Do NOT apply the 401(k) age banding to this: the IRA catch-up has no 60–63
+ * super-catch-up and no drop at 64. Those are `retirementDeferralLimitCents`'s
+ * 401(k)-only rules (catchUp60to63Cents); reusing that function for an IRA channel
+ * would invent bands the IRA doesn't have.
+ */
 const BASE_IRA_CATCH_UP_50_CENTS: Cents = 1_100_00;
 
 /**
@@ -83,7 +90,7 @@ export interface ContributionLimits {
   readonly totalAdditionsCents: Cents;
   /** Traditional/Roth IRA annual limit (separate, lower cap). */
   readonly iraCents: Cents;
-  /** IRA catch-up added from age 50. */
+  /** IRA catch-up added from age 50 — flat, no 60–63 band and no age-64 drop (unlike the 401(k) catch-up). */
   readonly iraCatchUp50Cents: Cents;
 }
 

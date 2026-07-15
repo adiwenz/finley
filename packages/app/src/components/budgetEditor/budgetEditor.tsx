@@ -10,6 +10,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
 import type { BudgetValues, ValueOverride } from "../../planTypes";
+import { firstDeferralLimitCrossing } from "../../deferralLimit";
+import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { ExpenseEditor } from "../expenseEditor/expenseEditor";
 
@@ -30,6 +32,13 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
       expenseOverrides: [...current.expenseOverrides, override],
     }));
   }
+
+  // §5.4 disclosure: a deferral rate whose yearly total tops the IRS elective limit
+  // is not an error — contributions just stop at the cap and the overflow is paid as
+  // taxable income (see the waterfall's applyDeferrals). Surface the first year that
+  // happens over the whole career, not just today: income and the limit grow at
+  // different rates, so a plan under the cap now can cross it later.
+  const deferralCrossing = firstDeferralLimitCrossing(budget);
 
   return (
     <>
@@ -63,6 +72,107 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
           onSetBaseline={(expenseCents) => updateBudget({ expenseCents })}
           onOverride={addExpenseOverride}
         />
+
+        <NumInput
+          label="Monthly health care (before 65)"
+          value={budget.healthMonthlyCents / 100}
+          onChange={(v) => updateBudget({ healthMonthlyCents: dollarsToCents(v) })}
+          prefix="$"
+          step={50}
+        />
+        <label className="field">
+          <span className="field-label">Medicare at 65</span>
+          <select
+            value={budget.enrollsInMedicare ? "enroll" : "self-fund"}
+            onChange={(e) => updateBudget({ enrollsInMedicare: e.target.value === "enroll" })}
+          >
+            <option value="enroll">Enroll at 65 (health steps down)</option>
+            <option value="self-fund">Self-fund for life (no step)</option>
+          </select>
+        </label>
+        {budget.enrollsInMedicare && (
+          <NumInput
+            label="Monthly health care (from 65)"
+            value={budget.postMedicareHealthMonthlyCents / 100}
+            onChange={(v) => updateBudget({ postMedicareHealthMonthlyCents: dollarsToCents(v) })}
+            prefix="$"
+            step={50}
+          />
+        )}
+        <NumInput
+          label="Health cost increase"
+          value={budget.healthInflationPct}
+          onChange={(healthInflationPct) => updateBudget({ healthInflationPct })}
+          suffix="%/yr"
+          min={0}
+          max={20}
+          step={0.5}
+        />
+        <p className="hint">
+          A separate line from your other expenses, growing at its own rate — medical
+          costs often rise faster than general inflation. Both figures are in today’s
+          dollars. Estimate, not advice.
+        </p>
+
+        <NumInput
+          label="General inflation (CPI)"
+          value={budget.inflationPct}
+          onChange={(inflationPct) => updateBudget({ inflationPct })}
+          suffix="%/yr"
+          min={0}
+          max={20}
+          step={0.5}
+        />
+        <p className="hint">
+          Income and general expenses grow at this rate each year; it’s also the rate
+          used to show today’s-dollars (real) figures. Estimate, not advice.
+        </p>
+
+        {/* §7: the life-stage ages the retirement solver counts from and reports
+            against — current age is "now", retirement age is the pinned target the
+            panel scores on-track %, life expectancy is how long the money must last.
+            The bounds chain them so the plan stays ordered (current ≤ retirement ≤
+            life expectancy); the fields clamp to these on blur. */}
+        <NumInput
+          label="Current age"
+          value={budget.currentAge}
+          onChange={(currentAge) => updateBudget({ currentAge })}
+          min={18}
+          max={Math.min(100, budget.retirementAge)}
+          step={1}
+        />
+        <NumInput
+          label="Retirement age"
+          value={budget.retirementAge}
+          onChange={(retirementAge) => updateBudget({ retirementAge })}
+          min={Math.max(40, budget.currentAge)}
+          max={Math.min(80, budget.lifeExpectancy)}
+          step={1}
+        />
+        <NumInput
+          label="Life expectancy"
+          value={budget.lifeExpectancy}
+          onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
+          min={Math.max(60, budget.retirementAge)}
+          max={120}
+          step={1}
+        />
+
+        {/* §5.4: the pinned Social Security claiming age (62–70). The retirement
+            solver reads it — benefits begin at this age, so delaying raises the
+            monthly benefit but pushes it later. An estimate, not advice. */}
+        <NumInput
+          label="Social Security claiming age"
+          value={budget.ssClaimingAge}
+          onChange={(ssClaimingAge) => updateBudget({ ssClaimingAge })}
+          min={62}
+          max={70}
+          step={1}
+        />
+        <p className="hint">
+          Benefits begin at this age (claim earlier for a smaller monthly check, later
+          for a larger one). Social Security figures are an estimate, not advice.
+        </p>
 
         <NumInput
           label="Opening balance"
@@ -108,6 +218,14 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
             min={0}
             step={1}
           />
+          {deferralCrossing && (
+            <p className="hint">
+              At this rate your yearly 401(k) contribution tops the elective limit
+              ({formatDollars(deferralCrossing.limitCents)} in {deferralCrossing.year}).
+              Past the limit, contributions stop and the rest is paid as taxable income.
+              Estimate, not advice.
+            </p>
+          )}
         </details>
       </section>
 

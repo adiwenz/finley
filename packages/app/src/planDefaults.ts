@@ -34,11 +34,22 @@ export const PLAN_DEFAULTS: BudgetValues = {
       annualReturnPct: 7,
     },
   ],
+  // A realistic pre-65 self-funded line, but still below the ~$1,200 benchmark —
+  // so pulling the retirement age below 65 makes the honesty nudge fire (§5.4).
+  healthMonthlyCents: dollarsToCents(700),
+  // The Medicare residual from 65 — lower than the pre-65 line, so health steps down.
+  postMedicareHealthMonthlyCents: dollarsToCents(500),
+  enrollsInMedicare: true,
+  healthInflationPct: 3,
+  // General inflation (CPI): income and general expenses grow at this each year.
+  inflationPct: 3,
   currentAge: 35,
   retirementAge: 65,
   lifeExpectancy: 90,
   ssClaimingAge: 67,
-  socialSecurityAnnualCents: dollarsToCents(24000),
+  // socialSecurityAnnualCents left unset → the panel computes the benefit from the
+  // plan's earnings (same AIME→PIA formula as the graph). Set it only to override
+  // with a figure from an actual SSA statement.
 };
 
 export const DEFAULT_SCRUB_MONTH = 0;

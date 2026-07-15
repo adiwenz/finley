@@ -199,3 +199,120 @@ describe("withdrawal step is a replaceable seam (§5.3 seam 3)", () => {
     );
   });
 });
+
+describe("per-person health in the drawdown (§5.4, real-dollars, own growth track)", () => {
+  /** A pure drawdown: already retired, no income, flat return → the balance falls
+   *  every year, so its lowest point IS the ending balance and reflects total spend. */
+  function drawdownRetiree(healthOverrides: Partial<RetirementPerson> = {}): RetirementPerson {
+    return person({
+      currentAge: 65,
+      plannedRetirementAge: 65,
+      lifeExpectancy: 85,
+      annualEmploymentIncomeCents: 0,
+      annualSocialSecurityCents: 0,
+      ...healthOverrides,
+    });
+  }
+  const drawdown = { startingPortfolioCents: dollarsToCents(900_000), annualExpenseCents: dollarsToCents(20_000), realReturnRate: 0 };
+  const at65 = new Map([["p1", 65]]);
+
+  it("adds the health line on top of general spend — a health cost lowers the ending balance", () => {
+    const ages = new Map([["p1", 70]]);
+    const withoutHealth = scenario();
+    const withHealth = scenario({
+      persons: [person({ annualHealthExpenseCents: dollarsToCents(6_000), healthRealGrowthRate: 0 })],
+    });
+    expect(portfolioSurvives(withHealth, ages).lowestBalanceCents).toBeLessThan(
+      portfolioSurvives(withoutHealth, ages).lowestBalanceCents,
+    );
+  });
+
+  it("grows health in real terms — a positive real rate costs more than a flat one", () => {
+    const flat = scenario({
+      ...drawdown,
+      persons: [drawdownRetiree({ annualHealthExpenseCents: dollarsToCents(6_000), healthRealGrowthRate: 0 })],
+    });
+    const rising = scenario({
+      ...drawdown,
+      persons: [drawdownRetiree({ annualHealthExpenseCents: dollarsToCents(6_000), healthRealGrowthRate: 0.05 })],
+    });
+    expect(portfolioSurvives(rising, at65).lowestBalanceCents).toBeLessThan(
+      portfolioSurvives(flat, at65).lowestBalanceCents,
+    );
+  });
+
+  it("steps health DOWN at the Medicare age — enrolling lasts longer than self-funding for life", () => {
+    // Not enrolled → the elevated pre-65 line runs for life; enrolled → it drops to
+    // the authored residual at 65. Enrolling spends less from 65 → higher balance.
+    const selfFunded = scenario({
+      ...drawdown,
+      persons: [drawdownRetiree({ annualHealthExpenseCents: dollarsToCents(12_000), healthRealGrowthRate: 0 })],
+    });
+    const enrolled = scenario({
+      ...drawdown,
+      persons: [
+        drawdownRetiree({
+          annualHealthExpenseCents: dollarsToCents(12_000),
+          healthRealGrowthRate: 0,
+          medicareEligibilityAge: 65,
+          postMedicareHealthAnnualCents: dollarsToCents(6_000),
+        }),
+      ],
+    });
+    expect(portfolioSurvives(enrolled, at65).lowestBalanceCents).toBeGreaterThan(
+      portfolioSurvives(selfFunded, at65).lowestBalanceCents,
+    );
+  });
+
+  it("keeps the elevated pre-65 cost before the step (only WHEN it fires differs)", () => {
+    // One 60-year-old; the only difference is the enrolment age. Stepping at 60 pays
+    // the reduced residual from year 0; stepping at 65 pays the elevated line for 5
+    // more years, so it ends poorer. Isolates the pre-step elevated window.
+    const base = {
+      annualHealthExpenseCents: dollarsToCents(12_000),
+      healthRealGrowthRate: 0,
+      postMedicareHealthAnnualCents: dollarsToCents(6_000),
+    };
+    const retiree = (medicareEligibilityAge: number) =>
+      person({
+        currentAge: 60,
+        plannedRetirementAge: 60,
+        lifeExpectancy: 85,
+        annualEmploymentIncomeCents: 0,
+        annualSocialSecurityCents: 0,
+        ...base,
+        medicareEligibilityAge,
+      });
+    const ages = new Map([["p1", 60]]);
+    const stepsAt65 = scenario({ ...drawdown, persons: [retiree(65)] });
+    const stepsAt60 = scenario({ ...drawdown, persons: [retiree(60)] });
+    expect(portfolioSurvives(stepsAt65, ages).lowestBalanceCents).toBeLessThan(
+      portfolioSurvives(stepsAt60, ages).lowestBalanceCents,
+    );
+  });
+
+  it("is a no-op when the person carries no health (back-compat)", () => {
+    const ages = new Map([["p1", 70]]);
+    const none = scenario();
+    const zero = scenario({
+      persons: [person({ annualHealthExpenseCents: 0, healthRealGrowthRate: 0.02 })],
+    });
+    expect(portfolioSurvives(zero, ages).lowestBalanceCents).toBe(
+      portfolioSurvives(none, ages).lowestBalanceCents,
+    );
+  });
+
+  it("pushes out the earliest feasible retirement age when health is heavy", () => {
+    // Flat health keeps survival monotonic in the retirement age (working longer
+    // always helps), so a heavier flat line just moves the earliest feasible age later.
+    const light = scenario();
+    const heavy = scenario({
+      persons: [person({ annualHealthExpenseCents: dollarsToCents(10_000), healthRealGrowthRate: 0 })],
+    });
+    const lightAge = findRetirementAge(light, { mode: "group" }).earliestFeasibleAge;
+    const heavyAge = findRetirementAge(heavy, { mode: "group" }).earliestFeasibleAge;
+    expect(lightAge).not.toBeNull();
+    expect(heavyAge).not.toBeNull();
+    expect(heavyAge!).toBeGreaterThan(lightAge!);
+  });
+});

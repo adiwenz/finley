@@ -175,6 +175,33 @@ describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
     expect(seen).toEqual([dollarsToCents(2000)]);
     expect(r.deferredByPersonCents.get("p1") ?? 0).toBe(0);
   });
+
+  it("taxes only the taxableFraction of a source, but pays out the full gross (§5.4 SS)", () => {
+    const seen: number[] = [];
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            grossCents: dollarsToCents(2000),
+            taxCategory: "socialSecurity",
+            taxableFraction: 0.85, // only 85% of SS is taxable income
+          },
+        ],
+        computeTaxCents: (taxable) => {
+          seen.push(taxable);
+          return Math.round(taxable * 0.1); // flat 10% stub
+        },
+        liquidAccountId: "checking",
+      }),
+    );
+    // Taxable pool is 85% of $2000 = $1700; tax = $170.
+    expect(seen).toEqual([dollarsToCents(1700)]);
+    expect(r.taxCents).toBe(dollarsToCents(170));
+    // Take-home idles the FULL gross minus tax: 2000 − 170 = 1830 (the untaxed
+    // 15% is still spendable cash, not lost).
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(1830));
+  });
 });
 
 describe("runWaterfall — shared obligations (§5.0 step 3)", () => {

@@ -8,6 +8,7 @@
 
 import type { BudgetValues } from "../../planTypes";
 import type { RetirementView } from "../../retirementView";
+import { formatDollars } from "../../format";
 
 export function RetirementPanel({
   view,
@@ -45,6 +46,30 @@ export function RetirementPanel({
           </>
         )}
       </p>
+
+      {view.earlyRetireeHealth.flagged && (
+        <p className="alert alert-amber" role="status">
+          Retiring at {budget.retirementAge} means{" "}
+          <strong>{view.earlyRetireeHealth.gapYears} years</strong> of self-funded
+          health coverage before Medicare at 65. Your health budget looks about{" "}
+          <strong>{formatDollars(view.earlyRetireeHealth.shortfallMonthlyCents)}/mo</strong>{" "}
+          short of a typical pre-65 cost. Estimate, not advice.
+        </p>
+      )}
+
+      {view.enrollsInMedicare ? (
+        <p className="hint">
+          From 65, Medicare covers most health costs; your plan budgets{" "}
+          <strong>{formatDollars(view.medicareResidualMonthlyCents)}/mo</strong> for the residual
+          (premiums, Part B, out-of-pocket). Estimate, not advice.
+        </p>
+      ) : (
+        <p className="hint">
+          This plan doesn’t enrol in Medicare at 65, so the pre-65 self-funded health
+          cost (<strong>{formatDollars(budget.healthMonthlyCents)}/mo</strong>) carries on for
+          life. Estimate, not advice.
+        </p>
+      )}
     </>
   );
 }

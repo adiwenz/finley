@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { Cents, EarningsRecord, SocialSecurityContext } from "@finley/engine";
-import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
+import {
+  socialSecurityMonthlyBenefitCents,
+  socialSecurityTaxableFraction,
+} from "./socialSecurity";
 
 /** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
 function levelRecord(startYear: number, count: number, wageCents: Cents): EarningsRecord {
@@ -21,6 +24,24 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     //   claim = FRA ⇒ ×1.0 ⇒ $3,991.60
     const record = levelRecord(2019, 35, 168_600_00);
     expect(socialSecurityMonthlyBenefitCents(record, atFRA(2026))).toBe(399_160);
+  });
+
+  it("cent-pinned: bend points are re-indexed to a future cohort's age-60 year", () => {
+    // A worker turning 67 in 2054 (age-60 year = 2054−67+60 = 2047). Their earnings
+    // are indexed forward to 2047, so the bend points must move to that same era or
+    // the AIME would be sliced by present-day bend points and understate the benefit.
+    //   bend-point scale = 1.035^(2047−2019) = 1.035^28 = 2.620172
+    //   bend1 = $1,174 × 2.620172 → whole $ = $3,076.00
+    //   bend2 = $7,078 × 2.620172 → whole $ = $18,546.00
+    // 35 level years at $100,000, all on/after 2047 ⇒ every earnings index factor
+    // is 1.0, so AIME = 35 × $100,000 / 420 = $8,333.33 → whole $ = $8,333.00.
+    // AIME sits in the middle (32%) tier, between the two indexed bend points:
+    //   PIA = 0.90·$3,076 + 0.32·($8,333−$3,076)
+    //       = $2,768.40 + $1,682.24 = $4,450.64 → dime → $4,450.60
+    //   claim = FRA ⇒ ×1.0 ⇒ $4,450.60
+    const record = levelRecord(2047, 35, 100_000_00);
+    const ctx: SocialSecurityContext = { year: 2054, claimingAge: 67, currentAge: 67 };
+    expect(socialSecurityMonthlyBenefitCents(record, ctx)).toBe(445_060);
   });
 
   it("returns 0 for an empty record", () => {
@@ -64,5 +85,25 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     const below = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 55, currentAge: 67 });
     const at62 = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 62, currentAge: 67 });
     expect(below).toBe(at62);
+  });
+});
+
+describe("socialSecurityTaxableFraction — partial SS taxation (§5.4)", () => {
+  it("includes at most 85% of the benefit (v1 max-inclusion), never the whole thing", () => {
+    // SS is only PARTIALLY taxable: the maximum includable share under US law is
+    // 85%, so at least 15% is always tax-free. v1 pins the conservative maximum.
+    expect(socialSecurityTaxableFraction({ year: 2026 })).toBe(0.85);
+  });
+
+  it("is a fraction in (0, 1) — some is taxed, some is always free", () => {
+    const f = socialSecurityTaxableFraction({ year: 2026 });
+    expect(f).toBeGreaterThan(0);
+    expect(f).toBeLessThan(1);
+  });
+
+  it("is not indexed: the 85% inclusion cap is fixed in law, not by year", () => {
+    expect(socialSecurityTaxableFraction({ year: 2050 })).toBe(
+      socialSecurityTaxableFraction({ year: 2026 }),
+    );
   });
 });

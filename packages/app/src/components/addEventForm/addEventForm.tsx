@@ -43,16 +43,18 @@ export function AddEventForm({
   household,
   defaultMonth,
   nextId,
+  horizonMonths,
   onAdd,
 }: {
   household: Household;
   defaultMonth: number;
   nextId: number;
+  horizonMonths: number;
   onAdd: (event: NewLifeEvent) => void;
 }) {
   const [kind, setKind] = useState<EventKind>("JobChangeEvent");
 
-  const formProps = { defaultMonth, nextId, onAdd };
+  const formProps = { defaultMonth, nextId, horizonMonths, onAdd };
 
   return (
     <div className={styles.authoring}>

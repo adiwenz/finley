@@ -5,6 +5,7 @@ import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { timelineMarkers } from "./ledgerView";
 import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
+import { planHorizonMonths } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { Timeline } from "./components/timeline/timeline";
@@ -36,13 +37,16 @@ export function App() {
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
-  const retirement = useMemo(() => retirementView(budget), [budget]);
+  const retirement = useMemo(() => retirementView(budget, usJurisdiction), [budget]);
+  // Chart, timeline, and event picker all span "now" → life expectancy (§7).
+  const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 
   return (
     <>
       <h1>Your financial life</h1>
       <p className="sub">
-        {budget.name || "You"} · 30-year outlook · jurisdiction: {usJurisdiction.id}
+        {budget.name || "You"} · outlook to age {budget.lifeExpectancy} · jurisdiction:{" "}
+        {usJurisdiction.id}
       </p>
 
       <div className="layout">
@@ -53,6 +57,7 @@ export function App() {
             <Timeline
               markers={markers}
               scrubMonth={scrubMonth}
+              horizonMonths={horizonMonths}
               onScrub={setScrubMonth}
               onUndo={undoEvent}
             />
@@ -89,6 +94,7 @@ export function App() {
               household={household}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               nextId={ledger.nextSequenceNumber}
+              horizonMonths={horizonMonths}
               onAdd={recordEvent}
             />
           </div>

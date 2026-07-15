@@ -541,6 +541,17 @@ export function simulateHousehold(
     let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
 
     if (month > 0) {
+      // Calendar year for this month's flows. NOTE (documented simplification):
+      // because month 0 is the flow-free opening snapshot above and years bucket by
+      // floor(month/12), the FIRST calendar year accrues only 11 flow-months — a
+      // $5k/mo salary contributes $55k (not $60k) to year 0's SS earnings record,
+      // and one month of expenses/compounding is likewise absent. The engine tracks
+      // integer years only and does not model what month of the year "now" is, so a
+      // mid-year start would in reality leave even fewer months; 11 is neither that
+      // nor a full 12. Impact is ~0.1% (e.g. the graph's SS is ~$34/yr below the
+      // panel's full-first-year closed form). Modelling a start month-of-year so the
+      // first partial year is exact — and the two SS numbers agree — is tracked in
+      // GH #34; do NOT "fix" it by making month 0 earn (that redefines "now").
       const year = startYear + Math.floor(month / 12);
       const ctx: JurisdictionContext = { year };
 
@@ -552,7 +563,7 @@ export function simulateHousehold(
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const incomeSources = [
         ...buildIncomeSources(input.incomeSeries, month),
-        ...buildSocialSecuritySources(state, jurisdiction, month, startYear),
+        ...buildSocialSecuritySources(state, jurisdiction, month, startYear, input.annualInflationRate),
         ...buildRmdSources(state, jurisdiction, month, startYear),
       ];
 
