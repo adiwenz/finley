@@ -34,6 +34,8 @@ export interface ReportPerson {
   readonly name: string;
   readonly birthYear: number | null;
   readonly ssClaimingAge: number | null;
+  /** Age at the run's start year (startYear − birthYear); null without a birth year. */
+  readonly ageAtStart: number | null;
 }
 
 /** An asset account's opening configuration (the rate is the one in effect at month 0). */
@@ -89,7 +91,11 @@ export interface ReportExpenseSource {
 /** The resolved inputs the run consumed, echoed back for the record. */
 export interface ReportInputs {
   readonly horizonMonths: number;
+  /** `horizonMonths / 12` — the run length in years, for a human-facing config view. */
+  readonly horizonYears: number;
   readonly startYear: number;
+  /** Calendar year of the final simulated month (`startYear + ⌊horizonMonths/12⌋`). */
+  readonly endYear: number;
   readonly annualInflationRate: number;
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
@@ -145,14 +151,26 @@ export interface SimulationReport {
   readonly inputs: ReportInputs;
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
+  /**
+   * Caller-supplied configuration echoed back verbatim (see the `meta` argument of
+   * {@link summarizeSimulation}). The engine treats it as an opaque bag — it stays
+   * app-agnostic — while giving a consumer one place to round-trip the higher-level,
+   * human-authored knobs that its own inputs compiled away (e.g. the app records the
+   * full value-editing surface here: life expectancy, retirement age, health config).
+   * Absent when the caller supplies none.
+   */
+  readonly meta?: Readonly<Record<string, unknown>>;
 }
 
 const DEFAULT_START_YEAR = 2026;
 
 function echoInputs(input: HouseholdSimInput): ReportInputs {
+  const startYear = input.startYear ?? DEFAULT_START_YEAR;
   return {
     horizonMonths: input.horizonMonths,
-    startYear: input.startYear ?? DEFAULT_START_YEAR,
+    horizonYears: input.horizonMonths / 12,
+    startYear,
+    endYear: startYear + Math.floor(input.horizonMonths / 12),
     annualInflationRate: input.annualInflationRate,
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
@@ -161,6 +179,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       name: p.name,
       birthYear: p.birthYear ?? null,
       ssClaimingAge: p.ssClaimingAge ?? null,
+      ageAtStart: p.birthYear === undefined ? null : startYear - p.birthYear,
     })),
     accounts: input.accounts.map((a) => ({
       id: a.id,
@@ -226,10 +245,14 @@ function unionKeys(
  * {@link ProjectionSeries}. Exposed alongside {@link buildSimulationReport} so a
  * caller that has *already* simulated (the app draws the same series for its chart)
  * can build the report without paying for a second simulation.
+ *
+ * `meta` is echoed verbatim onto {@link SimulationReport.meta} — the seam for a
+ * consumer's higher-level config that the engine's own inputs don't carry.
  */
 export function summarizeSimulation(
   input: HouseholdSimInput,
   series: ProjectionSeries,
+  meta?: Readonly<Record<string, unknown>>,
 ): SimulationReport {
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const birthYearById = new Map<string, number>();
@@ -269,17 +292,24 @@ export function summarizeSimulation(
     incomeCategories: unionKeys(months, (m) => m.incomeByCategoryCents),
   };
 
-  return { version: SIMULATION_REPORT_VERSION, inputs: echoInputs(input), columns, months };
+  return {
+    version: SIMULATION_REPORT_VERSION,
+    inputs: echoInputs(input),
+    columns,
+    months,
+    ...(meta !== undefined ? { meta } : {}),
+  };
 }
 
 /**
  * Run the simulator and produce the complete {@link SimulationReport} — the
  * headless entry point: inputs in, everything out. Prefer {@link summarizeSimulation}
- * when you already hold the run's {@link ProjectionSeries}.
+ * when you already hold the run's {@link ProjectionSeries}. `meta` is echoed verbatim.
  */
 export function buildSimulationReport(
   input: HouseholdSimInput,
   jurisdiction: Jurisdiction,
+  meta?: Readonly<Record<string, unknown>>,
 ): SimulationReport {
-  return summarizeSimulation(input, simulateHousehold(input, jurisdiction));
+  return summarizeSimulation(input, simulateHousehold(input, jurisdiction), meta);
 }

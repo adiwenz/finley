@@ -1,16 +1,22 @@
 /**
  * Debug panel (§10) — a raw inspector over the engine's {@link SimulationReport}.
- * It renders the accumulation table (ages, balances, and cash flows incl. Social
- * Security, per period) and downloads the whole run — the resolved report plus the
- * raw plan — as JSON. Pure consumer of the engine output: it derives nothing about
- * the simulation itself, so it can never disagree with what the engine computed.
+ * It lists every configuration knob, renders the accumulation table (ages, balances,
+ * and cash flows incl. Social Security, per period), and downloads the whole run as
+ * JSON. Pure consumer of the engine output: it derives nothing about the simulation
+ * itself, so it can never disagree with what the engine computed. The full authored
+ * config rides in the report's `meta`, so the download is complete on its own.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { SimulationReport } from "@finley/engine";
+import type { BudgetValues } from "../../planTypes";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
+
+const pct = (whole: number) => `${whole}%`;
+const yesNo = (b: boolean) => (b ? "yes" : "no");
+const targetDate = (d: number | "asap") => (d === "asap" ? "ASAP" : `month ${d}`);
 
 function downloadJson(filename: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -22,9 +28,121 @@ function downloadJson(filename: string, data: unknown): void {
   URL.revokeObjectURL(url);
 }
 
-export function DebugPanel({ report }: { report: SimulationReport }) {
+/** One labelled group of config rows. */
+function ConfigGroup({ title, rows }: { title: string; rows: readonly [string, ReactNode][] }) {
+  return (
+    <div className={styles.configGroup}>
+      <h4 className={styles.configTitle}>{title}</h4>
+      <dl className={styles.configList}>
+        {rows.map(([label, value]) => (
+          <div key={label} className={styles.configRow}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** Every configurable knob, grouped — the authored plan plus resolved run facts. */
+function Configuration({
+  budget,
+  inputs,
+  jurisdictionId,
+}: {
+  budget: BudgetValues;
+  inputs: SimulationReport["inputs"];
+  jurisdictionId: string;
+}) {
+  return (
+    <div className={styles.config}>
+      <ConfigGroup
+        title="Identity & horizon"
+        rows={[
+          ["Name", budget.name || "You"],
+          ["Current age", budget.currentAge],
+          ["Retirement age", budget.retirementAge],
+          ["Life expectancy", budget.lifeExpectancy],
+          ["Jurisdiction", jurisdictionId],
+          ["Horizon", `${inputs.horizonYears} yr (${inputs.horizonMonths} mo)`],
+          ["Years", `${inputs.startYear}–${inputs.endYear}`],
+        ]}
+      />
+      <ConfigGroup
+        title="Monthly cash flow"
+        rows={[
+          ["Income", formatDollars(budget.incomeCents)],
+          ["Expenses (general)", formatDollars(budget.expenseCents)],
+          ["Opening balance", formatDollars(budget.openingBalanceCents)],
+          ["Expense overrides", `${budget.expenseOverrides.length}`],
+        ]}
+      />
+      <ConfigGroup
+        title="Accounts & returns"
+        rows={[
+          ["Savings ROI", pct(budget.savingsReturnPct)],
+          ["Retirement ROI", pct(budget.retirementReturnPct)],
+          ["Brokerage ROI", pct(budget.brokerageReturnPct)],
+          ["Retirement deferral", pct(budget.retirementDeferralPct)],
+        ]}
+      />
+      <ConfigGroup
+        title="Retirement & Social Security"
+        rows={[
+          ["SS claiming age", budget.ssClaimingAge],
+          [
+            "SS annual (override)",
+            budget.socialSecurityAnnualCents === undefined
+              ? "computed"
+              : formatDollars(budget.socialSecurityAnnualCents),
+          ],
+        ]}
+      />
+      <ConfigGroup
+        title="Health care"
+        rows={[
+          ["Pre-65 monthly", formatDollars(budget.healthMonthlyCents)],
+          ["Post-Medicare monthly", formatDollars(budget.postMedicareHealthMonthlyCents)],
+          ["Enrolls in Medicare", yesNo(budget.enrollsInMedicare)],
+          ["Health inflation", pct(budget.healthInflationPct)],
+        ]}
+      />
+      <ConfigGroup
+        title="Inflation & levers"
+        rows={[
+          ["Inflation (CPI)", pct(budget.inflationPct)],
+          ["Shared scheme", budget.sharedScheme],
+          ["Leftover cash", budget.surplusSwept ? "swept to brokerage" : "idle in savings"],
+        ]}
+      />
+      <ConfigGroup
+        title={`Goals (${budget.goals.length})`}
+        rows={
+          budget.goals.length === 0
+            ? [["—", "no goals"]]
+            : budget.goals.map((g, i): [string, ReactNode] => [
+                `${i + 1}. ${g.name}`,
+                `${formatDollars(g.targetCents)} · ${targetDate(g.targetDate)} · ${g.type} · ${pct(
+                  g.annualReturnPct,
+                )}`,
+              ])
+        }
+      />
+    </div>
+  );
+}
+
+export function DebugPanel({
+  report,
+  budget,
+}: {
+  report: SimulationReport;
+  budget: BudgetValues;
+}) {
   const [everyMonth, setEveryMonth] = useState(false);
   const { columns, months, inputs } = report;
+  const jurisdictionId = String((report.meta?.jurisdictionId as string | undefined) ?? "—");
 
   // The accumulation table is naturally annual; showing every one of hundreds of
   // months is opt-in so the default view stays readable. Yearly rows are the
@@ -68,6 +186,8 @@ export function DebugPanel({ report }: { report: SimulationReport }) {
           .map((p) => `${p.name} (SS claim ${p.ssClaimingAge ?? "—"})`)
           .join(", ")}
       </p>
+
+      <Configuration budget={budget} inputs={inputs} jurisdictionId={jurisdictionId} />
 
       <div className={styles.scroll}>
         <table className={styles.table}>
