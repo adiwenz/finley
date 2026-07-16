@@ -2,9 +2,9 @@
  * Presentation logic for the retirement panel (§7). Reads the two things the UI
  * needs off the REAL projection (§5): the Mode-1 headline ("when can we retire?")
  * and the target-mode assessment against the pinned retirement age (on-track % +
- * honest nearest-feasible date, §7.1). The survival math lives in
- * {@link ./retirementSolver}, which runs the same `simulateHousehold` the net-worth
- * graph does — so the panel's answer and the graph can never disagree (#37).
+ * honest nearest-feasible date, §7.1). The survival math lives in the engine's
+ * retirement solver (`@finley/engine`), which runs the same `simulateHousehold` the
+ * net-worth graph does — so the panel's answer and the graph can never disagree (#37).
  *
  * The Medicare / early-retiree health honesty flags (§5.4) stay here: they are a
  * today's-dollars read on the authored health line, independent of the projection.
@@ -12,13 +12,15 @@
 
 import {
   assessEarlyRetireeHealthCost,
+  earliestFeasibleRetirementAge,
+  evaluateAtAge,
   type Jurisdiction,
+  type ProjectionContext,
   type RetirementEvaluation,
   type EarlyRetireeHealthFlag,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
-import { earliestFeasibleRetirementAge, evaluateAtAge } from "./retirementSolver";
 import type { Plan } from "@finley/engine";
 
 export interface RetirementView {
@@ -83,14 +85,17 @@ export function retirementView(
   budget: Plan,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
-  const headlineAge = earliestFeasibleRetirementAge(budget, jurisdiction);
+  // The app supplies the engine's projection environment: the frozen "now" plus the
+  // jurisdiction the solver resolves the real projection against.
+  const ctx: ProjectionContext = { jurisdiction, startYear: START_YEAR };
+  const headlineAge = earliestFeasibleRetirementAge(budget, ctx);
   const headlineMonth =
     headlineAge === null ? null : Math.max(0, (headlineAge - budget.currentAge) * 12);
   // Compose the full evaluation: `evaluateAtAge` at the pin gives feasibility + on-track
   // %; the nearest-feasible age is a headline-mode fact — the pin itself when it
   // survives, else the earliest surviving age (the headline we just computed). Doing it
   // here reuses the one binary search and can't drift.
-  const evaluation = evaluateAtAge(budget, budget.retirementAge, jurisdiction);
+  const evaluation = evaluateAtAge(budget, budget.retirementAge, ctx);
   const target: RetirementEvaluation = {
     ...evaluation,
     nearestFeasibleAge: evaluation.feasible ? evaluation.retirementAge : headlineAge,

@@ -1,17 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { dollarsToCents } from "@finley/engine";
-import { retirementView } from "./retirementView";
 import {
+  dollarsToCents,
   projectPlan,
   realNetWorthSurvives,
   earliestFeasibleRetirementAge,
-} from "./retirementSolver";
+  type ProjectionContext,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
+import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
+
+/** The real-jurisdiction projection environment these #37 acceptance tests run against. */
+const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
 
 /** Does the plan survive when retiring at exactly `age`? Runs the real projection. */
 function survivesAt(budget: Plan, age: number): boolean {
-  return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }));
+  return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }, CTX));
 }
 
 describe("retirementView — headline age driven off the real projection (#37)", () => {
@@ -73,7 +79,7 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
     const view = retirementView(pinnedTooEarly);
     expect(view.target.feasible).toBe(false);
     expect(view.targetOnTrackPct).toBeLessThan(100);
-    expect(view.target.nearestFeasibleAge).toBe(earliestFeasibleRetirementAge(pinnedTooEarly));
+    expect(view.target.nearestFeasibleAge).toBe(earliestFeasibleRetirementAge(pinnedTooEarly, CTX));
   });
 
   it("keeps the on-track % within [0, 100]", () => {
