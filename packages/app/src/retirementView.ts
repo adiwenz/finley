@@ -16,7 +16,7 @@ import {
   type RetirementEvaluation,
   type EarlyRetireeHealthFlag,
 } from "@finley/engine";
-import { usJurisdiction, MEDICARE_ELIGIBILITY_AGE } from "@finley/rules";
+import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { earliestFeasibleRetirementAge, evaluateAtAge } from "./retirementSolver";
 import type { Plan } from "@finley/engine";
@@ -67,7 +67,9 @@ function earlyRetireeHealthFlag(
 ): EarlyRetireeHealthFlag {
   return assessEarlyRetireeHealthCost({
     retirementAge: budget.retirementAge,
-    medicareEligibilityAge: MEDICARE_ELIGIBILITY_AGE,
+    // The jurisdiction owns the coverage age (65 under US law). Absent → 0, so the
+    // gap window is empty and the flag never fires.
+    publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
     authoredHealthMonthlyCents: budget.healthMonthlyCents,
     selfFundedBenchmarkMonthlyCents:
       jurisdiction.healthCostBenchmarkMonthlyCents?.({

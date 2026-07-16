@@ -26,14 +26,14 @@ import type { Cents } from "./money";
 
 /**
  * Inputs to the early-retiree health-cost honesty check. The gap window is
- * `retirementAge … medicareEligibilityAge`; a person retiring at/after
- * eligibility has no self-funded window and is never flagged.
+ * `retirementAge … publicHealthCoverageAge`; a person retiring at/after the
+ * coverage age has no self-funded window and is never flagged.
  */
 export interface EarlyRetireeHealthCheck {
   /** The age the person stops employment (and its employer coverage). */
   readonly retirementAge: number;
   /** Jurisdiction fact (65 under US law): below it, retirees self-fund coverage. */
-  readonly medicareEligibilityAge: number;
+  readonly publicHealthCoverageAge: number;
   /** The plan's authored monthly health expense for the pre-eligibility window. */
   readonly authoredHealthMonthlyCents: Cents;
   /** The elevated self-funded benchmark for that window (from the rules seam). */
@@ -65,7 +65,7 @@ export interface EarlyRetireeHealthFlag {
 export function assessEarlyRetireeHealthCost(
   check: EarlyRetireeHealthCheck,
 ): EarlyRetireeHealthFlag {
-  const gapYears = Math.max(0, check.medicareEligibilityAge - check.retirementAge);
+  const gapYears = Math.max(0, check.publicHealthCoverageAge - check.retirementAge);
   const shortfallMonthlyCents = Math.max(
     0,
     check.selfFundedBenchmarkMonthlyCents - check.authoredHealthMonthlyCents,

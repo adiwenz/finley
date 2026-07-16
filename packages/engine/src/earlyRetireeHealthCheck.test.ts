@@ -5,7 +5,7 @@ import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
 function check(overrides: Partial<Parameters<typeof assessEarlyRetireeHealthCost>[0]> = {}) {
   return assessEarlyRetireeHealthCost({
     retirementAge: 55,
-    medicareEligibilityAge: 65,
+    publicHealthCoverageAge: 65,
     authoredHealthMonthlyCents: 0,
     selfFundedBenchmarkMonthlyCents: 1_200_00,
     ...overrides,

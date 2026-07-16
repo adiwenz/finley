@@ -15,12 +15,13 @@ import {
   buildHouseholdSimInput,
   simulateHousehold,
   emptyLedger,
+  createProjectionBase,
   type Jurisdiction,
   type ProjectionSeries,
   type RetirementEvaluation,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { createProjectionBase } from "./projectionBase";
+import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
 /**
@@ -32,7 +33,7 @@ export function projectPlan(
   budget: Plan,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): ProjectionSeries {
-  const base = createProjectionBase(budget);
+  const base = createProjectionBase(budget, { jurisdiction, startYear: START_YEAR });
   const household = interpretLedger(emptyLedger, base);
   const simInput = buildHouseholdSimInput(household, base);
   return simulateHousehold(simInput, jurisdiction);

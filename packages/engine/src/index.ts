@@ -16,6 +16,7 @@ export * from "./earningsRecord";
 export * from "./socialSecurityBenefit";
 export * from "./goal";
 export * from "./plan";
+export * from "./projectionBase";
 export * from "./retirementTypes";
 export * from "./earlyRetireeHealthCheck";
 export * from "./ids";

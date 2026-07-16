@@ -5,12 +5,14 @@ import {
   buildHouseholdSimInput,
   simulateHousehold,
   summarizeSimulation,
+  createProjectionBase,
+  firstInsolventMonth,
+  type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { timelineMarkers } from "./ledgerView";
-import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
-import { planHorizonMonths } from "./config";
+import { planHorizonMonths, START_YEAR } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { Timeline } from "./components/timeline/timeline";
@@ -26,11 +28,21 @@ import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
+/**
+ * The projection environment: the real US jurisdiction and the frozen "now"
+ * (`START_YEAR`). Both are app-supplied constants, so a stable module-level object
+ * keeps `createProjectionBase`'s memo keyed on `budget` alone.
+ */
+const PROJECTION_CTX: ProjectionContext = {
+  jurisdiction: usJurisdiction,
+  startYear: START_YEAR,
+};
+
 export function App() {
   const [budget, setBudget] = useState<Plan>(PLAN_DEFAULTS);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
-  const base = useMemo(() => createProjectionBase(budget), [budget]);
+  const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
   const { ledger, conflict, recordEvent, undoEvent } = useLedger(base);
 
   // One replay-derived household feeds both the projection and the snapshot,

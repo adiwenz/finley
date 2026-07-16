@@ -9,8 +9,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
-import { createProjectionBase } from "../../projectionBase";
+import {
+  emptyLedger,
+  replayLedger,
+  dollarsToCents,
+  nullJurisdiction,
+  createProjectionBase,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "../../config";
 import { GoalsPanel } from "./goalsPanel";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
@@ -19,7 +26,11 @@ import type { Plan } from "@finley/engine";
 const noop = () => {};
 
 function project(budget: Plan) {
-  return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
+  return replayLedger(
+    emptyLedger,
+    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
+    nullJurisdiction,
+  );
 }
 
 describe("GoalsPanel", () => {

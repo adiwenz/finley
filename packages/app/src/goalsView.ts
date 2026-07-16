@@ -6,9 +6,13 @@
  * the whole point of a shared priority list.
  */
 
-import { computeGoalProgress, type ProjectionSeries } from "@finley/engine";
+import {
+  computeGoalProgress,
+  buildPlanAccounts,
+  buildPlanGoals,
+  type ProjectionSeries,
+} from "@finley/engine";
 import type { Plan, GoalPlan } from "@finley/engine";
-import { buildPlanAccounts, buildPlanGoals } from "./projectionBase";
 
 export interface GoalRow {
   readonly id: string;

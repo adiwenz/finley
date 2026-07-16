@@ -1,24 +1,39 @@
 /**
- * Turns the editable plan values (§10.2 — NOT events) into the engine's
- * `LedgerBaseConfig` for replay, including the §5.0 waterfall config (goals and
- * the four levers). The account/goal derivation is exported so the Goals panel
- * can score the same goals against the projection without duplicating the map.
+ * Turns a {@link Plan} (the authored financial values — NOT life events) into the
+ * engine's `LedgerBaseConfig` for replay, including the §5.0 waterfall config
+ * (goals and the four levers). The account/goal derivation is exported so a goals
+ * surface can score the same goals against the projection without duplicating the map.
+ *
+ * The mapping is pure and jurisdiction-agnostic except for two facts it must be
+ * told: the calendar "now" (`startYear`) and the age at which public health
+ * coverage begins. Both arrive via {@link ProjectionContext} — the engine cannot
+ * read a wall clock, and the coverage age is a jurisdiction fact — so the caller
+ * (the app) supplies them.
  */
 
-import {
-  CashFlowSeries,
-  Account,
-  type Cents,
-  type Person,
-  type Goal,
-  type LedgerBaseConfig,
-  type OwnedSeries,
-  type ProjectionSeries,
-  type SurplusDestination,
-} from "@finley/engine";
-import { MEDICARE_ELIGIBILITY_AGE } from "@finley/rules";
-import { planHorizonMonths, START_YEAR } from "./config";
-import type { Plan, GoalPlan } from "@finley/engine";
+import { CashFlowSeries } from "./cashFlowSeries";
+import { Account } from "./account";
+import type { Cents } from "./money";
+import type { Person, OwnedSeries, ProjectionSeries } from "./projection/simulate";
+import type { Goal } from "./goal";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
+import type { SurplusDestination } from "./projection/waterfall";
+import type { Jurisdiction } from "./jurisdiction";
+import type { Plan, GoalPlan } from "./plan";
+
+/**
+ * The environment + jurisdiction the plan→projection mapping is resolved against.
+ * The engine is pure and cannot read a wall clock, so `startYear` (the frozen
+ * "now") is supplied by the caller rather than derived; the `jurisdiction` carries
+ * the readable facts the mapping needs (notably {@link
+ * Jurisdiction.publicHealthCoverageAge} for the health step).
+ */
+export interface ProjectionContext {
+  /** The jurisdiction whose readable facts the mapping resolves against. */
+  readonly jurisdiction: Jurisdiction;
+  /** Calendar year of month 0 — the frozen "now". App-supplied environment, not a plan field. */
+  readonly startYear: number;
+}
 
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
@@ -100,20 +115,29 @@ export function buildPlanGoals(budget: Plan): Goal[] {
  * The health expense line (§5.4), additive to the general expense and growing at
  * its own configurable rate (`healthInflationPct`) — so a plan can model medical
  * costs rising faster than general inflation, but need not; it carries whatever
- * `customRate` the user sets rather than being pinned to CPI. When the plan enrolls
- * in Medicare, the line
- * steps from the pre-65 self-funded figure down to the authored residual at the
- * month the person turns 65; both figures are authored in today's dollars and share
- * the same forward inflation, so the residual override is that figure inflated to 65.
- * Not enrolling (or already past 65) collapses to a single segment.
+ * `customRate` the user sets rather than being pinned to CPI. When the plan enrols
+ * in public coverage and the jurisdiction has a `publicHealthCoverageAge`, the line
+ * steps from the pre-coverage self-funded figure down to the authored residual at
+ * the month the person reaches that age; both figures are authored in today's
+ * dollars and share the same forward inflation, so the residual override is that
+ * figure inflated to the coverage age. Not enrolling, a jurisdiction with no
+ * coverage age, or already being past it, collapses to a single segment.
  */
-function buildHealthSeries(budget: Plan): CashFlowSeries {
+function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashFlowSeries {
   const rate = budget.healthInflationPct / 100;
   const growth = { type: "customRate" as const, annualRate: rate };
-  const yearsTo65 = MEDICARE_ELIGIBILITY_AGE - budget.currentAge;
+  // The step exists only when the plan enrols AND the jurisdiction offers a
+  // coverage age; without one there is no public coverage to step down to.
+  const enrolls = budget.enrollsInMedicare && coverageAge !== undefined;
+  if (!enrolls) {
+    return new CashFlowSeries(0, budget.healthMonthlyCents, growth, {
+      baselineUnit: "monthly",
+    });
+  }
+  const yearsToCoverage = coverageAge - budget.currentAge;
 
-  // Already at/past 65 and enrolling → the residual applies from month 0.
-  if (budget.enrollsInMedicare && yearsTo65 <= 0) {
+  // Already at/past the coverage age → the residual applies from month 0.
+  if (yearsToCoverage <= 0) {
     return new CashFlowSeries(0, budget.postMedicareHealthMonthlyCents, growth, {
       baselineUnit: "monthly",
     });
@@ -122,17 +146,15 @@ function buildHealthSeries(budget: Plan): CashFlowSeries {
   const series = new CashFlowSeries(0, budget.healthMonthlyCents, growth, {
     baselineUnit: "monthly",
   });
-  if (budget.enrollsInMedicare) {
-    // Step down at 65: the residual (today's dollars) inflated forward to that month,
-    // then it keeps growing at the same rate from its own anchor.
-    const nominalResidualAt65 = Math.round(
-      budget.postMedicareHealthMonthlyCents * Math.pow(1 + rate, yearsTo65),
-    );
-    series.addOverride(yearsTo65 * 12, nominalResidualAt65, "fromHereForward", {
-      newGrowthMode: growth,
-      resetAnchor: true,
-    });
-  }
+  // Step down at the coverage age: the residual (today's dollars) inflated forward
+  // to that month, then it keeps growing at the same rate from its own anchor.
+  const nominalResidualAtCoverage = Math.round(
+    budget.postMedicareHealthMonthlyCents * Math.pow(1 + rate, yearsToCoverage),
+  );
+  series.addOverride(yearsToCoverage * 12, nominalResidualAtCoverage, "fromHereForward", {
+    newGrowthMode: growth,
+    resetAnchor: true,
+  });
   return series;
 }
 
@@ -146,12 +168,17 @@ const CAREER_START_AGE = 18;
  * with how in-model income is modelled (inflation-linked, flat in real terms). Both
  * the pre-"now" record seed and the panel's benefit calc read from this shape.
  */
-function careerEarningsCents(budget: Plan, fromAge: number, toAge: number): Record<number, Cents> {
+function careerEarningsCents(
+  budget: Plan,
+  startYear: number,
+  fromAge: number,
+  toAge: number,
+): Record<number, Cents> {
   const annualSalaryNow = budget.incomeCents * 12;
   const inflationRate = budget.inflationPct / 100;
   const earnings: Record<number, Cents> = {};
   for (let age = fromAge; age < toAge; age++) {
-    const year = START_YEAR + (age - budget.currentAge); // < START_YEAR for ages before "now"
+    const year = startYear + (age - budget.currentAge); // < startYear for ages before "now"
     earnings[year] = Math.round(annualSalaryNow * Math.pow(1 + inflationRate, age - budget.currentAge));
   }
   return earnings;
@@ -162,8 +189,8 @@ function careerEarningsCents(budget: Plan, fromAge: number, toAge: number): Reco
  * age 18 through retirement. The panel prices Social Security from this same record
  * the graph accumulates, so both surfaces report the same benefit.
  */
-export function fullCareerEarningsCents(budget: Plan): Record<number, Cents> {
-  return careerEarningsCents(budget, CAREER_START_AGE, budget.retirementAge);
+export function fullCareerEarningsCents(budget: Plan, startYear: number): Record<number, Cents> {
+  return careerEarningsCents(budget, startYear, CAREER_START_AGE, budget.retirementAge);
 }
 
 /**
@@ -177,11 +204,12 @@ export function fullCareerEarningsCents(budget: Plan): Record<number, Cents> {
  * benefit down ~1/7. A real 35-year-old has instead been earning since ~18, and
  * those years fill the record — so we seed ages 18 → today.
  */
-function seedPriorEarnings(budget: Plan): Record<number, Cents> {
-  return careerEarningsCents(budget, CAREER_START_AGE, budget.currentAge);
+function seedPriorEarnings(budget: Plan, startYear: number): Record<number, Cents> {
+  return careerEarningsCents(budget, startYear, CAREER_START_AGE, budget.currentAge);
 }
 
-export function createProjectionBase(budget: Plan): LedgerBaseConfig {
+export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
+  const { startYear } = ctx;
   // Give the projection an SS basis (§5.4): a birth year derived from today's age
   // plus the pinned claiming age, so the engine accumulates earnings while working
   // and pays a Social Security benefit from the claiming age — the same lever the
@@ -192,9 +220,9 @@ export function createProjectionBase(budget: Plan): LedgerBaseConfig {
   const person: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
-    birthYear: START_YEAR - budget.currentAge,
+    birthYear: startYear - budget.currentAge,
     ssClaimingAge: budget.ssClaimingAge,
-    priorEarningsCents: seedPriorEarnings(budget),
+    priorEarningsCents: seedPriorEarnings(budget, startYear),
   };
 
   // Income runs until retirement then stops (§7); while working it grows with CPI,
@@ -218,7 +246,7 @@ export function createProjectionBase(budget: Plan): LedgerBaseConfig {
     expenseSeries.addOverride(o.month, o.monthlyCents, o.scope);
   }
 
-  const healthSeries = buildHealthSeries(budget);
+  const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
   // Lever 1 (§5.5): a positive deferral % turns the income into a plan-bearing
   // source that defers pre-tax into the retirement account.
@@ -236,9 +264,9 @@ export function createProjectionBase(budget: Plan): LedgerBaseConfig {
     : { kind: "idle" };
 
   return {
-    horizonMonths: planHorizonMonths(budget.currentAge, budget.lifeExpectancy),
+    horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),
     annualInflationRate: inflationRate,
-    startYear: START_YEAR,
+    startYear,
     initialPersons: [person],
     initialAccounts: buildPlanAccounts(budget),
     initialIncomeSeries: [income],

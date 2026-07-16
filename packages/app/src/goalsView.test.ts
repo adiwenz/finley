@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
-import { createProjectionBase } from "./projectionBase";
+import {
+  emptyLedger,
+  replayLedger,
+  dollarsToCents,
+  nullJurisdiction,
+  createProjectionBase,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "./config";
 import { goalRows, reorderGoal } from "./goalsView";
 import type { Plan, GoalPlan } from "@finley/engine";
 
@@ -49,7 +56,11 @@ const goalB: GoalPlan = {
 };
 
 function project(budget: Plan) {
-  return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
+  return replayLedger(
+    emptyLedger,
+    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
+    nullJurisdiction,
+  );
 }
 
 describe("goalRows — projection-based on-track % (§5.2)", () => {
