@@ -62,7 +62,7 @@ describe("RetirementPanel", () => {
   });
 
   it("tells the self-funded-for-life story when NOT enrolling in Medicare (§5.4)", () => {
-    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65, enrollsInMedicare: false });
+    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65, enrollsInPublicHealthCoverage: false });
     expect(html).toContain("doesn’t enrol in Medicare");
     expect(html).toContain("for life");
     expect(html).not.toContain("From 65"); // no residual step in this story

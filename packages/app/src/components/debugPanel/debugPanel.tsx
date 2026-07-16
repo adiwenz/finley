@@ -95,8 +95,8 @@ function Configuration({
         title="Health care"
         rows={[
           ["Pre-65 monthly", formatDollars(budget.healthMonthlyCents)],
-          ["Post-Medicare monthly", formatDollars(budget.postMedicareHealthMonthlyCents)],
-          ["Enrolls in Medicare", yesNo(budget.enrollsInMedicare)],
+          ["Post-Medicare monthly", formatDollars(budget.postCoverageHealthMonthlyCents)],
+          ["Enrolls in Medicare", yesNo(budget.enrollsInPublicHealthCoverage)],
           ["Health inflation", pct(budget.healthInflationPct)],
         ]}
       />

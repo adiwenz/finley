@@ -25,7 +25,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
       <output data-testid="ss-claiming-age">{budget.ssClaimingAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
-      <output data-testid="enrolls">{String(budget.enrollsInMedicare)}</output>
+      <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
     </>
   );
 }
@@ -97,7 +97,7 @@ describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => 
   });
 
   it("hides the from-65 residual when self-funding for life", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, enrollsInMedicare: false }} />);
+    render(<Harness initial={{ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false }} />);
     expect(screen.queryByLabelText(/health care \(from 65\)/i)).toBeNull();
   });
 

@@ -44,14 +44,14 @@ export interface RetirementView {
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
   /**
    * The authored Medicare residual the plan carries from 65 (§5.4), in **today's
-   * dollars** — the user's own {@link Plan.postMedicareHealthMonthlyCents},
+   * dollars** — the user's own {@link Plan.postCoverageHealthMonthlyCents},
    * not a derived figure. 0 when the plan does not enrol in Medicare (no residual —
-   * the pre-65 self-funded line runs for life instead); {@link enrollsInMedicare}
+   * the pre-65 self-funded line runs for life instead); {@link enrollsInPublicHealthCoverage}
    * tells the panel which story to tell.
    */
-  readonly medicareResidualMonthlyCents: number;
+  readonly residualHealthMonthlyCents: number;
   /** Whether the plan enrols in Medicare at 65 (§5.4) — drives the panel's post-65 copy. */
-  readonly enrollsInMedicare: boolean;
+  readonly enrollsInPublicHealthCoverage: boolean;
 }
 
 /**
@@ -107,9 +107,9 @@ export function retirementView(
     targetOnTrackPct: Math.min(100, Math.max(0, Math.round(target.onTrackFraction * 100))),
     earlyRetireeHealth: earlyRetireeHealthFlag(budget, jurisdiction),
     // The authored residual (today's dollars); 0 and moot when not enrolling.
-    medicareResidualMonthlyCents: budget.enrollsInMedicare
-      ? budget.postMedicareHealthMonthlyCents
+    residualHealthMonthlyCents: budget.enrollsInPublicHealthCoverage
+      ? budget.postCoverageHealthMonthlyCents
       : 0,
-    enrollsInMedicare: budget.enrollsInMedicare,
+    enrollsInPublicHealthCoverage: budget.enrollsInPublicHealthCoverage,
   };
 }

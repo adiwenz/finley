@@ -143,33 +143,33 @@ describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medi
 describe("retirementView — attributed Medicare residual step (§5.4, visible at 65)", () => {
   it("surfaces the ~$500/mo residual step in today's dollars", () => {
     const view = retirementView({ ...PLAN_DEFAULTS, currentAge: 65 });
-    expect(view.medicareResidualMonthlyCents).toBe(dollarsToCents(500));
+    expect(view.residualHealthMonthlyCents).toBe(dollarsToCents(500));
   });
 
   it("is present regardless of retirement age (the step is always shown, not just for early retirees)", () => {
     const early = retirementView({ ...PLAN_DEFAULTS, retirementAge: 55 });
     const late = retirementView({ ...PLAN_DEFAULTS, retirementAge: 70 });
-    expect(early.medicareResidualMonthlyCents).toBeGreaterThan(0);
-    expect(late.medicareResidualMonthlyCents).toBeGreaterThan(0);
+    expect(early.residualHealthMonthlyCents).toBeGreaterThan(0);
+    expect(late.residualHealthMonthlyCents).toBeGreaterThan(0);
   });
 
   it("prices the residual in today's dollars — independent of when the person reaches 65 (§0.5)", () => {
     const soon = retirementView({ ...PLAN_DEFAULTS, currentAge: 60 });
     const later = retirementView({ ...PLAN_DEFAULTS, currentAge: 35 });
-    expect(later.medicareResidualMonthlyCents).toBe(soon.medicareResidualMonthlyCents);
-    expect(later.medicareResidualMonthlyCents).toBe(dollarsToCents(500));
+    expect(later.residualHealthMonthlyCents).toBe(soon.residualHealthMonthlyCents);
+    expect(later.residualHealthMonthlyCents).toBe(dollarsToCents(500));
   });
 
   it("stays below the pre-65 self-funded benchmark (the step at 65 is downward)", () => {
     const view = retirementView({ ...PLAN_DEFAULTS, retirementAge: 55, healthMonthlyCents: 0 });
     expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBeGreaterThan(
-      view.medicareResidualMonthlyCents,
+      view.residualHealthMonthlyCents,
     );
   });
 
   it("does NOT enrol → residual 0 and the self-funded-for-life story", () => {
-    const view = retirementView({ ...PLAN_DEFAULTS, enrollsInMedicare: false });
-    expect(view.medicareResidualMonthlyCents).toBe(0);
-    expect(view.enrollsInMedicare).toBe(false);
+    const view = retirementView({ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false });
+    expect(view.residualHealthMonthlyCents).toBe(0);
+    expect(view.enrollsInPublicHealthCoverage).toBe(false);
   });
 });

@@ -72,7 +72,7 @@ export interface Plan {
   /**
    * Authored monthly pre-public-coverage health-care expense in cents — the
    * self-funded figure paid until public health coverage begins (and for life when
-   * {@link enrollsInMedicare} is false). A dedicated line, separate from and
+   * {@link enrollsInPublicHealthCoverage} is false). A dedicated line, separate from and
    * ADDITIVE to {@link expenseCents} (which carries non-health spend), modelled as a
    * real expense in both projections and growing at {@link healthInflationPct}. It
    * is the figure the early-retiree honesty check compares against the pre-coverage
@@ -83,17 +83,17 @@ export interface Plan {
    * Authored monthly health-care expense in cents from the public-coverage age
    * onward — the residual (premiums/out-of-pocket) that remains after coverage
    * begins. In today's dollars, grown at {@link healthInflationPct}. Set to 0 to
-   * model forgoing coverage. Used only when {@link enrollsInMedicare}; ignored
+   * model forgoing coverage. Used only when {@link enrollsInPublicHealthCoverage}; ignored
    * otherwise.
    */
-  readonly postMedicareHealthMonthlyCents: number;
+  readonly postCoverageHealthMonthlyCents: number;
   /**
    * Whether the plan enrols in public health coverage at the coverage age. True →
    * health steps from {@link healthMonthlyCents} down to
-   * {@link postMedicareHealthMonthlyCents} at the coverage age. False → the
+   * {@link postCoverageHealthMonthlyCents} at the coverage age. False → the
    * self-funded line runs for life with no step.
    */
-  readonly enrollsInMedicare: boolean;
+  readonly enrollsInPublicHealthCoverage: boolean;
   /**
    * Annual growth of the health lines, as a whole-number percent. Health is
    * modelled like any other budget item but with its own rate. In the nominal

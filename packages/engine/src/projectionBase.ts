@@ -128,7 +128,7 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashF
   const growth = { type: "customRate" as const, annualRate: rate };
   // The step exists only when the plan enrols AND the jurisdiction offers a
   // coverage age; without one there is no public coverage to step down to.
-  const enrolls = budget.enrollsInMedicare && coverageAge !== undefined;
+  const enrolls = budget.enrollsInPublicHealthCoverage && coverageAge !== undefined;
   if (!enrolls) {
     return new CashFlowSeries(0, budget.healthMonthlyCents, growth, {
       baselineUnit: "monthly",
@@ -138,7 +138,7 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashF
 
   // Already at/past the coverage age → the residual applies from month 0.
   if (yearsToCoverage <= 0) {
-    return new CashFlowSeries(0, budget.postMedicareHealthMonthlyCents, growth, {
+    return new CashFlowSeries(0, budget.postCoverageHealthMonthlyCents, growth, {
       baselineUnit: "monthly",
     });
   }
@@ -149,7 +149,7 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashF
   // Step down at the coverage age: the residual (today's dollars) inflated forward
   // to that month, then it keeps growing at the same rate from its own anchor.
   const nominalResidualAtCoverage = Math.round(
-    budget.postMedicareHealthMonthlyCents * Math.pow(1 + rate, yearsToCoverage),
+    budget.postCoverageHealthMonthlyCents * Math.pow(1 + rate, yearsToCoverage),
   );
   series.addOverride(yearsToCoverage * 12, nominalResidualAtCoverage, "fromHereForward", {
     newGrowthMode: growth,

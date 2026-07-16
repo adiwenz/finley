@@ -143,15 +143,15 @@ describe("createProjectionBase — health as its own additive, growing expense (
       incomeCents: dollarsToCents(6_000),
       expenseCents: dollarsToCents(3_000),
       healthMonthlyCents: dollarsToCents(1_000),
-      postMedicareHealthMonthlyCents: dollarsToCents(400),
+      postCoverageHealthMonthlyCents: dollarsToCents(400),
       healthInflationPct: 5,
       goals: [],
       surplusSwept: false,
       retirementDeferralPct: 0,
     };
     const covered = mockJurisdiction({ publicHealthCoverageAge: 65 });
-    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInMedicare: true }, covered);
-    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInMedicare: false }, covered);
+    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, covered);
+    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, covered);
     // Enrolling drops health at 65 → less spent after 65 → more left in savings.
     expect(enrolled).toBeGreaterThan(selfFunded);
   });
@@ -165,14 +165,14 @@ describe("createProjectionBase — health as its own additive, growing expense (
       retirementAge: 90,
       lifeExpectancy: 90,
       healthMonthlyCents: dollarsToCents(1_000),
-      postMedicareHealthMonthlyCents: dollarsToCents(400),
+      postCoverageHealthMonthlyCents: dollarsToCents(400),
       goals: [],
       surplusSwept: false,
       retirementDeferralPct: 0,
     };
     const noCoverage = mockJurisdiction(); // no publicHealthCoverageAge
-    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInMedicare: true }, noCoverage);
-    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInMedicare: false }, noCoverage);
+    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, noCoverage);
+    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, noCoverage);
     expect(enrolled).toBe(selfFunded);
   });
 });

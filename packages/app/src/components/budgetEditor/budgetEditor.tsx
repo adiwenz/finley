@@ -83,18 +83,18 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
         <label className="field">
           <span className="field-label">Medicare at 65</span>
           <select
-            value={budget.enrollsInMedicare ? "enroll" : "self-fund"}
-            onChange={(e) => updateBudget({ enrollsInMedicare: e.target.value === "enroll" })}
+            value={budget.enrollsInPublicHealthCoverage ? "enroll" : "self-fund"}
+            onChange={(e) => updateBudget({ enrollsInPublicHealthCoverage: e.target.value === "enroll" })}
           >
             <option value="enroll">Enroll at 65 (health steps down)</option>
             <option value="self-fund">Self-fund for life (no step)</option>
           </select>
         </label>
-        {budget.enrollsInMedicare && (
+        {budget.enrollsInPublicHealthCoverage && (
           <NumInput
             label="Monthly health care (from 65)"
-            value={budget.postMedicareHealthMonthlyCents / 100}
-            onChange={(v) => updateBudget({ postMedicareHealthMonthlyCents: dollarsToCents(v) })}
+            value={budget.postCoverageHealthMonthlyCents / 100}
+            onChange={(v) => updateBudget({ postCoverageHealthMonthlyCents: dollarsToCents(v) })}
             prefix="$"
             step={50}
           />
