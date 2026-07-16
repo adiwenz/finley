@@ -50,14 +50,19 @@ Use /tdd to complete the task.
 
 # FEEDBACK LOOPS
 
-Before committing, run the feedback loops:
+Before committing, run the repo's canonical gate and make sure it is fully green:
 
-- `npm run test` to run the tests
-- `npm run typecheck` to run the type checker
+- `npm run check` — runs the engine-purity check (`check:purity`), the type checker, and the tests, in that order.
+
+If any part fails, fix it BEFORE committing. Never commit a red tree.
 
 # COMMIT
 
-Make a git commit. The commit message must:
+Make a git commit — but only once `npm run check` is green (see FEEDBACK LOOPS). Never commit a red tree.
+
+If the issue defines a rollout or commit sequence, follow it: make ONE green commit for the next step in that sequence and leave the remaining steps for later iterations, rather than collapsing the whole sequence into a single commit. Use the "Previous commits" context to see which steps are already done.
+
+The commit message must:
 
 1. Include key decisions made
 2. Include files changed
