@@ -25,6 +25,7 @@ export {
   MEDICARE_ELIGIBILITY_AGE,
   type HealthCostBenchmark,
 } from "./healthCosts";
+import { MEDICARE_ELIGIBILITY_AGE } from "./healthCosts";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -42,6 +43,7 @@ export {
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   computeTaxCents: () => 0,
+  publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   socialSecurityMonthlyBenefitCents,
   socialSecurityTaxableFraction,
   requiredMinimumDistributionCents,
