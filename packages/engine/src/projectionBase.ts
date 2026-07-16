@@ -12,7 +12,7 @@
  */
 
 import { CashFlowSeries } from "./cashFlowSeries";
-import { Account } from "./account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
 import type { Cents } from "./money";
 import type { Person, OwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { Goal } from "./goal";
@@ -58,7 +58,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
       id: SAVINGS_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
     }),
@@ -66,7 +66,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
       id: RETIREMENT_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: false,
-      taxTreatment: "preTax",
+      taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: budget.retirementReturnPct / 100,
     }),
@@ -74,7 +74,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
       id: BROKERAGE_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: false,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: budget.brokerageReturnPct / 100,
     }),
@@ -85,7 +85,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
         id: goalFundAccountId(goal),
         ownerId: PRIMARY_PERSON_ID,
         liquid: false,
-        taxTreatment: "taxable",
+        taxProfile: CAPITAL_GAINS_TAX_PROFILE,
         openingBalanceCents: 0,
         initialAnnualRate: goal.annualReturnPct / 100,
       }),

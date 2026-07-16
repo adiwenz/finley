@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { Account, type TaxTreatment } from "../account";
+import {
+  Account,
+  type AccountTaxProfile,
+  CAPITAL_GAINS_TAX_PROFILE,
+  PRE_TAX_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+} from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import type { Goal } from "../goal";
@@ -11,12 +17,12 @@ import {
 } from "./simulate";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
-function account(id: string, taxTreatment: TaxTreatment, dollars: number, liquid = false): Account {
+function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liquid = false): Account {
   return new Account({
     id,
     ownerId: "p1",
     liquid,
-    taxTreatment,
+    taxProfile,
     openingBalanceCents: dollarsToCents(dollars),
     initialAnnualRate: 0,
   });
@@ -53,7 +59,7 @@ function baseInput(
 describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
   it("liquidates an investment account to fund a retirement shortfall instead of borrowing", () => {
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 0, true), account("brokerage", "taxable", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
       }),
       nullJurisdiction,
@@ -70,7 +76,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
 
   it("spends the liquid buffer down to 0 before selling investments (D2)", () => {
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 1_200, true), account("brokerage", "taxable", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 1_200, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
       }),
       nullJurisdiction,
@@ -84,9 +90,9 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const series = simulateHousehold(
       baseInput(
         [
-          account("cash", "taxable", 0, true),
-          account("pretax", "preTax", 100_000),
-          account("brokerage", "taxable", 1_000),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+          account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 1_000),
         ],
         { expenseSeries: [expense(2_000)] },
       ),
@@ -99,7 +105,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
 
   it("injects a pre-tax draw as ordinaryIncome in the flows (taxed once at the chokepoint)", () => {
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 0, true), account("pretax", "preTax", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
       }),
       nullJurisdiction,
@@ -117,7 +123,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
       ownerId: "p1",
     };
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 0, true), account("brokerage", "taxable", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)], {
         incomeSeries: [income],
         expenseSeries: [expense(2_000)],
       }),
@@ -142,9 +148,9 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const series = simulateHousehold(
       baseInput(
         [
-          account("cash", "taxable", 0, true),
-          account("goal-home", "taxable", 50_000),
-          account("brokerage", "taxable", 100_000),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("goal-home", CAPITAL_GAINS_TAX_PROFILE, 50_000),
+          account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000),
         ],
         { expenseSeries: [expense(2_000)], goals: [futureGoal] },
       ),
@@ -168,8 +174,8 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     // Age 75 in 2026 → past the RMD start age, so the seam fires at month 1.
     const rmdAgePerson: Person = { id: "p1", name: "You", birthYear: 2026 - 75 };
     const accounts = () => [
-      account("cash", "taxable", 0, true),
-      account("pretax", "preTax", 100_000),
+      account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
     ];
 
     // Desired (the $2k obligation) > required ($1k RMD): RMD draws $1k, the desired
@@ -205,13 +211,13 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
   });
 
   it("grosses up a pre-tax draw so it nets the needed cash under a flat tax", () => {
-    // Flat 25% tax on any taxable income → a $2k net need requires a larger gross draw.
+    // Flat 25% tax on ordinary-income taxable → a $2k net need requires a larger gross draw.
     const flatTax: Jurisdiction = {
       id: "flat-25",
-      computeTaxCents: (taxable) => Math.round(taxable * 0.25),
+      computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
     };
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 0, true), account("pretax", "preTax", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
       }),
       flatTax,
@@ -224,21 +230,22 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(Math.abs(series.months[1].accountBalancesCents["cash"])).toBeLessThan(dollarsToCents(5));
   });
 
-  it("does NOT tax a Roth draw: it comes out one-for-one, not grossed up (contrast with pre-tax)", () => {
-    // Same flat 25% tax as the pre-tax gross-up case — but a Roth withdrawal is tax-free,
-    // so exactly the $2k need leaves the account (no gross-up) and nets the full $2k.
+  it("does NOT tax a tax-exempt draw: it comes out one-for-one, not grossed up (contrast with pre-tax)", () => {
+    // Same flat 25% tax on ordinary income as the pre-tax gross-up case — but a
+    // tax-exempt account's withdrawal produces the `taxExempt` category, which this
+    // jurisdiction never taxes, so exactly the $2k need leaves it (no gross-up).
     const flatTax: Jurisdiction = {
       id: "flat-25",
-      computeTaxCents: (taxable) => Math.round(taxable * 0.25),
+      computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
     };
     const series = simulateHousehold(
-      baseInput([account("cash", "taxable", 0, true), account("roth", "roth", 100_000)], {
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
       }),
       flatTax,
     );
     // Exactly $2k drawn (contrast: a pre-tax draw would be ~$2,667), and no debt.
-    expect(series.months[1].accountBalancesCents["roth"]).toBe(dollarsToCents(98_000));
+    expect(series.months[1].accountBalancesCents["taxexempt"]).toBe(dollarsToCents(98_000));
     expect(series.months[1].accountBalancesCents["cash"]).toBe(0);
     for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
       expect(bal).toBe(0);

@@ -1,16 +1,10 @@
-import type { Jurisdiction } from "@finley/engine";
-import {
-  socialSecurityMonthlyBenefitCents,
-  socialSecurityTaxableFraction,
-} from "./socialSecurity";
+import type { Cents, Jurisdiction, TaxCategory } from "@finley/engine";
+import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 
-export {
-  socialSecurityMonthlyBenefitCents,
-  socialSecurityTaxableFraction,
-} from "./socialSecurity";
+export { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 export { requiredMinimumDistributionCents } from "./rmd";
 export {
   contributionLimits,
@@ -40,12 +34,26 @@ import { MEDICARE_ELIGIBILITY_AGE } from "./healthCosts";
  *
  * ⚠ Estimates, not advice. Figures change yearly and are jurisdiction-specific.
  */
+
+/**
+ * v1 US tax (§5.3 seam 1): the engine now hands per-{@link TaxCategory} taxable
+ * amounts, so this is where real US policy will differentiate rates — ordinary
+ * brackets on `wages`/`ordinaryIncome`, preferential rates on `capitalGains`, the
+ * ≤85% inclusion on `governmentRetirementBenefit`, and 0 on `taxExempt`. v1 pins
+ * every category to 0 (all-zero tax outputs preserved) while keeping the per-
+ * category structure so those rates can land without touching the engine.
+ */
+function computeUsTaxCents(taxableByCategory: Partial<Record<TaxCategory, Cents>>): Cents {
+  let total = 0;
+  for (const cents of Object.values(taxableByCategory)) total += cents ?? 0;
+  return total * 0; // v1 placeholder: structured per-category, but no brackets yet.
+}
+
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  computeTaxCents: () => 0,
+  computeTaxCents: (taxableByCategory) => computeUsTaxCents(taxableByCategory),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   socialSecurityMonthlyBenefitCents,
-  socialSecurityTaxableFraction,
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
   healthCostBenchmarkMonthlyCents,

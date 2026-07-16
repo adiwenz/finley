@@ -133,8 +133,8 @@ describe("runWaterfall — pre-tax deferrals (§5.0 step 1, §5.5)", () => {
 });
 
 describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
-  it("computeTax is applied to taxable = gross − deferral, not gross", () => {
-    const seen: number[] = [];
+  it("computeTax is applied per-category to taxable = gross − deferral, not gross", () => {
+    const seen: Array<Partial<Record<string, number>>> = [];
     const r = runWaterfall(
       makeInput({
         incomeSources: [
@@ -145,58 +145,59 @@ describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
             planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000 deferred
           },
         ],
-        computeTaxCents: (taxable) => {
-          seen.push(taxable);
-          return Math.round(taxable * 0.1); // flat 10% stub
+        computeTaxCents: (byCat) => {
+          seen.push(byCat);
+          return Math.round((byCat.wages ?? 0) * 0.1); // flat 10% stub on wages
         },
       }),
     );
-    // Taxable is gross − deferral = $4000; tax = $400.
-    expect(seen).toEqual([dollarsToCents(4000)]);
+    // Taxable wages are gross − deferral = $4000; tax = $400.
+    expect(seen).toEqual([{ wages: dollarsToCents(4000) }]);
     expect(r.taxCents).toBe(dollarsToCents(400));
     // Take-home = 5000 − 1000 deferral − 400 tax = 3600 idle.
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3600));
   });
 
-  it("non-wage income (no plan descriptor) is fully taxable and enters post-deferral", () => {
-    const seen: number[] = [];
+  it("non-wage income (no plan descriptor) reaches the seam at its own category, post-deferral", () => {
+    const seen: Array<Partial<Record<string, number>>> = [];
     const r = runWaterfall(
       makeInput({
         incomeSources: [
-          { ownerId: "p1", grossCents: dollarsToCents(2000), taxCategory: "socialSecurity" },
+          { ownerId: "p1", grossCents: dollarsToCents(2000), taxCategory: "governmentRetirementBenefit" },
         ],
-        computeTaxCents: (taxable) => {
-          seen.push(taxable);
+        computeTaxCents: (byCat) => {
+          seen.push(byCat);
           return 0;
         },
       }),
     );
-    // No deferral taken, but the full $2000 still feeds the taxable pool.
-    expect(seen).toEqual([dollarsToCents(2000)]);
+    // No deferral taken; the full $2000 reaches the seam under its own category.
+    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
     expect(r.deferredByPersonCents.get("p1") ?? 0).toBe(0);
   });
 
-  it("taxes only the taxableFraction of a source, but pays out the full gross (§5.4 SS)", () => {
-    const seen: number[] = [];
+  it("passes the full benefit gross to the seam, which owns the inclusion % (§5.4)", () => {
+    const seen: Array<Partial<Record<string, number>>> = [];
     const r = runWaterfall(
       makeInput({
         incomeSources: [
           {
             ownerId: "p1",
             grossCents: dollarsToCents(2000),
-            taxCategory: "socialSecurity",
-            taxableFraction: 0.85, // only 85% of SS is taxable income
+            taxCategory: "governmentRetirementBenefit",
           },
         ],
-        computeTaxCents: (taxable) => {
-          seen.push(taxable);
-          return Math.round(taxable * 0.1); // flat 10% stub
+        // The jurisdiction (not the engine) applies its own 85% inclusion to the
+        // benefit category before its 10% rate: tax = 2000 × 0.85 × 0.10 = $170.
+        computeTaxCents: (byCat) => {
+          seen.push(byCat);
+          return Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.85 * 0.1);
         },
         liquidAccountId: "checking",
       }),
     );
-    // Taxable pool is 85% of $2000 = $1700; tax = $170.
-    expect(seen).toEqual([dollarsToCents(1700)]);
+    // The seam sees the FULL $2000 gross — the inclusion % is its business now.
+    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
     expect(r.taxCents).toBe(dollarsToCents(170));
     // Take-home idles the FULL gross minus tax: 2000 − 170 = 1830 (the untaxed
     // 15% is still spendable cash, not lost).

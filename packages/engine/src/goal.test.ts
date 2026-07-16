@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computeGoalProgress, type Goal } from "./goal";
-import { Account } from "./account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
 import { simulateHousehold, type Person } from "./projection/simulate";
 import { CashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
@@ -12,7 +12,7 @@ function account(id: string, annualRate: number, liquid = true): Account {
     id,
     ownerId: "p1",
     liquid,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: 0,
     initialAnnualRate: annualRate,
   });

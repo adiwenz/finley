@@ -1,16 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { Account, type TaxTreatment } from "../account";
+import {
+  Account,
+  type AccountTaxProfile,
+  CAPITAL_GAINS_TAX_PROFILE,
+  PRE_TAX_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+} from "../account";
 import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
 
 /** A non-compounding account so balances move only by RMD withdrawal/deposit. */
-function account(id: string, taxTreatment: TaxTreatment, dollars: number, liquid = false): Account {
+function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liquid = false): Account {
   return new Account({
     id,
     ownerId: "p1",
     liquid,
-    taxTreatment,
+    taxProfile,
     openingBalanceCents: dollarsToCents(dollars),
     initialAnnualRate: 0,
   });
@@ -48,8 +54,8 @@ describe("Required Minimum Distributions (§5.4)", () => {
   it("forces the required amount out of pre-tax and into the taxable surplus, conserving net worth", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [
-        account("pretax", "preTax", 100_000),
-        account("cash", "taxable", 0, true),
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       ]),
       rmdStub,
     );
@@ -63,8 +69,8 @@ describe("Required Minimum Distributions (§5.4)", () => {
   it("fires exactly once per calendar year, not every month", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [
-        account("pretax", "preTax", 100_000),
-        account("cash", "taxable", 0, true),
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       ]),
       rmdStub,
     );
@@ -76,17 +82,17 @@ describe("Required Minimum Distributions (§5.4)", () => {
     expect(series.months[12].accountBalancesCents["cash"]).toBe(dollarsToCents(19_000));
   });
 
-  it("draws from pre-tax accounts only — Roth/HSA/taxable are exempt", () => {
+  it("draws from forced-distribution-eligible accounts only — tax-exempt/capital-gains are exempt", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [
-        account("pretax", "preTax", 100_000),
-        account("roth", "roth", 50_000),
-        account("cash", "taxable", 0, true),
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 50_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       ]),
       rmdStub,
     );
     expect(series.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
-    expect(series.months[1].accountBalancesCents["roth"]).toBe(dollarsToCents(50_000));
+    expect(series.months[1].accountBalancesCents["taxexempt"]).toBe(dollarsToCents(50_000));
     expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
   });
 
@@ -94,8 +100,8 @@ describe("Required Minimum Distributions (§5.4)", () => {
     const tooYoung: Person = { id: "p1", name: "You", birthYear: 1970 }; // 56 in 2026
     const series = simulateHousehold(
       baseInput(tooYoung, [
-        account("pretax", "preTax", 100_000),
-        account("cash", "taxable", 0, true),
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       ]),
       rmdStub,
     );
@@ -106,8 +112,8 @@ describe("Required Minimum Distributions (§5.4)", () => {
   it("null jurisdiction: no RMD seam → pre-tax balances are left untouched", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [
-        account("pretax", "preTax", 100_000),
-        account("cash", "taxable", 0, true),
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       ]),
       nullJurisdiction,
     );

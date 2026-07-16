@@ -43,7 +43,8 @@ export interface ReportAccount {
   readonly id: string;
   readonly ownerId: string;
   readonly liquid: boolean;
-  readonly taxTreatment: string;
+  /** The {@link TaxCategory} withdrawals produce — the neutral tax-behavior echo. */
+  readonly withdrawalCategory: string;
   readonly openingBalanceCents: Cents;
   readonly annualRate: number;
 }
@@ -124,10 +125,10 @@ export interface ReportMonth {
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;
-  /** Gross income this month by tax category (`wages`, `socialSecurity`, …). Empty at month 0. */
+  /** Gross income this month by tax category (`wages`, `governmentRetirementBenefit`, …). Empty at month 0. */
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   readonly totalIncomeCents: Cents;
-  readonly socialSecurityCents: Cents;
+  readonly governmentRetirementBenefitCents: Cents;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -186,7 +187,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       id: a.id,
       ownerId: a.ownerId,
       liquid: a.liquid,
-      taxTreatment: a.taxTreatment,
+      withdrawalCategory: a.taxProfile.withdrawalCategory,
       openingBalanceCents: a.openingBalanceCents,
       annualRate: a.getRateAt(0),
     })),
@@ -277,7 +278,7 @@ export function summarizeSimulation(
       propertyValuesCents: m.propertyValuesCents,
       incomeByCategoryCents: flows?.incomeByCategoryCents ?? {},
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
-      socialSecurityCents: flows?.socialSecurityCents ?? 0,
+      governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,

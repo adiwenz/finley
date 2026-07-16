@@ -62,13 +62,13 @@ describe("createProjectionBase — retirement + Social Security wired into the g
 
   it("pays a Social Security benefit from the claiming age — it appears in the series", () => {
     // A jurisdiction that models a flat monthly benefit; the null one does not. The
-    // benefit shows up as `socialSecurity`-tagged income from the claiming age (67).
+    // benefit shows up as `governmentRetirementBenefit`-tagged income from the claiming age (67).
     const ssJurisdiction = mockJurisdiction({
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(2_500),
     });
     const series = project(samplePlan, ssJurisdiction);
     const paysSS = series.months.some(
-      (m) => (m.flows?.incomeByCategoryCents["socialSecurity"] ?? 0) > 0,
+      (m) => (m.flows?.incomeByCategoryCents["governmentRetirementBenefit"] ?? 0) > 0,
     );
     expect(paysSS).toBe(true);
     // And it materially lifts late net worth versus the same plan with no SS program.

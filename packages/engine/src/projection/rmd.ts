@@ -11,7 +11,7 @@ import type { Person } from "./simulate";
  * while this module stays independently testable, mirroring `EarningsState`.
  */
 export interface RmdState {
-  /** Every asset account — filtered here to a person's `preTax` holdings. */
+  /** Every asset account — filtered here to a person's forced-distribution-eligible holdings. */
   readonly accounts: readonly Account[];
   /** The authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
@@ -61,7 +61,7 @@ export function buildRmdSources(
     if (person.birthYear === undefined) continue;
 
     const preTaxAccounts = state.accounts.filter(
-      (a) => a.ownerId === person.id && a.taxTreatment === "preTax",
+      (a) => a.ownerId === person.id && a.taxProfile.forcedDistributionEligible,
     );
     let preTaxBalance = 0;
     for (const a of preTaxAccounts) preTaxBalance += state.assetBalances.get(a.id) ?? 0;

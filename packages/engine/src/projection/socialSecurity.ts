@@ -91,8 +91,10 @@ function ssClaimStartMonth(person: Person, startYear: number): number | null {
  * none). Each full year after claiming, the paid benefit is inflated from that
  * base by the cost-of-living adjustment (`colaRate`, the sim's CPI) so it keeps
  * pace with inflating expenses rather than eroding in real terms (§0.5, §5.4).
- * Carries `taxCategory:"socialSecurity"` and NO planDescriptor, so it enters the
- * waterfall post-deferral and is taxed by the SS rule, never as wages.
+ * Carries `taxCategory:"governmentRetirementBenefit"` and NO planDescriptor, so it
+ * enters the waterfall post-deferral and is taxed by the jurisdiction's own
+ * benefit-inclusion rule at the §5.3 chokepoint, never as wages. The engine passes
+ * the FULL benefit gross — the inclusion % lives in `computeTaxCents`, not here.
  */
 export function buildSocialSecuritySources(
   state: EarningsState,
@@ -103,10 +105,6 @@ export function buildSocialSecuritySources(
 ): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
-  // SS is only partially taxable (§5.4): attach the jurisdiction's taxable share
-  // so the waterfall taxes just that slice and pays the whole benefit as take-home.
-  // Absent seam → fully taxable (1), matching pre-partial-taxation behaviour.
-  const taxableFraction = jurisdiction.socialSecurityTaxableFraction?.({ year }) ?? 1;
   for (const person of state.personsById.values()) {
     const claimStart = ssClaimStartMonth(person, startYear);
     if (claimStart === null || month < claimStart) continue;
@@ -138,8 +136,7 @@ export function buildSocialSecuritySources(
     sources.push({
       ownerId: person.id,
       grossCents: paid,
-      taxCategory: "socialSecurity",
-      taxableFraction,
+      taxCategory: "governmentRetirementBenefit",
     });
   }
   return sources;

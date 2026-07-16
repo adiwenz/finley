@@ -243,7 +243,7 @@ export function DebugPanel({
                   </td>
                 ))}
                 <td className={styles.group}>{formatDollars(m.totalIncomeCents)}</td>
-                <td>{formatDollars(m.socialSecurityCents)}</td>
+                <td>{formatDollars(m.governmentRetirementBenefitCents)}</td>
                 <td>{formatDollars(m.expensesCents)}</td>
                 <td>{formatDollars(m.liabilityPaymentsCents)}</td>
                 <td className={m.isInsolvent ? styles.flag : undefined}>

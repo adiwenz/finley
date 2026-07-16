@@ -40,7 +40,7 @@ export function buildFlows(
   return {
     incomeByCategoryCents,
     totalIncomeCents,
-    socialSecurityCents: incomeByCategoryCents["socialSecurity"] ?? 0,
+    governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     expensesCents,
     liabilityPaymentsCents,
   };
