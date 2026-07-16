@@ -6,7 +6,7 @@
  * arrives with a second household member.
  */
 
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 import type { RetirementView } from "../../retirementView";
 import { formatDollars } from "../../format";
 
@@ -15,7 +15,7 @@ export function RetirementPanel({
   budget,
 }: {
   view: RetirementView;
-  budget: BudgetValues;
+  budget: Plan;
 }) {
   return (
     <>
@@ -57,10 +57,10 @@ export function RetirementPanel({
         </p>
       )}
 
-      {view.enrollsInMedicare ? (
+      {view.enrollsInPublicHealthCoverage ? (
         <p className="hint">
           From 65, Medicare covers most health costs; your plan budgets{" "}
-          <strong>{formatDollars(view.medicareResidualMonthlyCents)}/mo</strong> for the residual
+          <strong>{formatDollars(view.residualHealthMonthlyCents)}/mo</strong> for the residual
           (premiums, Part B, out-of-pocket). Estimate, not advice.
         </p>
       ) : (

@@ -9,17 +9,28 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
-import { createProjectionBase } from "../../projectionBase";
+import {
+  emptyLedger,
+  replayLedger,
+  dollarsToCents,
+  nullJurisdiction,
+  createProjectionBase,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "../../config";
 import { GoalsPanel } from "./goalsPanel";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 
 const noop = () => {};
 
-function project(budget: BudgetValues) {
-  return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
+function project(budget: Plan) {
+  return replayLedger(
+    emptyLedger,
+    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
+    nullJurisdiction,
+  );
 }
 
 describe("GoalsPanel", () => {
@@ -34,7 +45,7 @@ describe("GoalsPanel", () => {
 
   it("shows the short-horizon-in-risky-account honesty flag (§5.2)", () => {
     // One near-term goal in a 7% account → the flag fires.
-    const budget: BudgetValues = {
+    const budget: Plan = {
       ...PLAN_DEFAULTS,
       goals: [
         {

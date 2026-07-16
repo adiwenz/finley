@@ -12,9 +12,9 @@ import { dollarsToCents } from "@finley/engine";
 import { RetirementPanel } from "./retirementPanel";
 import { retirementView } from "../../retirementView";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 
-function render(budget: BudgetValues) {
+function render(budget: Plan) {
   return renderToStaticMarkup(<RetirementPanel view={retirementView(budget)} budget={budget} />);
 }
 
@@ -26,7 +26,7 @@ describe("RetirementPanel", () => {
   });
 
   it("shows the pre-65 health nudge when the plan retires early and under-budgets (§5.4)", () => {
-    const budget: BudgetValues = {
+    const budget: Plan = {
       ...PLAN_DEFAULTS,
       retirementAge: 55,
       healthMonthlyCents: 0,
@@ -62,7 +62,7 @@ describe("RetirementPanel", () => {
   });
 
   it("tells the self-funded-for-life story when NOT enrolling in Medicare (§5.4)", () => {
-    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65, enrollsInMedicare: false });
+    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65, enrollsInPublicHealthCoverage: false });
     expect(html).toContain("doesn’t enrol in Medicare");
     expect(html).toContain("for life");
     expect(html).not.toContain("From 65"); // no residual step in this story

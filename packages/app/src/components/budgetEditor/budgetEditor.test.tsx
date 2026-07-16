@@ -12,20 +12,20 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents } from "@finley/engine";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 
 afterEach(cleanup);
 
 /** A controlled harness so edits round-trip through real budget state. */
-function Harness({ initial = PLAN_DEFAULTS }: { initial?: BudgetValues }) {
-  const [budget, setBudget] = useState<BudgetValues>(initial);
+function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
+  const [budget, setBudget] = useState<Plan>(initial);
   return (
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} scrubMonth={0} />
       <output data-testid="ss-claiming-age">{budget.ssClaimingAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
-      <output data-testid="enrolls">{String(budget.enrollsInMedicare)}</output>
+      <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
     </>
   );
 }
@@ -97,7 +97,7 @@ describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => 
   });
 
   it("hides the from-65 residual when self-funding for life", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, enrollsInMedicare: false }} />);
+    render(<Harness initial={{ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false }} />);
     expect(screen.queryByLabelText(/health care \(from 65\)/i)).toBeNull();
   });
 

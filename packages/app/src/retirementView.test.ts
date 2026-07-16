@@ -1,17 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { dollarsToCents } from "@finley/engine";
-import { retirementView } from "./retirementView";
 import {
+  dollarsToCents,
   projectPlan,
   realNetWorthSurvives,
   earliestFeasibleRetirementAge,
-} from "./retirementSolver";
+  type ProjectionContext,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import type { BudgetValues } from "./planTypes";
+import { START_YEAR } from "./config";
+import type { Plan } from "@finley/engine";
+
+/** The real-jurisdiction projection environment these #37 acceptance tests run against. */
+const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
 
 /** Does the plan survive when retiring at exactly `age`? Runs the real projection. */
-function survivesAt(budget: BudgetValues, age: number): boolean {
-  return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }));
+function survivesAt(budget: Plan, age: number): boolean {
+  return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }, CTX));
 }
 
 describe("retirementView — headline age driven off the real projection (#37)", () => {
@@ -45,7 +51,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
   });
 
   it("reports no feasible headline when the money can never last", () => {
-    const broke: BudgetValues = {
+    const broke: Plan = {
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
       incomeCents: 0,
@@ -69,11 +75,11 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
   it("falls short of 100% and points to the nearest feasible age when the pin can't survive", () => {
     // Pin a retirement age below the feasible floor: infeasible, on-track < 100%, and
     // the nearest feasible age is exactly the headline the solver finds.
-    const pinnedTooEarly: BudgetValues = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
+    const pinnedTooEarly: Plan = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
     const view = retirementView(pinnedTooEarly);
     expect(view.target.feasible).toBe(false);
     expect(view.targetOnTrackPct).toBeLessThan(100);
-    expect(view.target.nearestFeasibleAge).toBe(earliestFeasibleRetirementAge(pinnedTooEarly));
+    expect(view.target.nearestFeasibleAge).toBe(earliestFeasibleRetirementAge(pinnedTooEarly, CTX));
   });
 
   it("keeps the on-track % within [0, 100]", () => {
@@ -137,33 +143,33 @@ describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medi
 describe("retirementView — attributed Medicare residual step (§5.4, visible at 65)", () => {
   it("surfaces the ~$500/mo residual step in today's dollars", () => {
     const view = retirementView({ ...PLAN_DEFAULTS, currentAge: 65 });
-    expect(view.medicareResidualMonthlyCents).toBe(dollarsToCents(500));
+    expect(view.residualHealthMonthlyCents).toBe(dollarsToCents(500));
   });
 
   it("is present regardless of retirement age (the step is always shown, not just for early retirees)", () => {
     const early = retirementView({ ...PLAN_DEFAULTS, retirementAge: 55 });
     const late = retirementView({ ...PLAN_DEFAULTS, retirementAge: 70 });
-    expect(early.medicareResidualMonthlyCents).toBeGreaterThan(0);
-    expect(late.medicareResidualMonthlyCents).toBeGreaterThan(0);
+    expect(early.residualHealthMonthlyCents).toBeGreaterThan(0);
+    expect(late.residualHealthMonthlyCents).toBeGreaterThan(0);
   });
 
   it("prices the residual in today's dollars — independent of when the person reaches 65 (§0.5)", () => {
     const soon = retirementView({ ...PLAN_DEFAULTS, currentAge: 60 });
     const later = retirementView({ ...PLAN_DEFAULTS, currentAge: 35 });
-    expect(later.medicareResidualMonthlyCents).toBe(soon.medicareResidualMonthlyCents);
-    expect(later.medicareResidualMonthlyCents).toBe(dollarsToCents(500));
+    expect(later.residualHealthMonthlyCents).toBe(soon.residualHealthMonthlyCents);
+    expect(later.residualHealthMonthlyCents).toBe(dollarsToCents(500));
   });
 
   it("stays below the pre-65 self-funded benchmark (the step at 65 is downward)", () => {
     const view = retirementView({ ...PLAN_DEFAULTS, retirementAge: 55, healthMonthlyCents: 0 });
     expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBeGreaterThan(
-      view.medicareResidualMonthlyCents,
+      view.residualHealthMonthlyCents,
     );
   });
 
   it("does NOT enrol → residual 0 and the self-funded-for-life story", () => {
-    const view = retirementView({ ...PLAN_DEFAULTS, enrollsInMedicare: false });
-    expect(view.medicareResidualMonthlyCents).toBe(0);
-    expect(view.enrollsInMedicare).toBe(false);
+    const view = retirementView({ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false });
+    expect(view.residualHealthMonthlyCents).toBe(0);
+    expect(view.enrollsInPublicHealthCoverage).toBe(false);
   });
 });

@@ -1,10 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
-import { createProjectionBase } from "./projectionBase";
+import {
+  emptyLedger,
+  replayLedger,
+  dollarsToCents,
+  nullJurisdiction,
+  createProjectionBase,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "./config";
 import { goalRows, reorderGoal } from "./goalsView";
-import type { BudgetValues, GoalPlan } from "./planTypes";
+import type { Plan, GoalPlan } from "@finley/engine";
 
-const baseBudget: BudgetValues = {
+const baseBudget: Plan = {
   name: "Alex",
   incomeCents: dollarsToCents(5000),
   expenseCents: dollarsToCents(3500),
@@ -20,8 +27,8 @@ const baseBudget: BudgetValues = {
   // No health line here: these tests pin the $1,500/mo surplus ($5,000 − $3,500)
   // that goal funding draws from, and health is a separate additive expense (§5.4).
   healthMonthlyCents: 0,
-  postMedicareHealthMonthlyCents: 0,
-  enrollsInMedicare: true,
+  postCoverageHealthMonthlyCents: 0,
+  enrollsInPublicHealthCoverage: true,
   healthInflationPct: 3,
   inflationPct: 3,
   currentAge: 35,
@@ -48,8 +55,12 @@ const goalB: GoalPlan = {
   annualReturnPct: 0,
 };
 
-function project(budget: BudgetValues) {
-  return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
+function project(budget: Plan) {
+  return replayLedger(
+    emptyLedger,
+    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
+    nullJurisdiction,
+  );
 }
 
 describe("goalRows — projection-based on-track % (§5.2)", () => {

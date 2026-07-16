@@ -6,9 +6,13 @@
  * the whole point of a shared priority list.
  */
 
-import { computeGoalProgress, type ProjectionSeries } from "@finley/engine";
-import type { BudgetValues, GoalPlan } from "./planTypes";
-import { buildPlanAccounts, buildPlanGoals } from "./projectionBase";
+import {
+  computeGoalProgress,
+  buildPlanAccounts,
+  buildPlanGoals,
+  type ProjectionSeries,
+} from "@finley/engine";
+import type { Plan, GoalPlan } from "@finley/engine";
 
 export interface GoalRow {
   readonly id: string;
@@ -35,7 +39,7 @@ export interface GoalRow {
  * projection must be the one built from the SAME `budget`, so the fund-account
  * balances it reports line up with the goals' `fundAccountId`s.
  */
-export function goalRows(budget: BudgetValues, projection: ProjectionSeries): GoalRow[] {
+export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
   const goals = buildPlanGoals(budget);
   const accounts = buildPlanAccounts(budget);
   // `goals` is `budget.goals` mapped in order, so the plan goal at the same index

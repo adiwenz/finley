@@ -1,9 +1,9 @@
 /** Opening values for a fresh plan. */
 
 import { dollarsToCents } from "@finley/engine";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
-export const PLAN_DEFAULTS: BudgetValues = {
+export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
   incomeCents: dollarsToCents(5000),
   expenseCents: dollarsToCents(3500),
@@ -38,8 +38,8 @@ export const PLAN_DEFAULTS: BudgetValues = {
   // so pulling the retirement age below 65 makes the honesty nudge fire (§5.4).
   healthMonthlyCents: dollarsToCents(700),
   // The Medicare residual from 65 — lower than the pre-65 line, so health steps down.
-  postMedicareHealthMonthlyCents: dollarsToCents(500),
-  enrollsInMedicare: true,
+  postCoverageHealthMonthlyCents: dollarsToCents(500),
+  enrollsInPublicHealthCoverage: true,
   healthInflationPct: 3,
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,

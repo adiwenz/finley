@@ -75,6 +75,17 @@ export interface Jurisdiction {
   readonly id: string;
 
   /**
+   * §5.4 seam (readable fact): the age at which public health coverage begins,
+   * where the attributed health cost steps down from the elevated self-funded
+   * figure to the lower residual (US law: 65, Medicare). A neutral name — no
+   * "Medicare" brand in the general interface. The projection uses this as the
+   * single source of the health-step age, and the early-retiree honesty flag
+   * measures the self-funded gap up to it. Optional and legislation-set: absent
+   * (v1 null jurisdiction) → no step / no gap.
+   */
+  readonly publicHealthCoverageAge?: number;
+
+  /**
    * The single tax chokepoint (§5.3 seam 1): taxable income in → tax owed in
    * cents out. v1 implementations may return 0; what matters is that the
    * pipeline calls exactly one replaceable function rather than smearing tax

@@ -8,34 +8,32 @@
  *    Survival is monotonic in the age — retiring later never hurts.
  *  - Target mode: pin the user's age; report feasibility, on-track %, and the honest
  *    nearest-feasible age when the pin is out of reach (§7.1).
+ *
+ * The solver is pure and jurisdiction-agnostic: it is always handed a
+ * {@link ProjectionContext} (the caller's frozen "now" plus the jurisdiction the
+ * projection resolves against). There is no default jurisdiction — the app injects it.
  */
 
-import {
-  interpretLedger,
-  buildHouseholdSimInput,
-  simulateHousehold,
-  emptyLedger,
-  type Jurisdiction,
-  type ProjectionSeries,
-  type RetirementEvaluation,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
+import { interpretLedger } from "./ledger/interpret";
+import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
+import { simulateHousehold } from "./projection/simulate";
+import { emptyLedger } from "./ledger/ledger";
 import { createProjectionBase } from "./projectionBase";
-import type { BudgetValues } from "./planTypes";
+import type { ProjectionContext } from "./projectionBase";
+import type { ProjectionSeries } from "./projection/simulate";
+import type { RetirementEvaluation } from "./retirementTypes";
+import type { Plan } from "./plan";
 
 /**
  * Run the full §5 projection for `budget` (no life events — the panel reasons about
- * the authored plan). Same pipeline `main.tsx` feeds the chart, so panel and graph
- * draw from one model.
+ * the authored plan). Same pipeline the chart uses, so panel and graph draw from one
+ * model. The `ctx` supplies the frozen "now" (`startYear`) and the jurisdiction.
  */
-export function projectPlan(
-  budget: BudgetValues,
-  jurisdiction: Jurisdiction = usJurisdiction,
-): ProjectionSeries {
-  const base = createProjectionBase(budget);
+export function projectPlan(budget: Plan, ctx: ProjectionContext): ProjectionSeries {
+  const base = createProjectionBase(budget, ctx);
   const household = interpretLedger(emptyLedger, base);
   const simInput = buildHouseholdSimInput(household, base);
-  return simulateHousehold(simInput, jurisdiction);
+  return simulateHousehold(simInput, ctx.jurisdiction);
 }
 
 /**
@@ -51,7 +49,7 @@ export function realNetWorthSurvives(series: ProjectionSeries): boolean {
 }
 
 /** Absolute simulation month a retirement `age` falls at, floored at 0. */
-function retirementMonth(budget: BudgetValues, age: number): number {
+function retirementMonth(budget: Plan, age: number): number {
   return Math.max(0, (age - budget.currentAge) * 12);
 }
 
@@ -62,7 +60,7 @@ function retirementMonth(budget: BudgetValues, age: number): number {
  * boundary; a surviving plan is 1.0 and never reaches here. Reporting caps it at 100%.
  */
 function computeOnTrackFraction(
-  budget: BudgetValues,
+  budget: Plan,
   age: number,
   series: ProjectionSeries,
 ): number {
@@ -91,11 +89,11 @@ function computeOnTrackFraction(
  * the search finishes.
  */
 export function evaluateAtAge(
-  budget: BudgetValues,
+  budget: Plan,
   age: number,
-  jurisdiction: Jurisdiction = usJurisdiction,
+  ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-  const series = projectPlan({ ...budget, retirementAge: age }, jurisdiction);
+  const series = projectPlan({ ...budget, retirementAge: age }, ctx);
   const feasible = realNetWorthSurvives(series);
   return {
     retirementAge: age,
@@ -111,21 +109,20 @@ export function evaluateAtAge(
  * projections.
  */
 export function earliestFeasibleRetirementAge(
-  budget: BudgetValues,
-  jurisdiction: Jurisdiction = usJurisdiction,
+  budget: Plan,
+  ctx: ProjectionContext,
 ): number | null {
   const lo = budget.currentAge;
   const hi = budget.lifeExpectancy;
   if (lo > hi) return null;
   // If even retiring at life expectancy fails, nothing in range survives.
-  if (!evaluateAtAge(budget, hi, jurisdiction).feasible) return null;
+  if (!evaluateAtAge(budget, hi, ctx).feasible) return null;
   let a = lo;
   let b = hi;
   while (a < b) {
     const mid = Math.floor((a + b) / 2);
-    if (evaluateAtAge(budget, mid, jurisdiction).feasible) b = mid;
+    if (evaluateAtAge(budget, mid, ctx).feasible) b = mid;
     else a = mid + 1;
   }
   return a;
 }
-

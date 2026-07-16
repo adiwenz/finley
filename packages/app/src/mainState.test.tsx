@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
 import { App } from "./main";
-import * as projectionBase from "./projectionBase";
+import * as engine from "@finley/engine";
 
 beforeAll(() => {
   // Recharts' ResponsiveContainer measures via ResizeObserver, absent in jsdom.
@@ -37,7 +37,7 @@ describe("App — initial values", () => {
 
 describe("App — event ledger", () => {
   it("adds an event without rebuilding the projection base", () => {
-    const spy = vi.spyOn(projectionBase, "createProjectionBase");
+    const spy = vi.spyOn(engine, "createProjectionBase");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 
@@ -149,7 +149,7 @@ describe("App — event ledger", () => {
 
 describe("App — budget edits", () => {
   it("rebuilds the projection base on a budget edit but not on scrub", () => {
-    const spy = vi.spyOn(projectionBase, "createProjectionBase");
+    const spy = vi.spyOn(engine, "createProjectionBase");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 

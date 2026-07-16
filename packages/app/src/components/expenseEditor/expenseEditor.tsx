@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { dollarsToCents, type OverrideScope } from "@finley/engine";
-import type { ValueOverride } from "../../planTypes";
+import type { ValueOverride } from "@finley/engine";
 import { formatDollars, monthLabel } from "../../format";
 import styles from "./expenseEditor.module.css";
 
