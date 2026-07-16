@@ -6,6 +6,7 @@ import {
   Liability,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
+  SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
   minCreditCardPaymentCents,
   amortizationScheduleCents,
   derivePaymentStatus,
@@ -130,7 +131,11 @@ function initSimState(input: HouseholdSimInput): SimState {
   // Synthetic 22% card absorbs shortfalls when no real cards are entered (§5.1).
   // Folded into `liabilities` so every step treats it as an ordinary card — no
   // special-casing downstream. It exists ONLY when there are no user cards, so
-  // it never collides with a real card in the cascade ordering.
+  // it never collides with a real card in the cascade ordering. Its limit is
+  // finite (SYNTHETIC_CARD_CREDIT_LIMIT_CENTS) so the cascade can genuinely
+  // exhaust: a plan financed on unbounded revolving debt must eventually trip
+  // the §5.1 terminal HARD-INFEASIBILITY flag (`isInsolvent`) rather than read
+  // as solvent forever (#36).
   const syntheticCard = userLiabilities.some((l) => l.isCreditCard())
     ? null
     : new Liability({
@@ -139,6 +144,7 @@ function initSimState(input: HouseholdSimInput): SimState {
         kind: "creditCard",
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
+        creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
       });
   const liabilities = syntheticCard ? [...userLiabilities, syntheticCard] : [...userLiabilities];
 
@@ -360,8 +366,10 @@ function allocateMonth(
 
 /**
  * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
- * route the deficit onto credit cards lowest-APR-first (a null limit = the synthetic
- * card = unlimited). Returns true when credit is exhausted and the plan is infeasible.
+ * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
+ * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
+ * it too can be exhausted — #36). Returns true when every card's credit is used up and
+ * a deficit remains: the plan is infeasible this month (`isInsolvent`).
  */
 function applyShortfallCascade(state: SimState, month: number): boolean {
   if (state.liquidAccount === null) return false;

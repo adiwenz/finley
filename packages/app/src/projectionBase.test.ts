@@ -134,11 +134,15 @@ describe("createProjectionBase — health as its own additive, growing expense (
   });
 
   it("steps health down at 65 when enrolling — self-funding for life spends more", () => {
-    // A near-65 saver so the Medicare boundary lands inside the horizon and the two
-    // paths (step down vs. carry the pre-65 line) actually diverge.
+    // A near-65 saver so the Medicare boundary (age 65) lands inside the horizon and
+    // the two paths (step down vs. carry the pre-65 line) actually diverge. Income
+    // runs through the horizon (retirementAge past life expectancy) so the household
+    // stays solvent and the health-cost difference shows up in real net worth rather
+    // than being masked by the finite synthetic-card insolvency floor (#36).
     const base: BudgetValues = {
       ...PLAN_DEFAULTS,
       currentAge: 55,
+      retirementAge: 90,
       incomeCents: dollarsToCents(6_000),
       expenseCents: dollarsToCents(3_000),
       healthMonthlyCents: dollarsToCents(1_000),

@@ -8,6 +8,7 @@ import {
   Liability,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_ID,
+  SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "./liability";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -152,6 +153,14 @@ describe("Liability", () => {
   it("SYNTHETIC_CARD_ID is a non-empty string", () => {
     expect(typeof SYNTHETIC_CARD_ID).toBe("string");
     expect(SYNTHETIC_CARD_ID.length).toBeGreaterThan(0);
+  });
+
+  it("SYNTHETIC_CARD_CREDIT_LIMIT_CENTS is a finite, positive limit (#36)", () => {
+    // Must be finite (not null/unlimited) so the §5.1 cascade can be exhausted and
+    // isInsolvent can fire; a whole number of cents.
+    expect(Number.isFinite(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS)).toBe(true);
+    expect(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS).toBeGreaterThan(0);
+    expect(Number.isInteger(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS)).toBe(true);
   });
 });
 

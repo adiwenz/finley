@@ -132,6 +132,17 @@ export function minCreditCardPaymentCents(balanceCents: Cents): Cents {
 /** APR of the synthetic credit card used when no real card is entered (§5.1). */
 export const SYNTHETIC_CREDIT_CARD_APR = 0.22;
 
+/**
+ * Default credit limit of the synthetic shortfall card (§5.1: "~22% APR, optional
+ * default limit"). Finite by design: an unlimited card can never be exhausted, so
+ * the §5.1 terminal HARD-INFEASIBILITY flag (`isInsolvent`) would never fire and a
+ * plan financing itself on unbounded revolving debt would read as solvent (#36).
+ * $50,000 is a plausible aggregate unsecured revolving limit — enough to absorb a
+ * genuine month-to-month cash crunch, low enough that a plan borrowing to stay
+ * afloat indefinitely runs out of credit and is flagged, which is the point.
+ */
+export const SYNTHETIC_CARD_CREDIT_LIMIT_CENTS: Cents = 50_000_00;
+
 /** ID used in liabilityBalancesCents for the synthetic credit card. */
 export const SYNTHETIC_CARD_ID = "synthetic-credit-card";
 
