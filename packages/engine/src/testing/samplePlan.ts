@@ -8,11 +8,13 @@
  * age below the health-coverage age (so the health step is exercised), and a
  * finite horizon.
  *
- * Written with `as const` so every field narrows to a literal type; once the
- * `Plan` type lands in the engine (rollout step 3) this fixture satisfies it
- * without change. Pure (satisfies `check-engine-purity`) and NOT barrel-exported:
- * tests import it by relative path (`../testing/samplePlan`).
+ * Written with `satisfies Plan` rather than a `: Plan` annotation so the fixture is
+ * checked against the type without widening: tests still see each field's literal
+ * value, and a drift in `Plan` fails here rather than at a use site. Pure (satisfies
+ * `check-engine-purity`) and NOT barrel-exported: tests import it by relative path
+ * (`../testing/samplePlan`).
  */
+import type { Plan } from "../plan";
 import { dollarsToCents } from "../cashFlowSeries";
 
 export const samplePlan = {
@@ -46,4 +48,4 @@ export const samplePlan = {
   retirementAge: 60,
   lifeExpectancy: 85,
   ssClaimingAge: 67,
-} as const;
+} satisfies Plan;
