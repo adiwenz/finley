@@ -10,6 +10,12 @@ You've also been passed a file containing the last few commits. Review these to 
 
 If there are no open `ready-for-agent` issues, output <promise>NO MORE TASKS</promise>.
 
+# ASSIGNMENT
+
+If the Issues block above contains exactly ONE issue, that issue is your assignment. Skip TASK SELECTION entirely: do NOT run `gh issue list`, do NOT weigh priorities, and do NOT switch to any other issue. Work only on the assigned issue. (Still run the COMPLETION CHECK below — if it is already done, output <promise>NO MORE TASKS</promise>.)
+
+Only when the block contains multiple issues, or none, should you use the TASK SELECTION priorities below to choose what to work on.
+
 # TASK SELECTION
 
 Pick the next task. Prioritize tasks in this order:
@@ -56,17 +62,7 @@ Make a git commit. The commit message must:
 1. Include key decisions made
 2. Include files changed
 3. Blockers or notes for next iteration
+4. Whether the issue is now complete
 
-# THE ISSUE
-
-If the task is complete, close the GitHub issue with a comment summarizing the work:
-
-`gh issue close <number> --comment "<summary of what was done>"`
-
-If the task is not complete, add a comment to the issue describing what was done and what remains, and leave the issue open:
-
-`gh issue comment <number> --body "<progress note>"`
-
-# FINAL RULES
-
+DO NOT CREATE A PR
 ONLY WORK ON A SINGLE TASK.
