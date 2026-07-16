@@ -118,8 +118,9 @@ export interface ReportMonth {
   readonly year: number;
   /** Integer age this calendar year (year − birthYear), per person with a birth year. */
   readonly ageByPerson: Readonly<Record<string, number>>;
-  readonly netWorthNominalCents: Cents;
-  readonly netWorthRealCents: Cents;
+  /** Null once the plan is insolvent (§5.1) — see {@link ProjectionMonth}. */
+  readonly netWorthNominalCents: Cents | null;
+  readonly netWorthRealCents: Cents | null;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;

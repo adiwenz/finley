@@ -188,6 +188,7 @@ export function createProjectionBase(budget: BudgetValues): LedgerBaseConfig {
   // retirement panel reasons about, now present in the graph too. Seed the years
   // worked BEFORE "now" so the benefit reflects a full career, not just in-model
   // earnings (see seedPriorEarnings).
+  const inflationRate = budget.inflationPct / 100;
   const person: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
@@ -196,7 +197,6 @@ export function createProjectionBase(budget: BudgetValues): LedgerBaseConfig {
     priorEarningsCents: seedPriorEarnings(budget),
   };
 
-  const inflationRate = budget.inflationPct / 100;
   // Income runs until retirement then stops (§7); while working it grows with CPI,
   // so it holds constant in real terms rather than eroding against rising prices.
   const workingMonths = Math.max(0, (budget.retirementAge - budget.currentAge) * 12);

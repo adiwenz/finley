@@ -295,7 +295,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       snap.income.reduce((a, s) => a + s.monthlyCents, 0) -
       snap.expenses.reduce((a, s) => a + s.monthlyCents, 0);
     const projFlow =
-      projection.months[3].netWorthNominalCents - projection.months[2].netWorthNominalCents;
+      projection.months[3].netWorthNominalCents! - projection.months[2].netWorthNominalCents!;
     expect(snapFlow).toBe(projFlow);
     // Balances read straight from the same projection month.
     expect(snap.balances?.netWorthNominalCents).toBe(projection.months[3].netWorthNominalCents);

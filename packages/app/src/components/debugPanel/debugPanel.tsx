@@ -89,15 +89,7 @@ function Configuration({
       />
       <ConfigGroup
         title="Retirement & Social Security"
-        rows={[
-          ["SS claiming age", budget.ssClaimingAge],
-          [
-            "SS annual (override)",
-            budget.socialSecurityAnnualCents === undefined
-              ? "computed"
-              : formatDollars(budget.socialSecurityAnnualCents),
-          ],
-        ]}
+        rows={[["SS claiming age", budget.ssClaimingAge]]}
       />
       <ConfigGroup
         title="Health care"
@@ -226,8 +218,12 @@ export function DebugPanel({
                 <td className={styles.rowhead}>{m.month}</td>
                 <td>{m.year}</td>
                 {agePersonId && <td>{m.ageByPerson[agePersonId] ?? "—"}</td>}
-                <td className={styles.group}>{formatDollars(m.netWorthRealCents)}</td>
-                <td>{formatDollars(m.netWorthNominalCents)}</td>
+                <td className={styles.group}>
+                  {m.netWorthRealCents === null ? "—" : formatDollars(m.netWorthRealCents)}
+                </td>
+                <td>
+                  {m.netWorthNominalCents === null ? "—" : formatDollars(m.netWorthNominalCents)}
+                </td>
                 {columns.accountIds.map((id) => (
                   <td key={`a-${id}`} className={styles.group}>
                     {formatDollars(m.accountBalancesCents[id] ?? 0)}

@@ -107,12 +107,4 @@ export interface BudgetValues {
   readonly lifeExpectancy: number;
   /** Pinned Social Security claiming age — an input to the check, never searched (§7). */
   readonly ssClaimingAge: number;
-  /**
-   * Optional override for the real annual Social Security benefit (today's dollars).
-   * When unset (the default), the panel computes it from the plan's earnings via the
-   * same AIME→PIA formula the net-worth graph uses, so the two surfaces agree — see
-   * {@link import("./retirementView").buildRetirementScenario}. Set it only to pin a
-   * figure from an actual SSA statement.
-   */
-  readonly socialSecurityAnnualCents?: number;
 }

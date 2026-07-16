@@ -71,7 +71,8 @@ export interface SnapshotBalances {
   readonly accounts: readonly BalanceEntry[];
   /** Amounts owed, positive. */
   readonly liabilities: readonly BalanceEntry[];
-  readonly netWorthNominalCents: Cents;
+  /** Null once the plan is insolvent (§5.1) — see {@link ProjectionMonth}. */
+  readonly netWorthNominalCents: Cents | null;
   readonly isInsolvent: boolean;
 }
 
