@@ -28,6 +28,12 @@ TL;DR - build a tiny, end-to-end slice of the feature first, then expand it out.
 4. Polish and quick wins
 5. Refactors
 
+# COMPLETION CHECK
+
+Before exploring the repo, decide whether the task you picked is already done. Use only cheap signals: the issue body, the recent commits you were passed, and a quick `gh issue view <number>` (a closed issue, or a recent commit that already references it, means it's done).
+
+If the task is already complete, output <promise>NO MORE TASKS</promise> and STOP IMMEDIATELY. Do NOT explore the repo, run tests, or make any changes.
+
 # EXPLORATION
 
 Explore the repo.
