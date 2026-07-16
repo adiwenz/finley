@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -25,8 +26,11 @@ const GRID = "#e3dcc6";
 
 type Point = {
   month: number;
-  nominalCents: number;
-  realCents: number;
+  // Null from the first insolvent month on (§5.1): the engine reports net worth as
+  // unknown once the money runs out, and Recharts breaks the line at the null — so
+  // the curves simply END at insolvency rather than flatlining as if stable.
+  nominalCents: number | null;
+  realCents: number | null;
 };
 
 /**
@@ -47,6 +51,39 @@ export function NetWorthChart({
     realCents: m.netWorthRealCents,
   }));
 
+  // Where the net-worth curve ends: the last month with a real (non-null) value.
+  // Net worth goes null once the plan is insolvent (§5.1), so for a failed plan this
+  // is the "money runs out" point; for a surviving plan it is the horizon.
+  const horizonMonth = series.months[series.months.length - 1]?.month ?? 0;
+  const insolvent = series.months.some((m) => m.isInsolvent);
+  let lastMeaningfulMonth = horizonMonth;
+  let terminalCents: number | null = null;
+  for (let i = series.months.length - 1; i >= 0; i--) {
+    const m = series.months[i];
+    if (m.netWorthNominalCents !== null) {
+      lastMeaningfulMonth = m.month;
+      terminalCents = m.netWorthNominalCents;
+      break;
+    }
+  }
+  // Zoom the x-axis to just past where the curve ends, so an early failure is legible
+  // instead of an unreadable spike against decades of empty chart. A surviving plan
+  // ends at the horizon, so this stays the full width; a 2-year floor keeps a very
+  // early failure from being cramped.
+  const xMaxMonth = Math.min(
+    horizonMonth,
+    Math.max(24, Math.ceil((lastMeaningfulMonth + 6) / 12) * 12),
+  );
+
+  // Ticks pinned to whole-year boundaries (multiples of 12 months). Letting Recharts
+  // auto-place them lands ticks on fractional-year months that round to the same
+  // label (e.g. two "yr 1"s). Space them so a zoomed-in failure shows every year and
+  // the full horizon shows every 5th/10th, keeping the axis uncluttered.
+  const spanYears = Math.max(1, xMaxMonth / 12);
+  const stepYears = spanYears <= 6 ? 1 : spanYears <= 15 ? 2 : spanYears <= 35 ? 5 : 10;
+  const yearTicks: number[] = [];
+  for (let m = 0; m <= xMaxMonth; m += stepYears * 12) yearTicks.push(m);
+
   return (
     <div
       role="img"
@@ -61,8 +98,10 @@ export function NetWorthChart({
           <XAxis
             dataKey="month"
             type="number"
-            domain={[0, "dataMax"]}
-            tickFormatter={(month: number) => `yr ${Math.round(month / 12)}`}
+            domain={[0, xMaxMonth]}
+            allowDataOverflow
+            ticks={yearTicks}
+            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
@@ -83,11 +122,11 @@ export function NetWorthChart({
           )}
           <Tooltip
             formatter={(value, name) => [
-              formatDollars(Number(value)),
+              value == null ? "—" : formatDollars(Number(value)),
               name,
             ]}
             labelFormatter={(label) =>
-              `Month ${label} (year ${Math.round(Number(label) / 12)})`
+              `Month ${label} (year ${Math.floor(Number(label) / 12) + 1})`
             }
             contentStyle={{ fontSize: 12 }}
           />
@@ -111,6 +150,16 @@ export function NetWorthChart({
             dot={false}
             isAnimationActive={false}
           />
+          {insolvent && terminalCents !== null && (
+            <ReferenceDot
+              x={lastMeaningfulMonth}
+              y={terminalCents}
+              r={4}
+              fill={INK}
+              stroke="none"
+              label={{ value: "runs out", position: "right", fill: AXIS, fontSize: 11 }}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

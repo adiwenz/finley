@@ -166,7 +166,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       stub,
     );
     const paidInMonth = (m: number) =>
-      series.months[m].netWorthNominalCents - series.months[m - 1].netWorthNominalCents;
+      series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
     expect(paidInMonth(1)).toBe(dollarsToCents(1_000)); // claim year → base benefit
     expect(paidInMonth(12)).toBe(dollarsToCents(1_100)); // +1 full year → ×1.10
     expect(paidInMonth(24)).toBe(dollarsToCents(1_210)); // +2 full years → ×1.10²
@@ -192,7 +192,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       stub,
     );
     const paidInMonth1 =
-      series.months[1].netWorthNominalCents - series.months[0].netWorthNominalCents;
+      series.months[1].netWorthNominalCents! - series.months[0].netWorthNominalCents!;
     expect(paidInMonth1).toBe(Math.round(dollarsToCents(1_000) * Math.pow(1.1, 5)));
   });
 

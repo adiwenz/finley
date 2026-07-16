@@ -153,15 +153,19 @@ describe("App — budget edits", () => {
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 
+    // Scrubbing the timeline changes no plan input, so nothing rebuilds the base.
     fireEvent.change(screen.getByLabelText(/Scrub to a month/), {
       target: { value: "120" },
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
+    // A budget edit rebuilds it — once for the net-worth graph, plus the sweep the
+    // projection-driven retirement panel runs to find the feasible age (#37), so the
+    // count jumps by more than one. What matters is that an edit *does* rebuild.
     fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },
     });
-    expect(spy.mock.calls.length).toBe(callsAfterMount + 1);
+    expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
   it("appends expense overrides without replacing earlier ones", () => {

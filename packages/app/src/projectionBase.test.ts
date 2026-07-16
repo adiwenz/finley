@@ -13,13 +13,19 @@ import type { BudgetValues } from "./planTypes";
 
 function endingNetWorthCents(budget: BudgetValues): number {
   const series = replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
-  return series.months[series.months.length - 1].netWorthNominalCents;
+  // Net worth is null once a plan goes insolvent (§5.1), so read the last KNOWN
+  // value: the true final balance for a surviving plan, or the honest terminal
+  // ("money runs out") value for one that doesn't.
+  const known = series.months
+    .map((m) => m.netWorthNominalCents)
+    .filter((c): c is number => c !== null);
+  return known[known.length - 1];
 }
 
 /** Nominal net worth at a given age under a jurisdiction (US = SS modelled). */
 function netWorthAtAge(budget: BudgetValues, age: number, jurisdiction = usJurisdiction): number {
   const series = replayLedger(emptyLedger, createProjectionBase(budget), jurisdiction);
-  return series.months[(age - budget.currentAge) * 12].netWorthNominalCents;
+  return series.months[(age - budget.currentAge) * 12].netWorthNominalCents!;
 }
 
 describe("createProjectionBase — retirement + Social Security wired into the graph (§5.4/§7)", () => {
@@ -32,7 +38,8 @@ describe("createProjectionBase — retirement + Social Security wired into the g
 
   it("stops employment income at the retirement age — working longer ends richer", () => {
     // Same plan, later retirement = more earning years + fewer drawdown years, so a
-    // later retirement leaves a strictly healthier balance at life expectancy.
+    // later retirement leaves a strictly healthier terminal balance (retiring at 55
+    // exhausts the plan; retiring at 70 survives with far more to spare).
     const early = endingNetWorthCents({ ...PLAN_DEFAULTS, retirementAge: 55 });
     const late = endingNetWorthCents({ ...PLAN_DEFAULTS, retirementAge: 70 });
     expect(late).toBeGreaterThan(early);
@@ -77,7 +84,7 @@ describe("createProjectionBase — retirement decumulation liquidates instead of
     );
     expect(liquidated).toBe(true);
     // Real net worth never craters — it stays positive through the whole horizon.
-    const minRealNetWorth = Math.min(...series.months.map((m) => m.netWorthRealCents));
+    const minRealNetWorth = Math.min(...series.months.map((m) => m.netWorthRealCents!));
     expect(minRealNetWorth).toBeGreaterThan(0);
   });
 });

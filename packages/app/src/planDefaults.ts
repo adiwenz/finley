@@ -47,9 +47,8 @@ export const PLAN_DEFAULTS: BudgetValues = {
   retirementAge: 65,
   lifeExpectancy: 90,
   ssClaimingAge: 67,
-  // socialSecurityAnnualCents left unset → the panel computes the benefit from the
-  // plan's earnings (same AIME→PIA formula as the graph). Set it only to override
-  // with a figure from an actual SSA statement.
+  // Social Security is always priced from the plan's earnings (the AIME→PIA seam the
+  // graph and panel share); there is no authored override.
 };
 
 export const DEFAULT_SCRUB_MONTH = 0;

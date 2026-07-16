@@ -91,7 +91,7 @@ describe("simulateHousehold", () => {
       nullJurisdiction,
     );
     // $10k @ 7% for 10 years ≈ $19,671.51; integer-cents rounding within a dime
-    expect(Math.abs(series.months[120].netWorthNominalCents - dollarsToCents(19671.51))).toBeLessThanOrEqual(10);
+    expect(Math.abs(series.months[120].netWorthNominalCents! - dollarsToCents(19671.51))).toBeLessThanOrEqual(10);
   });
 
   it("negative net worth (expenses > income) renders below zero", () => {
@@ -123,7 +123,7 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[24].netWorthRealCents).toBeLessThan(series.months[24].netWorthNominalCents);
+    expect(series.months[24].netWorthRealCents!).toBeLessThan(series.months[24].netWorthNominalCents!);
   });
 
   it("all monetary values are integer cents", () => {
@@ -391,6 +391,43 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
       nullJurisdiction,
     );
     expect(series.months[1].isInsolvent).toBe(true);
+  });
+
+  it("net worth is null for every month AFTER the first insolvent one; the first keeps its value", () => {
+    // A modest starting balance funds a couple of months, then a large sustained
+    // deficit runs the plan insolvent — so there are solvent months, a first
+    // insolvent month, and months beyond it. Net worth is a real number up to and
+    // INCLUDING the first insolvent month (the honest "money runs out" point), then
+    // null thereafter (the model has no fidelity once unfunded spending is dropped).
+    const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0.03,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(30_000)), ownerId: "p1" }],
+        liabilities: [],
+      },
+      nullJurisdiction,
+    );
+    const firstInsolvent = series.months.findIndex((m) => m.isInsolvent);
+    expect(firstInsolvent).toBeGreaterThan(0); // there IS a solvent stretch first
+
+    for (const m of series.months) {
+      if (m.month <= firstInsolvent) {
+        // Real value through the terminal (first insolvent) month.
+        expect(m.netWorthNominalCents).not.toBeNull();
+        expect(m.netWorthRealCents).not.toBeNull();
+      } else {
+        // Nulled from there on — the lines end at insolvency.
+        expect(m.netWorthNominalCents).toBeNull();
+        expect(m.netWorthRealCents).toBeNull();
+      }
+    }
+    // isInsolvent itself is unaffected — still flagged per month, including nulled ones.
+    expect(series.months[firstInsolvent].isInsolvent).toBe(true);
   });
 
   it("proportional transfer: −0.2 fraction removes 20% of balance", () => {

@@ -44,11 +44,18 @@ export interface LiabilityPaymentRecord {
  * Simulate in nominal dollars, report in real dollars (§0.4): every point
  * carries both `netWorthNominalCents` and `netWorthRealCents`, so the chart can
  * draw the real and nominal curves without recomputing the conversion.
+ *
+ * Net worth is `null` for every month AFTER the first insolvent one (§5.1). Once
+ * the shortfall cascade drops unfundable spending, the model has no fidelity past
+ * that point — every later balance is fiction — so it reports "unknown" rather than
+ * a misleadingly flat number. The first insolvent month keeps its real (negative)
+ * value: it is the honest terminal point where the money runs out. Consumers must
+ * treat `null` as "insolvent from here", NOT as zero (`null >= 0` is `true` in JS).
  */
 export interface ProjectionMonth {
   readonly month: number;
-  readonly netWorthNominalCents: Cents;
-  readonly netWorthRealCents: Cents;
+  readonly netWorthNominalCents: Cents | null;
+  readonly netWorthRealCents: Cents | null;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   /** Balance owed on each liability at this month (positive = owed). */
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;

@@ -6,17 +6,16 @@
  * This file is ONE check, not "the health module" — health-care logic is split by
  * layer on purpose: the US dollar figures + eligibility age live in `rules`
  * (`healthCosts.ts`, behind the `healthCostBenchmarkMonthlyCents` seam), the
- * survival-loop per-person cost term lives with the solver it belongs to
- * (`retirement.ts` `personHealthAtYear`), and the app owns the budget series and
- * panel wiring. None of those can collapse here without crossing a package or
- * altitude boundary.
+ * projection's per-month health cost is an authored expense series the app builds
+ * (`projectionBase.ts` `buildHealthSeries`), and the app owns the panel wiring. None
+ * of those can collapse here without crossing a package or altitude boundary.
  *
  * Pure and jurisdiction-agnostic — every figure is supplied by the caller. The
  * Medicare-eligibility age and the elevated self-funded benchmark come from the
  * rules `healthCostBenchmarkMonthlyCents` seam; the authored health expense comes
- * from the plan. This mirrors the retirement solver (`retirement.ts`) taking
- * resolved real cents rather than reaching for the jurisdiction, so the check
- * stays testable standalone and the jurisdiction fact lives in exactly one place.
+ * from the plan. Taking resolved real cents rather than reaching for the
+ * jurisdiction keeps the check testable standalone and the jurisdiction fact in
+ * exactly one place.
  *
  * Medicare is deliberately NOT a silent auto-step in the sim (§5.4 resolved):
  * health is an ordinary authored budget item. This helper does not synthesise a

@@ -482,12 +482,19 @@ function advanceProperties(state: SimState, month: number): void {
   }
 }
 
-/** Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal / (1+infl)^yrs (§0.4). */
+/**
+ * Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal
+ * / (1+infl)^yrs (§0.4). When `netWorthTerminated` (a PRIOR month already went
+ * insolvent, §5.1) both net-worth figures are reported as `null` — the model can no
+ * longer say what net worth is once unfunded spending has been dropped. The balances
+ * themselves are still emitted (diagnostic), only the aggregate net worth is nulled.
+ */
 function snapshotMonth(
   state: SimState,
   month: number,
   annualInflationRate: number,
   isInsolvent: boolean,
+  netWorthTerminated: boolean,
   liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>,
   flows: ProjectionMonthFlows | undefined,
 ): ProjectionMonth {
@@ -516,8 +523,10 @@ function snapshotMonth(
 
   return {
     month,
-    netWorthNominalCents: nominalNetWorth,
-    netWorthRealCents: toRealCents(nominalNetWorth, annualInflationRate, month),
+    netWorthNominalCents: netWorthTerminated ? null : nominalNetWorth,
+    netWorthRealCents: netWorthTerminated
+      ? null
+      : toRealCents(nominalNetWorth, annualInflationRate, month),
     accountBalancesCents,
     liabilityBalancesCents,
     liabilityPaymentRecords,
@@ -548,6 +557,11 @@ export function simulateHousehold(
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const state = initSimState(input);
   const months: ProjectionMonth[] = [];
+  // Insolvency is terminal for net-worth reporting (§5.1): once any month exhausts
+  // all credit, every LATER month reports net worth as null. Tracks whether a prior
+  // month already tripped it — the first insolvent month itself still reports its
+  // (honest, negative) value; only the months after it are nulled.
+  let priorInsolvency = false;
 
   for (let month = 0; month <= input.horizonMonths; month++) {
     let isInsolvent = false;
@@ -614,8 +628,17 @@ export function simulateHousehold(
     }
 
     months.push(
-      snapshotMonth(state, month, input.annualInflationRate, isInsolvent, paymentRecords, flows),
+      snapshotMonth(
+        state,
+        month,
+        input.annualInflationRate,
+        isInsolvent,
+        priorInsolvency,
+        paymentRecords,
+        flows,
+      ),
     );
+    if (isInsolvent) priorInsolvency = true;
   }
 
   return { months };
