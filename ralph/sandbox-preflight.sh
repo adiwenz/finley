@@ -11,31 +11,27 @@
 #     incrementally (npm/cli#4828). A node_modules last built on the host fails
 #     here (and vice versa).
 #
-#  2. npm's tarball extraction WRITING a large native binary directly onto the
-#     virtiofs mount silently CORRUPTS it — verified: identical package + version,
-#     same byte size, different sha256 vs a native-fs install. esbuild's Go binary
-#     validates its own symbol table at startup and dies with "bad symbol table" /
-#     "invalid function symbol table"; rollup's .node fails to load. (A plain C
-#     binary like node survives, which makes this easy to misdiagnose.) We cannot
-#     move node_modules off the mount: `docker sandbox` exposes no volume flag and
-#     the container has no CAP_SYS_ADMIN for a bind mount. So we install on the
+#  2. Writing a large native binary onto the virtiofs mount INTERMITTENTLY
+#     corrupts the bytes — verified: identical package + version, same size,
+#     different sha256 vs a native-fs install; npm, `cp -a`, and even a plain
+#     `cp` can all produce a bad copy. esbuild's Go binary self-validates and dies
+#     "bad symbol table"; rollup's .node fails to load. We cannot move
+#     node_modules off the mount (`docker sandbox` has no volume flag; the
+#     container lacks CAP_SYS_ADMIN for a bind mount). So we install on the
 #     container's NATIVE filesystem (npm writes intact there) and copy the result
-#     onto the mount. Quirk: a plain per-file `cp` copies a native binary intact,
-#     but `cp -a`'s bulk/preserve write corrupts it the same way npm does — so we
-#     bulk-copy the (JS-heavy) tree with `cp -a`, then re-copy each native binary
-#     with a plain `cp`.
+#     onto the mount, VERIFYING every native binary's sha and retrying the write
+#     until it round-trips (see nm-sync.sh).
 #
 # Strategy: functionally test the native toolchain; only rebuild if it's broken.
 # Fast no-op when it's fine.
 set -uo pipefail
+. "$(dirname "$0")/nm-sync.sh"
 cd "$(dirname "$0")/.."
 SRC="$PWD"
 
 plat="$(node -p 'process.platform + "-" + process.arch' 2>/dev/null || echo unknown)"
 
-# Exercise the native binaries (esbuild + rollup). A wrong-platform, missing, or
-# corrupted binary throws or segfaults, i.e. exits non-zero.
-if node -e 'require("esbuild").transformSync("const x=1"); require("rollup");' >/dev/null 2>&1; then
+if nm_verify_toolchain; then
   echo "sandbox deps: native toolchain OK for ${plat}"
   exit 0
 fi
@@ -55,25 +51,11 @@ for pj in "$SRC"/packages/*/package.json; do
 done
 ( cd "$WORK" && npm install --no-audit --no-fund )
 
-# 2) Mirror node_modules onto the virtiofs mount. cp -a is fine for the JS tree
-#    (only large native binaries corrupt; those are repaired in step 3).
-rm -rf "$SRC/node_modules" "$SRC"/packages/*/node_modules
-cp -a "$WORK/node_modules" "$SRC/node_modules"
-for d in "$WORK"/packages/*/node_modules; do
-  [ -d "$d" ] || continue
-  rel="${d#"$WORK"/}"; mkdir -p "$SRC/$(dirname "$rel")"; cp -a "$d" "$SRC/$rel"
-done
+# 2) Mirror node_modules onto the mount, with verified native-binary repair.
+nm_sync_to_mount "$SRC" "$WORK" || { echo "sandbox deps: ERROR — sync failed" >&2; exit 1; }
 
-# 3) Repair native binaries corrupted by cp -a: re-copy every *.node addon and
-#    every esbuild binary with a plain per-file cp (which preserves them).
-find "$WORK" -type f \( -name '*.node' -o -name esbuild \) | while read -r f; do
-  rel="${f#"$WORK"/}"
-  [ -f "$SRC/$rel" ] || continue
-  cp -f "$f" "$SRC/$rel"
-done
-
-# Verify the toolchain is now healthy; fail loudly (non-zero) if not.
-if node -e 'require("esbuild").transformSync("const x=1"); require("rollup");' >/dev/null 2>&1; then
+# 3) Verify the toolchain is now healthy; fail loudly (non-zero) if not.
+if nm_verify_toolchain; then
   echo "sandbox deps: native toolchain rebuilt OK for ${plat}"
 else
   echo "sandbox deps: ERROR — toolchain still broken after rebuild" >&2

@@ -44,6 +44,10 @@ If the task is already complete, output <promise>NO MORE TASKS</promise> and STO
 
 Explore the repo.
 
+# SANDBOX ENVIRONMENT
+
+You run in a Docker sandbox whose workspace is a virtiofs mount, and writing native binaries onto it corrupts them — so a bare `npm install` breaks the toolchain (esbuild/rollup). If the task needs a new or changed dependency, run `ralph/nm-install.sh <npm install args…>` instead of `npm install` (e.g. `ralph/nm-install.sh -D some-dep`). It installs on the native filesystem and copies the result back intact, updating package.json / package-lock.json for your commit. Non-install npm commands (`npm run test`, `npm run check`, …) are fine to run directly.
+
 # IMPLEMENTATION
 
 Use /tdd to complete the task.
