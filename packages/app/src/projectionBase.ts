@@ -18,7 +18,7 @@ import {
 } from "@finley/engine";
 import { MEDICARE_ELIGIBILITY_AGE } from "@finley/rules";
 import { planHorizonMonths, START_YEAR } from "./config";
-import type { BudgetValues, GoalPlan } from "./planTypes";
+import type { Plan, GoalPlan } from "@finley/engine";
 
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
@@ -37,7 +37,7 @@ export function goalFundAccountId(goal: GoalPlan): string {
  * and one fund account per goal. All non-liquid accounts carry the plan's return
  * rate, which is what makes near-term goals in them trip the §5.2 risk flag.
  */
-export function buildPlanAccounts(budget: BudgetValues): Account[] {
+export function buildPlanAccounts(budget: Plan): Account[] {
   const accounts: Account[] = [
     new Account({
       id: SAVINGS_ID,
@@ -83,7 +83,7 @@ export function buildPlanAccounts(budget: BudgetValues): Account[] {
  * The plan's goals as engine `Goal`s. Array order is priority (index 0 first),
  * so reordering the plan array reprioritizes without touching anything else.
  */
-export function buildPlanGoals(budget: BudgetValues): Goal[] {
+export function buildPlanGoals(budget: Plan): Goal[] {
   return budget.goals.map((goal, i) => ({
     id: goal.id,
     name: goal.name,
@@ -107,7 +107,7 @@ export function buildPlanGoals(budget: BudgetValues): Goal[] {
  * the same forward inflation, so the residual override is that figure inflated to 65.
  * Not enrolling (or already past 65) collapses to a single segment.
  */
-function buildHealthSeries(budget: BudgetValues): CashFlowSeries {
+function buildHealthSeries(budget: Plan): CashFlowSeries {
   const rate = budget.healthInflationPct / 100;
   const growth = { type: "customRate" as const, annualRate: rate };
   const yearsTo65 = MEDICARE_ELIGIBILITY_AGE - budget.currentAge;
@@ -146,7 +146,7 @@ const CAREER_START_AGE = 18;
  * with how in-model income is modelled (inflation-linked, flat in real terms). Both
  * the pre-"now" record seed and the panel's benefit calc read from this shape.
  */
-function careerEarningsCents(budget: BudgetValues, fromAge: number, toAge: number): Record<number, Cents> {
+function careerEarningsCents(budget: Plan, fromAge: number, toAge: number): Record<number, Cents> {
   const annualSalaryNow = budget.incomeCents * 12;
   const inflationRate = budget.inflationPct / 100;
   const earnings: Record<number, Cents> = {};
@@ -162,7 +162,7 @@ function careerEarningsCents(budget: BudgetValues, fromAge: number, toAge: numbe
  * age 18 through retirement. The panel prices Social Security from this same record
  * the graph accumulates, so both surfaces report the same benefit.
  */
-export function fullCareerEarningsCents(budget: BudgetValues): Record<number, Cents> {
+export function fullCareerEarningsCents(budget: Plan): Record<number, Cents> {
   return careerEarningsCents(budget, CAREER_START_AGE, budget.retirementAge);
 }
 
@@ -177,11 +177,11 @@ export function fullCareerEarningsCents(budget: BudgetValues): Record<number, Ce
  * benefit down ~1/7. A real 35-year-old has instead been earning since ~18, and
  * those years fill the record — so we seed ages 18 → today.
  */
-function seedPriorEarnings(budget: BudgetValues): Record<number, Cents> {
+function seedPriorEarnings(budget: Plan): Record<number, Cents> {
   return careerEarningsCents(budget, CAREER_START_AGE, budget.currentAge);
 }
 
-export function createProjectionBase(budget: BudgetValues): LedgerBaseConfig {
+export function createProjectionBase(budget: Plan): LedgerBaseConfig {
   // Give the projection an SS basis (§5.4): a birth year derived from today's age
   // plus the pinned claiming age, so the engine accumulates earnings while working
   // and pays a Social Security benefit from the claiming age — the same lever the

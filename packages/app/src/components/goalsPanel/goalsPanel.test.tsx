@@ -14,11 +14,11 @@ import { createProjectionBase } from "../../projectionBase";
 import { GoalsPanel } from "./goalsPanel";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 
 const noop = () => {};
 
-function project(budget: BudgetValues) {
+function project(budget: Plan) {
   return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
 }
 
@@ -34,7 +34,7 @@ describe("GoalsPanel", () => {
 
   it("shows the short-horizon-in-risky-account honesty flag (§5.2)", () => {
     // One near-term goal in a 7% account → the flag fires.
-    const budget: BudgetValues = {
+    const budget: Plan = {
       ...PLAN_DEFAULTS,
       goals: [
         {

@@ -13,7 +13,7 @@
 
 import { retirementDeferralLimitCents } from "@finley/rules";
 import { START_YEAR } from "./config";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
 export interface DeferralLimitCrossing {
   /** Calendar year of the first crossing. */
@@ -35,7 +35,7 @@ export interface DeferralLimitCrossing {
  * Nominal, annual granularity — a close match to the sim's inflation-linked income
  * and nominal indexed limit, not the exact month-by-month cap the engine applies.
  */
-export function firstDeferralLimitCrossing(budget: BudgetValues): DeferralLimitCrossing | null {
+export function firstDeferralLimitCrossing(budget: Plan): DeferralLimitCrossing | null {
   const fraction = budget.retirementDeferralPct / 100;
   if (fraction <= 0) return null;
 

@@ -21,7 +21,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { createProjectionBase } from "./projectionBase";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
 /**
  * Run the full §5 projection for `budget` (no life events — the panel reasons about
@@ -29,7 +29,7 @@ import type { BudgetValues } from "./planTypes";
  * draw from one model.
  */
 export function projectPlan(
-  budget: BudgetValues,
+  budget: Plan,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): ProjectionSeries {
   const base = createProjectionBase(budget);
@@ -51,7 +51,7 @@ export function realNetWorthSurvives(series: ProjectionSeries): boolean {
 }
 
 /** Absolute simulation month a retirement `age` falls at, floored at 0. */
-function retirementMonth(budget: BudgetValues, age: number): number {
+function retirementMonth(budget: Plan, age: number): number {
   return Math.max(0, (age - budget.currentAge) * 12);
 }
 
@@ -62,7 +62,7 @@ function retirementMonth(budget: BudgetValues, age: number): number {
  * boundary; a surviving plan is 1.0 and never reaches here. Reporting caps it at 100%.
  */
 function computeOnTrackFraction(
-  budget: BudgetValues,
+  budget: Plan,
   age: number,
   series: ProjectionSeries,
 ): number {
@@ -91,7 +91,7 @@ function computeOnTrackFraction(
  * the search finishes.
  */
 export function evaluateAtAge(
-  budget: BudgetValues,
+  budget: Plan,
   age: number,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
@@ -111,7 +111,7 @@ export function evaluateAtAge(
  * projections.
  */
 export function earliestFeasibleRetirementAge(
-  budget: BudgetValues,
+  budget: Plan,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): number | null {
   const lo = budget.currentAge;

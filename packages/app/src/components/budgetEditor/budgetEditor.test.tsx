@@ -12,13 +12,13 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents } from "@finley/engine";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 
 afterEach(cleanup);
 
 /** A controlled harness so edits round-trip through real budget state. */
-function Harness({ initial = PLAN_DEFAULTS }: { initial?: BudgetValues }) {
-  const [budget, setBudget] = useState<BudgetValues>(initial);
+function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
+  const [budget, setBudget] = useState<Plan>(initial);
   return (
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} scrubMonth={0} />

@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "@finley/engine";
 import { createProjectionBase } from "./projectionBase";
 import { goalRows, reorderGoal } from "./goalsView";
-import type { BudgetValues, GoalPlan } from "./planTypes";
+import type { Plan, GoalPlan } from "@finley/engine";
 
-const baseBudget: BudgetValues = {
+const baseBudget: Plan = {
   name: "Alex",
   incomeCents: dollarsToCents(5000),
   expenseCents: dollarsToCents(3500),
@@ -48,7 +48,7 @@ const goalB: GoalPlan = {
   annualReturnPct: 0,
 };
 
-function project(budget: BudgetValues) {
+function project(budget: Plan) {
   return replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
 }
 

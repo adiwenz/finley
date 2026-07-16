@@ -7,7 +7,7 @@
  */
 
 import { computeGoalProgress, type ProjectionSeries } from "@finley/engine";
-import type { BudgetValues, GoalPlan } from "./planTypes";
+import type { Plan, GoalPlan } from "@finley/engine";
 import { buildPlanAccounts, buildPlanGoals } from "./projectionBase";
 
 export interface GoalRow {
@@ -35,7 +35,7 @@ export interface GoalRow {
  * projection must be the one built from the SAME `budget`, so the fund-account
  * balances it reports line up with the goals' `fundAccountId`s.
  */
-export function goalRows(budget: BudgetValues, projection: ProjectionSeries): GoalRow[] {
+export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
   const goals = buildPlanGoals(budget);
   const accounts = buildPlanAccounts(budget);
   // `goals` is `budget.goals` mapped in order, so the plan goal at the same index

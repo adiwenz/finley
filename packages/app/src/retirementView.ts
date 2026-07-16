@@ -19,7 +19,7 @@ import {
 import { usJurisdiction, MEDICARE_ELIGIBILITY_AGE } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { earliestFeasibleRetirementAge, evaluateAtAge } from "./retirementSolver";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
 export interface RetirementView {
   /** Mode-1 headline: the earliest age everyone can retire, or null if unreachable. */
@@ -42,7 +42,7 @@ export interface RetirementView {
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
   /**
    * The authored Medicare residual the plan carries from 65 (§5.4), in **today's
-   * dollars** — the user's own {@link BudgetValues.postMedicareHealthMonthlyCents},
+   * dollars** — the user's own {@link Plan.postMedicareHealthMonthlyCents},
    * not a derived figure. 0 when the plan does not enrol in Medicare (no residual —
    * the pre-65 self-funded line runs for life instead); {@link enrollsInMedicare}
    * tells the panel which story to tell.
@@ -62,7 +62,7 @@ export interface RetirementView {
  * terms.) Retiring at/after Medicare eligibility never flags (no self-funded gap).
  */
 function earlyRetireeHealthFlag(
-  budget: BudgetValues,
+  budget: Plan,
   jurisdiction: Jurisdiction,
 ): EarlyRetireeHealthFlag {
   return assessEarlyRetireeHealthCost({
@@ -78,7 +78,7 @@ function earlyRetireeHealthFlag(
 }
 
 export function retirementView(
-  budget: BudgetValues,
+  budget: Plan,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
   const headlineAge = earliestFeasibleRetirementAge(budget, jurisdiction);

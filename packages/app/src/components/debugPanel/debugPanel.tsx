@@ -9,7 +9,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import type { SimulationReport } from "@finley/engine";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
@@ -51,7 +51,7 @@ function Configuration({
   inputs,
   jurisdictionId,
 }: {
-  budget: BudgetValues;
+  budget: Plan;
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
@@ -130,7 +130,7 @@ export function DebugPanel({
   budget,
 }: {
   report: SimulationReport;
-  budget: BudgetValues;
+  budget: Plan;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
   const { columns, months, inputs } = report;

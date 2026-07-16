@@ -1,9 +1,9 @@
 /** Opening values for a fresh plan. */
 
 import { dollarsToCents } from "@finley/engine";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
-export const PLAN_DEFAULTS: BudgetValues = {
+export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
   incomeCents: dollarsToCents(5000),
   expenseCents: dollarsToCents(3500),

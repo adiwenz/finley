@@ -7,10 +7,10 @@ import {
   earliestFeasibleRetirementAge,
 } from "./retirementSolver";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
 /** Does the plan survive when retiring at exactly `age`? Runs the real projection. */
-function survivesAt(budget: BudgetValues, age: number): boolean {
+function survivesAt(budget: Plan, age: number): boolean {
   return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }));
 }
 
@@ -45,7 +45,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
   });
 
   it("reports no feasible headline when the money can never last", () => {
-    const broke: BudgetValues = {
+    const broke: Plan = {
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
       incomeCents: 0,
@@ -69,7 +69,7 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
   it("falls short of 100% and points to the nearest feasible age when the pin can't survive", () => {
     // Pin a retirement age below the feasible floor: infeasible, on-track < 100%, and
     // the nearest feasible age is exactly the headline the solver finds.
-    const pinnedTooEarly: BudgetValues = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
+    const pinnedTooEarly: Plan = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
     const view = retirementView(pinnedTooEarly);
     expect(view.target.feasible).toBe(false);
     expect(view.targetOnTrackPct).toBeLessThan(100);

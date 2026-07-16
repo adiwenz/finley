@@ -6,7 +6,7 @@
  * arrives with a second household member.
  */
 
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 import type { RetirementView } from "../../retirementView";
 import { formatDollars } from "../../format";
 
@@ -15,7 +15,7 @@ export function RetirementPanel({
   budget,
 }: {
   view: RetirementView;
-  budget: BudgetValues;
+  budget: Plan;
 }) {
   return (
     <>

@@ -11,15 +11,15 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import type { ProjectionSeries } from "@finley/engine";
-import type { BudgetValues } from "../../planTypes";
+import type { Plan } from "@finley/engine";
 import { goalRows, reorderGoal, setGoalRate } from "../../goalsView";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars, monthLabel } from "../../format";
 
 interface GoalsPanelProps {
-  budget: BudgetValues;
+  budget: Plan;
   series: ProjectionSeries;
-  setBudget: Dispatch<SetStateAction<BudgetValues>>;
+  setBudget: Dispatch<SetStateAction<Plan>>;
 }
 
 export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {

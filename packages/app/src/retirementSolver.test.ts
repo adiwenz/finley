@@ -6,9 +6,9 @@ import {
   evaluateAtAge,
 } from "./retirementSolver";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
-function survivesAt(budget: BudgetValues, age: number): boolean {
+function survivesAt(budget: Plan, age: number): boolean {
   return realNetWorthSurvives(projectPlan({ ...budget, retirementAge: age }));
 }
 
@@ -33,14 +33,14 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
   });
 
   it("returns null when even working to life expectancy fails", () => {
-    const broke: BudgetValues = { ...PLAN_DEFAULTS, openingBalanceCents: 0, incomeCents: 0 };
+    const broke: Plan = { ...PLAN_DEFAULTS, openingBalanceCents: 0, incomeCents: 0 };
     expect(earliestFeasibleRetirementAge(broke)).toBeNull();
   });
 
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
     // Once insolvent, net worth is null (§5.1). `null >= 0` is `true` in JS, so a
     // naive survival check would wrongly pass those months — this pins the guard.
-    const broke: BudgetValues = { ...PLAN_DEFAULTS, openingBalanceCents: 0, incomeCents: 0 };
+    const broke: Plan = { ...PLAN_DEFAULTS, openingBalanceCents: 0, incomeCents: 0 };
     const series = projectPlan(broke);
     // Precondition: the plan really does produce null net-worth months.
     expect(series.months.some((m) => m.netWorthRealCents === null)).toBe(true);

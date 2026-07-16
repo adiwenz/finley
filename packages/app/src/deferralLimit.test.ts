@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { firstDeferralLimitCrossing } from "./deferralLimit";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 import { dollarsToCents } from "@finley/engine";
 import { START_YEAR } from "./config";
 
 /** A budget built off the defaults with the deferral-relevant fields overridden. */
-function budget(overrides: Partial<BudgetValues>): BudgetValues {
+function budget(overrides: Partial<Plan>): Plan {
   return { ...PLAN_DEFAULTS, ...overrides };
 }
 

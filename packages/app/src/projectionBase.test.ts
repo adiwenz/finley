@@ -9,9 +9,9 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { createProjectionBase } from "./projectionBase";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 
-function endingNetWorthCents(budget: BudgetValues): number {
+function endingNetWorthCents(budget: Plan): number {
   const series = replayLedger(emptyLedger, createProjectionBase(budget), nullJurisdiction);
   // Net worth is null once a plan goes insolvent (§5.1), so read the last KNOWN
   // value: the true final balance for a surviving plan, or the honest terminal
@@ -23,7 +23,7 @@ function endingNetWorthCents(budget: BudgetValues): number {
 }
 
 /** Nominal net worth at a given age under a jurisdiction (US = SS modelled). */
-function netWorthAtAge(budget: BudgetValues, age: number, jurisdiction = usJurisdiction): number {
+function netWorthAtAge(budget: Plan, age: number, jurisdiction = usJurisdiction): number {
   const series = replayLedger(emptyLedger, createProjectionBase(budget), jurisdiction);
   return series.months[(age - budget.currentAge) * 12].netWorthNominalCents!;
 }
@@ -108,7 +108,7 @@ describe("createProjectionBase — horizon spans to life expectancy (§7)", () =
 describe("createProjectionBase — health as its own additive, growing expense (§5.4)", () => {
   it("spends the health line: adding health lowers ending net worth", () => {
     // A plain saver — income idles to savings — so more spend means less saved.
-    const base: BudgetValues = {
+    const base: Plan = {
       ...PLAN_DEFAULTS,
       incomeCents: dollarsToCents(6_000),
       expenseCents: dollarsToCents(3_000),
@@ -125,7 +125,7 @@ describe("createProjectionBase — health as its own additive, growing expense (
   });
 
   it("grows the health line at its own rate: a higher rate spends more over the horizon", () => {
-    const base: BudgetValues = {
+    const base: Plan = {
       ...PLAN_DEFAULTS,
       incomeCents: dollarsToCents(6_000),
       expenseCents: dollarsToCents(3_000),
@@ -146,7 +146,7 @@ describe("createProjectionBase — health as its own additive, growing expense (
     // runs through the horizon (retirementAge past life expectancy) so the household
     // stays solvent and the health-cost difference shows up in real net worth rather
     // than being masked by the finite synthetic-card insolvency floor (#36).
-    const base: BudgetValues = {
+    const base: Plan = {
       ...PLAN_DEFAULTS,
       currentAge: 55,
       retirementAge: 90,

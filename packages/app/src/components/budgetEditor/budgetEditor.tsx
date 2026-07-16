@@ -9,20 +9,20 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
-import type { BudgetValues, ValueOverride } from "../../planTypes";
+import type { Plan, ValueOverride } from "@finley/engine";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { ExpenseEditor } from "../expenseEditor/expenseEditor";
 
 interface BudgetEditorProps {
-  budget: BudgetValues;
-  setBudget: Dispatch<SetStateAction<BudgetValues>>;
+  budget: Plan;
+  setBudget: Dispatch<SetStateAction<Plan>>;
   scrubMonth: number;
 }
 
 export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProps) {
-  function updateBudget(patch: Partial<BudgetValues>) {
+  function updateBudget(patch: Partial<Plan>) {
     setBudget((current) => ({ ...current, ...patch }));
   }
 

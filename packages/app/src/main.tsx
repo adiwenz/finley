@@ -21,13 +21,13 @@ import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
-import type { BudgetValues } from "./planTypes";
+import type { Plan } from "@finley/engine";
 import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
 export function App() {
-  const [budget, setBudget] = useState<BudgetValues>(PLAN_DEFAULTS);
+  const [budget, setBudget] = useState<Plan>(PLAN_DEFAULTS);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
   const base = useMemo(() => createProjectionBase(budget), [budget]);
