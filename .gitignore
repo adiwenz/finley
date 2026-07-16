@@ -12,3 +12,7 @@ packages/*/dist/
 .vite/
 coverage/
 *.tsbuildinfo
+
+# Sandcastle
+.sandcastle/.env
+.sandcastle/worktrees/

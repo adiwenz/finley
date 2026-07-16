@@ -9,6 +9,7 @@
     "packages/app"
   ],
   "scripts": {
+    "sandcastle": "npx tsx .sandcastle/main.ts",
     "dev": "npm run dev -w @finley/app",
     "build": "npm run build -w @finley/app",
     "test": "vitest run",
@@ -17,6 +18,7 @@
     "check": "npm run check:purity && npm run typecheck && npm run test"
   },
   "devDependencies": {
+    "@ai-hero/sandcastle": "^0.12.0",
     "@types/node": "^20.19.43",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
@@ -24,5 +26,8 @@
   },
   "overrides": {
     "esbuild": "^0.25.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }
