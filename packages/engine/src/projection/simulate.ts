@@ -6,6 +6,7 @@ import {
   Liability,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
+  SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
   minCreditCardPaymentCents,
   amortizationScheduleCents,
   derivePaymentStatus,
@@ -21,6 +22,7 @@ import {
 } from "./waterfall";
 import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
 import { buildRmdSources } from "./rmd";
+import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
 import type {
   HouseholdSimInput,
@@ -129,7 +131,11 @@ function initSimState(input: HouseholdSimInput): SimState {
   // Synthetic 22% card absorbs shortfalls when no real cards are entered (§5.1).
   // Folded into `liabilities` so every step treats it as an ordinary card — no
   // special-casing downstream. It exists ONLY when there are no user cards, so
-  // it never collides with a real card in the cascade ordering.
+  // it never collides with a real card in the cascade ordering. Its limit is
+  // finite (SYNTHETIC_CARD_CREDIT_LIMIT_CENTS) so the cascade can genuinely
+  // exhaust: a plan financed on unbounded revolving debt must eventually trip
+  // the §5.1 terminal HARD-INFEASIBILITY flag (`isInsolvent`) rather than read
+  // as solvent forever (#36).
   const syntheticCard = userLiabilities.some((l) => l.isCreditCard())
     ? null
     : new Liability({
@@ -138,6 +144,7 @@ function initSimState(input: HouseholdSimInput): SimState {
         kind: "creditCard",
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
+        creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
       });
   const liabilities = syntheticCard ? [...userLiabilities, syntheticCard] : [...userLiabilities];
 
@@ -359,8 +366,10 @@ function allocateMonth(
 
 /**
  * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
- * route the deficit onto credit cards lowest-APR-first (a null limit = the synthetic
- * card = unlimited). Returns true when credit is exhausted and the plan is infeasible.
+ * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
+ * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
+ * it too can be exhausted — #36). Returns true when every card's credit is used up and
+ * a deficit remains: the plan is infeasible this month (`isInsolvent`).
  */
 function applyShortfallCascade(state: SimState, month: number): boolean {
   if (state.liquidAccount === null) return false;
@@ -566,7 +575,7 @@ export function simulateHousehold(
       // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
       // the waterfall runs and re-enter it here as taxable ordinary income, so the
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
-      const incomeSources = [
+      const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
         ...buildSocialSecuritySources(state, jurisdiction, month, startYear, input.annualInflationRate),
         ...buildRmdSources(state, jurisdiction, month, startYear),
@@ -575,6 +584,23 @@ export function simulateHousehold(
       const expenseCents = sumMonthlySeries(input.expenseSeries, month);
       const payments = computeLiabilityPayments(state, month);
       const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
+
+      // Decumulation (§7, #35): when non-withdrawal income can't cover the month's
+      // obligations, liquidate investment accounts BEFORE the waterfall — same seam
+      // as RMD/SS — so the shortfall is funded by selling assets (taxed once at the
+      // chokepoint) instead of landing on the synthetic credit card. RMD income is
+      // already counted here, so the desired draw never double-withdraws (#32).
+      const incomeSources = [
+        ...nonWithdrawalSources,
+        ...buildWithdrawalSources(
+          state,
+          jurisdiction,
+          month,
+          nonWithdrawalSources,
+          expenseCents + totalPaymentsCents,
+          ctx,
+        ),
+      ];
 
       allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents);
       isInsolvent = applyShortfallCascade(state, month);

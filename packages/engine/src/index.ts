@@ -23,6 +23,7 @@ export * from "./ids";
 export * from "./projection/waterfall";
 export * from "./projection/simulate";
 export * from "./projection/rmd";
+export * from "./projection/withdrawal";
 export * from "./projection/buildHouseholdInput";
 export * from "./projection/report";
 export * from "./projection/snapshot";

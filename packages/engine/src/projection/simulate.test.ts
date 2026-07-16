@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold, type Person } from "./simulate";
 import { Account } from "../account";
-import { Liability, SYNTHETIC_CARD_ID } from "../liability";
+import {
+  Liability,
+  SYNTHETIC_CARD_ID,
+  SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+} from "../liability";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
@@ -324,7 +328,44 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     );
     expect(series.months[3].accountBalancesCents["investment"]).toBeGreaterThanOrEqual(0);
     expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeGreaterThan(0);
-    expect(series.months[3].isInsolvent).toBe(false); // synthetic card is unlimited
+    // A modest shortfall stays well under the synthetic card's finite limit, so the
+    // plan is still financeable (not yet insolvent).
+    expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThan(
+      SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+    );
+    expect(series.months[3].isInsolvent).toBe(false);
+  });
+
+  it("isInsolvent=true once a sustained shortfall exhausts the synthetic card's limit (#36)", () => {
+    // No user card entered → synthetic card with a finite default limit. A large
+    // monthly deficit ($30k/mo) with no liquid assets overruns the limit within a
+    // few months, tripping the §5.1 terminal HARD-INFEASIBILITY flag instead of
+    // borrowing without bound.
+    const acc = makeInvestmentAccount(0, 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 6,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(30_000)), ownerId: "p1" }],
+        liabilities: [],
+      },
+      nullJurisdiction,
+    );
+    // New borrowing is capped at the limit; the balance stays bounded near it
+    // (interest can accrue on top, but it never runs away to millions the way an
+    // unlimited card would).
+    for (const m of series.months) {
+      expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBeLessThan(
+        SYNTHETIC_CARD_CREDIT_LIMIT_CENTS * 1.1,
+      );
+    }
+    // Once the deficit outruns all available credit, the plan is flagged insolvent.
+    expect(series.months[6].isInsolvent).toBe(true);
+    const firstInsolvent = series.months.find((m) => m.isInsolvent);
+    expect(firstInsolvent).toBeDefined();
   });
 
   it("isInsolvent=true when credit limit cannot cover the full deficit", () => {
