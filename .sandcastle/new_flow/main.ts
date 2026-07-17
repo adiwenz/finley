@@ -99,24 +99,29 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
           BRANCH: issue.branch,
           FEEDBACK: feedback || "No previous attempts yet. This is your first try.",
         },
-        output: sandcastle.Output.string({ tag: "promise" }),
+        // Structured output (Output.*) requires maxIterations: 1, but the
+        // implementer needs many iterations. Instead we stop the loop early on
+        // the agent's completion sentinel and read it from result.completionSignal.
+        completionSignal: "<promise>COMPLETE</promise>",
       });
 
       // The implementer runs typecheck + tests inside its own sandbox before
       // signaling done, so success is determined entirely from the sandbox
       // result — never from a host checkout, which would corrupt sibling agents
       // running concurrently on other branches.
-      if (result.output === "COMPLETE" && result.commits.length > 0) {
+      const signaledComplete = result.completionSignal !== undefined;
+
+      if (signaledComplete && result.commits.length > 0) {
         success = true;
         workspacePath = result.preservedWorktreePath ?? workspacePath;
         console.log(
           `✓ [Issue #${issue.id}] Implementer signaled COMPLETE with ${result.commits.length} commit(s) on attempt ${currentAttempt}.`,
         );
-      } else if (result.output === "COMPLETE") {
+      } else if (signaledComplete) {
         feedback = `You output the COMPLETE promise but made 0 commits on branch ${issue.branch}. Implement the change, commit it on that branch, then signal completion again.`;
         console.warn(`⚠️ [Issue #${issue.id}] COMPLETE promise but no commits.`);
       } else {
-        feedback = `You did not signal completion. Finish the task, run typecheck and tests, commit your work, write the summary file, then output <promise>COMPLETE</promise>. Last promise value: ${result.output ?? "(none)"}`;
+        feedback = `You did not signal completion within the iteration limit. Finish the task, run typecheck and tests, commit your work, write the summary file, then output <promise>COMPLETE</promise>.`;
         console.warn(`⚠️ [Issue #${issue.id}] Completion criteria not met.`);
       }
     } catch (error: any) {
