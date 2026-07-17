@@ -8,7 +8,7 @@ import {
 } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import type { Goal } from "../goal";
+import type { Goal, GoalDisposal } from "../goal";
 import {
   simulateHousehold,
   type HouseholdSimInput,
@@ -134,17 +134,26 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
   });
 
-  it("leaves an earmarked future oneTime goal fund alone but taps a matured one (D4)", () => {
-    const futureGoal: Goal = {
-      id: "home",
-      name: "Home",
+  /**
+   * A goal fixture accumulating into `goal-<id>`. Takes the disposition/date as one
+   * {@link GoalDisposal} pair rather than two params, so a fixture cannot build a
+   * combination the type forbids (§5.2).
+   */
+  function goal(id: string, disposal: GoalDisposal): Goal {
+    return {
+      id,
+      name: id,
       targetCents: dollarsToCents(50_000),
-      targetDate: 24, // still in the future at month 1
-      fundAccountId: "goal-home",
+      fundAccountId: `goal-${id}`,
       priority: 0,
       type: "oneTime",
       scope: "shared",
+      ...disposal,
     };
+  }
+
+  it("leaves a future-dated convertToEquity goal fund earmarked, funding the shortfall from the brokerage instead (D4, §5.2)", () => {
+    const futureGoal = goal("home", { disposition: "convertToEquity", targetDate: 24 }); // still in the future at month 1
     const series = simulateHousehold(
       baseInput(
         [
@@ -159,6 +168,54 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     // The earmarked home fund is untouched; the brokerage funds the shortfall.
     expect(series.months[1].accountBalancesCents["goal-home"]).toBe(dollarsToCents(50_000));
     expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(98_000));
+  });
+
+  it("counts a future-dated `retain` goal fund toward the drawable nest egg (§5.2)", () => {
+    // A `retain` reserve (e.g. an emergency fund) stays in net worth and IS drawable
+    // in retirement — unlike a `convertToEquity`/`spend` fund it is NOT earmarked out,
+    // even before its target date. So it funds the shortfall before other investments.
+    const reserve = goal("reserve", { disposition: "retain", targetDate: 24 }); // future-dated, yet drawable
+    const series = simulateHousehold(
+      baseInput(
+        [
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("goal-reserve", CAPITAL_GAINS_TAX_PROFILE, 50_000),
+        ],
+        { expenseSeries: [expense(2_000)], goals: [reserve] },
+      ),
+      nullJurisdiction,
+    );
+    // The reserve is tapped for the $2k need rather than borrowed against.
+    expect(series.months[1].accountBalancesCents["goal-reserve"]).toBe(dollarsToCents(48_000));
+    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+      expect(bal).toBe(0);
+    }
+  });
+
+  it("counts a future-dated `drawDown` goal fund toward the drawable nest egg (§5.2)", () => {
+    // A `drawDown` goal fund IS the nest egg (retirement / college) — the fourth
+    // disposition, the counterpart to the `retain` case above. Like `retain` and
+    // unlike `convertToEquity`/`spend`, it is NOT earmarked out of decumulation even
+    // before its target date, so it funds the shortfall rather than being borrowed
+    // against. Guards the `disposition !== convertToEquity && !== spend` branch of
+    // `isEarmarkedForDisposition` for the drawDown arm at the integration level: a
+    // regression that earmarked drawDown funds would leave this shortfall on credit.
+    const nestEgg = goal("nestegg", { disposition: "drawDown", targetDate: 24 }); // future-dated, yet drawable
+    const series = simulateHousehold(
+      baseInput(
+        [
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("goal-nestegg", CAPITAL_GAINS_TAX_PROFILE, 50_000),
+        ],
+        { expenseSeries: [expense(2_000)], goals: [nestEgg] },
+      ),
+      nullJurisdiction,
+    );
+    // The nest-egg fund is tapped for the $2k need rather than borrowed against.
+    expect(series.months[1].accountBalancesCents["goal-nestegg"]).toBe(dollarsToCents(48_000));
+    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+      expect(bal).toBe(0);
+    }
   });
 
   it("does not double-withdraw when an RMD is forced: total pre-tax drawn is max(desired, required), not the sum (§7/#32)", () => {

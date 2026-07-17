@@ -2,7 +2,7 @@ import type { Cents } from "../money";
 import type { Account } from "../account";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import type { Goal } from "../goal";
+import { isEarmarkedForDisposition, type Goal } from "../goal";
 import type { IncomeSourceMonth } from "./waterfall";
 
 /** A per-owner map of taxable amount by {@link TaxCategory} (mirrors the waterfall). */
@@ -26,7 +26,7 @@ export interface WithdrawalState {
    * only funds the shortfall the liquid buffer can't, so the cascade drains cash first.
    */
   readonly liquidAccount: Account | null;
-  /** Funding goals — a `oneTime` goal still short of its target date earmarks its fund (D4). */
+  /** Funding goals — a `convertToEquity`/`spend` goal through its target month earmarks its fund (D4, §5.2). */
   readonly goals: readonly Goal[];
 }
 
@@ -49,7 +49,8 @@ function liquidationRank(account: Account): number {
 }
 
 /**
- * Whether `account` may be liquidated to fund a retirement shortfall (D4).
+ * Whether `account` may be liquidated to fund a retirement shortfall (D4) — i.e.
+ * whether it counts as drawable retirement portfolio.
  *
  * "Liquidatable in decumulation" is deliberately distinct from the `liquid` flag:
  * `liquid` means "eligible to *receive* deposits" (the deposit direction); a
@@ -57,10 +58,13 @@ function liquidationRank(account: Account): number {
  * *source* regardless of `liquid`. The two exclusions:
  *  - the liquid cash account itself — it is spent down first via the §5.1 shortfall
  *    charge, so it is not a withdrawal source here (it would double-count);
- *  - a `oneTime` goal fund whose target date is still in the future — that money is
- *    earmarked for an imminent purchase. A `oneTime` goal PAST its date (no spend
- *    event yet) is instead made reachable rather than left trapped, compounding
- *    forever (firing the actual purchase event stays in #28).
+ *  - a goal fund earmarked by its **disposition** (§5.2): a `convertToEquity` or
+ *    `spend` goal up to and including its target month is committed to that purchase /
+ *    expense, so it drops out of the nest egg. A `retain` (liquid reserve) or
+ *    `drawDown` (the nest egg itself) goal always counts. Past its target month the
+ *    goal has already FIRED (the simulator's `fireGoalDispositions` zeroed the fund or
+ *    swapped it to an illiquid property and dropped the goal), so there is no stale
+ *    earmarked balance here to reason about.
  */
 function isLiquidatable(
   account: Account,
@@ -70,9 +74,7 @@ function isLiquidatable(
   if (state.liquidAccount !== null && account.id === state.liquidAccount.id) return false;
   for (const goal of state.goals) {
     if (goal.fundAccountId !== account.id) continue;
-    if (goal.type === "oneTime" && typeof goal.targetDate === "number" && goal.targetDate > month) {
-      return false;
-    }
+    if (isEarmarkedForDisposition(goal, month)) return false;
   }
   return true;
 }

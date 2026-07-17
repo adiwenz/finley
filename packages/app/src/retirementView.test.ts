@@ -61,6 +61,32 @@ describe("retirementView — headline age driven off the real projection (#37)",
     expect(view.headlineAge).toBeNull();
     expect(view.headlineMonth).toBeNull();
   });
+
+  // Regression guard for the concrete harm in #28: the $60k home down-payment goal
+  // (disposition `convertToEquity`, target month 60) must NOT compound as a phantom
+  // drawable fund and overstate how early the household can retire. The panel/graph
+  // agreement tests above only check INTERNAL consistency — they would still pass at
+  // an inflated age if the fund leaked back into the nest egg. This pins the absolute
+  // correction and shows the disposition is what drives it.
+  it("the convertToEquity down-payment fund drops out of the nest egg (no phantom-fund overstatement, #28)", () => {
+    // With the fund correctly swapped to illiquid equity at maturity, the earliest
+    // feasible age is 63 — agreeing with the tracer-bullet panel (was an inflated 62).
+    expect(earliestFeasibleRetirementAge(PLAN_DEFAULTS, CTX)).toBe(63);
+
+    // Counterfactual: had the same fund been `drawDown` (drawable — the pre-#28
+    // behavior where a matured one-time fund kept compounding in the portfolio), the
+    // phantom balance would let the household retire strictly EARLIER. That the two
+    // ages differ is the whole point: disposition governs retirement-portfolio inclusion.
+    const asDrawableFund: Plan = {
+      ...PLAN_DEFAULTS,
+      goals: PLAN_DEFAULTS.goals.map((g) =>
+        g.id === "home" ? { ...g, disposition: "drawDown" as const } : g,
+      ),
+    };
+    const phantomAge = earliestFeasibleRetirementAge(asDrawableFund, CTX);
+    expect(phantomAge).not.toBeNull();
+    expect(phantomAge as number).toBeLessThan(63);
+  });
 });
 
 describe("retirementView — target mode against the pinned age (§7.1)", () => {

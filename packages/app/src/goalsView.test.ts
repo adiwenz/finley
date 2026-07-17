@@ -8,7 +8,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
-import { goalRows, reorderGoal } from "./goalsView";
+import { goalRows, reorderGoal, dispositionLabel } from "./goalsView";
 import type { Plan, GoalPlan } from "@finley/engine";
 
 const baseBudget: Plan = {
@@ -44,6 +44,7 @@ const goalA: GoalPlan = {
   targetCents: dollarsToCents(30000),
   targetDate: 12,
   type: "oneTime",
+  disposition: "spend",
   annualReturnPct: 0,
 };
 const goalB: GoalPlan = {
@@ -52,6 +53,7 @@ const goalB: GoalPlan = {
   targetCents: dollarsToCents(30000),
   targetDate: 12,
   type: "oneTime",
+  disposition: "spend",
   annualReturnPct: 0,
 };
 
@@ -92,6 +94,7 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
       targetCents: dollarsToCents(3000),
       targetDate: 24,
       type: "horizon",
+      disposition: "drawDown",
       annualReturnPct: 10,
     };
     const budget = { ...baseBudget, goals: [smallGoal] };
@@ -110,6 +113,26 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
     const budget = { ...baseBudget, goals: [{ ...goalA, annualReturnPct: 1 }] };
     const rows = goalRows(budget, project(budget));
     expect(rows[0].shortHorizonRiskFlag).toBe(false);
+  });
+});
+
+describe("goalRows — surfaces each goal's disposition (§5.2)", () => {
+  it("carries the disposition and a plain-language label so the fate of the money is visible", () => {
+    // Issue #28's whole point: make explicit what BECOMES of a goal's money at target.
+    const equityGoal: GoalPlan = { ...goalA, id: "home", disposition: "convertToEquity" };
+    const budget = { ...baseBudget, goals: [equityGoal] };
+    const rows = goalRows(budget, project(budget));
+    expect(rows[0].disposition).toBe("convertToEquity");
+    expect(rows[0].dispositionLabel).toBe("Becomes home equity");
+  });
+});
+
+describe("dispositionLabel", () => {
+  it("maps each disposition to a plain-language fate (§5.2)", () => {
+    expect(dispositionLabel("retain")).toBe("Kept as a reserve");
+    expect(dispositionLabel("convertToEquity")).toBe("Becomes home equity");
+    expect(dispositionLabel("spend")).toBe("Spent at target");
+    expect(dispositionLabel("drawDown")).toBe("Drawn down over time");
   });
 });
 

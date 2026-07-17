@@ -7,7 +7,7 @@
  * a `ProjectionContext`) into the ledger base the simulator runs.
  */
 
-import type { GoalType } from "./goal";
+import type { GoalType, GoalDisposal } from "./goal";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
 
@@ -22,12 +22,10 @@ export interface ValueOverride {
  * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
  * accumulates into its own derived fund account (`goal-<id>`).
  */
-export interface GoalPlan {
+interface GoalPlanBase {
   readonly id: string;
   readonly name: string;
   readonly targetCents: number;
-  /** Absolute simulation month wanted by, or "asap". */
-  readonly targetDate: number | "asap";
   readonly type: GoalType;
   /**
    * Annual return on this goal's fund account, as a whole-number percent. Drives
@@ -36,6 +34,18 @@ export interface GoalPlan {
    */
   readonly annualReturnPct: number;
 }
+
+/**
+ * A funding goal. Priority is the goal's position in {@link Plan.goals}
+ * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
+ * accumulates into its own derived fund account (`goal-<id>`).
+ *
+ * The `disposition`/`targetDate` pairing is the engine's {@link GoalDisposal}: a
+ * disposition that fires at maturity needs a month to fire AT, so `"asap"` is rejected
+ * for those. Sharing the type means the plan cannot author a goal the projection would
+ * be unable to honour — it is refused where the user writes it, not where it breaks.
+ */
+export type GoalPlan = GoalPlanBase & GoalDisposal;
 
 /**
  * The ongoing numbers that describe a household's steady state, with no timeline

@@ -64,6 +64,7 @@ describe("LedgerBaseConfig → waterfall threading (issue #8 spine)", () => {
           fundAccountId: "emergency",
           priority: 1,
           type: "horizon",
+          disposition: "drawDown",
           scope: "shared",
         },
       ],
