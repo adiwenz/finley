@@ -15,7 +15,7 @@ import { CashFlowSeries } from "./cashFlowSeries";
 import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
 import type { Cents } from "./money";
 import type { Person, OwnedSeries, ProjectionSeries } from "./projection/simulate";
-import type { Goal } from "./goal";
+import type { Goal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
@@ -99,17 +99,22 @@ export function buildPlanAccounts(budget: Plan): Account[] {
  * so reordering the plan array reprioritizes without touching anything else.
  */
 export function buildPlanGoals(budget: Plan): Goal[] {
-  return budget.goals.map((goal, i) => ({
-    id: goal.id,
-    name: goal.name,
-    targetCents: goal.targetCents,
-    targetDate: goal.targetDate,
-    fundAccountId: goalFundAccountId(goal),
-    priority: i,
-    type: goal.type,
-    disposition: goal.disposition,
-    scope: "shared" as const,
-  }));
+  return budget.goals.map((goal, i) => {
+    // The disposition/targetDate pair travels as ONE value: naming the fields
+    // separately here would let a `spend`/`convertToEquity` goal pick up an "asap"
+    // date that the plan type forbids (§5.2, {@link GoalDisposal}).
+    const disposal: GoalDisposal = goal;
+    return {
+      id: goal.id,
+      name: goal.name,
+      targetCents: goal.targetCents,
+      fundAccountId: goalFundAccountId(goal),
+      priority: i,
+      type: goal.type,
+      scope: "shared" as const,
+      ...disposal,
+    };
+  });
 }
 
 /**

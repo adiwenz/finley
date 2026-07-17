@@ -713,9 +713,21 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 > the panel) once the $60k down-payment fund converts to non-drawable equity rather than compounding
 > as a drawable balance.
 >
-> **Still open (tracked in #28):** a fuller `convertToEquity` model that synthesizes a real property +
-> mortgage (leverage / a distinct home-appreciation rate) needs purchase-price/mortgage terms a
-> `GoalPlan` does not carry; and exposing disposition in the goal-authoring UI (#25).
+> **Still open (tracked in #57):** the `convertToEquity` property model. What ships here is a
+> placeholder — the fund converts to a synthesized property, which is enough to drop it out of the
+> drawable nest egg, but it does not go through `HomePurchaseEvent` (§4.5) and it appreciates at the
+> fund's own rate of return rather than a home rate, so the two paths to a house disagree. A real
+> property + mortgage (leverage / a distinct home-appreciation rate) needs purchase-price/mortgage
+> terms a `GoalPlan` does not carry. Exposing disposition in the goal-authoring UI is #25.
+>
+> **A goal's `disposition` and `targetDate` are ONE value, not two** (`GoalDisposal`): a firing
+> disposition (`spend` / `convertToEquity`) requires a numeric month, so `"asap"` is rejected for it.
+> A dateless firing goal could never fire and could never be earmarked, leaving its fund to compound
+> forever as drawable money — the phantom fund above, surviving where the disposition rules could not
+> reach. `retain` / `drawDown` still accept `"asap"`: nothing fires, and a dateless reserve is real.
+> What `"asap"` means for funding *pace*, and whether a dateless goal should instead fire on
+> **balance ≥ target** ("buy the car as soon as I've saved enough" — a shape this pairing deliberately
+> forecloses), are open in #26.
 
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 

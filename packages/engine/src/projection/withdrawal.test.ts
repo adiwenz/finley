@@ -8,7 +8,7 @@ import {
 } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import type { Goal } from "../goal";
+import type { Goal, GoalDisposal } from "../goal";
 import {
   simulateHousehold,
   type HouseholdSimInput,
@@ -134,27 +134,26 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
   });
 
-  /** A goal fixture with a given disposition, accumulating into `goal-<id>`. */
-  function goal(
-    id: string,
-    disposition: Goal["disposition"],
-    targetDate: Goal["targetDate"],
-  ): Goal {
+  /**
+   * A goal fixture accumulating into `goal-<id>`. Takes the disposition/date as one
+   * {@link GoalDisposal} pair rather than two params, so a fixture cannot build a
+   * combination the type forbids (§5.2).
+   */
+  function goal(id: string, disposal: GoalDisposal): Goal {
     return {
       id,
       name: id,
       targetCents: dollarsToCents(50_000),
       fundAccountId: `goal-${id}`,
-      targetDate,
       priority: 0,
       type: "oneTime",
-      disposition,
       scope: "shared",
+      ...disposal,
     };
   }
 
-  it("leaves an earmarked future convertToEquity/spend goal fund alone but taps a matured one (D4, §5.2)", () => {
-    const futureGoal = goal("home", "convertToEquity", 24); // still in the future at month 1
+  it("leaves a future-dated convertToEquity goal fund earmarked, funding the shortfall from the brokerage instead (D4, §5.2)", () => {
+    const futureGoal = goal("home", { disposition: "convertToEquity", targetDate: 24 }); // still in the future at month 1
     const series = simulateHousehold(
       baseInput(
         [
@@ -175,7 +174,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     // A `retain` reserve (e.g. an emergency fund) stays in net worth and IS drawable
     // in retirement — unlike a `convertToEquity`/`spend` fund it is NOT earmarked out,
     // even before its target date. So it funds the shortfall before other investments.
-    const reserve = goal("reserve", "retain", 24); // future-dated, yet drawable
+    const reserve = goal("reserve", { disposition: "retain", targetDate: 24 }); // future-dated, yet drawable
     const series = simulateHousehold(
       baseInput(
         [
@@ -201,7 +200,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     // against. Guards the `disposition !== convertToEquity && !== spend` branch of
     // `isEarmarkedForDisposition` for the drawDown arm at the integration level: a
     // regression that earmarked drawDown funds would leave this shortfall on credit.
-    const nestEgg = goal("nestegg", "drawDown", 24); // future-dated, yet drawable
+    const nestEgg = goal("nestegg", { disposition: "drawDown", targetDate: 24 }); // future-dated, yet drawable
     const series = simulateHousehold(
       baseInput(
         [

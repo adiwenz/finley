@@ -60,14 +60,17 @@ export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown
  * `fireGoalDispositions`), zeroing the fund (`spend`) or swapping it to illiquid equity
  * (`convertToEquity`) and dropping the goal from the funding set, so no later month
  * sees a stale earmarked balance to release.
+ *
+ * Takes the {@link GoalDisposal} pair rather than the two fields separately: passing them
+ * apart would let a caller ask about a `spend`-at-`"asap"` goal, which the pairing exists
+ * to forbid. Because a firing disposition is typed to a numeric month, no `"asap"` case
+ * arises here and none is guarded for — the date is a number by construction.
  */
-export function isEarmarkedForDisposition(
-  disposition: GoalDisposition,
-  targetDate: GoalTargetDate,
-  month: number,
-): boolean {
-  if (disposition !== "convertToEquity" && disposition !== "spend") return false;
-  return typeof targetDate === "number" && targetDate >= month;
+export function isEarmarkedForDisposition(disposal: GoalDisposal, month: number): boolean {
+  if (disposal.disposition !== "convertToEquity" && disposal.disposition !== "spend") {
+    return false;
+  }
+  return disposal.targetDate >= month;
 }
 
 /**
@@ -79,12 +82,28 @@ export type GoalScope = "shared" | "personal";
 /** A target date is either an absolute simulation month or "as soon as possible". */
 export type GoalTargetDate = number | "asap";
 
-export interface Goal {
+/**
+ * Dispositions that FIRE at a maturity month — the money is consumed (`spend`) or
+ * swapped to illiquid equity (`convertToEquity`) when the target month arrives.
+ * A concrete month is structural for these, not a nicety: the firing rule keys off
+ * it (`goal.targetDate !== month`), and so does the earmark that keeps the fund out
+ * of the drawable nest egg until then.
+ */
+export type DisposingDisposition = Extract<GoalDisposition, "spend" | "convertToEquity">;
+
+/**
+ * Dispositions with no maturity event — the money is held (`retain`) or drawn over a
+ * horizon (`drawDown`). Nothing fires, so these may legitimately be dateless: an
+ * emergency fund has no purchase date, and "as fast as you can" ({@link GoalTargetDate}
+ * `"asap"`) is the honest input rather than an invented deadline.
+ */
+export type StandingDisposition = Exclude<GoalDisposition, DisposingDisposition>;
+
+/** The fields every goal carries, whatever its disposition. */
+interface GoalBase {
   readonly id: string;
   readonly name: string;
   readonly targetCents: Cents;
-  /** Absolute simulation month the target is wanted by, or "asap". */
-  readonly targetDate: GoalTargetDate;
   /** The account (or sub-balance) this goal accumulates into. */
   readonly fundAccountId: string;
   /**
@@ -93,12 +112,52 @@ export interface Goal {
    */
   readonly priority: number;
   readonly type: GoalType;
-  /** What becomes of the accumulated money at target (§5.2) — see {@link GoalDisposition}. */
-  readonly disposition: GoalDisposition;
   readonly scope: GoalScope;
   /** Owner of a `personal` goal; ignored for `shared`. */
   readonly ownerId?: string;
 }
+
+/**
+ * The legal pairings of a goal's `disposition` with its `targetDate` (§5.2). The two
+ * fields are declared as ONE value rather than independently, because only a subset of
+ * the combinations means anything:
+ *
+ * A {@link DisposingDisposition} REQUIRES a numeric month; `"asap"` is rejected. "Spend
+ * this as soon as possible" names no month for the spend to happen at, and the engine
+ * has no way to invent one — so such a goal would never fire (`fireGoalDispositions`
+ * matches `targetDate !== month`) and never be earmarked
+ * ({@link isEarmarkedForDisposition} needs a number), leaving its fund to compound
+ * forever as drawable money. That is exactly the phantom-fund defect §5.2 / #28 exists
+ * to correct, surviving in the one corner the disposition rules couldn't reach.
+ *
+ * A {@link StandingDisposition} accepts either, since nothing fires and a dateless
+ * reserve is a real thing to want: an emergency fund has no purchase date, and "as fast
+ * as you can" is honest where an invented deadline is not.
+ *
+ * Carried as a shared type so {@link Goal} and the authoring-side `GoalPlan` cannot
+ * drift apart, and so a mapping between them can pass the pair along as one value —
+ * rebuilding the fields separately would decorrelate them and lose the guarantee.
+ *
+ * What `"asap"` should MEAN for funding pace (a goal with no deadline has no
+ * sinking-fund pace to compute) is still open in #26 — deliberately not settled here.
+ * This pairing only removes the combinations that cannot be given a meaning at all.
+ */
+export type GoalDisposal =
+  | {
+      /** Consumed (`spend`) or swapped to equity (`convertToEquity`) at `targetDate`. */
+      readonly disposition: DisposingDisposition;
+      /** Absolute simulation month the target is wanted by. Required — see {@link GoalDisposal}. */
+      readonly targetDate: number;
+    }
+  | {
+      /** Held as a reserve (`retain`) or drawn over a horizon (`drawDown`); never fires. */
+      readonly disposition: StandingDisposition;
+      /** Absolute simulation month the target is wanted by, or "asap". */
+      readonly targetDate: GoalTargetDate;
+    };
+
+/** A funding goal (§5.2). See {@link GoalDisposal} for the `disposition`/`targetDate` pairing. */
+export type Goal = GoalBase & GoalDisposal;
 
 /**
  * A near-term *horizon* goal routes to the §8.6 immediate feasibility-verdict

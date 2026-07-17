@@ -74,7 +74,7 @@ function isLiquidatable(
   if (state.liquidAccount !== null && account.id === state.liquidAccount.id) return false;
   for (const goal of state.goals) {
     if (goal.fundAccountId !== account.id) continue;
-    if (isEarmarkedForDisposition(goal.disposition, goal.targetDate, month)) return false;
+    if (isEarmarkedForDisposition(goal, month)) return false;
   }
   return true;
 }

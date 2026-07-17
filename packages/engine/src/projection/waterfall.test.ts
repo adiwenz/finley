@@ -253,11 +253,13 @@ describe("runWaterfall — shared obligations (§5.0 step 3)", () => {
 });
 
 describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
+  // Dated: a `spend` goal needs a month to fire at (§5.2, GoalDisposal). These tests
+  // assert funding order, which the date does not enter into.
   const sharedGoal = (id: string, priority: number, targetCents: number, fundAccountId: string): Goal => ({
     id,
     name: id,
     targetCents,
-    targetDate: "asap",
+    targetDate: 24,
     fundAccountId,
     priority,
     type: "oneTime",
@@ -300,7 +302,7 @@ describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
       id: "p1-car",
       name: "car",
       targetCents: dollarsToCents(10000),
-      targetDate: "asap",
+      targetDate: 24,
       fundAccountId: "car-fund",
       priority: 5,
       type: "oneTime",
