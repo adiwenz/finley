@@ -35,12 +35,17 @@ describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)",
     expect(isEarmarkedForDisposition("retain", "asap", 1)).toBe(false);
   });
 
-  it("releases a matured earmarked fund past its target date (reachable, not trapped)", () => {
-    // At/after the target date the consuming event should have fired; the fund is made
-    // reachable rather than left compounding forever (firing the event stays in #28).
-    expect(isEarmarkedForDisposition("convertToEquity", 24, 24)).toBe(false);
-    expect(isEarmarkedForDisposition("spend", 24, 36)).toBe(false);
-    // An "asap" convertToEquity has no future date to hold behind → never earmarked.
+  it("keeps the fund earmarked THROUGH its target month, so decumulation never taps it before it fires", () => {
+    // The disposition fires at the end of the target month (fireGoalDispositions),
+    // consuming / converting the fund; until then the money must stay reserved, so the
+    // earmark includes the target month itself (>=, not strictly before). Once fired,
+    // the goal is dropped from the funding set, so no later month asks about it.
+    expect(isEarmarkedForDisposition("convertToEquity", 24, 24)).toBe(true);
+    expect(isEarmarkedForDisposition("spend", 24, 24)).toBe(true);
+    // A month strictly past the target date (a goal that somehow never fired) is not
+    // held back — it falls through as ordinary drawable money rather than trapped.
+    expect(isEarmarkedForDisposition("convertToEquity", 24, 36)).toBe(false);
+    // An "asap" convertToEquity has no fixed maturity month to hold behind → never earmarked.
     expect(isEarmarkedForDisposition("convertToEquity", "asap", 0)).toBe(false);
   });
 });

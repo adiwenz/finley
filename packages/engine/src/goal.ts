@@ -31,17 +31,21 @@ export type GoalType = "oneTime" | "horizon";
  *    stop at target; the balance stays in net worth indefinitely and COUNTS toward
  *    the retirement nest egg (it is real, drawable money in retirement).
  *  - `convertToEquity` — an equity transfer (a home down payment feeding
- *    `HomePurchaseEvent`, §4.5). Cash leaves the fund and reappears as an illiquid
- *    asset, so net worth is unchanged at the swap — but the fund is NOT part of the
- *    investable nest egg (it is earmarked for the purchase, not for drawdown).
- *  - `spend`           — genuinely consumed by an event (a vacation, a wedding). It
- *    leaves net worth, so it is earmarked out of the nest egg until spent.
+ *    `HomePurchaseEvent`, §4.5). At maturity the cash leaves the fund and reappears as
+ *    an illiquid home-equity holding, so net worth is unchanged at the swap — but the
+ *    fund is NOT part of the investable nest egg (earmarked for the purchase, then
+ *    swapped to illiquid equity that decumulation cannot draw).
+ *  - `spend`           — genuinely consumed by an event (a vacation, a wedding). At
+ *    maturity the fund is zeroed and the money leaves net worth; it is earmarked out
+ *    of the nest egg until then.
  *  - `drawDown`        — withdrawn over the horizon (retirement, college). This fund
  *    IS the nest egg — the existing horizon withdrawal phase.
  *
- * Disposition drives retirement-portfolio inclusion (which is what the decumulation
- * withdrawal reads via {@link isEarmarkedForDisposition}): `retain` / `drawDown`
- * count as drawable; `convertToEquity` / `spend` are earmarked out until consumed.
+ * Disposition drives retirement-portfolio inclusion (which the decumulation withdrawal
+ * reads via {@link isEarmarkedForDisposition}): `retain` / `drawDown` count as
+ * drawable; `convertToEquity` / `spend` are earmarked out until they FIRE at maturity
+ * (the simulator's `fireGoalDispositions`), after which the fund is gone (spend) or
+ * an illiquid property outside the accounts (convertToEquity).
  */
 export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown";
 
@@ -50,9 +54,12 @@ export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown
  * its disposition (§5.2). Only `convertToEquity` and `spend` earmark — that money is
  * committed to an imminent purchase / expense, not available for retirement
  * drawdown. `retain` (liquid reserve) and `drawDown` (the nest egg itself) are always
- * drawable. A goal PAST its target date is no longer held back (a matured fund the
- * consuming event never fired is made reachable rather than left compounding forever
- * — firing the actual event stays in #28), so the earmark only applies before then.
+ * drawable. The earmark holds up to AND INCLUDING the target month, so the
+ * decumulation channel never taps the fund in the very month it is about to be
+ * consumed / converted: the disposition fires at that month's end (see the simulator's
+ * `fireGoalDispositions`), zeroing the fund (`spend`) or swapping it to illiquid equity
+ * (`convertToEquity`) and dropping the goal from the funding set, so no later month
+ * sees a stale earmarked balance to release.
  */
 export function isEarmarkedForDisposition(
   disposition: GoalDisposition,
@@ -60,7 +67,7 @@ export function isEarmarkedForDisposition(
   month: number,
 ): boolean {
   if (disposition !== "convertToEquity" && disposition !== "spend") return false;
-  return typeof targetDate === "number" && targetDate > month;
+  return typeof targetDate === "number" && targetDate >= month;
 }
 
 /**

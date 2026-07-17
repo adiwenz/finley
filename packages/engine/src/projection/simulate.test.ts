@@ -903,6 +903,80 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     expect(series.months[6].accountBalancesCents["investment"]).toBe(0);
   });
 
+  /** A rate-0 fund account so a goal's balance moves only by deposit/disposition. */
+  function goalFund(id: string): Account {
+    return new Account({
+      id,
+      ownerId: "p1",
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+  }
+
+  describe("goal disposition firing at maturity (§5.2, #28)", () => {
+    // $2000/mo income, no expenses; the goal is funded $2000/mo and reaches its
+    // $4000 target exactly at month 2 (its target date). Firing happens at the END
+    // of the target month, so the month-2 snapshot still shows the fund AT target
+    // (the goal reads as achieved) and the disposition takes effect from month 3.
+    const goalScenario = (disposition: "spend" | "convertToEquity" | "retain") => ({
+      horizonMonths: 4,
+      annualInflationRate: 0,
+      persons: [makePerson()],
+      accounts: [makeInvestmentAccount(0, 0), goalFund("goal-x")],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(2000)), ownerId: "p1" }],
+      expenseSeries: [],
+      goals: [
+        {
+          id: "x",
+          name: "Goal X",
+          targetCents: dollarsToCents(4000),
+          targetDate: 2,
+          fundAccountId: "goal-x",
+          priority: 0,
+          type: "oneTime" as const,
+          disposition,
+          scope: "shared" as const,
+        },
+      ],
+    });
+
+    it("`spend` consumes the fund at maturity — it leaves net worth and is not re-funded", () => {
+      const series = simulateHousehold(goalScenario("spend"), nullJurisdiction);
+      // Month 2 (target): the fund is shown AT target — the goal reads as achieved.
+      expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+      expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
+      // Month 3: the $4000 has been spent — gone from the fund and from net worth,
+      // and NOT re-accumulated (this month's $2000 income idles in the liquid account).
+      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
+      expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
+      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(2000));
+    });
+
+    it("`convertToEquity` swaps the fund into an illiquid equity holding — net worth is conserved", () => {
+      const series = simulateHousehold(goalScenario("convertToEquity"), nullJurisdiction);
+      // Month 2 (target): the fund is shown AT target.
+      expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+      expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
+      // Month 3: the fund is emptied but the $4000 reappears as illiquid home equity —
+      // net worth is unchanged by the swap (the $6000 = $4000 equity + $2000 new savings).
+      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
+      expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBe(dollarsToCents(4000));
+      expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
+      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
+    });
+
+    it("`retain` fires nothing — the fund stays in the account past its target date", () => {
+      const series = simulateHousehold(goalScenario("retain"), nullJurisdiction);
+      // The reserve is held as-is: still in the fund at month 3, still counted in net
+      // worth, and no equity holding was synthesized.
+      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+      expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
+      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
+    });
+  });
+
   it("a shared goal is funded ahead of idle surplus, up to its target", () => {
     const checking = makeInvestmentAccount(0, 0);
     const emergency = new Account({

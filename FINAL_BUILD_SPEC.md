@@ -696,14 +696,26 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 > **Contributions stop at target for every disposition** (the waterfall's fill-to-target is
 > disposition-agnostic). **Retirement-portfolio inclusion reads disposition**, superseding the old
 > blanket exclusion of goal funds in decumulation: `retain` and `drawDown` funds are drawable and
-> **count** toward the nest egg; `convertToEquity` / `spend` funds are **earmarked out** while still
-> short of their target date (a matured fund whose consuming event never fired is made reachable
-> rather than trapped — `isEarmarkedForDisposition`). Defaults when authoring: emergency → `retain`,
-> down payment → `convertToEquity`, retirement → `drawDown`.
+> **count** toward the nest egg; `convertToEquity` / `spend` funds are **earmarked out** through their
+> target month (`isEarmarkedForDisposition`), so decumulation never taps a fund in the very month it
+> is about to be disposed. Defaults when authoring: emergency → `retain`, down payment →
+> `convertToEquity`, retirement → `drawDown`.
 >
-> **Still open (tracked in #28):** actually *firing* the `convertToEquity` `HomePurchaseEvent` /
-> `spend` event at maturity (today the matured fund is only made reachable, not transferred out), and
-> exposing disposition in the goal-authoring UI (#25).
+> **The disposition FIRES at maturity** (the simulator's `fireGoalDispositions`, at the end of the
+> target month — after that month's snapshot records the fund AT target, so the goal reads as
+> achieved on its date): `spend` **zeroes the fund** (the money leaves net worth); `convertToEquity`
+> **swaps the fund into an illiquid home-equity holding** — a synthesized property opening at the
+> fund's matured value and appreciating at the fund's own rate, so net worth is unchanged at the swap
+> (§4.5, liquid → illiquid) and the equity drops out of the drawable nest egg for free (it is no
+> longer an `Account`). A fired goal is dropped from the funding set, so its fund is never re-funded,
+> re-earmarked, or drawn again. This corrects the phantom-fund defect that overstated early-retirement
+> feasibility: the default plan's earliest feasible age falls from an inflated 62 to 63 (agreeing with
+> the panel) once the $60k down-payment fund converts to non-drawable equity rather than compounding
+> as a drawable balance.
+>
+> **Still open (tracked in #28):** a fuller `convertToEquity` model that synthesizes a real property +
+> mortgage (leverage / a distinct home-appreciation rate) needs purchase-price/mortgage terms a
+> `GoalPlan` does not carry; and exposing disposition in the goal-authoring UI (#25).
 
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 

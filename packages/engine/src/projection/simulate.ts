@@ -81,12 +81,22 @@ interface SimState {
    * static schedule.
    */
   readonly liabilityBalances: Map<string, Cents>;
-  readonly properties: readonly SimProperty[];
+  /**
+   * Mutable so a `convertToEquity` goal can synthesize its home-equity holding when
+   * it matures (fireGoalDispositions) — the down-payment fund leaves the accounts and
+   * reappears here as an illiquid property (§5.2, #28).
+   */
+  properties: SimProperty[];
   /** Authoritative, mutable current value of each property — updated by advanceProperties. */
   readonly propertyValues: Map<string, Cents>;
   /** Every person who appears as an income owner or roster member — waterfall pools. */
   readonly personIds: readonly string[];
-  readonly goals: readonly Goal[];
+  /**
+   * The funding goals. Mutable: a goal is dropped once its disposition has fired at
+   * maturity (fireGoalDispositions), so a spent / converted fund is never re-funded,
+   * re-earmarked, or drawn thereafter (§5.2, #28).
+   */
+  goals: Goal[];
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
@@ -118,7 +128,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     assetBalances.set(acc.id, acc.openingBalanceCents);
   }
 
-  const properties = input.properties ?? [];
+  const properties: SimProperty[] = [...(input.properties ?? [])];
   const propertyValues = new Map<string, Cents>();
   for (const p of properties) {
     // A property bought later opens at 0; advanceProperties opens it at its
@@ -213,7 +223,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     properties,
     propertyValues,
     personIds,
-    goals: input.goals ?? [],
+    goals: [...(input.goals ?? [])],
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
@@ -483,6 +493,50 @@ function advanceProperties(state: SimState, month: number): void {
 }
 
 /**
+ * Fire each goal's disposition at its maturity (§5.2, #28). Runs at the END of the
+ * target month — AFTER that month's snapshot has already recorded the fund AT its
+ * target (so a goals surface reads the goal as achieved on its date) — and takes
+ * effect from the next month forward:
+ *  - `spend` — the accumulated fund is consumed by the event and LEAVES net worth
+ *    (the balance is zeroed with no offsetting asset; a vacation / wedding).
+ *  - `convertToEquity` — the fund is transferred out of the liquid accounts and
+ *    reappears as an illiquid home-equity holding (a property opening at the fund's
+ *    matured value, appreciating at that fund's own rate). Net worth is unchanged at
+ *    the swap (§4.5), and the equity drops out of the drawable retirement nest egg
+ *    for free — it is no longer an `Account`, so the decumulation liquidation loop
+ *    never sees it (a fuller property+mortgage model needs purchase/mortgage terms a
+ *    GoalPlan does not carry — future work).
+ *  - `retain` / `drawDown` — nothing fires; the money stays where it is.
+ *
+ * A fired goal is removed from `state.goals`, so its fund is never re-funded by the
+ * waterfall, re-earmarked, or drawn again. "asap" goals have no fixed maturity month
+ * and so never fire here (they are measured at the horizon end elsewhere).
+ */
+function fireGoalDispositions(state: SimState, month: number): void {
+  const fired = new Set<string>();
+  for (const goal of state.goals) {
+    if (goal.targetDate !== month) continue; // fires once, at the numeric target month
+    if (goal.disposition !== "spend" && goal.disposition !== "convertToEquity") continue;
+    const maturedCents = Math.max(0, state.assetBalances.get(goal.fundAccountId) ?? 0);
+    state.assetBalances.set(goal.fundAccountId, 0);
+    if (goal.disposition === "convertToEquity" && maturedCents > 0) {
+      const fundAccount = state.accounts.find((a) => a.id === goal.fundAccountId);
+      state.properties.push({
+        id: `goal-equity-${goal.id}`,
+        ownerId: fundAccount?.ownerId ?? goal.ownerId ?? "household",
+        startMonth: month + 1, // opens next month at its matured value (see advanceProperties)
+        endMonth: null,
+        openingValueCents: maturedCents,
+        appreciationAnnualRate: fundAccount ? fundAccount.getRateAt(month) : 0,
+      });
+      state.propertyValues.set(`goal-equity-${goal.id}`, maturedCents);
+    }
+    fired.add(goal.id);
+  }
+  if (fired.size > 0) state.goals = state.goals.filter((g) => !fired.has(g.id));
+}
+
+/**
  * Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal
  * / (1+infl)^yrs (§0.4). When `netWorthTerminated` (a PRIOR month already went
  * insolvent, §5.1) both net-worth figures are reported as `null` — the model can no
@@ -639,6 +693,11 @@ export function simulateHousehold(
       ),
     );
     if (isInsolvent) priorInsolvency = true;
+
+    // Fire any goal maturing THIS month after its snapshot, so the fund reads as
+    // achieved on its target date and the disposition (spend leaves net worth /
+    // convertToEquity swaps to illiquid equity) takes hold from next month (§5.2, #28).
+    fireGoalDispositions(state, month);
   }
 
   return { months };
