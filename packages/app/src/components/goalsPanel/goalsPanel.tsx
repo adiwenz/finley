@@ -60,6 +60,7 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
               {formatDollars(row.targetCents)} by{" "}
               {row.targetDate === "asap" ? "as soon as possible" : monthLabel(row.targetDate)}
             </div>
+            <div className="goal-disposition">At target: {row.dispositionLabel}</div>
             <NumInput
               label="Fund return"
               value={row.annualReturnPct}

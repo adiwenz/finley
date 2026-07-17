@@ -43,6 +43,15 @@ describe("GoalsPanel", () => {
     expect(html).toContain("on track");
   });
 
+  it("surfaces each goal's disposition — the fate of the money at target (§5.2, #28)", () => {
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
+    );
+    // Emergency fund → retain; Home down payment → convertToEquity (planDefaults).
+    expect(html).toContain("Kept as a reserve");
+    expect(html).toContain("Becomes home equity");
+  });
+
   it("shows the short-horizon-in-risky-account honesty flag (§5.2)", () => {
     // One near-term goal in a 7% account → the flag fires.
     const budget: Plan = {

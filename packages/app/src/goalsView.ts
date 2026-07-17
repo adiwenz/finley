@@ -12,7 +12,27 @@ import {
   buildPlanGoals,
   type ProjectionSeries,
 } from "@finley/engine";
-import type { Plan, GoalPlan } from "@finley/engine";
+import type { Plan, GoalPlan, GoalDisposition } from "@finley/engine";
+
+/**
+ * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the
+ * accumulated money at target (§5.2). The engine drives the money's actual
+ * behavior off the disposition; this only names it for the user so the Goals
+ * panel makes explicit *what becomes of it* (issue #28), which the on-track %
+ * alone never conveys.
+ */
+export function dispositionLabel(disposition: GoalDisposition): string {
+  switch (disposition) {
+    case "retain":
+      return "Kept as a reserve";
+    case "convertToEquity":
+      return "Becomes home equity";
+    case "spend":
+      return "Spent at target";
+    case "drawDown":
+      return "Drawn down over time";
+  }
+}
 
 export interface GoalRow {
   readonly id: string;
@@ -32,6 +52,10 @@ export interface GoalRow {
   readonly annualReturnPct: number;
   /** True when a near-term goal accumulates into an equity-like account (§5.2). */
   readonly shortHorizonRiskFlag: boolean;
+  /** What becomes of the money at target (§5.2) — see {@link GoalDisposition}. */
+  readonly disposition: GoalDisposition;
+  /** Plain-language rendering of {@link disposition} for display. */
+  readonly dispositionLabel: string;
 }
 
 /**
@@ -55,6 +79,8 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
       onTrackPct: Math.min(100, Math.round(progress.onTrackFraction * 100)),
       annualReturnPct: budget.goals[i].annualReturnPct,
       shortHorizonRiskFlag: progress.shortHorizonRiskFlag,
+      disposition: goal.disposition,
+      dispositionLabel: dispositionLabel(goal.disposition),
     };
   });
 }

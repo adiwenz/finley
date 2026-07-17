@@ -243,6 +243,11 @@ select,
   color: var(--color-text-muted);
 }
 
+.goal-disposition {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .goal-actions {
   display: flex;
   gap: 6px;
