@@ -16,3 +16,6 @@ coverage/
 # Sandcastle
 .sandcastle/.env
 .sandcastle/worktrees/
+
+# Claude Code (local worktrees + personal settings)
+.claude/

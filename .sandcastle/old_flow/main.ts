@@ -182,23 +182,24 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
   // uses to know which branches to merge and which issues to close.
   // -------------------------------------------------------------------------
-  await sandcastle.run({
-    hooks,
-    sandbox: docker(),
-    name: "merger",
-    maxIterations: 1,
-    // Sonnet is sufficient for merge conflict resolution.
-    agent: sandcastle.claudeCode("claude-opus-4-8"),
-    promptFile: "./.sandcastle/merge-prompt.md",
-    promptArgs: {
-      // A markdown list of branch names, one per line.
-      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-      // A markdown list of issue IDs and titles, one per line.
-      ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
-    },
-  });
+// TODO: reenable merge when I want to.
+//  await sandcastle.run({
+//    hooks,
+//    sandbox: docker(),
+//    name: "merger",
+//    maxIterations: 1,
+//    // Sonnet is sufficient for merge conflict resolution.
+//    agent: sandcastle.claudeCode("claude-opus-4-8"),
+//    promptFile: "./.sandcastle/merge-prompt.md",
+//    promptArgs: {
+//      // A markdown list of branch names, one per line.
+//      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
+//      // A markdown list of issue IDs and titles, one per line.
+//      ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
+//    },
+//  });
 
-  console.log("\nBranches merged.");
+//  console.log("\nBranches merged.");
 }
 
 console.log("\nAll done.");
