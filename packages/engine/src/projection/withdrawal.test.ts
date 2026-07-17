@@ -193,6 +193,32 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     }
   });
 
+  it("counts a future-dated `drawDown` goal fund toward the drawable nest egg (§5.2)", () => {
+    // A `drawDown` goal fund IS the nest egg (retirement / college) — the fourth
+    // disposition, the counterpart to the `retain` case above. Like `retain` and
+    // unlike `convertToEquity`/`spend`, it is NOT earmarked out of decumulation even
+    // before its target date, so it funds the shortfall rather than being borrowed
+    // against. Guards the `disposition !== convertToEquity && !== spend` branch of
+    // `isEarmarkedForDisposition` for the drawDown arm at the integration level: a
+    // regression that earmarked drawDown funds would leave this shortfall on credit.
+    const nestEgg = goal("nestegg", "drawDown", 24); // future-dated, yet drawable
+    const series = simulateHousehold(
+      baseInput(
+        [
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("goal-nestegg", CAPITAL_GAINS_TAX_PROFILE, 50_000),
+        ],
+        { expenseSeries: [expense(2_000)], goals: [nestEgg] },
+      ),
+      nullJurisdiction,
+    );
+    // The nest-egg fund is tapped for the $2k need rather than borrowed against.
+    expect(series.months[1].accountBalancesCents["goal-nestegg"]).toBe(dollarsToCents(48_000));
+    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+      expect(bal).toBe(0);
+    }
+  });
+
   it("does not double-withdraw when an RMD is forced: total pre-tax drawn is max(desired, required), not the sum (§7/#32)", () => {
     // A forced RMD already draws `required` from pre-tax and re-enters as income, so the
     // desired channel sees a smaller gap. The two must settle at max(desired, required),
