@@ -6,7 +6,7 @@ import {
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability";
-import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+import { CashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
 function makePerson(id = "p1", name = "Alice"): Person {
@@ -974,6 +974,61 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
       expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
       expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
+    });
+
+    it("`convertToEquity` synthesizes equity that appreciates at the FUND's own rate (AC3)", () => {
+      // A pre-funded goal whose fund earns 6%/yr, no contributions. The equity that
+      // replaces it at maturity must keep compounding at that same 6% — this pins the
+      // rate wiring (fundAccount.getRateAt), which every other firing test, using
+      // rate-0 funds, cannot catch: a regression to a hardcoded 0 rate would leave the
+      // equity flat and slip past them.
+      const fundRate = 0.06;
+      const monthly = 1 + preciseMonthlyRate(fundRate);
+      const series = simulateHousehold(
+        {
+          horizonMonths: 5,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [
+            makeInvestmentAccount(0, 0),
+            new Account({
+              id: "goal-x",
+              ownerId: "p1",
+              liquid: false,
+              taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+              openingBalanceCents: dollarsToCents(4000),
+              initialAnnualRate: fundRate,
+            }),
+          ],
+          incomeSeries: [],
+          expenseSeries: [],
+          goals: [
+            {
+              id: "x",
+              name: "Goal X",
+              targetCents: dollarsToCents(4000),
+              targetDate: 2,
+              fundAccountId: "goal-x",
+              priority: 0,
+              type: "oneTime" as const,
+              disposition: "convertToEquity" as const,
+              scope: "shared" as const,
+            },
+          ],
+        },
+        nullJurisdiction,
+      );
+      // Fires at end of month 2; the equity opens at month 3 at the matured balance,
+      // then appreciates once per month at exactly the fund's 6% (via advanceProperties).
+      const opened = series.months[3].propertyValuesCents["goal-equity-x"];
+      expect(opened).toBeGreaterThan(0);
+      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
+      expect(series.months[4].propertyValuesCents["goal-equity-x"]).toBe(
+        Math.round(opened! * monthly),
+      );
+      expect(series.months[5].propertyValuesCents["goal-equity-x"]).toBe(
+        Math.round(series.months[4].propertyValuesCents["goal-equity-x"]! * monthly),
+      );
     });
   });
 
