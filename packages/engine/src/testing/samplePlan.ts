@@ -36,6 +36,7 @@ export const samplePlan = {
       targetCents: dollarsToCents(20000),
       targetDate: 24,
       type: "horizon",
+      disposition: "retain",
       annualReturnPct: 4,
     },
   ],

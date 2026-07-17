@@ -930,6 +930,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
             fundAccountId: "emergency",
             priority: 1,
             type: "horizon",
+            disposition: "drawDown",
             scope: "shared",
           },
         ],

@@ -23,6 +23,8 @@ export const PLAN_DEFAULTS: Plan = {
       targetCents: dollarsToCents(15000),
       targetDate: 24,
       type: "horizon",
+      // A liquid reserve: built to target, then retained in net worth (§5.2).
+      disposition: "retain",
       annualReturnPct: 7,
     },
     {
@@ -31,6 +33,8 @@ export const PLAN_DEFAULTS: Plan = {
       targetCents: dollarsToCents(60000),
       targetDate: 60,
       type: "oneTime",
+      // Swapped into home equity via HomePurchaseEvent (§4.5) — an asset swap (§5.2).
+      disposition: "convertToEquity",
       annualReturnPct: 7,
     },
   ],

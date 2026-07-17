@@ -634,7 +634,7 @@ by default**, sharing the same priority list and on-track math as every other go
 
 **`Goal` fields:** `id, name, targetCents, targetDate (or "asap"), fundAccountId` (dedicated
 account/sub-balance it accumulates into), `priority` (drag-to-order, shared with retirement),
-`type`.
+`type`, `disposition` (what happens to the money at target — see the RESOLVED block below).
 
 **Two structurally different goal types:**
 
@@ -682,16 +682,28 @@ goals can be maxed at once — reprioritizing one goal moves the others on scree
 > destination, `asap` fallback, catch-up behavior) live in #26. Until resolved, the strict-priority
 > rule above stands.
 
-> **◐ OPEN — §5.2 goal disposition (see issue #28):**
-> The `type` field (one-time / horizon) says *when* a goal's money is used but not *what happens to
-> it*, and the "one-time = spent / horizon = drawn down" framing above is wrong for most goals. Add
-> a per-goal **disposition**, orthogonal to `type`: **`retain`** (emergency fund — held as a liquid
-> reserve; contributions stop at target; stays in net worth), **`convertToEquity`** (down payment —
-> an equity transfer into home equity via `HomePurchaseEvent`, net worth unchanged), **`spend`**
-> (vacation / wedding — leaves net worth), **`drawDown`** (retirement / college — withdrawn over the
-> horizon). Disposition also drives **retirement-portfolio inclusion**: `retain` counts toward the
-> nest egg, while `convertToEquity` / `spend` drop out — correcting the current blanket exclusion of
-> goal funds in the retirement check. Not yet decided — see #28.
+> **✔ RESOLVED — §5.2 goal disposition (see issue #28):**
+> `type` (one-time / horizon) says *when* a goal's money is used but not *what happens to it*, and the
+> "one-time = spent / horizon = drawn down" framing above is wrong for most goals. Every `Goal` /
+> `GoalPlan` now carries a **`disposition`**, orthogonal to `type`, naming the money's fate:
+> - **`retain`** — held as a liquid reserve (emergency fund). Contributions stop at target; the
+>   balance stays in net worth indefinitely.
+> - **`convertToEquity`** — an equity transfer (a home down payment feeding `HomePurchaseEvent`,
+>   §4.5). Net worth is unchanged at the swap (liquid → illiquid home equity).
+> - **`spend`** — genuinely consumed by an event (vacation / wedding); leaves net worth.
+> - **`drawDown`** — withdrawn over the horizon (retirement / college) — the existing horizon phase.
+>
+> **Contributions stop at target for every disposition** (the waterfall's fill-to-target is
+> disposition-agnostic). **Retirement-portfolio inclusion reads disposition**, superseding the old
+> blanket exclusion of goal funds in decumulation: `retain` and `drawDown` funds are drawable and
+> **count** toward the nest egg; `convertToEquity` / `spend` funds are **earmarked out** while still
+> short of their target date (a matured fund whose consuming event never fired is made reachable
+> rather than trapped — `isEarmarkedForDisposition`). Defaults when authoring: emergency → `retain`,
+> down payment → `convertToEquity`, retirement → `drawDown`.
+>
+> **Still open (tracked in #28):** actually *firing* the `convertToEquity` `HomePurchaseEvent` /
+> `spend` event at maturity (today the matured fund is only made reachable, not transferred out), and
+> exposing disposition in the goal-authoring UI (#25).
 
 ### 5.3 Tax — deferred, but design THESE THREE SEAMS now
 

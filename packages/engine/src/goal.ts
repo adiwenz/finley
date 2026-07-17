@@ -23,6 +23,47 @@ import type { ProjectionSeries } from "./projection/simulate";
 export type GoalType = "oneTime" | "horizon";
 
 /**
+ * What happens to a goal's accumulated money once its target is reached (§5.2) —
+ * ORTHOGONAL to {@link GoalType}, which only says *when* the money is used. `type`
+ * conflated timing with fate; disposition names the fate explicitly:
+ *
+ *  - `retain`          — held as a liquid reserve (emergency fund). Contributions
+ *    stop at target; the balance stays in net worth indefinitely and COUNTS toward
+ *    the retirement nest egg (it is real, drawable money in retirement).
+ *  - `convertToEquity` — an equity transfer (a home down payment feeding
+ *    `HomePurchaseEvent`, §4.5). Cash leaves the fund and reappears as an illiquid
+ *    asset, so net worth is unchanged at the swap — but the fund is NOT part of the
+ *    investable nest egg (it is earmarked for the purchase, not for drawdown).
+ *  - `spend`           — genuinely consumed by an event (a vacation, a wedding). It
+ *    leaves net worth, so it is earmarked out of the nest egg until spent.
+ *  - `drawDown`        — withdrawn over the horizon (retirement, college). This fund
+ *    IS the nest egg — the existing horizon withdrawal phase.
+ *
+ * Disposition drives retirement-portfolio inclusion (which is what the decumulation
+ * withdrawal reads via {@link isEarmarkedForDisposition}): `retain` / `drawDown`
+ * count as drawable; `convertToEquity` / `spend` are earmarked out until consumed.
+ */
+export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown";
+
+/**
+ * Whether a goal's fund is *earmarked* out of the drawable retirement portfolio by
+ * its disposition (§5.2). Only `convertToEquity` and `spend` earmark — that money is
+ * committed to an imminent purchase / expense, not available for retirement
+ * drawdown. `retain` (liquid reserve) and `drawDown` (the nest egg itself) are always
+ * drawable. A goal PAST its target date is no longer held back (a matured fund the
+ * consuming event never fired is made reachable rather than left compounding forever
+ * — firing the actual event stays in #28), so the earmark only applies before then.
+ */
+export function isEarmarkedForDisposition(
+  disposition: GoalDisposition,
+  targetDate: GoalTargetDate,
+  month: number,
+): boolean {
+  if (disposition !== "convertToEquity" && disposition !== "spend") return false;
+  return typeof targetDate === "number" && targetDate > month;
+}
+
+/**
  * Whether a goal is funded from the shared household pool or one person's own
  * leftover (§5.0 steps 4–5). A `personal` goal names its `ownerId`.
  */
@@ -45,6 +86,8 @@ export interface Goal {
    */
   readonly priority: number;
   readonly type: GoalType;
+  /** What becomes of the accumulated money at target (§5.2) — see {@link GoalDisposition}. */
+  readonly disposition: GoalDisposition;
   readonly scope: GoalScope;
   /** Owner of a `personal` goal; ignored for `shared`. */
   readonly ownerId?: string;

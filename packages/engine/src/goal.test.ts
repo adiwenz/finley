@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeGoalProgress, type Goal } from "./goal";
+import { computeGoalProgress, isEarmarkedForDisposition, type Goal } from "./goal";
 import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
 import { simulateHousehold, type Person } from "./projection/simulate";
 import { CashFlowSeries, dollarsToCents } from "./cashFlowSeries";
@@ -21,6 +21,29 @@ function account(id: string, annualRate: number, liquid = true): Account {
 function monthly(cents: number): CashFlowSeries {
   return new CashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
+
+describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)", () => {
+  it("earmarks a future-dated convertToEquity / spend fund out of the drawable portfolio", () => {
+    expect(isEarmarkedForDisposition("convertToEquity", 24, 1)).toBe(true);
+    expect(isEarmarkedForDisposition("spend", 24, 1)).toBe(true);
+  });
+
+  it("never earmarks a retain (liquid reserve) or drawDown (the nest egg) fund", () => {
+    // These count toward the nest egg even before their target date.
+    expect(isEarmarkedForDisposition("retain", 24, 1)).toBe(false);
+    expect(isEarmarkedForDisposition("drawDown", 24, 1)).toBe(false);
+    expect(isEarmarkedForDisposition("retain", "asap", 1)).toBe(false);
+  });
+
+  it("releases a matured earmarked fund past its target date (reachable, not trapped)", () => {
+    // At/after the target date the consuming event should have fired; the fund is made
+    // reachable rather than left compounding forever (firing the event stays in #28).
+    expect(isEarmarkedForDisposition("convertToEquity", 24, 24)).toBe(false);
+    expect(isEarmarkedForDisposition("spend", 24, 36)).toBe(false);
+    // An "asap" convertToEquity has no future date to hold behind → never earmarked.
+    expect(isEarmarkedForDisposition("convertToEquity", "asap", 0)).toBe(false);
+  });
+});
 
 describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
   it("on-track fraction is projected fund at target date ÷ target, not saved-so-far ÷ target", () => {
@@ -47,6 +70,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       fundAccountId: "fund",
       priority: 1,
       type: "oneTime",
+      disposition: "spend",
       scope: "shared",
     };
     const progress = computeGoalProgress(goal, projection, [fund]);
@@ -76,6 +100,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       fundAccountId: "fund",
       priority: 1,
       type: "oneTime",
+      disposition: "spend",
       scope: "shared",
     };
     // Only $12,000 accumulated by month 24 → 50% on track.
@@ -103,6 +128,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       fundAccountId: "fund",
       priority: 1,
       type: "horizon",
+      disposition: "drawDown",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, projection, [fund]).onTrackFraction).toBe(1);
@@ -131,6 +157,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "horizon",
+      disposition: "drawDown",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [account("fund", 0)]).verdictPath).toBe(
@@ -147,6 +174,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "oneTime",
+      disposition: "spend",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [account("fund", 0)]).verdictPath).toBe(
@@ -163,6 +191,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "horizon",
+      disposition: "drawDown",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [account("fund", 0)]).verdictPath).toBe(
@@ -180,6 +209,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "oneTime",
+      disposition: "spend",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [risky]).shortHorizonRiskFlag).toBe(true);
@@ -195,6 +225,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "oneTime",
+      disposition: "spend",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [safe]).shortHorizonRiskFlag).toBe(false);
@@ -210,6 +241,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       fundAccountId: "fund",
       priority: 1,
       type: "horizon",
+      disposition: "drawDown",
       scope: "shared",
     };
     // targetDate beyond the 36-month horizon still measures monthsToTarget from now.

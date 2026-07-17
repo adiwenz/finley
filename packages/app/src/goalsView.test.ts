@@ -44,6 +44,7 @@ const goalA: GoalPlan = {
   targetCents: dollarsToCents(30000),
   targetDate: 12,
   type: "oneTime",
+  disposition: "spend",
   annualReturnPct: 0,
 };
 const goalB: GoalPlan = {
@@ -52,6 +53,7 @@ const goalB: GoalPlan = {
   targetCents: dollarsToCents(30000),
   targetDate: 12,
   type: "oneTime",
+  disposition: "spend",
   annualReturnPct: 0,
 };
 
@@ -92,6 +94,7 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
       targetCents: dollarsToCents(3000),
       targetDate: 24,
       type: "horizon",
+      disposition: "drawDown",
       annualReturnPct: 10,
     };
     const budget = { ...baseBudget, goals: [smallGoal] };

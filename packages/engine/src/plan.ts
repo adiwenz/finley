@@ -7,7 +7,7 @@
  * a `ProjectionContext`) into the ledger base the simulator runs.
  */
 
-import type { GoalType } from "./goal";
+import type { GoalType, GoalDisposition } from "./goal";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
 
@@ -29,6 +29,13 @@ export interface GoalPlan {
   /** Absolute simulation month wanted by, or "asap". */
   readonly targetDate: number | "asap";
   readonly type: GoalType;
+  /**
+   * What happens to the accumulated money at target (§5.2), orthogonal to
+   * {@link type}: `retain` (liquid reserve, stays in net worth and counts toward the
+   * nest egg), `convertToEquity` (a down payment swapped into home equity),
+   * `spend` (consumed and gone), or `drawDown` (the retirement-style withdrawal).
+   */
+  readonly disposition: GoalDisposition;
   /**
    * Annual return on this goal's fund account, as a whole-number percent. Drives
    * both the projected growth and the short-horizon-risk flag (a near-term goal in

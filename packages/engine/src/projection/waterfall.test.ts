@@ -261,6 +261,7 @@ describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
     fundAccountId,
     priority,
     type: "oneTime",
+    disposition: "spend",
     scope: "shared",
   });
 
@@ -303,6 +304,7 @@ describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
       fundAccountId: "car-fund",
       priority: 5,
       type: "oneTime",
+      disposition: "spend",
       scope: "personal",
       ownerId: "p1",
     };

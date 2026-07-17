@@ -107,6 +107,7 @@ export function buildPlanGoals(budget: Plan): Goal[] {
     fundAccountId: goalFundAccountId(goal),
     priority: i,
     type: goal.type,
+    disposition: goal.disposition,
     scope: "shared" as const,
   }));
 }

@@ -54,6 +54,7 @@ describe("GoalsPanel", () => {
           targetCents: dollarsToCents(5000),
           targetDate: 12,
           type: "oneTime",
+          disposition: "spend",
           annualReturnPct: 7,
         },
       ],
