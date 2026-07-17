@@ -158,6 +158,24 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
           step={1}
         />
 
+        {/* §4.6/§5.4: the age the person's SS-covered career began. Seeds the
+            pre-"now" earnings record, so it fills the AIME's fixed 35-year window —
+            starting later leaves fewer covered years and lowers the priced benefit.
+            Clamped at ≤ current age (no future working years to seed). */}
+        <NumInput
+          label="Career start age"
+          value={budget.careerStartAge}
+          onChange={(careerStartAge) => updateBudget({ careerStartAge })}
+          min={14}
+          max={budget.currentAge}
+          step={1}
+        />
+        <p className="hint">
+          The age you began working. Earlier means more Social-Security-covered years,
+          which raises the estimated benefit. Social Security figures are an estimate,
+          not advice.
+        </p>
+
         {/* §5.4: the pinned Social Security claiming age (62–70). The retirement
             solver reads it — benefits begin at this age, so delaying raises the
             monthly benefit but pushes it later. An estimate, not advice. */}

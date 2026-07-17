@@ -32,6 +32,7 @@ const baseBudget: Plan = {
   healthInflationPct: 3,
   inflationPct: 3,
   currentAge: 35,
+  careerStartAge: 18,
   retirementAge: 65,
   lifeExpectancy: 90,
   ssClaimingAge: 67,

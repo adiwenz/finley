@@ -46,6 +46,7 @@ export const samplePlan = {
   healthInflationPct: 3,
   inflationPct: 3,
   currentAge: 40,
+  careerStartAge: 18,
   retirementAge: 60,
   lifeExpectancy: 85,
   ssClaimingAge: 67,

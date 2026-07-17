@@ -78,6 +78,44 @@ describe("createProjectionBase — retirement + Social Security wired into the g
   });
 });
 
+describe("createProjectionBase — earned income before current age is user-configurable (§4.6, #41)", () => {
+  const priorYears = (careerStartAge: number) => {
+    const base = createProjectionBase({ ...samplePlan, currentAge: 40, careerStartAge }, ctx());
+    return Object.keys(base.initialPersons![0].priorEarningsCents!)
+      .map(Number)
+      .sort((a, b) => a - b);
+  };
+
+  it("seeds prior earnings from the configured career start age, not a fixed 18", () => {
+    // currentAge 40, startYear 2026: ages [careerStartAge, 40) map to the calendar
+    // years [2026 − (40 − careerStartAge) … 2025], one entry per pre-"now" working year.
+    const from18 = priorYears(18);
+    const from30 = priorYears(30);
+    expect(from18).toHaveLength(40 - 18);
+    expect(from30).toHaveLength(40 - 30);
+    // A later career start seeds fewer years and pushes the earliest one later in time.
+    expect(from30[0]).toBeGreaterThan(from18[0]);
+    // Both records still run up to the year before "now".
+    expect(from18.at(-1)).toBe(START_YEAR - 1);
+    expect(from30.at(-1)).toBe(START_YEAR - 1);
+  });
+
+  it("lowers the priced Social Security benefit when the career started later (fewer covered years)", () => {
+    // The AIME (§5.4) divides a fixed 35-year window, so seeding fewer pre-"now" years
+    // leaves more $0 slots and drags the benefit down. A jurisdiction that prices SS
+    // straight off the covered record surfaces the difference in late net worth.
+    const priced = mockJurisdiction({
+      socialSecurityMonthlyBenefitCents: (record) => {
+        const total = [...record.annualWagesCents.values()].reduce((a, b) => a + b, 0);
+        return Math.round(total / 420);
+      },
+    });
+    const early = netWorthAtAge({ ...samplePlan, careerStartAge: 18 }, 80, priced);
+    const late = netWorthAtAge({ ...samplePlan, careerStartAge: 35 }, 80, priced);
+    expect(early).toBeGreaterThan(late);
+  });
+});
+
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing (#35)", () => {
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall

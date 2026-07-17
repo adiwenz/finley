@@ -48,6 +48,9 @@ export const PLAN_DEFAULTS: Plan = {
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
   currentAge: 35,
+  // The age the SS-covered career is assumed to have begun — seeds the pre-"now"
+  // earnings record, so it drives the priced benefit (§4.6/§5.4). User-editable.
+  careerStartAge: 18,
   retirementAge: 65,
   lifeExpectancy: 90,
   ssClaimingAge: 67,

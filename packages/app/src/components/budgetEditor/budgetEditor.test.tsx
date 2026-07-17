@@ -23,6 +23,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} scrubMonth={0} />
       <output data-testid="ss-claiming-age">{budget.ssClaimingAge}</output>
+      <output data-testid="career-start-age">{budget.careerStartAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
       <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
@@ -73,6 +74,29 @@ describe("BudgetEditor — Social Security claiming age (§5.4)", () => {
     render(<Harness />);
     // Several fields carry the disclaimer (SS and health); at least one is present.
     expect(screen.getAllByText(/not advice/i).length).toBeGreaterThan(0);
+  });
+});
+
+describe("BudgetEditor — career start age (§4.6/§5.4, #41)", () => {
+  it("shows the career-start-age control seeded from the plan (default 18)", () => {
+    render(<Harness />);
+    const input = screen.getByLabelText(/Career start age/i) as HTMLInputElement;
+    expect(input.value).toBe("18");
+  });
+
+  it("edits flow back into careerStartAge (started working at 25)", () => {
+    render(<Harness />);
+    const input = screen.getByLabelText(/Career start age/i);
+    fireEvent.change(input, { target: { value: "25" } });
+    expect(screen.getByTestId("career-start-age").textContent).toBe("25");
+  });
+
+  it("caps the control at the current age — no future working years to seed", () => {
+    render(<Harness initial={{ ...PLAN_DEFAULTS, currentAge: 35 }} />);
+    const input = screen.getByLabelText(/Career start age/i);
+    fireEvent.change(input, { target: { value: "50" } });
+    fireEvent.blur(input);
+    expect(screen.getByTestId("career-start-age").textContent).toBe("35");
   });
 });
 
