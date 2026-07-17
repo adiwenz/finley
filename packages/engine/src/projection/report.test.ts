@@ -5,7 +5,7 @@ import {
   SIMULATION_REPORT_VERSION,
 } from "./report";
 import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
-import { Account } from "../account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
@@ -15,7 +15,7 @@ function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInpu
     id: "savings",
     ownerId: "p1",
     liquid: true,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: dollarsToCents(10000),
     initialAnnualRate: 0,
   });
@@ -65,7 +65,7 @@ describe("buildSimulationReport", () => {
     const m1 = report.months[1];
     expect(m1.totalIncomeCents).toBe(dollarsToCents(3000));
     expect(m1.expensesCents).toBe(dollarsToCents(2000));
-    expect(m1.socialSecurityCents).toBe(0);
+    expect(m1.governmentRetirementBenefitCents).toBe(0);
   });
 
   it("lists column keys for accounts and income categories", () => {

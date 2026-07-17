@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Account } from "../account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
@@ -10,7 +10,7 @@ function cashAccount(): Account {
     id: "cash",
     ownerId: "p1",
     liquid: true,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: 0,
     initialAnnualRate: 0,
   });
@@ -123,15 +123,16 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     expect(seenTotal).toBe(dollarsToCents(5_000) * 12);
   });
 
-  it("taxes only the jurisdiction's taxable fraction of the benefit (§5.4 partial taxation)", () => {
-    // $1,000/mo benefit, flat 20% tax, but only HALF the benefit is taxable:
-    //   taxable = $500 → tax = $100 → take-home = $900 (not $800 if fully taxed).
-    // The untaxed half is still spendable cash and idles into net worth.
+  it("passes the full benefit gross to the seam, which owns the inclusion % (§5.4 partial taxation)", () => {
+    // $1,000/mo benefit. The engine hands the FULL gross tagged
+    // `governmentRetirementBenefit`; the jurisdiction applies its own 50% inclusion
+    // then a 20% rate → taxable $500 → tax $100 → take-home $900 (not $800 if fully
+    // taxed). The untaxed half is still spendable cash and idles into net worth.
     const stub: Jurisdiction = {
       id: "stub",
-      computeTaxCents: (taxable) => Math.round(taxable * 0.2),
+      computeTaxCents: (byCat) =>
+        Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2),
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
-      socialSecurityTaxableFraction: () => 0.5,
     };
     const person: Person = {
       id: "p1",
@@ -213,12 +214,13 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     expect(series.months[24].netWorthNominalCents).toBe(dollarsToCents(1_000) * 24);
   });
 
-  it("absent the taxable-fraction seam, the whole benefit is taxable (conservative default)", () => {
-    // Same $1,000 benefit + flat 20% tax, but NO taxable-fraction seam: the engine
-    // falls back to fully taxable → tax = $200 → take-home = $800/mo.
+  it("a jurisdiction may tax the whole benefit (no inclusion cap)", () => {
+    // Same $1,000 benefit, but this jurisdiction includes 100% of the benefit
+    // category at a flat 20% → tax = $200 → take-home = $800/mo. Inclusion is the
+    // jurisdiction's call now, not an engine-side fraction.
     const stub: Jurisdiction = {
       id: "stub",
-      computeTaxCents: (taxable) => Math.round(taxable * 0.2),
+      computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
     const person: Person = {

@@ -276,9 +276,9 @@ test("taxCategory is stored as-is (v1-ignored seam)", () => {
   assert.strictEqual(s.taxCategory, "wages");
 
   const ss = new CashFlowSeries(0, dollarsToCents(12000), { type: "fixed" }, {
-    taxCategory: "socialSecurity",
+    taxCategory: "governmentRetirementBenefit",
   });
-  assert.strictEqual(ss.taxCategory, "socialSecurity");
+  assert.strictEqual(ss.taxCategory, "governmentRetirementBenefit");
 });
 
 test("correctHistory: editing a prior segment's value in-place recomputes forward", () => {

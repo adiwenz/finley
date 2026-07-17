@@ -1,5 +1,6 @@
 import type { Cents } from "./money";
 import type { EarningsRecord } from "./earningsRecord";
+import type { TaxCategory } from "./cashFlowSeries";
 
 /**
  * The jurisdiction interface — the plug-and-play seam (ARCHITECTURE.md, §5.3–5.5).
@@ -86,12 +87,20 @@ export interface Jurisdiction {
   readonly publicHealthCoverageAge?: number;
 
   /**
-   * The single tax chokepoint (§5.3 seam 1): taxable income in → tax owed in
-   * cents out. v1 implementations may return 0; what matters is that the
-   * pipeline calls exactly one replaceable function rather than smearing tax
-   * logic across allocation code.
+   * The single tax chokepoint (§5.3 seam 1): per-{@link TaxCategory} taxable
+   * amounts in → tax owed in cents out. The engine states each flow's PROVENANCE
+   * (which category the amount came from) and passes the full gross per category;
+   * the JURISDICTION owns the consequence — how much of each category is taxed and
+   * at what rate (e.g. its own government-benefit inclusion %, capital-gains
+   * preference). The engine never collapses the categories into one lump, so the
+   * distinctions always reach the jurisdiction. v1 implementations may return 0;
+   * what matters is that exactly one replaceable function decides tax policy rather
+   * than smearing it across allocation code.
    */
-  computeTaxCents(taxableIncomeCents: Cents, ctx: JurisdictionContext): Cents;
+  computeTaxCents(
+    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Cents;
 
   /**
    * §5.4 seam: a person's annual employee pre-tax deferral limit (401k-style) for
@@ -111,8 +120,8 @@ export interface Jurisdiction {
    * person reaches their claiming age; `rules` implements the AIME→PIA bend-point
    * formula. Optional and legislation-set: when absent (v1 null jurisdiction) the
    * benefit is 0 while the record still accumulates. The result is nominal cents
-   * and enters the waterfall POST-deferral, tagged `socialSecurity` for the
-   * partial-taxation seam — SS is not earned wages (§5.4).
+   * and enters the waterfall POST-deferral, tagged `governmentRetirementBenefit`
+   * so the tax seam can apply its own inclusion % — it is not earned wages (§5.4).
    */
   socialSecurityMonthlyBenefitCents?(
     record: EarningsRecord,
@@ -152,18 +161,6 @@ export interface Jurisdiction {
    * Optional: absent (v1 null jurisdiction) → no benchmark (0).
    */
   healthCostBenchmarkMonthlyCents?(ctx: HealthCostContext): Cents;
-
-  /**
-   * §5.4 seam: the fraction (0..1) of a Social Security benefit that is TAXABLE
-   * income. SS is only PARTIALLY taxed — under US law at most 85% of benefits are
-   * included, so a share is always tax-free. The engine multiplies each SS income
-   * source's gross by this fraction before it reaches the single §5.3 tax
-   * chokepoint; the untaxed remainder still arrives as spendable take-home (you
-   * receive the whole check, you are just not taxed on all of it). Optional:
-   * absent (v1 null jurisdiction) → the benefit is treated as fully taxable
-   * (fraction 1, conservative), matching the pre-partial-taxation behaviour.
-   */
-  socialSecurityTaxableFraction?(ctx: JurisdictionContext): number;
 }
 
 /**

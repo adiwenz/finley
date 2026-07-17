@@ -13,10 +13,52 @@
  */
 
 import type { Cents } from "./money";
-import { preciseMonthlyRate } from "./cashFlowSeries";
+import { preciseMonthlyRate, type TaxCategory } from "./cashFlowSeries";
 
-/** v1-seam: distinguishes how withdrawals/contributions are taxed (§5.3 seam 2). */
-export type TaxTreatment = "preTax" | "roth" | "taxable" | "hsa";
+/**
+ * A neutral, structured description of an account's tax *behavior* (§5.3 seam 2) —
+ * the engine's mechanics need behavior, never a jurisdiction's branded vehicle
+ * name. The jurisdiction owns the tax *consequence*; the account only states, in
+ * engine terms, what kind of flow a withdrawal produces and how contributions /
+ * forced-distributions behave.
+ */
+export interface AccountTaxProfile {
+  /** The {@link TaxCategory} that withdrawals from this account produce. */
+  readonly withdrawalCategory: TaxCategory;
+  /** Whether contributions reduce current taxable income (tax-deferred in). */
+  readonly contributionsPreTax: boolean;
+  /** Whether the account is subject to jurisdiction forced distributions (RMD-like). */
+  readonly forcedDistributionEligible: boolean;
+}
+
+/**
+ * The two account tax profiles the plan→projection mapping instantiates today
+ * (see `projectionBase.ts`) — exported so the mapping and tests share one neutral
+ * definition rather than re-deriving the behavior-preserving map by hand.
+ *
+ * {@link CAPITAL_GAINS_TAX_PROFILE} is a brokerage / cash / goal fund (post-tax
+ * in, capital-gains out, no forced draw); {@link PRE_TAX_TAX_PROFILE} is a
+ * tax-deferred retirement account (tax-deferred in, ordinary-income out,
+ * forced-distribution eligible). A future tax-exempt vehicle is
+ * {@link TAX_EXEMPT_TAX_PROFILE} (post-tax in, tax-free out, no forced draw).
+ */
+export const CAPITAL_GAINS_TAX_PROFILE: AccountTaxProfile = {
+  withdrawalCategory: "capitalGains",
+  contributionsPreTax: false,
+  forcedDistributionEligible: false,
+};
+
+export const PRE_TAX_TAX_PROFILE: AccountTaxProfile = {
+  withdrawalCategory: "ordinaryIncome",
+  contributionsPreTax: true,
+  forcedDistributionEligible: true,
+};
+
+export const TAX_EXEMPT_TAX_PROFILE: AccountTaxProfile = {
+  withdrawalCategory: "taxExempt",
+  contributionsPreTax: false,
+  forcedDistributionEligible: false,
+};
 
 /** Contiguous rate period. Rate changes create new segments from that month forward. */
 interface RateSegment {
@@ -44,8 +86,8 @@ export class Account {
   readonly kind: "asset";
   /** liquid=true: eligible to receive net cash flow from the allocation waterfall. */
   readonly liquid: boolean;
-  /** v1-seam: tax treatment for future withdrawal routing. */
-  readonly taxTreatment: TaxTreatment;
+  /** Neutral tax behavior for withdrawal routing / forced distributions (§5.3 seam 2). */
+  readonly taxProfile: AccountTaxProfile;
   readonly openingBalanceCents: Cents;
 
   private rateSegments: RateSegment[];
@@ -55,7 +97,7 @@ export class Account {
     id: string;
     ownerId: string;
     liquid: boolean;
-    taxTreatment: TaxTreatment;
+    taxProfile: AccountTaxProfile;
     openingBalanceCents: Cents;
     initialAnnualRate: number;
   }) {
@@ -63,7 +105,7 @@ export class Account {
     this.ownerId = params.ownerId;
     this.kind = "asset";
     this.liquid = params.liquid;
-    this.taxTreatment = params.taxTreatment;
+    this.taxProfile = params.taxProfile;
     this.openingBalanceCents = params.openingBalanceCents;
     this.rateSegments = [{ startMonth: 0, annualRate: params.initialAnnualRate }];
   }
@@ -106,7 +148,7 @@ export class Account {
       id: this.id,
       ownerId: this.ownerId,
       liquid: this.liquid,
-      taxTreatment: this.taxTreatment,
+      taxProfile: this.taxProfile,
       openingBalanceCents: this.openingBalanceCents,
       initialAnnualRate: this.rateSegments[0].annualRate,
     });

@@ -11,7 +11,7 @@
  */
 
 import type { Cents } from "./money";
-import type { TaxTreatment, OneTimeTransfer } from "./account";
+import type { OneTimeTransfer } from "./account";
 
 export type LiabilityKind = "mortgage" | "auto" | "studentLoan" | "creditCard";
 
@@ -163,8 +163,6 @@ export class Liability {
   readonly termMonths: number | null;
   /** Credit limit in cents; null for amortizing loans. */
   readonly creditLimitCents: Cents | null;
-  /** v1-seam: tax treatment for future withdrawal routing. */
-  readonly taxTreatment: TaxTreatment;
   readonly liquid: false = false;
 
   /**
@@ -187,7 +185,6 @@ export class Liability {
     apr: number;
     termMonths?: number;
     creditLimitCents?: Cents;
-    taxTreatment?: TaxTreatment;
   }) {
     this.id = params.id;
     this.ownerId = params.ownerId;
@@ -197,7 +194,6 @@ export class Liability {
     this.apr = params.apr;
     this.termMonths = params.termMonths ?? null;
     this.creditLimitCents = params.creditLimitCents ?? null;
-    this.taxTreatment = params.taxTreatment ?? "taxable";
   }
 
   isCreditCard(): boolean {

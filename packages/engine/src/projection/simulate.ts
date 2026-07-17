@@ -338,7 +338,7 @@ function allocateMonth(
     goals: state.goals,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    computeTaxCents: (taxable) => jurisdiction.computeTaxCents(taxable, ctx),
+    computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
       const birthYear = state.personsById.get(pid)?.birthYear;

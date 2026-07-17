@@ -100,14 +100,15 @@ export interface ProjectionMonth {
 export interface ProjectionMonthFlows {
   /**
    * Gross income this month bucketed by {@link TaxCategory} (`wages`,
-   * `ordinaryIncome`, `socialSecurity`, …) — the authoritative breakdown of every
-   * income source the waterfall saw, including derived Social Security and RMD draws.
+   * `ordinaryIncome`, `governmentRetirementBenefit`, …) — the authoritative
+   * breakdown of every income source the waterfall saw, including the derived
+   * government retirement benefit and RMD draws.
    */
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   /** Σ of `incomeByCategoryCents` — total gross income this month. */
   readonly totalIncomeCents: Cents;
-  /** The Social Security slice of income this month (0 before any claim). Convenience view. */
-  readonly socialSecurityCents: Cents;
+  /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
+  readonly governmentRetirementBenefitCents: Cents;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */

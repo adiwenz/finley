@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Cents, EarningsRecord, SocialSecurityContext } from "@finley/engine";
-import {
-  socialSecurityMonthlyBenefitCents,
-  socialSecurityTaxableFraction,
-} from "./socialSecurity";
+import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 
 /** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
 function levelRecord(startYear: number, count: number, wageCents: Cents): EarningsRecord {
@@ -85,25 +82,5 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     const below = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 55, currentAge: 67 });
     const at62 = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 62, currentAge: 67 });
     expect(below).toBe(at62);
-  });
-});
-
-describe("socialSecurityTaxableFraction — partial SS taxation (§5.4)", () => {
-  it("includes at most 85% of the benefit (v1 max-inclusion), never the whole thing", () => {
-    // SS is only PARTIALLY taxable: the maximum includable share under US law is
-    // 85%, so at least 15% is always tax-free. v1 pins the conservative maximum.
-    expect(socialSecurityTaxableFraction({ year: 2026 })).toBe(0.85);
-  });
-
-  it("is a fraction in (0, 1) — some is taxed, some is always free", () => {
-    const f = socialSecurityTaxableFraction({ year: 2026 });
-    expect(f).toBeGreaterThan(0);
-    expect(f).toBeLessThan(1);
-  });
-
-  it("is not indexed: the 85% inclusion cap is fixed in law, not by year", () => {
-    expect(socialSecurityTaxableFraction({ year: 2050 })).toBe(
-      socialSecurityTaxableFraction({ year: 2026 }),
-    );
   });
 });

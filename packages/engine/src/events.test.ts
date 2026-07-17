@@ -15,7 +15,7 @@ import {
   type LifeEvent,
   type NewLifeEvent,
 } from "./index";
-import { Account } from "./account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
 import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
@@ -26,7 +26,7 @@ function makeLiquidAccount(id = "checking", openingCents = 0): Account {
     id,
     ownerId: "p1",
     liquid: true,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: openingCents,
     initialAnnualRate: 0,
   });
@@ -903,7 +903,7 @@ function savings(openingCents: number, rate = 0): Account {
     id: "savings",
     ownerId: "p1",
     liquid: true,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: openingCents,
     initialAnnualRate: rate,
   });

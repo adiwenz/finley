@@ -26,10 +26,16 @@ export type GrowthMode =
 
 export type OverrideScope = "thisMonthOnly" | "fromHereForward";
 
-/** v1-ignored seam: tax routing category for income series. */
+/**
+ * v1-ignored seam: tax routing category for income series — the engine-owned
+ * flow-provenance vocabulary (the engine is the only thing that can label where a
+ * flow originated). Brand-neutral: no jurisdiction program names. A government
+ * retirement benefit (US: Social Security) is `governmentRetirementBenefit`; the
+ * jurisdiction's tax seam decides how much of each category is taxed.
+ */
 export type TaxCategory =
   | "wages"
-  | "socialSecurity"
+  | "governmentRetirementBenefit"
   | "ordinaryIncome"
   | "capitalGains"
   | "taxExempt";

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, CashFlowSeries, Account, dollarsToCents } from "@finley/engine";
+import { simulateHousehold, CashFlowSeries, Account, dollarsToCents, CAPITAL_GAINS_TAX_PROFILE } from "@finley/engine";
 import { usJurisdiction } from "./index";
 
 // Proves rules can consume the engine (app → rules → engine direction) and that
@@ -7,7 +7,9 @@ import { usJurisdiction } from "./index";
 describe("usJurisdiction (placeholder US-2026)", () => {
   it("implements the jurisdiction interface", () => {
     expect(usJurisdiction.id).toBe("US-2026");
-    expect(usJurisdiction.computeTaxCents(dollarsToCents(1000), { year: 2026 })).toBe(0);
+    expect(
+      usJurisdiction.computeTaxCents({ wages: dollarsToCents(1000) }, { year: 2026 }),
+    ).toBe(0);
   });
 
   it("drives the engine's household simulator end to end", () => {
@@ -23,7 +25,7 @@ describe("usJurisdiction (placeholder US-2026)", () => {
             id: "cash",
             ownerId: "p1",
             liquid: true,
-            taxTreatment: "taxable",
+            taxProfile: CAPITAL_GAINS_TAX_PROFILE,
             openingBalanceCents: 0,
             initialAnnualRate: 0,
           }),

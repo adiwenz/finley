@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { Account } from "../account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../account";
 import { nullJurisdiction } from "../jurisdiction";
 
 const person = { id: "p1", name: "Alex" };
@@ -21,7 +21,7 @@ function account(id: string, liquid: boolean): Account {
     id,
     ownerId: "p1",
     liquid,
-    taxTreatment: liquid ? "taxable" : "preTax",
+    taxProfile: liquid ? CAPITAL_GAINS_TAX_PROFILE : PRE_TAX_TAX_PROFILE,
     openingBalanceCents: 0,
     initialAnnualRate: 0,
   });

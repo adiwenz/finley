@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Account } from "./account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
 import { dollarsToCents, preciseMonthlyRate } from "./cashFlowSeries";
 
 describe("Account", () => {
@@ -8,7 +8,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: dollarsToCents(10000),
       initialAnnualRate: 0.07,
     });
@@ -20,7 +20,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0.07,
     });
@@ -33,7 +33,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0.07,
     });
@@ -49,7 +49,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0.07,
     });
@@ -67,7 +67,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0.07,
     });
@@ -79,7 +79,7 @@ describe("Account", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: dollarsToCents(10000),
       initialAnnualRate: 0.07,
     });
@@ -98,7 +98,7 @@ describe("Account", () => {
       id: "checking",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -116,7 +116,7 @@ describe("Account", () => {
       id: "a",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: dollarsToCents(10000),
       initialAnnualRate: 0.12,
     });
@@ -137,7 +137,7 @@ describe("Account", () => {
       id: "checking",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -145,7 +145,7 @@ describe("Account", () => {
       id: "retirement",
       ownerId: "p1",
       liquid: false,
-      taxTreatment: "preTax",
+      taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0.07,
     });

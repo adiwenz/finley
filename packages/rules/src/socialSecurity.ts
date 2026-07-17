@@ -1,4 +1,4 @@
-import type { Cents, EarningsRecord, JurisdictionContext, SocialSecurityContext } from "@finley/engine";
+import type { Cents, EarningsRecord, SocialSecurityContext } from "@finley/engine";
 
 /**
  * US Social Security retirement benefit — the AIME→PIA bend-point formula (§5.4).
@@ -145,27 +145,4 @@ export function socialSecurityMonthlyBenefitCents(
   const { bend1, bend2 } = bendPointsCents(indexingYear);
   const pia = piaCents(aimeCents(record, indexingYear), bend1, bend2);
   return Math.round(pia * claimingFactor(ctx.claimingAge));
-}
-
-/**
- * The maximum share of a Social Security benefit that is TAXABLE under US law:
- * at most 85% of benefits are included in taxable income, so at least 15% is
- * always tax-free. The precise includable share depends on a retiree's
- * "provisional income" (0% / 50% / 85% tiers); v1 pins the conservative maximum
- * — a flat 85% inclusion — which over- rather than under-states the tax.
- *
- * ⚠ Estimate, not advice. Unlike most SS figures this cap is NOT inflation-
- * indexed: the provisional-income thresholds are fixed in statute, so the 85%
- * ceiling does not drift by year. Modelling the tiered thresholds is a follow-up.
- */
-const SOCIAL_SECURITY_MAX_TAXABLE_FRACTION = 0.85;
-
-/**
- * The `rules`-side plug for the engine's
- * {@link import("@finley/engine").Jurisdiction.socialSecurityTaxableFraction}
- * seam (§5.4): the fraction of a benefit that is taxable income. v1 returns the
- * fixed 85% max-inclusion cap regardless of year (the thresholds are not indexed).
- */
-export function socialSecurityTaxableFraction(_ctx: JurisdictionContext): number {
-  return SOCIAL_SECURITY_MAX_TAXABLE_FRACTION;
 }

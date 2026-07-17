@@ -12,7 +12,7 @@ import {
   type NewLifeEvent,
 } from "./index";
 import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
-import { Account } from "./account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
 import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
 
@@ -29,7 +29,7 @@ const addBase: LedgerBaseConfig = {
       id: "checking",
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     }),
@@ -199,7 +199,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
           id: "savings",
           ownerId: "p1",
           liquid: true,
-          taxTreatment: "taxable",
+          taxProfile: CAPITAL_GAINS_TAX_PROFILE,
           openingBalanceCents: opening,
           initialAnnualRate: 0,
         }),
@@ -251,7 +251,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       id,
       ownerId: "p1",
       liquid: true,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: openingCents,
       initialAnnualRate: 0,
     });
@@ -361,7 +361,7 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
         id: "savings",
         ownerId: "p1",
         liquid: true,
-        taxTreatment: "taxable",
+        taxProfile: CAPITAL_GAINS_TAX_PROFILE,
         openingBalanceCents: openingCents,
         initialAnnualRate: 0,
       }),

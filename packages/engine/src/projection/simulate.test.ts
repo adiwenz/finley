@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold, type Person } from "./simulate";
-import { Account } from "../account";
+import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../account";
 import {
   Liability,
   SYNTHETIC_CARD_ID,
@@ -18,7 +18,7 @@ function makeInvestmentAccount(openingCents: number, annualRate: number): Accoun
     id: "investment",
     ownerId: "p1",
     liquid: true,
-    taxTreatment: "taxable",
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
     openingBalanceCents: openingCents,
     initialAnnualRate: annualRate,
   });
@@ -738,7 +738,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "401k",
       ownerId: "p1",
       liquid: false,
-      taxTreatment: "preTax",
+      taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -818,7 +818,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "401k-a",
       ownerId: "p1",
       liquid: false,
-      taxTreatment: "preTax",
+      taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -826,7 +826,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "401k-b",
       ownerId: "p2",
       liquid: false,
-      taxTreatment: "preTax",
+      taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -883,7 +883,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "brokerage",
       ownerId: "p1",
       liquid: false,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
@@ -909,7 +909,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "emergency",
       ownerId: "p1",
       liquid: false,
-      taxTreatment: "taxable",
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
