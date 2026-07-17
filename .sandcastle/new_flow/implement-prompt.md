@@ -5,6 +5,14 @@ You are an elite software engineering agent tasked with completing a single code
 * **Issue Title:** {{ISSUE_TITLE}}
 * **Target Branch Name:** {{BRANCH}}
 
+You are already checked out on branch `{{BRANCH}}`. Make all commits here. **Only work on this single issue** — do not touch or fix anything outside its scope.
+
+---
+
+### 📥 Pull the Issue First
+
+Before writing any code, load the full issue with `gh issue view {{TASK_ID}}` (add `--comments` to see discussion). If it references a parent PRD or related issue, pull that in too. Everything you implement must trace back to this issue's acceptance criteria.
+
 ---
 
 ### Feedback from previous attempts:
