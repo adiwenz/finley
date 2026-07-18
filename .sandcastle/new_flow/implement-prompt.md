@@ -15,11 +15,6 @@ Before writing any code, load the full issue with `gh issue view {{TASK_ID}}` (a
 
 ---
 
-### Feedback from previous attempts:
-{{FEEDBACK}}
-
----
-
 ### 🧪 Execution Workflow: Red-Green-Refactor (RGR)
 You must follow a strict Red-Green-Refactor approach to implement your changes:
 
@@ -64,7 +59,7 @@ Notes: Exposing editable controls in the authoring panel is deferred to #25.
 
 ### 📝 Required Summary Generation
 
-Before finalizing your task, you **MUST** write a highly detailed markdown file to `.sandcastle/summary-{{TASK_ID}}.md`. This file will serve as the Pull Request body.
+Before finalizing your task, you **MUST** write a highly detailed markdown file to `.sandcastle/summary-{{TASK_ID}}.md`. This file is the summary a human reads when reviewing the branch in its worktree.
 
 Structure the `.sandcastle/summary-{{TASK_ID}}.md` file with the following sections:
 

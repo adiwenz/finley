@@ -1,4 +1,4 @@
-// Parallel Agent Runner with Automated AI PR Summaries
+// Parallel Agent Runner
 // Execution: npx tsx .sandcastle/new_flow/main.ts
 //
 // Each iteration:
@@ -7,10 +7,10 @@
 //               non-overlapping issues that can be worked concurrently.
 //   2. Execute — one implementer agent per issue runs in parallel, each in its
 //               own sandbox on its own branch. Every agent verifies typecheck +
-//               tests inside its sandbox, writes a PR-body summary file, and
-//               signals done with <promise>COMPLETE</promise>.
-//   3. Publish — for each completed issue we push the branch and open a draft PR
-//               whose body is the agent-written summary.
+//               tests inside its sandbox, writes a summary file, and signals
+//               done with <promise>COMPLETE</promise>.
+//   3. Review  — for each completed issue we push the branch (off-machine backup)
+//               and stand up a worktree so the commits can be reviewed and run.
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker"; // Change to vercel() if using Vercel Sandbox
@@ -33,7 +33,6 @@ const planSchema = z.object({
 });
 
 const MAX_OUTER_ITERATIONS = 10;
-const MAX_INNER_RETRY_LIMIT = 3;
 
 const hooks = {
   sandbox: { onSandboxReady: [{ command: "npm install" }] },
@@ -65,10 +64,10 @@ async function createReviewWorktree(issue: { id: string; branch: string }) {
 // ---------------------------------------------------------------------------
 // Helper: Mark a completed issue as done without closing it.
 //
-// Replaces the draft PR as the planner's dedup signal: the planner only selects
-// issues labeled `Sandcastle`, so swapping that label for `sandcastle-done`
-// stops a finished issue from being re-selected (and re-colliding with its
-// review worktree). The issue stays OPEN for human review. Non-fatal.
+// This is the planner's dedup signal: the planner only selects issues labeled
+// `Sandcastle`, so swapping that label for `sandcastle-done` stops a finished
+// issue from being re-selected (and re-colliding with its review worktree). The
+// issue stays OPEN for human review. Non-fatal.
 // ---------------------------------------------------------------------------
 async function markIssueDone(issue: { id: string }) {
   try {
@@ -86,114 +85,74 @@ async function markIssueDone(issue: { id: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: Process an individual issue, pull AI summary, and create Draft PR.
+// Helper: Run the implementer agent for one issue, then hand off for review.
 //
 // This runs concurrently with other issues, so it must never touch the shared
 // host working tree (no `git checkout`). Each implementer verifies its own work
 // inside an isolated sandbox; we trust that verification here. The only host git
-// commands we run are branch-scoped and working-tree-safe: `git show <branch>:…`,
-// `git push origin <branch>`, and `gh pr create --head <branch>`.
+// command we run is branch-scoped and working-tree-safe: `git push origin
+// <branch>` for an off-machine backup.
 // ---------------------------------------------------------------------------
 async function processSingleIssue(issue: { id: string; title: string; branch: string }) {
   const startTime = Date.now();
-  console.log(`🚀 [Issue #${issue.id}] Initializing implementation agent...`);
+  console.log(`🚀 [Issue #${issue.id}] Running implementation agent...`);
 
-  let currentAttempt = 1;
   let success = false;
-  let feedback = "";
   // Set only when the agent's own host worktree survived the run (uncommitted
   // changes). When present we can review in place instead of creating a new one.
   let preservedWorktreePath: string | undefined;
 
-  while (currentAttempt <= MAX_INNER_RETRY_LIMIT && !success) {
-    console.log(`⏳ [Issue #${issue.id}] Attempt ${currentAttempt}/${MAX_INNER_RETRY_LIMIT}...`);
+  try {
+    const result = await sandcastle.run({
+      hooks,
+      copyToWorktree,
+      sandbox: docker(),
+      branchStrategy: { type: "branch", branch: issue.branch },
+      name: "implementer",
+      // One run, but many iterations: the agent is re-prompted until it emits
+      // the completion signal (default "<promise>COMPLETE</promise>") or hits
+      // this cap. We can't detect completion via structured output (Output.*)
+      // instead — that requires maxIterations: 1, and the implementer needs the
+      // full red-green-refactor loop across many iterations.
+      maxIterations: 80,
+      agent: sandcastle.claudeCode("claude-opus-4-8"),
+      promptFile: "./.sandcastle/new_flow/implement-prompt.md",
+      promptArgs: {
+        TASK_ID: issue.id,
+        ISSUE_TITLE: issue.title,
+        BRANCH: issue.branch,
+      },
+    });
 
-    try {
-      const result = await sandcastle.run({
-        hooks,
-        copyToWorktree,
-        sandbox: docker(),
-        branchStrategy: { type: "branch", branch: issue.branch },
-        name: `implementer-attempt-${currentAttempt}`,
-        maxIterations: 80,
-        agent: sandcastle.claudeCode("claude-opus-4-8"),
-        promptFile: "./.sandcastle/new_flow/implement-prompt.md",
-        promptArgs: {
-          TASK_ID: issue.id,
-          ISSUE_TITLE: issue.title,
-          BRANCH: issue.branch,
-          FEEDBACK: feedback || "No previous attempts yet. This is your first try.",
-        },
-        // Structured output (Output.*) requires maxIterations: 1, but the
-        // implementer needs many iterations. Instead we stop the loop early on
-        // the agent's completion sentinel and read it from result.completionSignal.
-        completionSignal: "<promise>COMPLETE</promise>",
-      });
-
-      // The implementer runs typecheck + tests inside its own sandbox before
-      // signaling done, so success is determined entirely from the sandbox
-      // result — never from a host checkout, which would corrupt sibling agents
-      // running concurrently on other branches.
-      const signaledComplete = result.completionSignal !== undefined;
-
-      if (signaledComplete && result.commits.length > 0) {
-        success = true;
-        preservedWorktreePath = result.preservedWorktreePath;
-        console.log(
-          `✓ [Issue #${issue.id}] Implementer signaled COMPLETE with ${result.commits.length} commit(s) on attempt ${currentAttempt}.`,
-        );
-      } else if (signaledComplete) {
-        feedback = `You output the COMPLETE promise but made 0 commits on branch ${issue.branch}. Implement the change, commit it on that branch, then signal completion again.`;
-        console.warn(`⚠️ [Issue #${issue.id}] COMPLETE promise but no commits.`);
-      } else {
-        feedback = `You did not signal completion within the iteration limit. Finish the task, run typecheck and tests, commit your work, write the summary file, then output <promise>COMPLETE</promise>.`;
-        console.warn(`⚠️ [Issue #${issue.id}] Completion criteria not met.`);
-      }
-    } catch (error: any) {
-      // 1. Capture a clean message for the agent feedback loop
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      feedback = `The Sandcastle runner encountered a system error during execution: ${errorMessage}`;
-
-      // 2. Format a safe, visually isolated log block with the Issue ID prefix
-      console.error(`\n[Issue #${issue.id}] 🚨 SYSTEM EXCEPTION (Attempt ${currentAttempt}) 🚨`);
-
-      if (error instanceof Error) {
-        // Safe print of the stack trace
-        console.error(`[Issue #${issue.id}] Stack Trace:\n${error.stack || error.message}`);
-
-        // Sandcastle run exceptions often wrap underlying process errors containing stdout/stderr
-        if ("stdout" in error && error.stdout) {
-          console.error(`[Issue #${issue.id}] Command stdout:\n${error.stdout}`);
-        }
-        if ("stderr" in error && error.stderr) {
-          console.error(`[Issue #${issue.id}] Command stderr:\n${error.stderr}`);
-        }
-      } else {
-        // Safe structural print for non-Error object exceptions
-        try {
-          console.error(`[Issue #${issue.id}] Raw Error Object:\n`, JSON.stringify(error, null, 2));
-        } catch {
-          console.error(`[Issue #${issue.id}] Raw Error Object:`, error);
-        }
-      }
-      console.error(`[Issue #${issue.id}] -------------------------------------------\n`);
+    // The implementer runs typecheck + tests inside its own sandbox before
+    // signaling done, so success is determined entirely from the sandbox
+    // result — never from a host checkout, which would corrupt sibling agents
+    // running concurrently on other branches.
+    if (result.completionSignal !== undefined && result.commits.length > 0) {
+      success = true;
+      preservedWorktreePath = result.preservedWorktreePath;
+      console.log(
+        `✓ [Issue #${issue.id}] Implementer signaled COMPLETE with ${result.commits.length} commit(s).`,
+      );
+    } else if (result.completionSignal !== undefined) {
+      console.warn(`⚠️ [Issue #${issue.id}] COMPLETE promise but no commits — nothing to review.`);
+    } else {
+      console.warn(`⚠️ [Issue #${issue.id}] Agent did not signal completion within the iteration limit.`);
     }
-
-    if (!success) {
-      currentAttempt++;
-    }
+  } catch (error: any) {
+    console.error(`[Issue #${issue.id}] Runner error:`, error);
   }
 
-  // --- Provide a worktree to review the draft commits (no PR is created) ---
+  // --- Push an off-machine backup and provide a worktree to review the commits ---
   if (success) {
     const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m. No PR opened — review happens in a worktree.`);
+    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m. Review happens in a worktree.`);
 
     // Optional off-machine backup. The branch and its commits already exist in
     // the local repo, so review works without this; a push failure is non-fatal.
     try {
       await execPromise(`git push origin ${issue.branch}`);
-      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin (backup only — no PR).`);
+      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin (backup only).`);
     } catch (pushError: any) {
       console.warn(`⚠️ [Issue #${issue.id}] Could not push branch (review is still available locally): ${pushError.message}`);
     }
@@ -203,9 +162,9 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     await markIssueDone(issue);
 
     if (preservedWorktreePath && fs.existsSync(preservedWorktreePath)) {
-      // The agent's own worktree survived — review the draft commits in place.
+      // The agent's own worktree survived — review the commits in place.
       console.log(`FINISHED: ${preservedWorktreePath}`);
-      console.log(`🔍 [Issue #${issue.id}] Review the draft commits in the preserved worktree:`);
+      console.log(`🔍 [Issue #${issue.id}] Review the commits in the preserved worktree:`);
       console.log(`           cd ${preservedWorktreePath} && git log --oneline ${issue.branch}`);
       console.log(`           Summary: ${preservedWorktreePath}/.sandcastle/summary-${issue.id}.md`);
     } else {
@@ -214,7 +173,7 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       await createReviewWorktree(issue);
     }
   } else {
-    console.error(`🚨 [Issue #${issue.id}] Could not complete the task within the ${MAX_INNER_RETRY_LIMIT} attempt cap.`);
+    console.error(`🚨 [Issue #${issue.id}] Did not complete — no branch handed off for review.`);
   }
 }
 
@@ -224,16 +183,6 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
 async function main() {
   for (let iteration = 1; iteration <= MAX_OUTER_ITERATIONS; iteration++) {
     console.log(`\n=== Pipeline Iteration ${iteration}/${MAX_OUTER_ITERATIONS} ===\n`);
-
-    let activePRsJson = "[]";
-    try {
-      activePRsJson = execSync(
-        `gh pr list --state open --json headRefName --limit 100`,
-        { encoding: "utf-8" }
-      ).trim();
-    } catch (err) {
-      console.warn("⚠️ Warning: Could not fetch active PRs list. Proceeding with empty tracking state.");
-    }
 
     // Branches currently checked out in a worktree (e.g. review worktrees for
     // completed issues). The planner must not re-select these — git refuses to
@@ -261,7 +210,6 @@ async function main() {
       agent: sandcastle.claudeCode("claude-opus-4-8"),
       promptFile: "./.sandcastle/new_flow/plan-prompt.md",
       promptArgs: {
-        ACTIVE_PRS_JSON: activePRsJson,
         CHECKED_OUT_BRANCHES_JSON: checkedOutBranchesJson,
       },
       output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),

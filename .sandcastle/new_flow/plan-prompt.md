@@ -12,12 +12,6 @@ Only issues labeled `Sandcastle` are eligible for automated work. Here are the o
 
 Consider ONLY the issues listed above. Never invent issues, and never pull work from any other source (no `.todo` files, no local scanning). If the list above is empty, there is no eligible work — output `<plan>{"issues": []}</plan>` and stop.
 
-# ACTIVE WORK
-
-Here is the JSON of currently open pull requests. Use it to avoid starting work that is already in flight:
-
-{{ACTIVE_PRS_JSON}}
-
 # BRANCHES ALREADY CHECKED OUT
 
 These branches are currently checked out in a git worktree on the host (for example, a completed issue left open for review). Git refuses to check out the same branch in two worktrees, so re-running one of these would hard-fail. Never select an issue whose branch appears here:
@@ -31,10 +25,9 @@ These branches are currently checked out in a git worktree on the host (for exam
    - B and A modify overlapping files or modules (concurrent work would conflict), or
    - B depends on a decision or API shape that A establishes.
    An issue is **unblocked** if it has zero blocking dependencies on other open issues.
-2. Drop any issue whose branch already appears as a `headRefName` in the active PR list — that work is already in progress.
-3. Drop any issue whose branch `sandcastle/issue-{id}` appears in the checked-out branches list above — that branch is locked by an existing worktree and cannot be worked again.
-4. From the remaining unblocked issues, select up to 3 that touch **non-overlapping** modules, so they can be worked concurrently without conflicting with each other.
-5. Assign each selected issue the deterministic branch name `sandcastle/issue-{id}` (no slug or other suffix). This must be deterministic so that re-planning the same issue always reuses the same branch and preserves accumulated progress.
+2. Drop any issue whose branch `sandcastle/issue-{id}` appears in the checked-out branches list above — that branch is locked by an existing worktree and cannot be worked again.
+3. From the remaining unblocked issues, select up to 3 that touch **non-overlapping** modules, so they can be worked concurrently without conflicting with each other.
+4. Assign each selected issue the deterministic branch name `sandcastle/issue-{id}` (no slug or other suffix). This must be deterministic so that re-planning the same issue always reuses the same branch and preserves accumulated progress.
 
 # OUTPUT
 

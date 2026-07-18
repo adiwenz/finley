@@ -36,7 +36,7 @@ echo "[review] Installing dependencies (fresh worktree has no node_modules)..."
 ( cd "$REVIEW_DIR" && npm install )
 
 echo "[review] Worktree ready for issue #${ISSUE_ID} (${BRANCH})."
-echo "[review] Review the draft commits:"
+echo "[review] Review the commits:"
 echo "           cd ${REVIEW_DIR} && git log --oneline ${BRANCH}"
 echo "[review] Implementation summary: ${REVIEW_DIR}/.sandcastle/summary-${ISSUE_ID}.md"
 echo "[review] Start the dev server:"
