@@ -62,7 +62,6 @@ describe("GoalsPanel", () => {
           name: "Trip",
           targetCents: dollarsToCents(5000),
           targetDate: 12,
-          type: "oneTime",
           disposition: "spend",
           annualReturnPct: 7,
         },
@@ -80,6 +79,32 @@ describe("GoalsPanel", () => {
     );
     expect(html).toContain("Move Emergency fund up");
     expect(html).toContain("Move Home down payment down");
+  });
+
+  it("offers per-goal edit and delete authoring controls (Slice 5b)", () => {
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
+    );
+    expect(html).toContain("Edit Emergency fund");
+    expect(html).toContain("Delete Emergency fund");
+  });
+
+  it("discloses the add-goal form on demand, not always open (§10.4)", () => {
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
+    );
+    // The disclosure trigger is present; the form itself is closed until clicked.
+    expect(html).toContain("+ Add a goal");
+    expect(html).not.toContain('aria-label="Add goal"');
+  });
+
+  it("invites a first goal when the plan has none", () => {
+    const empty: Plan = { ...PLAN_DEFAULTS, goals: [] };
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={empty} series={project(empty)} setBudget={noop} />,
+    );
+    expect(html).toContain("No goals yet");
+    expect(html).toContain("+ Add a goal");
   });
 });
 

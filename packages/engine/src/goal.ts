@@ -5,8 +5,8 @@
  * target date. Retirement is not special — it is the highest-priority *horizon*
  * goal by default, sharing this same priority list and on-track math.
  *
- * This module owns the goal *type* and the projection-based on-track math. The
- * per-month funding of goals lives in the waterfall (see `projection/waterfall`).
+ * This module owns the goal *disposition* and the projection-based on-track math.
+ * The per-month funding of goals lives in the waterfall (see `projection/waterfall`).
  */
 
 import type { Cents } from "./money";
@@ -14,18 +14,11 @@ import type { Account } from "./account";
 import type { ProjectionSeries } from "./projection/simulate";
 
 /**
- * Two structurally different goal types (§5.2):
- *  - `oneTime`  — accumulate to target, then the balance is *spent* by an event
- *    (a house down payment feeding `HomePurchaseEvent`, a wedding, a trip).
- *  - `horizon`  — accumulate toward a target by a date, then *draw down over time*
- *    (college fund, baby fund, retirement). The withdrawal phase is a later slice.
- */
-export type GoalType = "oneTime" | "horizon";
-
-/**
- * What happens to a goal's accumulated money once its target is reached (§5.2) —
- * ORTHOGONAL to {@link GoalType}, which only says *when* the money is used. `type`
- * conflated timing with fate; disposition names the fate explicitly:
+ * What happens to a goal's accumulated money once its target is reached (§5.2) — the
+ * single axis describing a goal's fate. This *also* fixes the money's timing, so a
+ * separate goal "type" is redundant: the {@link DisposingDisposition} fire all at once
+ * at a month (the old `oneTime`), the {@link StandingDisposition} are held or drawn over
+ * time (the old `horizon`). Read timing off the disposition, never a parallel field.
  *
  *  - `retain`          — held as a liquid reserve (emergency fund). Contributions
  *    stop at target; the balance stays in net worth indefinitely and COUNTS toward
@@ -67,6 +60,9 @@ export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown
  * arises here and none is guarded for — the date is a number by construction.
  */
 export function isEarmarkedForDisposition(disposal: GoalDisposal, month: number): boolean {
+  // Checks the discriminant directly (not {@link isDisposingDisposition}) so TypeScript
+  // narrows the whole GoalDisposal union — that is what pins `targetDate` to a number
+  // below; a guard on the `.disposition` field alone would not narrow the parent.
   if (disposal.disposition !== "convertToEquity" && disposal.disposition !== "spend") {
     return false;
   }
@@ -99,6 +95,22 @@ export type DisposingDisposition = Extract<GoalDisposition, "spend" | "convertTo
  */
 export type StandingDisposition = Exclude<GoalDisposition, DisposingDisposition>;
 
+/**
+ * Whether a disposition FIRES at its maturity month — the money is consumed (`spend`)
+ * or swapped to illiquid equity (`convertToEquity`) when the target arrives. The firing
+ * dispositions are exactly {@link DisposingDisposition}; the standing ones
+ * (`retain`/`drawDown`) never fire. This is the single source of truth for the
+ * firing/standing split its boolean consumers key off: the authoring form's date gating
+ * (a firing goal needs a concrete month, so it cannot be "as soon as possible") and the
+ * verdict-path family — standing goals also encode the old "horizon" timing that may use
+ * the near-term asset-ratio branch (see {@link computeGoalProgress}).
+ * {@link isEarmarkedForDisposition} instead checks the discriminant directly, because it
+ * needs the whole {@link GoalDisposal} union narrowed, not just a boolean.
+ */
+export function isDisposingDisposition(d: GoalDisposition): d is DisposingDisposition {
+  return d === "spend" || d === "convertToEquity";
+}
+
 /** The fields every goal carries, whatever its disposition. */
 interface GoalBase {
   readonly id: string;
@@ -111,7 +123,6 @@ interface GoalBase {
    * first. This is one of the four exposed waterfall levers (§5.0).
    */
   readonly priority: number;
-  readonly type: GoalType;
   readonly scope: GoalScope;
   /** Owner of a `personal` goal; ignored for `shared`. */
   readonly ownerId?: string;
@@ -160,10 +171,11 @@ export type GoalDisposal =
 export type Goal = GoalBase & GoalDisposal;
 
 /**
- * A near-term *horizon* goal routes to the §8.6 immediate feasibility-verdict
- * branch (asset-ratio path) rather than the projection path — its target date is
- * so close that the projection curve adds no information (§5.2 / §11.3).
- * One-time goals always use the projection path regardless of proximity.
+ * A near-term *standing* goal (`retain`/`drawDown` — the old "horizon") routes to the
+ * §8.6 immediate feasibility-verdict branch (asset-ratio path) rather than the
+ * projection path — its target date is so close that the projection curve adds no
+ * information (§5.2 / §11.3). Firing goals (`spend`/`convertToEquity` — the old
+ * "one-time") always use the projection path regardless of proximity.
  */
 export const HORIZON_GOAL_IMMEDIATE_VERDICT_MONTHS = 12;
 
@@ -234,8 +246,10 @@ export function computeGoalProgress(
   const monthsToTarget =
     goal.targetDate === "asap" ? 0 : Math.max(0, goal.targetDate - nowMonth);
 
+  // Standing goals (not firing) carry the old "horizon" timing, so a near-term one may
+  // use the §8.6 asset-ratio branch; firing goals always project.
   const verdictPath: GoalVerdictPath =
-    goal.type === "horizon" &&
+    !isDisposingDisposition(goal.disposition) &&
     goal.targetDate !== "asap" &&
     monthsToTarget < HORIZON_GOAL_IMMEDIATE_VERDICT_MONTHS
       ? "immediate"

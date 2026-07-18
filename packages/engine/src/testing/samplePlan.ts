@@ -35,7 +35,6 @@ export const samplePlan = {
       name: "Emergency fund",
       targetCents: dollarsToCents(20000),
       targetDate: 24,
-      type: "horizon",
       disposition: "retain",
       annualReturnPct: 4,
     },

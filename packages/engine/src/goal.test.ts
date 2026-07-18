@@ -88,7 +88,6 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       targetDate: 24,
       fundAccountId: "fund",
       priority: 1,
-      type: "oneTime",
       disposition: "spend",
       scope: "shared",
     };
@@ -118,7 +117,6 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       targetDate: 24,
       fundAccountId: "fund",
       priority: 1,
-      type: "oneTime",
       disposition: "spend",
       scope: "shared",
     };
@@ -146,7 +144,6 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       targetDate: 6,
       fundAccountId: "fund",
       priority: 1,
-      type: "horizon",
       disposition: "drawDown",
       scope: "shared",
     };
@@ -167,7 +164,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
     nullJurisdiction,
   );
 
-  it("a horizon goal < 12 months out routes to the immediate (asset-ratio) verdict path", () => {
+  it("a standing (drawDown) goal < 12 months out routes to the immediate (asset-ratio) verdict path", () => {
     const goal: Goal = {
       id: "g",
       name: "near",
@@ -175,7 +172,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 6,
       fundAccountId: "fund",
       priority: 1,
-      type: "horizon",
       disposition: "drawDown",
       scope: "shared",
     };
@@ -184,7 +180,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
     );
   });
 
-  it("a one-time goal ALWAYS uses the projection path, even when near-term", () => {
+  it("a firing (spend) goal ALWAYS uses the projection path, even when near-term", () => {
     const goal: Goal = {
       id: "g",
       name: "near-onetime",
@@ -192,7 +188,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 3,
       fundAccountId: "fund",
       priority: 1,
-      type: "oneTime",
       disposition: "spend",
       scope: "shared",
     };
@@ -201,7 +196,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
     );
   });
 
-  it("a horizon goal ≥ 12 months out uses the projection path", () => {
+  it("a standing (drawDown) goal ≥ 12 months out uses the projection path", () => {
     const goal: Goal = {
       id: "g",
       name: "far",
@@ -209,7 +204,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 30,
       fundAccountId: "fund",
       priority: 1,
-      type: "horizon",
       disposition: "drawDown",
       scope: "shared",
     };
@@ -227,7 +221,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 12,
       fundAccountId: "fund",
       priority: 1,
-      type: "oneTime",
       disposition: "spend",
       scope: "shared",
     };
@@ -243,7 +236,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 12,
       fundAccountId: "fund",
       priority: 1,
-      type: "oneTime",
       disposition: "spend",
       scope: "shared",
     };
@@ -259,7 +251,6 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
       targetDate: 240, // 20 years out
       fundAccountId: "fund",
       priority: 1,
-      type: "horizon",
       disposition: "drawDown",
       scope: "shared",
     };

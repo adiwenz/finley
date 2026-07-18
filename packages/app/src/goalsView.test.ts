@@ -8,7 +8,17 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
-import { goalRows, reorderGoal, dispositionLabel } from "./goalsView";
+import {
+  goalRows,
+  reorderGoal,
+  dispositionLabel,
+  addGoal,
+  updateGoal,
+  removeGoal,
+  freshGoalId,
+  goalDisposal,
+} from "./goalsView";
+import { goalFundAccountId } from "@finley/engine";
 import type { Plan, GoalPlan } from "@finley/engine";
 
 const baseBudget: Plan = {
@@ -43,7 +53,6 @@ const goalA: GoalPlan = {
   name: "Goal A",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  type: "oneTime",
   disposition: "spend",
   annualReturnPct: 0,
 };
@@ -52,7 +61,6 @@ const goalB: GoalPlan = {
   name: "Goal B",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  type: "oneTime",
   disposition: "spend",
   annualReturnPct: 0,
 };
@@ -93,7 +101,6 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
       name: "Small goal",
       targetCents: dollarsToCents(3000),
       targetDate: 24,
-      type: "horizon",
       disposition: "drawDown",
       annualReturnPct: 10,
     };
@@ -133,6 +140,148 @@ describe("dispositionLabel", () => {
     expect(dispositionLabel("convertToEquity")).toBe("Becomes home equity");
     expect(dispositionLabel("spend")).toBe("Spent at target");
     expect(dispositionLabel("drawDown")).toBe("Drawn down over time");
+  });
+});
+
+describe("goalDisposal — legal disposition/date pairing (§5.2)", () => {
+  it("keeps a standing disposition's date, including 'asap'", () => {
+    expect(goalDisposal("retain", "asap")).toEqual({ disposition: "retain", targetDate: "asap" });
+    expect(goalDisposal("drawDown", 24)).toEqual({ disposition: "drawDown", targetDate: 24 });
+  });
+
+  it("forces a firing disposition onto a concrete month, never 'asap'", () => {
+    // spend/convertToEquity must fire AT a month; a stray 'asap' collapses to 0
+    // so an illegal GoalDisposal pair can never be authored.
+    expect(goalDisposal("spend", 12)).toEqual({ disposition: "spend", targetDate: 12 });
+    expect(goalDisposal("convertToEquity", "asap")).toEqual({
+      disposition: "convertToEquity",
+      targetDate: 0,
+    });
+  });
+});
+
+describe("freshGoalId", () => {
+  it("returns an id not already used by any goal", () => {
+    const goals = [goalA, goalB];
+    const id = freshGoalId(goals);
+    expect(goals.some((g) => g.id === id)).toBe(false);
+  });
+
+  it("is deterministic for the same goal list", () => {
+    expect(freshGoalId([goalA])).toBe(freshGoalId([goalA]));
+  });
+
+  it("avoids colliding with an existing generated id", () => {
+    const first = freshGoalId([]);
+    const seeded: GoalPlan = { ...goalA, id: first };
+    expect(freshGoalId([seeded])).not.toBe(first);
+  });
+});
+
+describe("addGoal", () => {
+  it("appends a new goal at lowest priority with a fresh id, returning a new array", () => {
+    const goals = [goalA];
+    const next = addGoal(goals, {
+      name: "Goal C",
+      targetCents: dollarsToCents(1000),
+      disposition: "spend",
+      targetDate: 12,
+      annualReturnPct: 0,
+    });
+    expect(next).toHaveLength(2);
+    expect(next[1]).toMatchObject({ name: "Goal C", targetCents: dollarsToCents(1000) });
+    expect(goals.some((g) => g.id === next[1].id)).toBe(false); // fresh, unique id
+    expect(goals).toEqual([goalA]); // original untouched (immutability)
+  });
+
+  it("makes the new goal scorable — its derived fund account is projected (§5.2)", () => {
+    const budget = { ...baseBudget, goals: addGoal([goalA], {
+      name: "Goal C",
+      targetCents: dollarsToCents(6000),
+      disposition: "spend",
+      targetDate: 12,
+      annualReturnPct: 0,
+    }) };
+    const rows = goalRows(budget, project(budget));
+    // Lowest priority: it appears last and, starved behind Goal A, reads 0%.
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ name: "Goal C", priority: 1 });
+  });
+});
+
+describe("updateGoal", () => {
+  it("edits an existing goal's fields, keeping its id and list position", () => {
+    const goals = [goalA, goalB];
+    const next = updateGoal(goals, "a", {
+      name: "Renamed",
+      targetCents: dollarsToCents(40000),
+      disposition: "retain",
+      targetDate: "asap",
+      annualReturnPct: 3,
+    });
+    expect(next[0]).toMatchObject({
+      id: "a",
+      name: "Renamed",
+      targetCents: dollarsToCents(40000),
+      disposition: "retain",
+      targetDate: "asap",
+      annualReturnPct: 3,
+    });
+    expect(next[1]).toBe(goalB); // untouched goal keeps its identity
+    expect(goals[0]).toBe(goalA); // original element untouched
+  });
+
+  it("re-runs live: editing the target moves the on-track % (§5.2 feedback loop)", () => {
+    const before = { ...baseBudget, goals: [goalA] };
+    // goalA: $30k by month 12, $1,500/mo surplus → $18k → 60%.
+    expect(goalRows(before, project(before))[0].onTrackPct).toBe(60);
+    // Halve the target: the same $18k now clears it → capped 100%.
+    const after = {
+      ...baseBudget,
+      goals: updateGoal(before.goals, "a", {
+        name: "Goal A",
+        targetCents: dollarsToCents(15000),
+        disposition: "spend",
+        targetDate: 12,
+        annualReturnPct: 0,
+      }),
+    };
+    expect(goalRows(after, project(after))[0].onTrackPct).toBe(100);
+  });
+
+  it("is a no-op (new array) when the id is not found", () => {
+    const goals = [goalA];
+    const next = updateGoal(goals, "missing", {
+      name: "x",
+      targetCents: 0,
+      disposition: "spend",
+      targetDate: 1,
+      annualReturnPct: 0,
+    });
+    expect(next).toEqual(goals);
+    expect(next).not.toBe(goals);
+  });
+});
+
+describe("removeGoal", () => {
+  it("drops the goal and returns a new array", () => {
+    const goals = [goalA, goalB];
+    const next = removeGoal(goals, "a");
+    expect(next.map((g) => g.id)).toEqual(["b"]);
+    expect(goals).toHaveLength(2); // original untouched
+  });
+
+  it("removes the goal's derived fund account from the projection (§5.2)", () => {
+    const before = { ...baseBudget, goals: [goalA, goalB] };
+    const beforeSeries = project(before);
+    expect(beforeSeries.months[0].accountBalancesCents).toHaveProperty(
+      goalFundAccountId(goalA),
+    );
+    const after = { ...baseBudget, goals: removeGoal(before.goals, "a") };
+    const afterSeries = project(after);
+    expect(afterSeries.months[0].accountBalancesCents).not.toHaveProperty(
+      goalFundAccountId(goalA),
+    );
   });
 });
 

@@ -115,7 +115,7 @@ function Configuration({
             ? [["—", "no goals"]]
             : budget.goals.map((g, i): [string, ReactNode] => [
                 `${i + 1}. ${g.name}`,
-                `${formatDollars(g.targetCents)} · ${targetDate(g.targetDate)} · ${g.type} · ${pct(
+                `${formatDollars(g.targetCents)} · ${targetDate(g.targetDate)} · ${g.disposition} · ${pct(
                   g.annualReturnPct,
                 )}`,
               ])

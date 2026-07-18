@@ -146,7 +146,6 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
       targetCents: dollarsToCents(50_000),
       fundAccountId: `goal-${id}`,
       priority: 0,
-      type: "oneTime",
       scope: "shared",
       ...disposal,
     };
