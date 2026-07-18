@@ -63,6 +63,29 @@ async function createReviewWorktree(issue: { id: string; branch: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: Mark a completed issue as done without closing it.
+//
+// Replaces the draft PR as the planner's dedup signal: the planner only selects
+// issues labeled `Sandcastle`, so swapping that label for `sandcastle-done`
+// stops a finished issue from being re-selected (and re-colliding with its
+// review worktree). The issue stays OPEN for human review. Non-fatal.
+// ---------------------------------------------------------------------------
+async function markIssueDone(issue: { id: string }) {
+  try {
+    // Ensure the label exists (harmless if it already does), then swap labels.
+    await execPromise(
+      `gh label create sandcastle-done --color 0E8A16 --description "Implemented by Sandcastle; open for review"`,
+    ).catch(() => {});
+    await execPromise(
+      `gh issue edit ${issue.id} --remove-label "Sandcastle" --add-label "sandcastle-done"`,
+    );
+    console.log(`🏷️  [Issue #${issue.id}] Relabeled Sandcastle → sandcastle-done (issue left open for review).`);
+  } catch (labelError: any) {
+    console.warn(`⚠️ [Issue #${issue.id}] Could not update issue labels: ${labelError.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helper: Process an individual issue, pull AI summary, and create Draft PR.
 //
 // This runs concurrently with other issues, so it must never touch the shared
@@ -175,6 +198,10 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       console.warn(`⚠️ [Issue #${issue.id}] Could not push branch (review is still available locally): ${pushError.message}`);
     }
 
+    // Take the issue out of the planner's queue so it is not re-selected, while
+    // leaving it open for human review.
+    await markIssueDone(issue);
+
     if (preservedWorktreePath && fs.existsSync(preservedWorktreePath)) {
       // The agent's own worktree survived — review the draft commits in place.
       console.log(`FINISHED: ${preservedWorktreePath}`);
@@ -208,6 +235,22 @@ async function main() {
       console.warn("⚠️ Warning: Could not fetch active PRs list. Proceeding with empty tracking state.");
     }
 
+    // Branches currently checked out in a worktree (e.g. review worktrees for
+    // completed issues). The planner must not re-select these — git refuses to
+    // check the same branch out twice, so re-running one would hard-fail.
+    let checkedOutBranchesJson = "[]";
+    try {
+      const raw = execSync(`git worktree list --porcelain`, { encoding: "utf-8" });
+      const branches = raw
+        .split("\n")
+        .filter((line) => line.startsWith("branch "))
+        .map((line) => line.slice("branch ".length).replace("refs/heads/", "").trim())
+        .filter(Boolean);
+      checkedOutBranchesJson = JSON.stringify(branches);
+    } catch (err) {
+      console.warn("⚠️ Warning: Could not list git worktrees. Proceeding without checked-out-branch tracking.");
+    }
+
     // 1. Run the Planning Phase
     console.log("Analyzing Sandcastle-labeled issues and building workspace queue...");
     const plan = await sandcastle.run({
@@ -217,7 +260,10 @@ async function main() {
       maxIterations: 1,
       agent: sandcastle.claudeCode("claude-opus-4-8"),
       promptFile: "./.sandcastle/new_flow/plan-prompt.md",
-      promptArgs: { ACTIVE_PRS_JSON: activePRsJson },
+      promptArgs: {
+        ACTIVE_PRS_JSON: activePRsJson,
+        CHECKED_OUT_BRANCHES_JSON: checkedOutBranchesJson,
+      },
       output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
     });
 
