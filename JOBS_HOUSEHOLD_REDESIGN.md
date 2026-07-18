@@ -133,23 +133,30 @@ Adopted UX vocabulary (mockup:
 
 ## Migration / build strategy
 
-**Big-bang replacement, sequenced across multiple commits** (NOT a permanent
+**Additive build, single hinge at #72, squash-merged** (NOT a permanent
 strangler). End state: the scalar `Plan.incomeCents` / `createProjectionBase`
-scalar authoring is fully removed — no version flag, no retained legacy adapter,
+scalar authoring is fully removed — no version flag, no retained legacy path,
 no supported coexistence in the shipped product. The multi-commit sequencing is
 purely a within-branch reviewability/bisect device.
 
 - Lowering target is unchanged: new authoring model (`Person` + `Job[]` + budget
   lines) lowers into the **existing** `LedgerBaseConfig` → `interpretLedger` →
   `Household` → `simulateHousehold` pipeline. Simulator/snapshot/ledger untouched.
-- Real migration surface = the app's scattered `incomeCents` call sites
-  (`deferralLimit.ts`, `planDefaults.ts`, `budgetEditor.tsx`, `debugPanel.tsx`,
-  `goalsView`, `retirementView`) + engine `projectionBase` scalar authoring.
-- A transient `fromLegacyPlan` adapter may exist mid-branch to keep commits
-  green, but is deleted before merge — it is not a shipped compatibility layer.
-- **Commit discipline**: a red "hinge" commit is allowed (scalar ripped out, Job
-  wired in). Rationale: the branch is **squash-merged**, so per-commit green-ness
-  has no bisect value on `main`. Commits are for review narrative, not bisect.
+- **Slices 1–8 are additive and stay green.** The Job/household model is built
+  *alongside* the scalar path — both lower into the same `LedgerBaseConfig`, so
+  slice 1 adds a small branch in lowering rather than ripping scalar out. The app
+  keeps authoring via `incomeCents` and compiles/runs the whole way, so app-level
+  tests stay trustworthy while features land.
+- **No `fromLegacyPlan` adapter.** Because scalar income is never removed
+  mid-branch, there is nothing to bridge — the throwaway converter is not built.
+- **#72 is the single hinge** (the one breaking commit): it rewires the app's
+  scattered `incomeCents` call sites to the `Job`/`Projection` model and deletes
+  the scalar authoring in one go. Migration surface = `deferralLimit.ts`,
+  `planDefaults.ts`, `budgetEditor.tsx`, `debugPanel.tsx`, `goalsView`,
+  `retirementView` + engine `projectionBase` scalar authoring
+  (`incomeCents`, `careerStartAge`, `JobChangeEvent`, `createProjectionBase`).
+- **Commit discipline**: no red hinge is needed. The branch is **squash-merged**,
+  so the multi-commit split is for review narrative, not bisect.
 
 ## npm API surface
 
