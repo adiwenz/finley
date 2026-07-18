@@ -20,6 +20,11 @@ import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan } from "./plan";
+import {
+  type Person as HouseholdPerson,
+  lowerPersonIncomeSeries,
+  lowerPersonPriorEarnings,
+} from "./job";
 
 /**
  * The environment + jurisdiction the plan→projection mapping is resolved against.
@@ -38,7 +43,8 @@ export interface ProjectionContext {
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
 const SAVINGS_ID = "savings";
-const RETIREMENT_ID = "retirement";
+/** The pre-tax retirement account a deferral (scalar lever or a {@link Job}) funds. */
+export const RETIREMENT_ID = "retirement";
 const BROKERAGE_ID = "brokerage";
 
 /** The fund account a goal accumulates into (one per goal, so goals don't share a balance). */
@@ -221,12 +227,39 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // worked BEFORE "now" so the benefit reflects a full career, not just in-model
   // earnings (see seedPriorEarnings).
   const inflationRate = budget.inflationPct / 100;
+  const birthYear = startYear - budget.currentAge;
+
+  // Additive branch (§1, issue #64): a non-empty jobs list is the new source of
+  // truth for earned income — lower the standing Job model; otherwise fall through
+  // to the scalar `incomeCents`/`careerStartAge` path (still live until #72). Both
+  // produce the same shapes (pre-"now" earnings record + forward income series),
+  // so the rest of the base build is identical.
+  const standingPerson: HouseholdPerson | undefined =
+    budget.jobs != null && budget.jobs.length > 0
+      ? {
+          id: PRIMARY_PERSON_ID,
+          name: budget.name,
+          birthYear,
+          retirementTargetAge: budget.retirementAge,
+          ssClaimingAge: budget.ssClaimingAge,
+          jobs: budget.jobs,
+        }
+      : undefined;
+
+  // Give the projection an SS basis (§5.4): a birth year derived from today's age
+  // plus the pinned claiming age, so the engine accumulates earnings while working
+  // and pays a Social Security benefit from the claiming age — the same lever the
+  // retirement panel reasons about, now present in the graph too. Seed the years
+  // worked BEFORE "now" so the benefit reflects a full career, not just in-model
+  // earnings (from jobs directly when present, else the scalar seedPriorEarnings).
   const person: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
-    birthYear: startYear - budget.currentAge,
+    birthYear,
     ssClaimingAge: budget.ssClaimingAge,
-    priorEarningsCents: seedPriorEarnings(budget, startYear),
+    priorEarningsCents: standingPerson
+      ? lowerPersonPriorEarnings(standingPerson, startYear, inflationRate)
+      : seedPriorEarnings(budget, startYear),
   };
 
   // Income runs until retirement then stops (§7); while working it grows with CPI,
@@ -263,6 +296,12 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
         : undefined,
   };
 
+  // Jobs present → lower each job into its own forward income series; else the
+  // single scalar income source. Deferral rides on the job (§11) in the job path.
+  const initialIncomeSeries: readonly OwnedSeries[] = standingPerson
+    ? lowerPersonIncomeSeries(standingPerson, startYear, inflationRate)
+    : [income];
+
   const surplusDestination: SurplusDestination = budget.surplusSwept
     ? { kind: "swept", accountId: BROKERAGE_ID }
     : { kind: "idle" };
@@ -273,7 +312,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     startYear,
     initialPersons: [person],
     initialAccounts: buildPlanAccounts(budget),
-    initialIncomeSeries: [income],
+    initialIncomeSeries,
     initialExpenseSeries: [
       { series: expenseSeries, ownerId: PRIMARY_PERSON_ID },
       { series: healthSeries, ownerId: PRIMARY_PERSON_ID },

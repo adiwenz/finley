@@ -10,6 +10,7 @@
 import type { GoalDisposal } from "./goal";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
+import type { Job } from "./job";
 
 export interface ValueOverride {
   readonly month: number;
@@ -136,4 +137,13 @@ export interface Plan {
   readonly lifeExpectancy: number;
   /** Pinned Social Security claiming age — an input to the check, never searched. */
   readonly ssClaimingAge: number;
+  /**
+   * First-class {@link Job} standing model (§1–§8, issue #64), added **additively**
+   * alongside the scalar {@link incomeCents} / {@link careerStartAge} path. When
+   * present and non-empty, `createProjectionBase` lowers these jobs into the base
+   * income series instead of the scalar income; when absent or empty, the scalar
+   * path is used. Optional so no existing `Plan` literal needs editing. The scalar
+   * fields are removed only in #72.
+   */
+  readonly jobs?: readonly Job[];
 }
