@@ -163,9 +163,6 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashF
   return series;
 }
 
-/** Age a career is assumed to begin, for reconstructing SS-covered earnings. */
-const CAREER_START_AGE = 18;
-
 /**
  * Nominal SS-covered earnings for the working ages in `[fromAge, toAge)`, assuming
  * a constant *real* (today's) salary across the whole span: each year is today's
@@ -191,11 +188,12 @@ function careerEarningsCents(
 
 /**
  * The full nominal SS-covered earnings record the plan implies — the whole career,
- * age 18 through retirement. The panel prices Social Security from this same record
- * the graph accumulates, so both surfaces report the same benefit.
+ * from the authored career start age through retirement. The panel prices Social
+ * Security from this same record the graph accumulates, so both surfaces report the
+ * same benefit.
  */
 export function fullCareerEarningsCents(budget: Plan, startYear: number): Record<number, Cents> {
-  return careerEarningsCents(budget, startYear, CAREER_START_AGE, budget.retirementAge);
+  return careerEarningsCents(budget, startYear, budget.careerStartAge, budget.retirementAge);
 }
 
 /**
@@ -206,11 +204,12 @@ export function fullCareerEarningsCents(budget: Plan, startYear: number): Record
  * the AIME formula (§5.4) sums a worker's highest 35 indexed years and always
  * divides by a fixed 420-month (35-year) window. A 35-year-old who retires at 65
  * only earns 30 in-model years, so 5 slots would be counted as $0 and drag the
- * benefit down ~1/7. A real 35-year-old has instead been earning since ~18, and
- * those years fill the record — so we seed ages 18 → today.
+ * benefit down ~1/7. A real 35-year-old has instead been earning since the age
+ * they started their career, and those years fill the record — so we seed ages
+ * {@link Plan.careerStartAge} → today.
  */
 function seedPriorEarnings(budget: Plan, startYear: number): Record<number, Cents> {
-  return careerEarningsCents(budget, startYear, CAREER_START_AGE, budget.currentAge);
+  return careerEarningsCents(budget, startYear, budget.careerStartAge, budget.currentAge);
 }
 
 export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
