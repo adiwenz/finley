@@ -78,7 +78,9 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
   let currentAttempt = 1;
   let success = false;
   let feedback = "";
-  let workspacePath = process.cwd();
+  // Set only when the agent's own host worktree survived the run (uncommitted
+  // changes). When present we can review in place instead of creating a new one.
+  let preservedWorktreePath: string | undefined;
 
   while (currentAttempt <= MAX_INNER_RETRY_LIMIT && !success) {
     console.log(`⏳ [Issue #${issue.id}] Attempt ${currentAttempt}/${MAX_INNER_RETRY_LIMIT}...`);
@@ -113,7 +115,7 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
 
       if (signaledComplete && result.commits.length > 0) {
         success = true;
-        workspacePath = result.preservedWorktreePath ?? workspacePath;
+        preservedWorktreePath = result.preservedWorktreePath;
         console.log(
           `✓ [Issue #${issue.id}] Implementer signaled COMPLETE with ${result.commits.length} commit(s) on attempt ${currentAttempt}.`,
         );
@@ -159,49 +161,30 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     }
   }
 
-  // --- Push changes and construct Draft PR with AI Summary ---
+  // --- Provide a worktree to review the draft commits (no PR is created) ---
   if (success) {
-    console.log(`FINISHED: ${workspacePath}`);
-    await createReviewWorktree(issue);
-    const tempPrBodyPath = path.join(process.cwd(), `.sandcastle/temp-pr-body-${issue.id}.md`);
+    const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
+    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m. No PR opened — review happens in a worktree.`);
+
+    // Optional off-machine backup. The branch and its commits already exist in
+    // the local repo, so review works without this; a push failure is non-fatal.
     try {
-      const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-      console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m. Constructing AI summary...`);
-
-      // 1. Push work up to origin
       await execPromise(`git push origin ${issue.branch}`);
+      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin (backup only — no PR).`);
+    } catch (pushError: any) {
+      console.warn(`⚠️ [Issue #${issue.id}] Could not push branch (review is still available locally): ${pushError.message}`);
+    }
 
-      // 2. Extract the AI-generated summary written by the agent from the branch.
-      //    `git show <branch>:<file>` reads the blob without touching the working
-      //    tree, so it is safe to run while sibling agents are active.
-      let aiSummary = "";
-      try {
-        aiSummary = execSync(
-          `git show ${issue.branch}:.sandcastle/summary-${issue.id}.md`,
-          { encoding: "utf-8" }
-        ).trim();
-      } catch (err) {
-        console.warn(`⚠️ [Issue #${issue.id}] Could not retrieve automated summary file. Falling back to default description.`);
-        aiSummary = `*No detailed summary file was found. The agent completed the task successfully but did not write the summary markdown.*`;
-      }
-
-      // 3. Write PR Body to a temporary file (prevents bash shell quote-escaping issues)
-      const prBodyContent = `## 🤖 Sandcastle Agent PR: #${issue.id}\n\n${aiSummary}\n\n---\n*Created automatically by Sandcastle in ${elapsed} minutes.*`;
-      fs.writeFileSync(tempPrBodyPath, prBodyContent, "utf-8");
-
-      // 4. Create the Draft PR using the temp body file
-      await execPromise(
-        `gh pr create --draft --title "WIP: #${issue.id} ${issue.title}" --body-file "${tempPrBodyPath}" --head "${issue.branch}"`
-      );
-
-      console.log(`🎉 [Issue #${issue.id}] Draft PR successfully opened!`);
-    } catch (gitError: any) {
-      console.error(`❌ [Issue #${issue.id}] Git or PR command failed:`, gitError.message);
-    } finally {
-      // Clean up the temporary file safely
-      if (fs.existsSync(tempPrBodyPath)) {
-        fs.unlinkSync(tempPrBodyPath);
-      }
+    if (preservedWorktreePath && fs.existsSync(preservedWorktreePath)) {
+      // The agent's own worktree survived — review the draft commits in place.
+      console.log(`FINISHED: ${preservedWorktreePath}`);
+      console.log(`🔍 [Issue #${issue.id}] Review the draft commits in the preserved worktree:`);
+      console.log(`           cd ${preservedWorktreePath} && git log --oneline ${issue.branch}`);
+      console.log(`           Summary: ${preservedWorktreePath}/.sandcastle/summary-${issue.id}.md`);
+    } else {
+      // No surviving worktree — stand up a fresh one checked out to the branch.
+      console.log(`FINISHED: ${issue.branch}`);
+      await createReviewWorktree(issue);
     }
   } else {
     console.error(`🚨 [Issue #${issue.id}] Could not complete the task within the ${MAX_INNER_RETRY_LIMIT} attempt cap.`);
