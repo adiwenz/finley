@@ -10,8 +10,8 @@
  */
 
 import { useState } from "react";
-import type { GoalType, GoalDisposition } from "@finley/engine";
-import { dollarsToCents, centsToDollars } from "@finley/engine";
+import type { GoalDisposition } from "@finley/engine";
+import { dollarsToCents, centsToDollars, isDisposingDisposition } from "@finley/engine";
 import type { GoalDraft } from "../../goalsView";
 import { goalDisposal, dispositionLabel } from "../../goalsView";
 import { NumInput } from "../numInput/numInput";
@@ -22,11 +22,6 @@ const DISPOSITIONS: readonly GoalDisposition[] = [
   "spend",
   "drawDown",
 ];
-
-/** A firing disposition (spend/convertToEquity) must land on a concrete month. */
-function isFiring(disposition: GoalDisposition): boolean {
-  return disposition === "spend" || disposition === "convertToEquity";
-}
 
 interface GoalFormProps {
   /** Seed values (an existing goal, when editing); omitted for a blank add form. */
@@ -42,7 +37,6 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
   const [targetDollars, setTargetDollars] = useState(
     initial ? centsToDollars(initial.targetCents) : 0,
   );
-  const [type, setType] = useState<GoalType>(initial?.type ?? "oneTime");
   const [disposition, setDisposition] = useState<GoalDisposition>(
     initial?.disposition ?? "spend",
   );
@@ -54,14 +48,13 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
 
   // A firing disposition can't be "as soon as possible" — there'd be no month to
   // fire at. Force the date control back to a concrete month while one is selected.
-  const asapAllowed = !isFiring(disposition);
+  const asapAllowed = !isDisposingDisposition(disposition);
   const asapChecked = asap && asapAllowed;
 
   function submit() {
     onSubmit({
       name: name.trim(),
       targetCents: dollarsToCents(targetDollars),
-      type,
       annualReturnPct,
       ...goalDisposal(disposition, asapChecked ? "asap" : targetMonth),
     });
@@ -88,14 +81,7 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
         step={500}
       />
       <label className="field">
-        <span className="field-label">Type</span>
-        <select value={type} onChange={(e) => setType(e.target.value as GoalType)}>
-          <option value="oneTime">One-time (spent at target)</option>
-          <option value="horizon">Horizon (drawn down over time)</option>
-        </select>
-      </label>
-      <label className="field">
-        <span className="field-label">At target</span>
+        <span className="field-label">How will this money be used?</span>
         <select
           value={disposition}
           onChange={(e) => setDisposition(e.target.value as GoalDisposition)}

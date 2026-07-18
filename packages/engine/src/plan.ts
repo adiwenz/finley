@@ -7,7 +7,7 @@
  * a `ProjectionContext`) into the ledger base the simulator runs.
  */
 
-import type { GoalType, GoalDisposal } from "./goal";
+import type { GoalDisposal } from "./goal";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
 
@@ -26,7 +26,6 @@ interface GoalPlanBase {
   readonly id: string;
   readonly name: string;
   readonly targetCents: number;
-  readonly type: GoalType;
   /**
    * Annual return on this goal's fund account, as a whole-number percent. Drives
    * both the projected growth and the short-horizon-risk flag (a near-term goal in

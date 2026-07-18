@@ -53,7 +53,6 @@ const goalA: GoalPlan = {
   name: "Goal A",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  type: "oneTime",
   disposition: "spend",
   annualReturnPct: 0,
 };
@@ -62,7 +61,6 @@ const goalB: GoalPlan = {
   name: "Goal B",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  type: "oneTime",
   disposition: "spend",
   annualReturnPct: 0,
 };
@@ -103,7 +101,6 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
       name: "Small goal",
       targetCents: dollarsToCents(3000),
       targetDate: 24,
-      type: "horizon",
       disposition: "drawDown",
       annualReturnPct: 10,
     };
@@ -187,7 +184,6 @@ describe("addGoal", () => {
     const next = addGoal(goals, {
       name: "Goal C",
       targetCents: dollarsToCents(1000),
-      type: "oneTime",
       disposition: "spend",
       targetDate: 12,
       annualReturnPct: 0,
@@ -202,7 +198,6 @@ describe("addGoal", () => {
     const budget = { ...baseBudget, goals: addGoal([goalA], {
       name: "Goal C",
       targetCents: dollarsToCents(6000),
-      type: "oneTime",
       disposition: "spend",
       targetDate: 12,
       annualReturnPct: 0,
@@ -220,7 +215,6 @@ describe("updateGoal", () => {
     const next = updateGoal(goals, "a", {
       name: "Renamed",
       targetCents: dollarsToCents(40000),
-      type: "horizon",
       disposition: "retain",
       targetDate: "asap",
       annualReturnPct: 3,
@@ -247,7 +241,6 @@ describe("updateGoal", () => {
       goals: updateGoal(before.goals, "a", {
         name: "Goal A",
         targetCents: dollarsToCents(15000),
-        type: "oneTime",
         disposition: "spend",
         targetDate: 12,
         annualReturnPct: 0,
@@ -261,7 +254,6 @@ describe("updateGoal", () => {
     const next = updateGoal(goals, "missing", {
       name: "x",
       targetCents: 0,
-      type: "oneTime",
       disposition: "spend",
       targetDate: 1,
       annualReturnPct: 0,

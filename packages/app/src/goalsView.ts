@@ -10,15 +10,10 @@ import {
   computeGoalProgress,
   buildPlanAccounts,
   buildPlanGoals,
+  isDisposingDisposition,
   type ProjectionSeries,
 } from "@finley/engine";
-import type {
-  Plan,
-  GoalPlan,
-  GoalType,
-  GoalDisposition,
-  GoalDisposal,
-} from "@finley/engine";
+import type { Plan, GoalPlan, GoalDisposition, GoalDisposal } from "@finley/engine";
 
 /**
  * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the
@@ -110,7 +105,6 @@ export function setGoalRate(
 export type GoalDraft = {
   readonly name: string;
   readonly targetCents: number;
-  readonly type: GoalType;
   readonly annualReturnPct: number;
 } & GoalDisposal;
 
@@ -125,7 +119,7 @@ export function goalDisposal(
   disposition: GoalDisposition,
   targetDate: number | "asap",
 ): GoalDisposal {
-  if (disposition === "spend" || disposition === "convertToEquity") {
+  if (isDisposingDisposition(disposition)) {
     return { disposition, targetDate: targetDate === "asap" ? 0 : targetDate };
   }
   return { disposition, targetDate };
