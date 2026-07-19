@@ -14,17 +14,14 @@
 import { CashFlowSeries } from "./cashFlowSeries";
 import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
 import type { Cents } from "./money";
-import type { Person, OwnedSeries, ProjectionSeries } from "./projection/simulate";
+import type { SimPerson, OwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { Goal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan } from "./plan";
-import {
-  type Person as HouseholdPerson,
-  lowerPersonIncomeSeries,
-  lowerPersonPriorEarnings,
-} from "./job";
+import { type Person } from "./person";
+import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 
 /**
  * The environment + jurisdiction the plan→projection mapping is resolved against.
@@ -230,11 +227,11 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const birthYear = startYear - budget.currentAge;
 
   // Additive branch (§1, issue #64): a non-empty jobs list is the new source of
-  // truth for earned income — lower the standing Job model; otherwise fall through
+  // truth for earned income — compile the standing Job model; otherwise fall through
   // to the scalar `incomeCents`/`careerStartAge` path (still live until #72). Both
   // produce the same shapes (pre-"now" earnings record + forward income series),
   // so the rest of the base build is identical.
-  const standingPerson: HouseholdPerson | undefined =
+  const standingPerson: Person | undefined =
     budget.jobs != null && budget.jobs.length > 0
       ? {
           id: PRIMARY_PERSON_ID,
@@ -252,13 +249,13 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // retirement panel reasons about, now present in the graph too. Seed the years
   // worked BEFORE "now" so the benefit reflects a full career, not just in-model
   // earnings (from jobs directly when present, else the scalar seedPriorEarnings).
-  const person: Person = {
+  const person: SimPerson = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
     ssClaimingAge: budget.ssClaimingAge,
     priorEarningsCents: standingPerson
-      ? lowerPersonPriorEarnings(standingPerson, startYear, inflationRate)
+      ? compilePersonPriorEarnings(standingPerson, startYear, inflationRate)
       : seedPriorEarnings(budget, startYear),
   };
 
@@ -296,10 +293,10 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
         : undefined,
   };
 
-  // Jobs present → lower each job into its own forward income series; else the
+  // Jobs present → compile each job into its own forward income series; else the
   // single scalar income source. Deferral rides on the job (§11) in the job path.
   const initialIncomeSeries: readonly OwnedSeries[] = standingPerson
-    ? lowerPersonIncomeSeries(standingPerson, startYear, inflationRate)
+    ? compilePersonIncomeSeries(standingPerson, startYear, inflationRate)
     : [income];
 
   const surplusDestination: SurplusDestination = budget.surplusSwept

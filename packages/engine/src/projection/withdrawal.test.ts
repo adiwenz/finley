@@ -13,7 +13,7 @@ import {
   simulateHousehold,
   type HouseholdSimInput,
   type OwnedSeries,
-  type Person,
+  type SimPerson,
 } from "./simulate";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
@@ -38,7 +38,7 @@ function expense(monthlyDollars: number): OwnedSeries {
   };
 }
 
-const person: Person = { id: "p1", name: "You" };
+const person: SimPerson = { id: "p1", name: "You" };
 
 function baseInput(
   accounts: Account[],
@@ -228,7 +228,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
         ctx.age >= 73 ? Math.min(preTaxBalanceCents, dollarsToCents(requiredDollars)) : 0,
     });
     // Age 75 in 2026 → past the RMD start age, so the seam fires at month 1.
-    const rmdAgePerson: Person = { id: "p1", name: "You", birthYear: 2026 - 75 };
+    const rmdAgePerson: SimPerson = { id: "p1", name: "You", birthYear: 2026 - 75 };
     const accounts = () => [
       account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       account("pretax", PRE_TAX_TAX_PROFILE, 100_000),

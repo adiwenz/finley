@@ -140,7 +140,7 @@ export interface Plan {
   /**
    * First-class {@link Job} standing model (§1–§8, issue #64), added **additively**
    * alongside the scalar {@link incomeCents} / {@link careerStartAge} path. When
-   * present and non-empty, `createProjectionBase` lowers these jobs into the base
+   * present and non-empty, `createProjectionBase` compiles these jobs into the base
    * income series instead of the scalar income; when absent or empty, the scalar
    * path is used. Optional so no existing `Plan` literal needs editing. The scalar
    * fields are removed only in #72.

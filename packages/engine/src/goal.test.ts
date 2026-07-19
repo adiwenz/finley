@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { computeGoalProgress, isEarmarkedForDisposition, type Goal, type GoalDisposal } from "./goal";
 import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
-import { simulateHousehold, type Person } from "./projection/simulate";
+import { simulateHousehold, type SimPerson } from "./projection/simulate";
 import { CashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
-const person: Person = { id: "p1", name: "Alice" };
+const person: SimPerson = { id: "p1", name: "Alice" };
 
 function account(id: string, annualRate: number, liquid = true): Account {
   return new Account({

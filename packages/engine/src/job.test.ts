@@ -1,6 +1,6 @@
 /**
  * Slice 1 (issue #64): the first-class Job/Person standing model and its
- * additive lowering into the existing Household pipeline. New coverage only —
+ * additive compilation into the existing Household pipeline. New coverage only —
  * the scalar path's own tests are untouched.
  *
  * The headline pin: a single career job authored to mirror the scalar model
@@ -13,7 +13,8 @@ import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
 import { createProjectionBase, PRIMARY_PERSON_ID, RETIREMENT_ID, type ProjectionContext } from "./projectionBase";
 import { samplePlan } from "./testing/samplePlan";
-import { deriveRealGrowthPct, careerJobOf, type Job, type Person } from "./job";
+import { deriveRealGrowthPct, type Job } from "./job";
+import { careerJobOf, type Person } from "./person";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -48,7 +49,7 @@ const careerJob: Job = {
   },
 };
 
-describe("Job/Person standing model — additive lowering (issue #64)", () => {
+describe("Job/Person standing model — additive compilation (issue #64)", () => {
   it("holds ≥0 jobs with spans; career job is the ≤1 null-end job", () => {
     const person: Person = {
       id: PRIMARY_PERSON_ID,
@@ -70,7 +71,7 @@ describe("Job/Person standing model — additive lowering (issue #64)", () => {
     expect(jobbed).toEqual(scalar);
   });
 
-  it("actually lowers jobs, not the scalar income (bogus incomeCents is ignored when jobs are present)", () => {
+  it("actually compiles jobs, not the scalar income (bogus incomeCents is ignored when jobs are present)", () => {
     const scalar = project(samplePlan);
     const jobbed = project({ ...samplePlan, incomeCents: dollarsToCents(1), jobs: [careerJob] });
     expect(jobbed).toEqual(scalar);

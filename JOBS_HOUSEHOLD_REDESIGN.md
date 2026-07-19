@@ -139,12 +139,12 @@ scalar authoring is fully removed — no version flag, no retained legacy path,
 no supported coexistence in the shipped product. The multi-commit sequencing is
 purely a within-branch reviewability/bisect device.
 
-- Lowering target is unchanged: new authoring model (`Person` + `Job[]` + budget
-  lines) lowers into the **existing** `LedgerBaseConfig` → `interpretLedger` →
+- Compilation target is unchanged: new authoring model (`Person` + `Job[]` + budget
+  lines) compiles into the **existing** `LedgerBaseConfig` → `interpretLedger` →
   `Household` → `simulateHousehold` pipeline. Simulator/snapshot/ledger untouched.
 - **Slices 1–8 are additive and stay green.** The Job/household model is built
-  *alongside* the scalar path — both lower into the same `LedgerBaseConfig`, so
-  slice 1 adds a small branch in lowering rather than ripping scalar out. The app
+  *alongside* the scalar path — both compile into the same `LedgerBaseConfig`, so
+  slice 1 adds a small branch in compilation rather than ripping scalar out. The app
   keeps authoring via `incomeCents` and compiles/runs the whole way, so app-level
   tests stay trustworthy while features land.
 - **No `fromLegacyPlan` adapter.** Because scalar income is never removed

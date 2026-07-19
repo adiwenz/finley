@@ -8,7 +8,7 @@ import {
 } from "../account";
 import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 
 /** A non-compounding account so balances move only by RMD withdrawal/deposit. */
 function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liquid = false): Account {
@@ -24,7 +24,7 @@ function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liq
 
 /** Surplus idles in the liquid cash account, so an RMD's net take-home lands there. */
 function baseInput(
-  person: Person,
+  person: SimPerson,
   accounts: Account[],
   overrides: Partial<HouseholdSimInput> = {},
 ): HouseholdSimInput {
@@ -48,7 +48,7 @@ const rmdStub: Jurisdiction = {
     ctx.age >= 73 ? Math.round(balance / 10) : 0,
 };
 
-const born73In2026: Person = { id: "p1", name: "You", birthYear: 1953 };
+const born73In2026: SimPerson = { id: "p1", name: "You", birthYear: 1953 };
 
 describe("Required Minimum Distributions (§5.4)", () => {
   it("forces the required amount out of pre-tax and into the taxable surplus, conserving net worth", () => {
@@ -97,7 +97,7 @@ describe("Required Minimum Distributions (§5.4)", () => {
   });
 
   it("does not fire before the holder reaches the start age", () => {
-    const tooYoung: Person = { id: "p1", name: "You", birthYear: 1970 }; // 56 in 2026
+    const tooYoung: SimPerson = { id: "p1", name: "You", birthYear: 1970 }; // 56 in 2026
     const series = simulateHousehold(
       baseInput(tooYoung, [
         account("pretax", PRE_TAX_TAX_PROFILE, 100_000),

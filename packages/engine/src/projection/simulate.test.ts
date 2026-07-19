@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, type Person } from "./simulate";
+import { simulateHousehold, type SimPerson } from "./simulate";
 import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../account";
 import {
   Liability,
@@ -9,7 +9,7 @@ import {
 import { CashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
-function makePerson(id = "p1", name = "Alice"): Person {
+function makePerson(id = "p1", name = "Alice"): SimPerson {
   return { id, name };
 }
 
@@ -729,7 +729,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 });
 
 describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
-  const person: Person = { id: "p1", name: "Alice" };
+  const person: SimPerson = { id: "p1", name: "Alice" };
 
   function retirementAccount(): Account {
     // A non-liquid pre-tax account — deferrals land here, but the surplus/idle
@@ -812,8 +812,8 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
         dollarsToCents(12000) + (ctx.age !== undefined && ctx.age >= 50 ? dollarsToCents(3000) : 0),
     };
     // startYear defaults to 2026: born 1971 → age 55 (catch-up); born 1990 → age 36 (base).
-    const older: Person = { id: "p1", name: "Alice", birthYear: 1971 };
-    const younger: Person = { id: "p2", name: "Bob", birthYear: 1990 };
+    const older: SimPerson = { id: "p1", name: "Alice", birthYear: 1971 };
+    const younger: SimPerson = { id: "p2", name: "Bob", birthYear: 1990 };
     const older401k = new Account({
       id: "401k-a",
       ownerId: "p1",

@@ -2,7 +2,7 @@ import type { Cents } from "../money";
 import type { Account } from "../account";
 import type { Jurisdiction } from "../jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { Person } from "./simulate";
+import type { SimPerson } from "./simulate";
 
 /**
  * The slice of the simulator's state the RMD bookkeeping reads and mutates. A
@@ -16,7 +16,7 @@ export interface RmdState {
   /** The authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
   /** Every person by id — an RMD needs the holder's birth year to derive age/start age. */
-  readonly personsById: ReadonlyMap<string, Person>;
+  readonly personsById: ReadonlyMap<string, SimPerson>;
 }
 
 /**

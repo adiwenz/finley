@@ -14,7 +14,7 @@ import {
   simulateHousehold,
   type HouseholdSimInput,
   type OwnedSeries,
-  type Person,
+  type SimPerson,
   type ProjectionSeries,
   type SimProperty,
 } from "./simulate";
@@ -78,7 +78,7 @@ export function buildHouseholdSimInput(
 
   // Durable household roster (§3): membership intervals govern each person's
   // income series lifetime; the roster itself is the set of people who ever joined.
-  const persons: Person[] = household.memberships.map((m) => m.person);
+  const persons: SimPerson[] = household.memberships.map((m) => m.person);
 
   return {
     horizonMonths: base.horizonMonths,

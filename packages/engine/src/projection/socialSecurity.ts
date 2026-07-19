@@ -4,7 +4,7 @@ import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earn
 import { priceSocialSecurityMonthlyCents } from "../socialSecurityBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { Person, OwnedSeries } from "./simulate";
+import type { SimPerson, OwnedSeries } from "./simulate";
 
 /** Default Social Security claiming age (full retirement age) when unspecified (§5.4). */
 export const DEFAULT_SS_CLAIMING_AGE = 67;
@@ -33,7 +33,7 @@ export interface EarningsState {
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
   /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
-  readonly personsById: ReadonlyMap<string, Person>;
+  readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
    * The monthly Social Security benefit (nominal cents) as of each person's claim
    * year: the seam's eligibility-dollar PIA, COLA-bridged forward across the years
@@ -78,7 +78,7 @@ export function accumulateEarnings(
  * calendar year they turn their claiming age (§5.4). Returns null when the person
  * has no birth year (SS not modelled). May be ≤ 0 (already claiming at "now").
  */
-function ssClaimStartMonth(person: Person, startYear: number): number | null {
+function ssClaimStartMonth(person: SimPerson, startYear: number): number | null {
   if (person.birthYear === undefined) return null;
   const claimingAge = person.ssClaimingAge ?? DEFAULT_SS_CLAIMING_AGE;
   return 12 * (person.birthYear + claimingAge - startYear);
