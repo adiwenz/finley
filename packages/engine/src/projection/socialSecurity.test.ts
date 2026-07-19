@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
-import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 
 /** A liquid, non-compounding cash account — surplus idles here so net worth = Σ SS deposits. */
-function cashAccount(): Account {
-  return new Account({
+function cashAccount(): SimAccount {
+  return new SimAccount({
     id: "cash",
     ownerId: "p1",
     liquid: true,
@@ -110,7 +110,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
         horizonMonths: 24,
         incomeSeries: [
           {
-            series: new CashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
+            series: new SimCashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
               baselineUnit: "monthly",
             }),
             ownerId: "p1",

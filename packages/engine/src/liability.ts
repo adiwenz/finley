@@ -11,7 +11,7 @@
  */
 
 import type { Cents } from "./money";
-import type { OneTimeTransfer } from "./account";
+import type { SimOneTimeTransfer } from "./simAccount";
 
 export type LiabilityKind = "mortgage" | "auto" | "studentLoan" | "creditCard";
 
@@ -146,7 +146,7 @@ export const SYNTHETIC_CARD_CREDIT_LIMIT_CENTS: Cents = 50_000_00;
 /** ID used in liabilityBalancesCents for the synthetic credit card. */
 export const SYNTHETIC_CARD_ID = "synthetic-credit-card";
 
-export class Liability {
+export class SimLiability {
   readonly id: string;
   readonly ownerId: string;
   readonly kind: LiabilityKind;
@@ -174,7 +174,7 @@ export class Liability {
    * account) is the caller's responsibility — the engine only moves the owed
    * balance, so net-worth conservation requires attaching an Account outflow too.
    */
-  private transfers: OneTimeTransfer[] = [];
+  private transfers: SimOneTimeTransfer[] = [];
 
   constructor(params: {
     id: string;
@@ -216,13 +216,13 @@ export class Liability {
    * PAYMENT is a NEGATIVE amountCents (a new draw would be positive), and a
    * proportionalFraction of -0.5 settles half the balance.
    */
-  addTransfer(transfer: OneTimeTransfer): void {
+  addTransfer(transfer: SimOneTimeTransfer): void {
     this.transfers.push(transfer);
     this.transfers.sort((a, b) => a.month - b.month);
   }
 
   /** All one-time transfers scheduled at exactly `month`. */
-  getTransfersAt(month: number): OneTimeTransfer[] {
+  getTransfersAt(month: number): SimOneTimeTransfer[] {
     return this.transfers.filter((t) => t.month === month);
   }
 }

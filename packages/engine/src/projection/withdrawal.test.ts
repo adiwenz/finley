@@ -1,24 +1,24 @@
 import { describe, it, expect } from "vitest";
 import {
-  Account,
-  type AccountTaxProfile,
+  SimAccount,
+  type SimAccountTaxProfile,
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
-} from "../account";
-import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+} from "../simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import type { Goal, GoalDisposal } from "../goal";
+import type { SimGoal, GoalDisposal } from "../goal";
 import {
   simulateHousehold,
   type HouseholdSimInput,
-  type OwnedSeries,
+  type SimOwnedSeries,
   type SimPerson,
 } from "./simulate";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
-function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liquid = false): Account {
-  return new Account({
+function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
+  return new SimAccount({
     id,
     ownerId: "p1",
     liquid,
@@ -29,9 +29,9 @@ function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liq
 }
 
 /** A flat monthly expense series — the obligation the retiree must fund. */
-function expense(monthlyDollars: number): OwnedSeries {
+function expense(monthlyDollars: number): SimOwnedSeries {
   return {
-    series: new CashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
       baselineUnit: "monthly",
     }),
     ownerId: "p1",
@@ -41,7 +41,7 @@ function expense(monthlyDollars: number): OwnedSeries {
 const person: SimPerson = { id: "p1", name: "You" };
 
 function baseInput(
-  accounts: Account[],
+  accounts: SimAccount[],
   overrides: Partial<HouseholdSimInput> = {},
 ): HouseholdSimInput {
   return {
@@ -116,8 +116,8 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
   });
 
   it("does not withdraw when income covers the obligations (no accumulation-phase regression)", () => {
-    const income: OwnedSeries = {
-      series: new CashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
+    const income: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
         baselineUnit: "monthly",
       }),
       ownerId: "p1",
@@ -139,7 +139,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
    * {@link GoalDisposal} pair rather than two params, so a fixture cannot build a
    * combination the type forbids (§5.2).
    */
-  function goal(id: string, disposal: GoalDisposal): Goal {
+  function goal(id: string, disposal: GoalDisposal): SimGoal {
     return {
       id,
       name: id,

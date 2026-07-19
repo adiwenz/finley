@@ -40,7 +40,7 @@ export type TaxCategory =
   | "capitalGains"
   | "taxExempt";
 
-export interface CashFlowSeriesOptions {
+export interface SimCashFlowSeriesOptions {
   /**
    * "annual" (default): baseCents is the annual amount; monthly via cumulative
    * rounding. Use for salary, annual subscriptions.
@@ -124,7 +124,7 @@ export function centsToDollars(cents: number): number {
   return cents / 100;
 }
 
-export class CashFlowSeries {
+export class SimCashFlowSeries {
   private segments: Segment[];
   private singleMonthOverrides: Map<number, number> = new Map();
   private readonly baselineUnit: "annual" | "monthly";
@@ -143,7 +143,7 @@ export class CashFlowSeries {
     startMonth: number,
     initialBaseCents: number,
     growthMode: GrowthMode,
-    options?: CashFlowSeriesOptions,
+    options?: SimCashFlowSeriesOptions,
   ) {
     this.startMonth = startMonth;
     this.baselineUnit = options?.baselineUnit ?? "annual";

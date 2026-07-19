@@ -1,155 +1,111 @@
+/**
+ * Slice 5 (issue #68): per-person account ownership + household net worth.
+ *
+ * The standing authoring account carries `owners: PersonId[]` — `[p]` is an
+ * individual account, `[p1, p2]` a joint one. The pins here:
+ *   - retirement accounts refuse more than one owner (`makeAccount`);
+ *   - `personalAccounts` / `jointAccounts` / `accounts` partition a person's
+ *     holdings correctly (personal ∪ joint = accounts, personal ∩ joint = ∅);
+ *   - household net worth sums the canonical list ONCE, so a joint account owned
+ *     by two people is not double-counted (the headline §9 aggregate rule).
+ */
 import { describe, it, expect } from "vitest";
-import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
-import { dollarsToCents, preciseMonthlyRate } from "./cashFlowSeries";
+import {
+  makeAccount,
+  personalAccounts,
+  jointAccounts,
+  accountsOf,
+  householdNetWorthCents,
+  isJoint,
+  isIndividual,
+  type AccountHousehold,
+} from "./account";
+import type { PersonId } from "./job";
 
-describe("Account", () => {
-  it("opening balance is reported at month 0", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: dollarsToCents(10000),
-      initialAnnualRate: 0.07,
-    });
-    expect(acc.openingBalanceCents).toBe(dollarsToCents(10000));
+const p1 = "p1" as PersonId;
+const p2 = "p2" as PersonId;
+
+const soloTaxable = makeAccount({
+  id: "acct-brokerage",
+  owners: [p1],
+  balanceCents: 100_00,
+  retirement: false,
+});
+
+const jointTaxable = makeAccount({
+  id: "acct-joint",
+  owners: [p1, p2],
+  balanceCents: 400_00,
+  retirement: false,
+});
+
+const p1Ira = makeAccount({
+  id: "acct-ira-p1",
+  owners: [p1],
+  balanceCents: 250_00,
+  retirement: true,
+});
+
+const p2Ira = makeAccount({
+  id: "acct-ira-p2",
+  owners: [p2],
+  balanceCents: 150_00,
+  retirement: true,
+});
+
+const household: AccountHousehold = {
+  persons: [],
+  accounts: [soloTaxable, jointTaxable, p1Ira, p2Ira],
+};
+
+describe("standing account ownership (§10, issue #68)", () => {
+  it("refuses a retirement account with more than one owner", () => {
+    expect(() =>
+      makeAccount({
+        id: "bad-joint-ira",
+        owners: [p1, p2],
+        balanceCents: 0,
+        retirement: true,
+      }),
+    ).toThrow(/retirement/i);
   });
 
-  it("getRateAt returns the initial rate when no changes added", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0.07,
-    });
-    expect(acc.getRateAt(0)).toBe(0.07);
-    expect(acc.getRateAt(100)).toBe(0.07);
+  it("refuses an account with no owners", () => {
+    expect(() =>
+      makeAccount({ id: "ownerless", owners: [], balanceCents: 0, retirement: false }),
+    ).toThrow(/owner/i);
   });
 
-  it("addRateChange: rate changes from that month forward only", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0.07,
-    });
-    acc.addRateChange(24, 0.04); // switched to conservative allocation at month 24
-
-    expect(acc.getRateAt(23)).toBe(0.07);
-    expect(acc.getRateAt(24)).toBe(0.04);
-    expect(acc.getRateAt(100)).toBe(0.04);
+  it("allows a single-owner retirement account and a joint non-retirement account", () => {
+    expect(p1Ira.owners).toEqual([p1]);
+    expect(isJoint(jointTaxable)).toBe(true);
+    expect(isIndividual(jointTaxable)).toBe(false);
+    expect(isIndividual(soloTaxable)).toBe(true);
   });
 
-  it("addRateChange: multiple rate changes accumulate correctly", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0.07,
-    });
-    acc.addRateChange(12, 0.05);
-    acc.addRateChange(24, 0.03);
-
-    expect(acc.getRateAt(11)).toBe(0.07);
-    expect(acc.getRateAt(12)).toBe(0.05);
-    expect(acc.getRateAt(23)).toBe(0.05);
-    expect(acc.getRateAt(24)).toBe(0.03);
+  it("partitions a person's accounts into personal vs joint", () => {
+    expect(personalAccounts(household, p1)).toEqual([soloTaxable, p1Ira]);
+    expect(jointAccounts(household, p1)).toEqual([jointTaxable]);
+    // personal ∪ joint == accounts, with no overlap.
+    expect(accountsOf(household, p1)).toEqual([soloTaxable, jointTaxable, p1Ira]);
   });
 
-  it("getMonthlyRateAt is preciseMonthlyRate of the annual rate", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0.07,
-    });
-    expect(acc.getMonthlyRateAt(0)).toBeCloseTo(preciseMonthlyRate(0.07), 10);
+  it("gives each joint owner the account, but only once each", () => {
+    expect(accountsOf(household, p2)).toEqual([jointTaxable, p2Ira]);
+    expect(personalAccounts(household, p2)).toEqual([p2Ira]);
+    expect(jointAccounts(household, p2)).toEqual([jointTaxable]);
   });
 
-  it("ANCHOR: compounding $10k @ 7% for 10 years yields ≈ $19,671 (closed form)", () => {
-    const acc = new Account({
-      id: "brokerage",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: dollarsToCents(10000),
-      initialAnnualRate: 0.07,
-    });
+  it("sums household net worth once — joint accounts are NOT double-counted", () => {
+    // 100 + 400 + 250 + 150 = 900. If the joint 400 were counted per-owner it
+    // would inflate to 1300; the canonical single-list sum is the guard.
+    expect(householdNetWorthCents(household)).toBe(900_00);
 
-    let balance = acc.openingBalanceCents;
-    const monthlyRate = acc.getMonthlyRateAt(0);
-    for (let m = 1; m <= 120; m++) {
-      balance = Math.round(balance * (1 + monthlyRate));
-    }
-    // Closed form ≈ $19,671.51; integer-cents rounding lands at $19,671.46 — within a dime
-    expect(Math.abs(balance - dollarsToCents(19671.51))).toBeLessThanOrEqual(10);
-  });
-
-  it("one-time transfers: getTransfersAt returns only transfers for that month", () => {
-    const acc = new Account({
-      id: "checking",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0,
-    });
-    acc.addTransfer({ month: 6, amountCents: dollarsToCents(5000) });
-    acc.addTransfer({ month: 6, amountCents: dollarsToCents(-1000) });
-    acc.addTransfer({ month: 12, amountCents: dollarsToCents(2000) });
-
-    expect(acc.getTransfersAt(6)).toHaveLength(2);
-    expect(acc.getTransfersAt(12)).toHaveLength(1);
-    expect(acc.getTransfersAt(0)).toHaveLength(0);
-  });
-
-  it("withAdditionalTransfers preserves rate history and existing transfers, and does not mutate the original", () => {
-    const acc = new Account({
-      id: "a",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: dollarsToCents(10000),
-      initialAnnualRate: 0.12,
-    });
-    acc.addRateChange(12, 0.05);
-    acc.addTransfer({ month: 3, amountCents: dollarsToCents(500) });
-
-    const clone = acc.withAdditionalTransfers([{ month: 6, amountCents: -dollarsToCents(200) }]);
-
-    expect(clone.getRateAt(0)).toBe(0.12); // rate segment preserved
-    expect(clone.getRateAt(12)).toBe(0.05); // later rate change preserved
-    expect(clone.getTransfersAt(3)).toEqual([{ month: 3, amountCents: dollarsToCents(500) }]); // existing kept
-    expect(clone.getTransfersAt(6)).toEqual([{ month: 6, amountCents: -dollarsToCents(200) }]); // new added
-    expect(acc.getTransfersAt(6)).toEqual([]); // original untouched
-  });
-
-  it("liquid flag is preserved", () => {
-    const liquid = new Account({
-      id: "checking",
-      ownerId: "p1",
-      liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0,
-    });
-    const illiquid = new Account({
-      id: "retirement",
-      ownerId: "p1",
-      liquid: false,
-      taxProfile: PRE_TAX_TAX_PROFILE,
-      openingBalanceCents: 0,
-      initialAnnualRate: 0.07,
-    });
-    expect(liquid.liquid).toBe(true);
-    expect(illiquid.liquid).toBe(false);
+    const perPersonSum = [p1, p2].reduce(
+      (sum, person) => sum + accountsOf(household, person).reduce((s, a) => s + a.balanceCents, 0),
+      0,
+    );
+    expect(perPersonSum).toBe(1300_00);
+    expect(householdNetWorthCents(household)).toBeLessThan(perPersonSum);
   });
 });

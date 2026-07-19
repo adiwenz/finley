@@ -32,7 +32,7 @@
 
 import { splitEven, type Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
-import type { Goal } from "../goal";
+import type { SimGoal } from "../goal";
 
 /** The 401(k)-style plan a job carries (§5.5) — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
@@ -72,7 +72,7 @@ export interface WaterfallInput {
   readonly sharedObligationCents: Cents;
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
-  readonly goals: readonly Goal[];
+  readonly goals: readonly SimGoal[];
   /** Current (beginning-of-step) balance of any account — goal need is target − this. */
   readonly accountBalanceCents: (accountId: string) => Cents;
   /** The default liquid account — the `idle` surplus destination. Null if none. */
@@ -282,7 +282,7 @@ function fundGoals(
   const personalRemaining = new Map<string, Cents>(leftoverByPerson);
   let goalDepositsTotal: Cents = 0;
 
-  const fundGoal = (goal: Goal, available: Cents): Cents => {
+  const fundGoal = (goal: SimGoal, available: Cents): Cents => {
     if (available <= 0) return 0;
     const current = input.accountBalanceCents(goal.fundAccountId);
     const need = Math.max(0, goal.targetCents - current);

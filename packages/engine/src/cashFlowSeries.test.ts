@@ -1,6 +1,6 @@
 import { it as test, assert } from "vitest";
 import {
-  CashFlowSeries,
+  SimCashFlowSeries,
   splitAnnualToMonths,
   preciseMonthlyRate,
   dollarsToCents,
@@ -29,7 +29,7 @@ test("cumulative rounding spreads error, doesn't dump it all in one month", () =
 });
 
 test("fixed growth mode: same annual value every year, forever", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
+  const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
   const year0 = s.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
   const year5 = s.getRangeCents(60, 71).reduce((a, b) => a + b, 0);
   assert.strictEqual(year0, dollarsToCents(1200));
@@ -39,7 +39,7 @@ test("fixed growth mode: same annual value every year, forever", () => {
 test("salary compound growth: iterative from actual prior-year cents, matches manual iteration", () => {
   const annualStart = dollarsToCents(80000);
   const rate = 0.04;
-  const s = new CashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
+  const s = new SimCashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
 
   let expected = annualStart;
   for (let y = 1; y <= 5; y++) {
@@ -52,8 +52,8 @@ test("salary compound growth: iterative from actual prior-year cents, matches ma
 test("querying a later month first still gives the same result as sequential queries (cache order-independence)", () => {
   const annualStart = dollarsToCents(80000);
   const rate = 0.04;
-  const sA = new CashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
-  const sB = new CashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
+  const sA = new SimCashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
+  const sB = new SimCashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
 
   // sA: query in order
   for (let m = 0; m <= 71; m++) sA.getMonthlyCents(m);
@@ -64,7 +64,7 @@ test("querying a later month first still gives the same result as sequential que
 });
 
 test("fromHereForward override: prior months untouched, future months rebase", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(1200), { type: "fixed" }); // $100/mo
+  const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" }); // $100/mo
   const before = s.getMonthlyCents(5);
   assert.strictEqual(before, dollarsToCents(100));
 
@@ -80,7 +80,7 @@ test("fromHereForward override: prior months untouched, future months rebase", (
 });
 
 test("thisMonthOnly override: affects exactly one month, neighbors unaffected", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(1200), { type: "fixed" }); // $100/mo
+  const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" }); // $100/mo
   s.addOverride(6, dollarsToCents(500), "thisMonthOnly"); // e.g. one-off bonus expense
 
   assert.strictEqual(s.getMonthlyCents(5), dollarsToCents(100));
@@ -89,11 +89,11 @@ test("thisMonthOnly override: affects exactly one month, neighbors unaffected", 
 });
 
 test("budget item growth is independent of a separate salary series (no auto-shrink on pay cut)", () => {
-  const salary = new CashFlowSeries(0, dollarsToCents(80000), {
+  const salary = new SimCashFlowSeries(0, dollarsToCents(80000), {
     type: "salaryCompound",
     annualRate: 0.03,
   });
-  const rent = new CashFlowSeries(0, dollarsToCents(18000), {
+  const rent = new SimCashFlowSeries(0, dollarsToCents(18000), {
     type: "inflationLinked",
     annualRate: 0.025,
   });
@@ -119,7 +119,7 @@ test("preciseMonthlyRate compounds to the annual rate over 12 months", () => {
 // ---------------------------------------------------------------------------
 
 test("monthly-native: $150 repeats exactly — zero rounding drift over 36 months", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(150), { type: "fixed" }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(150), { type: "fixed" }, {
     baselineUnit: "monthly",
   });
   for (let m = 0; m < 36; m++) {
@@ -134,7 +134,7 @@ test("monthly-native: $150 repeats exactly — zero rounding drift over 36 month
 test("monthly-native growth: compounds the monthly value once per year, not per split", () => {
   const monthlyBase = dollarsToCents(150);
   const rate = 0.03;
-  const s = new CashFlowSeries(0, monthlyBase, { type: "inflationLinked", annualRate: rate }, {
+  const s = new SimCashFlowSeries(0, monthlyBase, { type: "inflationLinked", annualRate: rate }, {
     baselineUnit: "monthly",
   });
 
@@ -156,13 +156,13 @@ test("monthly-native growth: compounds the monthly value once per year, not per 
 
 test("annual-native (default) still uses cumulative rounding", () => {
   const annual = dollarsToCents(100000.37);
-  const s = new CashFlowSeries(0, annual, { type: "fixed" });
+  const s = new SimCashFlowSeries(0, annual, { type: "fixed" });
   const year0Total = s.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
   assert.strictEqual(year0Total, annual);
 });
 
 test("endMonth: getMonthlyCents returns 0 after endMonth", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, {
     baselineUnit: "monthly",
     endMonth: 5,
   });
@@ -176,7 +176,7 @@ test("growthAnchor=calendar: growth fires at simulation year boundaries (month 1
   // Series starts at month 3 (i.e. April of year 0)
   // With calendar anchor, growth fires at month 12 regardless of start month
   const rate = 0.05;
-  const s = new CashFlowSeries(3, dollarsToCents(1000), { type: "customRate", annualRate: rate }, {
+  const s = new SimCashFlowSeries(3, dollarsToCents(1000), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
     growthAnchor: "calendar",
   });
@@ -196,7 +196,7 @@ test("growthAnchor=calendar: growth fires at simulation year boundaries (month 1
 test("growthAnchor=ownCycle (default): growth fires on the series own anniversary", () => {
   // Series starts at month 3; growth fires at months 3+12=15, 27, 39...
   const rate = 0.05;
-  const s = new CashFlowSeries(3, dollarsToCents(1000), { type: "customRate", annualRate: rate }, {
+  const s = new SimCashFlowSeries(3, dollarsToCents(1000), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
     growthAnchor: "ownCycle",
   });
@@ -216,7 +216,7 @@ test("ownCycle with anchorMonth < startMonth: backdated series fires at next ann
   // A rent series that started 6 months before the sim. Anchor = -6.
   // Next anniversary = month 6 (6 months into the sim).
   const rate = 0.03;
-  const s = new CashFlowSeries(0, dollarsToCents(150), { type: "inflationLinked", annualRate: rate }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(150), { type: "inflationLinked", annualRate: rate }, {
     baselineUnit: "monthly",
     anchorMonth: -6,
   });
@@ -238,7 +238,7 @@ test("resetAnchor=true on fromHereForward: growth clock restarts from override m
   // Start at month 0, override at month 10 with resetAnchor=true.
   // New growth clock starts at 10 → next escalation at month 22.
   const rate = 0.10;
-  const s = new CashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
   });
   s.addOverride(10, dollarsToCents(200), "fromHereForward", { resetAnchor: true });
@@ -256,7 +256,7 @@ test("resetAnchor=false (default): growth clock continues from original anchor",
   // Start at month 0, override at month 10. Anchor stays at 0.
   // Growth already fired at month 12 and 24 etc.
   const rate = 0.10;
-  const s = new CashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
   });
   s.addOverride(10, dollarsToCents(200), "fromHereForward"); // no resetAnchor
@@ -270,19 +270,19 @@ test("resetAnchor=false (default): growth clock continues from original anchor",
 });
 
 test("taxCategory is stored as-is (v1-ignored seam)", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(60000), { type: "salaryCompound", annualRate: 0.03 }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(60000), { type: "salaryCompound", annualRate: 0.03 }, {
     taxCategory: "wages",
   });
   assert.strictEqual(s.taxCategory, "wages");
 
-  const ss = new CashFlowSeries(0, dollarsToCents(12000), { type: "fixed" }, {
+  const ss = new SimCashFlowSeries(0, dollarsToCents(12000), { type: "fixed" }, {
     taxCategory: "governmentRetirementBenefit",
   });
   assert.strictEqual(ss.taxCategory, "governmentRetirementBenefit");
 });
 
 test("correctHistory: editing a prior segment's value in-place recomputes forward", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
+  const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
   // Pre-correction: $100/month
   assert.strictEqual(s.getMonthlyCents(0), dollarsToCents(100));
 
@@ -293,7 +293,7 @@ test("correctHistory: editing a prior segment's value in-place recomputes forwar
 });
 
 test("correctHistory: does not affect a fromHereForward segment that follows", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
+  const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
   s.addOverride(12, dollarsToCents(200), "fromHereForward"); // $200/mo from month 12
 
   s.correctHistory(0, dollarsToCents(1800)); // fix the old segment value

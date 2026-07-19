@@ -5,13 +5,13 @@ import {
   SIMULATION_REPORT_VERSION,
 } from "./report";
 import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
-import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
-import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
 function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
   const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1991 };
-  const acc = new Account({
+  const acc = new SimAccount({
     id: "savings",
     ownerId: "p1",
     liquid: true,
@@ -25,8 +25,8 @@ function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInpu
     startYear: 2026,
     persons: [person],
     accounts: [acc],
-    incomeSeries: [{ series: new CashFlowSeries(0, dollarsToCents(3000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
-    expenseSeries: [{ series: new CashFlowSeries(0, dollarsToCents(2000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
+    incomeSeries: [{ series: new SimCashFlowSeries(0, dollarsToCents(3000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
+    expenseSeries: [{ series: new SimCashFlowSeries(0, dollarsToCents(2000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
     ...overrides,
   };
 }

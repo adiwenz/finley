@@ -12,8 +12,8 @@ import type { Ledger } from "./ledger";
 import type { LifeEvent } from "./eventTypes";
 import { applyEvent } from "./eventHandlers";
 import { asPersonId, asSeriesId, type AccountId } from "../ids";
-import { CashFlowSeries } from "../cashFlowSeries";
-import type { OwnedSeries } from "../projection/simulate";
+import { SimCashFlowSeries } from "../cashFlowSeries";
+import type { SimOwnedSeries } from "../projection/simulate";
 import { freshState, type InterpretContext, type InterpretState, type SeriesDef } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import type {
@@ -24,10 +24,10 @@ import type {
 } from "./household";
 
 /** Materialize a series descriptor into the one shared calculation primitive. */
-function materializeSeries(def: SeriesDef): CashFlowSeries {
+function materializeSeries(def: SeriesDef): SimCashFlowSeries {
   const initialBaseCents =
     def.baseline.unit === "annual" ? def.baseline.annualCents : def.baseline.monthlyCents;
-  return new CashFlowSeries(def.startMonth, initialBaseCents, def.growthMode, {
+  return new SimCashFlowSeries(def.startMonth, initialBaseCents, def.growthMode, {
     baselineUnit: def.baseline.unit,
     endMonth: def.endMonth ?? undefined,
     taxCategory: def.taxCategory,
@@ -69,7 +69,7 @@ export function interpretToState(ledger: Ledger, base: LedgerBaseConfig): Interp
 }
 
 function baseSeries(
-  os: OwnedSeries,
+  os: SimOwnedSeries,
   seriesType: "income" | "expense",
   index: number,
 ): HouseholdSeries {

@@ -10,7 +10,7 @@
  */
 
 import type { Cents } from "./money";
-import type { Account } from "./account";
+import type { SimAccount } from "./simAccount";
 import type { ProjectionSeries } from "./projection/simulate";
 
 /**
@@ -168,7 +168,7 @@ export type GoalDisposal =
     };
 
 /** A funding goal (§5.2). See {@link GoalDisposal} for the `disposition`/`targetDate` pairing. */
-export type Goal = GoalBase & GoalDisposal;
+export type SimGoal = GoalBase & GoalDisposal;
 
 /**
  * A near-term *standing* goal (`retain`/`drawDown` — the old "horizon") routes to the
@@ -222,9 +222,9 @@ export interface GoalProgress {
  * end (the furthest the projection can see it accumulate).
  */
 export function computeGoalProgress(
-  goal: Goal,
+  goal: SimGoal,
   projection: ProjectionSeries,
-  accounts: readonly Account[],
+  accounts: readonly SimAccount[],
   nowMonth = 0,
 ): GoalProgress {
   const lastMonth = projection.months.length - 1;

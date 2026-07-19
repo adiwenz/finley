@@ -11,8 +11,8 @@ import {
   type LedgerBaseConfig,
   type NewLifeEvent,
 } from "./index";
-import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
-import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
+import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
 
@@ -25,7 +25,7 @@ const addBase: LedgerBaseConfig = {
   annualInflationRate: 0,
   initialPersons: primary,
   initialAccounts: [
-    new Account({
+    new SimAccount({
       id: "checking",
       ownerId: "p1",
       liquid: true,
@@ -195,7 +195,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       annualInflationRate: 0,
       initialPersons: primary,
       initialAccounts: [
-        new Account({
+        new SimAccount({
           id: "savings",
           ownerId: "p1",
           liquid: true,
@@ -246,8 +246,8 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 // ─── One replay-derived model feeds both snapshot and projection ──────────────
 
 describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §16)", () => {
-  function liquid(id = "checking", openingCents = 0): Account {
-    return new Account({
+  function liquid(id = "checking", openingCents = 0): SimAccount {
+    return new SimAccount({
       id,
       ownerId: "p1",
       liquid: true,
@@ -256,8 +256,8 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
       initialAnnualRate: 0,
     });
   }
-  function monthly(cents: number): CashFlowSeries {
-    return new CashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
+  function monthly(cents: number): SimCashFlowSeries {
+    return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
   }
 
   it("base income/expense drive the projection AND appear as role 'base' in the snapshot (§2)", () => {
@@ -357,7 +357,7 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
     annualInflationRate: 0,
     initialPersons: primary,
     initialAccounts: [
-      new Account({
+      new SimAccount({
         id: "savings",
         ownerId: "p1",
         liquid: true,

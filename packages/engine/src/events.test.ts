@@ -15,14 +15,14 @@ import {
   type LifeEvent,
   type NewLifeEvent,
 } from "./index";
-import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
-import { dollarsToCents, CashFlowSeries } from "./cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeLiquidAccount(id = "checking", openingCents = 0): Account {
-  return new Account({
+function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
+  return new SimAccount({
     id,
     ownerId: "p1",
     liquid: true,
@@ -830,7 +830,7 @@ describe("removeEvent — Strategy B cascade", () => {
 
 describe("initialIncomeSeries / initialExpenseSeries", () => {
   it("base income series drive net worth without any events", () => {
-    const income = new CashFlowSeries(
+    const income = new SimCashFlowSeries(
       0,
       dollarsToCents(4_000),
       { type: "fixed" },
@@ -847,7 +847,7 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
   });
 
   it("base expense series net against event-derived income", () => {
-    const expense = new CashFlowSeries(
+    const expense = new SimCashFlowSeries(
       0,
       dollarsToCents(1_000),
       { type: "fixed" },
@@ -875,7 +875,7 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
   });
 
   it("a fromHereForward value override on a base series changes the trajectory", () => {
-    const expense = new CashFlowSeries(
+    const expense = new SimCashFlowSeries(
       0,
       dollarsToCents(1_000),
       { type: "fixed" },
@@ -898,8 +898,8 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
 
 // ─── HomePurchaseEvent (property lifecycle §4.1, §4.5) ────────────────────────
 
-function savings(openingCents: number, rate = 0): Account {
-  return new Account({
+function savings(openingCents: number, rate = 0): SimAccount {
+  return new SimAccount({
     id: "savings",
     ownerId: "p1",
     liquid: true,

@@ -5,7 +5,7 @@ import {
   minCreditCardPaymentCents,
   derivePaymentStatus,
   deriveLoanStatus,
-  Liability,
+  SimLiability,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
@@ -109,7 +109,7 @@ describe("minCreditCardPaymentCents", () => {
 
 describe("Liability", () => {
   it("amortizing loan: computeFixedPaymentCents matches opening-balance formula", () => {
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "mortgage",
       ownerId: "p1",
       kind: "mortgage",
@@ -122,7 +122,7 @@ describe("Liability", () => {
   });
 
   it("credit card: computeFixedPaymentCents is 0; isCreditCard is true", () => {
-    const card = new Liability({
+    const card = new SimLiability({
       id: "visa",
       ownerId: "p1",
       kind: "creditCard",
@@ -135,7 +135,7 @@ describe("Liability", () => {
   });
 
   it("liquid is always false", () => {
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -166,7 +166,7 @@ describe("Liability", () => {
 
 describe("Liability one-time transfers (v1-seam)", () => {
   it("stores a transfer and returns it at its month, not others", () => {
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "mortgage",
       ownerId: "p1",
       kind: "mortgage",
@@ -183,7 +183,7 @@ describe("Liability one-time transfers (v1-seam)", () => {
   });
 
   it("returns every transfer scheduled at the same month", () => {
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "auto",
       ownerId: "p1",
       kind: "auto",

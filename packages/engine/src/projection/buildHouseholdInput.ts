@@ -1,19 +1,19 @@
 /**
  * Bridge the replay-derived household into the simulator's input, then run it.
  *
- * Series arrive already materialized (one `CashFlowSeries` each, built in
+ * Series arrive already materialized (one `SimCashFlowSeries` each, built in
  * replay); liabilities and account outflows are instantiated *here*, at the
  * simulation boundary, from immutable data (§5). Both projection and snapshot
  * read the same {@link Household}, so they cannot disagree (§1, §14).
  */
 
 import type { Jurisdiction } from "../jurisdiction";
-import { Liability } from "../liability";
+import { SimLiability } from "../liability";
 import { growthAnnualRate } from "../cashFlowSeries";
 import {
   simulateHousehold,
   type HouseholdSimInput,
-  type OwnedSeries,
+  type SimOwnedSeries,
   type SimPerson,
   type ProjectionSeries,
   type SimProperty,
@@ -27,8 +27,8 @@ export function buildHouseholdSimInput(
   household: Household,
   base: LedgerBaseConfig,
 ): HouseholdSimInput {
-  const incomeSeries: OwnedSeries[] = [];
-  const expenseSeries: OwnedSeries[] = [];
+  const incomeSeries: SimOwnedSeries[] = [];
+  const expenseSeries: SimOwnedSeries[] = [];
   for (const s of household.series) {
     if (s.seriesType === "income") {
       // Preserve the §5.5 plan descriptor so plan-bearing income defers pre-tax
@@ -40,7 +40,7 @@ export function buildHouseholdSimInput(
   }
 
   const liabilities = household.liabilities.map((def) => {
-    const liab = new Liability({
+    const liab = new SimLiability({
       id: def.id,
       ownerId: def.ownerId,
       kind: def.kind,

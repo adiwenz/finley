@@ -7,7 +7,7 @@
 
 import type { Cents } from "../money";
 import type { GrowthMode } from "../cashFlowSeries";
-import type { CashFlowSeries } from "../cashFlowSeries";
+import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
 import type { SimPerson } from "../projection/simulate";
 import type { PlanDescriptor } from "../projection/waterfall";
@@ -23,7 +23,7 @@ export interface HouseholdMembership {
 
 /**
  * A household income/expense series. Carries its own materialized
- * `CashFlowSeries` — built exactly once at interpretation — so projection and
+ * `SimCashFlowSeries` — built exactly once at interpretation — so projection and
  * snapshot read monthly amounts through the *same* instance and cannot disagree
  * (§14, §15).
  */
@@ -36,7 +36,7 @@ export interface HouseholdSeries {
   readonly causedByEventId: string | null;
   readonly startMonth: number;
   readonly endMonth: number | null;
-  readonly series: CashFlowSeries;
+  readonly series: SimCashFlowSeries;
   /**
    * Retirement-plan descriptor (§5.5) for an income series funding a person-owned
    * account. Presence makes the source eligible for pre-tax deferral in the §5.0

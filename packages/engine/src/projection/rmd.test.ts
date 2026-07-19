@@ -1,18 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
-  Account,
-  type AccountTaxProfile,
+  SimAccount,
+  type SimAccountTaxProfile,
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
-} from "../account";
+} from "../simAccount";
 import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 
 /** A non-compounding account so balances move only by RMD withdrawal/deposit. */
-function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liquid = false): Account {
-  return new Account({
+function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
+  return new SimAccount({
     id,
     ownerId: "p1",
     liquid,
@@ -25,7 +25,7 @@ function account(id: string, taxProfile: AccountTaxProfile, dollars: number, liq
 /** Surplus idles in the liquid cash account, so an RMD's net take-home lands there. */
 function baseInput(
   person: SimPerson,
-  accounts: Account[],
+  accounts: SimAccount[],
   overrides: Partial<HouseholdSimInput> = {},
 ): HouseholdSimInput {
   return {
