@@ -24,6 +24,21 @@ export type { Job, PersonId, SalaryTrajectory, JobDeferral } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
 export { careerJobOf } from "./person";
+// The standing per-person account ownership model (§9, §10, issue #68). A
+// `StandingAccount.owners: PersonId[]` distinguishes individual (`[p]`) from
+// joint (`[p1, p2]`) holdings; net worth is the household aggregate. Distinct
+// from the low-level simulator `Account` class (`./account`).
+export type { StandingAccount, StandingHousehold } from "./standingAccount";
+export {
+  makeStandingAccount,
+  assertAccountOwnership,
+  isJoint,
+  isIndividual,
+  personalAccounts,
+  jointAccounts,
+  accountsOf,
+  householdNetWorthCents,
+} from "./standingAccount";
 export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 export * from "./plan";
 export * from "./projectionBase";
