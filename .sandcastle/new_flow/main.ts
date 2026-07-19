@@ -18,7 +18,7 @@
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
-import { vercel } from "@ai-hero/sandcastle/sandboxes/vercel";
+import { vercelProvider } from "./vercelProvider";
 import { z } from "zod";
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
@@ -39,10 +39,6 @@ const planSchema = z.object({
 
 const MAX_OUTER_ITERATIONS = 10;
 
-const hooks = {
-  sandbox: { onSandboxReady: [{ command: "npm install" }] },
-};
-
 // ---------------------------------------------------------------------------
 // Sandbox selection: Docker (local, default) vs. Vercel cloud.
 //
@@ -54,9 +50,17 @@ const hooks = {
 //   - cloud (vercel):   an ephemeral Firecracker microVM per run that CLONES the
 //                        repo from its `origin` remote, so it needs a reachable
 //                        remote plus VERCEL_TOKEN / VERCEL_TEAM_ID /
-//                        VERCEL_PROJECT_ID in the env.
+//                        VERCEL_PROJECT_ID in the env. Optionally set
+//                        VERCEL_SANDBOX_IMAGE to a Vercel Container Registry
+//                        image with the toolchain baked in (see
+//                        .sandcastle/vercel.Dockerfile); without it the sandbox
+//                        boots a stock runtime and installs the tools per run.
 // ---------------------------------------------------------------------------
 type SandboxKind = "docker" | "cloud";
+
+// A VCR image ref to boot cloud sandboxes from (toolchain pre-baked). When unset,
+// cloud falls back to a stock runtime + per-run tool installation (see `hooks`).
+const CLOUD_IMAGE = process.env.VERCEL_SANDBOX_IMAGE?.trim() || undefined;
 
 function resolveSandboxKind(): SandboxKind {
   const idx = process.argv.findIndex((a) => a === "--sandbox" || a.startsWith("--sandbox="));
@@ -111,13 +115,21 @@ function makeSandbox(kind: SandboxKind) {
     throw new Error(`Cloud sandbox needs Vercel credentials — missing: ${missing.join(", ")}.`);
   }
 
-  console.log(`☁️  Sandbox: vercel cloud (cloning ${url}).`);
+  console.log(
+    `☁️  Sandbox: vercel cloud (cloning ${url}; ${CLOUD_IMAGE ? `image ${CLOUD_IMAGE}` : "stock runtime + per-run install"}).`,
+  );
   // A GH token lets the cloud sandbox clone a private origin over https
   // (x-access-token is GitHub's username convention for token auth).
   const auth = process.env.GH_TOKEN
     ? { username: "x-access-token", password: process.env.GH_TOKEN }
     : {};
-  return vercel({ token, teamId, projectId, source: { type: "git", url, ...auth } });
+  return vercelProvider({
+    ...(CLOUD_IMAGE ? { image: CLOUD_IMAGE } : {}),
+    token,
+    teamId,
+    projectId,
+    source: { type: "git", url, ...auth },
+  });
 }
 
 // Resolved once at startup; the kind drives both the provider and how we seed
@@ -132,6 +144,51 @@ const sandbox = makeSandbox(SANDBOX_KIND);
 // cloud mode we send nothing and let the `onSandboxReady` `npm install` populate
 // dependencies natively in the sandbox.
 const copyToWorktree = SANDBOX_KIND === "cloud" ? [] : ["node_modules"];
+
+// ---------------------------------------------------------------------------
+// Sandbox startup provisioning (onSandboxReady runs inside the sandbox).
+//
+// The Docker image (.sandcastle/Dockerfile) — and a VERCEL_SANDBOX_IMAGE VCR
+// image — bake in the agent's toolchain, so those only need `npm install`. A
+// stock Vercel cloud runtime starts bare: it has git (it cloned the repo) and
+// node, but NOT the GitHub CLI the prompts call (`gh issue list/view`) nor the
+// `claude` binary Sandcastle invokes. So a stock-runtime cloud run installs
+// those first, then installs deps.
+//
+// These target the Vercel node runtime; `gh` comes from the official release
+// tarball (no package-manager assumptions) and `claude` from its installer,
+// symlinked onto the system PATH so it resolves in every `sh -c` the agent runs.
+// GH_TOKEN (from .sandcastle/.env) authenticates gh in the sandbox.
+const GH_CLI_VERSION = "2.62.0";
+const cloudProvisioning = [
+  {
+    command:
+      "command -v gh >/dev/null 2>&1 || { " +
+      'case "$(uname -m)" in aarch64|arm64) A=arm64;; *) A=amd64;; esac; ' +
+      `V=${GH_CLI_VERSION}; ` +
+      'curl -fsSL "https://github.com/cli/cli/releases/download/v${V}/gh_${V}_linux_${A}.tar.gz" | tar -xz -C /tmp && ' +
+      '{ command -v sudo >/dev/null 2>&1 && S=sudo || S=; } && $S mv "/tmp/gh_${V}_linux_${A}/bin/gh" /usr/local/bin/gh; }',
+    timeoutMs: 120_000,
+  },
+  {
+    command:
+      "command -v claude >/dev/null 2>&1 || { " +
+      "curl -fsSL https://claude.ai/install.sh | bash && " +
+      '{ command -v sudo >/dev/null 2>&1 && S=sudo || S=; } && $S ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude; }',
+    timeoutMs: 180_000,
+  },
+  { command: "npm install", timeoutMs: 600_000 },
+];
+
+const npmInstallOnly = [{ command: "npm install", timeoutMs: 600_000 }];
+const hooks = {
+  sandbox: {
+    onSandboxReady:
+      // A prebuilt image (docker or a VCR image) already has the tools — just
+      // install deps. Only a stock cloud runtime needs the tool provisioning.
+      SANDBOX_KIND === "cloud" && !CLOUD_IMAGE ? cloudProvisioning : npmInstallOnly,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Review handoff mode: how a completed branch is surfaced for review.

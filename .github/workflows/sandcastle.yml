@@ -16,6 +16,10 @@ name: Sandcastle
 #   VERCEL_PROJECT_ID      — the Vercel project the sandbox is created under.
 # (All three Vercel values are required together — a bare token can't tell Vercel
 #  which team/project to bill the sandbox to.)
+# Optional:
+#   VERCEL_SANDBOX_IMAGE   — a VCR image ref (see .sandcastle/vercel.Dockerfile) to
+#                            boot from, with the toolchain pre-baked. Unset → the
+#                            sandbox boots a stock runtime and installs tools per run.
 # GITHUB_TOKEN is provided automatically and is used for git push + issue labels.
 
 on:
@@ -54,6 +58,8 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # Optional: unset falls back to a stock runtime + per-run tool install.
+      VERCEL_SANDBOX_IMAGE: ${{ secrets.VERCEL_SANDBOX_IMAGE }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       CI: "true"
@@ -85,6 +91,37 @@ jobs:
             echo "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}"
             echo "GH_TOKEN=${GH_TOKEN}"
           } > .sandcastle/.env
+
+      # Only for --sandbox docker. The docker provider does NOT auto-build: it
+      # expects an image named `sandcastle:<repo-dir>` (here `sandcastle:finley`)
+      # to already exist, and enforces that the image's baked-in user UID matches
+      # the runner user — so we build with the runner's UID/GID. Layers are cached
+      # in the GitHub Actions cache (type=gha), so repeat runs skip the apt/gh/
+      # claude installs and the build drops from minutes to seconds on a cache hit.
+      - name: Compute docker image params
+        if: ${{ (inputs.sandbox || 'cloud') == 'docker' }}
+        run: |
+          echo "SC_IMAGE=sandcastle:$(basename "$PWD")" >> "$GITHUB_ENV"
+          echo "SC_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "SC_GID=$(id -g)" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        if: ${{ (inputs.sandbox || 'cloud') == 'docker' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Sandcastle docker image (cached)
+        if: ${{ (inputs.sandbox || 'cloud') == 'docker' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .sandcastle/Dockerfile
+          tags: ${{ env.SC_IMAGE }}
+          load: true # load into the local daemon so `docker image inspect` finds it
+          build-args: |
+            AGENT_UID=${{ env.SC_UID }}
+            AGENT_GID=${{ env.SC_GID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run Sandcastle
         run: npx tsx .sandcastle/new_flow/main.ts --sandbox "${{ inputs.sandbox || 'cloud' }}" --review push
