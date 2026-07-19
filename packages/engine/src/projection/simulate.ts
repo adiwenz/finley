@@ -28,7 +28,7 @@ import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
   OwnedSeries,
-  Person,
+  SimPerson,
   ProjectionMonth,
   ProjectionMonthFlows,
   ProjectionSeries,
@@ -105,7 +105,7 @@ interface SimState {
    */
   readonly deferredByPersonYear: Map<string, Cents>;
   /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
-  readonly personsById: ReadonlyMap<string, Person>;
+  readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
    * Per-person lifetime SS-covered earnings accumulator (§5.4), seeded from the
    * §4.6 pre-now summary. Every month's covered wages are folded in; the record
@@ -204,7 +204,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     }
   }
 
-  const personsById = new Map<string, Person>();
+  const personsById = new Map<string, SimPerson>();
   for (const p of input.persons) personsById.set(p.id, p);
 
   const earningsByPerson = new Map<string, EarningsAccumulator>();

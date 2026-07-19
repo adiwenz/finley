@@ -9,14 +9,14 @@ import type { Cents } from "../money";
 import type { GrowthMode } from "../cashFlowSeries";
 import type { CashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { Person } from "../projection/simulate";
+import type { SimPerson } from "../projection/simulate";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
 export interface HouseholdMembership {
-  readonly person: Person;
+  readonly person: SimPerson;
   readonly startMonth: number;
   readonly endMonth: number | null;
 }

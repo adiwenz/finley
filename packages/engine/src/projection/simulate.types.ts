@@ -119,8 +119,14 @@ export interface ProjectionSeries {
   readonly months: readonly ProjectionMonth[];
 }
 
-/** A person in the household. */
-export interface Person {
+/**
+ * A person as the *simulator* consumes it — the compiled, engine-facing shape,
+ * deliberately narrower than the standing {@link import("../person").Person}
+ * authoring model (which carries jobs + `retirementTargetAge`). Here earnings
+ * arrive pre-computed as {@link priorEarningsCents}; the standing model compiles
+ * into this via {@link import("../compilePerson")}.
+ */
+export interface SimPerson {
   readonly id: string;
   readonly name: string;
   /**
@@ -177,7 +183,7 @@ export interface HouseholdSimInput {
   readonly horizonMonths: number;
   readonly annualInflationRate: number;
   readonly startYear?: number;
-  readonly persons: readonly Person[];
+  readonly persons: readonly SimPerson[];
   /**
    * Asset accounts. Net cash flow is routed through the §5.0 waterfall; leftover
    * surplus idles in the first liquid account by default (see `surplusDestination`).

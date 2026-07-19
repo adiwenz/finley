@@ -4,13 +4,13 @@ import {
   summarizeSimulation,
   SIMULATION_REPORT_VERSION,
 } from "./report";
-import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
 function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
-  const person: Person = { id: "p1", name: "Alice", birthYear: 1991 };
+  const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1991 };
   const acc = new Account({
     id: "savings",
     ownerId: "p1",

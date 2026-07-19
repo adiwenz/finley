@@ -1,6 +1,6 @@
 /** Shared controls and props for the per-event authoring forms (§10.5). */
 
-import type { NewLifeEvent, Person } from "@finley/engine";
+import type { NewLifeEvent, SimPerson } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
@@ -47,7 +47,7 @@ export function OwnerSelect({
   value,
   onChange,
 }: {
-  owners: readonly Person[];
+  owners: readonly SimPerson[];
   value: string;
   onChange: (id: string) => void;
 }) {

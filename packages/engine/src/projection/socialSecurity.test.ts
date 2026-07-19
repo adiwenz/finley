@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Account, CAPITAL_GAINS_TAX_PROFILE } from "../account";
 import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import { simulateHousehold, type HouseholdSimInput, type Person } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 
 /** A liquid, non-compounding cash account — surplus idles here so net worth = Σ SS deposits. */
 function cashAccount(): Account {
@@ -16,7 +16,7 @@ function cashAccount(): Account {
   });
 }
 
-function baseInput(person: Person, overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
+function baseInput(person: SimPerson, overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
   return {
     horizonMonths: 12,
     annualInflationRate: 0,
@@ -34,7 +34,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     // Person already at full retirement age with seeded lifetime earnings, so a
     // benefit *would* be claimed immediately — but the null jurisdiction supplies
     // no seam, so SS income is 0 and net worth stays flat.
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026
@@ -57,7 +57,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
         return Math.round(total / 100);
       },
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959,
@@ -75,7 +75,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       computeTaxCents: () => 0,
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1965, // turns 62 in 2027 → claim starts at month 12
@@ -99,7 +99,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
         return 0;
       },
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1965, // claims at month 12
@@ -134,7 +134,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
         Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2),
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
@@ -156,7 +156,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       computeTaxCents: () => 0,
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1964, // turns 62 in 2026 → claims from month 0, no eligibility bridge
@@ -182,7 +182,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       computeTaxCents: () => 0,
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
@@ -203,7 +203,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       computeTaxCents: () => 0,
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959,
@@ -223,7 +223,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
       socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
     };
-    const person: Person = {
+    const person: SimPerson = {
       id: "p1",
       name: "You",
       birthYear: 1959,

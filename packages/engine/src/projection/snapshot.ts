@@ -17,7 +17,7 @@ import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
-import type { Person, ProjectionSeries } from "./simulate";
+import type { SimPerson, ProjectionSeries } from "./simulate";
 
 export interface SnapshotChild extends Child {
   readonly id: ChildId;
@@ -78,7 +78,7 @@ export interface SnapshotBalances {
 
 export interface HouseholdSnapshot {
   readonly month: number;
-  readonly persons: readonly Person[];
+  readonly persons: readonly SimPerson[];
   readonly children: readonly SnapshotChild[];
   readonly income: readonly SnapshotSeries[];
   readonly expenses: readonly SnapshotSeries[];
@@ -101,7 +101,7 @@ function clampMonth(month: number, projection?: ProjectionSeries): number {
  * The single authoritative answer to "who is in the household at M" — the
  * snapshot and any UI that offers people to act on should read through this.
  */
-export function membersAt(household: Household, month: number): Person[] {
+export function membersAt(household: Household, month: number): SimPerson[] {
   return household.memberships
     .filter((mem) => mem.startMonth <= month && (mem.endMonth === null || mem.endMonth > month))
     .map((mem) => mem.person);
@@ -215,7 +215,7 @@ export function snapshotAt(
   ledger: Ledger,
   month: number,
   opts?: {
-    initialPersons?: readonly Person[];
+    initialPersons?: readonly SimPerson[];
     projection?: ProjectionSeries;
   },
 ): HouseholdSnapshot {
