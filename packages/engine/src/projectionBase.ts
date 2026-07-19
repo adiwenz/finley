@@ -11,11 +11,11 @@
  * (the app) supplies them.
  */
 
-import { CashFlowSeries } from "./cashFlowSeries";
-import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./account";
+import { SimCashFlowSeries } from "./cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./simAccount";
 import type { Cents } from "./money";
-import type { SimPerson, OwnedSeries, ProjectionSeries } from "./projection/simulate";
-import type { Goal, GoalDisposal } from "./goal";
+import type { SimPerson, SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
+import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
@@ -55,9 +55,9 @@ export function goalFundAccountId(goal: GoalPlan): string {
  * and one fund account per goal. All non-liquid accounts carry the plan's return
  * rate, which is what makes near-term goals in them trip the §5.2 risk flag.
  */
-export function buildPlanAccounts(budget: Plan): Account[] {
-  const accounts: Account[] = [
-    new Account({
+export function buildPlanAccounts(budget: Plan): SimAccount[] {
+  const accounts: SimAccount[] = [
+    new SimAccount({
       id: SAVINGS_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: true,
@@ -65,7 +65,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
       openingBalanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
     }),
-    new Account({
+    new SimAccount({
       id: RETIREMENT_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: false,
@@ -73,7 +73,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
       openingBalanceCents: 0,
       initialAnnualRate: budget.retirementReturnPct / 100,
     }),
-    new Account({
+    new SimAccount({
       id: BROKERAGE_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: false,
@@ -84,7 +84,7 @@ export function buildPlanAccounts(budget: Plan): Account[] {
   ];
   for (const goal of budget.goals) {
     accounts.push(
-      new Account({
+      new SimAccount({
         id: goalFundAccountId(goal),
         ownerId: PRIMARY_PERSON_ID,
         liquid: false,
@@ -98,10 +98,10 @@ export function buildPlanAccounts(budget: Plan): Account[] {
 }
 
 /**
- * The plan's goals as engine `Goal`s. Array order is priority (index 0 first),
+ * The plan's goals as engine `SimGoal`s. Array order is priority (index 0 first),
  * so reordering the plan array reprioritizes without touching anything else.
  */
-export function buildPlanGoals(budget: Plan): Goal[] {
+export function buildPlanGoals(budget: Plan): SimGoal[] {
   return budget.goals.map((goal, i) => {
     // The disposition/targetDate pair travels as ONE value: naming the fields
     // separately here would let a `spend`/`convertToEquity` goal pick up an "asap"
@@ -131,14 +131,14 @@ export function buildPlanGoals(budget: Plan): Goal[] {
  * figure inflated to the coverage age. Not enrolling, a jurisdiction with no
  * coverage age, or already being past it, collapses to a single segment.
  */
-function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashFlowSeries {
+function buildHealthSeries(budget: Plan, coverageAge: number | undefined): SimCashFlowSeries {
   const rate = budget.healthInflationPct / 100;
   const growth = { type: "customRate" as const, annualRate: rate };
   // The step exists only when the plan enrols AND the jurisdiction offers a
   // coverage age; without one there is no public coverage to step down to.
   const enrolls = budget.enrollsInPublicHealthCoverage && coverageAge !== undefined;
   if (!enrolls) {
-    return new CashFlowSeries(0, budget.healthMonthlyCents, growth, {
+    return new SimCashFlowSeries(0, budget.healthMonthlyCents, growth, {
       baselineUnit: "monthly",
     });
   }
@@ -146,12 +146,12 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): CashF
 
   // Already at/past the coverage age → the residual applies from month 0.
   if (yearsToCoverage <= 0) {
-    return new CashFlowSeries(0, budget.postCoverageHealthMonthlyCents, growth, {
+    return new SimCashFlowSeries(0, budget.postCoverageHealthMonthlyCents, growth, {
       baselineUnit: "monthly",
     });
   }
 
-  const series = new CashFlowSeries(0, budget.healthMonthlyCents, growth, {
+  const series = new SimCashFlowSeries(0, budget.healthMonthlyCents, growth, {
     baselineUnit: "monthly",
   });
   // Step down at the coverage age: the residual (today's dollars) inflated forward
@@ -262,14 +262,14 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // Income runs until retirement then stops (§7); while working it grows with CPI,
   // so it holds constant in real terms rather than eroding against rising prices.
   const workingMonths = Math.max(0, (budget.retirementAge - budget.currentAge) * 12);
-  const incomeSeries = new CashFlowSeries(
+  const incomeSeries = new SimCashFlowSeries(
     0,
     budget.incomeCents,
     { type: "inflationLinked", annualRate: inflationRate },
     { baselineUnit: "monthly", endMonth: workingMonths - 1 },
   );
   // General (non-health) expenses also grow with CPI — flat in real terms.
-  const expenseSeries = new CashFlowSeries(
+  const expenseSeries = new SimCashFlowSeries(
     0,
     budget.expenseCents,
     { type: "inflationLinked", annualRate: inflationRate },
@@ -284,7 +284,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
 
   // Lever 1 (§5.5): a positive deferral % turns the income into a plan-bearing
   // source that defers pre-tax into the retirement account.
-  const income: OwnedSeries = {
+  const income: SimOwnedSeries = {
     series: incomeSeries,
     ownerId: PRIMARY_PERSON_ID,
     planDescriptor:
@@ -295,7 +295,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
 
   // Jobs present → compile each job into its own forward income series; else the
   // single scalar income source. Deferral rides on the job (§11) in the job path.
-  const initialIncomeSeries: readonly OwnedSeries[] = standingPerson
+  const initialIncomeSeries: readonly SimOwnedSeries[] = standingPerson
     ? compilePersonIncomeSeries(standingPerson, startYear, inflationRate)
     : [income];
 

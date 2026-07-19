@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold, type SimPerson } from "./simulate";
-import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../account";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import {
-  Liability,
+  SimLiability,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability";
-import { CashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
+import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 
 function makePerson(id = "p1", name = "Alice"): SimPerson {
   return { id, name };
 }
 
-function makeInvestmentAccount(openingCents: number, annualRate: number): Account {
-  return new Account({
+function makeInvestmentAccount(openingCents: number, annualRate: number): SimAccount {
+  return new SimAccount({
     id: "investment",
     ownerId: "p1",
     liquid: true,
@@ -24,12 +24,12 @@ function makeInvestmentAccount(openingCents: number, annualRate: number): Accoun
   });
 }
 
-function monthlyIncome(monthlyCents: number): CashFlowSeries {
-  return new CashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
+function monthlyIncome(monthlyCents: number): SimCashFlowSeries {
+  return new SimCashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
-function monthlyExpense(monthlyCents: number): CashFlowSeries {
-  return new CashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
+function monthlyExpense(monthlyCents: number): SimCashFlowSeries {
+  return new SimCashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
 describe("simulateHousehold", () => {
@@ -196,7 +196,7 @@ describe("simulateHousehold", () => {
 describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", () => {
   it("month 0: net worth = assets − liabilities at opening balances", () => {
     const acc = makeInvestmentAccount(dollarsToCents(10_000), 0);
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -222,7 +222,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("amortizing loan balance decreases each month and reaches ~$0 by end of term", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -249,7 +249,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("amortizing loan is driven off a precomputed schedule → EXACTLY 0 at term, and stays 0", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -277,7 +277,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("a loan that originates mid-timeline is absent before its startMonth", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -370,7 +370,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("isInsolvent=true when credit limit cannot cover the full deficit", () => {
     const acc = makeInvestmentAccount(0, 0);
-    const card = new Liability({
+    const card = new SimLiability({
       id: "card",
       ownerId: "p1",
       kind: "creditCard",
@@ -473,7 +473,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     // A big non-liquid asset keeps every scheduled payment financeable, so the
     // only difference between the runs is the transfer.
     const makeLoan = (id: string) =>
-      new Liability({
+      new SimLiability({
         id,
         ownerId: "p1",
         kind: "auto",
@@ -516,7 +516,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
       series.months.findIndex((m) => m.liabilityBalancesCents[id] === 0);
 
     const makeLoan = () =>
-      new Liability({
+      new SimLiability({
         id: "auto",
         ownerId: "p1",
         kind: "auto",
@@ -557,7 +557,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     // — the $4k payoff at month 6 does not create value out of thin air.
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
     acc.addTransfer({ month: 6, amountCents: -dollarsToCents(4_000) });
-    const loan = new Liability({
+    const loan = new SimLiability({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -589,7 +589,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
   it("credit card in cascade reduces deficit; remaining overflows to insolvent", () => {
     // $500 monthly shortfall; card limit $300 → $200 unfinanceable
     const acc = makeInvestmentAccount(0, 0);
-    const card = new Liability({
+    const card = new SimLiability({
       id: "visa",
       ownerId: "p1",
       kind: "creditCard",
@@ -617,7 +617,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
   describe("liabilityPaymentRecords (v1-seam)", () => {
     it("every serviced payment is full/current through payoff, incl. the payoff month", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new Liability({
+      const loan = new SimLiability({
         id: "car",
         ownerId: "p1",
         kind: "auto",
@@ -625,7 +625,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
         apr: 0.06,
         termMonths: 12,
       });
-      const card = new Liability({
+      const card = new SimLiability({
         id: "visa",
         ownerId: "p1",
         kind: "creditCard",
@@ -670,7 +670,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
     it("month 0 has no payment records; a due payment produces one", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new Liability({
+      const loan = new SimLiability({
         id: "car",
         ownerId: "p1",
         kind: "auto",
@@ -701,7 +701,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
     it("a paid-off liability drops out of the records once nothing is due", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new Liability({
+      const loan = new SimLiability({
         id: "car",
         ownerId: "p1",
         kind: "auto",
@@ -731,10 +731,10 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
   const person: SimPerson = { id: "p1", name: "Alice" };
 
-  function retirementAccount(): Account {
+  function retirementAccount(): SimAccount {
     // A non-liquid pre-tax account — deferrals land here, but the surplus/idle
     // step never does (it targets the liquid account).
-    return new Account({
+    return new SimAccount({
       id: "401k",
       ownerId: "p1",
       liquid: false,
@@ -814,7 +814,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     // startYear defaults to 2026: born 1971 → age 55 (catch-up); born 1990 → age 36 (base).
     const older: SimPerson = { id: "p1", name: "Alice", birthYear: 1971 };
     const younger: SimPerson = { id: "p2", name: "Bob", birthYear: 1990 };
-    const older401k = new Account({
+    const older401k = new SimAccount({
       id: "401k-a",
       ownerId: "p1",
       liquid: false,
@@ -822,7 +822,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       openingBalanceCents: 0,
       initialAnnualRate: 0,
     });
-    const younger401k = new Account({
+    const younger401k = new SimAccount({
       id: "401k-b",
       ownerId: "p2",
       liquid: false,
@@ -879,7 +879,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
 
   it("surplus swept to an investment account instead of idling in liquid (lever 4)", () => {
     const checking = makeInvestmentAccount(0, 0);
-    const brokerage = new Account({
+    const brokerage = new SimAccount({
       id: "brokerage",
       ownerId: "p1",
       liquid: false,
@@ -904,8 +904,8 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
   });
 
   /** A rate-0 fund account so a goal's balance moves only by deposit/disposition. */
-  function goalFund(id: string): Account {
-    return new Account({
+  function goalFund(id: string): SimAccount {
+    return new SimAccount({
       id,
       ownerId: "p1",
       liquid: false,
@@ -990,7 +990,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
           persons: [makePerson()],
           accounts: [
             makeInvestmentAccount(0, 0),
-            new Account({
+            new SimAccount({
               id: "goal-x",
               ownerId: "p1",
               liquid: false,
@@ -1032,7 +1032,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
 
   it("a shared goal is funded ahead of idle surplus, up to its target", () => {
     const checking = makeInvestmentAccount(0, 0);
-    const emergency = new Account({
+    const emergency = new SimAccount({
       id: "emergency",
       ownerId: "p1",
       liquid: false,

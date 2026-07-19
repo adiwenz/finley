@@ -1,8 +1,8 @@
 import type { Cents } from "../money";
-import type { Account } from "../account";
+import type { SimAccount } from "../simAccount";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import { isEarmarkedForDisposition, type Goal } from "../goal";
+import { isEarmarkedForDisposition, type SimGoal } from "../goal";
 import type { IncomeSourceMonth } from "./waterfall";
 
 /** A per-owner map of taxable amount by {@link TaxCategory} (mirrors the waterfall). */
@@ -17,7 +17,7 @@ type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
  */
 export interface WithdrawalState {
   /** Every asset account — the withdrawal walks these as liquidation sources. */
-  readonly accounts: readonly Account[];
+  readonly accounts: readonly SimAccount[];
   /** The authoritative mutable balances; a drawdown reduces its source account in place. */
   readonly assetBalances: Map<string, Cents>;
   /**
@@ -25,14 +25,14 @@ export interface WithdrawalState {
    * balance is spent down BEFORE any investment is liquidated (D2): the withdrawal
    * only funds the shortfall the liquid buffer can't, so the cascade drains cash first.
    */
-  readonly liquidAccount: Account | null;
+  readonly liquidAccount: SimAccount | null;
   /** Funding goals — a `convertToEquity`/`spend` goal through its target month earmarks its fund (D4, §5.2). */
-  readonly goals: readonly Goal[];
+  readonly goals: readonly SimGoal[];
 }
 
 /**
  * The order investment accounts are liquidated in during decumulation (D2), keyed
- * by the account's neutral {@link import("../account").AccountTaxProfile.withdrawalCategory}:
+ * by the account's neutral {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
  * `capitalGains` first (brokerage + eligible goal funds, least tax friction — no
  * gross-up), then `ordinaryIncome` (taxed like an RMD), then `taxExempt` last
  * (preserve tax-free growth). Lower rank = drawn first.
@@ -44,7 +44,7 @@ const LIQUIDATION_ORDER: Partial<Record<TaxCategory, number>> = {
 };
 
 /** Liquidation rank for an account, from its withdrawal category (unknown → last). */
-function liquidationRank(account: Account): number {
+function liquidationRank(account: SimAccount): number {
   return LIQUIDATION_ORDER[account.taxProfile.withdrawalCategory] ?? 99;
 }
 
@@ -67,7 +67,7 @@ function liquidationRank(account: Account): number {
  *    earmarked balance here to reason about.
  */
 function isLiquidatable(
-  account: Account,
+  account: SimAccount,
   state: WithdrawalState,
   month: number,
 ): boolean {

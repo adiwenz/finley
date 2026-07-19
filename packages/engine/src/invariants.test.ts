@@ -17,7 +17,7 @@
 
 import { assert, it } from "vitest";
 import {
-  CashFlowSeries,
+  SimCashFlowSeries,
   splitAnnualToMonths,
   preciseMonthlyRate,
   dollarsToCents,
@@ -37,7 +37,7 @@ const todo = (name: string) => it.todo(name);
 console.log("\n1. Money integrity");
 
 test("all monetary state is integer cents (CashFlowSeries)", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(83421.37), {
+  const s = new SimCashFlowSeries(0, dollarsToCents(83421.37), {
     type: "salaryCompound",
     annualRate: 0.037,
   });
@@ -53,7 +53,7 @@ test("cumulative rounding sums exactly to the annual total (awkward figure)", ()
 });
 
 test("cumulative rounding still sums exactly AFTER a fromHereForward override", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(60000), {
+  const s = new SimCashFlowSeries(0, dollarsToCents(60000), {
     type: "salaryCompound",
     annualRate: 0.05,
   });
@@ -83,7 +83,7 @@ console.log("\n3. Determinism & replay");
 
 test("CashFlowSeries is query-order independent (cache determinism)", () => {
   const mk = () =>
-    new CashFlowSeries(0, dollarsToCents(72000), {
+    new SimCashFlowSeries(0, dollarsToCents(72000), {
       type: "salaryCompound",
       annualRate: 0.04,
     });
@@ -112,11 +112,11 @@ todo("credit-covered shortfall raises card liability by exactly the deficit (con
 console.log("\n5. Streams & lifecycle");
 
 test("independent series do not couple: a salary edit never changes a rent series", () => {
-  const salary = new CashFlowSeries(0, dollarsToCents(90000), {
+  const salary = new SimCashFlowSeries(0, dollarsToCents(90000), {
     type: "salaryCompound",
     annualRate: 0.03,
   });
-  const rent = new CashFlowSeries(0, dollarsToCents(24000), {
+  const rent = new SimCashFlowSeries(0, dollarsToCents(24000), {
     type: "inflationLinked",
     annualRate: 0.025,
   });
@@ -126,7 +126,7 @@ test("independent series do not couple: a salary edit never changes a rent serie
 });
 
 test("endMonth truncates: a series yields nothing past endMonth", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(200), { type: "fixed" }, {
+  const s = new SimCashFlowSeries(0, dollarsToCents(200), { type: "fixed" }, {
     baselineUnit: "monthly",
     endMonth: 10,
   });
@@ -224,7 +224,7 @@ test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {
 });
 
 test("ANCHOR: fixed salary at 0% growth is constant forever", () => {
-  const s = new CashFlowSeries(0, dollarsToCents(120000), { type: "fixed" });
+  const s = new SimCashFlowSeries(0, dollarsToCents(120000), { type: "fixed" });
   const y0 = s.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
   const y10 = s.getRangeCents(120, 131).reduce((a, b) => a + b, 0);
   assert.strictEqual(y0, dollarsToCents(120000));

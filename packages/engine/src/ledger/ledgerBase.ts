@@ -6,9 +6,9 @@
  * artifacts, never life events (§10.3 rule 1), so they are provided here.
  */
 
-import type { SimPerson, OwnedSeries } from "../projection/simulate";
-import type { Account } from "../account";
-import type { Goal } from "../goal";
+import type { SimPerson, SimOwnedSeries } from "../projection/simulate";
+import type { SimAccount } from "../simAccount";
+import type { SimGoal } from "../goal";
 import type {
   SharedContributionScheme,
   SurplusDestination,
@@ -21,21 +21,21 @@ export interface LedgerBaseConfig {
   /** Persons present before any events (e.g. the primary account holder). */
   readonly initialPersons?: readonly SimPerson[];
   /** Accounts managed outside the event ledger (payoff events attach outflows). */
-  readonly initialAccounts?: readonly Account[];
+  readonly initialAccounts?: readonly SimAccount[];
   /**
    * Ongoing income series on the value-editing (Budget/Accounts) surface rather
    * than the event ledger (§10.2). Value edits are overrides on the series
    * artifact, never life events (§10.3 rule 1), so they are supplied here.
    */
-  readonly initialIncomeSeries?: readonly OwnedSeries[];
+  readonly initialIncomeSeries?: readonly SimOwnedSeries[];
   /** Ongoing expense series on the value-editing surface (see initialIncomeSeries). */
-  readonly initialExpenseSeries?: readonly OwnedSeries[];
+  readonly initialExpenseSeries?: readonly SimOwnedSeries[];
   /**
    * Funding goals — prioritized destinations in the §5.0 waterfall (§5.2). Like
    * the budget series, goals live on the value-editing surface, not the event
    * ledger (§10.2): reprioritizing a goal is a plan edit, not a life event.
    */
-  readonly goals?: readonly Goal[];
+  readonly goals?: readonly SimGoal[];
   /** Lever 2 (§5.0): how partners split shared obligations. Default proportional. */
   readonly sharedScheme?: SharedContributionScheme;
   /** Lever 4 (§5.0): where leftover cash lands once every goal is funded. */

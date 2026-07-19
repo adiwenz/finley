@@ -1,11 +1,11 @@
 /**
  * Pure compilation from the standing {@link Person}/{@link Job} authoring model into
  * the simulator's inputs (§3, §4.6, §6 of JOBS_HOUSEHOLD_REDESIGN, issue #64):
- * a forward income {@link OwnedSeries} per still-paying job, plus the pre-"now"
+ * a forward income {@link SimOwnedSeries} per still-paying job, plus the pre-"now"
  * SS-covered earnings record computed directly from the jobs (never simulated).
  *
  * This is the one module in the standing model that depends on the simulator
- * (`OwnedSeries`); isolating it here keeps the {@link Person}/{@link Job} *type*
+ * (`SimOwnedSeries`); isolating it here keeps the {@link Person}/{@link Job} *type*
  * modules free of any `projection/*` import, so the standing model and the sim
  * core cannot form an import cycle. Everything here is pure and
  * jurisdiction-agnostic: it needs only the calendar "now" (`nowYear`) and CPI
@@ -13,8 +13,8 @@
  */
 
 import type { Cents } from "./money";
-import { CashFlowSeries, type GrowthMode } from "./cashFlowSeries";
-import type { OwnedSeries } from "./projection/simulate";
+import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
+import type { SimOwnedSeries } from "./projection/simulate";
 import type { Job } from "./job";
 import { type Person, careerJobOf } from "./person";
 
@@ -58,14 +58,14 @@ export function compilePersonPriorEarnings(
 }
 
 /**
- * Compile one job into a forward income {@link OwnedSeries} covering "now" through
+ * Compile one job into a forward income {@link SimOwnedSeries} covering "now" through
  * the job's end (§6, §4.6). The series starts at the later of month 0 and the
  * job's start, carries the salary at "now" as a monthly baseline, and grows
  * nominally (real growth compounded with CPI). A `null`-end (career) job runs to
  * the owner's `retirementTargetAge`. Returns `null` for a job that has already
  * ended before "now" (its earnings are entirely in the prior-earnings record).
  */
-function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRate: number): OwnedSeries | null {
+function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRate: number): SimOwnedSeries | null {
   const endYearExclusive = jobEndYearExclusive(job, owner);
   const endMonthExclusive = (endYearExclusive - nowYear) * 12;
   if (endMonthExclusive <= 0) return null; // wholly in the past
@@ -83,7 +83,7 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
       ? { type: "inflationLinked", annualRate: inflationRate }
       : { type: "customRate", annualRate: (1 + realGrowth) * (1 + inflationRate) - 1 };
 
-  const series = new CashFlowSeries(startMonth, monthlyNowCents, growthMode, {
+  const series = new SimCashFlowSeries(startMonth, monthlyNowCents, growthMode, {
     baselineUnit: "monthly",
     endMonth: endMonthExclusive - 1,
   });
@@ -105,7 +105,7 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
 
 /**
  * Compile all of a person's jobs into forward income series (§6). One
- * {@link OwnedSeries} per job that still pays at or after "now"; wholly-past jobs
+ * {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
  * contribute only to {@link compilePersonPriorEarnings}. `careerJobOf` is consulted
  * first so the ≤1 null-end invariant is enforced even when a caller ignores the
  * income result.
@@ -114,9 +114,9 @@ export function compilePersonIncomeSeries(
   person: Person,
   nowYear: number,
   inflationRate: number,
-): OwnedSeries[] {
+): SimOwnedSeries[] {
   careerJobOf(person);
-  const series: OwnedSeries[] = [];
+  const series: SimOwnedSeries[] = [];
   for (const job of person.jobs) {
     const compiled = compileJobIncome(job, person, nowYear, inflationRate);
     if (compiled) series.push(compiled);

@@ -10,10 +10,10 @@
  */
 
 import type { Cents } from "../money";
-import type { Account } from "../account";
-import type { Liability, PaymentStatus, LoanStatus } from "../liability";
-import type { CashFlowSeries } from "../cashFlowSeries";
-import type { Goal } from "../goal";
+import type { SimAccount } from "../simAccount";
+import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
+import type { SimCashFlowSeries } from "../cashFlowSeries";
+import type { SimGoal } from "../goal";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -151,8 +151,8 @@ export interface SimPerson {
 }
 
 /** An income or expense series tied to an owner. */
-export interface OwnedSeries {
-  readonly series: CashFlowSeries;
+export interface SimOwnedSeries {
+  readonly series: SimCashFlowSeries;
   readonly ownerId: string;
   /**
    * Retirement-plan descriptor (§5.5) for an income source that funds a
@@ -190,16 +190,16 @@ export interface HouseholdSimInput {
    * Every account a goal or the surplus destination targets must be one of these —
    * a deposit to an unknown account id would not be counted toward net worth.
    */
-  readonly accounts: readonly Account[];
-  readonly incomeSeries: readonly OwnedSeries[];
-  readonly expenseSeries: readonly OwnedSeries[];
+  readonly accounts: readonly SimAccount[];
+  readonly incomeSeries: readonly SimOwnedSeries[];
+  readonly expenseSeries: readonly SimOwnedSeries[];
   /**
    * Liabilities (mortgages, auto loans, student loans, credit cards).
    * Amortizing payments are computed from opening balance/rate/term (§3);
    * credit card minimum payments are computed each month from the current balance.
    * If no credit cards are provided, a synthetic 22% APR card absorbs shortfalls (§5.1).
    */
-  readonly liabilities?: readonly Liability[];
+  readonly liabilities?: readonly SimLiability[];
   /**
    * Owned properties (§4.1). Each is an appreciating asset stock whose value
    * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
@@ -210,7 +210,7 @@ export interface HouseholdSimInput {
    * goals draw from the household pool; personal goals from their owner's leftover.
    * Retirement is just the highest-priority horizon goal. Defaults to none.
    */
-  readonly goals?: readonly Goal[];
+  readonly goals?: readonly SimGoal[];
   /**
    * Lever 2 (§5.0): how partners split shared obligations. Defaults to
    * `"proportional"` (to take-home) — the robust default that degrades gracefully

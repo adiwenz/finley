@@ -1,9 +1,9 @@
 import type { Cents } from "../money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import type { Account } from "../account";
+import type { SimAccount } from "../simAccount";
 import { seedEarnings, type EarningsAccumulator } from "../earningsRecord";
 import {
-  Liability,
+  SimLiability,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
@@ -13,7 +13,7 @@ import {
   deriveLoanStatus,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
-import type { Goal } from "../goal";
+import type { SimGoal } from "../goal";
 import {
   runWaterfall,
   type IncomeSourceMonth,
@@ -27,7 +27,7 @@ import { buildFlows } from "./reportFlows";
 import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
-  OwnedSeries,
+  SimOwnedSeries,
   SimPerson,
   ProjectionMonth,
   ProjectionMonthFlows,
@@ -61,13 +61,13 @@ function toRealCents(
  * are the only things that mutate as the months advance.
  */
 interface SimState {
-  readonly accounts: readonly Account[];
+  readonly accounts: readonly SimAccount[];
   /** First liquid account — receives net cash flow and absorbs the first shortfall. */
-  readonly liquidAccount: Account | null;
+  readonly liquidAccount: SimAccount | null;
   /** User liabilities plus the synthetic shortfall card, if one was created. */
-  readonly liabilities: readonly Liability[];
+  readonly liabilities: readonly SimLiability[];
   /** Credit cards (incl. synthetic) sorted ascending by APR — shortfall cascade order. */
-  readonly cascadeCards: readonly Liability[];
+  readonly cascadeCards: readonly SimLiability[];
   /** liab.id → exact amortization schedule (amortizing loans only). */
   readonly amortSchedules: ReadonlyMap<string, readonly Cents[]>;
   readonly assetBalances: Map<string, Cents>;
@@ -96,7 +96,7 @@ interface SimState {
    * maturity (fireGoalDispositions), so a spent / converted fund is never re-funded,
    * re-earmarked, or drawn thereafter (§5.2, #28).
    */
-  goals: Goal[];
+  goals: SimGoal[];
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
@@ -148,7 +148,7 @@ function initSimState(input: HouseholdSimInput): SimState {
   // as solvent forever (#36).
   const syntheticCard = userLiabilities.some((l) => l.isCreditCard())
     ? null
-    : new Liability({
+    : new SimLiability({
         id: SYNTHETIC_CARD_ID,
         ownerId: "household",
         kind: "creditCard",
@@ -234,7 +234,7 @@ function initSimState(input: HouseholdSimInput): SimState {
 }
 
 /** Σ of a set of series at `month` — reused for both income (step 1) and expenses (step 3). */
-function sumMonthlySeries(series: readonly OwnedSeries[], month: number): Cents {
+function sumMonthlySeries(series: readonly SimOwnedSeries[], month: number): Cents {
   let total = 0;
   for (const s of series) total += s.series.getMonthlyCents(month);
   return total;
@@ -299,7 +299,7 @@ function buildLiabilityPaymentRecords(
 
 /** This month's income sources for the waterfall — one per active income series. */
 function buildIncomeSources(
-  incomeSeries: readonly OwnedSeries[],
+  incomeSeries: readonly SimOwnedSeries[],
   month: number,
 ): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
@@ -503,7 +503,7 @@ function advanceProperties(state: SimState, month: number): void {
  *    reappears as an illiquid home-equity holding (a property opening at the fund's
  *    matured value, appreciating at that fund's own rate). Net worth is unchanged at
  *    the swap (§4.5), and the equity drops out of the drawable retirement nest egg
- *    for free — it is no longer an `Account`, so the decumulation liquidation loop
+ *    for free — it is no longer a `SimAccount`, so the decumulation liquidation loop
  *    never sees it (a fuller property+mortgage model needs purchase/mortgage terms a
  *    GoalPlan does not carry — future work).
  *  - `retain` / `drawDown` — nothing fires; the money stays where it is.

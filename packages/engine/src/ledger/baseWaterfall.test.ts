@@ -6,18 +6,18 @@
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
-import { CashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { Account, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../account";
+import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import { nullJurisdiction } from "../jurisdiction";
 
 const person = { id: "p1", name: "Alex" };
 
-function monthly(cents: number): CashFlowSeries {
-  return new CashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
+function monthly(cents: number): SimCashFlowSeries {
+  return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
-function account(id: string, liquid: boolean): Account {
-  return new Account({
+function account(id: string, liquid: boolean): SimAccount {
+  return new SimAccount({
     id,
     ownerId: "p1",
     liquid,

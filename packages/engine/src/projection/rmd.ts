@@ -1,5 +1,5 @@
 import type { Cents } from "../money";
-import type { Account } from "../account";
+import type { SimAccount } from "../simAccount";
 import type { Jurisdiction } from "../jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson } from "./simulate";
@@ -12,7 +12,7 @@ import type { SimPerson } from "./simulate";
  */
 export interface RmdState {
   /** Every asset account — filtered here to a person's forced-distribution-eligible holdings. */
-  readonly accounts: readonly Account[];
+  readonly accounts: readonly SimAccount[];
   /** The authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
   /** Every person by id — an RMD needs the holder's birth year to derive age/start age. */

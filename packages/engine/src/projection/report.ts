@@ -13,7 +13,7 @@
 
 import type { Cents } from "../money";
 import type { Jurisdiction } from "../jurisdiction";
-import type { Goal } from "../goal";
+import type { SimGoal } from "../goal";
 import { simulateHousehold } from "./simulate";
 import type {
   HouseholdSimInput,
@@ -106,7 +106,7 @@ export interface ReportInputs {
   readonly properties: readonly ReportProperty[];
   readonly incomeSources: readonly ReportIncomeSource[];
   readonly expenseSources: readonly ReportExpenseSource[];
-  readonly goals: readonly Goal[];
+  readonly goals: readonly SimGoal[];
 }
 
 /**

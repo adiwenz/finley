@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { computeGoalProgress, isEarmarkedForDisposition, type Goal, type GoalDisposal } from "./goal";
-import { Account, CAPITAL_GAINS_TAX_PROFILE } from "./account";
+import { computeGoalProgress, isEarmarkedForDisposition, type SimGoal, type GoalDisposal } from "./goal";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { simulateHousehold, type SimPerson } from "./projection/simulate";
-import { CashFlowSeries, dollarsToCents } from "./cashFlowSeries";
+import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
 const person: SimPerson = { id: "p1", name: "Alice" };
 
-function account(id: string, annualRate: number, liquid = true): Account {
-  return new Account({
+function account(id: string, annualRate: number, liquid = true): SimAccount {
+  return new SimAccount({
     id,
     ownerId: "p1",
     liquid,
@@ -18,8 +18,8 @@ function account(id: string, annualRate: number, liquid = true): Account {
   });
 }
 
-function monthly(cents: number): CashFlowSeries {
-  return new CashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
+function monthly(cents: number): SimCashFlowSeries {
+  return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
 describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)", () => {
@@ -81,7 +81,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       nullJurisdiction,
     );
 
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "House",
       targetCents: dollarsToCents(24000),
@@ -110,7 +110,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       },
       nullJurisdiction,
     );
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "House",
       targetCents: dollarsToCents(24000),
@@ -137,7 +137,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
       },
       nullJurisdiction,
     );
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "zero",
       targetCents: 0,
@@ -165,7 +165,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
   );
 
   it("a standing (drawDown) goal < 12 months out routes to the immediate (asset-ratio) verdict path", () => {
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "near",
       targetCents: dollarsToCents(1000),
@@ -181,7 +181,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
   });
 
   it("a firing (spend) goal ALWAYS uses the projection path, even when near-term", () => {
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "near-onetime",
       targetCents: dollarsToCents(1000),
@@ -197,7 +197,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
   });
 
   it("a standing (drawDown) goal ≥ 12 months out uses the projection path", () => {
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "far",
       targetCents: dollarsToCents(1000),
@@ -214,7 +214,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
 
   it("flags a near-term goal held in a high-return / high-risk account", () => {
     const risky = account("fund", 0.08); // equity-like
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "near-risky",
       targetCents: dollarsToCents(1000),
@@ -229,7 +229,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
 
   it("does NOT flag a near-term goal held in a low-risk account", () => {
     const safe = account("fund", 0.01); // HYSA-like
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "near-safe",
       targetCents: dollarsToCents(1000),
@@ -244,7 +244,7 @@ describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)",
 
   it("does NOT flag a long-horizon goal even in a high-risk account", () => {
     const risky = account("fund", 0.08);
-    const goal: Goal = {
+    const goal: SimGoal = {
       id: "g",
       name: "far-risky",
       targetCents: dollarsToCents(1000),

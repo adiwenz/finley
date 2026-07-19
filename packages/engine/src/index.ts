@@ -8,7 +8,7 @@
  */
 export type { Cents } from "./money";
 export * from "./cashFlowSeries";
-export * from "./account";
+export * from "./simAccount";
 export * from "./liability";
 export * from "./affordability";
 export * from "./jurisdiction";
@@ -24,6 +24,21 @@ export type { Job, PersonId, SalaryTrajectory, JobDeferral } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
 export { careerJobOf } from "./person";
+// The authoring per-person account ownership model (§9, §10, issue #68). An
+// `Account.owners: PersonId[]` distinguishes individual (`[p]`) from joint
+// (`[p1, p2]`) holdings; net worth is the household aggregate. Distinct from the
+// low-level simulator `SimAccount` class (`./simAccount`).
+export type { Account, AccountHousehold } from "./account";
+export {
+  makeAccount,
+  assertAccountOwnership,
+  isJoint,
+  isIndividual,
+  personalAccounts,
+  jointAccounts,
+  accountsOf,
+  householdNetWorthCents,
+} from "./account";
 export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 export * from "./plan";
 export * from "./projectionBase";

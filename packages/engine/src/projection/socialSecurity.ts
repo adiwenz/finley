@@ -4,7 +4,7 @@ import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earn
 import { priceSocialSecurityMonthlyCents } from "../socialSecurityBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { SimPerson, OwnedSeries } from "./simulate";
+import type { SimPerson, SimOwnedSeries } from "./simulate";
 
 /** Default Social Security claiming age (full retirement age) when unspecified (§5.4). */
 export const DEFAULT_SS_CLAIMING_AGE = 67;
@@ -61,7 +61,7 @@ function isCoveredEarnings(taxCategory: TaxCategory): boolean {
  */
 export function accumulateEarnings(
   earningsByPerson: Map<string, EarningsAccumulator>,
-  incomeSeries: readonly OwnedSeries[],
+  incomeSeries: readonly SimOwnedSeries[],
   month: number,
   year: number,
 ): void {

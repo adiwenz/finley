@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, CashFlowSeries, Account, dollarsToCents, CAPITAL_GAINS_TAX_PROFILE } from "@finley/engine";
+import { simulateHousehold, SimCashFlowSeries, SimAccount, dollarsToCents, CAPITAL_GAINS_TAX_PROFILE } from "@finley/engine";
 import { usJurisdiction } from "./index";
 
 // Proves rules can consume the engine (app → rules → engine direction) and that
@@ -21,7 +21,7 @@ describe("usJurisdiction (placeholder US-2026)", () => {
         annualInflationRate: 0.02,
         persons: [{ id: "p1", name: "You" }],
         accounts: [
-          new Account({
+          new SimAccount({
             id: "cash",
             ownerId: "p1",
             liquid: true,
@@ -32,7 +32,7 @@ describe("usJurisdiction (placeholder US-2026)", () => {
         ],
         incomeSeries: [
           {
-            series: new CashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, { baselineUnit: "monthly" }),
+            series: new SimCashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, { baselineUnit: "monthly" }),
             ownerId: "p1",
           },
         ],
