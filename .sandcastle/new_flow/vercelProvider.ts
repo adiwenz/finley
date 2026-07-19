@@ -80,15 +80,35 @@ export const vercelProvider = (options: VercelProviderOptions) =>
       const boot = options.image
         ? { image: options.image }
         : { runtime: options.runtime ?? "node24" };
-      const sandbox = await Sandbox.create({
-        ...boot,
-        ...(options.source ? { source: options.source } : {}),
-        ...(options.token ? { token: options.token } : {}),
-        ...(options.teamId ? { teamId: options.teamId } : {}),
-        ...(options.projectId ? { projectId: options.projectId } : {}),
-        ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
-        env,
-      } as Parameters<typeof Sandbox.create>[0]);
+      let sandbox: Awaited<ReturnType<typeof Sandbox.create>>;
+      try {
+        sandbox = await Sandbox.create({
+          ...boot,
+          ...(options.source ? { source: options.source } : {}),
+          ...(options.token ? { token: options.token } : {}),
+          ...(options.teamId ? { teamId: options.teamId } : {}),
+          ...(options.projectId ? { projectId: options.projectId } : {}),
+          ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+          env,
+        } as Parameters<typeof Sandbox.create>[0]);
+      } catch (err: unknown) {
+        // The SDK's APIError carries Vercel's response body in `.text`/`.json`,
+        // but only `.message` ("Status code 500 is not ok") propagates up. Re-throw
+        // with the body + status + which image/runtime, so the real cause is visible.
+        const e = err as { message?: string; text?: string; json?: unknown; response?: { status?: number } };
+        const status = e?.response?.status;
+        const body = e?.text ?? (e?.json !== undefined ? JSON.stringify(e.json) : undefined);
+        const detail = [
+          "Vercel Sandbox.create failed",
+          status ? `(HTTP ${status})` : undefined,
+          options.image ? `image="${options.image}"` : `runtime="${options.runtime ?? "node24"}"`,
+          e?.message,
+          body ? `— Vercel response: ${body}` : undefined,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        throw new Error(detail, { cause: err });
+      }
       await sandbox.mkDir(REPO_PATH);
 
       const runViaSh = async (
