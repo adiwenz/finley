@@ -15,6 +15,7 @@ import { createProjectionBase, PRIMARY_PERSON_ID, RETIREMENT_ID, type Projection
 import { samplePlan } from "./testing/samplePlan";
 import { deriveRealGrowthPct, type Job } from "./job";
 import { careerJobOf, type Person } from "./person";
+import { compilePersonIncomeSeries } from "./compilePerson";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -63,6 +64,29 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
     expect(careerJobOf({ ...person, jobs: [] })).toBeUndefined();
     // Two null-end jobs is a hard model violation.
     expect(() => careerJobOf({ ...person, jobs: [careerJob, { ...careerJob, id: "j2" }] })).toThrow();
+  });
+
+  it("retirementTargetAge is the per-person input that sets the career job's end (§5, issue #66)", () => {
+    const birthYear = START_YEAR - samplePlan.currentAge;
+    const base: Person = {
+      id: PRIMARY_PERSON_ID,
+      name: "P",
+      birthYear,
+      retirementTargetAge: samplePlan.retirementAge,
+      ssClaimingAge: samplePlan.ssClaimingAge,
+      jobs: [careerJob],
+    };
+    const careerEndMonth = (age: number) =>
+      compilePersonIncomeSeries(
+        { ...base, retirementTargetAge: age },
+        START_YEAR,
+        samplePlan.inflationPct / 100,
+      )[0].series.endMonth;
+    // The career (null-end) job's forward income stops the month before the owner
+    // turns `retirementTargetAge` — the input alone moves the end; nothing else changes.
+    expect(careerEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
+    expect(careerEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
+    expect(careerEndMonth(65)).toBeGreaterThan(careerEndMonth(60) as number);
   });
 
   it("a single career job matches the scalar model month-for-month", () => {

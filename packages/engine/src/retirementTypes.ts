@@ -34,3 +34,29 @@ export interface RetirementEvaluation {
    */
   readonly nearestFeasibleAge: number | null;
 }
+
+/**
+ * The two §5 retirement solver outputs, plus the derived full-work-stop target — the
+ * single shape a caller reads to describe "when can this household retire?" Both ages
+ * come off the SAME real §5 projection (#29 substrate); they differ only in which jobs
+ * keep paying past the pinned age (§5):
+ *
+ *  - **`careerExitAge`** — the earliest age the **career** job (the `null`-end job) can
+ *    end while the authored **supplemental** jobs + passive income + SS keep running.
+ *    This is the subjective "retired" milestone; the on-track % pairs with it.
+ *  - **`workOptionalAge`** — the earliest age **ALL** jobs (career + supplemental) can
+ *    cease and the plan still survive on passive income + SS + assets alone. Always
+ *    ≥ `careerExitAge`: dropping the supplemental income can only make survival harder.
+ *  - **`fullWorkStopTargetAge`** — the derived `max(job endYears)` as an age: the latest
+ *    any authored job is scheduled to stop. `null` for a scalar (jobs-less) plan.
+ *
+ * Ages are `null` when even working to life expectancy cannot make that scenario survive.
+ */
+export interface RetirementSolution {
+  /** Earliest career-exit age (vary the career job's end; keep supplemental + passive). */
+  readonly careerExitAge: number | null;
+  /** Earliest work-optional age (cease ALL jobs; survive on passive + SS + assets). */
+  readonly workOptionalAge: number | null;
+  /** Derived `max(job endYears)` as an age; `null` when the plan has no jobs. */
+  readonly fullWorkStopTargetAge: number | null;
+}

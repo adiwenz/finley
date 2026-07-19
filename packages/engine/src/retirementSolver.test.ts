@@ -11,14 +11,18 @@ import {
   projectPlan,
   realNetWorthSurvives,
   earliestFeasibleRetirementAge,
+  earliestCareerExitAge,
+  earliestWorkOptionalAge,
   evaluateAtAge,
+  evaluateWorkOptionalAtAge,
+  solveRetirement,
 } from "./retirementSolver";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 
-const START_YEAR = 2026;
+const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
 
 function survivesAt(budget: Plan, age: number): boolean {
@@ -77,5 +81,48 @@ describe("retirementSolver — target mode (§7.1)", () => {
     expect(evaluation.feasible).toBe(false);
     expect(evaluation.onTrackFraction).toBeGreaterThan(0);
     expect(evaluation.onTrackFraction).toBeLessThan(1);
+  });
+});
+
+describe("retirementSolver — career-exit vs work-optional (§5, issue #66)", () => {
+  // The career-exit solver is the headline solver under its §5 name: it varies the
+  // career (null-end) job's end and keeps the authored supplemental + passive income.
+  it("career-exit is the same search as the headline feasibility solver", () => {
+    expect(earliestCareerExitAge(baristaPlan, CTX)).toBe(
+      earliestFeasibleRetirementAge(baristaPlan, CTX),
+    );
+  });
+
+  it("work-optional survival is monotonic in the cease-all-work age (later never hurts)", () => {
+    let seenSurviving = false;
+    for (let age = baristaPlan.currentAge; age <= baristaPlan.lifeExpectancy; age++) {
+      const ok = evaluateWorkOptionalAtAge(baristaPlan, age, CTX).feasible;
+      if (seenSurviving) expect(ok).toBe(true);
+      if (ok) seenSurviving = true;
+    }
+    expect(seenSurviving).toBe(true);
+  });
+
+  it("the work-optional binary search returns exactly the threshold age", () => {
+    const age = earliestWorkOptionalAge(baristaPlan, CTX);
+    expect(age).not.toBeNull();
+    expect(evaluateWorkOptionalAtAge(baristaPlan, age as number, CTX).feasible).toBe(true);
+    expect(evaluateWorkOptionalAtAge(baristaPlan, (age as number) - 1, CTX).feasible).toBe(false);
+  });
+
+  // The acceptance heart (§5, AC5): a barista plan — career job ends at target, the
+  // supplemental job keeps paying — solves the two ages DISTINCTLY. Work-optional
+  // (drop the barista too) is strictly later than career-exit (keep the barista).
+  it("a barista-retirement plan solves both ages distinctly (career-exit < work-optional)", () => {
+    const solution = solveRetirement(baristaPlan, CTX);
+    expect(solution.careerExitAge).not.toBeNull();
+    expect(solution.workOptionalAge).not.toBeNull();
+    expect(solution.careerExitAge).toBeLessThan(solution.workOptionalAge as number);
+  });
+
+  it("reports the full-work-stop target as the latest authored job end (§5)", () => {
+    // max job endYear is the barista's (birthYear + 75) → age 75.
+    const solution = solveRetirement(baristaPlan, CTX);
+    expect(solution.fullWorkStopTargetAge).toBe(75);
   });
 });
