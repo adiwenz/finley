@@ -28,3 +28,16 @@ npm run typecheck    # tsc --noEmit
 npm run check:purity # engine-purity gate
 npm run check        # purity + typecheck + test (the full gate)
 ```
+
+## Sandcastle (automated issue implementation)
+
+Sandcastle runs Claude Code agents against `Sandcastle`-labeled GitHub issues, in
+local Docker or Vercel cloud sandboxes, on your machine or via GitHub Actions. See
+[`.sandcastle/README.md`](./.sandcastle/README.md) for full setup — tokens, the
+Docker image build, the Vercel Container Registry image, and GitHub Actions
+secrets.
+
+```bash
+npm run sandcastle -- --sandbox docker   # local Docker sandboxes (default)
+npm run sandcastle -- --sandbox cloud    # Vercel cloud sandboxes
+```
