@@ -1,0 +1,90 @@
+name: Sandcastle
+
+# Runs the Sandcastle orchestrator (the same `.sandcastle/new_flow/main.ts` you
+# run locally) on a GitHub-hosted runner, driving Vercel cloud sandboxes. Because
+# the runner is the control plane, you can start this and walk away — it does not
+# depend on your laptop staying awake or online.
+#
+# Trigger it manually from the Actions tab ("Run workflow"). Each completed issue
+# is pushed to origin and relabeled `sandcastle-done`; review it locally later
+# with `.sandcastle/new_flow/create-review-worktree.sh <branch> <issue-id>`.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   CLAUDE_CODE_OAUTH_TOKEN — from `claude setup-token`; runs Claude Code in the sandbox.
+#   VERCEL_TOKEN            — Vercel access token used to create cloud sandboxes.
+#   VERCEL_TEAM_ID         — the Vercel team the sandbox is created under.
+#   VERCEL_PROJECT_ID      — the Vercel project the sandbox is created under.
+# (All three Vercel values are required together — a bare token can't tell Vercel
+#  which team/project to bill the sandbox to.)
+# GITHUB_TOKEN is provided automatically and is used for git push + issue labels.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox:
+        description: "Sandbox provider"
+        type: choice
+        options: [cloud, docker]
+        default: cloud
+  # Uncomment to also run on a schedule (UTC). Scheduled runs default to cloud.
+  # schedule:
+  #   - cron: "0 7 * * *"
+
+# Never run two orchestrators at once — they would contend over branches, review
+# worktrees, and the issue queue. Queue a new run rather than cancelling the
+# in-flight one (agents are mid-implementation).
+concurrency:
+  group: sandcastle
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # GitHub caps a job at 360 min; leave headroom. Multi-issue runs with
+    # 80-iteration implementers can be long — this bounds the blast radius.
+    timeout-minutes: 330
+    permissions:
+      contents: write # push implementation branches to origin
+      issues: write # relabel Sandcastle → sandcastle-done via `gh`
+    env:
+      # Orchestrator-side env, read by makeSandbox() on the runner: the Vercel
+      # provider is created with VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID
+      # to create sandboxes; git push / `gh` / private-origin cloning read
+      # GH_TOKEN. CI flips the review handoff to `push` automatically.
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so branch creation and the cloud patch-apply have a base.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Write Sandcastle env from secrets
+        # Sandcastle only forwards an env var INTO the sandbox if its KEY is
+        # present in `.sandcastle/.env` (it reads that file, then falls back to
+        # process.env per key). This file is for what the AGENT needs inside the
+        # sandbox — the Claude token and a GH token for its git/gh operations.
+        # Vercel creds are NOT here: they authenticate the orchestrator that
+        # creates the sandbox and live in job-level env instead. Values come from
+        # env vars, not templated into the command, so secrets aren't expanded
+        # onto the shell command line.
+        run: |
+          mkdir -p .sandcastle
+          {
+            echo "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}"
+            echo "GH_TOKEN=${GH_TOKEN}"
+          } > .sandcastle/.env
+
+      - name: Run Sandcastle
+        run: npx tsx .sandcastle/new_flow/main.ts --sandbox "${{ inputs.sandbox || 'cloud' }}" --review push

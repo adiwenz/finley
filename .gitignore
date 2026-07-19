@@ -19,3 +19,5 @@ coverage/
 
 # Claude Code (local worktrees + personal settings)
 .claude/
+.vercel
+.env*

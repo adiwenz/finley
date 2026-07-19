@@ -1,5 +1,9 @@
 // Parallel Agent Runner
-// Execution: npx tsx .sandcastle/new_flow/main.ts
+// Execution: npx tsx .sandcastle/new_flow/main.ts [--sandbox <docker|cloud>] [--review <worktree|push>]
+//   Sandbox defaults to docker (local); pass `--sandbox cloud` (or set
+//   SANDCASTLE_SANDBOX=cloud) to run agents in Vercel cloud sandboxes instead.
+//   Review handoff defaults to a local worktree, or `push` under CI; override
+//   with `--review <worktree|push>` (or SANDCASTLE_REVIEW).
 //
 // Each iteration:
 //   1. Plan   — an opus agent reads open GitHub issues labeled `Sandcastle`,
@@ -13,7 +17,8 @@
 //               and stand up a worktree so the commits can be reviewed and run.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker"; // Change to vercel() if using Vercel Sandbox
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import { vercel } from "@ai-hero/sandcastle/sandboxes/vercel";
 import { z } from "zod";
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
@@ -37,7 +42,129 @@ const MAX_OUTER_ITERATIONS = 10;
 const hooks = {
   sandbox: { onSandboxReady: [{ command: "npm install" }] },
 };
-const copyToWorktree = ["node_modules"];
+
+// ---------------------------------------------------------------------------
+// Sandbox selection: Docker (local, default) vs. Vercel cloud.
+//
+// Choose with `--sandbox <docker|cloud>` (alias `vercel` = `cloud`), or the
+// SANDCASTLE_SANDBOX env var; the CLI flag wins. Via npm the flag passes through
+// after `--`:  npm run sandcastle -- --sandbox cloud
+//
+//   - docker (default): bind-mounts THIS working tree; commits land locally.
+//   - cloud (vercel):   an ephemeral Firecracker microVM per run that CLONES the
+//                        repo from its `origin` remote, so it needs a reachable
+//                        remote plus VERCEL_TOKEN / VERCEL_TEAM_ID /
+//                        VERCEL_PROJECT_ID in the env.
+// ---------------------------------------------------------------------------
+type SandboxKind = "docker" | "cloud";
+
+function resolveSandboxKind(): SandboxKind {
+  const idx = process.argv.findIndex((a) => a === "--sandbox" || a.startsWith("--sandbox="));
+  let raw: string | undefined;
+  if (idx !== -1) {
+    const arg = process.argv[idx];
+    raw = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : process.argv[idx + 1];
+  }
+  raw = (raw ?? process.env.SANDCASTLE_SANDBOX ?? "docker").toLowerCase();
+  if (raw === "docker" || raw === "local") return "docker";
+  if (raw === "cloud" || raw === "vercel") return "cloud";
+  throw new Error(`Unknown sandbox "${raw}". Use "docker" or "cloud".`);
+}
+
+// The origin URL the cloud sandbox clones. Fail loudly rather than spin up a
+// sandbox against nothing when there's no remote to pull the code from.
+function originRemoteUrl(): string {
+  try {
+    return execSync("git remote get-url origin", { encoding: "utf-8" }).trim();
+  } catch {
+    throw new Error(
+      "Cloud sandbox needs a git 'origin' remote to clone from, but none was found. " +
+        "Add one (git remote add origin <url>) or run with --sandbox docker.",
+    );
+  }
+}
+
+function makeSandbox(kind: SandboxKind) {
+  if (kind === "docker") {
+    console.log("🧱 Sandbox: docker (local bind-mount).");
+    return docker();
+  }
+  const url = originRemoteUrl();
+
+  // Vercel auth for a non-Vercel host (your laptop or a GitHub Actions runner):
+  // an access token PLUS the team and project the sandbox is created under. All
+  // three are required — a bare token can't tell the SDK which team/project to
+  // bill the sandbox to. We read and pass them explicitly so the dependency is
+  // visible here and a missing value fails fast with a clear message instead of
+  // an opaque SDK auth error at sandbox-creation time.
+  const token = process.env.VERCEL_TOKEN;
+  const teamId = process.env.VERCEL_TEAM_ID;
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  const missing = [
+    ["VERCEL_TOKEN", token],
+    ["VERCEL_TEAM_ID", teamId],
+    ["VERCEL_PROJECT_ID", projectId],
+  ]
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0) {
+    throw new Error(`Cloud sandbox needs Vercel credentials — missing: ${missing.join(", ")}.`);
+  }
+
+  console.log(`☁️  Sandbox: vercel cloud (cloning ${url}).`);
+  // A GH token lets the cloud sandbox clone a private origin over https
+  // (x-access-token is GitHub's username convention for token auth).
+  const auth = process.env.GH_TOKEN
+    ? { username: "x-access-token", password: process.env.GH_TOKEN }
+    : {};
+  return vercel({ token, teamId, projectId, source: { type: "git", url, ...auth } });
+}
+
+// Resolved once at startup; the kind drives both the provider and how we seed
+// each sandbox's dependencies. Reused across every planner/implementer run.
+const SANDBOX_KIND = resolveSandboxKind();
+const sandbox = makeSandbox(SANDBOX_KIND);
+
+// Docker bind-mounts the host tree, so seeding the worktree with the host's
+// already-installed `node_modules` saves a reinstall. A cloud sandbox instead
+// copies these paths INTO a fresh Linux microVM — a macOS `node_modules` would
+// be huge to ship and carry native binaries built for the wrong platform. So in
+// cloud mode we send nothing and let the `onSandboxReady` `npm install` populate
+// dependencies natively in the sandbox.
+const copyToWorktree = SANDBOX_KIND === "cloud" ? [] : ["node_modules"];
+
+// ---------------------------------------------------------------------------
+// Review handoff mode: how a completed branch is surfaced for review.
+//
+//   - worktree: after each success, stand up a local git worktree checked out to
+//               the branch (dev-machine default) so you can run/inspect it.
+//   - push:     just push the branch to origin and stop; skip the worktree. This
+//               is the default in CI, where the runner is ephemeral — any
+//               worktree it builds is deleted when the job ends, so the pushed
+//               branch IS the review artifact. Recreate a worktree locally later
+//               with create-review-worktree.sh once you fetch the branch.
+//
+// Override with `--review <worktree|push>` or SANDCASTLE_REVIEW; otherwise it
+// auto-selects `push` under CI (GitHub Actions sets CI/GITHUB_ACTIONS) and
+// `worktree` on a dev machine.
+// ---------------------------------------------------------------------------
+type ReviewMode = "worktree" | "push";
+
+function resolveReviewMode(): ReviewMode {
+  const idx = process.argv.findIndex((a) => a === "--review" || a.startsWith("--review="));
+  let raw: string | undefined;
+  if (idx !== -1) {
+    const arg = process.argv[idx];
+    raw = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : process.argv[idx + 1];
+  }
+  const inCI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
+  raw = (raw ?? process.env.SANDCASTLE_REVIEW ?? (inCI ? "push" : "worktree")).toLowerCase();
+  if (raw === "worktree" || raw === "push") return raw;
+  throw new Error(`Unknown review mode "${raw}". Use "worktree" or "push".`);
+}
+
+const REVIEW_MODE = resolveReviewMode();
+console.log(`🔎 Review handoff: ${REVIEW_MODE}.`);
 
 // ---------------------------------------------------------------------------
 // Helper: Stand up an isolated review worktree for a completed branch.
@@ -92,6 +219,17 @@ async function markIssueDone(issue: { id: string }) {
 // inside an isolated sandbox; we trust that verification here. The only host git
 // command we run is branch-scoped and working-tree-safe: `git push origin
 // <branch>` for an off-machine backup.
+//
+// Provider-agnostic handoff: for BOTH docker and cloud, `issue.branch` exists
+// locally with the commits once `run()` returns — the docker sandbox writes it
+// through the bind-mount, and the cloud sandbox's commits are reconciled onto
+// the host branch by Sandcastle (it format-patches them out of the microVM and
+// applies them to a host worktree). So the push step below works the same either
+// way; nothing here needs to fetch from the cloud.
+//
+// The review surface then depends on REVIEW_MODE: `worktree` stands up a local
+// worktree to inspect in place; `push` (CI default) leaves the pushed branch as
+// the artifact, since an ephemeral runner's worktree would be discarded anyway.
 // ---------------------------------------------------------------------------
 async function processSingleIssue(issue: { id: string; title: string; branch: string }) {
   const startTime = Date.now();
@@ -106,7 +244,7 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     const result = await sandcastle.run({
       hooks,
       copyToWorktree,
-      sandbox: docker(),
+      sandbox,
       branchStrategy: { type: "branch", branch: issue.branch },
       name: "implementer",
       // One run, but many iterations: the agent is re-prompted until it emits
@@ -143,25 +281,42 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     console.error(`[Issue #${issue.id}] Runner error:`, error);
   }
 
-  // --- Push an off-machine backup and provide a worktree to review the commits ---
+  // --- Push the branch and surface it for review (per REVIEW_MODE) ---
   if (success) {
     const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m. Review happens in a worktree.`);
+    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m.`);
 
-    // Optional off-machine backup. The branch and its commits already exist in
-    // the local repo, so review works without this; a push failure is non-fatal.
+    // Push the branch to origin. In `push` (CI) mode this is the ONLY durable
+    // handoff — the runner is ephemeral — so a failure means the work could be
+    // lost; in `worktree` mode it is an off-machine backup on top of the local
+    // branch. Non-fatal either way so sibling issues still finish.
+    let pushed = false;
     try {
       await execPromise(`git push origin ${issue.branch}`);
-      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin (backup only).`);
+      pushed = true;
+      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin.`);
     } catch (pushError: any) {
-      console.warn(`⚠️ [Issue #${issue.id}] Could not push branch (review is still available locally): ${pushError.message}`);
+      console.warn(`⚠️ [Issue #${issue.id}] Could not push branch: ${pushError.message}`);
     }
 
     // Take the issue out of the planner's queue so it is not re-selected, while
     // leaving it open for human review.
     await markIssueDone(issue);
 
-    if (preservedWorktreePath && fs.existsSync(preservedWorktreePath)) {
+    if (REVIEW_MODE === "push") {
+      // Ephemeral/CI: no local worktree would survive the run, so the pushed
+      // branch is the review artifact. Print how to review it locally later.
+      console.log(`FINISHED: ${issue.branch}`);
+      if (pushed) {
+        console.log(`🔍 [Issue #${issue.id}] Review locally when you're back:`);
+        console.log(`           git fetch origin ${issue.branch}`);
+        console.log(`           .sandcastle/new_flow/create-review-worktree.sh ${issue.branch} ${issue.id}`);
+      } else {
+        console.error(
+          `🚨 [Issue #${issue.id}] Branch is not on origin and no worktree survives — review artifact may be lost. See the push error above.`,
+        );
+      }
+    } else if (preservedWorktreePath && fs.existsSync(preservedWorktreePath)) {
       // The agent's own worktree survived — review the commits in place.
       console.log(`FINISHED: ${preservedWorktreePath}`);
       console.log(`🔍 [Issue #${issue.id}] Review the commits in the preserved worktree:`);
@@ -204,7 +359,7 @@ async function main() {
     console.log("Analyzing Sandcastle-labeled issues and building workspace queue...");
     const plan = await sandcastle.run({
       hooks,
-      sandbox: docker(),
+      sandbox,
       name: "planner",
       maxIterations: 1,
       agent: sandcastle.claudeCode("claude-opus-4-8"),
