@@ -21,7 +21,7 @@ import { contributionLimits } from "./contributionLimits";
 const maxOut401k: BudgetLine = {
   id: "max-401k",
   label: "Max out 401(k)",
-  target: { kind: "account", accountId: "retirement", accountKind: "traditional" },
+  target: { kind: "account", accountId: "retirement", taxTreatment: "preTax" },
   category: "savings",
   amountSource: { kind: "fillToLimit" },
 };

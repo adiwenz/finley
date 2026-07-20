@@ -13,8 +13,13 @@
  * **additively**, alongside the scalar budget path — both compile into the same
  * `LedgerBaseConfig` — so nothing existing is removed here (that is #72's job).
  *
- * Two facts ride on the *target account's kind*, never hardcoded per line (§12):
- *   - **pre/post-tax treatment** — {@link taxTreatmentForAccountKind};
+ * Two facts a contribution line needs are jurisdiction-agnostic and ride on the
+ * target *account*, never named per line in engine vocabulary (§12):
+ *   - **pre/post-tax treatment** — the account target carries a {@link TaxTreatment}
+ *     (`preTax`/`postTax`) directly. The concrete vehicle names that imply it (US
+ *     "traditional"/"Roth", UK ISA/SIPP, …) are jurisdiction-specific and live in
+ *     the `rules`/`Account` layer, which maps a vehicle to this portable treatment;
+ *     the engine never hardcodes a jurisdiction's account-type names (issue #38).
  *   - **the annual limit** a `fill-to-limit` line tracks — supplied through the
  *     rules/jurisdiction seam ({@link ResolveLineContext.annualLimitCents}), which
  *     auto-follows the legislated age-50 catch-up bump with no user edit (§19).
@@ -25,42 +30,28 @@ import type { OverrideScope } from "./cashFlowSeries";
 import type { DeferralLimitContext } from "./jurisdiction";
 
 /**
- * The tax kind of an account a contribution line targets (§12). It governs BOTH
- * the pre/post-tax treatment of a contribution and which legislated annual cap a
- * `fill-to-limit` line tracks:
- *   - `traditional` — pre-tax retirement vehicle (401(k)/traditional IRA);
- *     contributions reduce taxable income and the cap is the elective-deferral /
- *     IRA limit.
- *   - `roth` — post-tax retirement vehicle; contributions are after-tax but still
- *     capped by the legislated limit.
- *   - `taxable` — an ordinary brokerage/savings account; post-tax, uncapped.
+ * Whether a contribution goes in pre-tax (reduces taxable income) or post-tax
+ * (§12). This is the portable, jurisdiction-agnostic fact the waterfall consumes;
+ * the concrete account vehicle that implies it (US "traditional"/"Roth", etc.) is
+ * a jurisdiction concern the `rules`/`Account` layer resolves to this treatment.
  */
-export type AccountKind = "taxable" | "traditional" | "roth";
-
-/** Whether a contribution goes in pre-tax (reduces taxable income) or post-tax (§12). */
 export type TaxTreatment = "preTax" | "postTax";
-
-/**
- * Pre/post-tax treatment DERIVED from the target account's kind (§12, AC5) — never
- * authored per line. Only a `traditional` (pre-tax) vehicle defers off gross; a
- * `roth` or plain `taxable` account is funded with post-tax dollars.
- */
-export function taxTreatmentForAccountKind(kind: AccountKind): TaxTreatment {
-  return kind === "traditional" ? "preTax" : "postTax";
-}
 
 /**
  * What a line funds (§12): general expenses (a cash outflow) or a dollar
  * contribution to a named account. A contribution carries the target account's
- * {@link AccountKind}, so pre/post-tax treatment and the relevant annual cap are
- * read off the account, not the line.
+ * {@link TaxTreatment} directly (derived upstream from the account's vehicle), so
+ * pre/post-tax treatment is read off the target, not authored per line and not
+ * named in engine-side jurisdiction vocabulary. The legislated annual cap a
+ * `fill-to-limit` line tracks arrives separately through the rules/jurisdiction
+ * seam ({@link ResolveLineContext.annualLimitCents}).
  */
 export type BudgetTarget =
   | { readonly kind: "expense" }
   | {
       readonly kind: "account";
       readonly accountId: string;
-      readonly accountKind: AccountKind;
+      readonly taxTreatment: TaxTreatment;
     };
 
 /**
@@ -231,9 +222,7 @@ export function resolveBudgetLineMonthlyCents(line: BudgetLine, ctx: ResolveLine
 
 /** The tax treatment a line's contribution carries — post-tax for expenses (§12). */
 export function taxTreatmentForLine(line: BudgetLine): TaxTreatment {
-  return line.target.kind === "account"
-    ? taxTreatmentForAccountKind(line.target.accountKind)
-    : "postTax";
+  return line.target.kind === "account" ? line.target.taxTreatment : "postTax";
 }
 
 /** Default priority a category tier implies (§15): needs before wants before savings. */

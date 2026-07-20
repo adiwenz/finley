@@ -235,13 +235,13 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const standingPerson: Person | undefined =
     budget.jobs != null && budget.jobs.length > 0
       ? {
-          id: PRIMARY_PERSON_ID,
-          name: budget.name,
-          birthYear,
-          retirementTargetAge: budget.retirementAge,
-          ssClaimingAge: budget.ssClaimingAge,
-          jobs: budget.jobs,
-        }
+        id: PRIMARY_PERSON_ID,
+        name: budget.name,
+        birthYear,
+        retirementTargetAge: budget.retirementAge,
+        ssClaimingAge: budget.ssClaimingAge,
+        jobs: budget.jobs,
+      }
       : undefined;
 
   // Give the projection an SS basis (§5.4): a birth year derived from today's age
@@ -288,6 +288,13 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // (resolveBudget), not here; they land in the waterfall in the #72 rewire. When
   // absent/empty, the scalar expense series above is used (still live until #72).
   const budgetLines = budget.budgetLines;
+  // Every expense line is owned by the primary person, but that owner is inert
+  // today: the simulator sums all expense series into one household obligation
+  // and splits it by `sharedScheme`, never reading an expense's ownerId. So every
+  // expense is effectively shared. Issue #84 will make an expense line optionally
+  // *personal* to its owner (charged against that person's take-home first), at
+  // which point this owner tag starts doing work instead of being a placeholder. 
+  // See issue 84.
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
       ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID)

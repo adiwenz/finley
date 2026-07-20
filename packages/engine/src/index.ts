@@ -45,7 +45,6 @@ export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compile
 // Added additively alongside the scalar `Plan.expenseCents` / `retirementDeferralPct`
 // / `surplusSwept` path (removed only in #72). `compileBudget` is the sim seam.
 export type {
-  AccountKind,
   TaxTreatment,
   BudgetTarget,
   AmountSource,
@@ -57,7 +56,6 @@ export type {
   ResolvedBudgetLine,
 } from "./budgetLine";
 export {
-  taxTreatmentForAccountKind,
   taxTreatmentForLine,
   resolveBudgetLineMonthlyCents,
   orderBudgetLines,

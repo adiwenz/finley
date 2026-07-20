@@ -66,7 +66,7 @@ describe("compileExpenseBudgetLines", () => {
       {
         id: "401k",
         label: "401(k)",
-        target: { kind: "account", accountId: "retirement", accountKind: "traditional" },
+        target: { kind: "account", accountId: "retirement", taxTreatment: "preTax" },
         category: "savings",
         amountSource: { kind: "fillToLimit" },
       },

@@ -6,7 +6,6 @@ import {
   orderBudgetLines,
   resolveBudget,
   resolveBudgetLineMonthlyCents,
-  taxTreatmentForAccountKind,
   taxTreatmentForLine,
 } from "./budgetLine";
 
@@ -37,7 +36,7 @@ describe("resolveBudgetLineMonthlyCents — fill-to-limit amount source", () => 
   const fillLine: BudgetLine = {
     id: "max-401k",
     label: "Max out 401(k)",
-    target: { kind: "account", accountId: "retirement", accountKind: "traditional" },
+    target: { kind: "account", accountId: "retirement", taxTreatment: "preTax" },
     category: "savings",
     amountSource: { kind: "fillToLimit" },
   };
@@ -69,7 +68,7 @@ describe("resolveBudgetLineMonthlyCents — goal-paced amount source", () => {
   const pacedLine: BudgetLine = {
     id: "downpayment",
     label: "House down payment",
-    target: { kind: "account", accountId: "goal-house", accountKind: "taxable" },
+    target: { kind: "account", accountId: "goal-house", taxTreatment: "postTax" },
     category: "savings",
     amountSource: { kind: "goalPaced", targetCents: dollarsToCents(24_000), targetMonth: 24 },
   };
@@ -147,7 +146,7 @@ describe("resolveBudgetLineMonthlyCents — dated value overrides", () => {
     const line: BudgetLine = {
       id: "ira",
       label: "IRA contribution",
-      target: { kind: "account", accountId: "ira", accountKind: "traditional" },
+      target: { kind: "account", accountId: "ira", taxTreatment: "preTax" },
       category: "savings",
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
       overrides: [{ month: 120, monthlyCents: dollarsToCents(600), scope: "fromHereForward" }],
@@ -157,25 +156,25 @@ describe("resolveBudgetLineMonthlyCents — dated value overrides", () => {
   });
 });
 
-describe("taxTreatmentForAccountKind — pre/post-tax derived from account kind (AC5)", () => {
-  it("treats a traditional retirement account as pre-tax", () => {
-    expect(taxTreatmentForAccountKind("traditional")).toBe("preTax");
-  });
-
-  it("treats roth and taxable accounts as post-tax", () => {
-    expect(taxTreatmentForAccountKind("roth")).toBe("postTax");
-    expect(taxTreatmentForAccountKind("taxable")).toBe("postTax");
-  });
-
-  it("derives the treatment from a line's target, expenses being post-tax outflows", () => {
-    expect(taxTreatmentForLine(expenseLine())).toBe("postTax");
+describe("taxTreatmentForLine — pre/post-tax read off the target (AC5)", () => {
+  it("carries a pre-tax account target's treatment through", () => {
     expect(
       taxTreatmentForLine(
-        expenseLine({
-          target: { kind: "account", accountId: "r", accountKind: "traditional" },
-        }),
+        expenseLine({ target: { kind: "account", accountId: "r", taxTreatment: "preTax" } }),
       ),
     ).toBe("preTax");
+  });
+
+  it("carries a post-tax account target's treatment through", () => {
+    expect(
+      taxTreatmentForLine(
+        expenseLine({ target: { kind: "account", accountId: "b", taxTreatment: "postTax" } }),
+      ),
+    ).toBe("postTax");
+  });
+
+  it("treats an expense line as a post-tax outflow", () => {
+    expect(taxTreatmentForLine(expenseLine())).toBe("postTax");
   });
 });
 
@@ -213,14 +212,14 @@ describe("resolveBudget — all three amount sources resolve together (AC1/AC2)"
       {
         id: "401k",
         label: "401(k)",
-        target: { kind: "account", accountId: "retirement", accountKind: "traditional" },
+        target: { kind: "account", accountId: "retirement", taxTreatment: "preTax" },
         category: "savings",
         amountSource: { kind: "fillToLimit" },
       },
       {
         id: "house",
         label: "House fund",
-        target: { kind: "account", accountId: "goal-house", accountKind: "taxable" },
+        target: { kind: "account", accountId: "goal-house", taxTreatment: "postTax" },
         category: "savings",
         priority: 1500,
         amountSource: { kind: "goalPaced", targetCents: dollarsToCents(24_000), targetMonth: 24 },
