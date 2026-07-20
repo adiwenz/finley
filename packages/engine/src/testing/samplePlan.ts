@@ -52,7 +52,7 @@ export const samplePlan = {
   careerStartAge: 18,
   retirementAge: 60,
   lifeExpectancy: 85,
-  ssClaimingAge: 67,
+  benefitClaimingAge: 67,
 } satisfies Plan;
 
 const BARISTA_CURRENT_AGE = 45;
@@ -104,6 +104,6 @@ export const baristaPlan = {
   careerStartAge: 25,
   retirementAge: 60,
   lifeExpectancy: 90,
-  ssClaimingAge: 67,
+  benefitClaimingAge: 67,
   jobs: [baristaOpenEndedJob, baristaSupplementalJob],
 } satisfies Plan;

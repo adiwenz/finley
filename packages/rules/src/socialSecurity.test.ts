@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Cents, EarningsRecord, SocialSecurityContext } from "@finley/engine";
+import type { Cents, EarningsRecord, GovernmentBenefitContext } from "@finley/engine";
 import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
 
 /** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
@@ -9,7 +9,7 @@ function levelRecord(startYear: number, count: number, wageCents: Cents): Earnin
   return { annualWagesCents: map };
 }
 
-const atFRA = (year: number): SocialSecurityContext => ({ year, claimingAge: 67, currentAge: 67 });
+const atFRA = (year: number): GovernmentBenefitContext => ({ year, claimingAge: 67, currentAge: 67 });
 
 describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
@@ -37,7 +37,7 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     //       = $2,768.40 + $1,682.24 = $4,450.64 → dime → $4,450.60
     //   claim = FRA ⇒ ×1.0 ⇒ $4,450.60
     const record = levelRecord(2047, 35, 100_000_00);
-    const ctx: SocialSecurityContext = { year: 2054, claimingAge: 67, currentAge: 67 };
+    const ctx: GovernmentBenefitContext = { year: 2054, claimingAge: 67, currentAge: 67 };
     expect(socialSecurityMonthlyBenefitCents(record, ctx)).toBe(445_060);
   });
 
@@ -62,7 +62,7 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     const record = levelRecord(2019, 35, 80_000_00);
     // Hold year + currentAge fixed (same indexing year ⇒ same PIA base) and vary
     // only the claiming age, to isolate the claiming-adjustment factor.
-    const at = (claimingAge: number): SocialSecurityContext => ({
+    const at = (claimingAge: number): GovernmentBenefitContext => ({
       year: 2026,
       claimingAge,
       currentAge: 67,

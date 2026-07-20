@@ -11,7 +11,7 @@ import type { Jurisdiction } from "./jurisdiction";
  * and cannot silently disagree on the formula. (Each caller still supplies its own
  * {@link record}; agreeing on the record itself is a separate concern.)
  */
-export interface SocialSecurityClaim {
+export interface GovernmentBenefitClaim {
   /** The lifetime covered-earnings record the AIME→PIA formula reads. */
   readonly record: EarningsRecord;
   /** Calendar year benefits begin (the year the person reaches {@link claimingAge}). */
@@ -30,7 +30,7 @@ export interface SocialSecurityClaim {
  */
 export function priceSocialSecurityMonthlyCents(
   jurisdiction: Jurisdiction,
-  claim: SocialSecurityClaim,
+  claim: GovernmentBenefitClaim,
 ): Cents {
   return Math.max(
     0,
@@ -51,7 +51,7 @@ export function priceSocialSecurityMonthlyCents(
  */
 export function priceSocialSecurityAnnualRealCents(
   jurisdiction: Jurisdiction,
-  claim: SocialSecurityClaim,
+  claim: GovernmentBenefitClaim,
   baseYear: number,
   annualInflationRate: number,
 ): Cents {

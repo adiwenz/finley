@@ -30,6 +30,6 @@ export interface Person {
    */
   readonly retirementTargetAge: number;
   /** Pinned Social Security claiming age (an input, never solved). */
-  readonly ssClaimingAge: number;
+  readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
 }

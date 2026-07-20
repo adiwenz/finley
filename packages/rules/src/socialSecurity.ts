@@ -1,4 +1,4 @@
-import type { Cents, EarningsRecord, SocialSecurityContext } from "@finley/engine";
+import type { Cents, EarningsRecord, GovernmentBenefitContext } from "@finley/engine";
 
 /**
  * US Social Security retirement benefit — the AIME→PIA bend-point formula (§5.4).
@@ -136,7 +136,7 @@ function claimingFactor(claimingAge: number): number {
  */
 export function socialSecurityMonthlyBenefitCents(
   record: EarningsRecord,
-  ctx: SocialSecurityContext,
+  ctx: GovernmentBenefitContext,
 ): Cents {
   if (record.annualWagesCents.size === 0) return 0;
   // Earnings are indexed to the year the worker turns 60: birthYear + 60, and

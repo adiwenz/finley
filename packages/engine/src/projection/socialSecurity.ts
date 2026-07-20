@@ -7,7 +7,7 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson, SimOwnedSeries } from "./simulate";
 
 /** Default Social Security claiming age (full retirement age) when unspecified (§5.4). */
-export const DEFAULT_SS_CLAIMING_AGE = 67;
+export const DEFAULT_BENEFIT_CLAIMING_AGE = 67;
 
 /**
  * Age of first Social Security eligibility (62 under US law). COLAs apply to a
@@ -16,7 +16,7 @@ export const DEFAULT_SS_CLAIMING_AGE = 67;
  * (claimingAge − 62) years between eligibility and the claim (see
  * {@link buildSocialSecuritySources}). Without the bridge, delaying a claim
  * silently forfeits those COLAs and cancels most of the delayed-retirement
- * credit. Pairs with {@link DEFAULT_SS_CLAIMING_AGE}.
+ * credit. Pairs with {@link DEFAULT_BENEFIT_CLAIMING_AGE}.
  */
 const SS_ELIGIBILITY_AGE = 62;
 
@@ -32,7 +32,7 @@ export interface EarningsState {
    * §4.6 pre-now summary and folded into each month.
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
-  /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
+  /** Every person by id — SS accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
    * The monthly Social Security benefit (nominal cents) as of each person's claim
@@ -80,7 +80,7 @@ export function accumulateEarnings(
  */
 function ssClaimStartMonth(person: SimPerson, startYear: number): number | null {
   if (person.birthYear === undefined) return null;
-  const claimingAge = person.ssClaimingAge ?? DEFAULT_SS_CLAIMING_AGE;
+  const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
   return 12 * (person.birthYear + claimingAge - startYear);
 }
 
@@ -111,7 +111,7 @@ export function buildSocialSecuritySources(
 
     let benefit = state.ssMonthlyBenefitByPerson.get(person.id);
     if (benefit === undefined) {
-      const claimingAge = person.ssClaimingAge ?? DEFAULT_SS_CLAIMING_AGE;
+      const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
       const record = toEarningsRecord(state.earningsByPerson.get(person.id) ?? new Map());
       const piaCents = priceSocialSecurityMonthlyCents(jurisdiction, {
         record,

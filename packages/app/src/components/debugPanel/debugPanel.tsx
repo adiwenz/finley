@@ -89,7 +89,7 @@ function Configuration({
       />
       <ConfigGroup
         title="Retirement & Social Security"
-        rows={[["SS claiming age", budget.ssClaimingAge]]}
+        rows={[["SS claiming age", budget.benefitClaimingAge]]}
       />
       <ConfigGroup
         title="Health care"
@@ -175,7 +175,7 @@ export function DebugPanel({
         {months.length} months · {inputs.startYear}–{inputs.startYear + Math.floor((months.length - 1) / 12)} ·
         inflation {(inputs.annualInflationRate * 100).toFixed(1)}% ·{" "}
         {inputs.persons
-          .map((p) => `${p.name} (SS claim ${p.ssClaimingAge ?? "—"})`)
+          .map((p) => `${p.name} (SS claim ${p.benefitClaimingAge ?? "—"})`)
           .join(", ")}
       </p>
 

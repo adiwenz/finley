@@ -22,7 +22,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
   return (
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} scrubMonth={0} />
-      <output data-testid="ss-claiming-age">{budget.ssClaimingAge}</output>
+      <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
       <output data-testid="career-start-age">{budget.careerStartAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
@@ -45,7 +45,7 @@ describe("BudgetEditor — Social Security claiming age (§5.4)", () => {
     expect(input.max).toBe("70");
   });
 
-  it("edits flow back into ssClaimingAge (delaying the claim to 70)", () => {
+  it("edits flow back into benefitClaimingAge (delaying the claim to 70)", () => {
     render(<Harness />);
     const input = screen.getByLabelText(/Social Security claiming age/i);
     fireEvent.change(input, { target: { value: "70" } });

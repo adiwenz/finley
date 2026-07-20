@@ -136,7 +136,7 @@ export interface Plan {
   /** Age the portfolio must last to — the retirement survival horizon. */
   readonly lifeExpectancy: number;
   /** Pinned Social Security claiming age — an input to the check, never searched. */
-  readonly ssClaimingAge: number;
+  readonly benefitClaimingAge: number;
   /**
    * First-class {@link Job} standing model (§1–§8, issue #64), added **additively**
    * alongside the scalar {@link incomeCents} / {@link careerStartAge} path. When

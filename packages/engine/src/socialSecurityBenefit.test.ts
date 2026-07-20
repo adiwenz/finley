@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   priceSocialSecurityMonthlyCents,
   priceSocialSecurityAnnualRealCents,
-  type SocialSecurityClaim,
+  type GovernmentBenefitClaim,
 } from "./socialSecurityBenefit";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 
-const claim: SocialSecurityClaim = {
+const claim: GovernmentBenefitClaim = {
   record: { annualWagesCents: new Map([[2020, 6_000_000]]) },
   claimYear: 2046,
   claimingAge: 67,

@@ -25,7 +25,7 @@ export interface JurisdictionContext {
  * the person's age in the year benefits begin, and that calendar year; `rules`
  * computes the benefit from the {@link EarningsRecord} plus these.
  */
-export interface SocialSecurityContext extends JurisdictionContext {
+export interface GovernmentBenefitContext extends JurisdictionContext {
   /** Pinned claiming age (62 earliest, 67 full, 70 max). An input, never searched. */
   readonly claimingAge: number;
   /** The person's age in the year benefits begin (equals claimingAge at first claim). */
@@ -125,7 +125,7 @@ export interface Jurisdiction {
    */
   socialSecurityMonthlyBenefitCents?(
     record: EarningsRecord,
-    ctx: SocialSecurityContext,
+    ctx: GovernmentBenefitContext,
   ): Cents;
 
   /**

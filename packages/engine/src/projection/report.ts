@@ -28,12 +28,12 @@ import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
  */
 export const SIMULATION_REPORT_VERSION = 1;
 
-/** A household member as echoed in the report. `birthYear`/`ssClaimingAge` null when unmodelled. */
+/** A household member as echoed in the report. `birthYear`/`benefitClaimingAge` null when unmodelled. */
 export interface ReportPerson {
   readonly id: string;
   readonly name: string;
   readonly birthYear: number | null;
-  readonly ssClaimingAge: number | null;
+  readonly benefitClaimingAge: number | null;
   /** Age at the run's start year (startYear − birthYear); null without a birth year. */
   readonly ageAtStart: number | null;
 }
@@ -180,7 +180,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       id: p.id,
       name: p.name,
       birthYear: p.birthYear ?? null,
-      ssClaimingAge: p.ssClaimingAge ?? null,
+      benefitClaimingAge: p.benefitClaimingAge ?? null,
       ageAtStart: p.birthYear === undefined ? null : startYear - p.birthYear,
     })),
     accounts: input.accounts.map((a) => ({

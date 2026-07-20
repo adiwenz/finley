@@ -238,7 +238,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
           name: budget.name,
           birthYear,
           retirementTargetAge: budget.retirementAge,
-          ssClaimingAge: budget.ssClaimingAge,
+          benefitClaimingAge: budget.benefitClaimingAge,
           jobs: budget.jobs,
         }
       : undefined;
@@ -253,7 +253,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
-    ssClaimingAge: budget.ssClaimingAge,
+    benefitClaimingAge: budget.benefitClaimingAge,
     priorEarningsCents: standingPerson
       ? compilePersonPriorEarnings(standingPerson, startYear, inflationRate)
       : seedPriorEarnings(budget, startYear),

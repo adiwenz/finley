@@ -46,10 +46,10 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
 
 describe("createProjectionBase — retirement + Social Security wired into the graph (§5.4/§7)", () => {
   it("gives the projection person an SS basis: birth year (from age) and claiming age", () => {
-    const base = createProjectionBase({ ...samplePlan, currentAge: 40, ssClaimingAge: 68 }, ctx());
+    const base = createProjectionBase({ ...samplePlan, currentAge: 40, benefitClaimingAge: 68 }, ctx());
     const p = base.initialPersons![0];
     expect(p.birthYear).toBe(base.startYear! - 40);
-    expect(p.ssClaimingAge).toBe(68);
+    expect(p.benefitClaimingAge).toBe(68);
   });
 
   it("stops employment income at the retirement age — working longer ends richer", () => {

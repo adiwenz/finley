@@ -181,8 +181,8 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
             monthly benefit but pushes it later. An estimate, not advice. */}
         <NumInput
           label="Social Security claiming age"
-          value={budget.ssClaimingAge}
-          onChange={(ssClaimingAge) => updateBudget({ ssClaimingAge })}
+          value={budget.benefitClaimingAge}
+          onChange={(benefitClaimingAge) => updateBudget({ benefitClaimingAge })}
           min={62}
           max={70}
           step={1}

@@ -38,7 +38,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026
-      ssClaimingAge: 67,
+      benefitClaimingAge: 67,
       priorEarningsCents: { 2020: dollarsToCents(40_000), 2021: dollarsToCents(40_000) },
     };
     const series = simulateHousehold(baseInput(person), nullJurisdiction);
@@ -61,7 +61,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959,
-      ssClaimingAge: 67, // claims from month 0 → benefit every simulated month
+      benefitClaimingAge: 67, // claims from month 0 → benefit every simulated month
       priorEarningsCents: { 2020: dollarsToCents(40_000), 2021: dollarsToCents(40_000) },
     };
     // total = $80,000 = 8,000,000 cents → benefit = 80,000 cents/mo ($800).
@@ -79,7 +79,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1965, // turns 62 in 2027 → claim starts at month 12
-      ssClaimingAge: 62,
+      benefitClaimingAge: 62,
     };
     const series = simulateHousehold(baseInput(person, { horizonMonths: 24 }), stub);
     // Nothing before the claim month…
@@ -103,7 +103,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1965, // claims at month 12
-      ssClaimingAge: 62,
+      benefitClaimingAge: 62,
     };
     simulateHousehold(
       baseInput(person, {
@@ -138,7 +138,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
-      ssClaimingAge: 67,
+      benefitClaimingAge: 67,
     };
     const series = simulateHousehold(baseInput(person), stub);
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
@@ -160,7 +160,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1964, // turns 62 in 2026 → claims from month 0, no eligibility bridge
-      ssClaimingAge: 62,
+      benefitClaimingAge: 62,
     };
     const series = simulateHousehold(
       baseInput(person, { horizonMonths: 24, annualInflationRate: 0.1 }),
@@ -186,7 +186,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
-      ssClaimingAge: 67,
+      benefitClaimingAge: 67,
     };
     const series = simulateHousehold(
       baseInput(person, { horizonMonths: 12, annualInflationRate: 0.1 }),
@@ -207,7 +207,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959,
-      ssClaimingAge: 67,
+      benefitClaimingAge: 67,
     };
     // annualInflationRate defaults to 0 in baseInput → COLA is a no-op.
     const series = simulateHousehold(baseInput(person, { horizonMonths: 24 }), stub);
@@ -227,7 +227,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "p1",
       name: "You",
       birthYear: 1959,
-      ssClaimingAge: 67,
+      benefitClaimingAge: 67,
     };
     const series = simulateHousehold(baseInput(person), stub);
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);

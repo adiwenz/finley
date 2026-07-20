@@ -104,7 +104,7 @@ interface SimState {
    * The §5.4 annual contribution cap is enforced against this running total.
    */
   readonly deferredByPersonYear: Map<string, Cents>;
-  /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
+  /** Every person by id — SS accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
    * Per-person lifetime SS-covered earnings accumulator (§5.4), seeded from the
