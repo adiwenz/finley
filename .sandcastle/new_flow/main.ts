@@ -145,8 +145,10 @@ function makeSandbox(kind: SandboxKind) {
   // as a "known GitHub host", so remote inference fails; GH_REPO bypasses it.
   const slug = githubRepoSlug(url);
   if (slug) sandboxEnv.GH_REPO = slug;
-  // The Vercel image runs as root; Claude Code blocks --dangerously-skip-permissions
-  // as root unless it knows it's sandboxed. It is (an isolated microVM), so say so.
+  // The custom VCR image runs as a non-root `agent` user, but the no-image stock
+  // runtime still boots as root, and Claude Code blocks
+  // --dangerously-skip-permissions as root unless it knows it's sandboxed. It is
+  // (an isolated microVM) in both cases, so declare it and keep both paths working.
   sandboxEnv.IS_SANDBOX = "1";
   return vercelProvider({
     ...(CLOUD_IMAGE ? { image: CLOUD_IMAGE } : {}),
