@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   priceGovernmentBenefitBaseMonthlyCents,
   type GovernmentBenefitClaim,
-} from "./socialSecurityBenefit";
+} from "./governmentBenefit";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 
 const claim: GovernmentBenefitClaim = {

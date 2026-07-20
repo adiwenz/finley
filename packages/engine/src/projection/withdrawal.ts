@@ -119,7 +119,7 @@ function estimateNetIncome(
 /**
  * The desired-withdrawal (decumulation) channel (§7, D0). Runs BEFORE the waterfall,
  * alongside {@link import("./rmd").buildRmdSources} / {@link
- * import("./socialSecurity").buildSocialSecuritySources}: it pulls cash out of
+ * import("./governmentBenefit").buildGovernmentBenefitSources}: it pulls cash out of
  * investment accounts (mutating `assetBalances`) and re-injects it as income sources
  * so the withdrawal is taxed once at the §5.3 chokepoint and its net lands where the
  * waterfall routes take-home — funding the month's obligations instead of the plan

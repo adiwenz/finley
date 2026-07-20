@@ -4,7 +4,7 @@ import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 
-/** A liquid, non-compounding cash account — surplus idles here so net worth = Σ SS deposits. */
+/** A liquid, non-compounding cash account — surplus idles here so net worth = Σ benefit deposits. */
 function cashAccount(): SimAccount {
   return new SimAccount({
     id: "cash",
@@ -37,11 +37,11 @@ function baseInput(person: SimPerson, overrides: Partial<HouseholdSimInput> = {}
 const colaFrom62: NonNullable<Jurisdiction["colaAdjustedBenefitCents"]> = (base, ctx) =>
   Math.round(base * Math.pow(1 + ctx.colaRate, ctx.currentAge - 62));
 
-describe("Social Security accumulation + benefit seam (§5.4)", () => {
+describe("government-benefit accumulation + benefit seam (§5.4)", () => {
   it("null jurisdiction: the record accumulates but the benefit is 0", () => {
     // Person already at full retirement age with seeded lifetime earnings, so a
     // benefit *would* be claimed immediately — but the null jurisdiction supplies
-    // no seam, so SS income is 0 and net worth stays flat.
+    // no seam, so benefit income is 0 and net worth stays flat.
     const person: SimPerson = {
       id: "p1",
       name: "You",

@@ -1,7 +1,7 @@
 import type { Cents } from "../money";
 import type { Jurisdiction, GovernmentBenefitClaim, GovernmentBenefitContext } from "../jurisdiction";
 import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earningsRecord";
-import { priceGovernmentBenefitBaseMonthlyCents } from "../socialSecurityBenefit";
+import { priceGovernmentBenefitBaseMonthlyCents } from "../governmentBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson, SimOwnedSeries } from "./simulate";
@@ -10,18 +10,18 @@ import type { SimPerson, SimOwnedSeries } from "./simulate";
 export const DEFAULT_BENEFIT_CLAIMING_AGE = 67;
 
 /**
- * The slice of the simulator's state that the Social Security bookkeeping reads.
+ * The slice of the simulator's state that the government-benefit bookkeeping reads.
  * A structural view over `SimState` — declaring it here (rather than importing the
  * whole mutable `SimState`) keeps that state object private to the simulator while
  * this module stays independently testable.
  */
 export interface EarningsState {
   /**
-   * Per-person lifetime SS-covered earnings accumulator (§5.4), seeded from the
+   * Per-person lifetime covered-earnings accumulator (§5.4), seeded from the
    * §4.6 pre-now summary and folded into each month.
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
-  /** Every person by id — SS accumulation/claiming reads birthYear + benefitClaimingAge. */
+  /** Every person by id — benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
    * The frozen BASE government retirement benefit (nominal cents, eligibility-age
@@ -30,11 +30,11 @@ export interface EarningsState {
    * through the jurisdiction's COLA seam ({@link Jurisdiction.colaAdjustedBenefitCents}).
    * Absent until claimed.
    */
-  readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
+  readonly governmentBenefitBaseByPerson: Map<string, Cents>;
   /**
    * Per-person marker: the latest COMPLETED calendar year already folded into the
    * cached base (§5.4, Phase 5). Drives recompute-while-working — see
-   * {@link buildSocialSecuritySources}. Absent until the first base is computed.
+   * {@link buildGovernmentBenefitSources}. Absent until the first base is computed.
    */
   readonly lastComputedThroughYear: Map<string, number>;
 }
@@ -66,18 +66,19 @@ export function accumulateEarnings(
 ): void {
   for (const s of incomeSeries) {
     const acc = earningsByPerson.get(s.ownerId);
-    if (acc === undefined) continue; // income owner not on the roster — no SS record
+    if (acc === undefined) continue; // income owner not on the roster — no covered-earnings record
     if (!coversEarnings(jurisdiction, s.series.taxCategory ?? "ordinaryIncome")) continue;
     addEarnings(acc, year, s.series.getMonthlyCents(month));
   }
 }
 
 /**
- * The first month a person is claiming Social Security: benefits begin in the
- * calendar year they turn their claiming age (§5.4). Returns null when the person
- * has no birth year (SS not modelled). May be ≤ 0 (already claiming at "now").
+ * The first month a person is claiming their government retirement benefit: benefits
+ * begin in the calendar year they turn their claiming age (§5.4). Returns null when
+ * the person has no birth year (benefit not modelled). May be ≤ 0 (already claiming
+ * at "now").
  */
-function ssClaimStartMonth(person: SimPerson, startYear: number): number | null {
+function benefitClaimStartMonth(person: SimPerson, startYear: number): number | null {
   if (person.birthYear === undefined) return null;
   const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
   return 12 * (person.birthYear + claimingAge - startYear);
@@ -97,7 +98,7 @@ function ssClaimStartMonth(person: SimPerson, startYear: number): number | null 
  * inclusion rule at the §5.3 chokepoint, never as wages. The engine passes the FULL
  * benefit gross — the inclusion % lives in `computeTaxCents`, not here.
  */
-export function buildSocialSecuritySources(
+export function buildGovernmentBenefitSources(
   state: EarningsState,
   jurisdiction: Jurisdiction,
   month: number,
@@ -107,7 +108,7 @@ export function buildSocialSecuritySources(
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
   for (const person of state.personsById.values()) {
-    const claimStart = ssClaimStartMonth(person, startYear);
+    const claimStart = benefitClaimStartMonth(person, startYear);
     if (claimStart === null || month < claimStart) continue;
     const currentAge = year - person.birthYear!;
 
@@ -124,7 +125,7 @@ export function buildSocialSecuritySources(
     const latestCompletedYear = year - 1;
     const marker = state.lastComputedThroughYear.get(person.id);
     const acc = state.earningsByPerson.get(person.id);
-    let base = state.ssMonthlyBenefitByPerson.get(person.id);
+    let base = state.governmentBenefitBaseByPerson.get(person.id);
     const recordGrew =
       marker !== undefined &&
       latestCompletedYear > marker &&
@@ -141,7 +142,7 @@ export function buildSocialSecuritySources(
         currentAge,
       };
       base = priceGovernmentBenefitBaseMonthlyCents(jurisdiction, claim);
-      state.ssMonthlyBenefitByPerson.set(person.id, base);
+      state.governmentBenefitBaseByPerson.set(person.id, base);
       state.lastComputedThroughYear.set(person.id, latestCompletedYear);
     }
     if (base <= 0) continue;
