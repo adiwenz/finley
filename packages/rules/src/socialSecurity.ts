@@ -21,9 +21,10 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
  * US Social Security retirement benefit — the AIME→PIA bend-point formula (§5.4).
  *
  * This is the `rules`-side plug for the engine's
- * {@link import("@finley/engine").Jurisdiction.socialSecurityMonthlyBenefitCents}
- * seam. The engine owns and accumulates the {@link EarningsRecord}; this module
- * turns that record into a monthly benefit at a pinned claiming age.
+ * {@link import("@finley/engine").Jurisdiction.governmentBenefitBaseMonthlyCents}
+ * and {@link import("@finley/engine").Jurisdiction.colaAdjustedBenefitCents} seams.
+ * The engine owns and accumulates the {@link EarningsRecord}; this module turns that
+ * record into a base benefit at a pinned claiming age and grows it by COLA.
  *
  * ⚠ Estimates, not advice. The FORMULA (bend points, 35-year indexing, claiming
  * adjustment) is modelled faithfully so the cent-pinned anchor holds, but the

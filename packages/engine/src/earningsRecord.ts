@@ -8,7 +8,7 @@ import type { Cents } from "./money";
  * but it holds NO jurisdiction knowledge.
  *
  * The full AIME→PIA benefit formula lives entirely in `rules`, which reads this
- * record through the {@link Jurisdiction.socialSecurityMonthlyBenefitCents} seam —
+ * record through the {@link Jurisdiction.governmentBenefitBaseMonthlyCents} seam —
  * the same engine-defines-socket / rules-fills-plug pattern as tax and RMDs, but
  * history-dependent, so the record is threaded through. The engine can only test
  * accumulation and the null-jurisdiction path (which returns 0 while the record
