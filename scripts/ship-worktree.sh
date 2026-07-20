@@ -11,13 +11,17 @@
 # never have to cd there yourself.
 #
 # For the given issue it will, fully unattended:
-#   1. Commit any remaining changes in that review worktree
-#   2. Push sandcastle/issue-<id>
-#   3. Open a PR whose body says "Closes #<id>" (reuses an existing PR)
-#   4. Merge the PR with a merge commit
-#   5. Close the issue (belt & suspenders — the merge already closes it)
-#   6. Pull main in the main worktree
-#   7. Remove the review worktree (via remove-review-worktree.sh) and delete the
+#   1. Build the PR description from .sandcastle/summary-<id>.md (+ "Closes #<id>"),
+#      then delete that file so it is NOT committed or merged into main
+#   2. Commit any remaining changes in that review worktree
+#   3. Push sandcastle/issue-<id>
+#   4. Open the PR with that description — or, if a PR already exists, update its
+#      description (so extra commits made after the summary was written can be
+#      reflected by re-running after editing the summary)
+#   5. Merge the PR with a merge commit
+#   6. Close the issue (belt & suspenders — the merge already closes it)
+#   7. Pull main in the main worktree
+#   8. Remove the review worktree (via remove-review-worktree.sh) and delete the
 #      branch locally and on origin
 #
 # `set -e` halts on any failure BEFORE the merge/teardown steps, so a broken run
@@ -90,6 +94,27 @@ echo "Main worktree: $MAIN_WORKTREE"
 
 cd "$REVIEW_DIR"
 
+# ---- build the PR description from the summary, then drop the summary ----
+# .sandcastle/summary-<id>.md is the agent's implementation write-up. We use it
+# as the PR body (with a trailing "Closes #<id>") but never ship the file
+# itself: capture its contents now, then delete it so it is not committed or
+# merged into main. If you added commits after the summary was written, edit the
+# summary first so the PR body reflects the newer decisions.
+step "Preparing PR description"
+SUMMARY_FILE=".sandcastle/summary-${ISSUE}.md"
+PR_BODY_FILE="$(mktemp)"
+trap 'rm -f "$PR_BODY_FILE"' EXIT
+if [[ -f "$SUMMARY_FILE" ]]; then
+  cat "$SUMMARY_FILE" >"$PR_BODY_FILE"
+  printf '\n\nCloses #%s\n' "$ISSUE" >>"$PR_BODY_FILE"
+  echo "Using $SUMMARY_FILE as the PR body; it will be deleted, not committed."
+  # Remove it so it never lands on main (staged removal if tracked, else plain rm).
+  git rm -f --quiet -- "$SUMMARY_FILE" >/dev/null 2>&1 || rm -f "$SUMMARY_FILE"
+else
+  printf 'Closes #%s\n' "$ISSUE" >"$PR_BODY_FILE"
+  echo "No $SUMMARY_FILE found; PR body will be just 'Closes #$ISSUE'."
+fi
+
 # ---- 1. commit remaining changes ---------------------------------------
 step "Committing remaining changes"
 git add -A
@@ -109,16 +134,17 @@ fi
 step "Pushing $BRANCH"
 git push -u origin "$BRANCH"
 
-# ---- 3. open (or reuse) the PR -----------------------------------------
-step "Opening PR (Closes #$ISSUE)"
+# ---- 3. open the PR, or update an existing one's description ------------
+step "Opening or updating PR"
 if PR_URL="$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null)"; then
-  echo "Reusing existing PR: $PR_URL"
+  gh pr edit "$BRANCH" --body-file "$PR_BODY_FILE" >/dev/null
+  echo "Updated existing PR description: $PR_URL"
 else
   PR_URL="$(gh pr create \
     --base main \
     --head "$BRANCH" \
     --title "${ISSUE_TITLE} (#${ISSUE})" \
-    --body "Closes #${ISSUE}")"
+    --body-file "$PR_BODY_FILE")"
   echo "Opened: $PR_URL"
 fi
 
