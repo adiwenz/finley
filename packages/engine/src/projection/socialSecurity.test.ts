@@ -323,6 +323,58 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
   });
 
+  it("benefitColaRate defaults to general inflation when unset (Phase 6)", () => {
+    // No benefitColaRate on the input → the benefit COLA is coupled to general CPI.
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+      colaAdjustedBenefitCents: colaFrom62,
+    };
+    const person: SimPerson = {
+      id: "p1",
+      name: "You",
+      birthYear: 1964, // turns 62 in 2026 → claims from month 0
+      benefitClaimingAge: 62,
+    };
+    const series = simulateHousehold(
+      baseInput(person, { horizonMonths: 24, annualInflationRate: 0.1 }),
+      stub,
+    );
+    const paidInMonth = (m: number) =>
+      series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
+    expect(paidInMonth(1)).toBe(dollarsToCents(1_000));
+    expect(paidInMonth(12)).toBe(dollarsToCents(1_100)); // +1yr × 1.10 (= general CPI)
+  });
+
+  it("benefitColaRate decouples the benefit COLA from general inflation (Phase 6)", () => {
+    // An explicit benefitColaRate overrides general CPI for the benefit's COLA only.
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+      colaAdjustedBenefitCents: colaFrom62,
+    };
+    const person: SimPerson = {
+      id: "p1",
+      name: "You",
+      birthYear: 1964,
+      benefitClaimingAge: 62,
+    };
+    const series = simulateHousehold(
+      baseInput(person, {
+        horizonMonths: 24,
+        annualInflationRate: 0.1,
+        benefitColaRate: 0.05,
+      }),
+      stub,
+    );
+    const paidInMonth = (m: number) =>
+      series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
+    expect(paidInMonth(1)).toBe(dollarsToCents(1_000)); // claim year → base
+    expect(paidInMonth(12)).toBe(dollarsToCents(1_050)); // +1yr × 1.05 (benefitColaRate, not 1.10)
+  });
+
   it("recomputes the base while the claimant keeps working (Phase 5 bump)", () => {
     // Stub base scales with total covered earnings on the record. The person claims at
     // 62 and keeps earning covered wages, so each completed year grows the record and

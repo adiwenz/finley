@@ -138,6 +138,14 @@ export interface Plan {
   /** Pinned Social Security claiming age — an input to the check, never searched. */
   readonly benefitClaimingAge: number;
   /**
+   * Optional cost-of-living rate for the government retirement benefit (§5.4), as a
+   * DECIMAL rate (e.g. `0.02`). When unset, the benefit COLA is COUPLED to general
+   * inflation ({@link inflationPct}); setting it DECOUPLES the two — a benefit that
+   * indexes below (or above) general CPI. Optional so no existing `Plan` literal
+   * needs editing.
+   */
+  readonly benefitColaRate?: number;
+  /**
    * First-class {@link Job} standing model (§1–§8, issue #64), added **additively**
    * alongside the scalar {@link incomeCents} / {@link careerStartAge} path. When
    * present and non-empty, `createProjectionBase` compiles these jobs into the base

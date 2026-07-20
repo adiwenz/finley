@@ -655,7 +655,14 @@ export function simulateHousehold(
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
-        ...buildSocialSecuritySources(state, jurisdiction, month, startYear, input.annualInflationRate),
+        ...buildSocialSecuritySources(
+          state,
+          jurisdiction,
+          month,
+          startYear,
+          // Benefit COLA defaults to general CPI when the plan doesn't decouple it (§5.4).
+          input.benefitColaRate ?? input.annualInflationRate,
+        ),
         ...buildRmdSources(state, jurisdiction, month, startYear),
       ];
 

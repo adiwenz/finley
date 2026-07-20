@@ -306,6 +306,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   return {
     horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),
     annualInflationRate: inflationRate,
+    benefitColaRate: budget.benefitColaRate,
     startYear,
     initialPersons: [person],
     initialAccounts: buildPlanAccounts(budget),

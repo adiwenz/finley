@@ -182,6 +182,13 @@ export interface SimProperty {
 export interface HouseholdSimInput {
   readonly horizonMonths: number;
   readonly annualInflationRate: number;
+  /**
+   * The cost-of-living rate applied to government retirement benefits (§5.4). When
+   * unset the benefit COLA is COUPLED to {@link annualInflationRate} (general CPI);
+   * setting it DECOUPLES the two (e.g. a benefit indexed below general inflation).
+   * Optional so no existing input needs editing.
+   */
+  readonly benefitColaRate?: number;
   readonly startYear?: number;
   readonly persons: readonly SimPerson[];
   /**
