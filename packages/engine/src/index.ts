@@ -39,6 +39,32 @@ export {
   householdNetWorthCents,
 } from "./account";
 export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
+// The line-item budget authoring model (§12, §15, §18, §19, issue #67, slice 4):
+// a prioritized list of dollar line items (expenses + account contributions) with
+// {literal, fill-to-limit, goal-paced} amount sources, spans + dated overrides.
+// Added additively alongside the scalar `Plan.expenseCents` / `retirementDeferralPct`
+// / `surplusSwept` path (removed only in #72). `compileBudget` is the sim seam.
+export type {
+  TaxTreatment,
+  BudgetTarget,
+  AmountSource,
+  BudgetCategory,
+  BudgetLineSpan,
+  BudgetLineOverride,
+  BudgetLine,
+  ResolveLineContext,
+  ResolvedBudgetLine,
+} from "./budgetLine";
+export {
+  taxTreatmentForLine,
+  resolveBudgetLineMonthlyCents,
+  orderBudgetLines,
+  resolveBudget,
+} from "./budgetLine";
+export {
+  compileExpenseBudgetLines,
+  fillToLimitSeamFor,
+} from "./compileBudget";
 export * from "./plan";
 // A Scenario couples a Plan with its Ledger — the unit the engine projects, so a
 // plan's timeline events can never be silently dropped from a projection (§6).

@@ -22,6 +22,7 @@ import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan } from "./plan";
 import { type Person } from "./person";
 import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
+import { compileExpenseBudgetLines } from "./compileBudget";
 
 /**
  * The environment + jurisdiction the plan→projection mapping is resolved against.
@@ -281,6 +282,25 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     expenseSeries.addOverride(o.month, o.monthlyCents, o.scope);
   }
 
+  // Additive branch (§12, issue #67): a non-empty line-item budget is the new
+  // source of truth for spending — compile its EXPENSE lines (spans + dated
+  // overrides ride into each series) and use them in place of the scalar
+  // `expenseCents` series. Contribution lines route to the contribution channels
+  // (resolveBudget), not here; they land in the waterfall in the #72 rewire. When
+  // absent/empty, the scalar expense series above is used (still live until #72).
+  const budgetLines = budget.budgetLines;
+  // Every expense line is owned by the primary person, but that owner is inert
+  // today: the simulator sums all expense series into one household obligation
+  // and splits it by `sharedScheme`, never reading an expense's ownerId. So every
+  // expense is effectively shared. Issue #84 will make an expense line optionally
+  // *personal* to its owner (charged against that person's take-home first), at
+  // which point this owner tag starts doing work instead of being a placeholder. 
+  // See issue 84.
+  const generalExpenseSeries: readonly SimOwnedSeries[] =
+    budgetLines != null && budgetLines.length > 0
+      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID)
+      : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID }];
+
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
   // Lever 1 (§5.5): a positive deferral % turns the income into a plan-bearing
@@ -313,7 +333,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     initialAccounts: buildPlanAccounts(budget),
     initialIncomeSeries,
     initialExpenseSeries: [
-      { series: expenseSeries, ownerId: PRIMARY_PERSON_ID },
+      ...generalExpenseSeries,
       { series: healthSeries, ownerId: PRIMARY_PERSON_ID },
     ],
     goals: buildPlanGoals(budget),

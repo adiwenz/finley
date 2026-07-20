@@ -11,6 +11,7 @@ import type { GoalDisposal } from "./goal";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
 import type { Job } from "./job";
+import type { BudgetLine } from "./budgetLine";
 
 export interface ValueOverride {
   readonly month: number;
@@ -155,4 +156,18 @@ export interface Plan {
    * fields are removed only in #72.
    */
   readonly jobs?: readonly Job[];
+  /**
+   * First-class line-item {@link BudgetLine} budget (§12, §15, §18, §19, issue #67,
+   * slice 4), added **additively** alongside the scalar {@link expenseCents} /
+   * {@link retirementDeferralPct} / {@link surplusSwept} path. A prioritized list of
+   * dollar line items — expenses and account contributions — each with a
+   * `{ literal, fill-to-limit, goal-paced }` amount source and optional spans + dated
+   * overrides. When present and non-empty, `createProjectionBase` compiles the
+   * *expense* lines into the base expense series instead of the scalar
+   * {@link expenseCents}; contribution lines resolve via {@link
+   * import("./budgetLine").resolveBudget} pending the #72 waterfall rewire. Optional
+   * so no existing `Plan` literal needs editing. The scalar fields are removed only
+   * in #72.
+   */
+  readonly budgetLines?: readonly BudgetLine[];
 }
