@@ -65,7 +65,13 @@ export function App() {
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
-  const retirement = useMemo(() => retirementView(budget, usJurisdiction), [budget]);
+  // The retirement panel reasons about the SAME scenario the graph draws — the plan
+  // plus the live ledger of timeline events — so "when can we retire?" reflects every
+  // event the user has added (a child, a new expense, a separation), not the bare plan.
+  const retirement = useMemo(
+    () => retirementView({ plan: budget, ledger }, usJurisdiction),
+    [budget, ledger],
+  );
   // Chart, timeline, and event picker all span "now" → life expectancy (§7).
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 

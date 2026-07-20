@@ -8,14 +8,16 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { dollarsToCents } from "@finley/engine";
+import { dollarsToCents, scenarioOf } from "@finley/engine";
 import { RetirementPanel } from "./retirementPanel";
 import { retirementView } from "../../retirementView";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import type { Plan } from "@finley/engine";
 
 function render(budget: Plan) {
-  return renderToStaticMarkup(<RetirementPanel view={retirementView(budget)} budget={budget} />);
+  return renderToStaticMarkup(
+    <RetirementPanel view={retirementView(scenarioOf(budget))} budget={budget} />,
+  );
 }
 
 describe("RetirementPanel", () => {

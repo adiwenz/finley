@@ -23,24 +23,13 @@ export interface Person {
   readonly id: PersonId;
   readonly name: string;
   readonly birthYear: number;
-  /** Career-exit age (§5): the null-end job ends here. */
+  /**
+   * The default stop age (§5) for this person's **open-ended** jobs: any job with a
+   * `null` endYear stops the year the person turns this age. The retirement solver
+   * varies it to answer "when can they retire?". Fixed-term jobs ignore it.
+   */
   readonly retirementTargetAge: number;
   /** Pinned Social Security claiming age (an input, never solved). */
   readonly ssClaimingAge: number;
   readonly jobs: readonly Job[];
-}
-
-/**
- * The person's career job (the ≤1 `null`-end job, §4), or `undefined` if they
- * have none. Throws if a person holds more than one — the "≤1 null-end job per
- * person" invariant is a hard model constraint, refused where it is authored.
- */
-export function careerJobOf(person: Person): Job | undefined {
-  const career = person.jobs.filter((j) => j.endYear === null);
-  if (career.length > 1) {
-    throw new Error(
-      `Person "${person.id}" has ${career.length} career (null-end) jobs; at most one is allowed.`,
-    );
-  }
-  return career[0];
 }

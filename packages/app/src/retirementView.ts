@@ -12,12 +12,13 @@
 
 import {
   assessEarlyRetireeHealthCost,
-  earliestFeasibleRetirementAge,
-  evaluateAtAge,
+  solveRetirement,
+  evaluateFullRetirementAtAge,
   type Jurisdiction,
   type ProjectionContext,
   type RetirementEvaluation,
   type EarlyRetireeHealthFlag,
+  type Scenario,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
@@ -82,20 +83,29 @@ function earlyRetireeHealthFlag(
 }
 
 export function retirementView(
-  budget: Plan,
+  scenario: Scenario,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
+  // The panel reasons about the whole scenario — the plan AND its timeline events (a
+  // child at 40, a new expense, a separation) — so "when can we retire?" accounts for
+  // everything on the user's timeline, exactly as the net-worth graph does.
+  const { plan: budget } = scenario;
   // The app supplies the engine's projection environment: the frozen "now" plus the
   // jurisdiction the solver resolves the real projection against.
   const ctx: ProjectionContext = { jurisdiction, startYear: START_YEAR };
-  const headlineAge = earliestFeasibleRetirementAge(budget, ctx);
+  // `solveRetirement` runs all §5 searches off the same real projection. The headline
+  // "when can we retire?" is the FULL retirement age — the honest "you can stop ALL your
+  // jobs" milestone people actually ask about (issue #66).
+  const solution = solveRetirement(scenario, ctx);
+  const headlineAge = solution.fullRetirementAge;
   const headlineMonth =
     headlineAge === null ? null : Math.max(0, (headlineAge - budget.currentAge) * 12);
-  // Compose the full evaluation: `evaluateAtAge` at the pin gives feasibility + on-track
-  // %; the nearest-feasible age is a headline-mode fact — the pin itself when it
-  // survives, else the earliest surviving age (the headline we just computed). Doing it
-  // here reuses the one binary search and can't drift.
-  const evaluation = evaluateAtAge(budget, budget.retirementAge, ctx);
+  // The target assessment asks the SAME full-retirement question at the user's pinned
+  // age: if they stop all jobs at `retirementAge`, do they survive, and how on-track are
+  // they? So the nearest-feasible age when the pin can't make it is the earliest full
+  // retirement age — which is exactly the headline. Grading the pin and its fallback by
+  // one rule keeps the panel consistent, and reusing the solver's search can't drift.
+  const evaluation = evaluateFullRetirementAtAge(scenario, budget.retirementAge, ctx);
   const target: RetirementEvaluation = {
     ...evaluation,
     nearestFeasibleAge: evaluation.feasible ? evaluation.retirementAge : headlineAge,

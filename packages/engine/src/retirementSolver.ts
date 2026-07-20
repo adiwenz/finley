@@ -12,12 +12,12 @@
  * §5 (issue #66) splits "retire" into TWO distinct solver outputs off this same
  * substrate, differing only in which jobs keep paying past the pinned age:
  *
- *  - Career-exit age ({@link earliestCareerExitAge}): vary the career (`null`-end)
- *    job's end; keep the authored supplemental jobs + passive income + SS.
- *  - Work-optional age ({@link earliestWorkOptionalAge}): cease ALL jobs; survive on
- *    passive income + SS + assets alone. Always ≥ the career-exit age.
+ *  - Partial retirement age ({@link earliestPartialRetirementAge}): vary the open-ended
+ *    (`null`-end) jobs' ends; keep the authored fixed-term jobs + passive income + SS.
+ *  - Full retirement age ({@link earliestFullRetirementAge}): cease ALL jobs; survive on
+ *    passive income + SS + assets alone. Always ≥ the partial retirement age.
  *
- * {@link solveRetirement} returns both plus the derived full-work-stop target.
+ * {@link solveRetirement} returns both plus the derived latest-authored-work-stop age.
  *
  * The solver is pure and jurisdiction-agnostic: it is always handed a
  * {@link ProjectionContext} (the caller's frozen "now" plus the jurisdiction the
@@ -27,22 +27,24 @@
 import { interpretLedger } from "./ledger/interpret";
 import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
 import { simulateHousehold } from "./projection/simulate";
-import { emptyLedger } from "./ledger/ledger";
+import { withPlan } from "./scenario";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
 import type { ProjectionSeries } from "./projection/simulate";
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+import type { Scenario } from "./scenario";
 import type { Job } from "./job";
 import type { Plan } from "./plan";
 
 /**
- * Run the full §5 projection for `budget` (no life events — the panel reasons about
- * the authored plan). Same pipeline the chart uses, so panel and graph draw from one
- * model. The `ctx` supplies the frozen "now" (`startYear`) and the jurisdiction.
+ * Run the full §5 projection for a {@link Scenario} — its plan's standing numbers with
+ * the scenario's timeline events (§6) replayed on top. Same pipeline (and same events)
+ * the net-worth chart uses, so the panel and graph draw from one model and genuinely
+ * agree (#37). The `ctx` supplies the frozen "now" (`startYear`) and the jurisdiction.
  */
-export function projectPlan(budget: Plan, ctx: ProjectionContext): ProjectionSeries {
-  const base = createProjectionBase(budget, ctx);
-  const household = interpretLedger(emptyLedger, base);
+export function projectScenario(scenario: Scenario, ctx: ProjectionContext): ProjectionSeries {
+  const base = createProjectionBase(scenario.plan, ctx);
+  const household = interpretLedger(scenario.ledger, base);
   const simInput = buildHouseholdSimInput(household, base);
   return simulateHousehold(simInput, ctx.jurisdiction);
 }
@@ -88,28 +90,28 @@ function computeOnTrackFraction(
 }
 
 /**
- * Project the plan with retirement pinned at `age` and evaluate that one run (§7.1):
- * does it survive, and (if not) how on-track is it? Both the headline search (which
- * reads only `feasible`) and target mode (the panel, at the user's pinned age) go
- * through here — one projection, one evaluation.
+ * Project the scenario with retirement pinned at `age` — its timeline events included —
+ * and evaluate that one run (§7.1): does it survive, and (if not) how on-track is it?
+ * Both the headline search (which reads only `feasible`) and target mode (the panel, at
+ * the user's pinned age) go through here — one projection, one evaluation.
  *
  * It returns the evaluation WITHOUT `nearestFeasibleAge`. That field is the earliest
- * surviving age — the result of `earliestFeasibleRetirementAge`, which calls THIS
+ * surviving age — the result of {@link earliestPartialRetirementAge}, which calls THIS
  * function for every candidate age. Computing it here would make this function invoke
  * the search that invokes it: infinite recursion. The panel composes it once, after
  * the search finishes.
  */
 export function evaluateAtAge(
-  budget: Plan,
+  scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-  const series = projectPlan({ ...budget, retirementAge: age }, ctx);
+  const series = projectScenario(withPlan(scenario, { ...scenario.plan, retirementAge: age }), ctx);
   const feasible = realNetWorthSurvives(series);
   return {
     retirementAge: age,
     feasible,
-    onTrackFraction: feasible ? 1 : computeOnTrackFraction(budget, age, series),
+    onTrackFraction: feasible ? 1 : computeOnTrackFraction(scenario.plan, age, series),
   };
 }
 
@@ -140,36 +142,21 @@ function earliestSurvivingAge(
 }
 
 /**
- * The earliest integer age the plan can retire and still last to life expectancy, or
- * null if even working to life expectancy fails. Survival is monotonic in the age, so a
- * binary search over [currentAge, lifeExpectancy] finds the threshold in ~log2(range)
- * projections.
- *
- * This IS the §5 **career-exit** search under its historical name (it varies the
- * career job's end via `retirementAge` and keeps the authored supplemental + passive
- * income): {@link earliestCareerExitAge} is the §5-named alias.
+ * §5 **partial retirement** solver output — the earliest integer age every **open-ended**
+ * (`null`-end) job can end while the authored **fixed-term** jobs + passive income + SS
+ * keep running and the plan still lasts to life expectancy, or null if even working to
+ * life expectancy fails. Pinning the age moves every open-ended job's end (via
+ * `retirementTargetAge`); fixed-term jobs keep their authored spans. Survival is monotonic
+ * in the age, so a binary search over [currentAge, lifeExpectancy] finds the threshold in
+ * ~log2(range) projections. The on-track % (§7.1) pairs with this age.
  */
-export function earliestFeasibleRetirementAge(
-  budget: Plan,
-  ctx: ProjectionContext,
-): number | null {
-  return earliestSurvivingAge(budget, (age) => evaluateAtAge(budget, age, ctx).feasible);
+export function earliestPartialRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
+  return earliestSurvivingAge(scenario.plan, (age) => evaluateAtAge(scenario, age, ctx).feasible);
 }
 
 /**
- * §5 **career-exit** solver output: the earliest age the career (`null`-end) job can
- * end while the authored supplemental jobs + passive income + SS keep running. Pinning
- * the age moves only the career job's end (via `retirementTargetAge`); every other job
- * keeps its authored span. Alias of {@link earliestFeasibleRetirementAge} — the on-track
- * % (§7.1) pairs with this age.
- */
-export function earliestCareerExitAge(budget: Plan, ctx: ProjectionContext): number | null {
-  return earliestFeasibleRetirementAge(budget, ctx);
-}
-
-/**
- * The plan's jobs with every job's end capped at `age` (§5 work-optional): each job
- * stops no later than the calendar year the owner turns `age`. A `null`-end (career)
+ * The plan's jobs with every job's end capped at `age` (§5 full retirement): each job
+ * stops no later than the calendar year the owner turns `age`. A `null`-end (open-ended)
  * job is first resolved to its `retirementTargetAge` end (`retirementAge` here), then
  * capped — so a supplemental job that already ends before `age` keeps its earlier end,
  * and nothing is extended. The result has only explicit ends, so `retirementAge` no
@@ -185,78 +172,84 @@ function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): J
 }
 
 /**
- * Run the §5 projection with ALL jobs ceased at `age` (§5 work-optional): every job
+ * Run the §5 projection with ALL jobs ceased at `age` (§5 full retirement): every job
  * stops by `age`, leaving passive income + SS + assets to carry the plan to life
- * expectancy. For a scalar plan (no jobs) this collapses to a career-exit projection
- * at `age` (there is no supplemental income to drop).
+ * expectancy. For a scalar plan (no jobs) this collapses to a partial-retirement
+ * projection at `age` (there is no supplemental income to drop).
  */
-export function projectWorkOptional(
-  budget: Plan,
+export function projectFullRetirement(
+  scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
 ): ProjectionSeries {
-  return projectPlan(
-    { ...budget, jobs: ceaseAllJobsAtAge(budget, age, ctx), retirementAge: age },
+  return projectScenario(
+    withPlan(scenario, {
+      ...scenario.plan,
+      jobs: ceaseAllJobsAtAge(scenario.plan, age, ctx),
+      retirementAge: age,
+    }),
     ctx,
   );
 }
 
 /**
- * Evaluate the §5 work-optional scenario at `age`: cease all jobs at `age` and report
- * whether the plan survives (and, if not, how on-track it is). The work-optional
+ * Evaluate the §5 full-retirement scenario at `age`: cease all jobs at `age` and report
+ * whether the plan survives (and, if not, how on-track it is). The full-retirement
  * counterpart of {@link evaluateAtAge}; like it, it omits `nearestFeasibleAge` (the
  * search that computes that calls this, so composing it here would recurse).
  */
-export function evaluateWorkOptionalAtAge(
-  budget: Plan,
+export function evaluateFullRetirementAtAge(
+  scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-  const series = projectWorkOptional(budget, age, ctx);
+  const series = projectFullRetirement(scenario, age, ctx);
   const feasible = realNetWorthSurvives(series);
   return {
     retirementAge: age,
     feasible,
-    onTrackFraction: feasible ? 1 : computeOnTrackFraction(budget, age, series),
+    onTrackFraction: feasible ? 1 : computeOnTrackFraction(scenario.plan, age, series),
   };
 }
 
 /**
- * §5 **work-optional** solver output: the earliest age at which ALL jobs (career +
- * supplemental) can cease and the plan still survives to life expectancy on passive
- * income + SS + assets alone. Always ≥ {@link earliestCareerExitAge} — dropping the
- * supplemental income can only make survival harder. Null when no age survives.
+ * §5 **full retirement** solver output: the earliest age at which ALL jobs (career +
+ * supplemental) can cease and the plan still survive to life expectancy on passive
+ * income + SS + assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping
+ * the supplemental income can only make survival harder. Null when no age survives.
  */
-export function earliestWorkOptionalAge(budget: Plan, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(budget, (age) => evaluateWorkOptionalAtAge(budget, age, ctx).feasible);
+export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
+  return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
 }
 
 /**
- * The derived full-work-stop target (§5): `max(job endYears)` expressed as an age — the
- * latest any authored job is scheduled to stop. A `null`-end career job resolves to its
- * `retirementTargetAge` end. Null when the plan has no jobs (a scalar plan stops earned
- * income at `retirementAge`, which the career-exit age already reports).
+ * The derived latest-authored-work-stop age (§5): `max(job endYears)` expressed as an
+ * age — the latest any authored job is scheduled to stop. A `null`-end (open-ended) job
+ * resolves to its `retirementTargetAge` end. Null when the plan has no jobs (a scalar
+ * plan stops earned income at `retirementAge`, which the partial retirement age already
+ * reports).
  */
-export function fullWorkStopTargetAge(budget: Plan, ctx: ProjectionContext): number | null {
-  const jobs = budget.jobs ?? [];
+export function latestAuthoredWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
+  const { plan } = scenario;
+  const jobs = plan.jobs ?? [];
   if (jobs.length === 0) return null;
-  const birthYear = ctx.startYear - budget.currentAge;
+  const birthYear = ctx.startYear - plan.currentAge;
   const maxEndExclusive = Math.max(
-    ...jobs.map((job) => job.endYear ?? birthYear + budget.retirementAge),
+    ...jobs.map((job) => job.endYear ?? birthYear + plan.retirementAge),
   );
   return maxEndExclusive - birthYear;
 }
 
 /**
- * Both §5 retirement solver outputs off one plan (#66): the career-exit age, the
- * work-optional age, and the derived full-work-stop target. Every field runs off the
- * same real §5 projection substrate (#29), so the panel and the net-worth graph can
- * never disagree.
+ * Both §5 retirement solver outputs off one {@link Scenario} (#66): the partial
+ * retirement age, the full retirement age, and the derived latest-authored-work-stop
+ * age. Every field runs off the same real §5 projection substrate (#29) — the plan WITH
+ * its timeline events — so the panel and the net-worth graph can never disagree.
  */
-export function solveRetirement(budget: Plan, ctx: ProjectionContext): RetirementSolution {
+export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   return {
-    careerExitAge: earliestCareerExitAge(budget, ctx),
-    workOptionalAge: earliestWorkOptionalAge(budget, ctx),
-    fullWorkStopTargetAge: fullWorkStopTargetAge(budget, ctx),
+    partialRetirementAge: earliestPartialRetirementAge(scenario, ctx),
+    fullRetirementAge: earliestFullRetirementAge(scenario, ctx),
+    latestAuthoredWorkStopAge: latestAuthoredWorkStopAge(scenario, ctx),
   };
 }

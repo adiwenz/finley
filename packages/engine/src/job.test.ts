@@ -3,7 +3,7 @@
  * additive compilation into the existing Household pipeline. New coverage only —
  * the scalar path's own tests are untouched.
  *
- * The headline pin: a single career job authored to mirror the scalar model
+ * The headline pin: a single open-ended job authored to mirror the scalar model
  * produces a `simulateHousehold` output that is equal to the scalar model's,
  * month-for-month. The discriminating variant proves the branch actually reads
  * the jobs (a deliberately wrong scalar `incomeCents` still yields the job's
@@ -14,7 +14,7 @@ import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
 import { createProjectionBase, PRIMARY_PERSON_ID, RETIREMENT_ID, type ProjectionContext } from "./projectionBase";
 import { samplePlan } from "./testing/samplePlan";
 import { deriveRealGrowthPct, type Job } from "./job";
-import { careerJobOf, type Person } from "./person";
+import type { Person } from "./person";
 import { compilePersonIncomeSeries } from "./compilePerson";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -30,13 +30,13 @@ function project(plan: Plan) {
 }
 
 /**
- * The single career job that reproduces `samplePlan`'s scalar income exactly:
+ * A single open-ended job that reproduces `samplePlan`'s scalar income exactly:
  * flat-real salary (grows only with CPI), starting the same year the scalar
  * career start age implies, ending at the scalar retirement age (null-end), and
  * deferring the same fraction into the same retirement account.
  */
-const careerJob: Job = {
-  id: "job-career",
+const openEndedJob: Job = {
+  id: "job-main",
   owners: [PRIMARY_PERSON_ID],
   startYear: START_YEAR - (samplePlan.currentAge - samplePlan.careerStartAge),
   endYear: null,
@@ -51,22 +51,25 @@ const careerJob: Job = {
 };
 
 describe("Job/Person standing model — additive compilation (issue #64)", () => {
-  it("holds ≥0 jobs with spans; career job is the ≤1 null-end job", () => {
+  it("allows any number of open-ended (null-end) jobs — no elevated career job (§5, issue #66)", () => {
+    const birthYear = START_YEAR - samplePlan.currentAge;
+    // Two open-ended jobs is legal now: neither is elevated over the other, and both
+    // compile to forward income ending at the owner's retirementTargetAge.
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
-      birthYear: START_YEAR - samplePlan.currentAge,
+      birthYear,
       retirementTargetAge: samplePlan.retirementAge,
       ssClaimingAge: samplePlan.ssClaimingAge,
-      jobs: [careerJob, { ...careerJob, id: "job-side", endYear: START_YEAR + 3 }],
+      jobs: [openEndedJob, { ...openEndedJob, id: "job-2" }],
     };
-    expect(careerJobOf(person)?.id).toBe("job-career");
-    expect(careerJobOf({ ...person, jobs: [] })).toBeUndefined();
-    // Two null-end jobs is a hard model violation.
-    expect(() => careerJobOf({ ...person, jobs: [careerJob, { ...careerJob, id: "j2" }] })).toThrow();
+    const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
+    expect(series).toHaveLength(2);
+    const retireEndMonth = (samplePlan.retirementAge - samplePlan.currentAge) * 12 - 1;
+    expect(series.every((s) => s.series.endMonth === retireEndMonth)).toBe(true);
   });
 
-  it("retirementTargetAge is the per-person input that sets the career job's end (§5, issue #66)", () => {
+  it("retirementTargetAge is the per-person input that sets an open-ended job's end (§5, issue #66)", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
     const base: Person = {
       id: PRIMARY_PERSON_ID,
@@ -74,41 +77,41 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
       birthYear,
       retirementTargetAge: samplePlan.retirementAge,
       ssClaimingAge: samplePlan.ssClaimingAge,
-      jobs: [careerJob],
+      jobs: [openEndedJob],
     };
-    const careerEndMonth = (age: number) =>
+    const openEndedEndMonth = (age: number) =>
       compilePersonIncomeSeries(
         { ...base, retirementTargetAge: age },
         START_YEAR,
         samplePlan.inflationPct / 100,
       )[0].series.endMonth;
-    // The career (null-end) job's forward income stops the month before the owner
+    // The open-ended (null-end) job's forward income stops the month before the owner
     // turns `retirementTargetAge` — the input alone moves the end; nothing else changes.
-    expect(careerEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
-    expect(careerEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
-    expect(careerEndMonth(65)).toBeGreaterThan(careerEndMonth(60) as number);
+    expect(openEndedEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
+    expect(openEndedEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
+    expect(openEndedEndMonth(65)).toBeGreaterThan(openEndedEndMonth(60) as number);
   });
 
-  it("a single career job matches the scalar model month-for-month", () => {
+  it("a single open-ended job matches the scalar model month-for-month", () => {
     const scalar = project(samplePlan);
-    const jobbed = project({ ...samplePlan, jobs: [careerJob] });
+    const jobbed = project({ ...samplePlan, jobs: [openEndedJob] });
     expect(jobbed).toEqual(scalar);
   });
 
   it("actually compiles jobs, not the scalar income (bogus incomeCents is ignored when jobs are present)", () => {
     const scalar = project(samplePlan);
-    const jobbed = project({ ...samplePlan, incomeCents: dollarsToCents(1), jobs: [careerJob] });
+    const jobbed = project({ ...samplePlan, incomeCents: dollarsToCents(1), jobs: [openEndedJob] });
     expect(jobbed).toEqual(scalar);
   });
 
   it("computes pre-'now' earnings directly from jobs, matching the scalar seed", () => {
     const scalarBase = createProjectionBase(samplePlan, ctx());
-    const jobbedBase = createProjectionBase({ ...samplePlan, jobs: [careerJob] }, ctx());
+    const jobbedBase = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
     expect(jobbedBase.initialPersons![0].priorEarningsCents).toEqual(
       scalarBase.initialPersons![0].priorEarningsCents,
     );
     // Sim still starts at "now" — no pre-"now" months are simulated (§4.6).
-    expect(project({ ...samplePlan, jobs: [careerJob] }).months[0].month).toBe(0);
+    expect(project({ ...samplePlan, jobs: [openEndedJob] }).months[0].month).toBe(0);
   });
 
   it("an empty jobs list falls through to the scalar path", () => {

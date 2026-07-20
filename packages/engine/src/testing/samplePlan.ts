@@ -59,18 +59,18 @@ const BARISTA_CURRENT_AGE = 45;
 const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
 
 /**
- * A "barista retirement" fixture (§5): a high-earning **career** job (the `null`-end
- * job, ending at `retirementTargetAge`) plus a low-earning **supplemental** ("barista")
- * job that keeps paying long past career exit. It exists to pin the two §5 solver
- * outputs *distinctly*: the career-exit age (drop the career job, keep the barista +
- * SS + assets) lands earlier than the work-optional age (cease ALL jobs, incl. the
- * barista, and survive on SS + assets alone). Uses jobs, not scalar `incomeCents`.
+ * A "barista retirement" fixture (§5): a high-earning **open-ended** job (the `null`-end
+ * job, ending at `retirementTargetAge`) plus a low-earning **fixed-term** ("barista") job
+ * that keeps paying long past the open-ended job's end. It exists to pin the two §5 solver
+ * outputs *distinctly*: the partial retirement age (drop the open-ended job, keep the
+ * barista + SS + assets) lands earlier than the full retirement age (cease ALL jobs, incl.
+ * the barista, and survive on SS + assets alone). Uses jobs, not scalar `incomeCents`.
  */
-const baristaCareerJob: Job = {
-  id: "career",
+const baristaOpenEndedJob: Job = {
+  id: "main",
   owners: ["p1"],
   startYear: BARISTA_BIRTH_YEAR + 25,
-  endYear: null, // career job — ends at retirementTargetAge, the solver varies it
+  endYear: null, // open-ended — ends at retirementTargetAge, the solver varies it
   salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
 };
 
@@ -78,7 +78,7 @@ const baristaSupplementalJob: Job = {
   id: "barista",
   owners: ["p1"],
   startYear: SAMPLE_START_YEAR,
-  endYear: BARISTA_BIRTH_YEAR + 75, // supplemental — keeps paying well past career exit
+  endYear: BARISTA_BIRTH_YEAR + 75, // fixed-term — keeps paying past the open-ended job's end
   salary: { startingSalaryCents: dollarsToCents(30000), realGrowthPct: 0 },
 };
 
@@ -105,5 +105,5 @@ export const baristaPlan = {
   retirementAge: 60,
   lifeExpectancy: 90,
   ssClaimingAge: 67,
-  jobs: [baristaCareerJob, baristaSupplementalJob],
+  jobs: [baristaOpenEndedJob, baristaSupplementalJob],
 } satisfies Plan;

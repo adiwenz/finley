@@ -56,9 +56,9 @@ function idOf(ref: PersonRef): PersonId {
 
 /**
  * Assert the ownership invariants (§10) for a single account and return it
- * unchanged. Refused where the account is authored — like {@link
- * import("./person").careerJobOf}, an illegal shape is a hard model constraint,
- * not a value the rest of the engine should ever have to defend against:
+ * unchanged. Refused where the account is authored: an illegal shape is a hard
+ * model constraint, not a value the rest of the engine should ever have to defend
+ * against:
  *   - an account has at least one owner;
  *   - a retirement account has *exactly* one (deferral limits and RMDs are
  *     legally per-person, so a joint retirement account is meaningless).
