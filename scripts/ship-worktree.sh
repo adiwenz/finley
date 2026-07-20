@@ -11,17 +11,19 @@
 # never have to cd there yourself.
 #
 # For the given issue it will, fully unattended:
-#   1. Build the PR description from .sandcastle/summary-<id>.md (+ "Closes #<id>"),
-#      then delete that file so it is NOT committed or merged into main
-#   2. Commit any remaining changes in that review worktree
+#   1. Copy .sandcastle/summary-<id>.md into the PR body (+ "Closes #<id>")
+#   2. Commit any remaining changes in that review worktree (never the summary)
 #   3. Push sandcastle/issue-<id>
 #   4. Open the PR with that description — or, if a PR already exists, update its
 #      description (so extra commits made after the summary was written can be
-#      reflected by re-running after editing the summary)
-#   5. Merge the PR with a merge commit
-#   6. Close the issue (belt & suspenders — the merge already closes it)
-#   7. Pull main in the main worktree
-#   8. Remove the review worktree (via remove-review-worktree.sh) and delete the
+#      reflected by re-running after editing the summary). The summary's content
+#      is now safe on the PR in GitHub.
+#   5. Delete the summary file and commit the removal, so it is not merged into
+#      main — no local restore is ever needed, the content already lives on the PR
+#   6. Merge the PR with a merge commit
+#   7. Close the issue (belt & suspenders — the merge already closes it)
+#   8. Pull main in the main worktree
+#   9. Remove the review worktree (via remove-review-worktree.sh) and delete the
 #      branch locally and on origin
 #
 # `set -e` halts on any failure BEFORE the merge/teardown steps, so a broken run
@@ -94,30 +96,33 @@ echo "Main worktree: $MAIN_WORKTREE"
 
 cd "$REVIEW_DIR"
 
-# ---- build the PR description from the summary, then drop the summary ----
-# .sandcastle/summary-<id>.md is the agent's implementation write-up. We use it
-# as the PR body (with a trailing "Closes #<id>") but never ship the file
-# itself: capture its contents now, then delete it so it is not committed or
-# merged into main. If you added commits after the summary was written, edit the
-# summary first so the PR body reflects the newer decisions.
+# ---- read the summary into the PR body (do NOT delete it yet) -----------
+# .sandcastle/summary-<id>.md is the implementer's write-up. We copy it into the
+# PR body (with a trailing "Closes #<id>") but never ship the file itself. The
+# copy into GitHub happens BEFORE the file is deleted, so if a later step fails
+# the description is already safe on the PR — nothing local has to be restored.
+# If you added commits after the summary was written, edit the summary first so
+# the body reflects the newer decisions.
 step "Preparing PR description"
 SUMMARY_FILE=".sandcastle/summary-${ISSUE}.md"
 PR_BODY_FILE="$(mktemp)"
 trap 'rm -f "$PR_BODY_FILE"' EXIT
+HAVE_SUMMARY=0
 if [[ -f "$SUMMARY_FILE" ]]; then
+  HAVE_SUMMARY=1
   cat "$SUMMARY_FILE" >"$PR_BODY_FILE"
   printf '\n\nCloses #%s\n' "$ISSUE" >>"$PR_BODY_FILE"
-  echo "Using $SUMMARY_FILE as the PR body; it will be deleted, not committed."
-  # Remove it so it never lands on main (staged removal if tracked, else plain rm).
-  git rm -f --quiet -- "$SUMMARY_FILE" >/dev/null 2>&1 || rm -f "$SUMMARY_FILE"
+  echo "PR body will come from $SUMMARY_FILE (copied to the PR, then the file is deleted)."
 else
   printf 'Closes #%s\n' "$ISSUE" >"$PR_BODY_FILE"
   echo "No $SUMMARY_FILE found; PR body will be just 'Closes #$ISSUE'."
 fi
 
-# ---- 1. commit remaining changes ---------------------------------------
+# ---- 1. commit remaining changes (but never the summary file) ----------
 step "Committing remaining changes"
 git add -A
+# Keep the summary out of the commit; it goes into the PR body, not into main.
+git reset -q -- "$SUMMARY_FILE" 2>/dev/null || true
 if git diff --cached --quiet; then
   echo "Nothing to commit."
 else
@@ -135,10 +140,17 @@ step "Pushing $BRANCH"
 git push -u origin "$BRANCH"
 
 # ---- 3. open the PR, or update an existing one's description ------------
+# On create, always set the body. On reuse, only overwrite the body when we
+# actually have a summary this run — otherwise a re-run after the summary was
+# already deleted would clobber the good description with just "Closes #<id>".
 step "Opening or updating PR"
 if PR_URL="$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null)"; then
-  gh pr edit "$BRANCH" --body-file "$PR_BODY_FILE" >/dev/null
-  echo "Updated existing PR description: $PR_URL"
+  if [[ "$HAVE_SUMMARY" -eq 1 ]]; then
+    gh pr edit "$BRANCH" --body-file "$PR_BODY_FILE" >/dev/null
+    echo "Updated existing PR description: $PR_URL"
+  else
+    echo "Reusing existing PR (no summary this run; description left as-is): $PR_URL"
+  fi
 else
   PR_URL="$(gh pr create \
     --base main \
@@ -148,21 +160,34 @@ else
   echo "Opened: $PR_URL"
 fi
 
-# ---- 4. merge -----------------------------------------------------------
+# ---- 4. delete the summary now that its content is safe on the PR ------
+# Committed and pushed as its own commit so it is removed from the merge into
+# main. Skipped cleanly if there was no summary (nothing to delete).
+if [[ "$HAVE_SUMMARY" -eq 1 && -e "$SUMMARY_FILE" ]]; then
+  step "Removing $SUMMARY_FILE (its content now lives in the PR description)"
+  git rm -f --quiet -- "$SUMMARY_FILE" >/dev/null 2>&1 || rm -f "$SUMMARY_FILE"
+  git add -A
+  if ! git diff --cached --quiet; then
+    git commit -m "Remove ${SUMMARY_FILE} (moved into the PR description for #${ISSUE})"
+    git push
+  fi
+fi
+
+# ---- 5. merge -----------------------------------------------------------
 step "Merging PR (merge commit)"
 gh pr merge "$BRANCH" --merge
 
-# ---- 5. close the issue (belt & suspenders) -----------------------------
+# ---- 6. close the issue (belt & suspenders) -----------------------------
 step "Closing issue #$ISSUE"
 gh issue close "$ISSUE" 2>/dev/null || echo "Issue already closed."
 
-# ---- 6. pull main -------------------------------------------------------
+# ---- 7. pull main -------------------------------------------------------
 step "Updating main"
 cd "$MAIN_WORKTREE"
 git checkout main >/dev/null 2>&1 || true
 git pull --ff-only origin main
 
-# ---- 7. tear down the worktree + branch ---------------------------------
+# ---- 8. tear down the worktree + branch ---------------------------------
 step "Removing review worktree and branch"
 REMOVE_SCRIPT="$MAIN_WORKTREE/.sandcastle/new_flow/remove-review-worktree.sh"
 if [[ -f "$REMOVE_SCRIPT" ]]; then

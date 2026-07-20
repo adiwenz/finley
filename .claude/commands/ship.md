@@ -38,11 +38,12 @@ Steps:
    "$(git rev-parse --show-toplevel)/scripts/ship-worktree.sh" <issue-number> ["commit message"]
    ```
 
-   It is fully unattended and does, in order: build the PR body from the summary
-   file and delete that file (it is never committed) → commit remaining changes →
-   push `sandcastle/issue-<id>` → open the PR with that body, or update an existing
-   PR's description → merge (merge commit) → close the issue → pull main → remove
-   the review worktree and delete the branch (local + origin).
+   It is fully unattended and does, in order: copy the summary into the PR body →
+   commit remaining changes (never the summary file) → push `sandcastle/issue-<id>`
+   → open the PR with that body (or update an existing PR's description) → delete
+   the summary file and commit its removal, now that its content is safe on the PR
+   → merge (merge commit) → close the issue → pull main → remove the review
+   worktree and delete the branch (local + origin).
 
 3. If the script exits because the review worktree does not exist, it prints the
    exact `create-review-worktree.sh` commands to stand one up. Show those to the
