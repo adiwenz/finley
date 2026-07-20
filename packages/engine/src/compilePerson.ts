@@ -16,7 +16,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { Job } from "./job";
-import { type Person, careerJobOf } from "./person";
+import type { Person } from "./person";
 
 /** Annual salary (nominal = real, since it is today's dollars) at a calendar year. */
 function realSalaryCentsAt(job: Job, year: number): number {
@@ -25,8 +25,8 @@ function realSalaryCentsAt(job: Job, year: number): number {
 }
 
 /**
- * The exclusive calendar year a job stops paying: for the career job the owner's
- * `birthYear + retirementTargetAge` (career exit); for a fixed-term job its
+ * The exclusive calendar year a job stops paying: for an open-ended job the owner's
+ * `birthYear + retirementTargetAge` (the default stop age); for a fixed-term job its
  * authored `endYear`.
  */
 function jobEndYearExclusive(job: Job, owner: Person): number {
@@ -61,7 +61,7 @@ export function compilePersonPriorEarnings(
  * Compile one job into a forward income {@link SimOwnedSeries} covering "now" through
  * the job's end (§6, §4.6). The series starts at the later of month 0 and the
  * job's start, carries the salary at "now" as a monthly baseline, and grows
- * nominally (real growth compounded with CPI). A `null`-end (career) job runs to
+ * nominally (real growth compounded with CPI). A `null`-end (open-ended) job runs to
  * the owner's `retirementTargetAge`. Returns `null` for a job that has already
  * ended before "now" (its earnings are entirely in the prior-earnings record).
  */
@@ -106,16 +106,14 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
 /**
  * Compile all of a person's jobs into forward income series (§6). One
  * {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
- * contribute only to {@link compilePersonPriorEarnings}. `careerJobOf` is consulted
- * first so the ≤1 null-end invariant is enforced even when a caller ignores the
- * income result.
+ * contribute only to {@link compilePersonPriorEarnings}. Any number of jobs may be
+ * open-ended (`null`-end); each simply ends at the owner's `retirementTargetAge`.
  */
 export function compilePersonIncomeSeries(
   person: Person,
   nowYear: number,
   inflationRate: number,
 ): SimOwnedSeries[] {
-  careerJobOf(person);
   const series: SimOwnedSeries[] = [];
   for (const job of person.jobs) {
     const compiled = compileJobIncome(job, person, nowYear, inflationRate);

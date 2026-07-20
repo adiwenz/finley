@@ -23,7 +23,6 @@ export * from "./goal";
 export type { Job, PersonId, SalaryTrajectory, JobDeferral } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
-export { careerJobOf } from "./person";
 // The authoring per-person account ownership model (§9, §10, issue #68). An
 // `Account.owners: PersonId[]` distinguishes individual (`[p]`) from joint
 // (`[p1, p2]`) holdings; net worth is the household aggregate. Distinct from the
@@ -41,8 +40,25 @@ export {
 } from "./account";
 export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 export * from "./plan";
+// A Scenario couples a Plan with its Ledger — the unit the engine projects, so a
+// plan's timeline events can never be silently dropped from a projection (§6).
+export * from "./scenario";
 export * from "./projectionBase";
-export * from "./retirementSolver";
+// The retirement solver's public API is deliberately narrow (§5, issue #66):
+// `solveRetirement` (the three §5 ages off one plan) and `evaluateAtAge` (the panel's
+// assessment at the user's pinned age). The redundant per-mode search entry points
+// (partial-retirement/full-retirement/latest-authored-work-stop) stay module-internal — reachable by the
+// solver's own white-box tests, not by consumers — since `solveRetirement` returns them
+// all. `projectScenario` + `realNetWorthSurvives` remain public: they are the projection
+// substrate + survival predicate the net-worth graph reads and the app's #37 acceptance
+// tests use as an INDEPENDENT survival oracle (panel age == first surviving projection age).
+export {
+  solveRetirement,
+  evaluateAtAge,
+  evaluateFullRetirementAtAge,
+  projectScenario,
+  realNetWorthSurvives,
+} from "./retirementSolver";
 export * from "./retirementTypes";
 export * from "./earlyRetireeHealthCheck";
 export * from "./ids";

@@ -54,18 +54,18 @@ export interface JobDeferral {
  * A job (§4): an earned, SS-covered income stream owned by one or more persons,
  * with a calendar span and a salary trajectory.
  *
- * `endYear === null` marks the **career job** — it ends at the owner's
- * `retirementTargetAge`, which the retirement solver varies. A person may hold
- * **at most one** null-end job ({@link import("./person").careerJobOf} enforces
- * it). An explicit `endYear` is a fixed-term / supplemental job (past,
- * straddling, or future); the year is exclusive — the job is worked in calendar
+ * `endYear === null` marks an **open-ended** job — it has no authored stop date, so
+ * it runs until the owner's `retirementTargetAge` (the person's default stop age),
+ * which the retirement solver varies. A person may hold **any number** of open-ended
+ * jobs — none is elevated over the others. An explicit `endYear` is a fixed-term job
+ * (past, straddling, or future); the year is exclusive — the job is worked in calendar
  * years `[startYear, endYear)`.
  */
 export interface Job {
   readonly id: string;
   readonly owners: readonly PersonId[];
   readonly startYear: number;
-  /** `null` = career job (ends at `retirementTargetAge`); else the exclusive stop year. */
+  /** `null` = open-ended (ends at the owner's `retirementTargetAge`); else the exclusive stop year. */
   readonly endYear: number | null;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
