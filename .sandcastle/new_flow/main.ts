@@ -88,6 +88,15 @@ function originRemoteUrl(): string {
   }
 }
 
+/**
+ * The `owner/repo` slug from a git remote URL (https or ssh), or undefined.
+ * Used to set `GH_REPO` so `gh` in the sandbox targets the repo directly instead
+ * of resolving it from the cloned remote (which it may not recognize as GitHub).
+ */
+function githubRepoSlug(remoteUrl: string): string | undefined {
+  return remoteUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/)?.[1];
+}
+
 function makeSandbox(kind: SandboxKind) {
   if (kind === "docker") {
     console.log("🧱 Sandbox: docker (local bind-mount).");
@@ -123,12 +132,29 @@ function makeSandbox(kind: SandboxKind) {
   const auth = process.env.GH_TOKEN
     ? { username: "x-access-token", password: process.env.GH_TOKEN }
     : {};
+  // The agent's tokens must reach the sandbox's commands. Sandcastle's own env
+  // resolution reads `.sandcastle/.env` from the isolated worktree (where the
+  // gitignored file isn't present), so it drops these — pass them straight from
+  // the orchestrator's process.env and let the provider apply them per command.
+  const sandboxEnv: Record<string, string> = {};
+  for (const key of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "GH_TOKEN"]) {
+    const value = process.env[key];
+    if (value) sandboxEnv[key] = value;
+  }
+  // Target `gh` at the repo directly — the cloned remote isn't reliably resolved
+  // as a "known GitHub host", so remote inference fails; GH_REPO bypasses it.
+  const slug = githubRepoSlug(url);
+  if (slug) sandboxEnv.GH_REPO = slug;
+  // The Vercel image runs as root; Claude Code blocks --dangerously-skip-permissions
+  // as root unless it knows it's sandboxed. It is (an isolated microVM), so say so.
+  sandboxEnv.IS_SANDBOX = "1";
   return vercelProvider({
     ...(CLOUD_IMAGE ? { image: CLOUD_IMAGE } : {}),
     token,
     teamId,
     projectId,
     source: { type: "git", url, ...auth },
+    env: sandboxEnv,
   });
 }
 
