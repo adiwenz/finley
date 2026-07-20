@@ -67,6 +67,31 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () 
     ).toBe(0);
   });
 
+  it("eligibility gate: fewer than 40 credits (< 10 full-credit years) → 0", () => {
+    // Credits come from ANNUAL covered totals (max 4/yr); the fully-insured gate is
+    // 40. Nine years of solidly-above-threshold earnings earn 9 × 4 = 36 credits —
+    // under the gate — so the base benefit is 0 even though the AIME would be positive.
+    const record = levelRecord(2015, 9, 50_000_00);
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBe(0);
+  });
+
+  it("eligibility gate: exactly 40 credits (10 full-credit years) → a benefit", () => {
+    // Ten full-credit years reach 40 credits — fully insured — so the same formula
+    // now returns a positive benefit.
+    const record = levelRecord(2015, 10, 50_000_00);
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBeGreaterThan(0);
+  });
+
+  it("eligibility gate: a low-earning year yields partial credits, not a free 4", () => {
+    // Credits are min(4, floor(wages / quarter-of-coverage)). One year barely over a
+    // single quarter of coverage earns 1 credit, not 4 — so nine strong years plus
+    // one weak year is 36 + 1 = 37 credits, still under the gate → 0.
+    const map = new Map<number, Cents>();
+    for (let i = 0; i < 9; i++) map.set(2015 + i, 50_000_00);
+    map.set(2024, 2_000_00); // ~1 quarter of coverage in 2024 dollars → 1 credit
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA({ annualWagesCents: map }, 2026))).toBe(0);
+  });
+
   it("is monotonic in earnings: more covered wages never lowers the benefit", () => {
     const low = levelRecord(2019, 35, 60_000_00);
     const high = levelRecord(2019, 35, 90_000_00);

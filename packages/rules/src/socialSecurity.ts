@@ -81,6 +81,24 @@ const AWI_ANNUAL_GROWTH = 0.035;
 const AIME_YEARS = 35;
 const AIME_MONTHS = AIME_YEARS * 12;
 
+/**
+ * Credits (a.k.a. "quarters of coverage") required to be fully insured for the
+ * retirement benefit — the eligibility gate. 40 credits ≈ 10 years of covered work.
+ */
+const FULLY_INSURED_CREDITS = 40;
+
+/** Most credits a single calendar year can earn (US: annual-earnings-based since 1978). */
+const MAX_CREDITS_PER_YEAR = 4;
+
+/**
+ * Covered earnings that buy one credit in {@link QUARTER_OF_COVERAGE_BASE_YEAR}
+ * dollars (SSA 2024: $1,730). Like the bend points, this is AWI-indexed to each
+ * earnings year via {@link AWI_ANNUAL_GROWTH} — a disclaimed estimate, consistent
+ * with the other legislation-set constants here.
+ */
+const QUARTER_OF_COVERAGE_CENTS = 1_730_00;
+const QUARTER_OF_COVERAGE_BASE_YEAR = 2024;
+
 // ── Formula ────────────────────────────────────────────────────────────────
 
 /** Index factor for `year`'s earnings, indexed up to `indexingYear` (1.0 at/after it). */
@@ -105,6 +123,24 @@ function aimeCents(record: EarningsRecord, indexingYear: number): Cents {
   for (let i = 0; i < AIME_YEARS; i++) sum += indexed[i] ?? 0;
   const raw = sum / AIME_MONTHS;
   return Math.floor(raw / 100) * 100; // truncate to whole dollar
+}
+
+/**
+ * Total credits earned across the covered-earnings record. Each year buys
+ * `min(4, floor(annual covered wages / quarter-of-coverage))` credits, where the
+ * quarter-of-coverage dollar amount is AWI-indexed to that earnings year (same
+ * mechanism as the bend points). US credits are annual-earnings-based (since 1978),
+ * so no quarter/month granularity is modelled. Feeds the fully-insured gate.
+ */
+function totalCredits(record: EarningsRecord): number {
+  let credits = 0;
+  for (const [year, wageCents] of record.annualWagesCents) {
+    const qocThreshold =
+      QUARTER_OF_COVERAGE_CENTS *
+      Math.pow(1 + AWI_ANNUAL_GROWTH, year - QUARTER_OF_COVERAGE_BASE_YEAR);
+    credits += Math.min(MAX_CREDITS_PER_YEAR, Math.floor(wageCents / qocThreshold));
+  }
+  return credits;
 }
 
 /**
@@ -165,6 +201,9 @@ const SS_ELIGIBILITY_AGE = 62;
 export function governmentBenefitBaseMonthlyCents(claim: GovernmentBenefitClaim): Cents {
   const { record, claimYear, claimingAge, currentAge } = claim;
   if (record.annualWagesCents.size === 0) return 0;
+  // Eligibility gate lives INSIDE the base function (§5.4): a worker who is not
+  // fully insured (< 40 credits) draws no retirement benefit, so return 0.
+  if (totalCredits(record) < FULLY_INSURED_CREDITS) return 0;
   // Earnings are indexed to the year the worker turns 60: birthYear + 60, and
   // birthYear = claim year − age in that year (claimYear, currentAge).
   const indexingYear = claimYear - currentAge + 60;
