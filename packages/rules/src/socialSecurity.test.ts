@@ -28,29 +28,34 @@ const claimAtFRA = (record: EarningsRecord, year: number): GovernmentBenefitClai
 
 describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
-    // All 35 years fall on/after the age-60 indexing year (2019), so every index
-    // factor is 1.0 and the benefit is hand-derivable to the cent:
-    //   AIME  = 35 × $168,600 / 420 = $14,050.00
-    //   PIA   = 0.90·$1,174 + 0.32·($7,078−$1,174) + 0.15·($14,050−$7,078)
-    //         = $1,056.60 + $1,889.28 + $1,045.80 = $3,991.68 → dime → $3,991.60
-    //   claim = FRA ⇒ ×1.0 ⇒ $3,991.60
-    const record = levelRecord(2019, 35, 168_600_00);
-    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBe(399_160);
+    // Age-60 indexing year is 2019 (claimYear 2026, currentAge 67 ⇒ 2026−67+60).
+    // All 35 earnings years fall on/after 2019, so every EARNINGS index factor is
+    // 1.0; the bend points, based in 2026, scale DOWN to 2019. Still hand-derivable
+    // to the cent:
+    //   AIME  = 35 × $184,500 / 420 = $15,375.00
+    //   scale = 1.035^(2019−2026) = 1.035^-7 = 0.785991
+    //   bend1 = $1,286 × 0.785991 → whole $ = $1,011.00
+    //   bend2 = $7,749 × 0.785991 → whole $ = $6,091.00
+    //   PIA   = 0.90·$1,011 + 0.32·($6,091−$1,011) + 0.15·($15,375−$6,091)
+    //         = $909.90 + $1,625.60 + $1,392.60 = $3,928.10 → dime → $3,928.10
+    //   claim = FRA ⇒ ×1.0 ⇒ $3,928.10
+    const record = levelRecord(2019, 35, 184_500_00);
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBe(392_810);
   });
 
   it("cent-pinned: bend points are re-indexed to a future cohort's age-60 year", () => {
     // A worker turning 67 in 2054 (age-60 year = 2054−67+60 = 2047). Their earnings
     // are indexed forward to 2047, so the bend points must move to that same era or
     // the AIME would be sliced by present-day bend points and understate the benefit.
-    //   bend-point scale = 1.035^(2047−2019) = 1.035^28 = 2.620172
-    //   bend1 = $1,174 × 2.620172 → whole $ = $3,076.00
-    //   bend2 = $7,078 × 2.620172 → whole $ = $18,546.00
+    //   bend-point scale = 1.035^(2047−2026) = 1.035^21 = 2.059431
+    //   bend1 = $1,286 × 2.059431 → whole $ = $2,648.00
+    //   bend2 = $7,749 × 2.059431 → whole $ = $15,959.00
     // 35 level years at $100,000, all on/after 2047 ⇒ every earnings index factor
     // is 1.0, so AIME = 35 × $100,000 / 420 = $8,333.33 → whole $ = $8,333.00.
     // AIME sits in the middle (32%) tier, between the two indexed bend points:
-    //   PIA = 0.90·$3,076 + 0.32·($8,333−$3,076)
-    //       = $2,768.40 + $1,682.24 = $4,450.64 → dime → $4,450.60
-    //   claim = FRA ⇒ ×1.0 ⇒ $4,450.60
+    //   PIA = 0.90·$2,648 + 0.32·($8,333−$2,648)
+    //       = $2,383.20 + $1,819.20 = $4,202.40 → dime → $4,202.40
+    //   claim = FRA ⇒ ×1.0 ⇒ $4,202.40
     const record = levelRecord(2047, 35, 100_000_00);
     const claim: GovernmentBenefitClaim = {
       record,
@@ -58,7 +63,7 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () 
       claimingAge: 67,
       currentAge: 67,
     };
-    expect(governmentBenefitBaseMonthlyCents(claim)).toBe(445_060);
+    expect(governmentBenefitBaseMonthlyCents(claim)).toBe(420_240);
   });
 
   it("returns 0 for an empty record", () => {

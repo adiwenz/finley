@@ -57,7 +57,7 @@ Final state: `npm run check` (purity + typecheck + tests) all green.
   to `{ year, currentAge, colaRate }` (the COLA seam's context).
 - **Eligibility gate lives *inside* the base function** (no new engine seam): credits from
   annual totals `min(4, floor(wages / quarterOfCoverage))`, gate at 40. `QUARTER_OF_COVERAGE_CENTS`
-  (SSA 2024 ≈ $1,730) and `MAX_CREDITS_PER_YEAR = 4` are AWI-indexed via the same growth
+  (SSA 2026 ≈ $1,890) and `MAX_CREDITS_PER_YEAR = 4` are AWI-indexed via the same growth
   mechanism the bend points use — disclaimed estimates consistent with the file's other constants.
   US credits are annual-earnings-based (since 1978), so no quarter/month granularity.
 - **Recompute signal** is a per-person `lastComputedThroughYear` marker read straight off the

@@ -36,23 +36,59 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
  */
 
 // ── Legislated constants (one place, disclaimed — §5.4 open decision) ──────────
+//
+// Base years, indexing anchors & sources. The dollar constants below are SSA
+// figures that change yearly, so each is pinned to the base year its dollar
+// amount is exact for and indexed to other years by {@link AWI_ANNUAL_GROWTH}.
+// Every figure here is taken from SSA's 2026 publications, so the base year is
+// 2026 throughout — one provenance year, no cross-figure mismatch:
+//
+//   • {@link BEND_POINT_1_CENTS} / {@link BEND_POINT_2_CENTS} ($1,286 / $7,749)
+//     — 2026 PIA bend points. {@link BEND_POINT_BASE_YEAR} = 2026; they re-index
+//     to each cohort's age-60 year (see BEND_POINT_BASE_YEAR for why).
+//     Source: https://www.ssa.gov/oact/cola/bendpoints.html
+//   • {@link QUARTER_OF_COVERAGE_CENTS} ($1,890) — 2026 quarter-of-coverage
+//     amount. {@link QUARTER_OF_COVERAGE_BASE_YEAR} = 2026; it re-indexes to each
+//     EARNINGS year (a different target year than the bend points, same base).
+//     Source: SSA COLA & other determinations for 2026 (Federal Register) —
+//     https://www.federalregister.gov/documents/2025/11/03/2025-19763/cost-of-living-increase-and-other-determinations-for-2026
+//   • {@link WAGE_BASE_CAP_CENTS} ($184,500) — 2026 contribution & benefit base.
+//     Deliberately held FLAT across all years (a documented simplification — see
+//     its own comment), so it carries a 2026 value but no indexing base year.
+//     Source: https://www.ssa.gov/oact/cola/cbb.html
+// The per-figure base years stay separate constants on purpose: each records the
+// SSA-table year ITS amount came from, so a future refresh can move one figure to
+// a new year without silently dragging the others — they coincide at 2026 only
+// because every value here was sourced from the 2026 tables at once.
+//
+// Indexing is symmetric about each base year: earnings and thresholds in years
+// BEFORE the base scale down (negative exponent in Math.pow), later years scale
+// up. So a claimant who started benefits before the simulation start is handled
+// the same way — the model is expressed in ages and each cohort's age-60 year,
+// never relative to the simulation clock.
+//
+// {@link AWI_ANNUAL_GROWTH} (3.5%) is a single assumed rate standing in for the
+// real per-year SSA Average Wage Index series — the biggest v1 approximation,
+// not a figure sourced from any one year. All values are legislation-set and are
+// disclaimed estimates once indexed forward (§5.4).
 
 /** Full retirement age (FRA) for the cohorts v1 models. */
 const FRA_AGE = 67;
 
 /**
- * Annual Social Security wage base (contribution & benefit base). Real SSA caps
- * vary per year; v1 applies the current cap to every year — a documented
- * simplification that under-indexes very old high earnings slightly.
+ * Annual Social Security wage base (contribution & benefit base), SSA 2026:
+ * $184,500. Real SSA caps vary per year; v1 applies this one cap to every year —
+ * a documented simplification that under-indexes very old high earnings slightly.
  */
-const WAGE_BASE_CAP_CENTS = 168_600_00;
+const WAGE_BASE_CAP_CENTS = 184_500_00;
 
-/** PIA bend points (monthly, current formula). PIA replaces 90% / 32% / 15% across them. */
-const BEND_POINT_1_CENTS = 1_174_00;
-const BEND_POINT_2_CENTS = 7_078_00;
+/** PIA bend points (monthly, SSA 2026). PIA replaces 90% / 32% / 15% across them. */
+const BEND_POINT_1_CENTS = 1_286_00;
+const BEND_POINT_2_CENTS = 7_749_00;
 
 /**
- * The age-60 wage-index year the bend-point constants above are calibrated to.
+ * The age-60 wage-index year the bend-point constants above are expressed in —
+ * 2026, the year SSA published these amounts (their provenance year).
  *
  * Subtlety: SSA ties your PIA formula to your year of first *eligibility* (age
  * 62), so the bend points are conventionally labelled by that year. But their
@@ -63,12 +99,13 @@ const BEND_POINT_2_CENTS = 7_078_00;
  * the split apples-to-apples. Without re-indexing, a future cohort's AIME (scaled
  * forward to their age-60 year) would be sliced by present-day bend points,
  * dumping almost all of it into the bottom 15% tier and understating the benefit
- * in real terms. We mirror this by scaling the constants to the worker's age-60
- * year by {@link AWI_ANNUAL_GROWTH}; the single flat AWI rate means there is no
- * distinct age-62 figure to track. Chosen so the cent-pinned anchor below
- * (age-60 year 2019) uses the constants unscaled.
+ * in real terms. We mirror this by scaling the constants from this base year to
+ * the worker's age-60 year by {@link AWI_ANNUAL_GROWTH}; the single flat AWI rate
+ * means there is no distinct age-62 figure to track. A cohort whose age-60 year
+ * is before 2026 scales the bend points DOWN (negative exponent); one after,
+ * up — only a cohort turning 60 exactly in 2026 uses them unscaled.
  */
-const BEND_POINT_BASE_YEAR = 2019;
+const BEND_POINT_BASE_YEAR = 2026;
 
 /**
  * Average-wage-index growth used to index past earnings to the year the worker
@@ -93,12 +130,12 @@ const MAX_CREDITS_PER_YEAR = 4;
 
 /**
  * Covered earnings that buy one credit in {@link QUARTER_OF_COVERAGE_BASE_YEAR}
- * dollars (SSA 2024: $1,730). Like the bend points, this is AWI-indexed to each
+ * dollars (SSA 2026: $1,890). Like the bend points, this is AWI-indexed to each
  * earnings year via {@link AWI_ANNUAL_GROWTH} — a disclaimed estimate, consistent
  * with the other legislation-set constants here.
  */
-const QUARTER_OF_COVERAGE_CENTS = 1_730_00;
-const QUARTER_OF_COVERAGE_BASE_YEAR = 2024;
+const QUARTER_OF_COVERAGE_CENTS = 1_890_00;
+const QUARTER_OF_COVERAGE_BASE_YEAR = 2026;
 
 // ── Formula ────────────────────────────────────────────────────────────────
 
