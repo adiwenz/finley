@@ -1,4 +1,10 @@
-import type { Cents, EarningsRecord, GovernmentBenefitContext, TaxCategory } from "@finley/engine";
+import type {
+  Cents,
+  EarningsRecord,
+  GovernmentBenefitClaim,
+  GovernmentBenefitContext,
+  TaxCategory,
+} from "@finley/engine";
 
 /**
  * Which income flows count as US Social-Security-covered earnings (§5.4). Wages and
@@ -142,18 +148,41 @@ function claimingFactor(claimingAge: number): number {
 }
 
 /**
- * Monthly Social Security benefit (nominal cents) for a claiming person. The
- * engine calls this once, at claiming age, with the accumulated earnings record.
+ * Age of first Social Security eligibility (62 under US law) — the age the paid
+ * benefit's COLA factor is measured from. This is a `rules` fact now: the engine
+ * holds only the opaque base and asks {@link colaAdjustedBenefitCents} to grow it,
+ * so it never sees this constant nor the formula.
  */
-export function socialSecurityMonthlyBenefitCents(
-  record: EarningsRecord,
-  ctx: GovernmentBenefitContext,
-): Cents {
+const SS_ELIGIBILITY_AGE = 62;
+
+/**
+ * Base Social Security benefit (nominal cents, eligibility-age dollars) for a
+ * claiming person: `PIA(record) × claimingFactor(claimingAge)`. The engine calls
+ * this at claim (and again only while the record keeps growing) with the accumulated
+ * earnings record; it caches the result as an opaque base and grows it forward via
+ * {@link colaAdjustedBenefitCents}. Returns 0 for an empty record.
+ */
+export function governmentBenefitBaseMonthlyCents(claim: GovernmentBenefitClaim): Cents {
+  const { record, claimYear, claimingAge, currentAge } = claim;
   if (record.annualWagesCents.size === 0) return 0;
   // Earnings are indexed to the year the worker turns 60: birthYear + 60, and
-  // birthYear = benefit year − age in that year (ctx.year, ctx.currentAge).
-  const indexingYear = ctx.year - ctx.currentAge + 60;
+  // birthYear = claim year − age in that year (claimYear, currentAge).
+  const indexingYear = claimYear - currentAge + 60;
   const { bend1, bend2 } = bendPointsCents(indexingYear);
   const pia = piaCents(aimeCents(record, indexingYear), bend1, bend2);
-  return Math.round(pia * claimingFactor(ctx.claimingAge));
+  return Math.round(pia * claimingFactor(claimingAge));
+}
+
+/**
+ * Cost-of-living adjustment applied to a frozen base benefit (§5.4):
+ * `baseCents × (1 + colaRate)^(currentAge − 62)`. COLAs accrue from age-62
+ * eligibility whether or not the person has claimed, so a single factor measured
+ * from 62 collapses BOTH the old eligibility bridge (62 → claim) AND the post-claim
+ * forward COLA — they are algebraically the same geometric series. The engine holds
+ * `baseCents` opaquely and never sees this formula. For the modelled 62–70 claiming
+ * range the exponent is ≥ 0.
+ */
+export function colaAdjustedBenefitCents(baseCents: Cents, ctx: GovernmentBenefitContext): Cents {
+  const colaYears = ctx.currentAge - SS_ELIGIBILITY_AGE;
+  return Math.round(baseCents * Math.pow(1 + ctx.colaRate, colaYears));
 }

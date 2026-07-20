@@ -1,24 +1,13 @@
 import type { Cents } from "../money";
-import type { Jurisdiction } from "../jurisdiction";
+import type { Jurisdiction, GovernmentBenefitClaim, GovernmentBenefitContext } from "../jurisdiction";
 import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earningsRecord";
-import { priceSocialSecurityMonthlyCents, type GovernmentBenefitClaim } from "../socialSecurityBenefit";
+import { priceGovernmentBenefitBaseMonthlyCents } from "../socialSecurityBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson, SimOwnedSeries } from "./simulate";
 
-/** Default Social Security claiming age (full retirement age) when unspecified (§5.4). */
+/** Default government-benefit claiming age (full retirement age) when unspecified (§5.4). */
 export const DEFAULT_BENEFIT_CLAIMING_AGE = 67;
-
-/**
- * Age of first Social Security eligibility (62 under US law). COLAs apply to a
- * worker's benefit every year from this age onward — whether or not they have
- * claimed — so a benefit claimed later must be COLA-bridged across the
- * (claimingAge − 62) years between eligibility and the claim (see
- * {@link buildSocialSecuritySources}). Without the bridge, delaying a claim
- * silently forfeits those COLAs and cancels most of the delayed-retirement
- * credit. Pairs with {@link DEFAULT_BENEFIT_CLAIMING_AGE}.
- */
-const SS_ELIGIBILITY_AGE = 62;
 
 /**
  * The slice of the simulator's state that the Social Security bookkeeping reads.
@@ -35,11 +24,11 @@ export interface EarningsState {
   /** Every person by id — SS accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
-   * The monthly Social Security benefit (nominal cents) as of each person's claim
-   * year: the seam's eligibility-dollar PIA, COLA-bridged forward across the years
-   * from age-62 eligibility to the claim (see {@link buildSocialSecuritySources}).
-   * The benefit actually paid grows from here by the annual cost-of-living
-   * adjustment (COLA) each further year post-claim. Absent until claimed.
+   * The frozen BASE government retirement benefit (nominal cents, eligibility-age
+   * dollars) per person: the seam's `PIA × claimingFactor`, held as an OPAQUE number
+   * the engine never re-derives. The benefit actually paid each year is this base run
+   * through the jurisdiction's COLA seam ({@link Jurisdiction.colaAdjustedBenefitCents}).
+   * Absent until claimed.
    */
   readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
 }
@@ -89,16 +78,18 @@ function ssClaimStartMonth(person: SimPerson, startYear: number): number | null 
 }
 
 /**
- * This month's Social Security income sources (§5.4) — one per claiming person.
- * The *base* benefit is computed once at the claiming month from the frozen
- * earnings record via the jurisdiction seam (0 when the jurisdiction supplies
- * none). Each full year after claiming, the paid benefit is inflated from that
- * base by the cost-of-living adjustment (`colaRate`, the sim's CPI) so it keeps
- * pace with inflating expenses rather than eroding in real terms (§0.5, §5.4).
- * Carries `taxCategory:"governmentRetirementBenefit"` and NO planDescriptor, so it
- * enters the waterfall post-deferral and is taxed by the jurisdiction's own
- * benefit-inclusion rule at the §5.3 chokepoint, never as wages. The engine passes
- * the FULL benefit gross — the inclusion % lives in `computeTaxCents`, not here.
+ * This month's government retirement benefit income sources (§5.4) — one per
+ * claiming person. The *base* benefit is priced once at the claiming month from the
+ * frozen earnings record via the jurisdiction's base seam (0 when the jurisdiction
+ * supplies none or the eligibility gate fails), then held OPAQUE. Each year the paid
+ * benefit is the base run through the jurisdiction's COLA seam — the engine never
+ * sees the COLA formula nor the eligibility age; `rules` owns the single
+ * `(1 + colaRate)^(currentAge − eligibilityAge)` factor that replaces the old
+ * split of an eligibility bridge plus a post-claim forward COLA. Carries
+ * `taxCategory:"governmentRetirementBenefit"` and NO planDescriptor, so it enters
+ * the waterfall post-deferral and is taxed by the jurisdiction's own benefit-
+ * inclusion rule at the §5.3 chokepoint, never as wages. The engine passes the FULL
+ * benefit gross — the inclusion % lives in `computeTaxCents`, not here.
  */
 export function buildSocialSecuritySources(
   state: EarningsState,
@@ -112,9 +103,10 @@ export function buildSocialSecuritySources(
   for (const person of state.personsById.values()) {
     const claimStart = ssClaimStartMonth(person, startYear);
     if (claimStart === null || month < claimStart) continue;
+    const currentAge = year - person.birthYear!;
 
-    let benefit = state.ssMonthlyBenefitByPerson.get(person.id);
-    if (benefit === undefined) {
+    let base = state.ssMonthlyBenefitByPerson.get(person.id);
+    if (base === undefined) {
       const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
       const record = toEarningsRecord(state.earningsByPerson.get(person.id) ?? new Map());
       // The live seam input (§5.4): the frozen record plus the who/when the
@@ -124,23 +116,17 @@ export function buildSocialSecuritySources(
         record,
         claimYear: year,
         claimingAge,
-        currentAge: year - person.birthYear!,
+        currentAge,
       };
-      const piaCents = priceSocialSecurityMonthlyCents(jurisdiction, claim);
-      // The seam returns the benefit in age-62 (first-eligibility) dollars. COLAs
-      // apply from eligibility whether or not the person has claimed, so bridge the
-      // (claimingAge − 62) years between eligibility and the claim before paying it
-      // — otherwise delaying a claim forfeits those COLAs and cancels most of the
-      // delayed-retirement credit (§5.4).
-      const eligibilityColaYears = Math.max(0, claimingAge - SS_ELIGIBILITY_AGE);
-      benefit = Math.round(piaCents * Math.pow(1 + colaRate, eligibilityColaYears));
-      state.ssMonthlyBenefitByPerson.set(person.id, benefit);
+      base = priceGovernmentBenefitBaseMonthlyCents(jurisdiction, claim);
+      state.ssMonthlyBenefitByPerson.set(person.id, base);
     }
-    if (benefit <= 0) continue;
-    // Inflate the base by the COLA for each full year elapsed since claiming —
-    // a yearly step, matching how Social Security applies its annual COLA.
-    const yearsSinceClaim = Math.floor((month - claimStart) / 12);
-    const paid = Math.round(benefit * Math.pow(1 + colaRate, yearsSinceClaim));
+    if (base <= 0) continue;
+    // Grow the opaque base forward by the jurisdiction's COLA seam (one cheap call
+    // per year). The single COLA factor folds in the old age-62→claim bridge, so
+    // the engine no longer knows the eligibility age or the bridge formula.
+    const ctx: GovernmentBenefitContext = { year, currentAge, colaRate };
+    const paid = jurisdiction.colaAdjustedBenefitCents?.(base, ctx) ?? base;
     sources.push({
       ownerId: person.id,
       grossCents: paid,

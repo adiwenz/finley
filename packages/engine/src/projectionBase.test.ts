@@ -64,7 +64,7 @@ describe("createProjectionBase — retirement + Social Security wired into the g
     // A jurisdiction that models a flat monthly benefit; the null one does not. The
     // benefit shows up as `governmentRetirementBenefit`-tagged income from the claiming age (67).
     const ssJurisdiction = mockJurisdiction({
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(2_500),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(2_500),
     });
     const series = project(samplePlan, ssJurisdiction);
     const paysSS = series.months.some(
@@ -105,8 +105,8 @@ describe("createProjectionBase — earned income before current age is user-conf
     // leaves more $0 slots and drags the benefit down. A jurisdiction that prices SS
     // straight off the covered record surfaces the difference in late net worth.
     const priced = mockJurisdiction({
-      socialSecurityMonthlyBenefitCents: (record) => {
-        const total = [...record.annualWagesCents.values()].reduce((a, b) => a + b, 0);
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        const total = [...claim.record.annualWagesCents.values()].reduce((a, b) => a + b, 0);
         return Math.round(total / 420);
       },
     });

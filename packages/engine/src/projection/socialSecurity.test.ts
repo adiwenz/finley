@@ -29,6 +29,14 @@ function baseInput(person: SimPerson, overrides: Partial<HouseholdSimInput> = {}
   };
 }
 
+/**
+ * A stand-in COLA seam mirroring the `rules` formula: grow the opaque base by
+ * `(1 + colaRate)^(currentAge − 62)`. The engine holds the base and calls this per
+ * year; the single factor folds in both the old eligibility bridge and forward COLA.
+ */
+const colaFrom62: NonNullable<Jurisdiction["colaAdjustedBenefitCents"]> = (base, ctx) =>
+  Math.round(base * Math.pow(1 + ctx.colaRate, ctx.currentAge - 62));
+
 describe("Social Security accumulation + benefit seam (§5.4)", () => {
   it("null jurisdiction: the record accumulates but the benefit is 0", () => {
     // Person already at full retirement age with seeded lifetime earnings, so a
@@ -51,9 +59,9 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: (record) => {
+      governmentBenefitBaseMonthlyCents: (claim) => {
         let total = 0;
-        for (const cents of record.annualWagesCents.values()) total += cents;
+        for (const cents of claim.record.annualWagesCents.values()) total += cents;
         return Math.round(total / 100);
       },
     };
@@ -73,7 +81,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
       id: "p1",
@@ -94,8 +102,8 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: (record) => {
-        for (const cents of record.annualWagesCents.values()) seenTotal += cents;
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
         return 0;
       },
     };
@@ -133,8 +141,8 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "stub",
       computeTaxCents: () => 0,
       isCoveredEarnings: (cat) => cat === "wages",
-      socialSecurityMonthlyBenefitCents: (record) => {
-        for (const cents of record.annualWagesCents.values()) seenTotal += cents;
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
         return 0;
       },
     };
@@ -172,8 +180,8 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: (record) => {
-        for (const cents of record.annualWagesCents.values()) seenTotal += cents;
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
         return 0;
       },
     };
@@ -205,7 +213,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
       id: "stub",
       computeTaxCents: (byCat) =>
         Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2),
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
       id: "p1",
@@ -227,7 +235,8 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+      colaAdjustedBenefitCents: colaFrom62,
     };
     const person: SimPerson = {
       id: "p1",
@@ -253,7 +262,8 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+      colaAdjustedBenefitCents: colaFrom62,
     };
     const person: SimPerson = {
       id: "p1",
@@ -274,7 +284,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
       id: "p1",
@@ -294,7 +304,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
-      socialSecurityMonthlyBenefitCents: () => dollarsToCents(1_000),
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
       id: "p1",

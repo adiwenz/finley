@@ -20,16 +20,38 @@ export interface JurisdictionContext {
 }
 
 /**
- * Context for the Social Security benefit seam (§5.4). The engine supplies the
- * pinned claiming age (62–70, a decision variable, never searched by the solver),
- * the person's age in the year benefits begin, and that calendar year; `rules`
- * computes the benefit from the {@link EarningsRecord} plus these.
+ * The canonical government-benefit seam input (§5.4): the frozen covered-earnings
+ * record plus the who/when the jurisdiction's benefit formula needs, priced at a
+ * point in time. The engine owns and accumulates the {@link EarningsRecord} and
+ * hands this whole shape to {@link Jurisdiction.governmentBenefitBaseMonthlyCents}.
+ * It is recomputable: {@link currentAge} advances if the base is recomputed while
+ * the worker keeps earning (Phase 5), which the base formula reads to index the
+ * record forward.
  */
-export interface GovernmentBenefitContext extends JurisdictionContext {
+export interface GovernmentBenefitClaim {
+  /** The lifetime covered-earnings record the benefit formula reads. */
+  readonly record: EarningsRecord;
+  /** Calendar year benefits begin (the year the person reaches {@link claimingAge}). */
+  readonly claimYear: number;
   /** Pinned claiming age (62 earliest, 67 full, 70 max). An input, never searched. */
   readonly claimingAge: number;
-  /** The person's age in the year benefits begin (equals claimingAge at first claim). */
+  /** Age at this (re)computation — equals {@link claimingAge} at first claim, advances on recompute. */
   readonly currentAge: number;
+}
+
+/**
+ * Context for the COLA-adjustment seam {@link Jurisdiction.colaAdjustedBenefitCents}
+ * (§5.4). The engine holds the frozen base benefit as an OPAQUE number and, each
+ * year, asks the jurisdiction to inflate it; the jurisdiction owns the formula. The
+ * engine supplies the calendar year, the person's age that year (which drives the
+ * COLA-factor exponent, measured from the jurisdiction's own eligibility age), and
+ * the COLA rate to apply (the plan's `benefitColaRate` when set, else general CPI).
+ */
+export interface GovernmentBenefitContext extends JurisdictionContext {
+  /** The person's age in `year` — drives the COLA factor exponent (age − eligibility age). */
+  readonly currentAge: number;
+  /** The cost-of-living rate to apply this year (plan `benefitColaRate` ?? general inflation). */
+  readonly colaRate: number;
 }
 
 /**
@@ -125,19 +147,31 @@ export interface Jurisdiction {
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
-   * §5.4 seam: a person's monthly Social Security benefit, derived from their
-   * accumulated lifetime {@link EarningsRecord} at claiming age. The engine owns
-   * and accumulates the record (pure bookkeeping) and calls this once when the
-   * person reaches their claiming age; `rules` implements the AIME→PIA bend-point
-   * formula. Optional and legislation-set: when absent (v1 null jurisdiction) the
-   * benefit is 0 while the record still accumulates. The result is nominal cents
-   * and enters the waterfall POST-deferral, tagged `governmentRetirementBenefit`
-   * so the tax seam can apply its own inclusion % — it is not earned wages (§5.4).
+   * §5.4 seam (base): the government retirement benefit in eligibility-age dollars —
+   * `PIA(record) × claimingFactor(claimingAge)` — derived from the accumulated
+   * covered-earnings {@link EarningsRecord}. Returns 0 when the record fails the
+   * jurisdiction's eligibility gate (US: < 40 credits; the gate lives INSIDE here,
+   * not on a separate engine seam). `rules` implements the AIME→PIA bend-point
+   * formula. The engine caches the result as an OPAQUE base and calls this once at
+   * claim — then again only while the record keeps growing (Phase 5). Optional and
+   * legislation-set: absent (v1 null jurisdiction) → 0 while the record still
+   * accumulates. The COLA that grows it forward is a separate seam,
+   * {@link colaAdjustedBenefitCents}, so the engine never sees the base's formula.
    */
-  socialSecurityMonthlyBenefitCents?(
-    record: EarningsRecord,
-    ctx: GovernmentBenefitContext,
-  ): Cents;
+  governmentBenefitBaseMonthlyCents?(claim: GovernmentBenefitClaim): Cents;
+
+  /**
+   * §5.4 seam (COLA): apply the cost-of-living adjustment to a frozen base benefit —
+   * `baseCents × (1 + colaRate)^(currentAge − eligibilityAge)`. The engine holds
+   * `baseCents` as an OPAQUE number (it never sees this formula nor the eligibility
+   * age) and calls this cheaply once per year to get the nominal benefit actually
+   * paid. Collapsing the old 62→claim eligibility bridge and the post-claim forward
+   * COLA into this single factor is exact for the modelled 62–70 claiming range.
+   * The result is nominal cents and enters the waterfall POST-deferral, tagged
+   * `governmentRetirementBenefit` so the tax seam applies its own inclusion % — it
+   * is not earned wages (§5.4). Optional: absent → the base is paid unadjusted.
+   */
+  colaAdjustedBenefitCents?(baseCents: Cents, ctx: GovernmentBenefitContext): Cents;
 
   /**
    * §5.4 seam: the Required Minimum Distribution a pre-tax account holder must

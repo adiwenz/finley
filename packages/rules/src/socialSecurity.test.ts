@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
-import type { Cents, EarningsRecord, GovernmentBenefitContext } from "@finley/engine";
-import { socialSecurityMonthlyBenefitCents, isCoveredEarnings } from "./socialSecurity";
+import type {
+  Cents,
+  EarningsRecord,
+  GovernmentBenefitClaim,
+  GovernmentBenefitContext,
+} from "@finley/engine";
+import {
+  governmentBenefitBaseMonthlyCents,
+  colaAdjustedBenefitCents,
+  isCoveredEarnings,
+} from "./socialSecurity";
 
 /** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
 function levelRecord(startYear: number, count: number, wageCents: Cents): EarningsRecord {
@@ -9,9 +18,15 @@ function levelRecord(startYear: number, count: number, wageCents: Cents): Earnin
   return { annualWagesCents: map };
 }
 
-const atFRA = (year: number): GovernmentBenefitContext => ({ year, claimingAge: 67, currentAge: 67 });
+/** A claim at full retirement age (67) priced in `year`. */
+const claimAtFRA = (record: EarningsRecord, year: number): GovernmentBenefitClaim => ({
+  record,
+  claimYear: year,
+  claimingAge: 67,
+  currentAge: 67,
+});
 
-describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () => {
+describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
     // All 35 years fall on/after the age-60 indexing year (2019), so every index
     // factor is 1.0 and the benefit is hand-derivable to the cent:
@@ -20,7 +35,7 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     //         = $1,056.60 + $1,889.28 + $1,045.80 = $3,991.68 → dime → $3,991.60
     //   claim = FRA ⇒ ×1.0 ⇒ $3,991.60
     const record = levelRecord(2019, 35, 168_600_00);
-    expect(socialSecurityMonthlyBenefitCents(record, atFRA(2026))).toBe(399_160);
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBe(399_160);
   });
 
   it("cent-pinned: bend points are re-indexed to a future cohort's age-60 year", () => {
@@ -37,13 +52,18 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     //       = $2,768.40 + $1,682.24 = $4,450.64 → dime → $4,450.60
     //   claim = FRA ⇒ ×1.0 ⇒ $4,450.60
     const record = levelRecord(2047, 35, 100_000_00);
-    const ctx: GovernmentBenefitContext = { year: 2054, claimingAge: 67, currentAge: 67 };
-    expect(socialSecurityMonthlyBenefitCents(record, ctx)).toBe(445_060);
+    const claim: GovernmentBenefitClaim = {
+      record,
+      claimYear: 2054,
+      claimingAge: 67,
+      currentAge: 67,
+    };
+    expect(governmentBenefitBaseMonthlyCents(claim)).toBe(445_060);
   });
 
   it("returns 0 for an empty record", () => {
     expect(
-      socialSecurityMonthlyBenefitCents({ annualWagesCents: new Map() }, atFRA(2026)),
+      governmentBenefitBaseMonthlyCents(claimAtFRA({ annualWagesCents: new Map() }, 2026)),
     ).toBe(0);
   });
 
@@ -51,25 +71,26 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     const low = levelRecord(2019, 35, 60_000_00);
     const high = levelRecord(2019, 35, 90_000_00);
     const extraYear = levelRecord(2019, 36, 60_000_00); // one additional earning year
-    const lowBenefit = socialSecurityMonthlyBenefitCents(low, atFRA(2026));
-    expect(socialSecurityMonthlyBenefitCents(high, atFRA(2026))).toBeGreaterThan(lowBenefit);
+    const lowBenefit = governmentBenefitBaseMonthlyCents(claimAtFRA(low, 2026));
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(high, 2026))).toBeGreaterThan(lowBenefit);
     expect(
-      socialSecurityMonthlyBenefitCents(extraYear, atFRA(2026)),
+      governmentBenefitBaseMonthlyCents(claimAtFRA(extraYear, 2026)),
     ).toBeGreaterThanOrEqual(lowBenefit);
   });
 
   it("is monotonic in claiming age: earlier claims are reduced, later are credited", () => {
     const record = levelRecord(2019, 35, 80_000_00);
-    // Hold year + currentAge fixed (same indexing year ⇒ same PIA base) and vary
+    // Hold claimYear + currentAge fixed (same indexing year ⇒ same PIA base) and vary
     // only the claiming age, to isolate the claiming-adjustment factor.
-    const at = (claimingAge: number): GovernmentBenefitContext => ({
-      year: 2026,
+    const at = (claimingAge: number): GovernmentBenefitClaim => ({
+      record,
+      claimYear: 2026,
       claimingAge,
       currentAge: 67,
     });
-    const early = socialSecurityMonthlyBenefitCents(record, at(62));
-    const fra = socialSecurityMonthlyBenefitCents(record, at(67));
-    const late = socialSecurityMonthlyBenefitCents(record, at(70));
+    const early = governmentBenefitBaseMonthlyCents(at(62));
+    const fra = governmentBenefitBaseMonthlyCents(at(67));
+    const late = governmentBenefitBaseMonthlyCents(at(70));
     expect(early).toBeLessThan(fra);
     expect(late).toBeGreaterThan(fra);
     // Claiming at 62 pays 70% of the FRA PIA; at 70, 124% (8%/yr delayed credit).
@@ -79,9 +100,78 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
 
   it("clamps claiming age to the legal 62–70 window", () => {
     const record = levelRecord(2019, 35, 80_000_00);
-    const below = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 55, currentAge: 67 });
-    const at62 = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 62, currentAge: 67 });
+    const below = governmentBenefitBaseMonthlyCents({
+      record,
+      claimYear: 2026,
+      claimingAge: 55,
+      currentAge: 67,
+    });
+    const at62 = governmentBenefitBaseMonthlyCents({
+      record,
+      claimYear: 2026,
+      claimingAge: 62,
+      currentAge: 67,
+    });
     expect(below).toBe(at62);
+  });
+});
+
+describe("colaAdjustedBenefitCents — single COLA factor from age-62 (§5.4)", () => {
+  const ctx = (currentAge: number, colaRate: number): GovernmentBenefitContext => ({
+    year: 2026,
+    currentAge,
+    colaRate,
+  });
+
+  it("is the identity at age 62 (exponent 0)", () => {
+    expect(colaAdjustedBenefitCents(100_000, ctx(62, 0.03))).toBe(100_000);
+  });
+
+  it("bridges a delayed claim: age 67 at 10% CPI → base × 1.1^5", () => {
+    // The single (1+cola)^(currentAge−62) factor folds in the old eligibility
+    // bridge; claiming at 67 carries five years of COLA off the age-62 base.
+    expect(colaAdjustedBenefitCents(100_000, ctx(67, 0.1))).toBe(
+      Math.round(100_000 * Math.pow(1.1, 5)),
+    );
+  });
+
+  it("grows forward one further year at a time (age 68 → six years of COLA)", () => {
+    expect(colaAdjustedBenefitCents(100_000, ctx(68, 0.1))).toBe(
+      Math.round(100_000 * Math.pow(1.1, 6)),
+    );
+  });
+
+  it("is a no-op at a zero COLA rate regardless of age", () => {
+    expect(colaAdjustedBenefitCents(123_456, ctx(70, 0))).toBe(123_456);
+  });
+
+  it("parity: the single COLA factor matches the old bridge+forward split to ≤1¢ (§5.4 Phase 3)", () => {
+    // Guardrail for the Option-B collapse (resolved #2): the pre-change engine grew
+    // the benefit in TWO rounded steps — an age-62→claim eligibility bridge then a
+    // post-claim forward COLA — whereas the new seam applies ONE factor measured from
+    // age 62. Algebraically identical; the only difference is an intermediate
+    // rounding, so every figure must stay within 1¢. Any drift > 1¢ is a real
+    // regression — do not blindly accept it.
+    const record = levelRecord(2019, 35, 85_000_00);
+    const colaRate = 0.028;
+    let maxDrift = 0;
+    for (let claimingAge = 62; claimingAge <= 70; claimingAge++) {
+      const base = governmentBenefitBaseMonthlyCents({
+        record,
+        claimYear: 2026,
+        claimingAge,
+        currentAge: claimingAge,
+      });
+      // Old path: round the eligibility bridge, then round the forward COLA on top.
+      const bridged = Math.round(base * Math.pow(1 + colaRate, claimingAge - 62));
+      for (let yearsSinceClaim = 0; yearsSinceClaim <= 25; yearsSinceClaim++) {
+        const currentAge = claimingAge + yearsSinceClaim;
+        const paidOld = Math.round(bridged * Math.pow(1 + colaRate, yearsSinceClaim));
+        const paidNew = colaAdjustedBenefitCents(base, ctx(currentAge, colaRate));
+        maxDrift = Math.max(maxDrift, Math.abs(paidNew - paidOld));
+      }
+    }
+    expect(maxDrift).toBeLessThanOrEqual(1);
   });
 });
 

@@ -113,10 +113,12 @@ interface SimState {
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
   /**
-   * The monthly Social Security benefit (nominal cents) computed once at each
-   * person's claiming month and held flat thereafter. Absent until claimed; 0
-   * when the jurisdiction supplies no benefit seam (v1 null). COLA indexing is
-   * deferred — the benefit is held nominal-flat once claimed.
+   * The frozen BASE government retirement benefit (nominal cents, eligibility-age
+   * dollars) computed once at each person's claiming month and held as an OPAQUE
+   * number. Absent until claimed; 0 when the jurisdiction supplies no benefit seam
+   * (v1 null). The benefit actually paid each year is this base run through the
+   * jurisdiction's COLA seam ({@link Jurisdiction.colaAdjustedBenefitCents}), so it
+   * is NOT held nominal-flat — it grows with the annual cost-of-living adjustment.
    */
   readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
 }
