@@ -41,21 +41,3 @@ export function priceSocialSecurityMonthlyCents(
     }) ?? 0,
   );
 }
-
-/**
- * The same benefit as a REAL (base-year dollars) ANNUAL figure: price the nominal
- * monthly benefit at the claim year, annualize, then deflate back to `baseYear` at
- * CPI (§0.5). This is what a real / today's-dollars surface (the retirement panel)
- * reports; the nominal projection instead holds the monthly figure and grows it by
- * COLA each year post-claim, which lands at the same value in real terms.
- */
-export function priceSocialSecurityAnnualRealCents(
-  jurisdiction: Jurisdiction,
-  claim: GovernmentBenefitClaim,
-  baseYear: number,
-  annualInflationRate: number,
-): Cents {
-  const monthlyNominal = priceSocialSecurityMonthlyCents(jurisdiction, claim);
-  const deflator = Math.pow(1 + annualInflationRate, claim.claimYear - baseYear);
-  return Math.round((monthlyNominal * 12) / deflator);
-}

@@ -1,7 +1,7 @@
 import type { Cents } from "../money";
 import type { Jurisdiction } from "../jurisdiction";
 import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earningsRecord";
-import { priceSocialSecurityMonthlyCents } from "../socialSecurityBenefit";
+import { priceSocialSecurityMonthlyCents, type GovernmentBenefitClaim } from "../socialSecurityBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson, SimOwnedSeries } from "./simulate";
@@ -113,12 +113,16 @@ export function buildSocialSecuritySources(
     if (benefit === undefined) {
       const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
       const record = toEarningsRecord(state.earningsByPerson.get(person.id) ?? new Map());
-      const piaCents = priceSocialSecurityMonthlyCents(jurisdiction, {
+      // The live seam input (§5.4): the frozen record plus the who/when the
+      // jurisdiction's benefit formula needs, constructed explicitly rather than as
+      // an anonymous literal so the shape the seam consumes is named and typed.
+      const claim: GovernmentBenefitClaim = {
         record,
         claimYear: year,
         claimingAge,
         currentAge: year - person.birthYear!,
-      });
+      };
+      const piaCents = priceSocialSecurityMonthlyCents(jurisdiction, claim);
       // The seam returns the benefit in age-62 (first-eligibility) dollars. COLAs
       // apply from eligibility whether or not the person has claimed, so bridge the
       // (claimingAge − 62) years between eligibility and the claim before paying it
