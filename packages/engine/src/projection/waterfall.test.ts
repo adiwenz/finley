@@ -252,56 +252,162 @@ describe("runWaterfall — shared obligations (§5.0 step 3)", () => {
   });
 });
 
-describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
-  // Dated: a `spend` goal needs a month to fire at (§5.2, GoalDisposal). These tests
-  // assert funding order, which the date does not enter into.
-  const sharedGoal = (id: string, priority: number, targetCents: number, fundAccountId: string): SimGoal => ({
+describe("runWaterfall — goals (§5.0 steps 4–5, §5.2, #26 fund-to-pace)", () => {
+  // Dated: a `spend` goal needs a month to fire at (§5.2, GoalDisposal). Under #26
+  // funding is deadline-PACED (sinking-fund), so amounts read as target ÷ months left.
+  const datedGoal = (
+    id: string,
+    priority: number,
+    targetCents: number,
+    fundAccountId: string,
+    targetDate: number,
+  ): SimGoal => ({
     id,
     name: id,
     targetCents,
-    targetDate: 24,
+    targetDate,
     fundAccountId,
     priority,
     disposition: "spend",
     scope: "shared",
   });
 
-  it("shared goals are funded in priority order until the money runs out", () => {
+  it("funds each dated goal to its sinking-fund pace, not to full (#26)", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        // $24k over 24 months → $1,000/mo pace; $12k over 12 months → $1,000/mo pace.
         goals: [
-          sharedGoal("brokerage", 2, dollarsToCents(5000), "brokerage"),
-          sharedGoal("emergency", 1, dollarsToCents(2000), "emergency"),
+          datedGoal("house", 1, dollarsToCents(24000), "house", 24),
+          datedGoal("car", 2, dollarsToCents(12000), "car", 12),
         ],
       }),
     );
-    // $3000 available: emergency (priority 1) fully funded to $2000, brokerage gets $1000.
-    expect(r.accountDepositsCents.get("emergency")).toBe(dollarsToCents(2000));
-    expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(1000));
-    // Nothing left to idle.
+    expect(r.accountDepositsCents.get("house")).toBe(dollarsToCents(1000));
+    expect(r.accountDepositsCents.get("car")).toBe(dollarsToCents(1000));
+    // $3000 − two $1000 paces → $1000 idles.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(1000));
+  });
+
+  it("two affordable goals both reach their pace REGARDLESS of priority order (#26 AC1)", () => {
+    const forward = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [
+          datedGoal("house", 1, dollarsToCents(24000), "house", 24),
+          datedGoal("car", 2, dollarsToCents(12000), "car", 12),
+        ],
+      }),
+    );
+    const reversed = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [
+          datedGoal("house", 2, dollarsToCents(24000), "house", 24),
+          datedGoal("car", 1, dollarsToCents(12000), "car", 12),
+        ],
+      }),
+    );
+    // Order is a no-op when both paces fit — the amortization decides, not priority.
+    expect(reversed.accountDepositsCents.get("house")).toBe(
+      forward.accountDepositsCents.get("house"),
+    );
+    expect(reversed.accountDepositsCents.get("car")).toBe(forward.accountDepositsCents.get("car"));
+  });
+
+  it("under scarcity, priority decides who falls behind (#26 AC2)", () => {
+    // Both paces are $1,000/mo but only $1,500 is available → priority-1 gets its full
+    // pace, priority-2 gets the remainder.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(1500))],
+        goals: [
+          datedGoal("house", 2, dollarsToCents(24000), "house", 24),
+          datedGoal("car", 1, dollarsToCents(12000), "car", 12),
+        ],
+      }),
+    );
+    expect(r.accountDepositsCents.get("car")).toBe(dollarsToCents(1000)); // priority 1: full pace
+    expect(r.accountDepositsCents.get("house")).toBe(dollarsToCents(500)); // priority 2: falls behind
     expect(r.accountDepositsCents.get("checking")).toBeUndefined();
   });
 
-  it("a goal is funded only up to target minus its current fund balance (no overfunding)", () => {
+  it("a goal-fund's own growth rate lowers its required pace (#26 growth-aware)", () => {
+    const flat = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("house", 1, dollarsToCents(24000), "house", 24)],
+      }),
+    );
+    const grown = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("house", 1, dollarsToCents(24000), "house", 24)],
+        goalFundMonthlyRate: (id) => (id === "house" ? 0.01 : 0),
+      }),
+    );
+    expect(grown.accountDepositsCents.get("house")).toBeLessThan(
+      flat.accountDepositsCents.get("house") ?? 0,
+    );
+  });
+
+  it("re-paces off the current fund balance (no overfunding)", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(3000))],
-        goals: [sharedGoal("emergency", 1, dollarsToCents(2000), "emergency")],
-        accountBalanceCents: (id) => (id === "emergency" ? dollarsToCents(1500) : 0),
+        // $12k target over 12 months, $6k already saved → $6k over 12 = $500/mo.
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(6000) : 0),
       }),
     );
-    // Already $1500 saved → only $500 need. Remaining $2500 idles.
-    expect(r.accountDepositsCents.get("emergency")).toBe(dollarsToCents(500));
+    expect(r.accountDepositsCents.get("car")).toBe(dollarsToCents(500));
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(2500));
   });
 
-  it("personal goals draw from the owner's leftover after shared goals", () => {
+  it("asap goals fund from the remainder in priority order AFTER the dated paces (#26 AC4)", () => {
+    const asapGoal: SimGoal = {
+      id: "emergency",
+      name: "emergency",
+      targetCents: dollarsToCents(20000),
+      targetDate: "asap",
+      fundAccountId: "emergency",
+      priority: 0, // higher priority than the dated goal, yet paced goals still fund first
+      disposition: "retain",
+      scope: "shared",
+    };
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [asapGoal, datedGoal("car", 5, dollarsToCents(12000), "car", 12)],
+      }),
+    );
+    // Dated pace ($1,000) is taken first even though the asap goal outranks it; the
+    // asap goal then fills from the $2,000 remainder.
+    expect(r.accountDepositsCents.get("car")).toBe(dollarsToCents(1000));
+    expect(r.accountDepositsCents.get("emergency")).toBe(dollarsToCents(2000));
+    expect(r.accountDepositsCents.get("checking")).toBeUndefined();
+  });
+
+  it("surplus after every pace routes to the swept destination (#26 AC5)", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        surplusDestination: { kind: "swept", accountId: "brokerage" },
+      }),
+    );
+    expect(r.accountDepositsCents.get("car")).toBe(dollarsToCents(1000));
+    // The $2,000 beyond the pace is swept, not idled.
+    expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(2000));
+    expect(r.accountDepositsCents.get("checking")).toBeUndefined();
+  });
+
+  it("personal goals pace from the owner's leftover after shared paces", () => {
     const personalGoal: SimGoal = {
       id: "p1-car",
       name: "car",
-      targetCents: dollarsToCents(10000),
-      targetDate: 24,
+      targetCents: dollarsToCents(12000),
+      targetDate: 12,
       fundAccountId: "car-fund",
       priority: 5,
       disposition: "spend",
@@ -311,12 +417,11 @@ describe("runWaterfall — goals (§5.0 steps 4–5, §5.2)", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(3000))],
-        goals: [sharedGoal("emergency", 1, dollarsToCents(2000), "emergency"), personalGoal],
+        goals: [datedGoal("emergency", 1, dollarsToCents(24000), "emergency", 24), personalGoal],
       }),
     );
-    expect(r.accountDepositsCents.get("emergency")).toBe(dollarsToCents(2000));
-    // The remaining $1000 of p1's leftover funds the personal car goal.
-    expect(r.accountDepositsCents.get("car-fund")).toBe(dollarsToCents(1000));
+    expect(r.accountDepositsCents.get("emergency")).toBe(dollarsToCents(1000)); // shared pace
+    expect(r.accountDepositsCents.get("car-fund")).toBe(dollarsToCents(1000)); // personal pace
   });
 });
 

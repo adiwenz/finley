@@ -342,12 +342,17 @@ function allocateMonth(
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
+  month: number,
 ): void {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
   // own catch-up; a person with no birth year gets the base limit (age omitted).
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
+  // The #26 sinking-fund pace is growth-aware: a goal that leans on its fund's own
+  // return needs a smaller monthly contribution. Look the fund's monthly rate up by
+  // account id (0 for an unknown account → a flat even spread).
+  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
   const result = runWaterfall({
     personIds: state.personIds,
@@ -356,6 +361,8 @@ function allocateMonth(
     sharedScheme: state.sharedScheme,
     surplusDestination: state.surplusDestination,
     goals: state.goals,
+    nowMonth: month,
+    goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
@@ -687,7 +694,7 @@ export function simulateHousehold(
         ),
       ];
 
-      allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents);
+      allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents, month);
       isInsolvent = applyShortfallCascade(state, month);
 
       applyAssetTransfers(state, month);

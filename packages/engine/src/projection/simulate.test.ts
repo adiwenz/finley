@@ -1069,4 +1069,67 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     // After the goal is capped, the rest idles in checking: month 3 gets $1000, 4–6 get $2000.
     expect(series.months[6].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
   });
+
+  describe("dated goals amortize to their deadline (#26/#69 AC3, AC7)", () => {
+    // Two goals well within budget: $6k by month 6 and $12k by month 12. A $3k/mo
+    // income more than covers both paces ($1k + $1k), so the outcome must not depend
+    // on priority order and each fund must track an amortized path, not fill-then-idle.
+    const near = (priority: number) => ({
+      id: "near",
+      name: "Near goal",
+      targetCents: dollarsToCents(6000),
+      targetDate: 6,
+      fundAccountId: "near-fund",
+      priority,
+      disposition: "spend" as const,
+      scope: "shared" as const,
+    });
+    const far = (priority: number) => ({
+      id: "far",
+      name: "Far goal",
+      targetCents: dollarsToCents(12000),
+      targetDate: 12,
+      fundAccountId: "far-fund",
+      priority,
+      disposition: "retain" as const,
+      scope: "shared" as const,
+    });
+    const scenario = (nearPriority: number, farPriority: number) => ({
+      horizonMonths: 12,
+      annualInflationRate: 0,
+      persons: [person],
+      accounts: [
+        makeInvestmentAccount(0, 0),
+        goalFund("near-fund"),
+        goalFund("far-fund"),
+      ],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+      expenseSeries: [],
+      goals: [near(nearPriority), far(farPriority)],
+    });
+
+    it("amortizes the far goal along a rising path instead of filling it then idling (AC7)", () => {
+      const series = simulateHousehold(scenario(1, 2), nullJurisdiction);
+      const far0 = series.months[1].accountBalancesCents["far-fund"];
+      const far6 = series.months[6].accountBalancesCents["far-fund"];
+      const far12 = series.months[12].accountBalancesCents["far-fund"];
+      // Fill-then-idle would land the full $12k in month 1; a paced path starts small,
+      // climbs monotonically, and only reaches the target at the month-12 deadline.
+      expect(far0).toBeGreaterThan(0);
+      expect(far0).toBeLessThan(dollarsToCents(2000));
+      expect(far6).toBeGreaterThan(far0);
+      expect(far6).toBeLessThan(dollarsToCents(12000));
+      expect(far12).toBe(dollarsToCents(12000));
+    });
+
+    it("both affordable goals reach 100% regardless of priority order (AC3)", () => {
+      const forward = simulateHousehold(scenario(1, 2), nullJurisdiction);
+      const reversed = simulateHousehold(scenario(2, 1), nullJurisdiction);
+      // The near goal fires (spend) at month 6, so read its balance AT its deadline.
+      for (const s of [forward, reversed]) {
+        expect(s.months[6].accountBalancesCents["near-fund"]).toBe(dollarsToCents(6000));
+        expect(s.months[12].accountBalancesCents["far-fund"]).toBe(dollarsToCents(12000));
+      }
+    });
+  });
 });

@@ -33,6 +33,7 @@
 import { splitEven, type Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
+import { requiredContributionCents } from "../sinkingFund";
 
 /** The 401(k)-style plan a job carries (§5.5) — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
@@ -73,6 +74,17 @@ export interface WaterfallInput {
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
+  /**
+   * The absolute month being allocated (0 = "now"). Sets each dated goal's
+   * `monthsRemaining = targetDate − nowMonth` for the #26 sinking-fund pace. Absent
+   * → 0.
+   */
+  readonly nowMonth?: number;
+  /**
+   * A goal fund account's monthly growth rate, for the growth-aware #26 pace. Absent
+   * (or returning 0) → a flat even spread over the months remaining.
+   */
+  readonly goalFundMonthlyRate?: (accountId: string) => number;
   /** Current (beginning-of-step) balance of any account — goal need is target − this. */
   readonly accountBalanceCents: (accountId: string) => Cents;
   /** The default liquid account — the `idle` surplus destination. Null if none. */
@@ -264,11 +276,19 @@ function splitSharedObligation(
 }
 
 /**
- * Steps 4–6 — fund shared goals from the combined discretionary pool in priority
- * order, then each person's personal goals from their own leftover, then send the
- * exact remainder to the surplus destination. All of these are written into
- * `deposits`. The surplus is the balancing figure, so every discretionary cent is
- * conserved regardless of rounding.
+ * Steps 4–6 — the #26 deadline-paced (sinking-fund) goal loop, then the surplus.
+ *
+ * The old strict fill-order (each priority-0 goal soaking up every dollar until full)
+ * is replaced by two jobs pulled apart (§14, #26): the **deadline sets the pace** and
+ * **priority is scarcity triage**. In priority order, each *dated* goal is funded up
+ * to its {@link requiredContributionCents} pace — no more — so when every pace fits,
+ * all goals amortize concurrently to their own deadlines and the order is a no-op;
+ * only when the paces exceed the month's cash does priority decide who falls behind.
+ *
+ * `asap` goals have no deadline, hence no pace, so they fund fill-order from whatever
+ * remains AFTER every dated pace (a second pass), in priority order. The exact
+ * leftover after all of that lands in the surplus destination — the balancing figure,
+ * so every discretionary cent is conserved regardless of rounding.
  */
 function fundGoals(
   input: WaterfallInput,
@@ -277,37 +297,62 @@ function fundGoals(
   deposits: Map<string, Cents>,
 ): void {
   const orderedGoals = [...input.goals].sort((a, b) => a.priority - b.priority);
+  const nowMonth = input.nowMonth ?? 0;
+  const rateOf = input.goalFundMonthlyRate ?? (() => 0);
 
   let sharedPoolRemaining = totalDiscretionary;
   const personalRemaining = new Map<string, Cents>(leftoverByPerson);
   let goalDepositsTotal: Cents = 0;
 
-  const fundGoal = (goal: SimGoal, available: Cents): Cents => {
-    if (available <= 0) return 0;
+  // Fund `goal` up to `cap` this month (its wanted amount — pace, or full need for an
+  // asap goal), drawing from its pool: the shared discretionary pool for a shared
+  // goal, or the owner's own leftover (further capped by the shared pool) for a
+  // personal one. Never overfunds past target-minus-balance.
+  const fundGoalUpTo = (goal: SimGoal, cap: Cents): void => {
+    if (cap <= 0) return;
     const current = input.accountBalanceCents(goal.fundAccountId);
     const need = Math.max(0, goal.targetCents - current);
-    const fund = Math.min(need, available);
-    if (fund <= 0) return 0;
+    const want = Math.min(need, cap);
+    if (want <= 0) return;
+
+    const owner = goal.scope === "personal" ? goal.ownerId : undefined;
+    if (goal.scope === "personal" && owner === undefined) return;
+    const available =
+      owner === undefined
+        ? sharedPoolRemaining
+        : Math.min(personalRemaining.get(owner) ?? 0, sharedPoolRemaining);
+    const fund = Math.min(want, available);
+    if (fund <= 0) return;
+
     addDeposit(deposits, goal.fundAccountId, fund);
     goalDepositsTotal += fund;
-    return fund;
+    sharedPoolRemaining -= fund;
+    if (owner !== undefined) {
+      personalRemaining.set(owner, (personalRemaining.get(owner) ?? 0) - fund);
+    }
   };
 
+  // Pass 1 — dated goals funded to their sinking-fund pace, in priority order.
   for (const goal of orderedGoals) {
-    if (goal.scope === "shared") {
-      const funded = fundGoal(goal, sharedPoolRemaining);
-      sharedPoolRemaining -= funded;
-    } else {
-      const owner = goal.ownerId;
-      if (owner === undefined) continue;
-      const avail = Math.min(personalRemaining.get(owner) ?? 0, sharedPoolRemaining);
-      const funded = fundGoal(goal, avail);
-      personalRemaining.set(owner, (personalRemaining.get(owner) ?? 0) - funded);
-      sharedPoolRemaining -= funded;
-    }
+    if (goal.targetDate === "asap") continue;
+    const current = input.accountBalanceCents(goal.fundAccountId);
+    const monthsRemaining = goal.targetDate - nowMonth;
+    const pace = requiredContributionCents(
+      goal.targetCents,
+      current,
+      monthsRemaining,
+      rateOf(goal.fundAccountId),
+    );
+    fundGoalUpTo(goal, pace);
   }
 
-  // ── Surplus destination: the exact leftover after every goal (conservation).
+  // Pass 2 — asap goals (no deadline, no pace) fill-order from the remainder.
+  for (const goal of orderedGoals) {
+    if (goal.targetDate !== "asap") continue;
+    fundGoalUpTo(goal, Infinity);
+  }
+
+  // ── Surplus destination: the exact leftover after every pace (conservation).
   const surplusCents = totalDiscretionary - goalDepositsTotal;
   if (surplusCents > 0) {
     const destId =

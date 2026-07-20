@@ -15,6 +15,12 @@ import {
   type SimOwnedSeries,
   type SimPerson,
 } from "./simulate";
+import {
+  buildWithdrawalSources,
+  DEFAULT_LIQUIDATION_ORDER,
+  type WithdrawalState,
+} from "./withdrawal";
+import type { IncomeSourceMonth } from "./waterfall";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
@@ -306,5 +312,79 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
+  });
+});
+
+describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16, #69 AC7)", () => {
+  const ctx = { year: 2026 };
+
+  /** A withdrawal state over the given accounts, each seeded to `dollars`. */
+  function state(accounts: SimAccount[], dollarsById: Record<string, number>): WithdrawalState {
+    const assetBalances = new Map<string, number>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return { accounts, assetBalances, liquidAccount: null, goals: [] };
+  }
+
+  it("draws the tax-efficient DEFAULT order: capital-gains → ordinary-income → tax-exempt", () => {
+    const accounts = [
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+      account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 0),
+      account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0),
+    ];
+    const st = state(accounts, { pretax: 10_000, taxexempt: 10_000, brokerage: 10_000 });
+    // $5k need, no other income → the capital-gains brokerage is tapped first.
+    const sources = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(5_000), ctx);
+    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(5_000)); // drawn
+    expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000)); // untouched
+    expect(st.assetBalances.get("taxexempt")).toBe(dollarsToCents(10_000)); // untouched
+    expect(sources).toHaveLength(1);
+    expect(sources[0].taxCategory).toBe("capitalGains");
+  });
+
+  it("honors an explicit liquidation-order OVERRIDE (§16 overridable)", () => {
+    const accounts = [
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+      account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 0),
+      account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0),
+    ];
+    const st = state(accounts, { pretax: 10_000, taxexempt: 10_000, brokerage: 10_000 });
+    // Override: draw tax-exempt FIRST (e.g. a bequest strategy) — the opposite of the default.
+    const sources = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      1,
+      [],
+      dollarsToCents(5_000),
+      ctx,
+      ["taxExempt", "capitalGains", "ordinaryIncome"],
+    );
+    expect(st.assetBalances.get("taxexempt")).toBe(dollarsToCents(5_000)); // drawn first
+    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(10_000)); // untouched
+    expect(sources[0].taxCategory).toBe("taxExempt");
+  });
+
+  it("honors forced RMDs first: an RMD source shrinks the need before any elective draw (§16)", () => {
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
+    const st = state(accounts, { brokerage: 10_000 });
+    // A $3k forced RMD is already booked as income; the $5k obligation only needs a
+    // $2k elective top-up from the brokerage (RMD counted first, no double-draw).
+    const rmd: IncomeSourceMonth[] = [
+      { ownerId: "p1", grossCents: dollarsToCents(3_000), taxCategory: "ordinaryIncome" },
+    ];
+    const sources = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      1,
+      rmd,
+      dollarsToCents(5_000),
+      ctx,
+    );
+    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(8_000)); // only $2k elective
+    const electiveTotal = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(electiveTotal).toBe(dollarsToCents(2_000));
+  });
+
+  it("exposes the tax-efficient default order as a named constant", () => {
+    expect(DEFAULT_LIQUIDATION_ORDER).toEqual(["capitalGains", "ordinaryIncome", "taxExempt"]);
   });
 });
