@@ -13,7 +13,7 @@ type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
  * bookkeeping reads and mutates. A structural view over `SimState` — declaring it
  * here (rather than importing the whole mutable `SimState`) keeps that state object
  * private to the simulator while this module stays independently testable, mirroring
- * {@link import("./rmd").RmdState} and {@link import("./socialSecurity").EarningsState}.
+ * {@link import("./rmd").RmdState} and {@link import("./governmentBenefit").EarningsState}.
  */
 export interface WithdrawalState {
   /** Every asset account — the withdrawal walks these as liquidation sources. */

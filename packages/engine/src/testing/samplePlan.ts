@@ -63,8 +63,9 @@ const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
  * job, ending at `retirementTargetAge`) plus a low-earning **fixed-term** ("barista") job
  * that keeps paying long past the open-ended job's end. It exists to pin the two §5 solver
  * outputs *distinctly*: the partial retirement age (drop the open-ended job, keep the
- * barista + SS + assets) lands earlier than the full retirement age (cease ALL jobs, incl.
- * the barista, and survive on SS + assets alone). Uses jobs, not scalar `incomeCents`.
+ * barista + government benefit + assets) lands earlier than the full retirement age (cease ALL
+ * jobs, incl. the barista, and survive on government benefit + assets alone). Uses jobs, not
+ * scalar `incomeCents`.
  */
 const baristaOpenEndedJob: Job = {
   id: "main",

@@ -132,18 +132,19 @@ export interface SimPerson {
   /**
    * Birth year (§5.4). Present → the simulator accumulates this person's
    * lifetime {@link EarningsRecord} and, at their {@link benefitClaimingAge}, begins a
-   * derived Social Security income stream via the jurisdiction seam. Absent → no
-   * SS is modelled for them (the record is only useful with an age to claim at).
+   * derived government retirement benefit income stream via the jurisdiction seam.
+   * Absent → no benefit is modelled for them (the record is only useful with an age
+   * to claim at).
    */
   readonly birthYear?: number;
   /**
-   * Pinned Social Security claiming age (62–70, §5.4). A decision variable, never
+   * Pinned government-benefit claiming age (62–70, §5.4). A decision variable, never
    * searched by the retirement solver. Defaults to 67 (full retirement age) when
    * {@link birthYear} is set. Ignored without a birth year.
    */
   readonly benefitClaimingAge?: number;
   /**
-   * Pre-"now" SS-covered earnings summary (§4.6), keyed by calendar year — the one
+   * Pre-"now" covered-earnings summary (§4.6), keyed by calendar year — the one
    * historical financial input. Seeds the {@link EarningsRecord} so a mid-career
    * person has a benefit basis before the projection's own earnings accumulate.
    */

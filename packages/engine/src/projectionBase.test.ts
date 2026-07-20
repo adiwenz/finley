@@ -44,8 +44,8 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
   return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
 }
 
-describe("createProjectionBase — retirement + Social Security wired into the graph (§5.4/§7)", () => {
-  it("gives the projection person an SS basis: birth year (from age) and claiming age", () => {
+describe("createProjectionBase — retirement + government benefit wired into the graph (§5.4/§7)", () => {
+  it("gives the projection person a benefit basis: birth year (from age) and claiming age", () => {
     const base = createProjectionBase({ ...samplePlan, currentAge: 40, benefitClaimingAge: 68 }, ctx());
     const p = base.initialPersons![0];
     expect(p.birthYear).toBe(base.startYear! - 40);
@@ -60,21 +60,21 @@ describe("createProjectionBase — retirement + Social Security wired into the g
     expect(late).toBeGreaterThan(early);
   });
 
-  it("pays a Social Security benefit from the claiming age — it appears in the series", () => {
+  it("pays a government retirement benefit from the claiming age — it appears in the series", () => {
     // A jurisdiction that models a flat monthly benefit; the null one does not. The
     // benefit shows up as `governmentRetirementBenefit`-tagged income from the claiming age (67).
-    const ssJurisdiction = mockJurisdiction({
+    const benefitJurisdiction = mockJurisdiction({
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(2_500),
     });
-    const series = project(samplePlan, ssJurisdiction);
-    const paysSS = series.months.some(
+    const series = project(samplePlan, benefitJurisdiction);
+    const paysBenefit = series.months.some(
       (m) => (m.flows?.incomeByCategoryCents["governmentRetirementBenefit"] ?? 0) > 0,
     );
-    expect(paysSS).toBe(true);
-    // And it materially lifts late net worth versus the same plan with no SS program.
-    const withSS = netWorthAtAge(samplePlan, 80, ssJurisdiction);
-    const noSS = netWorthAtAge(samplePlan, 80, nullJurisdiction);
-    expect(withSS).toBeGreaterThan(noSS);
+    expect(paysBenefit).toBe(true);
+    // And it materially lifts late net worth versus the same plan with no benefit program.
+    const withBenefit = netWorthAtAge(samplePlan, 80, benefitJurisdiction);
+    const noBenefit = netWorthAtAge(samplePlan, 80, nullJurisdiction);
+    expect(withBenefit).toBeGreaterThan(noBenefit);
   });
 });
 
@@ -100,9 +100,9 @@ describe("createProjectionBase — earned income before current age is user-conf
     expect(from30.at(-1)).toBe(START_YEAR - 1);
   });
 
-  it("lowers the priced Social Security benefit when the career started later (fewer covered years)", () => {
-    // The AIME (§5.4) divides a fixed 35-year window, so seeding fewer pre-"now" years
-    // leaves more $0 slots and drags the benefit down. A jurisdiction that prices SS
+  it("lowers the priced government benefit when the career started later (fewer covered years)", () => {
+    // The US AIME (§5.4) divides a fixed 35-year window, so seeding fewer pre-"now" years
+    // leaves more $0 slots and drags the benefit down. A jurisdiction that prices the benefit
     // straight off the covered record surfaces the difference in late net worth.
     const priced = mockJurisdiction({
       governmentBenefitBaseMonthlyCents: (claim) => {

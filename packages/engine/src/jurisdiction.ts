@@ -11,7 +11,7 @@ import type { TaxCategory } from "./cashFlowSeries";
  * it runs and is testable standalone with no rules package present.
  *
  * Slice 0 exposes only the `computeTax` seam. Later slices widen this interface
- * (contribution limits, Social Security benefit, Medicare, RMDs) against the
+ * (contribution limits, government retirement benefit, Medicare, RMDs) against the
  * same engine-defines-socket / rules-fills-plug pattern.
  */
 export interface JurisdictionContext {

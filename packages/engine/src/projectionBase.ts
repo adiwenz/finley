@@ -167,7 +167,7 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): SimCa
 }
 
 /**
- * Nominal SS-covered earnings for the working ages in `[fromAge, toAge)`, assuming
+ * Nominal covered earnings for the working ages in `[fromAge, toAge)`, assuming
  * a constant *real* (today's) salary across the whole span: each year is today's
  * salary inflated to that calendar year at CPI, keyed by calendar year. Consistent
  * with how in-model income is modelled (inflation-linked, flat in real terms). Both
@@ -190,9 +190,9 @@ function careerEarningsCents(
 }
 
 /**
- * The full nominal SS-covered earnings record the plan implies — the whole career,
- * from the authored career start age through retirement. The panel prices Social
- * Security from this same record the graph accumulates, so both surfaces report the
+ * The full nominal covered-earnings record the plan implies — the whole career,
+ * from the authored career start age through retirement. The panel prices the
+ * benefit from this same record the graph accumulates, so both surfaces report the
  * same benefit.
  */
 export function fullCareerEarningsCents(budget: Plan, startYear: number): Record<number, Cents> {
@@ -200,12 +200,13 @@ export function fullCareerEarningsCents(budget: Plan, startYear: number): Record
 }
 
 /**
- * Reconstruct the person's SS-covered earnings for the working years BEFORE the
+ * Reconstruct the person's covered earnings for the working years BEFORE the
  * simulation starts (the §4.6 pre-"now" summary the engine seeds from).
  *
  * Why this is needed even for someone who will work a "full" 30 years in-model:
- * the AIME formula (§5.4) sums a worker's highest 35 indexed years and always
- * divides by a fixed 420-month (35-year) window. A 35-year-old who retires at 65
+ * a benefit formula may look back over a long earnings window (US AIME, §5.4:
+ * sums a worker's highest 35 indexed years and always divides by a fixed
+ * 420-month (35-year) window). A 35-year-old who retires at 65
  * only earns 30 in-model years, so 5 slots would be counted as $0 and drag the
  * benefit down ~1/7. A real 35-year-old has instead been earning since the age
  * they started their career, and those years fill the record — so we seed ages
@@ -217,9 +218,9 @@ function seedPriorEarnings(budget: Plan, startYear: number): Record<number, Cent
 
 export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
   const { startYear } = ctx;
-  // Give the projection an SS basis (§5.4): a birth year derived from today's age
+  // Give the projection a benefit basis (§5.4): a birth year derived from today's age
   // plus the pinned claiming age, so the engine accumulates earnings while working
-  // and pays a Social Security benefit from the claiming age — the same lever the
+  // and pays a government retirement benefit from the claiming age — the same lever the
   // retirement panel reasons about, now present in the graph too. Seed the years
   // worked BEFORE "now" so the benefit reflects a full career, not just in-model
   // earnings (see seedPriorEarnings).
@@ -243,9 +244,9 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
         }
       : undefined;
 
-  // Give the projection an SS basis (§5.4): a birth year derived from today's age
+  // Give the projection a benefit basis (§5.4): a birth year derived from today's age
   // plus the pinned claiming age, so the engine accumulates earnings while working
-  // and pays a Social Security benefit from the claiming age — the same lever the
+  // and pays a government retirement benefit from the claiming age — the same lever the
   // retirement panel reasons about, now present in the graph too. Seed the years
   // worked BEFORE "now" so the benefit reflects a full career, not just in-model
   // earnings (from jobs directly when present, else the scalar seedPriorEarnings).

@@ -4,7 +4,7 @@
  * {@link HouseholdSimInput} and a {@link Jurisdiction} and get back everything the
  * simulator knows — the resolved inputs echoed for the record, plus a per-month
  * table carrying ages, balances (stocks), and cash flows (rates), including derived
- * Social Security income. A consumer needs no engine internals to render, export,
+ * government retirement benefit income. A consumer needs no engine internals to render, export,
  * or diff a run; the app's debug panel is just one such consumer.
  *
  * Everything here is plain data (no class instances, no functions), so

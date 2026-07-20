@@ -122,12 +122,13 @@ export interface Plan {
   /** Age at "now" — the base the retirement solver counts years from. */
   readonly currentAge: number;
   /**
-   * Age the person's Social-Security-covered career is assumed to have begun —
+   * Age the person's covered-earnings career is assumed to have begun —
    * the first year seeded into the pre-"now" earnings record (§4.6). User-set
-   * rather than a fixed 18, because when the career started drives how many of the
-   * AIME's fixed 35-year window are filled (§5.4): someone who started at 25 has
-   * four fewer covered years than someone who started at 18, which lowers the
-   * priced benefit. Expected to satisfy `careerStartAge ≤ currentAge`; when equal
+   * rather than a fixed 18, because when the career started drives how many years
+   * of the benefit formula's earnings window are filled (§5.4; US AIME: a fixed
+   * 35-year window): someone who started at 25 has four fewer covered years than
+   * someone who started at 18, which lowers the priced benefit. Expected to satisfy
+   * `careerStartAge ≤ currentAge`; when equal
    * there are no pre-"now" years to seed.
    */
   readonly careerStartAge: number;
@@ -135,7 +136,7 @@ export interface Plan {
   readonly retirementAge: number;
   /** Age the portfolio must last to — the retirement survival horizon. */
   readonly lifeExpectancy: number;
-  /** Pinned Social Security claiming age — an input to the check, never searched. */
+  /** Pinned government-benefit claiming age — an input to the check, never searched. */
   readonly benefitClaimingAge: number;
   /**
    * Optional cost-of-living rate for the government retirement benefit (§5.4), as a

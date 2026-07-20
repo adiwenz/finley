@@ -15,7 +15,7 @@
  *      defers nothing. Each person's combined deferral is capped at the shared
  *      annual IRS limit (§5.4); overflow re-enters the waterfall as taxable cash.
  *   2. gross − deferral = taxable → `computeTaxCents` (§5.3 seam 1) → take-home.
- *      Non-wage income (SS/alimony/dividends) has no `planDescriptor`, so it enters
+ *      Non-wage income (government benefit/alimony/dividends) has no `planDescriptor`, so it enters
  *      POST-deferral yet still feeds the taxable pool (placement reads
  *      `planDescriptor`; taxation reads `taxCategory` — never conflated).
  *   3. Shared obligations are split across people by the scheme (proportional to

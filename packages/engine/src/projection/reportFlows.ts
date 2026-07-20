@@ -22,7 +22,7 @@ import type { ProjectionMonthFlows } from "./simulate.types";
 /**
  * Bucket this month's resolved income sources, expenses, and liability payments into
  * the diagnostic {@link ProjectionMonthFlows}. Reads the same figures the waterfall
- * consumed (income sources incl. derived SS/RMD, expense total, scheduled payments),
+ * consumed (income sources incl. derived benefit/RMD, expense total, scheduled payments),
  * so the flow view can never drift from the sim.
  */
 export function buildFlows(

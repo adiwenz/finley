@@ -13,9 +13,9 @@
  * substrate, differing only in which jobs keep paying past the pinned age:
  *
  *  - Partial retirement age ({@link earliestPartialRetirementAge}): vary the open-ended
- *    (`null`-end) jobs' ends; keep the authored fixed-term jobs + passive income + SS.
+ *    (`null`-end) jobs' ends; keep the authored fixed-term jobs + passive income + government benefit.
  *  - Full retirement age ({@link earliestFullRetirementAge}): cease ALL jobs; survive on
- *    passive income + SS + assets alone. Always ≥ the partial retirement age.
+ *    passive income + government benefit + assets alone. Always ≥ the partial retirement age.
  *
  * {@link solveRetirement} returns both plus the derived latest-authored-work-stop age.
  *
@@ -143,7 +143,7 @@ function earliestSurvivingAge(
 
 /**
  * §5 **partial retirement** solver output — the earliest integer age every **open-ended**
- * (`null`-end) job can end while the authored **fixed-term** jobs + passive income + SS
+ * (`null`-end) job can end while the authored **fixed-term** jobs + passive income + government benefit
  * keep running and the plan still lasts to life expectancy, or null if even working to
  * life expectancy fails. Pinning the age moves every open-ended job's end (via
  * `retirementTargetAge`); fixed-term jobs keep their authored spans. Survival is monotonic
@@ -173,7 +173,7 @@ function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): J
 
 /**
  * Run the §5 projection with ALL jobs ceased at `age` (§5 full retirement): every job
- * stops by `age`, leaving passive income + SS + assets to carry the plan to life
+ * stops by `age`, leaving passive income + government benefit + assets to carry the plan to life
  * expectancy. For a scalar plan (no jobs) this collapses to a partial-retirement
  * projection at `age` (there is no supplemental income to drop).
  */
@@ -215,7 +215,7 @@ export function evaluateFullRetirementAtAge(
 /**
  * §5 **full retirement** solver output: the earliest age at which ALL jobs (career +
  * supplemental) can cease and the plan still survive to life expectancy on passive
- * income + SS + assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping
+ * income + government benefit + assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping
  * the supplemental income can only make survival harder. Null when no age survives.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
