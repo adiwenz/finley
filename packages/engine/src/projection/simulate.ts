@@ -639,7 +639,7 @@ export function simulateHousehold(
 
       // Fold this month's covered wages into each person's SS earnings record
       // before assembling income, so a claim landing this month sees them (§5.4).
-      accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year);
+      accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year, jurisdiction);
       // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
       // the waterfall runs and re-enter it here as taxable ordinary income, so the
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.

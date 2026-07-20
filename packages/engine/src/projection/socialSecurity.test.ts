@@ -112,6 +112,7 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
           {
             series: new SimCashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
               baselineUnit: "monthly",
+              taxCategory: "wages",
             }),
             ownerId: "p1",
           },
@@ -121,6 +122,78 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     );
     // Months 1–12 of $5,000 wages accumulated before the claim was priced.
     expect(seenTotal).toBe(dollarsToCents(5_000) * 12);
+  });
+
+  it("consults the jurisdiction's isCoveredEarnings predicate for what feeds the record", () => {
+    // A jurisdiction that counts ONLY `wages` as covered — not `ordinaryIncome`.
+    // The engine must route the covered-earnings decision through the seam, so the
+    // ordinaryIncome stream is excluded and only the wages stream reaches the record.
+    let seenTotal = 0;
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      isCoveredEarnings: (cat) => cat === "wages",
+      socialSecurityMonthlyBenefitCents: (record) => {
+        for (const cents of record.annualWagesCents.values()) seenTotal += cents;
+        return 0;
+      },
+    };
+    const person: SimPerson = { id: "p1", name: "You", birthYear: 1965, benefitClaimingAge: 62 };
+    simulateHousehold(
+      baseInput(person, {
+        horizonMonths: 24,
+        incomeSeries: [
+          {
+            series: new SimCashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
+              baselineUnit: "monthly",
+              taxCategory: "wages",
+            }),
+            ownerId: "p1",
+          },
+          {
+            series: new SimCashFlowSeries(0, dollarsToCents(3_000), { type: "fixed" }, {
+              baselineUnit: "monthly",
+              taxCategory: "ordinaryIncome",
+            }),
+            ownerId: "p1",
+          },
+        ],
+      }),
+      stub,
+    );
+    // Only the $5,000 wages stream (months 1–12) counts; ordinaryIncome is excluded.
+    expect(seenTotal).toBe(dollarsToCents(5_000) * 12);
+  });
+
+  it("falls back to wages-only covered earnings when the jurisdiction omits the predicate", () => {
+    // No isCoveredEarnings on the seam → the engine's documented bookkeeping default
+    // covers `wages` only. The ordinaryIncome stream is therefore not on the record.
+    let seenTotal = 0;
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      socialSecurityMonthlyBenefitCents: (record) => {
+        for (const cents of record.annualWagesCents.values()) seenTotal += cents;
+        return 0;
+      },
+    };
+    const person: SimPerson = { id: "p1", name: "You", birthYear: 1965, benefitClaimingAge: 62 };
+    simulateHousehold(
+      baseInput(person, {
+        horizonMonths: 24,
+        incomeSeries: [
+          {
+            series: new SimCashFlowSeries(0, dollarsToCents(4_000), { type: "fixed" }, {
+              baselineUnit: "monthly",
+              taxCategory: "ordinaryIncome",
+            }),
+            ownerId: "p1",
+          },
+        ],
+      }),
+      stub,
+    );
+    expect(seenTotal).toBe(0);
   });
 
   it("passes the full benefit gross to the seam, which owns the inclusion % (§5.4 partial taxation)", () => {

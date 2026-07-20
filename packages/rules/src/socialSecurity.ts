@@ -1,4 +1,15 @@
-import type { Cents, EarningsRecord, GovernmentBenefitContext } from "@finley/engine";
+import type { Cents, EarningsRecord, GovernmentBenefitContext, TaxCategory } from "@finley/engine";
+
+/**
+ * Which income flows count as US Social-Security-covered earnings (§5.4). Wages and
+ * self-employment (`ordinaryIncome`) are covered; the benefit itself would be
+ * circular, and capital gains and tax-exempt income are not covered. This is the
+ * `rules`-side plug for {@link import("@finley/engine").Jurisdiction.isCoveredEarnings}
+ * — the fact of what counts is a jurisdiction one, not an engine one.
+ */
+export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
+  return taxCategory === "wages" || taxCategory === "ordinaryIncome";
+}
 
 /**
  * US Social Security retirement benefit — the AIME→PIA bend-point formula (§5.4).

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Cents, EarningsRecord, GovernmentBenefitContext } from "@finley/engine";
-import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
+import { socialSecurityMonthlyBenefitCents, isCoveredEarnings } from "./socialSecurity";
 
 /** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
 function levelRecord(startYear: number, count: number, wageCents: Cents): EarningsRecord {
@@ -82,5 +82,18 @@ describe("socialSecurityMonthlyBenefitCents — AIME→PIA formula (§5.4)", () 
     const below = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 55, currentAge: 67 });
     const at62 = socialSecurityMonthlyBenefitCents(record, { year: 2026, claimingAge: 62, currentAge: 67 });
     expect(below).toBe(at62);
+  });
+});
+
+describe("isCoveredEarnings — US covered-earnings predicate (§5.4)", () => {
+  it("covers wages and self-employment ordinary income", () => {
+    expect(isCoveredEarnings("wages")).toBe(true);
+    expect(isCoveredEarnings("ordinaryIncome")).toBe(true);
+  });
+
+  it("excludes the benefit itself (circular), capital gains, and tax-exempt income", () => {
+    expect(isCoveredEarnings("governmentRetirementBenefit")).toBe(false);
+    expect(isCoveredEarnings("capitalGains")).toBe(false);
+    expect(isCoveredEarnings("taxExempt")).toBe(false);
   });
 });

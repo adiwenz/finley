@@ -1,10 +1,10 @@
 import type { Cents, Jurisdiction, TaxCategory } from "@finley/engine";
-import { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
+import { socialSecurityMonthlyBenefitCents, isCoveredEarnings } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 
-export { socialSecurityMonthlyBenefitCents } from "./socialSecurity";
+export { socialSecurityMonthlyBenefitCents, isCoveredEarnings } from "./socialSecurity";
 export { requiredMinimumDistributionCents } from "./rmd";
 export {
   contributionLimits,
@@ -53,6 +53,7 @@ export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   computeTaxCents: (taxableByCategory) => computeUsTaxCents(taxableByCategory),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
+  isCoveredEarnings,
   socialSecurityMonthlyBenefitCents,
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,

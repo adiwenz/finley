@@ -45,30 +45,34 @@ export interface EarningsState {
 }
 
 /**
- * Income tax categories that count as SS-covered earnings for the {@link
- * EarningsRecord}. Wages/self-employment are covered; Social Security itself
- * (would be circular), capital gains, and tax-exempt income are not (§5.4).
+ * Which income tax categories count toward the covered-earnings record is a
+ * jurisdiction fact, not an engine one (§5.4) — it moved onto the {@link
+ * Jurisdiction.isCoveredEarnings} seam. When a jurisdiction omits the predicate,
+ * the engine falls back to a documented bookkeeping-only default: `wages` only.
+ * (US supplies `wages || ordinaryIncome`; the null jurisdiction never reads the
+ * record, so the fallback is moot there.)
  */
-function isCoveredEarnings(taxCategory: TaxCategory): boolean {
-  return taxCategory === "wages" || taxCategory === "ordinaryIncome";
+function coversEarnings(jurisdiction: Jurisdiction, taxCategory: TaxCategory): boolean {
+  return jurisdiction.isCoveredEarnings?.(taxCategory) ?? taxCategory === "wages";
 }
 
 /**
  * Fold this month's covered wage income into each owner's lifetime earnings
- * accumulator (§5.4). Pure bookkeeping — no jurisdiction knowledge. Uses the same
- * per-source gross the waterfall sees, tagged by taxCategory (default
- * `ordinaryIncome`, which counts as covered).
+ * accumulator (§5.4). Pure bookkeeping over the same per-source gross the waterfall
+ * sees, tagged by taxCategory (default `ordinaryIncome`); the jurisdiction decides
+ * which categories are covered via {@link coversEarnings}.
  */
 export function accumulateEarnings(
   earningsByPerson: Map<string, EarningsAccumulator>,
   incomeSeries: readonly SimOwnedSeries[],
   month: number,
   year: number,
+  jurisdiction: Jurisdiction,
 ): void {
   for (const s of incomeSeries) {
     const acc = earningsByPerson.get(s.ownerId);
     if (acc === undefined) continue; // income owner not on the roster — no SS record
-    if (!isCoveredEarnings(s.series.taxCategory ?? "ordinaryIncome")) continue;
+    if (!coversEarnings(jurisdiction, s.series.taxCategory ?? "ordinaryIncome")) continue;
     addEarnings(acc, year, s.series.getMonthlyCents(month));
   }
 }

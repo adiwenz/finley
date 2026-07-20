@@ -103,6 +103,17 @@ export interface Jurisdiction {
   ): Cents;
 
   /**
+   * §5.4 seam: which income {@link TaxCategory} flows count toward the covered-
+   * earnings {@link EarningsRecord} that feeds the government-benefit formula. A
+   * jurisdiction fact (US covers wages + self-employment ordinary income, never the
+   * benefit itself — that would be circular — nor capital gains or tax-exempt
+   * income), so it lives here rather than in the engine's neutral accumulator.
+   * Optional: when absent, the engine applies a documented bookkeeping-only default
+   * (`wages` only). Moot for the null jurisdiction, which never reads the record.
+   */
+  isCoveredEarnings?(taxCategory: TaxCategory): boolean;
+
+  /**
    * §5.4 seam: a person's annual employee pre-tax deferral limit (401k-style) for
    * the given year, including the age-banded catch-up when {@link
    * DeferralLimitContext.age} is supplied. The waterfall caps each person's
