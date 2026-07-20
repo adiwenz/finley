@@ -17,7 +17,8 @@ coverage/
 .sandcastle/.env
 .sandcastle/worktrees/
 
-# Claude Code (local worktrees + personal settings)
-.claude/
+# Claude Code (local worktrees + personal settings) — but track shared commands
+.claude/*
+!.claude/commands/
 .vercel
 .env*
