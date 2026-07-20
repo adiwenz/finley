@@ -60,7 +60,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
       name: "P",
       birthYear,
       retirementTargetAge: samplePlan.retirementAge,
-      ssClaimingAge: samplePlan.ssClaimingAge,
+      benefitClaimingAge: samplePlan.benefitClaimingAge,
       jobs: [openEndedJob, { ...openEndedJob, id: "job-2" }],
     };
     const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
@@ -76,7 +76,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
       name: "P",
       birthYear,
       retirementTargetAge: samplePlan.retirementAge,
-      ssClaimingAge: samplePlan.ssClaimingAge,
+      benefitClaimingAge: samplePlan.benefitClaimingAge,
       jobs: [openEndedJob],
     };
     const openEndedEndMonth = (age: number) =>

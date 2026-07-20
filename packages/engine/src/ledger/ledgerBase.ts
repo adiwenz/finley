@@ -17,6 +17,11 @@ import type {
 export interface LedgerBaseConfig {
   readonly horizonMonths: number;
   readonly annualInflationRate: number;
+  /**
+   * Optional benefit COLA rate (decimal, §5.4). Passed straight to the simulator;
+   * when unset the benefit COLA is coupled to {@link annualInflationRate}.
+   */
+  readonly benefitColaRate?: number;
   readonly startYear?: number;
   /** Persons present before any events (e.g. the primary account holder). */
   readonly initialPersons?: readonly SimPerson[];

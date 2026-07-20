@@ -83,6 +83,7 @@ export function buildHouseholdSimInput(
   return {
     horizonMonths: base.horizonMonths,
     annualInflationRate: base.annualInflationRate,
+    benefitColaRate: base.benefitColaRate,
     startYear: base.startYear,
     persons,
     accounts,

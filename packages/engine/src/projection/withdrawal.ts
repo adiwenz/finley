@@ -13,7 +13,7 @@ type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
  * bookkeeping reads and mutates. A structural view over `SimState` — declaring it
  * here (rather than importing the whole mutable `SimState`) keeps that state object
  * private to the simulator while this module stays independently testable, mirroring
- * {@link import("./rmd").RmdState} and {@link import("./socialSecurity").EarningsState}.
+ * {@link import("./rmd").RmdState} and {@link import("./governmentBenefit").EarningsState}.
  */
 export interface WithdrawalState {
   /** Every asset account — the withdrawal walks these as liquidation sources. */
@@ -119,7 +119,7 @@ function estimateNetIncome(
 /**
  * The desired-withdrawal (decumulation) channel (§7, D0). Runs BEFORE the waterfall,
  * alongside {@link import("./rmd").buildRmdSources} / {@link
- * import("./socialSecurity").buildSocialSecuritySources}: it pulls cash out of
+ * import("./governmentBenefit").buildGovernmentBenefitSources}: it pulls cash out of
  * investment accounts (mutating `assetBalances`) and re-injects it as income sources
  * so the withdrawal is taxed once at the §5.3 chokepoint and its net lands where the
  * waterfall routes take-home — funding the month's obligations instead of the plan

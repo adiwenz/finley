@@ -275,10 +275,10 @@ test("taxCategory is stored as-is (v1-ignored seam)", () => {
   });
   assert.strictEqual(s.taxCategory, "wages");
 
-  const ss = new SimCashFlowSeries(0, dollarsToCents(12000), { type: "fixed" }, {
+  const benefit = new SimCashFlowSeries(0, dollarsToCents(12000), { type: "fixed" }, {
     taxCategory: "governmentRetirementBenefit",
   });
-  assert.strictEqual(ss.taxCategory, "governmentRetirementBenefit");
+  assert.strictEqual(benefit.taxCategory, "governmentRetirementBenefit");
 });
 
 test("correctHistory: editing a prior segment's value in-place recomputes forward", () => {

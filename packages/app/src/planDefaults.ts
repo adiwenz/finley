@@ -51,7 +51,7 @@ export const PLAN_DEFAULTS: Plan = {
   careerStartAge: 18,
   retirementAge: 65,
   lifeExpectancy: 90,
-  ssClaimingAge: 67,
+  benefitClaimingAge: 67,
   // Social Security is always priced from the plan's earnings (the AIME→PIA seam the
   // graph and panel share); there is no authored override.
 };

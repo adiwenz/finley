@@ -43,7 +43,7 @@ function isRmdTriggerMonth(month: number): boolean {
  *
  * The withdrawal binds as `max(desired, required)` (§5.4); the base sim has no
  * desired draw, so `required` binds. Absent seam (v1 null jurisdiction) → no RMD.
- * Mutates `assetBalances` as a side effect, as `buildSocialSecuritySources` does.
+ * Mutates `assetBalances` as a side effect, as `buildGovernmentBenefitSources` does.
  */
 export function buildRmdSources(
   state: RmdState,

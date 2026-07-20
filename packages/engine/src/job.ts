@@ -20,7 +20,7 @@ export type PersonId = string;
 /**
  * A job's salary path (§6). Canonical form: a single starting salary in *today's
  * dollars* anchored at the job's `startYear`, plus a *real* growth rate (growth
- * above CPI). The engine layers CPI on top — CPI-indexing backward for the SS
+ * above CPI). The engine layers CPI on top — CPI-indexing backward for the
  * covered-wage record and nominal growth forward for the projected income series
  * — so the same authored pair drives both. A single forward rate for v1 (§6).
  */
@@ -51,7 +51,7 @@ export interface JobDeferral {
 }
 
 /**
- * A job (§4): an earned, SS-covered income stream owned by one or more persons,
+ * A job (§4): an earned, covered income stream owned by one or more persons,
  * with a calendar span and a salary trajectory.
  *
  * `endYear === null` marks an **open-ended** job — it has no authored stop date, so

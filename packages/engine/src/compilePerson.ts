@@ -2,7 +2,7 @@
  * Pure compilation from the standing {@link Person}/{@link Job} authoring model into
  * the simulator's inputs (§3, §4.6, §6 of JOBS_HOUSEHOLD_REDESIGN, issue #64):
  * a forward income {@link SimOwnedSeries} per still-paying job, plus the pre-"now"
- * SS-covered earnings record computed directly from the jobs (never simulated).
+ * covered-earnings record computed directly from the jobs (never simulated).
  *
  * This is the one module in the standing model that depends on the simulator
  * (`SimOwnedSeries`); isolating it here keeps the {@link Person}/{@link Job} *type*
@@ -34,7 +34,7 @@ function jobEndYearExclusive(job: Job, owner: Person): number {
 }
 
 /**
- * Nominal SS-covered earnings this person's jobs imply for the working years
+ * Nominal covered earnings this person's jobs imply for the working years
  * **before** "now", keyed by calendar year (§3, §4.6). Computed directly from the
  * jobs — never simulated, since the sim starts at "now". Each pre-"now" year's
  * covered wage is the real (today's-dollars) salary at that year, CPI-deflated

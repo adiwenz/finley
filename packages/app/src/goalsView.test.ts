@@ -45,7 +45,7 @@ const baseBudget: Plan = {
   careerStartAge: 18,
   retirementAge: 65,
   lifeExpectancy: 90,
-  ssClaimingAge: 67,
+  benefitClaimingAge: 67,
 };
 
 /** Two goals that together outstrip the $1,500/mo surplus, so priority decides. */

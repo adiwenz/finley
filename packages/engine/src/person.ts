@@ -1,7 +1,7 @@
 /**
  * The standing `Person` authoring model (§8 of JOBS_HOUSEHOLD_REDESIGN, issue
  * #64) — a household member as the *user authors it*: identity, the person-level
- * retirement/SS inputs, and the jobs they hold. This is source-of-truth input,
+ * retirement/benefit inputs, and the jobs they hold. This is source-of-truth input,
  * not a life event.
  *
  * This is deliberately distinct from the lower-level {@link
@@ -17,7 +17,7 @@ import type { Job, PersonId } from "./job";
 
 /**
  * A household member (§8) — standing data, not a life event. Holds ≥0 jobs with
- * spans plus the person-level retirement/SS inputs the compilation reads.
+ * spans plus the person-level retirement/benefit inputs the compilation reads.
  */
 export interface Person {
   readonly id: PersonId;
@@ -29,7 +29,7 @@ export interface Person {
    * varies it to answer "when can they retire?". Fixed-term jobs ignore it.
    */
   readonly retirementTargetAge: number;
-  /** Pinned Social Security claiming age (an input, never solved). */
-  readonly ssClaimingAge: number;
+  /** Pinned government-benefit claiming age (an input, never solved). */
+  readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
 }

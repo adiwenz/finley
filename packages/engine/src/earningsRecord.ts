@@ -1,21 +1,21 @@
 import type { Cents } from "./money";
 
 /**
- * A person's lifetime record of Social-Security-covered earnings (§5.4) — one
+ * A person's lifetime record of covered earnings (§5.4) — one
  * nominal wage total per calendar year. Pure engine-side bookkeeping: the
  * simulator ACCUMULATES it as the projection runs forward (every wage segment
  * contributes) and seeds it with the optional pre-"now" earnings summary (§4.6),
  * but it holds NO jurisdiction knowledge.
  *
- * The full AIME→PIA benefit formula lives entirely in `rules`, which reads this
- * record through the {@link Jurisdiction.socialSecurityMonthlyBenefitCents} seam —
+ * The full benefit formula lives entirely in `rules`, which reads this
+ * record through the {@link Jurisdiction.governmentBenefitBaseMonthlyCents} seam —
  * the same engine-defines-socket / rules-fills-plug pattern as tax and RMDs, but
  * history-dependent, so the record is threaded through. The engine can only test
  * accumulation and the null-jurisdiction path (which returns 0 while the record
  * still accumulates); the benefit anchor + monotonicity tests live in `rules`.
  */
 export interface EarningsRecord {
-  /** Nominal SS-covered wage earnings, keyed by calendar year. */
+  /** Nominal covered wage earnings, keyed by calendar year. */
   readonly annualWagesCents: ReadonlyMap<number, Cents>;
 }
 

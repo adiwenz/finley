@@ -20,7 +20,7 @@ import {
   type SharedContributionScheme,
   type SurplusDestination,
 } from "./waterfall";
-import { accumulateEarnings, buildSocialSecuritySources } from "./socialSecurity";
+import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
@@ -104,21 +104,30 @@ interface SimState {
    * The §5.4 annual contribution cap is enforced against this running total.
    */
   readonly deferredByPersonYear: Map<string, Cents>;
-  /** Every person by id — SS accumulation/claiming reads birthYear + ssClaimingAge. */
+  /** Every person by id — benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
-   * Per-person lifetime SS-covered earnings accumulator (§5.4), seeded from the
+   * Per-person lifetime covered-earnings accumulator (§5.4), seeded from the
    * §4.6 pre-now summary. Every month's covered wages are folded in; the record
    * is frozen and handed to the jurisdiction seam at claiming age.
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
   /**
-   * The monthly Social Security benefit (nominal cents) computed once at each
-   * person's claiming month and held flat thereafter. Absent until claimed; 0
-   * when the jurisdiction supplies no benefit seam (v1 null). COLA indexing is
-   * deferred — the benefit is held nominal-flat once claimed.
+   * The frozen BASE government retirement benefit (nominal cents, eligibility-age
+   * dollars) computed once at each person's claiming month and held as an OPAQUE
+   * number. Absent until claimed; 0 when the jurisdiction supplies no benefit seam
+   * (v1 null). The benefit actually paid each year is this base run through the
+   * jurisdiction's COLA seam ({@link Jurisdiction.colaAdjustedBenefitCents}), so it
+   * is NOT held nominal-flat — it grows with the annual cost-of-living adjustment.
    */
-  readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
+  readonly governmentBenefitBaseByPerson: Map<string, Cents>;
+  /**
+   * Per-person marker: the latest COMPLETED calendar year already folded into the
+   * cached base benefit (§5.4, Phase 5). The base is recomputed only when a newer
+   * completed year has added covered earnings — a claim-and-keep-working bump —
+   * and is otherwise frozen. Absent until the first base is computed.
+   */
+  readonly lastComputedThroughYear: Map<string, number>;
 }
 
 /** Build the run's static config and opening balances (the pre-loop setup). */
@@ -229,7 +238,8 @@ function initSimState(input: HouseholdSimInput): SimState {
     deferredByPersonYear: new Map<string, Cents>(),
     personsById,
     earningsByPerson,
-    ssMonthlyBenefitByPerson: new Map<string, Cents>(),
+    governmentBenefitBaseByPerson: new Map<string, Cents>(),
+    lastComputedThroughYear: new Map<string, number>(),
   };
 }
 
@@ -626,26 +636,33 @@ export function simulateHousehold(
       // Calendar year for this month's flows. NOTE (documented simplification):
       // because month 0 is the flow-free opening snapshot above and years bucket by
       // floor(month/12), the FIRST calendar year accrues only 11 flow-months — a
-      // $5k/mo salary contributes $55k (not $60k) to year 0's SS earnings record,
+      // $5k/mo salary contributes $55k (not $60k) to year 0's covered-earnings record,
       // and one month of expenses/compounding is likewise absent. The engine tracks
       // integer years only and does not model what month of the year "now" is, so a
       // mid-year start would in reality leave even fewer months; 11 is neither that
-      // nor a full 12. Impact is ~0.1% (e.g. the graph's SS is ~$34/yr below the
+      // nor a full 12. Impact is ~0.1% (e.g. the graph's benefit is ~$34/yr below the
       // panel's full-first-year closed form). Modelling a start month-of-year so the
-      // first partial year is exact — and the two SS numbers agree — is tracked in
+      // first partial year is exact — and the two benefit numbers agree — is tracked in
       // GH #34; do NOT "fix" it by making month 0 earn (that redefines "now").
       const year = startYear + Math.floor(month / 12);
       const ctx: JurisdictionContext = { year };
 
-      // Fold this month's covered wages into each person's SS earnings record
+      // Fold this month's covered wages into each person's covered-earnings record
       // before assembling income, so a claim landing this month sees them (§5.4).
-      accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year);
+      accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year, jurisdiction);
       // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
       // the waterfall runs and re-enter it here as taxable ordinary income, so the
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
-        ...buildSocialSecuritySources(state, jurisdiction, month, startYear, input.annualInflationRate),
+        ...buildGovernmentBenefitSources(
+          state,
+          jurisdiction,
+          month,
+          startYear,
+          // Benefit COLA defaults to general CPI when the plan doesn't decouple it (§5.4).
+          input.benefitColaRate ?? input.annualInflationRate,
+        ),
         ...buildRmdSources(state, jurisdiction, month, startYear),
       ];
 
@@ -655,7 +672,7 @@ export function simulateHousehold(
 
       // Decumulation (§7, #35): when non-withdrawal income can't cover the month's
       // obligations, liquidate investment accounts BEFORE the waterfall — same seam
-      // as RMD/SS — so the shortfall is funded by selling assets (taxed once at the
+      // as RMD/benefit — so the shortfall is funded by selling assets (taxed once at the
       // chokepoint) instead of landing on the synthetic credit card. RMD income is
       // already counted here, so the desired draw never double-withdraws (#32).
       const incomeSources = [
