@@ -121,6 +121,13 @@ interface SimState {
    * is NOT held nominal-flat — it grows with the annual cost-of-living adjustment.
    */
   readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
+  /**
+   * Per-person marker: the latest COMPLETED calendar year already folded into the
+   * cached base benefit (§5.4, Phase 5). The base is recomputed only when a newer
+   * completed year has added covered earnings — a claim-and-keep-working bump —
+   * and is otherwise frozen. Absent until the first base is computed.
+   */
+  readonly lastComputedThroughYear: Map<string, number>;
 }
 
 /** Build the run's static config and opening balances (the pre-loop setup). */
@@ -232,6 +239,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     personsById,
     earningsByPerson,
     ssMonthlyBenefitByPerson: new Map<string, Cents>(),
+    lastComputedThroughYear: new Map<string, number>(),
   };
 }
 

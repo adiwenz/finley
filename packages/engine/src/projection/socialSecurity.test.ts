@@ -97,13 +97,17 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
   });
 
   it("live (post-now) wage earnings feed the record, not just the pre-now seed", () => {
-    // Capture the record the seam sees at claiming so we can assert on it.
-    let seenTotal = 0;
+    // Capture the record the seam sees at the FIRST (claim-time) pricing; the base is
+    // re-priced later while working (Phase 5), so only the initial call is asserted.
+    let seenTotal: number | undefined;
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
       governmentBenefitBaseMonthlyCents: (claim) => {
-        for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
+        if (seenTotal === undefined) {
+          seenTotal = 0;
+          for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
+        }
         return 0;
       },
     };
@@ -136,13 +140,16 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     // A jurisdiction that counts ONLY `wages` as covered — not `ordinaryIncome`.
     // The engine must route the covered-earnings decision through the seam, so the
     // ordinaryIncome stream is excluded and only the wages stream reaches the record.
-    let seenTotal = 0;
+    let seenTotal: number | undefined;
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
       isCoveredEarnings: (cat) => cat === "wages",
       governmentBenefitBaseMonthlyCents: (claim) => {
-        for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
+        if (seenTotal === undefined) {
+          seenTotal = 0;
+          for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
+        }
         return 0;
       },
     };
@@ -314,5 +321,83 @@ describe("Social Security accumulation + benefit seam (§5.4)", () => {
     };
     const series = simulateHousehold(baseInput(person), stub);
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
+  });
+
+  it("recomputes the base while the claimant keeps working (Phase 5 bump)", () => {
+    // Stub base scales with total covered earnings on the record. The person claims at
+    // 62 and keeps earning covered wages, so each completed year grows the record and
+    // the base is re-priced upward. No inflation, so any increase is the recompute,
+    // not COLA. The monthly deposit late in the run must exceed the deposit at claim.
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      isCoveredEarnings: (cat) => cat === "wages",
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        let total = 0;
+        for (const cents of claim.record.annualWagesCents.values()) total += cents;
+        return Math.round(total / 1_000);
+      },
+    };
+    const person: SimPerson = {
+      id: "p1",
+      name: "You",
+      birthYear: 1964, // turns 62 in 2026 → claims from month 0
+      benefitClaimingAge: 62,
+      priorEarningsCents: {
+        2023: dollarsToCents(40_000),
+        2024: dollarsToCents(40_000),
+        2025: dollarsToCents(40_000),
+      },
+    };
+    const series = simulateHousehold(
+      baseInput(person, {
+        horizonMonths: 48,
+        incomeSeries: [
+          {
+            series: new SimCashFlowSeries(0, dollarsToCents(4_000), { type: "fixed" }, {
+              baselineUnit: "monthly",
+              taxCategory: "wages",
+            }),
+            ownerId: "p1",
+          },
+        ],
+      }),
+      stub,
+    );
+    const paidInMonth = (m: number) =>
+      series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
+    // Later paid benefit is strictly higher — the completed working years bumped it.
+    expect(paidInMonth(40)).toBeGreaterThan(paidInMonth(1));
+  });
+
+  it("keeps the base frozen for a retire-then-claim record that never grows (Phase 5)", () => {
+    // Same earnings-sensitive stub, but the person claims and does NOT keep working —
+    // no post-claim covered wages — so the record is static and the base is never
+    // re-priced. With no inflation the paid benefit is flat across the whole run.
+    const stub: Jurisdiction = {
+      id: "stub",
+      computeTaxCents: () => 0,
+      isCoveredEarnings: (cat) => cat === "wages",
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        let total = 0;
+        for (const cents of claim.record.annualWagesCents.values()) total += cents;
+        return Math.round(total / 1_000);
+      },
+    };
+    const person: SimPerson = {
+      id: "p1",
+      name: "You",
+      birthYear: 1964,
+      benefitClaimingAge: 62,
+      priorEarningsCents: {
+        2023: dollarsToCents(40_000),
+        2024: dollarsToCents(40_000),
+        2025: dollarsToCents(40_000),
+      },
+    };
+    const series = simulateHousehold(baseInput(person, { horizonMonths: 48 }), stub);
+    const paidInMonth = (m: number) =>
+      series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
+    expect(paidInMonth(40)).toBe(paidInMonth(1));
   });
 });

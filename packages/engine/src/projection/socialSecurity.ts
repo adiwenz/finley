@@ -31,6 +31,12 @@ export interface EarningsState {
    * Absent until claimed.
    */
   readonly ssMonthlyBenefitByPerson: Map<string, Cents>;
+  /**
+   * Per-person marker: the latest COMPLETED calendar year already folded into the
+   * cached base (§5.4, Phase 5). Drives recompute-while-working — see
+   * {@link buildSocialSecuritySources}. Absent until the first base is computed.
+   */
+  readonly lastComputedThroughYear: Map<string, number>;
 }
 
 /**
@@ -105,21 +111,38 @@ export function buildSocialSecuritySources(
     if (claimStart === null || month < claimStart) continue;
     const currentAge = year - person.birthYear!;
 
+    // Recompute-while-working (§5.4, Phase 5): the base is priced once at claim, then
+    // AGAIN only when a newer completed year has added covered earnings — a person who
+    // claims and keeps working bumps their benefit, while a retire-then-claim base
+    // stays frozen. `latestCompletedYear` is the last fully-elapsed calendar year; a
+    // recompute fires when it exceeds the per-person marker AND that year is on the
+    // record with covered earnings, so a static record never re-prices.
+    // NOTE → #81 (Retirement Earnings Test): this models only the UPSIDE of working
+    //   past claim (a higher benefit); the offsetting earnings-test withholding that
+    //   would temporarily reduce benefits for a working claimant before FRA is out of
+    //   scope here and tracked separately.
+    const latestCompletedYear = year - 1;
+    const marker = state.lastComputedThroughYear.get(person.id);
+    const acc = state.earningsByPerson.get(person.id);
     let base = state.ssMonthlyBenefitByPerson.get(person.id);
-    if (base === undefined) {
+    const recordGrew =
+      marker !== undefined &&
+      latestCompletedYear > marker &&
+      (acc?.get(latestCompletedYear) ?? 0) > 0;
+    if (base === undefined || recordGrew) {
       const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
-      const record = toEarningsRecord(state.earningsByPerson.get(person.id) ?? new Map());
       // The live seam input (§5.4): the frozen record plus the who/when the
-      // jurisdiction's benefit formula needs, constructed explicitly rather than as
-      // an anonymous literal so the shape the seam consumes is named and typed.
+      // jurisdiction's benefit formula needs. `currentAge` advances on recompute so
+      // `rules` indexes the grown record to the same age-60 year.
       const claim: GovernmentBenefitClaim = {
-        record,
+        record: toEarningsRecord(acc ?? new Map()),
         claimYear: year,
         claimingAge,
         currentAge,
       };
       base = priceGovernmentBenefitBaseMonthlyCents(jurisdiction, claim);
       state.ssMonthlyBenefitByPerson.set(person.id, base);
+      state.lastComputedThroughYear.set(person.id, latestCompletedYear);
     }
     if (base <= 0) continue;
     // Grow the opaque base forward by the jurisdiction's COLA seam (one cheap call
