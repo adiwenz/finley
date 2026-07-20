@@ -100,7 +100,6 @@ export const vercelProvider = (options: VercelProviderOptions) =>
       // CLAUDE_CODE_OAUTH_TOKEN) are missing. Merge the provider's own env (passed
       // by makeSandbox straight from process.env) over it so they always arrive.
       const commandEnv = { ...env, ...(options.env ?? {}) };
-      console.error(`[vercelProvider] sandbox env keys: ${Object.keys(commandEnv).join(", ") || "(none)"}`);
 
       // `image` and `runtime` are mutually exclusive server-side — send exactly one.
       const useImage = Boolean(options.image);
