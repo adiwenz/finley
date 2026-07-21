@@ -76,6 +76,14 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
 const FRA_AGE = 67;
 
 /**
+ * The default benefit claiming age the engine uses to time an unpinned person's
+ * benefit — the full retirement age. A US legislative fact, exposed to the engine
+ * via the jurisdiction's `defaultBenefitClaimingAge` seam so no US age lives in the
+ * engine (§5.4). Single source: it *is* {@link FRA_AGE}.
+ */
+export const DEFAULT_BENEFIT_CLAIMING_AGE = FRA_AGE;
+
+/**
  * Annual Social Security wage base (contribution & benefit base), SSA 2026:
  * $184,500. Real SSA caps vary per year; v1 applies this one cap to every year —
  * a documented simplification that under-indexes very old high earnings slightly.

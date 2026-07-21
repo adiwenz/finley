@@ -3,6 +3,7 @@ import {
   governmentBenefitBaseMonthlyCents,
   colaAdjustedBenefitCents,
   isCoveredEarnings,
+  DEFAULT_BENEFIT_CLAIMING_AGE,
 } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
@@ -12,6 +13,7 @@ export {
   governmentBenefitBaseMonthlyCents,
   colaAdjustedBenefitCents,
   isCoveredEarnings,
+  DEFAULT_BENEFIT_CLAIMING_AGE,
 } from "./socialSecurity";
 export { requiredMinimumDistributionCents } from "./rmd";
 export {
@@ -62,6 +64,7 @@ export const usJurisdiction: Jurisdiction = {
   computeTaxCents: (taxableByCategory) => computeUsTaxCents(taxableByCategory),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   isCoveredEarnings,
+  defaultBenefitClaimingAge: DEFAULT_BENEFIT_CLAIMING_AGE,
   governmentBenefitBaseMonthlyCents,
   colaAdjustedBenefitCents,
   requiredMinimumDistributionCents,

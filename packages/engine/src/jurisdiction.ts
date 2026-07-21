@@ -147,6 +147,18 @@ export interface Jurisdiction {
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
+   * §5.4 seam (readable fact): the default benefit claiming age — the full
+   * retirement age (US law: 67) — used to time when a person's benefit begins
+   * when they haven't pinned their own {@link GovernmentBenefitClaim.claimingAge}.
+   * A jurisdiction fact, not an engine one: the engine holds no US age and reads
+   * this to place the claim year, falling back to "benefit not timed" (no source)
+   * when neither the person nor the jurisdiction supplies one. Optional and
+   * legislation-set: absent (v1 null jurisdiction) → an unpinned person's benefit
+   * is simply not timed, while the null jurisdiction returns a 0 base anyway.
+   */
+  readonly defaultBenefitClaimingAge?: number;
+
+  /**
    * §5.4 seam (base): the government retirement benefit in eligibility-age dollars —
    * `PIA(record) × claimingFactor(claimingAge)` — derived from the accumulated
    * covered-earnings {@link EarningsRecord}. Returns 0 when the record fails the
