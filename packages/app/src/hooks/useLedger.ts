@@ -1,9 +1,9 @@
-/** Event-ledger state: record and undo, both guarded by the §6.1 conflict rules. */
+/** Event-ledger state: record and remove, both guarded by the §6.1 conflict rules. */
 
 import { useRef, useState } from "react";
 import {
   addEvent,
-  removeEvent,
+  removeEvent as removeLedgerEvent,
   emptyLedger,
   type Ledger,
   type LedgerBaseConfig,
@@ -15,13 +15,13 @@ export interface UseLedger {
   ledger: Ledger;
   conflict: string | null;
   recordEvent: (event: NewLifeEvent) => void;
-  undoEvent: (id: string) => void;
+  removeEvent: (id: string) => void;
 }
 
 export function useLedger(base: LedgerBaseConfig): UseLedger {
   const [ledger, setLedger] = useState<Ledger>(emptyLedger);
   const [conflict, setConflict] = useState<string | null>(null);
-  // Record and undo both validate against the same base replay context the
+  // Record and remove both validate against the same base replay context the
   // projection uses (§7). Held in a ref so the functional updaters below always
   // see the latest base without being re-created on every budget edit.
   const baseRef = useRef(base);
@@ -39,16 +39,16 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     });
   }
 
-  function undoEvent(id: string) {
+  function removeEvent(id: string) {
     setLedger((current) => {
       // Resolve against the latest ledger (not the render closure) so batched
-      // undos can't discard each other. A blocked removal keeps the ledger and
+      // removals can't discard each other. A blocked removal keeps the ledger and
       // surfaces the §6.1 conflict.
-      const result = removeEvent(current, id, baseRef.current);
+      const result = removeLedgerEvent(current, id, baseRef.current);
       setConflict(result.ok ? null : result.conflict);
       return result.ok ? result.ledger : current;
     });
   }
 
-  return { ledger, conflict, recordEvent, undoEvent };
+  return { ledger, conflict, recordEvent, removeEvent };
 }

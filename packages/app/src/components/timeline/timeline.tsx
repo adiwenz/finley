@@ -13,14 +13,14 @@ export function Timeline({
   scrubMonth,
   horizonMonths,
   onScrub,
-  onUndo,
+  onRemove,
 }: {
   markers: readonly TimelineMarker[];
   scrubMonth: number;
   /** Full span of the axis (§7) — matches the net-worth chart so the two align. */
   horizonMonths: number;
   onScrub: (month: number) => void;
-  onUndo: (id: string) => void;
+  onRemove: (id: string) => void;
 }) {
   // Position markers/handle as a fraction of the plan's horizon (to life expectancy).
   const pct = (month: number): string => `${(month / horizonMonths) * 100}%`;
@@ -63,8 +63,8 @@ export function Timeline({
               <span className={styles.mlWhen}>{monthLabel(m.month)}</span>
               <span className={styles.mlLabel}>{m.label}</span>
               <span className={styles.mlDetail}>{m.detail}</span>
-              <button className="btn link" onClick={() => onUndo(m.id)}>
-                Undo
+              <button className="btn link" onClick={() => onRemove(m.id)}>
+                Remove
               </button>
             </li>
           ))}
