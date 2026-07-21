@@ -104,17 +104,36 @@ export interface HomePurchaseEvent extends EventBase {
   readonly appreciationMode?: GrowthMode;
 }
 
-/** Creates a new liability (mortgage, auto, student loan, or credit card). */
-export interface LoanEvent extends EventBase, CausedByFields {
+/** The fields a {@link LoanEvent} carries whatever the liability's kind. */
+interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
   readonly liabilityId: string;
   readonly ownerId: string;
-  readonly kind: LiabilityKind;
   readonly openingBalanceCents: Cents;
   readonly apr: number;
-  readonly termMonths?: number;
-  readonly creditLimitCents?: Cents;
 }
+
+/**
+ * Creates a new liability (mortgage, auto, student loan, or credit card), discriminated
+ * on `kind`. `termMonths` and `creditLimitCents` are not optional but kind-*determined*:
+ * a revolving card has a credit limit and never amortizes, a term loan amortizes over a
+ * term and has no limit. As a union each is required exactly where it applies and
+ * unrepresentable where it does not — a card with a term will not typecheck, so replay
+ * and validation need not re-check for the combination.
+ *
+ * One event `type` deliberately, not two: both arms originate a liability, replay
+ * identically, and cascade identically on removal — only the shape differs, which is
+ * exactly what a discriminated union is for.
+ */
+export type LoanEvent =
+  | (LoanEventCommon & {
+      readonly kind: "creditCard";
+      readonly creditLimitCents: Cents;
+    })
+  | (LoanEventCommon & {
+      readonly kind: Exclude<LiabilityKind, "creditCard">;
+      readonly termMonths: number;
+    });
 
 /**
  * Applies a lump-sum principal paydown on a liability. Paired with an Account

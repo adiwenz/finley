@@ -37,7 +37,7 @@ function project(plan: Plan) {
  */
 const openEndedJob: Job = {
   id: "job-main",
-  owners: [PRIMARY_PERSON_ID],
+  ownerId: PRIMARY_PERSON_ID,
   startYear: START_YEAR - (samplePlan.currentAge - samplePlan.careerStartAge),
   endYear: null,
   salary: {

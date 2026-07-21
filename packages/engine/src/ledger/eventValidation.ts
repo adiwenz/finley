@@ -62,18 +62,15 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
           : bad(event, `alimonyDurationMonths must be a nonnegative integer (got ${event.alimonyDurationMonths})`))
       );
     case "LoanEvent": {
+      // The union already guarantees which of the two fields is present (a card has a
+      // limit, a term loan a term), so each arm validates its own without a null check.
       const money =
         nonNegative(event, "openingBalanceCents", event.openingBalanceCents) ??
-        (event.apr >= 0 ? null : bad(event, `apr must be ≥ 0 (got ${event.apr})`)) ??
-        (event.creditLimitCents == null
-          ? null
-          : nonNegative(event, "creditLimitCents", event.creditLimitCents));
+        (event.apr >= 0 ? null : bad(event, `apr must be ≥ 0 (got ${event.apr})`));
       if (money) return money;
-      if (event.termMonths != null) {
-        const t = positiveInteger(event, "termMonths", event.termMonths);
-        if (t) return t;
-      }
-      return { ok: true };
+      return event.kind === "creditCard"
+        ? nonNegative(event, "creditLimitCents", event.creditLimitCents) ?? { ok: true }
+        : positiveInteger(event, "termMonths", event.termMonths) ?? { ok: true };
     }
     case "HomePurchaseEvent": {
       const money =

@@ -14,7 +14,7 @@
 
 import type { Cents } from "./money";
 
-/** Stable id of a household member — a job's owner(s) reference these. */
+/** Stable id of a household member — a job's owner references one of these. */
 export type PersonId = string;
 
 /**
@@ -51,8 +51,11 @@ export interface JobDeferral {
 }
 
 /**
- * A job (§4): an earned, covered income stream owned by one or more persons,
- * with a calendar span and a salary trajectory.
+ * A job (§4): an earned, covered income stream owned by exactly one person, with
+ * a calendar span and a salary trajectory. Employment is per-person — a
+ * two-earner household is two jobs, not one job with two owners — which is what
+ * lets an open-ended job resolve its stop year against *the* owner's
+ * `retirementTargetAge` (§5) without ambiguity.
  *
  * `endYear === null` marks an **open-ended** job — it has no authored stop date, so
  * it runs until the owner's `retirementTargetAge` (the person's default stop age),
@@ -63,7 +66,7 @@ export interface JobDeferral {
  */
 export interface Job {
   readonly id: string;
-  readonly owners: readonly PersonId[];
+  readonly ownerId: PersonId;
   readonly startYear: number;
   /** `null` = open-ended (ends at the owner's `retirementTargetAge`); else the exclusive stop year. */
   readonly endYear: number | null;

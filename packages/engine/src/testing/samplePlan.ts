@@ -69,7 +69,7 @@ const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
  */
 const baristaOpenEndedJob: Job = {
   id: "main",
-  owners: ["p1"],
+  ownerId: "p1",
   startYear: BARISTA_BIRTH_YEAR + 25,
   endYear: null, // open-ended — ends at retirementTargetAge, the solver varies it
   salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
@@ -77,7 +77,7 @@ const baristaOpenEndedJob: Job = {
 
 const baristaSupplementalJob: Job = {
   id: "barista",
-  owners: ["p1"],
+  ownerId: "p1",
   startYear: SAMPLE_START_YEAR,
   endYear: BARISTA_BIRTH_YEAR + 75, // fixed-term — keeps paying past the open-ended job's end
   salary: { startingSalaryCents: dollarsToCents(30000), realGrowthPct: 0 },

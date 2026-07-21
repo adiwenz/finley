@@ -43,7 +43,7 @@ export function App() {
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
-  const { ledger, conflict, recordEvent, undoEvent } = useLedger(base);
+  const { ledger, conflict, recordEvent, removeEvent } = useLedger(base);
 
   // One replay-derived household feeds both the projection and the snapshot,
   // so the two can never disagree about the ledger's meaning.
@@ -93,7 +93,7 @@ export function App() {
               scrubMonth={scrubMonth}
               horizonMonths={horizonMonths}
               onScrub={setScrubMonth}
-              onUndo={undoEvent}
+              onRemove={removeEvent}
             />
 
             {conflict && (
