@@ -83,33 +83,41 @@ describe("retirementView — headline age driven off the real projection (#37)",
   // an inflated age if the fund leaked back into the nest egg. This pins the absolute
   // correction and shows the disposition is what drives it.
   it("the convertToEquity down-payment fund drops out of the nest egg (no phantom-fund overstatement, #28)", () => {
+    // Real single-filer federal tax (#53) trims the default $5k plan's surplus enough
+    // that both dispositions bottom out at the Social-Security floor (67), where the
+    // disposition difference is masked. Give the plan a bit more income so a feasible
+    // age exists BELOW that floor and the phantom-fund effect is visible again — the
+    // point under test is the disposition delta, not the absolute age.
+    const higherIncome: Plan = { ...PLAN_DEFAULTS, incomeCents: dollarsToCents(7000) };
     // With the fund correctly swapped to illiquid equity at maturity, the earliest
-    // feasible (partial retirement) age is 63 — agreeing with the tracer-bullet panel
-    // (was an inflated 62).
-    expect(solveRetirement(scenarioOf(PLAN_DEFAULTS), CTX).partialRetirementAge).toBe(63);
+    // feasible (partial retirement) age is 55.
+    expect(solveRetirement(scenarioOf(higherIncome), CTX).partialRetirementAge).toBe(55);
 
     // Counterfactual: had the same fund been `drawDown` (drawable — the pre-#28
     // behavior where a matured one-time fund kept compounding in the portfolio), the
     // phantom balance would let the household retire strictly EARLIER. That the two
     // ages differ is the whole point: disposition governs retirement-portfolio inclusion.
     const asDrawableFund: Plan = {
-      ...PLAN_DEFAULTS,
-      goals: PLAN_DEFAULTS.goals.map((g) =>
+      ...higherIncome,
+      goals: higherIncome.goals.map((g) =>
         g.id === "home" ? { ...g, disposition: "drawDown" as const } : g,
       ),
     };
     const phantomAge = solveRetirement(scenarioOf(asDrawableFund), CTX).partialRetirementAge;
     expect(phantomAge).not.toBeNull();
-    expect(phantomAge as number).toBeLessThan(63);
+    expect(phantomAge as number).toBeLessThan(55);
   });
 });
 
 describe("retirementView — target mode against the pinned age (§7.1)", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
-    // The default plan retires at 65, comfortably above the feasible floor.
-    const view = viewOf(PLAN_DEFAULTS);
+    // Real single-filer federal tax (#53) lifts the default plan's feasible floor to
+    // the Social-Security age (67), so pin the target there — comfortably at/above the
+    // floor — to exercise the "pinned age survives → 100%" branch.
+    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 67 };
+    const view = viewOf(pinnedAtFloor);
     expect(view.target.feasible).toBe(true);
-    expect(view.target.nearestFeasibleAge).toBe(PLAN_DEFAULTS.retirementAge);
+    expect(view.target.nearestFeasibleAge).toBe(pinnedAtFloor.retirementAge);
     expect(view.targetOnTrackPct).toBe(100);
   });
 
@@ -226,8 +234,13 @@ describe("retirementView — the timeline events count toward retirement (issue 
   // cost of a new child) and the headline retirement age has to move LATER. If the panel
   // still projected an empty ledger, the age would not budge.
   it("a recurring expense added to the ledger pushes the headline age later", () => {
+    // Real single-filer federal tax (#53) pins the default $5k plan right at the
+    // Social-Security floor (67), where an added expense flips it infeasible rather
+    // than merely later. Use a plan with headroom below the floor so "the age moves
+    // strictly LATER" is the observable — the coupling under test, not the constant.
+    const plan: Plan = { ...PLAN_DEFAULTS, incomeCents: dollarsToCents(7000) };
     // Attach an $800/mo childcare expense from now, the way the app's AddEventForm would.
-    const base = createProjectionBase(PLAN_DEFAULTS, CTX);
+    const base = createProjectionBase(plan, CTX);
     const added = addEvent(
       emptyLedger,
       base,
@@ -247,12 +260,12 @@ describe("retirementView — the timeline events count toward retirement (issue 
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
-    const baselineAge = viewOf(PLAN_DEFAULTS).headlineAge;
-    const withChildAge = retirementView({ plan: PLAN_DEFAULTS, ledger: added.ledger }).headlineAge;
-    // The bare-plan baseline retires at 63; the scenario carrying the childcare expense
+    const baselineAge = viewOf(plan).headlineAge;
+    const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
+    // The bare-plan baseline retires at 55; the scenario carrying the childcare expense
     // must retire strictly later. If the panel still projected an empty ledger, the two
     // would be equal — this is the regression guard for that.
-    expect(baselineAge).toBe(63);
-    expect(withChildAge as number).toBeGreaterThan(63);
+    expect(baselineAge).toBe(55);
+    expect(withChildAge as number).toBeGreaterThan(55);
   });
 });

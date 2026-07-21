@@ -3,13 +3,25 @@ import { simulateHousehold, SimCashFlowSeries, SimAccount, dollarsToCents, CAPIT
 import { usJurisdiction } from "./index";
 
 // Proves rules can consume the engine (app → rules → engine direction) and that
-// the placeholder US-2026 jurisdiction implements the interface.
-describe("usJurisdiction (placeholder US-2026)", () => {
+// the US-2026 jurisdiction implements the interface.
+describe("usJurisdiction (US-2026)", () => {
   it("implements the jurisdiction interface", () => {
     expect(usJurisdiction.id).toBe("US-2026");
+    // The seam takes MONTHLY slices: $1,000/mo annualizes to $12k, below the
+    // standard deduction → no tax.
     expect(
       usJurisdiction.computeTaxCents({ wages: dollarsToCents(1000) }, { year: 2026 }),
     ).toBe(0);
+  });
+
+  it("runs real single-filer federal tax through the seam (#53)", () => {
+    // $100k/yr of wages = $100k/12 per month → annual tax $13,170 → the month's
+    // 1/12 share (brackets + standard deduction, single filer).
+    const monthly = usJurisdiction.computeTaxCents(
+      { wages: Math.round(dollarsToCents(100_000) / 12) },
+      { year: 2026 },
+    );
+    expect(monthly).toBe(Math.round(dollarsToCents(13_170) / 12));
   });
 
   it("drives the engine's household simulator end to end", () => {
