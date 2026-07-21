@@ -6,9 +6,6 @@ import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson, SimOwnedSeries } from "./simulate";
 
-/** Default government-benefit claiming age (full retirement age) when unspecified (§5.4). */
-export const DEFAULT_BENEFIT_CLAIMING_AGE = 67;
-
 /**
  * The slice of the simulator's state that the government-benefit bookkeeping reads.
  * A structural view over `SimState` — declaring it here (rather than importing the
@@ -74,13 +71,16 @@ export function accumulateEarnings(
 
 /**
  * The first month a person is claiming their government retirement benefit: benefits
- * begin in the calendar year they turn their claiming age (§5.4). Returns null when
- * the person has no birth year (benefit not modelled). May be ≤ 0 (already claiming
- * at "now").
+ * begin in the calendar year they turn their (already-resolved) claiming age (§5.4).
+ * Returns null when the person has no birth year (benefit not modelled). May be ≤ 0
+ * (already claiming at "now").
  */
-function benefitClaimStartMonth(person: SimPerson, startYear: number): number | null {
+function benefitClaimStartMonth(
+  person: SimPerson,
+  startYear: number,
+  claimingAge: number,
+): number | null {
   if (person.birthYear === undefined) return null;
-  const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
   return 12 * (person.birthYear + claimingAge - startYear);
 }
 
@@ -108,7 +108,12 @@ export function buildGovernmentBenefitSources(
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
   for (const person of state.personsById.values()) {
-    const claimStart = benefitClaimStartMonth(person, startYear);
+    // The claiming age is the person's own pin, else the jurisdiction's default
+    // (full retirement age) — a jurisdiction fact, never a hardcoded engine age.
+    // With neither, the benefit simply isn't timed (§5.4).
+    const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;
+    if (claimingAge === undefined) continue;
+    const claimStart = benefitClaimStartMonth(person, startYear, claimingAge);
     if (claimStart === null || month < claimStart) continue;
     const currentAge = year - person.birthYear!;
 
@@ -131,7 +136,6 @@ export function buildGovernmentBenefitSources(
       latestCompletedYear > marker &&
       (acc?.get(latestCompletedYear) ?? 0) > 0;
     if (base === undefined || recordGrew) {
-      const claimingAge = person.benefitClaimingAge ?? DEFAULT_BENEFIT_CLAIMING_AGE;
       // The live seam input (§5.4): the frozen record plus the who/when the
       // jurisdiction's benefit formula needs. `currentAge` advances on recompute so
       // `rules` indexes the grown record to the same age-60 year.

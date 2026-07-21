@@ -97,8 +97,8 @@ export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
  * makes a benefit basis (§5.4) and the age-50 deferral catch-up (§11) computable, and
  * a spouse with no birth year is a data-entry gap rather than an intent (`SimPerson`
  * keeps it optional because *that* is the compiled shape, where absent legitimately
- * means "model no benefit"). `benefitClaimingAge` defaults to 67 (FRA) and
- * `priorEarningsCents` to no record.
+ * means "model no benefit"). `benefitClaimingAge` defaults to the jurisdiction's
+ * full retirement age (US: 67) and `priorEarningsCents` to no record.
  */
 export interface MarryInput {
   readonly month: number;
