@@ -36,3 +36,13 @@ export function scenarioOf(plan: Plan): Scenario {
 export function withPlan(scenario: Scenario, plan: Plan): Scenario {
   return { plan, ledger: scenario.ledger };
 }
+
+/**
+ * `scenario` with its `ledger` replaced and its `plan` carried through unchanged — the
+ * mirror of {@link withPlan}, for a transaction that grows the timeline without touching
+ * the standing numbers. Having both means neither half can be dropped by a spread that
+ * forgot a field.
+ */
+export function withLedger(scenario: Scenario, ledger: Ledger): Scenario {
+  return { plan: scenario.plan, ledger };
+}

@@ -158,8 +158,9 @@ const loan: EventHandler<LoanEvent> = {
       kind: event.kind,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
-      termMonths: event.termMonths,
-      creditLimitCents: event.creditLimitCents,
+      ...(event.kind === "creditCard"
+        ? { creditLimitCents: event.creditLimitCents }
+        : { termMonths: event.termMonths }),
       transfers: [],
     });
   },

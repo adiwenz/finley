@@ -2,12 +2,13 @@
  * The `Projection` root (§2, §18, §20, "npm API surface", issue #70, slice 7).
  *
  * These tests pin the six acceptance criteria of the slice:
- *   1. standing-edit + ledger-transaction methods on ONE root, ONE undo stack;
+ *   1. standing-edit + ledger-transaction methods on ONE root;
  *   2. creating writes mint deterministic sequence ids and return them; `{ id }` overrides;
  *   3. the id counter round-trips through serialization (reload continues, no collision);
  *   4. `run(jurisdiction)` returns an immutable `ProjectionResult`; two jurisdictions,
  *      one plan, no mutation;
- *   5. `undo()` reverts standing edits and ledger transactions uniformly;
+ *   5. writes swap in a new immutable state and are NOT reversible by the root
+ *      (no undo stack — reversal is addressable removal, landing in a later slice);
  *   6. (barrel/purity covered elsewhere.)
  */
 import { describe, it, expect } from "vitest";
@@ -55,7 +56,7 @@ describe("Projection root — creating writes mint deterministic ids (AC2)", () 
       disposition: "retain",
       annualReturnPct: 3,
     })).toBe("goal-3");
-    expect(p.takeLoan({ month: 6, kind: "auto", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
+    expect(p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
   });
 
   it("honours a caller `{ id }` override without consuming the counter", () => {
@@ -68,18 +69,19 @@ describe("Projection root — creating writes mint deterministic ids (AC2)", () 
   it("routes the added job onto the standing plan, owned by the person", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
-    const jobs = p.state.plan.jobs ?? [];
+    const jobs = p.state.scenario.plan.jobs ?? [];
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]).toMatchObject({ id: jobId, owners: [P1], endYear: null });
+    expect(jobs[0]).toMatchObject({ id: jobId, ownerId: P1, endYear: null });
   });
 });
 
-describe("Projection root — one root, standing + ledger, one undo stack (AC1, AC5)", () => {
+describe("Projection root — one root for standing + ledger writes (AC1, AC5)", () => {
   it("exposes both standing edits and ledger transactions on the same object", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
     const loanId = p.takeLoan({
       month: 12,
+      ownerId: P1,
       kind: "auto",
       openingBalanceCents: dollarsToCents(25000),
       apr: 6,
@@ -87,57 +89,101 @@ describe("Projection root — one root, standing + ledger, one undo stack (AC1, 
     });
     expect(jobId).toBe("job-1");
     expect(loanId).toBe("loan-2");
-    expect(p.state.plan.jobs).toHaveLength(1);
-    expect(p.state.ledger.events).toHaveLength(1);
-    expect(p.depth).toBe(2);
+    expect(p.state.scenario.plan.jobs).toHaveLength(1);
+    expect(p.state.scenario.ledger.events).toHaveLength(1);
   });
 
-  it("undo() reverts a standing edit and a ledger transaction uniformly (LIFO)", () => {
+  it("swaps in a new state rather than mutating the one already read out (AC5)", () => {
+    // The immutable core (§2): a caller holding a state from before a write — a React
+    // render closure, a serialized snapshot — must never see it change underfoot.
     const p = freshProjection();
-    const baseRetirement = p.state.plan.retirementAge;
+    const before = p.state;
+    const baseRetirement = before.scenario.plan.retirementAge;
+
     p.setRetirementTarget(55); // standing edit
-    p.takeLoan({ month: 3, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 }); // ledger
+    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 }); // ledger
 
-    expect(p.state.ledger.events).toHaveLength(1);
-    expect(p.state.plan.retirementAge).toBe(55);
-
-    // Pop the ledger transaction: ledger empties, the standing edit remains.
-    expect(p.undo()).toBe(true);
-    expect(p.state.ledger.events).toHaveLength(0);
-    expect(p.state.plan.retirementAge).toBe(55);
-
-    // Pop the standing edit: retirement age is back to baseline.
-    expect(p.undo()).toBe(true);
-    expect(p.state.plan.retirementAge).toBe(baseRetirement);
-
-    // Nothing left to undo.
-    expect(p.undo()).toBe(false);
-    expect(p.depth).toBe(0);
+    expect(p.state.scenario.plan.retirementAge).toBe(55);
+    expect(p.state.scenario.ledger.events).toHaveLength(1);
+    // The previously-read state is untouched by either write.
+    expect(before.scenario.plan.retirementAge).toBe(baseRetirement);
+    expect(before.scenario.ledger.events).toHaveLength(0);
+    expect(p.state).not.toBe(before);
   });
 
-  it("a fully-undone ledger transaction consumes no id counter residue", () => {
+  it("keeps plan and ledger coupled as one Scenario across both kinds of write (§6)", () => {
+    // The state holds the projectable unit, not two sibling fields: a standing edit
+    // carries the timeline through (withPlan) and a transaction carries the standing
+    // numbers through (withLedger), so neither half can be dropped by a spread that
+    // forgot a field — which is the whole reason `Scenario` exists.
     const p = freshProjection();
-    p.takeLoan({ month: 3, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
-    p.undo();
-    // The counter reverts with the state, so the next mint restarts at 1.
-    expect(p.state.nextSeq).toBe(1);
-    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    p.setRetirementTarget(55); // a standing edit AFTER a transaction
+
+    expect(p.state.scenario.ledger.events).toHaveLength(1); // survived the standing edit
+    expect(p.state.scenario.plan.retirementAge).toBe(55);
+
+    p.addJob(P1, openEndedJob); // another standing edit
+    expect(p.state.scenario.ledger.events).toHaveLength(1); // still there
+
+    p.marry({ month: 24, name: "Partner", birthYear: 1988 }); // a transaction AFTER standing edits
+    expect(p.state.scenario.plan.retirementAge).toBe(55); // standing numbers survived
+    expect(p.state.scenario.plan.jobs).toHaveLength(1);
+  });
+
+  it("has no undo — writes are reversed by addressable removal, not a stack (AC5)", () => {
+    // Deliberate: reversal names the thing to drop (a future `removeTransaction(id)`),
+    // so a UI can delete row 3 without knowing what order rows were created in, and
+    // nothing pretends to offer cross-session undo. See the module doc + issue #70.
+    const p = freshProjection();
+    expect("undo" in p).toBe(false);
+    expect("depth" in p).toBe(false);
   });
 
   it("marry() adds a partner as a ledger event", () => {
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     expect(partnerId).toBe("person-1");
-    expect(p.state.ledger.events[0]).toMatchObject({ type: "RelationshipEvent" });
+    expect(p.state.scenario.ledger.events[0]).toMatchObject({ type: "RelationshipEvent" });
   });
 
-  it("a refused ledger transaction leaves history and the id counter untouched", () => {
+  it("takeLoan() carries the kind-determined field for each arm of the union", () => {
+    // The payload is discriminated on `kind`: a card takes a credit limit and never a
+    // term, a term loan the reverse — so neither arm can be authored with the other's
+    // field, and each lands on the event without an `undefined` placeholder.
+    const p = freshProjection();
+    p.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "creditCard",
+      openingBalanceCents: dollarsToCents(2000),
+      apr: 22,
+      creditLimitCents: dollarsToCents(8000),
+    });
+    p.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+
+    const [card, auto] = p.state.scenario.ledger.events;
+    expect(card).toMatchObject({ kind: "creditCard", creditLimitCents: dollarsToCents(8000) });
+    expect(card).not.toHaveProperty("termMonths");
+    expect(auto).toMatchObject({ kind: "auto", termMonths: 60 });
+    expect(auto).not.toHaveProperty("creditLimitCents");
+  });
+
+  it("a refused ledger transaction leaves the state and the id counter untouched", () => {
     const p = freshProjection();
     const before = p.state;
     // Down payment far exceeds any liquid balance → §4.5 hard block refuses it.
     expect(() =>
       p.buyHome({
         month: 12,
+        ownerId: P1,
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
         downPaymentAccountId: "savings",
@@ -146,7 +192,6 @@ describe("Projection root — one root, standing + ledger, one undo stack (AC1, 
       }),
     ).toThrow();
     expect(p.state).toBe(before);
-    expect(p.depth).toBe(0);
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");
   });
 });
@@ -170,8 +215,8 @@ describe("Projection root — id counter round-trips through serialization (AC3)
       annualReturnPct: 2,
     })).toBe("goal-3");
     // Standing data survived too.
-    expect(reloaded.state.plan.jobs).toHaveLength(1);
-    expect(reloaded.state.plan.budgetLines).toHaveLength(1);
+    expect(reloaded.state.scenario.plan.jobs).toHaveLength(1);
+    expect(reloaded.state.scenario.plan.budgetLines).toHaveLength(1);
   });
 });
 
@@ -200,6 +245,5 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 
     // run() is read-only: the authoring state is byte-identical before and after.
     expect(p.toJSON()).toBe(before);
-    expect(p.depth).toBe(1);
   });
 });

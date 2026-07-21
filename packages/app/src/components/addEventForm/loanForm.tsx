@@ -13,18 +13,22 @@ export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormPro
   const [termYears, setTermYears] = useState(5);
 
   function submit() {
-    onAdd({
+    // LoanEvent is discriminated on `kind`, so each arm carries only its own
+    // kind-determined field — no `undefined` placeholder for the other's.
+    const common = {
       id: `e${nextId}`,
       type: "LoanEvent",
       month,
       liabilityId: `loan-${nextId}`,
       ownerId: "p1",
-      kind: loanKind,
       openingBalanceCents: dollarsToCents(amount),
       apr: apr / 100,
-      termMonths: loanKind === "creditCard" ? undefined : termYears * 12,
-      creditLimitCents: loanKind === "creditCard" ? dollarsToCents(amount * 2) : undefined,
-    });
+    } as const;
+    onAdd(
+      loanKind === "creditCard"
+        ? { ...common, kind: loanKind, creditLimitCents: dollarsToCents(amount * 2) }
+        : { ...common, kind: loanKind, termMonths: termYears * 12 },
+    );
   }
 
   return (

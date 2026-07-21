@@ -12,7 +12,7 @@ import {
 
 const job: Job = {
   id: "job-1",
-  owners: ["p1"],
+  ownerId: "p1",
   startYear: 2026,
   endYear: null,
   salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },

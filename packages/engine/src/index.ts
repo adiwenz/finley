@@ -88,9 +88,11 @@ export {
 } from "./allocations";
 export * from "./plan";
 // The unified `Projection` root (§2/§18/§20 + "npm API surface", issue #70, slice 7):
-// the headline public API — standing edits + ledger transactions on one root with one
-// undo stack, deterministic id minting, and `run(jurisdiction)` → immutable
-// `ProjectionResult`. Ships alongside (not in place of) the low-level functional barrel.
+// the headline public API — standing edits + ledger transactions on one root,
+// deterministic id minting, and `run(jurisdiction)` → immutable `ProjectionResult`.
+// Writes are not reversible by the root (no undo stack); reversal is addressable
+// removal, landing with the remaining event methods in a later slice.
+// Ships alongside (not in place of) the low-level functional barrel.
 export type {
   ProjectionState,
   ProjectionResult,
