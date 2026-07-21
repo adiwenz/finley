@@ -3,14 +3,13 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import type { SimAccount } from "../simAccount";
 import { seedEarnings, type EarningsAccumulator } from "../earningsRecord";
 import {
-  SimLiability,
+  RevolvingCard,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
-  minCreditCardPaymentCents,
-  amortizationScheduleCents,
   derivePaymentStatus,
   deriveLoanStatus,
+  type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
@@ -67,9 +66,7 @@ interface SimState {
   /** User liabilities plus the synthetic shortfall card, if one was created. */
   readonly liabilities: readonly SimLiability[];
   /** Credit cards (incl. synthetic) sorted ascending by APR — shortfall cascade order. */
-  readonly cascadeCards: readonly SimLiability[];
-  /** liab.id → exact amortization schedule (amortizing loans only). */
-  readonly amortSchedules: ReadonlyMap<string, readonly Cents[]>;
+  readonly cascadeCards: readonly RevolvingCard[];
   readonly assetBalances: Map<string, Cents>;
   /**
    * The authoritative, mutable current balance of each liability — updated in
@@ -155,12 +152,11 @@ function initSimState(input: HouseholdSimInput): SimState {
   // exhaust: a plan financed on unbounded revolving debt must eventually trip
   // the §5.1 terminal HARD-INFEASIBILITY flag (`isInsolvent`) rather than read
   // as solvent forever (#36).
-  const syntheticCard = userLiabilities.some((l) => l.isCreditCard())
+  const syntheticCard = userLiabilities.some((l) => l instanceof RevolvingCard)
     ? null
-    : new SimLiability({
+    : new RevolvingCard({
         id: SYNTHETIC_CARD_ID,
         ownerId: "household",
-        kind: "creditCard",
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
         creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
@@ -175,29 +171,8 @@ function initSimState(input: HouseholdSimInput): SimState {
   }
 
   const cascadeCards = liabilities
-    .filter((l) => l.isCreditCard())
+    .filter((l): l is RevolvingCard => l instanceof RevolvingCard)
     .sort((a, b) => a.apr - b.apr);
-
-  // Precompute the exact amortization schedule for each amortizing loan. Each
-  // schedule retires its loan to exactly 0 over the term (final payment adjusted
-  // down), so the monthly payment becomes a lookup instead of a recomputation.
-  // Amortizing balances are touched in advanceLiabilities by both scheduled
-  // payments and one-time transfers (Liability.addTransfer). A lump-sum transfer
-  // drops the balance below the schedule's assumed trajectory, so the schedule is
-  // a safe upper bound, not ground truth: computeLiabilityPayments caps each
-  // payment at the actual payoff so the loop never withdraws more than is owed.
-  // TODO(design): decide recast (lower payment, same term) vs. shorten-term
-  // (same payment, earlier payoff) when a lump sum lands. Capping at payoff
-  // yields shorten-term for free — the default behavior of most real loans.
-  const amortSchedules = new Map<string, Cents[]>();
-  for (const liab of liabilities) {
-    if (!liab.isCreditCard() && liab.termMonths !== null) {
-      amortSchedules.set(
-        liab.id,
-        amortizationScheduleCents(liab.openingBalanceCents, liab.apr, liab.termMonths),
-      );
-    }
-  }
 
   // Everyone who can hold a cash pool in the waterfall: roster members plus any
   // income owner (an income series can be owned by someone not in `persons`).
@@ -226,7 +201,6 @@ function initSimState(input: HouseholdSimInput): SimState {
     liquidAccount: input.accounts.find((a) => a.liquid) ?? null,
     liabilities,
     cascadeCards,
-    amortSchedules,
     assetBalances,
     liabilityBalances,
     properties,
@@ -255,27 +229,17 @@ function sumMonthlySeries(series: readonly SimOwnedSeries[], month: number): Cen
  * balances. Returned so advanceLiabilities applies the exact same figure — keeping
  * the cash outflow (step 5) and the balance update consistent.
  *
- * Both kinds cap the payment at the payoff amount (balance + this month's interest)
- * so a small balance is never over-charged. For amortizing loans the cap is a no-op
- * on an untouched loan (the schedule never exceeds the balance) but becomes
- * load-bearing once a one-time payment drives the balance below the schedule.
+ * Each liability computes its own payment polymorphically ({@link SimLiability.monthlyPaymentCents}):
+ * a revolving card returns its balance-driven minimum, a term loan its scheduled
+ * amortization payment — both capped at the payoff so a small balance is never
+ * over-charged. A paid-off (≤ 0) balance is skipped: it owes nothing.
  */
 function computeLiabilityPayments(state: SimState, month: number): Map<string, Cents> {
   const payments = new Map<string, Cents>();
   for (const liab of state.liabilities) {
     const bal = state.liabilityBalances.get(liab.id) ?? 0;
     if (bal <= 0) continue;
-    const owedWithInterest = Math.round(bal * (1 + liab.apr / 12));
-    if (liab.isCreditCard()) {
-      // Revolving balance: minimum payment.
-      payments.set(liab.id, Math.min(minCreditCardPaymentCents(bal), owedWithInterest));
-    } else {
-      // Amortizing loan: the schedule counts from origination, so the first
-      // payment (index 0) falls on startMonth+1 (past the term → 0). A loan not
-      // yet originated has a 0 balance and was skipped above.
-      const scheduled = state.amortSchedules.get(liab.id)?.[month - liab.startMonth - 1] ?? 0;
-      payments.set(liab.id, Math.min(scheduled, owedWithInterest));
-    }
+    payments.set(liab.id, liab.monthlyPaymentCents(bal, month));
   }
   return payments;
 }

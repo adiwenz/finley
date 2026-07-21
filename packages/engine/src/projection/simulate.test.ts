@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold, type SimPerson } from "./simulate";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import {
-  SimLiability,
+  AmortizingLoan,
+  RevolvingCard,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability";
@@ -196,7 +197,7 @@ describe("simulateHousehold", () => {
 describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", () => {
   it("month 0: net worth = assets − liabilities at opening balances", () => {
     const acc = makeInvestmentAccount(dollarsToCents(10_000), 0);
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -222,7 +223,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("amortizing loan balance decreases each month and reaches ~$0 by end of term", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -249,7 +250,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("amortizing loan is driven off a precomputed schedule → EXACTLY 0 at term, and stays 0", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -277,7 +278,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("a loan that originates mid-timeline is absent before its startMonth", () => {
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "car",
       ownerId: "p1",
       kind: "auto",
@@ -370,10 +371,9 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
   it("isInsolvent=true when credit limit cannot cover the full deficit", () => {
     const acc = makeInvestmentAccount(0, 0);
-    const card = new SimLiability({
+    const card = new RevolvingCard({
       id: "card",
       ownerId: "p1",
-      kind: "creditCard",
       openingBalanceCents: 0,
       apr: 0.22,
       creditLimitCents: dollarsToCents(100),
@@ -473,7 +473,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     // A big non-liquid asset keeps every scheduled payment financeable, so the
     // only difference between the runs is the transfer.
     const makeLoan = (id: string) =>
-      new SimLiability({
+      new AmortizingLoan({
         id,
         ownerId: "p1",
         kind: "auto",
@@ -516,7 +516,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
       series.months.findIndex((m) => m.liabilityBalancesCents[id] === 0);
 
     const makeLoan = () =>
-      new SimLiability({
+      new AmortizingLoan({
         id: "auto",
         ownerId: "p1",
         kind: "auto",
@@ -557,7 +557,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     // — the $4k payoff at month 6 does not create value out of thin air.
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
     acc.addTransfer({ month: 6, amountCents: -dollarsToCents(4_000) });
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -589,10 +589,9 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
   it("credit card in cascade reduces deficit; remaining overflows to insolvent", () => {
     // $500 monthly shortfall; card limit $300 → $200 unfinanceable
     const acc = makeInvestmentAccount(0, 0);
-    const card = new SimLiability({
+    const card = new RevolvingCard({
       id: "visa",
       ownerId: "p1",
-      kind: "creditCard",
       openingBalanceCents: 0,
       apr: 0.20,
       creditLimitCents: dollarsToCents(300),
@@ -617,7 +616,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
   describe("liabilityPaymentRecords (v1-seam)", () => {
     it("every serviced payment is full/current through payoff, incl. the payoff month", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new SimLiability({
+      const loan = new AmortizingLoan({
         id: "car",
         ownerId: "p1",
         kind: "auto",
@@ -625,10 +624,9 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
         apr: 0.06,
         termMonths: 12,
       });
-      const card = new SimLiability({
+      const card = new RevolvingCard({
         id: "visa",
         ownerId: "p1",
-        kind: "creditCard",
         openingBalanceCents: dollarsToCents(1_000),
         apr: 0.2,
         creditLimitCents: dollarsToCents(5_000),
@@ -670,7 +668,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
     it("month 0 has no payment records; a due payment produces one", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new SimLiability({
+      const loan = new AmortizingLoan({
         id: "car",
         ownerId: "p1",
         kind: "auto",
@@ -701,7 +699,7 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
 
     it("a paid-off liability drops out of the records once nothing is due", () => {
       const acc = makeInvestmentAccount(dollarsToCents(100_000), 0);
-      const loan = new SimLiability({
+      const loan = new AmortizingLoan({
         id: "car",
         ownerId: "p1",
         kind: "auto",

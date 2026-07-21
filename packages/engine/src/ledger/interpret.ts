@@ -104,18 +104,23 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     ),
   ];
 
-  const liabilities: HouseholdLiability[] = [...state.liabilitiesById.values()].map((def) => ({
-    id: def.id,
-    kind: def.kind,
-    ownerId: def.ownerId,
-    causedByEventId: def.causedByEventId,
-    startMonth: def.startMonth,
-    openingBalanceCents: def.openingBalanceCents,
-    apr: def.apr,
-    termMonths: def.termMonths,
-    creditLimitCents: def.creditLimitCents,
-    transfers: def.transfers,
-  }));
+  const liabilities: HouseholdLiability[] = [...state.liabilitiesById.values()].map(
+    (def): HouseholdLiability => {
+      const common = {
+        id: def.id,
+        ownerId: def.ownerId,
+        causedByEventId: def.causedByEventId,
+        startMonth: def.startMonth,
+        openingBalanceCents: def.openingBalanceCents,
+        apr: def.apr,
+        transfers: def.transfers,
+      };
+      // Preserve the discriminant end to end: each arm carries exactly its own field.
+      return def.kind === "creditCard"
+        ? { ...common, kind: def.kind, creditLimitCents: def.creditLimitCents }
+        : { ...common, kind: def.kind, termMonths: def.termMonths };
+    },
+  );
 
   const properties: HouseholdProperty[] = [...state.propertiesById.values()].map((def) => ({
     id: def.id,

@@ -150,19 +150,23 @@ const loan: EventHandler<LoanEvent> = {
     return ok;
   },
   apply(event, state) {
-    state.liabilitiesById.set(asLiabilityId(event.liabilityId), {
+    const common = {
       id: asLiabilityId(event.liabilityId),
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
       startMonth: event.month,
-      kind: event.kind,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
-      ...(event.kind === "creditCard"
-        ? { creditLimitCents: event.creditLimitCents }
-        : { termMonths: event.termMonths }),
       transfers: [],
-    });
+    };
+    // LoanEvent is discriminated on kind; carry exactly the field that kind owns
+    // into the derived LiabilityDef (also a discriminated union).
+    state.liabilitiesById.set(
+      asLiabilityId(event.liabilityId),
+      event.kind === "creditCard"
+        ? { ...common, kind: event.kind, creditLimitCents: event.creditLimitCents }
+        : { ...common, kind: event.kind, termMonths: event.termMonths },
+    );
   },
 };
 
