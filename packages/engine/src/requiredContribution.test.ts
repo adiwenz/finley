@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { requiredContributionCents } from "./sinkingFund";
+import { requiredContributionCents } from "./requiredContribution";
 import { dollarsToCents } from "./cashFlowSeries";
 
 describe("requiredContributionCents (§14/§19, #26 sinking-fund pace)", () => {

@@ -28,7 +28,7 @@
 import type { Cents } from "./money";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { DeferralLimitContext } from "./jurisdiction";
-import { requiredContributionCents } from "./sinkingFund";
+import { requiredContributionCents } from "./requiredContribution";
 
 /**
  * Whether a contribution goes in pre-tax (reduces taxable income) or post-tax

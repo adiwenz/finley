@@ -33,7 +33,7 @@
 import { splitEven, type Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
-import { requiredContributionCents } from "../sinkingFund";
+import { requiredContributionCents } from "../requiredContribution";
 
 /** The 401(k)-style plan a job carries (§5.5) — presence makes it deferral-eligible. */
 export interface PlanDescriptor {

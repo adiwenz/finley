@@ -68,10 +68,10 @@ export {
 } from "./compileBudget";
 // The deadline-paced sinking-fund pace (§14/§19, #26): the pure primitive behind the
 // `goalPaced` amount source and the waterfall's fund-to-pace goal loop.
-export { requiredContributionCents } from "./sinkingFund";
+export { requiredContributionCents } from "./requiredContribution";
 // The unified `allocations()` view (§13/§14/§15, issue #69, slice 6): job deferrals +
 // budget lines + goals folded into one priority-ordered list with stable ids; reads
-// unify, writes route to the canonical home (401k → job, expense → budget, goal → goal).
+// unify, writes route to the canonical home (deferral → job, expense → budget, goal → goal).
 export type {
   AllocationHome,
   AllocationSource,

@@ -1,10 +1,10 @@
 /**
  * The unified `allocations()` view (§13, §14, §15 of JOBS_HOUSEHOLD_REDESIGN,
  * issue #69, slice 6) — one ordered list that folds together the three things that
- * compete for a month's cash: per-job pre-tax 401(k) deferrals, budget line items,
+ * compete for a month's cash: per-job pre-tax deferrals, budget line items,
  * and goals. This is a **single-source + derived selector**, not a UI-only shim:
  * reads unify here, but each entry keeps a pointer to its **canonical home**, so a
- * write always lands where the fact actually lives (401k → job, expense/contribution
+ * write always lands where the fact actually lives (deferral → job, expense/contribution
  * → budget, goal semantics → goal). That is the §13/§20 "API papering over the
  * split" applied to the allocation surface: reads never contradict because there is
  * exactly one home per fact, and undo/override ride on that home.
