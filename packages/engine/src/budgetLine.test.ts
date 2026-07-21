@@ -102,6 +102,18 @@ describe("resolveBudgetLineMonthlyCents — goal-paced amount source", () => {
       ),
     ).toBe(0);
   });
+
+  it("is growth-aware: a fund's own monthly rate lowers the required pace (#26)", () => {
+    // Same $24k/24-month goal, but the fund earns 1%/mo — leaning on that growth
+    // requires strictly less each month than the flat $1,000 spread.
+    const flat = resolveBudgetLineMonthlyCents(pacedLine, ctxAt({ month: 0 }));
+    const withGrowth = resolveBudgetLineMonthlyCents(
+      pacedLine,
+      ctxAt({ month: 0, fundMonthlyRate: 0.01 }),
+    );
+    expect(withGrowth).toBeLessThan(flat);
+    expect(withGrowth).toBeGreaterThan(0);
+  });
 });
 
 describe("resolveBudgetLineMonthlyCents — spans", () => {

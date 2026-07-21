@@ -58,6 +58,7 @@ export type {
 export {
   taxTreatmentForLine,
   resolveBudgetLineMonthlyCents,
+  budgetLinePriority,
   orderBudgetLines,
   resolveBudget,
 } from "./budgetLine";
@@ -65,6 +66,26 @@ export {
   compileExpenseBudgetLines,
   fillToLimitSeamFor,
 } from "./compileBudget";
+// The deadline-paced sinking-fund pace (§14/§19, #26): the pure primitive behind the
+// `goalPaced` amount source and the waterfall's fund-to-pace goal loop.
+export { requiredContributionCents } from "./requiredContribution";
+// The unified `allocations()` view (§13/§14/§15, issue #69, slice 6): job deferrals +
+// budget lines + goals folded into one priority-ordered list with stable ids; reads
+// unify, writes route to the canonical home (deferral → job, expense → budget, goal → goal).
+export type {
+  AllocationHome,
+  AllocationSource,
+  Allocation,
+  AllocationsInput,
+  AllocationEdit,
+  WriteRoute,
+} from "./allocations";
+export {
+  allocations,
+  goalToLineItem,
+  budgetLineAllocationId,
+  routeAllocationWrite,
+} from "./allocations";
 export * from "./plan";
 // A Scenario couples a Plan with its Ledger — the unit the engine projects, so a
 // plan's timeline events can never be silently dropped from a projection (§6).

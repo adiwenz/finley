@@ -24,7 +24,7 @@ import type { Person } from "./person";
 /**
  * A user-authored account (§10). `owners` distinguishes individual
  * (`[p]`) from joint (`[p1, p2]`) ownership; `retirement` marks a legally
- * per-person vehicle (401(k)/IRA/Roth), which is why it is constrained to a
+ * per-person retirement vehicle, which is why it is constrained to a
  * single owner. `balanceCents` is the authored current balance (today's dollars);
  * the projected trajectory is the simulator's job, not this model's.
  */
@@ -33,7 +33,7 @@ export interface Account {
   /** `[p]` = individual, `[p1, p2]` = joint. Retirement ⇒ exactly one owner. */
   readonly owners: readonly PersonId[];
   readonly balanceCents: Cents;
-  /** True for a per-person retirement vehicle (401(k)/IRA/Roth) — single-owner. */
+  /** True for a per-person retirement vehicle — single-owner. */
   readonly retirement: boolean;
 }
 

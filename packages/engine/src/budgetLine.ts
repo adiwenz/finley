@@ -28,6 +28,7 @@
 import type { Cents } from "./money";
 import type { OverrideScope } from "./cashFlowSeries";
 import type { DeferralLimitContext } from "./jurisdiction";
+import { requiredContributionCents } from "./requiredContribution";
 
 /**
  * Whether a contribution goes in pre-tax (reduces taxable income) or post-tax
@@ -150,6 +151,12 @@ export interface ResolveLineContext {
    * target ÷ the months left). Absent → treated as 0 (fund the whole target).
    */
   readonly currentBalanceCents?: Cents;
+  /**
+   * The fund account's monthly growth rate, for the growth-aware `goal-paced`
+   * sinking-fund pace (#26). Absent → 0 (a flat, even spread over the months left).
+   * Leaning on projected growth lowers the required contribution below the flat pace.
+   */
+  readonly fundMonthlyRate?: number;
 }
 
 /** Whether `month` falls inside a line's span (§19). No span → always active. */
@@ -174,12 +181,19 @@ function baseSourceMonthlyCents(source: AmountSource, ctx: ResolveLineContext): 
       return Math.round(annualCap / 12);
     }
     case "goalPaced": {
-      // #26 deadline pace: the remaining gap funded evenly over the months left.
-      // Past (or at) the deadline there is no time left to pace, so it stops.
+      // #26 deadline pace: the growth-aware sinking-fund contribution needed to reach
+      // the target by the deadline (see {@link requiredContributionCents}). Past (or
+      // at) the deadline there is no time left to pace, so it stops — the goal has
+      // matured and its disposition fires elsewhere. With no fund rate this degrades
+      // to the flat even spread; a positive rate leans on projected growth.
       const monthsLeft = source.targetMonth - ctx.month;
       if (monthsLeft <= 0) return 0;
-      const remaining = Math.max(0, source.targetCents - (ctx.currentBalanceCents ?? 0));
-      return Math.round(remaining / monthsLeft);
+      return requiredContributionCents(
+        source.targetCents,
+        ctx.currentBalanceCents ?? 0,
+        monthsLeft,
+        ctx.fundMonthlyRate ?? 0,
+      );
     }
   }
 }
@@ -233,16 +247,25 @@ const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
 };
 
 /**
+ * A line's effective flat waterfall priority (§15): its explicit
+ * {@link BudgetLine.priority} when set, else the category-tier default (needs before
+ * wants before savings). The single source of truth for ordering — both
+ * {@link orderBudgetLines} and the unified `allocations()` view read it, so the two
+ * can never drift on how a tier maps to a number.
+ */
+export function budgetLinePriority(line: BudgetLine): number {
+  return line.priority ?? CATEGORY_DEFAULT_PRIORITY[line.category];
+}
+
+/**
  * The budget as a prioritized list (§15): explicit {@link BudgetLine.priority}
  * first, else the category tier default. A stable sort keeps authored order within
  * a tier. Order only bites in a shortfall — it is the waterfall's funding sequence.
  */
 export function orderBudgetLines(lines: readonly BudgetLine[]): BudgetLine[] {
-  const priorityOf = (l: BudgetLine): number =>
-    l.priority ?? CATEGORY_DEFAULT_PRIORITY[l.category];
   return lines
     .map((line, index) => ({ line, index }))
-    .sort((a, b) => priorityOf(a.line) - priorityOf(b.line) || a.index - b.index)
+    .sort((a, b) => budgetLinePriority(a.line) - budgetLinePriority(b.line) || a.index - b.index)
     .map((e) => e.line);
 }
 

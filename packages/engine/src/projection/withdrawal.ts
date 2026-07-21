@@ -31,21 +31,40 @@ export interface WithdrawalState {
 }
 
 /**
- * The order investment accounts are liquidated in during decumulation (D2), keyed
- * by the account's neutral {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
+ * The **tax-efficient default** order investment accounts are liquidated in during
+ * decumulation (§16, D2), keyed by the account's neutral
+ * {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
  * `capitalGains` first (brokerage + eligible goal funds, least tax friction — no
  * gross-up), then `ordinaryIncome` (taxed like an RMD), then `taxExempt` last
- * (preserve tax-free growth). Lower rank = drawn first.
+ * (preserve tax-free growth). Earlier in the list = drawn first.
+ *
+ * This is the DEFAULT, not a fixed rule: {@link buildWithdrawalSources} accepts an
+ * override (§16 "overridable"), so a plan can, say, spend a tax-exempt account first
+ * for a bequest strategy. Forced RMDs are always honored ahead of any elective draw
+ * regardless of this order — they run in a separate channel that has already reduced
+ * the balances and the need before this loop (see {@link buildWithdrawalSources}).
  */
-const LIQUIDATION_ORDER: Partial<Record<TaxCategory, number>> = {
-  capitalGains: 0,
-  ordinaryIncome: 1,
-  taxExempt: 2,
-};
+export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
+  "capitalGains",
+  "ordinaryIncome",
+  "taxExempt",
+];
 
-/** Liquidation rank for an account, from its withdrawal category (unknown → last). */
-function liquidationRank(account: SimAccount): number {
-  return LIQUIDATION_ORDER[account.taxProfile.withdrawalCategory] ?? 99;
+/** Rank map (category → position) built from an ordered liquidation list. */
+function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCategory, number>> {
+  const map: Partial<Record<TaxCategory, number>> = {};
+  order.forEach((category, index) => {
+    if (map[category] === undefined) map[category] = index;
+  });
+  return map;
+}
+
+/** Liquidation rank for an account, from its withdrawal category (absent → last). */
+function liquidationRank(
+  account: SimAccount,
+  rankMap: Partial<Record<TaxCategory, number>>,
+): number {
+  return rankMap[account.taxProfile.withdrawalCategory] ?? 99;
 }
 
 /**
@@ -128,7 +147,8 @@ function estimateNetIncome(
  * The amount is NEED-based, not a fixed safe-withdrawal rate (D1, §7 RESOLVED):
  * `gap = obligations − non-withdrawal net income`, then the existing liquid buffer is
  * spent first (D2), so the channel only liquidates investments for `gap − liquidBuffer`.
- * Sources are drawn in {@link LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt) and
+ * Sources are drawn in {@link DEFAULT_LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt),
+ * or in a caller-supplied `liquidationOrder` override (§16 overridable), and
  * gated by {@link isLiquidatable}. Non-pre-tax draws inject as a non-taxable category
  * (net one-for-one, no gross-up); pre-tax draws inject as `ordinaryIncome`, grossed up
  * by a marginal rate differenced from `computeTaxCents` so the net still covers the
@@ -148,6 +168,7 @@ export function buildWithdrawalSources(
   nonWithdrawalSources: readonly IncomeSourceMonth[],
   obligationsCents: Cents,
   ctx: JurisdictionContext,
+  liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
 ): IncomeSourceMonth[] {
   const computeTaxCents = (taxable: TaxableByCategory): Cents =>
     jurisdiction.computeTaxCents(taxable, ctx);
@@ -170,9 +191,10 @@ export function buildWithdrawalSources(
   let need = gap - liquidBuffer;
   if (need <= 0) return [];
 
+  const rankMap = liquidationRankMap(liquidationOrder);
   const orderedSources = state.accounts
     .filter((a) => isLiquidatable(a, state, month))
-    .sort((a, b) => liquidationRank(a) - liquidationRank(b));
+    .sort((a, b) => liquidationRank(a, rankMap) - liquidationRank(b, rankMap));
 
   const sources: IncomeSourceMonth[] = [];
   for (const account of orderedSources) {
