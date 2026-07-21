@@ -1,0 +1,32 @@
+.lineRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--rule, #e3dcc6);
+}
+
+.lineLabel {
+  font-size: 0.9rem;
+}
+
+.tier {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8570;
+}
+
+.adjustGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.routeEcho {
+  font-size: 0.8rem;
+  color: #3f7d5f;
+  margin-top: 0.5rem;
+}

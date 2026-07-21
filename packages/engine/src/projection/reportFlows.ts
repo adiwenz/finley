@@ -30,6 +30,7 @@ export function buildFlows(
   taxCents: Cents,
   expensesCents: Cents,
   liabilityPaymentsCents: Cents,
+  lineFundedCents: Readonly<Record<string, Cents>>,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -45,5 +46,6 @@ export function buildFlows(
     taxCents,
     expensesCents,
     liabilityPaymentsCents,
+    lineFundedCents,
   };
 }

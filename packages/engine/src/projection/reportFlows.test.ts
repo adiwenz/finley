@@ -15,6 +15,7 @@ describe("buildFlows", () => {
       0,
       0,
       0,
+      {},
     );
     expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00, ordinaryIncome: 1_000_00 });
     expect(flows.totalIncomeCents).toBe(8_000_00);
@@ -26,27 +27,35 @@ describe("buildFlows", () => {
       0,
       0,
       0,
+      {},
     );
     expect(flows.governmentRetirementBenefitCents).toBe(2_500_00);
   });
 
   it("reports 0 government retirement benefit when no source carries that category", () => {
-    const flows = buildFlows([src("p1", 4_000_00, "wages")], 0, 0, 0);
+    const flows = buildFlows([src("p1", 4_000_00, "wages")], 0, 0, 0, {});
     expect(flows.governmentRetirementBenefitCents).toBe(0);
   });
 
   it("passes tax, expenses and liability payments straight through", () => {
-    const flows = buildFlows([], 900_00, 3_200_00, 1_800_00);
+    const flows = buildFlows([], 900_00, 3_200_00, 1_800_00, {});
     expect(flows.taxCents).toBe(900_00);
     expect(flows.expensesCents).toBe(3_200_00);
     expect(flows.liabilityPaymentsCents).toBe(1_800_00);
   });
 
+  it("carries the per-line funded map straight through (§Q27)", () => {
+    const lineFunded = { "line:rent": 2_000_00, "line:fun": 100_00 };
+    const flows = buildFlows([], 0, 3_200_00, 0, lineFunded);
+    expect(flows.lineFundedCents).toEqual(lineFunded);
+  });
+
   it("yields empty buckets and zero totals for a month with no income", () => {
-    const flows = buildFlows([], 0, 0, 0);
+    const flows = buildFlows([], 0, 0, 0, {});
     expect(flows.incomeByCategoryCents).toEqual({});
     expect(flows.totalIncomeCents).toBe(0);
     expect(flows.governmentRetirementBenefitCents).toBe(0);
     expect(flows.taxCents).toBe(0);
+    expect(flows.lineFundedCents).toEqual({});
   });
 });

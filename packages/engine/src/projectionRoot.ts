@@ -31,9 +31,10 @@
  * **`run(jurisdiction)` → immutable {@link ProjectionResult}.** The jurisdiction is
  * injected at `run()`, never at construction: `Projection` is pure, jurisdiction-free
  * authoring state, so one plan can be re-run under different rule sets without
- * mutation. (`ProjectionResult` is deliberately thin in this slice — the per-line
- * monthly resolution and the §5 solver outputs land in slice 8; the shape here is the
- * already-monthly {@link ProjectionSeries} plus the insolvency marker.)
+ * mutation. `ProjectionResult` carries the already-monthly {@link ProjectionSeries}
+ * plus the insolvency marker; per-line monthly resolution (§Q27, slice 8, issue #71)
+ * now rides inside each month's `flows.lineFundedCents`. The §5 solver outputs
+ * (career-exit/work-optional ages, on-track %) remain deferred.
  *
  * Packaging (§ "npm API", Q28): the root ships *inside* `@finley/engine` as the
  * headline surface; the existing functional barrel (`interpretLedger`,
@@ -151,10 +152,10 @@ export interface BuyHomeInput {
 /**
  * The computed snapshot a {@link Projection.run} produces (§ "npm API", Q26). Pure
  * and **immutable** (frozen): the plan is authoring state, the result is one pipeline
- * pass under a specific jurisdiction. Deliberately thin in slice 7 — the §5 solver
- * outputs, on-track %, and per-line monthly resolution land in slice 8; today it
- * carries the already-monthly {@link ProjectionSeries} the chart reads plus the
- * first insolvent month (a convenience the app already derives).
+ * pass under a specific jurisdiction. It carries the already-monthly {@link
+ * ProjectionSeries} the chart reads — including per-line monthly resolution in each
+ * month's `flows.lineFundedCents` (§Q27, slice 8) — plus the first insolvent month (a
+ * convenience the app already derives). The §5 solver outputs / on-track % stay deferred.
  */
 export interface ProjectionResult {
   /** The jurisdiction this snapshot was computed under — echoes {@link Jurisdiction.id}. */

@@ -120,6 +120,17 @@ export interface ProjectionMonthFlows {
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
   readonly liabilityPaymentsCents: Cents;
+  /**
+   * Per-budget-line *actually funded* amount this month, keyed by the line's
+   * `allocations()` id (`line:<id>`, so author line ↔ resolved line ↔ funded line —
+   * §Q27). Each value is what the §15 waterfall could fund for that line from the
+   * month's cash; in a shortfall the lowest-priority lines are starved below their
+   * intent (Plan) — that gap is the interesting thing to graph. `expensesCents` above
+   * stays the coarse rollup (it also includes non-line spend like health); this map
+   * itemizes only the standing budget lines the simulator ran. Empty when the plan
+   * authors no budget lines (the scalar path).
+   */
+  readonly lineFundedCents: Readonly<Record<string, Cents>>;
 }
 
 export interface ProjectionSeries {
@@ -176,6 +187,17 @@ export interface SimOwnedSeries {
    * meaningful on income series.
    */
   readonly planDescriptor?: PlanDescriptor;
+  /**
+   * Provenance tag for an EXPENSE series compiled from a standing budget line (§12,
+   * §Q27): the source line's authoring id and its flat waterfall priority (§15). Only
+   * set when the series was compiled from a {@link import("../budgetLine").BudgetLine};
+   * a scalar/health expense series carries neither. It drives the per-line *actually
+   * funded* map on {@link ProjectionMonthFlows.lineFundedCents} — author line ↔ resolved
+   * series ↔ funded line — without the simulator otherwise reading it.
+   */
+  readonly lineId?: string;
+  /** Flat waterfall priority of the source budget line (§15); paired with {@link lineId}. */
+  readonly linePriority?: number;
 }
 
 /**

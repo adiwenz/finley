@@ -22,7 +22,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
-import type { BudgetLine } from "./budgetLine";
+import { budgetLinePriority, type BudgetLine } from "./budgetLine";
 
 /**
  * The fill-to-limit cap seam for a jurisdiction (§12, §19): the function a
@@ -68,7 +68,17 @@ function compileExpenseLine(line: BudgetLine, ownerId: string): SimOwnedSeries {
   for (const o of line.overrides ?? []) {
     series.addOverride(o.month, o.monthlyCents, o.scope);
   }
-  return { series, ownerId, label: line.label };
+  // Tag the compiled series with its source line's label (for reporting) plus its id +
+  // waterfall priority (§Q27), so the simulator can report each line's actually-funded
+  // amount without re-resolving (author line ↔ resolved series ↔ funded line — see
+  // ProjectionMonthFlows.lineFundedCents).
+  return {
+    series,
+    ownerId,
+    label: line.label,
+    lineId: line.id,
+    linePriority: budgetLinePriority(line),
+  };
 }
 
 /**

@@ -3,6 +3,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import {
   type BudgetLine,
   type ResolveLineContext,
+  fundLinesInPriorityOrder,
   orderBudgetLines,
   resolveBudget,
   resolveBudgetLineMonthlyCents,
@@ -248,5 +249,44 @@ describe("resolveBudget — all three amount sources resolve together (AC1/AC2)"
       dollarsToCents(2_000),
     ]);
     expect(resolved.map((r) => r.taxTreatment)).toEqual(["postTax", "postTax", "preTax"]);
+  });
+});
+
+describe("fundLinesInPriorityOrder — §Q27 per-line actually-funded view", () => {
+  const intents = [
+    { id: "line:rent", priority: 0, intendedCents: dollarsToCents(2_000) },
+    { id: "line:groceries", priority: 1000, intendedCents: dollarsToCents(600) },
+    { id: "line:fun", priority: 2000, intendedCents: dollarsToCents(400) },
+  ];
+
+  it("funds every line to its intent when cash covers the whole budget (solvent)", () => {
+    const funded = fundLinesInPriorityOrder(intents, dollarsToCents(3_000));
+    expect(funded).toEqual({
+      "line:rent": dollarsToCents(2_000),
+      "line:groceries": dollarsToCents(600),
+      "line:fun": dollarsToCents(400),
+    });
+  });
+
+  it("starves the lowest-priority lines first in a shortfall", () => {
+    // $2,700 available against a $3,000 budget → the last $300 falls on the
+    // lowest-priority line (fun), which is starved from $400 down to $100.
+    const funded = fundLinesInPriorityOrder(intents, dollarsToCents(2_700));
+    expect(funded["line:rent"]).toBe(dollarsToCents(2_000));
+    expect(funded["line:groceries"]).toBe(dollarsToCents(600));
+    expect(funded["line:fun"]).toBe(dollarsToCents(100));
+  });
+
+  it("funds nothing when no cash is available; negative available clamps to 0", () => {
+    expect(fundLinesInPriorityOrder(intents, 0)).toEqual({
+      "line:rent": 0,
+      "line:groceries": 0,
+      "line:fun": 0,
+    });
+    expect(fundLinesInPriorityOrder(intents, -500)).toEqual({
+      "line:rent": 0,
+      "line:groceries": 0,
+      "line:fun": 0,
+    });
   });
 });

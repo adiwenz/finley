@@ -295,3 +295,48 @@ export function resolveBudget(
     monthlyCents: resolveBudgetLineMonthlyCents(line, ctx),
   }));
 }
+
+/**
+ * One line's *intended* monthly amount plus its flat waterfall priority — the input
+ * to the §Q27 per-line "actually funded" projection. `id` is whatever key the caller
+ * wants the funded map keyed by (the projection keys it with the `allocations()` id,
+ * `line:<id>`, so author line ↔ resolved line ↔ funded line all line up).
+ */
+export interface LineIntent {
+  readonly id: string;
+  /** Flat waterfall priority (lower = funded first, §15). */
+  readonly priority: number;
+  /** The line's intended (Plan) monthly amount for the month. */
+  readonly intendedCents: Cents;
+}
+
+/**
+ * Fund `intents` in §15 priority order (lowest priority number first) against a
+ * limited pool of `availableCents`, starving the lowest-priority lines when the cash
+ * runs short — the "actually funded" per-line view (§Q27). This is what makes Plan
+ * (each line's intent) and Result (what the month could actually fund) differ *exactly*
+ * in a shortfall, and it names which line the waterfall starved.
+ *
+ * Pure and total: it sorts a copy by priority (stable within a tier via the original
+ * order), hands each line the smaller of its intent and the remaining pool, and
+ * returns a map keyed by each intent's `id`. Σ(funded) = min(Σ intended, max(0,
+ * availableCents)); a negative pool clamps to 0 (nothing affordable), and every id is
+ * always present (0 for a fully starved line) so a consumer can graph the gap.
+ */
+export function fundLinesInPriorityOrder(
+  intents: readonly LineIntent[],
+  availableCents: Cents,
+): Record<string, Cents> {
+  const ordered = intents
+    .map((intent, index) => ({ intent, index }))
+    .sort((a, b) => a.intent.priority - b.intent.priority || a.index - b.index);
+  let remaining = Math.max(0, availableCents);
+  const funded: Record<string, Cents> = {};
+  for (const { intent } of ordered) {
+    const want = Math.max(0, intent.intendedCents);
+    const give = Math.min(want, remaining);
+    funded[intent.id] = give;
+    remaining -= give;
+  }
+  return funded;
+}

@@ -12,6 +12,8 @@ import {
   type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
+import { fundLinesInPriorityOrder, type LineIntent } from "../budgetLine";
+import { budgetLineAllocationId } from "../allocations";
 import type { SimGoal } from "../goal";
 import {
   runWaterfall,
@@ -297,8 +299,14 @@ function buildIncomeSources(
  * uncovered obligation as a deficit on the first liquid account so the §5.1
  * cascade (called next) drains liquid assets before reaching for credit.
  *
- * Returns the tax charged this month (already reflected in take-home). The
- * per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
+ * Returns two facts the caller needs and cannot recompute:
+ *   - `taxCents` — the tax charged this month (already reflected in take-home), which
+ *     the §5.3 chokepoint is the only place to observe.
+ *   - `shortfallCents` — the part of the shared obligation take-home (plus any
+ *     liquidated assets already folded into `incomeSources`) could not cover, before
+ *     the §5.1 credit cascade; it drives the cascade and per-line starvation (§Q27).
+ *
+ * The per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
  */
 function allocateMonth(
   state: SimState,
@@ -307,7 +315,7 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): Cents {
+): { taxCents: Cents; shortfallCents: Cents } {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -354,7 +362,39 @@ function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  return result.taxCents;
+  return { taxCents: result.taxCents, shortfallCents: result.shortfallCents };
+}
+
+/**
+ * The per-line *actually funded* map for this month (§Q27), keyed by each budget line's
+ * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
+ * lines the simulator runs today — contribution lines land in the #72 rewire) for their
+ * intent + §15 priority, then funds them in priority order against the cash the waterfall
+ * could actually cover: the lines' total minus this month's household shortfall. In a
+ * solvent month (shortfall 0) every line funds to its intent; in a shortfall the
+ * lowest-priority lines starve first, so Plan and Result diverge exactly there and the
+ * starved line is named. Untagged series (scalar/health expense) are ignored — the map
+ * is empty when the plan authors no budget lines.
+ */
+function computeLineFundedCents(
+  expenseSeries: readonly SimOwnedSeries[],
+  month: number,
+  shortfallCents: Cents,
+): Record<string, Cents> {
+  const intents: LineIntent[] = [];
+  let linesTotal = 0;
+  for (const s of expenseSeries) {
+    if (s.lineId === undefined) continue;
+    const intendedCents = s.series.getMonthlyCents(month);
+    linesTotal += intendedCents;
+    intents.push({
+      id: budgetLineAllocationId(s.lineId),
+      priority: s.linePriority ?? 0,
+      intendedCents,
+    });
+  }
+  if (intents.length === 0) return {};
+  return fundLinesInPriorityOrder(intents, linesTotal - shortfallCents);
 }
 
 /**
@@ -660,7 +700,7 @@ export function simulateHousehold(
         ),
       ];
 
-      const taxCents = allocateMonth(
+      const { taxCents, shortfallCents } = allocateMonth(
         state,
         incomeSources,
         ctx,
@@ -675,7 +715,14 @@ export function simulateHousehold(
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      flows = buildFlows(incomeSources, taxCents, expenseCents, totalPaymentsCents);
+      const lineFundedCents = computeLineFundedCents(input.expenseSeries, month, shortfallCents);
+      flows = buildFlows(
+        incomeSources,
+        taxCents,
+        expenseCents,
+        totalPaymentsCents,
+        lineFundedCents,
+      );
     }
 
     months.push(

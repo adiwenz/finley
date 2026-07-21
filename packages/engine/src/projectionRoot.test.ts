@@ -247,3 +247,77 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
     expect(p.toJSON()).toBe(before);
   });
 });
+
+describe("Projection root — per-line monthly resolution in the result (§Q27, issue #71)", () => {
+  const RENT = "line:rent";
+  const FUN = "line:fun";
+
+  it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
+    // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
+    const p = Projection.create({
+      plan: { ...samplePlan, goals: [] },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+      category: "wants",
+    });
+
+    const flows = p.run(nullJurisdiction).series.months[1]?.flows;
+    // Keyed by the allocations() id (`line:<id>`), author line ↔ funded line.
+    expect(flows?.lineFundedCents[RENT]).toBe(dollarsToCents(2_000));
+    expect(flows?.lineFundedCents[FUN]).toBe(dollarsToCents(500));
+  });
+
+  it("starves the lowest-priority line in a shortfall while the coarse rollup stays the intent", () => {
+    // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
+    // shortfall. §15 priority funds rent (a need) before fun (a want).
+    const p = Projection.create({
+      plan: {
+        ...samplePlan,
+        incomeCents: dollarsToCents(3_000),
+        openingBalanceCents: 0,
+        retirementDeferralPct: 0,
+        surplusSwept: false,
+        goals: [],
+        healthMonthlyCents: 0,
+        postCoverageHealthMonthlyCents: 0,
+        enrollsInPublicHealthCoverage: false,
+      },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(4_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "wants",
+    });
+
+    const flows = p.run(nullJurisdiction).series.months[1]?.flows;
+    // Result ≠ Plan exactly in the shortfall: fun (lowest priority) is fully starved,
+    // rent is partially funded — below its $4,000 intent — and never below fun.
+    expect(flows?.lineFundedCents[FUN]).toBe(0);
+    expect(flows?.lineFundedCents[RENT]).toBeGreaterThan(0);
+    expect(flows?.lineFundedCents[RENT]).toBeLessThan(dollarsToCents(4_000));
+    // The coarse rollup remains the full intent (Plan), so the graph can show the gap.
+    expect(flows?.expensesCents).toBe(dollarsToCents(6_000));
+  });
+});
