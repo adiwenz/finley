@@ -87,6 +87,22 @@ export {
   routeAllocationWrite,
 } from "./allocations";
 export * from "./plan";
+// The unified `Projection` facade (§2/§18/§20 + "npm API surface", issue #70, slice 7):
+// the headline public API — standing edits + ledger transactions on one root with one
+// undo stack, deterministic id minting, and `run(jurisdiction)` → immutable
+// `ProjectionResult`. Ships alongside (not in place of) the low-level functional barrel.
+export type {
+  ProjectionState,
+  ProjectionResult,
+  ProjectionInit,
+  JobInput,
+  BudgetLineInput,
+  GoalInput,
+  MarryInput,
+  TakeLoanInput,
+  BuyHomeInput,
+} from "./projectionFacade";
+export { Projection } from "./projectionFacade";
 // A Scenario couples a Plan with its Ledger — the unit the engine projects, so a
 // plan's timeline events can never be silently dropped from a projection (§6).
 export * from "./scenario";
