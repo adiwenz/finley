@@ -1,5 +1,5 @@
 /**
- * The `Projection` facade — the headline public API of `@finley/engine` (§2, §18,
+ * The `Projection` root — the headline public API of `@finley/engine` (§2, §18,
  * §20, "npm API surface" of JOBS_HOUSEHOLD_REDESIGN, issue #70, slice 7).
  *
  * One **unified `Projection` root**: both standing edits (`addJob`, `addBudgetLine`,
@@ -27,7 +27,7 @@
  * monthly resolution and the §5 solver outputs land in slice 8; the shape here is the
  * already-monthly {@link ProjectionSeries} plus the insolvency marker.)
  *
- * Packaging (§ "npm API", Q28): the facade ships *inside* `@finley/engine` as the
+ * Packaging (§ "npm API", Q28): the root ships *inside* `@finley/engine` as the
  * headline surface; the existing functional barrel (`interpretLedger`,
  * `simulateHousehold`, …) stays exported as the low-level surface. The purity guard
  * is unchanged — internal history mutation is not I/O, and `Jurisdiction` is a

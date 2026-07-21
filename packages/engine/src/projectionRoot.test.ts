@@ -1,5 +1,5 @@
 /**
- * The `Projection` facade (§2, §18, §20, "npm API surface", issue #70, slice 7).
+ * The `Projection` root (§2, §18, §20, "npm API surface", issue #70, slice 7).
  *
  * These tests pin the six acceptance criteria of the slice:
  *   1. standing-edit + ledger-transaction methods on ONE root, ONE undo stack;
@@ -11,7 +11,7 @@
  *   6. (barrel/purity covered elsewhere.)
  */
 import { describe, it, expect } from "vitest";
-import { Projection } from "./projectionFacade";
+import { Projection } from "./projectionRoot";
 import { samplePlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction } from "./jurisdiction";
@@ -37,7 +37,7 @@ const expenseLine = {
   category: "needs" as const,
 };
 
-describe("Projection facade — creating writes mint deterministic ids (AC2)", () => {
+describe("Projection root — creating writes mint deterministic ids (AC2)", () => {
   it("mints a monotonic sequence id and returns it", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
@@ -74,7 +74,7 @@ describe("Projection facade — creating writes mint deterministic ids (AC2)", (
   });
 });
 
-describe("Projection facade — one root, standing + ledger, one undo stack (AC1, AC5)", () => {
+describe("Projection root — one root, standing + ledger, one undo stack (AC1, AC5)", () => {
   it("exposes both standing edits and ledger transactions on the same object", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
@@ -151,7 +151,7 @@ describe("Projection facade — one root, standing + ledger, one undo stack (AC1
   });
 });
 
-describe("Projection facade — id counter round-trips through serialization (AC3)", () => {
+describe("Projection root — id counter round-trips through serialization (AC3)", () => {
   it("a reloaded plan continues the sequence without collision", () => {
     const p = freshProjection();
     p.addJob(P1, openEndedJob); // job-1
@@ -175,7 +175,7 @@ describe("Projection facade — id counter round-trips through serialization (AC
   });
 });
 
-describe("Projection facade — run(jurisdiction) → immutable result, no mutation (AC4)", () => {
+describe("Projection root — run(jurisdiction) → immutable result, no mutation (AC4)", () => {
   it("computes a per-month series and is frozen", () => {
     const p = freshProjection();
     const result = p.run(nullJurisdiction);
