@@ -146,7 +146,19 @@ export const SYNTHETIC_CARD_CREDIT_LIMIT_CENTS: Cents = 50_000_00;
 /** ID used in liabilityBalancesCents for the synthetic credit card. */
 export const SYNTHETIC_CARD_ID = "synthetic-credit-card";
 
-export class SimLiability {
+/**
+ * The behaviour shared by every liability, independent of kind: identity, the
+ * owed balance/rate/origination, one-time principal adjustments, and the
+ * polymorphic monthly-payment hook the simulator drives.
+ *
+ * A liability is genuinely one of two things — an {@link AmortizingLoan} that
+ * pays down over a fixed term, or a {@link RevolvingCard} that never amortizes
+ * and carries a credit limit. Modelling them as separate classes off this base
+ * removes the states that cannot exist (a card with a term, a loan with a limit,
+ * a liability with neither) and lets the sim loop iterate a heterogeneous list
+ * and call one polymorphic method instead of branching on kind.
+ */
+abstract class SimLiabilityBase {
   readonly id: string;
   readonly ownerId: string;
   readonly kind: LiabilityKind;
@@ -159,10 +171,6 @@ export class SimLiability {
    */
   readonly startMonth: number;
   readonly apr: number;
-  /** Months remaining; null for credit cards. */
-  readonly termMonths: number | null;
-  /** Credit limit in cents; null for amortizing loans. */
-  readonly creditLimitCents: Cents | null;
   readonly liquid: false = false;
 
   /**
@@ -183,8 +191,6 @@ export class SimLiability {
     openingBalanceCents: Cents;
     startMonth?: number;
     apr: number;
-    termMonths?: number;
-    creditLimitCents?: Cents;
   }) {
     this.id = params.id;
     this.ownerId = params.ownerId;
@@ -192,22 +198,19 @@ export class SimLiability {
     this.openingBalanceCents = params.openingBalanceCents;
     this.startMonth = params.startMonth ?? 0;
     this.apr = params.apr;
-    this.termMonths = params.termMonths ?? null;
-    this.creditLimitCents = params.creditLimitCents ?? null;
-  }
-
-  isCreditCard(): boolean {
-    return this.kind === "creditCard";
   }
 
   /**
-   * Fixed monthly payment for amortizing liabilities, computed from
-   * opening balance/rate/term. Returns 0 for credit cards (payment varies
-   * with balance — see minCreditCardPaymentCents).
+   * This month's payment given the current balance — the polymorphic seam that
+   * replaces the old isCreditCard() branch in the sim loop. Both kinds cap the
+   * payment at the payoff amount (balance + this month's interest) so a small
+   * balance is never over-charged; a paid-off (≤ 0) balance pays nothing.
    */
-  computeFixedPaymentCents(): Cents {
-    if (this.isCreditCard() || this.termMonths === null) return 0;
-    return computeAmortizingPaymentCents(this.openingBalanceCents, this.apr, this.termMonths);
+  abstract monthlyPaymentCents(balanceCents: Cents, month: number): Cents;
+
+  /** Balance grown by exactly this month's interest — the payoff-cap ceiling. */
+  protected owedWithInterestCents(balanceCents: Cents): Cents {
+    return Math.round(balanceCents * (1 + this.apr / 12));
   }
 
   /**
@@ -226,3 +229,80 @@ export class SimLiability {
     return this.transfers.filter((t) => t.month === month);
   }
 }
+
+/**
+ * A term loan (mortgage, auto, student loan) that amortizes to exactly 0 over a
+ * fixed term. The exact per-month schedule is computed once at origination
+ * (amortizationScheduleCents); the monthly payment is a lookup into it, capped
+ * at the actual payoff so a lump-sum paydown that drops the balance below the
+ * schedule's trajectory retires the loan early rather than over-charging (§4.3).
+ */
+export class AmortizingLoan extends SimLiabilityBase {
+  readonly kind: Exclude<LiabilityKind, "creditCard">;
+  readonly termMonths: number;
+  /** Exact payment for each month of the term (final payment reduced to the payoff). */
+  private readonly schedule: readonly Cents[];
+
+  constructor(params: {
+    id: string;
+    ownerId: string;
+    kind: Exclude<LiabilityKind, "creditCard">;
+    openingBalanceCents: Cents;
+    startMonth?: number;
+    apr: number;
+    termMonths: number;
+  }) {
+    super(params);
+    this.kind = params.kind;
+    this.termMonths = params.termMonths;
+    this.schedule = amortizationScheduleCents(
+      params.openingBalanceCents,
+      params.apr,
+      params.termMonths,
+    );
+  }
+
+  monthlyPaymentCents(balanceCents: Cents, month: number): Cents {
+    if (balanceCents <= 0) return 0;
+    // The schedule counts from origination, so the first payment (index 0) falls
+    // on startMonth+1; past the term it reads undefined → 0 (loan already retired).
+    const scheduled = this.schedule[month - this.startMonth - 1] ?? 0;
+    return Math.min(scheduled, this.owedWithInterestCents(balanceCents));
+  }
+}
+
+/**
+ * A revolving credit account (credit card) that never amortizes: a balance, an
+ * APR, and a credit limit (null = unbounded). The monthly payment is the
+ * balance-driven minimum (minCreditCardPaymentCents), capped at the payoff so a
+ * near-zero balance is retired rather than over-charged. The synthetic shortfall
+ * card (§5.1) is one of these, constructed with a finite default limit.
+ */
+export class RevolvingCard extends SimLiabilityBase {
+  readonly kind = "creditCard";
+  /** Credit limit in cents; null = unbounded. */
+  readonly creditLimitCents: Cents | null;
+
+  constructor(params: {
+    id: string;
+    ownerId: string;
+    openingBalanceCents: Cents;
+    startMonth?: number;
+    apr: number;
+    creditLimitCents?: Cents;
+  }) {
+    super({ ...params, kind: "creditCard" });
+    this.creditLimitCents = params.creditLimitCents ?? null;
+  }
+
+  monthlyPaymentCents(balanceCents: Cents, _month: number): Cents {
+    if (balanceCents <= 0) return 0;
+    return Math.min(
+      minCreditCardPaymentCents(balanceCents),
+      this.owedWithInterestCents(balanceCents),
+    );
+  }
+}
+
+/** A liability in the simulator is exactly one of the two kinds. */
+export type SimLiability = AmortizingLoan | RevolvingCard;

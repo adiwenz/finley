@@ -8,7 +8,7 @@
  */
 
 import type { Jurisdiction } from "../jurisdiction";
-import { SimLiability } from "../liability";
+import { AmortizingLoan, RevolvingCard, type SimLiability } from "../liability";
 import { growthAnnualRate } from "../cashFlowSeries";
 import {
   simulateHousehold,
@@ -39,17 +39,29 @@ export function buildHouseholdSimInput(
     }
   }
 
-  const liabilities = household.liabilities.map((def) => {
-    const liab = new SimLiability({
-      id: def.id,
-      ownerId: def.ownerId,
-      kind: def.kind,
-      openingBalanceCents: def.openingBalanceCents,
-      startMonth: def.startMonth,
-      apr: def.apr,
-      termMonths: def.termMonths,
-      creditLimitCents: def.creditLimitCents,
-    });
+  const liabilities = household.liabilities.map((def): SimLiability => {
+    // The derived liability is a discriminated union on kind, so each SimLiability
+    // subclass is constructed from exactly the fields its kind carries — no
+    // optional-field juggling, no null-bridging at the sim boundary (§5).
+    const liab: SimLiability =
+      def.kind === "creditCard"
+        ? new RevolvingCard({
+            id: def.id,
+            ownerId: def.ownerId,
+            openingBalanceCents: def.openingBalanceCents,
+            startMonth: def.startMonth,
+            apr: def.apr,
+            creditLimitCents: def.creditLimitCents,
+          })
+        : new AmortizingLoan({
+            id: def.id,
+            ownerId: def.ownerId,
+            kind: def.kind,
+            openingBalanceCents: def.openingBalanceCents,
+            startMonth: def.startMonth,
+            apr: def.apr,
+            termMonths: def.termMonths,
+          });
     for (const t of def.transfers) {
       liab.addTransfer({ month: t.month, amountCents: t.amountCents });
     }

@@ -14,6 +14,7 @@
 import type { Cents } from "../money";
 import type { Jurisdiction } from "../jurisdiction";
 import type { SimGoal } from "../goal";
+import { AmortizingLoan, RevolvingCard } from "../liability";
 import { simulateHousehold } from "./simulate";
 import type {
   HouseholdSimInput,
@@ -198,8 +199,10 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       openingBalanceCents: l.openingBalanceCents,
       startMonth: l.startMonth,
       apr: l.apr,
-      termMonths: l.termMonths,
-      creditLimitCents: l.creditLimitCents,
+      // The DTO stays flat with explicit nulls (a greppable wire format the debug
+      // export echoes verbatim); the kind-split lives only in the derived classes.
+      termMonths: l instanceof AmortizingLoan ? l.termMonths : null,
+      creditLimitCents: l instanceof RevolvingCard ? l.creditLimitCents : null,
     })),
     properties: (input.properties ?? []).map((p) => ({
       id: p.id,

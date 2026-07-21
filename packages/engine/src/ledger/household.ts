@@ -45,18 +45,33 @@ export interface HouseholdSeries {
   readonly planDescriptor?: PlanDescriptor;
 }
 
-export interface HouseholdLiability {
+/** The fields a derived liability carries whatever its kind. */
+interface HouseholdLiabilityCommon {
   readonly id: LiabilityId;
-  readonly kind: LiabilityKind;
   readonly ownerId: PersonId;
   readonly causedByEventId: string;
   readonly startMonth: number;
   readonly openingBalanceCents: Cents;
   readonly apr: number;
-  readonly termMonths?: number;
-  readonly creditLimitCents?: Cents;
   readonly transfers: readonly LiabilityTransfer[];
 }
+
+/**
+ * A liability in the derived model. Discriminated on `kind`, mirroring
+ * {@link LoanEvent} and {@link LiabilityDef}: a revolving card carries a credit
+ * limit and never amortizes; a term loan amortizes over a term and has no limit.
+ * Each field is required exactly where it applies — a card with a term, or a loan
+ * with a credit limit, will not typecheck.
+ */
+export type HouseholdLiability =
+  | (HouseholdLiabilityCommon & {
+      readonly kind: "creditCard";
+      readonly creditLimitCents: Cents;
+    })
+  | (HouseholdLiabilityCommon & {
+      readonly kind: Exclude<LiabilityKind, "creditCard">;
+      readonly termMonths: number;
+    });
 
 /** A durable property in the derived model — an appreciating stock (§4.1). */
 export interface HouseholdProperty {

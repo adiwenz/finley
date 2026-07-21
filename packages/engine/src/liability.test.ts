@@ -5,7 +5,8 @@ import {
   minCreditCardPaymentCents,
   derivePaymentStatus,
   deriveLoanStatus,
-  SimLiability,
+  AmortizingLoan,
+  RevolvingCard,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
@@ -107,9 +108,9 @@ describe("minCreditCardPaymentCents", () => {
   });
 });
 
-describe("Liability", () => {
-  it("amortizing loan: computeFixedPaymentCents matches opening-balance formula", () => {
-    const loan = new SimLiability({
+describe("AmortizingLoan / RevolvingCard split", () => {
+  it("AmortizingLoan.monthlyPaymentCents follows the amortization schedule from origination", () => {
+    const loan = new AmortizingLoan({
       id: "mortgage",
       ownerId: "p1",
       kind: "mortgage",
@@ -117,25 +118,62 @@ describe("Liability", () => {
       apr: 0.06,
       termMonths: 360,
     });
-    expect(Math.abs(loan.computeFixedPaymentCents() - 119_910)).toBeLessThanOrEqual(1);
-    expect(loan.isCreditCard()).toBe(false);
+    // Month 1 (startMonth 0 + 1) is the first scheduled payment: the level payment ≈ $1,199.10.
+    expect(Math.abs(loan.monthlyPaymentCents(dollarsToCents(200_000), 1) - 119_910)).toBeLessThanOrEqual(1);
+    // A tiny remaining balance is never over-charged — the payment caps at the payoff amount.
+    expect(loan.monthlyPaymentCents(1_000, 5)).toBeLessThanOrEqual(Math.round(1_000 * (1 + 0.06 / 12)));
+    expect(loan.kind).toBe("mortgage");
+    expect(loan.termMonths).toBe(360);
   });
 
-  it("credit card: computeFixedPaymentCents is 0; isCreditCard is true", () => {
-    const card = new SimLiability({
+  it("RevolvingCard.monthlyPaymentCents is the balance-driven minimum payment, capped at payoff", () => {
+    const card = new RevolvingCard({
       id: "visa",
       ownerId: "p1",
-      kind: "creditCard",
       openingBalanceCents: dollarsToCents(3_000),
       apr: 0.22,
       creditLimitCents: dollarsToCents(10_000),
     });
-    expect(card.computeFixedPaymentCents()).toBe(0);
-    expect(card.isCreditCard()).toBe(true);
+    // 2% of $5,000 = $100 minimum, well below the payoff amount → the minimum stands.
+    expect(card.monthlyPaymentCents(dollarsToCents(5_000), 1)).toBe(dollarsToCents(100));
+    // A near-zero balance is capped at what's actually owed, not the $25 floor.
+    expect(card.monthlyPaymentCents(100, 1)).toBe(Math.round(100 * (1 + 0.22 / 12)));
+    expect(card.kind).toBe("creditCard");
+    expect(card.creditLimitCents).toBe(dollarsToCents(10_000));
+  });
+
+  it("a paid-off balance yields a 0 payment for either kind", () => {
+    const loan = new AmortizingLoan({
+      id: "auto",
+      ownerId: "p1",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000),
+      apr: 0.05,
+      termMonths: 60,
+    });
+    const card = new RevolvingCard({
+      id: "visa",
+      ownerId: "p1",
+      openingBalanceCents: 0,
+      apr: 0.22,
+      creditLimitCents: dollarsToCents(10_000),
+    });
+    expect(loan.monthlyPaymentCents(0, 1)).toBe(0);
+    expect(card.monthlyPaymentCents(0, 1)).toBe(0);
+  });
+
+  it("a RevolvingCard with no explicit limit is unbounded (null)", () => {
+    const card = new RevolvingCard({
+      id: "visa",
+      ownerId: "p1",
+      openingBalanceCents: 0,
+      apr: 0.22,
+    });
+    expect(card.creditLimitCents).toBeNull();
   });
 
   it("liquid is always false", () => {
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "auto",
       ownerId: "p1",
       kind: "auto",
@@ -166,7 +204,7 @@ describe("Liability", () => {
 
 describe("Liability one-time transfers (v1-seam)", () => {
   it("stores a transfer and returns it at its month, not others", () => {
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "mortgage",
       ownerId: "p1",
       kind: "mortgage",
@@ -183,7 +221,7 @@ describe("Liability one-time transfers (v1-seam)", () => {
   });
 
   it("returns every transfer scheduled at the same month", () => {
-    const loan = new SimLiability({
+    const loan = new AmortizingLoan({
       id: "auto",
       ownerId: "p1",
       kind: "auto",

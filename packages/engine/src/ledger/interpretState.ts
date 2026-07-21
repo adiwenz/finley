@@ -48,19 +48,33 @@ export interface SeriesDef {
   readonly taxCategory?: TaxCategory;
 }
 
-/** An event-derived liability, described as immutable data (instantiated at the sim boundary, §5). */
-export interface LiabilityDef {
+/** The fields an event-derived liability carries whatever its kind. */
+interface LiabilityDefCommon {
   readonly id: LiabilityId;
   readonly causedByEventId: string;
   readonly ownerId: PersonId;
   readonly startMonth: number;
-  readonly kind: LiabilityKind;
   readonly openingBalanceCents: Cents;
   readonly apr: number;
-  readonly termMonths?: number;
-  readonly creditLimitCents?: Cents;
   readonly transfers: LiabilityTransfer[];
 }
+
+/**
+ * An event-derived liability, described as immutable data (instantiated at the sim
+ * boundary, §5). Discriminated on `kind`, mirroring {@link LoanEvent}: a revolving
+ * card carries a credit limit and never amortizes; a term loan amortizes over a
+ * term and has no limit. Each field is required exactly where it applies and
+ * unrepresentable where it does not — a card with a term will not typecheck.
+ */
+export type LiabilityDef =
+  | (LiabilityDefCommon & {
+      readonly kind: "creditCard";
+      readonly creditLimitCents: Cents;
+    })
+  | (LiabilityDefCommon & {
+      readonly kind: Exclude<LiabilityKind, "creditCard">;
+      readonly termMonths: number;
+    });
 
 /**
  * An event-derived {@link Property} — a durable, appreciating asset stock (§4.1).
