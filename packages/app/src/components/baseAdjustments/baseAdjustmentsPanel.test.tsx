@@ -196,6 +196,18 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(Number(spin(/Housing/).value)).toBe(untouchedAt15);
   });
 
+  it("names the edited row the way the row itself is labelled, not by its internal id", () => {
+    // The route carries the line's authoring id ("dining"); echoing that back at the
+    // user contradicts the row directly above it, which reads "Dining & fun".
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(14);
+    editRow(/Dining/, 700);
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
+    const echo = screen.getByTestId("adjustment-route").textContent ?? "";
+    expect(echo).toContain('"Dining & fun"');
+    expect(echo).not.toContain('"dining"');
+  });
+
   it("marks a row the user has already adjusted", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(14);

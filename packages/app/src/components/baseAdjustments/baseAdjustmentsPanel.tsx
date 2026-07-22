@@ -64,13 +64,18 @@ function describeMonth(month: number, currentAge: number): string {
   return `month ${month} · ${year} · age ${age}`;
 }
 
-/** A short, human summary of where an edit landed — surfaced so the routing is visible. */
-function describeRoute(route: MonthEditRoute): string {
+/**
+ * A short, human summary of where an edit landed — surfaced so the routing is visible.
+ * Named with the row's own `label`: the route carries the line's authoring `id`, which
+ * is an internal key ("dining") and not what the row directly above this echo says
+ * ("Dining & fun").
+ */
+function describeRoute(route: MonthEditRoute, label: string): string {
   switch (route.kind) {
     case "lineOverride":
       return route.override.scope === "thisMonthOnly"
-        ? `→ one-month override on "${route.lineId}" at month ${route.override.month} (${formatDollars(route.override.monthlyCents)})`
-        : `→ dated override on "${route.lineId}" from month ${route.override.month} forward (${formatDollars(route.override.monthlyCents)})`;
+        ? `→ one-month override on "${label}" at month ${route.override.month} (${formatDollars(route.override.monthlyCents)})`
+        : `→ dated override on "${label}" from month ${route.override.month} forward (${formatDollars(route.override.monthlyCents)})`;
     case "ledgerTransaction":
       return `→ one-time ledger transaction at month ${route.month} (${formatDollars(route.amountCents)})`;
     case "incomeOverride":
@@ -118,7 +123,8 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
 
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
-  const [lastRoute, setLastRoute] = useState<MonthEditRoute | null>(null);
+  /** The last routed edit, with the row label it was made on (the route only has the id). */
+  const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
   /** Standing income overrides, kept locally until #72 rewires income onto jobs. */
   const [incomeOverrides, setIncomeOverrides] = useState<
     ReadonlyArray<{ month: number; monthlyCents: number }>
@@ -191,7 +197,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   function commit(scope: EditScope): void {
     if (pending === null) return;
     const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
-    setLastRoute(route);
+    setLastRoute({ route, label: pending.label });
     if (route.kind === "lineOverride") {
       setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);
     } else if (route.kind === "incomeOverride") {
@@ -213,11 +219,12 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     setPending(null);
   }
 
-
   const horizonMonths = chartData.rows.length;
 
+  // No `card` class here: `main.tsx` supplies the card wrapper for every panel, as it
+  // does for Goals, Retirement, and Debug. Carrying one internally too drew a box in a box.
   return (
-    <section className="card">
+    <section>
       <h2>Base + Adjustments</h2>
 
       {/* ── Graph: click a point to move the editor there (AC2 + the edit gesture) ── */}
@@ -317,7 +324,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
 
         {lastRoute && (
           <p className={styles.routeEcho} data-testid="adjustment-route">
-            {describeRoute(lastRoute)}
+            {describeRoute(lastRoute.route, lastRoute.label)}
           </p>
         )}
       </div>
