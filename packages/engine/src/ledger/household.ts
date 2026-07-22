@@ -38,6 +38,13 @@ export interface HouseholdSeries {
   readonly endMonth: number | null;
   readonly series: SimCashFlowSeries;
   /**
+   * Human-facing name carried over from the base series ("Income", "Healthcare", a
+   * budget line's label). Diagnostic only — nothing in the interpretation or the
+   * simulation reads it; it exists so a report can name a series instead of
+   * numbering it positionally.
+   */
+  readonly label?: string;
+  /**
    * Retirement-plan descriptor (§5.5) for an income series funding a person-owned
    * account. Presence makes the source eligible for pre-tax deferral in the §5.0
    * waterfall. Only meaningful on income series; absent otherwise.

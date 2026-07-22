@@ -12,6 +12,7 @@
  */
 
 import type { Cents } from "../money";
+import type { GrowthSegmentView, SimCashFlowSeries } from "../cashFlowSeries";
 import type { Jurisdiction } from "../jurisdiction";
 import type { SimGoal } from "../goal";
 import { AmortizingLoan, RevolvingCard } from "../liability";
@@ -22,12 +23,6 @@ import type {
   ProjectionSeries,
 } from "./simulate.types";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
-
-/**
- * Schema version of {@link SimulationReport}. Bump on any breaking shape change so
- * a stored/exported report can be migrated (or rejected) by a later consumer.
- */
-export const SIMULATION_REPORT_VERSION = 1;
 
 /** A household member as echoed in the report. `birthYear`/`benefitClaimingAge` null when unmodelled. */
 export interface ReportPerson {
@@ -47,7 +42,10 @@ export interface ReportAccount {
   /** The {@link TaxCategory} withdrawals produce — the neutral tax-behavior echo. */
   readonly withdrawalCategory: string;
   readonly openingBalanceCents: Cents;
+  /** Annual return in force at month 0. See {@link rateSchedule} for later changes. */
   readonly annualRate: number;
+  /** Every rate change over the run, ascending by `startMonth`; one entry for a flat rate. */
+  readonly rateSchedule: readonly { readonly startMonth: number; readonly annualRate: number }[];
 }
 
 export interface ReportLiability {
@@ -78,16 +76,37 @@ export interface ReportProperty {
  */
 export interface ReportIncomeSource {
   readonly ownerId: string;
+  /** Human-facing name of the stream ("Income", "Income · job-1"); null when unnamed. */
+  readonly label: string | null;
   readonly taxCategory: string;
   /** Pre-tax deferral fraction if this source carries a retirement plan (§5.5), else null. */
   readonly deferralFraction: number | null;
+  /** Employer match as a fraction of the deferral (§5.5); null without a plan. */
+  readonly employerMatchFraction: number | null;
   readonly fundAccountId: string | null;
   readonly monthlyCentsAtStart: Cents;
+  /**
+   * The RAISE RATE: annual growth in force at month 0 (0 for a `fixed` stream).
+   * See {@link growthSchedule} for changes later in the run.
+   */
+  readonly annualGrowthRate: number;
+  /** How that rate is derived — `fixed`, `inflationLinked`, `customRate`, `salaryCompound`. */
+  readonly growthMode: string;
+  /** Every growth change over the run, ascending by `startMonth`; one entry for a flat rate. */
+  readonly growthSchedule: readonly GrowthSegmentView[];
 }
 
 export interface ReportExpenseSource {
   readonly ownerId: string;
+  /** Human-facing name of the line ("Expenses", "Healthcare", a budget line's label); null when unnamed. */
+  readonly label: string | null;
   readonly monthlyCentsAtStart: Cents;
+  /** Annual escalation in force at month 0 — general CPI, or a line's own rate (e.g. health). */
+  readonly annualGrowthRate: number;
+  /** How that rate is derived — `fixed`, `inflationLinked`, `customRate`, `salaryCompound`. */
+  readonly growthMode: string;
+  /** Every growth change over the run, ascending by `startMonth`; one entry for a flat rate. */
+  readonly growthSchedule: readonly GrowthSegmentView[];
 }
 
 /** The resolved inputs the run consumed, echoed back for the record. */
@@ -98,7 +117,16 @@ export interface ReportInputs {
   readonly startYear: number;
   /** Calendar year of the final simulated month (`startYear + ⌊horizonMonths/12⌋`). */
   readonly endYear: number;
+  /** General CPI: the rate that drives inflation-linked series and the real/nominal split. */
   readonly annualInflationRate: number;
+  /**
+   * The COLA rate actually applied to the government retirement benefit (§5.4) —
+   * the plan's `benefitColaRate` when set, else general CPI. RESOLVED, so a reader
+   * never has to re-apply the fallback; `benefitColaRateIsExplicit` says which it was.
+   */
+  readonly benefitColaRate: number;
+  /** Whether {@link benefitColaRate} was authored rather than inherited from CPI. */
+  readonly benefitColaRateIsExplicit: boolean;
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   readonly persons: readonly ReportPerson[];
@@ -130,6 +158,8 @@ export interface ReportMonth {
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   readonly totalIncomeCents: Cents;
   readonly governmentRetirementBenefitCents: Cents;
+  /** Tax charged this month through the §5.3 jurisdiction seam, all persons summed. */
+  readonly taxCents: Cents;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -150,7 +180,6 @@ export interface ReportColumns {
 }
 
 export interface SimulationReport {
-  readonly version: number;
   readonly inputs: ReportInputs;
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
@@ -167,6 +196,24 @@ export interface SimulationReport {
 
 const DEFAULT_START_YEAR = 2026;
 
+/**
+ * The growth-rate echo shared by income and expense sources: the rate in force at
+ * month 0, the mode that produced it, and the full schedule. One helper so the two
+ * source shapes cannot drift in how they report a rate.
+ */
+function growthEcho(series: SimCashFlowSeries): {
+  annualGrowthRate: number;
+  growthMode: string;
+  growthSchedule: readonly GrowthSegmentView[];
+} {
+  const schedule = series.growthSchedule();
+  return {
+    annualGrowthRate: series.growthAnnualRateAt(0),
+    growthMode: schedule[0]?.mode ?? "fixed",
+    growthSchedule: schedule,
+  };
+}
+
 function echoInputs(input: HouseholdSimInput): ReportInputs {
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   return {
@@ -175,6 +222,8 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
     startYear,
     endYear: startYear + Math.floor(input.horizonMonths / 12),
     annualInflationRate: input.annualInflationRate,
+    benefitColaRate: input.benefitColaRate ?? input.annualInflationRate,
+    benefitColaRateIsExplicit: input.benefitColaRate !== undefined,
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     persons: input.persons.map((p) => ({
@@ -191,6 +240,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       withdrawalCategory: a.taxProfile.withdrawalCategory,
       openingBalanceCents: a.openingBalanceCents,
       annualRate: a.getRateAt(0),
+      rateSchedule: a.rateSchedule(),
     })),
     liabilities: (input.liabilities ?? []).map((l) => ({
       id: l.id,
@@ -214,14 +264,19 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
     })),
     incomeSources: input.incomeSeries.map((s) => ({
       ownerId: s.ownerId,
+      label: s.label ?? null,
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       deferralFraction: s.planDescriptor?.deferralFraction ?? null,
+      employerMatchFraction: s.planDescriptor?.employerMatchFraction ?? null,
       fundAccountId: s.planDescriptor?.fundAccountId ?? null,
       monthlyCentsAtStart: s.series.getMonthlyCents(0),
+      ...growthEcho(s.series),
     })),
     expenseSources: input.expenseSeries.map((s) => ({
       ownerId: s.ownerId,
+      label: s.label ?? null,
       monthlyCentsAtStart: s.series.getMonthlyCents(0),
+      ...growthEcho(s.series),
     })),
     goals: input.goals ?? [],
   };
@@ -282,6 +337,7 @@ export function summarizeSimulation(
       incomeByCategoryCents: flows?.incomeByCategoryCents ?? {},
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
+      taxCents: flows?.taxCents ?? 0,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,
@@ -298,7 +354,6 @@ export function summarizeSimulation(
   };
 
   return {
-    version: SIMULATION_REPORT_VERSION,
     inputs: echoInputs(input),
     columns,
     months,

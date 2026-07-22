@@ -107,8 +107,9 @@ export function App() {
             )}
 
             <p className="disclaimer">
-              Estimates exclude taxes. Not a licensed financial advisor.
-              Jurisdiction: {usJurisdiction.id}.
+              Estimates include federal income tax for a single filer only — no state
+              or payroll tax. Not a licensed financial advisor. Jurisdiction:{" "}
+              {usJurisdiction.id}.
             </p>
           </div>
 

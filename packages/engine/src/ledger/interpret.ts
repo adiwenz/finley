@@ -82,6 +82,7 @@ function baseSeries(
     startMonth: os.series.startMonth,
     endMonth: os.series.endMonth ?? null,
     series: os.series,
+    label: os.label,
     planDescriptor: os.planDescriptor,
   };
 }

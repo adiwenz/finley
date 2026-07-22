@@ -129,6 +129,15 @@ export class SimAccount {
     return rate;
   }
 
+  /**
+   * The whole return-rate schedule, one entry per segment, ascending by
+   * `startMonth`. An account whose rate is changed mid-run (a glide path, a rate
+   * cut) carries more than one — reporting only `getRateAt(0)` would hide the rest.
+   */
+  rateSchedule(): readonly { startMonth: number; annualRate: number }[] {
+    return this.rateSegments.map((s) => ({ startMonth: s.startMonth, annualRate: s.annualRate }));
+  }
+
   /** Precise monthly compounding rate for the given absolute month. */
   getMonthlyRateAt(month: number): number {
     return preciseMonthlyRate(this.getRateAt(month));

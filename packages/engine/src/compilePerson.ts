@@ -91,6 +91,9 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
   return {
     series,
     ownerId: owner.id,
+    // A household can hold several jobs, so name each by its own id rather than
+    // letting a report fall back to positional numbering.
+    label: `Income · ${job.id}`,
     planDescriptor: job.deferral
       ? {
           deferralFraction: job.deferral.deferralFraction,

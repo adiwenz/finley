@@ -20,13 +20,14 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionMonthFlows } from "./simulate.types";
 
 /**
- * Bucket this month's resolved income sources, expenses, and liability payments into
- * the diagnostic {@link ProjectionMonthFlows}. Reads the same figures the waterfall
- * consumed (income sources incl. derived benefit/RMD, expense total, scheduled payments),
- * so the flow view can never drift from the sim.
+ * Bucket this month's resolved income sources, tax, expenses, and liability payments
+ * into the diagnostic {@link ProjectionMonthFlows}. Reads the same figures the waterfall
+ * consumed or produced (income sources incl. derived benefit/RMD, the tax it charged,
+ * expense total, scheduled payments), so the flow view can never drift from the sim.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
+  taxCents: Cents,
   expensesCents: Cents,
   liabilityPaymentsCents: Cents,
 ): ProjectionMonthFlows {
@@ -41,6 +42,7 @@ export function buildFlows(
     incomeByCategoryCents,
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
+    taxCents,
     expensesCents,
     liabilityPaymentsCents,
   };

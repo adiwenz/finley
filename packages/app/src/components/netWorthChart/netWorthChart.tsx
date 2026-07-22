@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars } from "../../format";
+import { formatDollars, monthLabel, yearOf } from "../../format";
 
 /**
  * Net-worth chart (issue #1 acceptance: render the engine's projection series).
@@ -101,7 +101,7 @@ export function NetWorthChart({
             domain={[0, xMaxMonth]}
             allowDataOverflow
             ticks={yearTicks}
-            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+            tickFormatter={(month: number) => `yr ${yearOf(month)}`}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
@@ -125,9 +125,7 @@ export function NetWorthChart({
               value == null ? "—" : formatDollars(Number(value)),
               name,
             ]}
-            labelFormatter={(label) =>
-              `Month ${label} (year ${Math.floor(Number(label) / 12) + 1})`
-            }
+            labelFormatter={(label) => `Month ${label} · ${monthLabel(Number(label))}`}
             contentStyle={{ fontSize: 12 }}
           />
           <Area

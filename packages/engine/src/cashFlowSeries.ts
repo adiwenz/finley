@@ -27,6 +27,18 @@ export type GrowthMode =
 export type OverrideScope = "thisMonthOnly" | "fromHereForward";
 
 /**
+ * One entry of a series' growth schedule: the annual rate in force from
+ * `startMonth`, plus the {@link GrowthMode} that produced it (`fixed` reads 0, and
+ * the mode is what distinguishes "pinned flat" from "0% inflation this run").
+ * Plain data, so a report can echo it straight to JSON.
+ */
+export interface GrowthSegmentView {
+  readonly startMonth: number;
+  readonly annualRate: number;
+  readonly mode: GrowthMode["type"];
+}
+
+/**
  * v1-ignored seam: tax routing category for income series — the engine-owned
  * flow-provenance vocabulary (the engine is the only thing that can label where a
  * flow originated). Brand-neutral: no jurisdiction program names. A government
@@ -204,6 +216,28 @@ export class SimCashFlowSeries {
     for (const m of Array.from(this.monthlyCache.keys())) {
       if (m >= month) this.monthlyCache.delete(m);
     }
+  }
+
+  /**
+   * The annual growth rate in force at `month` — the "raise rate" for a salary
+   * stream, the escalation rate for an expense. 0 for a `fixed` series.
+   */
+  growthAnnualRateAt(month: number): number {
+    return rateFor(this.segmentFor(month).growthMode);
+  }
+
+  /**
+   * The whole growth schedule, one entry per segment, in ascending `startMonth`.
+   * A series edited `fromHereForward` with a new growth mode (a promotion, a job
+   * change) carries more than one — reporting only the rate at month 0 would
+   * silently hide every later change.
+   */
+  growthSchedule(): readonly GrowthSegmentView[] {
+    return this.segments.map((s) => ({
+      startMonth: s.startMonth,
+      annualRate: rateFor(s.growthMode),
+      mode: s.growthMode.type,
+    }));
   }
 
   private segmentFor(month: number): Segment {

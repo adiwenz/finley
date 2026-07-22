@@ -86,6 +86,7 @@
   font-variant-numeric: tabular-nums;
 }
 
+
 .scroll {
   overflow-x: auto;
   border: 1px solid var(--color-border);

@@ -1,4 +1,4 @@
-import type { Cents, Jurisdiction, TaxCategory } from "@finley/engine";
+import type { Jurisdiction } from "@finley/engine";
 import {
   governmentBenefitBaseMonthlyCents,
   colaAdjustedBenefitCents,
@@ -8,6 +8,7 @@ import {
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
+import { computeFederalTaxCents } from "./federalTax";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -30,6 +31,15 @@ export {
   type HealthCostBenchmark,
 } from "./healthCosts";
 import { MEDICARE_ELIGIBILITY_AGE } from "./healthCosts";
+export {
+  federalTaxTables,
+  federalAnnualTaxCents,
+  computeFederalTaxCents,
+  taxableSocialSecurityCents,
+  FEDERAL_TAX_BASE_YEAR,
+  type FederalTaxTables,
+  type OrdinaryBracket,
+} from "./federalTax";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -37,31 +47,19 @@ import { MEDICARE_ELIGIBILITY_AGE } from "./healthCosts";
  * Depends only on `@finley/engine` (to implement its interface); never the
  * reverse. This one-way dependency is the open-core boundary (ARCHITECTURE.md).
  *
- * Slice 0 ships a placeholder `US-2026` that implements the interface but
- * carries no real facts yet — its `computeTax` returns 0. It exists to prove
- * the app → rules → engine dependency direction end to end before real tax
- * brackets, contribution limits, and programs land in later slices.
+ * `US-2026` implements the interface with real single-filer facts: the tax seam
+ * runs actual federal brackets, the standard deduction, the capital-gains
+ * preference, and the Social-Security inclusion formula ({@link
+ * import("./federalTax").computeFederalTaxCents}, #53); contribution limits,
+ * government benefit, RMDs, and health-cost benchmarks fill their own seams. The
+ * app → rules → engine dependency direction is proven end to end.
  *
  * ⚠ Estimates, not advice. Figures change yearly and are jurisdiction-specific.
  */
 
-/**
- * v1 US tax (§5.3 seam 1): the engine now hands per-{@link TaxCategory} taxable
- * amounts, so this is where real US policy will differentiate rates — ordinary
- * brackets on `wages`/`ordinaryIncome`, preferential rates on `capitalGains`, the
- * ≤85% inclusion on `governmentRetirementBenefit`, and 0 on `taxExempt`. v1 pins
- * every category to 0 (all-zero tax outputs preserved) while keeping the per-
- * category structure so those rates can land without touching the engine.
- */
-function computeUsTaxCents(taxableByCategory: Partial<Record<TaxCategory, Cents>>): Cents {
-  let total = 0;
-  for (const cents of Object.values(taxableByCategory)) total += cents ?? 0;
-  return total * 0; // v1 placeholder: structured per-category, but no brackets yet.
-}
-
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  computeTaxCents: (taxableByCategory) => computeUsTaxCents(taxableByCategory),
+  computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   isCoveredEarnings,
   defaultBenefitClaimingAge: DEFAULT_BENEFIT_CLAIMING_AGE,
