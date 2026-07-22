@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold, type SimPerson } from "./simulate";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
+import {
+  SimAccount,
+  CAPITAL_GAINS_TAX_PROFILE,
+  PRE_TAX_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+} from "../simAccount";
 import {
   AmortizingLoan,
   RevolvingCard,
@@ -8,7 +13,7 @@ import {
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability";
 import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 
 function makePerson(id = "p1", name = "Alice"): SimPerson {
   return { id, name };
@@ -1127,6 +1132,72 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       for (const s of [forward, reversed]) {
         expect(s.months[6].accountBalancesCents["near-fund"]).toBe(dollarsToCents(6000));
         expect(s.months[12].accountBalancesCents["far-fund"]).toBe(dollarsToCents(12000));
+      }
+    });
+  });
+
+  describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94)", () => {
+    // A cash account's return is interest — taxable as ordinary income in the year it
+    // is credited (the 1099-INT), whether or not it is ever withdrawn. Before this the
+    // model credited the growth straight to the balance and never booked the tax, so
+    // decades of compounding rode untaxed. Flat 10% on ordinary income (wages default to
+    // ordinaryIncome), so the tax figure is easy to read off.
+    const flatOrdinary10: Jurisdiction = {
+      id: "flat-ordinary-10",
+      computeTaxCents: (byCat) =>
+        Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
+    };
+
+    /** A liquid cash buffer (savings) — post-tax in, tax-free withdrawal, taxable interest. */
+    function savings(openingDollars: number, annualRate: number): SimAccount {
+      return new SimAccount({
+        id: "savings",
+        ownerId: "p1",
+        liquid: true,
+        taxProfile: TAX_EXEMPT_TAX_PROFILE,
+        openingBalanceCents: dollarsToCents(openingDollars),
+        initialAnnualRate: annualRate,
+      });
+    }
+
+    function run(annualRate: number) {
+      return simulateHousehold(
+        {
+          horizonMonths: 4,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [savings(120_000, annualRate)],
+          // Steady $3k/mo covers the (absent) obligations; surplus idles into savings, so
+          // the buffer is never WITHDRAWN — its interest is the only thing under test.
+          incomeSeries: [{ series: monthlyIncome(dollarsToCents(3_000)), ownerId: "p1" }],
+          expenseSeries: [],
+        },
+        flatOrdinary10,
+      );
+    }
+
+    it("taxes the credited interest the year after it is credited, never $0 while growing", () => {
+      const series = run(0.12); // ~1%/mo on a six-figure buffer → four-figure annual interest
+      // Month 1: only wages are taxable — the interest has not compounded yet (accrual
+      // lag: compounding runs after the tax seam), so tax is exactly 10% of $3k.
+      expect(series.months[1].flows?.taxCents).toBe(dollarsToCents(300));
+      // Month 2 onward: last month's credited interest is now taxed on top of wages, so
+      // the retirement/earning month no longer reports the wage-only figure.
+      expect(series.months[2].flows?.taxCents).toBeGreaterThan(dollarsToCents(300));
+      expect(series.months[3].flows?.taxCents).toBeGreaterThan(dollarsToCents(300));
+      // The buffer is never drawn — it only grows — yet its interest is still taxed.
+      const b1 = series.months[1].accountBalancesCents["savings"];
+      const b3 = series.months[3].accountBalancesCents["savings"];
+      expect(b3).toBeGreaterThan(b1);
+      expect(b1).toBeGreaterThan(dollarsToCents(120_000));
+    });
+
+    it("books nothing when the buffer earns no interest (0% return → wage-only tax)", () => {
+      // The control: with a flat cash rate of 0 there is no credited interest, so every
+      // month reports the bare wage tax. This isolates the interest as the cause above.
+      const series = run(0);
+      for (const m of [1, 2, 3, 4]) {
+        expect(series.months[m].flows?.taxCents).toBe(dollarsToCents(300));
       }
     });
   });

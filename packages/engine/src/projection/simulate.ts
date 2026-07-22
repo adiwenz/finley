@@ -79,6 +79,16 @@ interface SimState {
    */
   readonly basisByAccount: Map<string, Cents>;
   /**
+   * Credited interest on the liquid cash buffer, per owner, awaiting taxation
+   * (§#94 Commit 2). A cash account's return is interest — taxable as ordinary income
+   * in the year it is credited, whether or not it is ever withdrawn. `compoundAssets`
+   * writes the buffer's credited growth here; the NEXT month's waterfall books it as
+   * `ordinaryIncome` through the single §5.3 seam. Compounding runs AFTER that seam,
+   * so the credited figure is necessarily taxed one month on — an accrual lag, not the
+   * old defer-to-withdrawal leak. Overwritten every month, so it never carries stale.
+   */
+  readonly savingsInterestAccruedCents: Map<string, Cents>;
+  /**
    * The authoritative, mutable current balance of each liability — updated in
    * place after each month's payment is applied (advanceLiabilities). This Map,
    * NOT the origination amortization schedule, is the source of truth for what
@@ -220,6 +230,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     cascadeCards,
     assetBalances,
     basisByAccount,
+    savingsInterestAccruedCents: new Map<string, Cents>(),
     liabilityBalances,
     properties,
     propertyValues,
@@ -487,8 +498,42 @@ function applyAssetTransfers(state: SimState, month: number): void {
 function compoundAssets(state: SimState, month: number): void {
   for (const acc of state.accounts) {
     const bal = state.assetBalances.get(acc.id) ?? 0;
-    state.assetBalances.set(acc.id, Math.round(bal * (1 + acc.getMonthlyRateAt(month))));
+    const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
+    state.assetBalances.set(acc.id, grown);
+    // Interest accrual (§#94 Commit 2): the liquid cash buffer's return is interest,
+    // taxable as ordinary income in the year it is credited — 100% of a cash return is
+    // currently-taxable interest, so no basis is involved and the credited growth IS
+    // the taxable amount. Record it for its owner; the next month's waterfall taxes it
+    // through the single §5.3 seam (this step runs after that seam, so it can only be
+    // taxed one month on). Overwrite unconditionally — including with 0 when the buffer
+    // did not grow — so the figure never carries stale into a later month.
+    if (state.liquidAccount !== null && acc.id === state.liquidAccount.id) {
+      state.savingsInterestAccruedCents.set(acc.ownerId, Math.max(0, grown - bal));
+    }
   }
+}
+
+/**
+ * Last month's credited savings interest as this month's taxable ordinary income
+ * (§#94 Commit 2). One ZERO-gross source per owner with accrued interest: the cash was
+ * already credited to the balance by `compoundAssets`, so `grossCents` is 0 and only
+ * `taxableCents` is booked — the interest is taxed through the §5.3 seam without being
+ * re-injected as spendable income. Empty in month 1 (nothing has compounded yet) and
+ * whenever the buffer's return was zero. Interest is ordinary income, so it lands in the
+ * §5.4 provisional-income formula and can pull a government benefit into taxability.
+ */
+function buildSavingsInterestSources(state: SimState): IncomeSourceMonth[] {
+  const sources: IncomeSourceMonth[] = [];
+  for (const [ownerId, interestCents] of state.savingsInterestAccruedCents) {
+    if (interestCents <= 0) continue;
+    sources.push({
+      ownerId,
+      grossCents: 0,
+      taxCategory: "ordinaryIncome",
+      taxableCents: interestCents,
+    });
+  }
+  return sources;
 }
 
 /**
@@ -717,6 +762,10 @@ export function simulateHousehold(
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
+        // Last month's credited savings interest, taxed as ordinary income at accrual
+        // (§#94 Commit 2) — a non-withdrawal taxable source, so it shrinks the gap and
+        // feeds provisional income exactly like a benefit or RMD would.
+        ...buildSavingsInterestSources(state),
         ...buildGovernmentBenefitSources(
           state,
           jurisdiction,
