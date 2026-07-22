@@ -1,7 +1,7 @@
 /** Add-event form (§10.5 — plain-language authoring, one label = one event). */
 
 import { useState } from "react";
-import type { LifeEvent, NewLifeEvent, Household } from "@finley/engine";
+import type { LifeEvent, NewLifeEvent, Household, ProjectionSeries } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
 import { JobForm } from "./jobForm";
@@ -41,12 +41,15 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
 
 export function AddEventForm({
   household,
+  series,
   defaultMonth,
   nextId,
   horizonMonths,
   onAdd,
 }: {
   household: Household;
+  /** The live projection — the home-purchase form reads it for the §4.5 DTI warning. */
+  series: ProjectionSeries;
   defaultMonth: number;
   nextId: number;
   horizonMonths: number;
@@ -77,7 +80,9 @@ export function AddEventForm({
       {kind === "JobChangeEvent" && <JobForm {...formProps} household={household} />}
       {kind === "BudgetItemStartEvent" && <ExpenseForm {...formProps} household={household} />}
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
-      {kind === "HomePurchaseEvent" && <HomePurchaseForm {...formProps} />}
+      {kind === "HomePurchaseEvent" && (
+        <HomePurchaseForm {...formProps} household={household} series={series} />
+      )}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} household={household} />}
