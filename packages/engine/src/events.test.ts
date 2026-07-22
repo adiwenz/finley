@@ -1077,6 +1077,21 @@ describe("HomePurchaseEvent — down-payment hard block (§4.5)", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("quotes dollars, not raw cents, and says why other balances don't count", () => {
+    // The conflict is read by a person: "6000000¢ exceeds 5000000¢" left users
+    // comparing the shortfall against a net worth that already looked sufficient.
+    const base = baseWith(5_000_000);
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("$60,000");
+      expect(result.conflict).toContain("$50,000");
+      expect(result.conflict).not.toMatch(/¢|\d{7}/);
+      // Names the reason a larger net worth can still fail the gate.
+      expect(result.conflict).toMatch(/goal funds|retirement|brokerage/);
+    }
+  });
+
   it("never counts credit as a down-payment source", () => {
     const base = baseWith(5_000_000);
     // A credit card with a large limit is available, but credit is not liquid.

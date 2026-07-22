@@ -43,6 +43,18 @@ function fail(event: LifeEvent, requirement: string): ValidationResult {
   return { ok: false, reason: `${event.type} "${event.id}": ${requirement}` };
 }
 
+/**
+ * Whole dollars for a conflict message. Conflicts are read by a person, so they
+ * quote dollars, not the raw cents the engine counts in.
+ */
+function dollars(cents: number): string {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
 /** Owner must be a known household member (present at some point). */
 function ownerExists(state: InterpretState, ownerId: string): boolean {
   return state.personsById.has(asPersonId(ownerId));
@@ -216,7 +228,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (liquid !== undefined && liquid < event.downPaymentCents) {
       return fail(
         event,
-        `down payment ${event.downPaymentCents}¢ exceeds ${liquid}¢ of liquid funds at month ${event.month}; credit is not a valid down-payment source (§4.5)`,
+        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Only liquid accounts count toward a down payment — goal funds, retirement and brokerage balances do not, so total net worth can be well above the down payment while this still fails. Credit is never a valid source (§4.5).`,
       );
     }
     return ok;
