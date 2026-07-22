@@ -43,7 +43,7 @@ import { NumInput } from "../numInput/numInput";
 import { quickstartFromIncome, toBudgetLines } from "./budgetTemplate";
 import {
   applyLineOverride,
-  growthFactorAt,
+  inflateFromTo,
   resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
@@ -163,7 +163,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
       .filter((o) => o.month <= selectedMonth)
       .sort((a, b) => b.month - a.month)[0];
     if (applicable !== undefined) {
-      return Math.round(applicable.monthlyCents * growthFactorAt(selectedMonth, editCtx));
+      return inflateFromTo(applicable.monthlyCents, applicable.month, selectedMonth, editCtx);
     }
     return projected.incomeByMonth[selectedMonth] ?? 0;
   }, [incomeOverrides, selectedMonth, editCtx, projected]);
@@ -190,7 +190,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   /** Answer the how-long question — the one gesture that commits a change (§20). */
   function commit(scope: EditScope): void {
     if (pending === null) return;
-    const route = routeMonthEdit({ ...pending, month: selectedMonth, scope }, editCtx);
+    const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
     setLastRoute(route);
     if (route.kind === "lineOverride") {
       setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);

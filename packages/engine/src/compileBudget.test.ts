@@ -77,6 +77,28 @@ describe("compileExpenseBudgetLines", () => {
     expect(s.series.getMonthlyCents(36)).toBe(dollarsToCents(900));
   });
 
+  it("reads a dated override as THAT month's dollars, not today's", () => {
+    // An override means "from here the amount is X". Inheriting the line's original
+    // growth clock would instead read X as today's dollars and inflate it forward, so
+    // a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
+    const [s] = compileExpenseBudgetLines(
+      [
+        literalExpense("housing", dollarsToCents(1_600), {
+          overrides: [{ month: 180, monthlyCents: dollarsToCents(2_500), scope: "fromHereForward" }],
+        }),
+      ],
+      "p1",
+      0.03,
+    );
+    expect(s!.series.getMonthlyCents(180)).toBe(dollarsToCents(2_500));
+    // ...and it grows with prices from there, not from month 0.
+    expect(s!.series.getMonthlyCents(300)).toBe(
+      Math.round(dollarsToCents(2_500) * Math.pow(1.03, 10)),
+    );
+    // The months before it are untouched by the override.
+    expect(s!.series.getMonthlyCents(179)).toBeLessThan(dollarsToCents(2_500));
+  });
+
   it("skips contribution lines (only expense targets become expense series)", () => {
     const lines: BudgetLine[] = [
       literalExpense("rent", dollarsToCents(2_000)),

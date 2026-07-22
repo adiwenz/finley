@@ -74,7 +74,11 @@ function compileExpenseLine(
     { baselineUnit: "monthly", ...(endMonth !== undefined ? { endMonth } : {}) },
   );
   for (const o of line.overrides ?? []) {
-    series.addOverride(o.month, o.monthlyCents, o.scope);
+    // Reset the growth clock to the override's own month: an override means "from
+    // here the amount is X", where X is that month's dollars. Inheriting the prior
+    // segment's anchor would instead read X as today's dollars and inflate it forward
+    // — so a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
+    series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
   // Tag the compiled series with its source line's label (for reporting) plus its id +
   // waterfall priority (§Q27), so the simulator can report each line's actually-funded

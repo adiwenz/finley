@@ -37,46 +37,13 @@ import {
 const EDITOR_OWNER = "editor";
 
 /**
- * The environment an edit resolves against. Budget amounts are authored in the dollars
- * of a line's anchor month and grow with prices from there, so converting between "what
- * the user sees at month M" and "what gets stored" needs the rate.
+ * The environment an edit resolves against — the price growth the editor shows rows in.
+ * Routing itself needs no conversion (an override stores the typed figure as that
+ * month's dollars), so this is only what {@link resolveRowsAtMonth} reads.
  */
 export interface MonthEditContext {
   /** Annual price growth, e.g. `0.03` — the plan's CPI. */
   readonly annualInflationRate: number;
-}
-
-const PROBE_BASE_CENTS = 1_000_000;
-
-/**
- * Price growth between month 0 and `month`, measured by asking the engine rather than
- * recomputing it. The series compounds in annual steps and rounds as it goes, so a
- * continuous `Math.pow` disagrees with it by real money mid-year — enough that a figure
- * typed into the editor would land as a different figure in the projection. Compiling a
- * throwaway probe line makes the editor's arithmetic *definitionally* the engine's.
- *
- * Anchored at month 0, which is where every line authored through this panel starts
- * its growth clock. A line with a `span.startMonth` would anchor there instead, and
- * would need its own probe — nothing can author one today, so rather than carry a
- * configurable anchor that nothing sets and nothing honours, this is fixed at 0 and
- * will need revisiting when lines can start mid-timeline.
- */
-export function growthFactorAt(month: number, ctx: MonthEditContext): number {
-  const [probe] = compileExpenseBudgetLines(
-    [
-      {
-        id: "probe",
-        label: "probe",
-        target: { kind: "expense" },
-        category: "needs",
-        amountSource: { kind: "literal", monthlyCents: PROBE_BASE_CENTS },
-      },
-    ],
-    EDITOR_OWNER,
-    ctx.annualInflationRate,
-  );
-  const rendered = probe?.series.getMonthlyCents(month) ?? PROBE_BASE_CENTS;
-  return rendered > 0 ? rendered / PROBE_BASE_CENTS : 1;
 }
 
 /**
@@ -128,24 +95,19 @@ export type MonthEditRoute =
 /**
  * Route a direct edit to its primitive (§20). Total over the two axes — every
  * (row, scope) pair has exactly one home, so the UI never has to ask the user which
- * kind of thing they are creating.
+ * kind of thing they are creating. Needs no inflation context: the typed figure is
+ * stored as that month's dollars and the engine grows it from there.
  */
-export function routeMonthEdit(edit: MonthEdit, ctx: MonthEditContext): MonthEditRoute {
+export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
   if (edit.row.kind === "line") {
-    // Both spend scopes are the same primitive, but they store dollars differently:
-    // a `thisMonthOnly` override is charged verbatim at its month, while a
-    // `fromHereForward` override sets a new anchor-dollar baseline that then grows with
-    // prices. The user typed a figure they read off THIS month, so the forward case is
-    // deflated back to anchor dollars — otherwise typing $2,400 at year 30 would quietly
-    // charge the inflated value of $2,400 and the number would jump the moment it lands.
-    const monthlyCents =
-      edit.scope === "fromHereForward"
-        ? Math.round(edit.newAmountCents / growthFactorAt(edit.month, ctx))
-        : edit.newAmountCents;
+    // Both spend scopes store the typed figure verbatim: an override means "from this
+    // month the amount is X", in that month's dollars. `compileBudget` resets the
+    // growth clock to the override's month, so X is charged there and grows from
+    // there — no conversion, and nothing to keep in sync with the engine's compounding.
     return {
       kind: "lineOverride",
       lineId: edit.row.lineId,
-      override: { month: edit.month, monthlyCents, scope: edit.scope },
+      override: { month: edit.month, monthlyCents: edit.newAmountCents, scope: edit.scope },
     };
   }
 
@@ -160,13 +122,24 @@ export function routeMonthEdit(edit: MonthEdit, ctx: MonthEditContext): MonthEdi
   }
 
   // A permanent income change is a raise: it rides the job/stream, not a budget line.
-  // Income is inflation-linked too, so the typed figure is deflated to anchor dollars
-  // for the same reason a forward spend edit is — it was read off THIS month.
-  return {
-    kind: "incomeOverride",
-    month: edit.month,
-    monthlyCents: Math.round(edit.newAmountCents / growthFactorAt(edit.month, ctx)),
-  };
+  // Stored the same way as a spend override — that month's dollars, growing from there.
+  return { kind: "incomeOverride", month: edit.month, monthlyCents: edit.newAmountCents };
+}
+
+/**
+ * Grow an amount authored at `fromMonth` to `toMonth`. Display-only: income overrides
+ * live in panel state and never reach the projection (they land on jobs in #72), so
+ * this is an approximation for the editor's own row rather than something the engine
+ * has to agree with to the cent.
+ */
+export function inflateFromTo(
+  cents: number,
+  fromMonth: number,
+  toMonth: number,
+  ctx: MonthEditContext,
+): number {
+  const years = Math.max(0, toMonth - fromMonth) / 12;
+  return Math.round(cents * Math.pow(1 + ctx.annualInflationRate, years));
 }
 
 /** One row of the month editor: what this line resolves to at the selected month. */
