@@ -5,32 +5,29 @@
  * plain number (§10.4). The Shared section carries two of the four waterfall
  * levers (split scheme, surplus destination); the deferral % is the third and
  * goal priority (the fourth) lives in the Goals panel.
+ *
+ * Spending is NOT edited here. The line-item budget (Base + Adjustments) is the single
+ * source of truth for expenses — a non-empty `Plan.budgetLines` replaces the scalar
+ * `expenseCents` series outright (`projectionBase.ts`), so a second scalar control
+ * would have been an editable field with no effect. Income stays here until #72 moves
+ * it onto jobs.
  */
 
 import type { Dispatch, SetStateAction } from "react";
 import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
-import type { Plan, ValueOverride } from "@finley/engine";
+import type { Plan } from "@finley/engine";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
-import { ExpenseEditor } from "../expenseEditor/expenseEditor";
 
 interface BudgetEditorProps {
   budget: Plan;
   setBudget: Dispatch<SetStateAction<Plan>>;
-  scrubMonth: number;
 }
 
-export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProps) {
+export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
   function updateBudget(patch: Partial<Plan>) {
     setBudget((current) => ({ ...current, ...patch }));
-  }
-
-  function addExpenseOverride(override: ValueOverride) {
-    setBudget((current) => ({
-      ...current,
-      expenseOverrides: [...current.expenseOverrides, override],
-    }));
   }
 
   // §5.4 disclosure: a deferral rate whose yearly total tops the IRS elective limit
@@ -63,14 +60,6 @@ export function BudgetEditor({ budget, setBudget, scrubMonth }: BudgetEditorProp
           onChange={(v) => updateBudget({ incomeCents: dollarsToCents(v) })}
           prefix="$"
           step={100}
-        />
-
-        <ExpenseEditor
-          cents={budget.expenseCents}
-          overrides={budget.expenseOverrides}
-          scrubMonth={scrubMonth}
-          onSetBaseline={(expenseCents) => updateBudget({ expenseCents })}
-          onOverride={addExpenseOverride}
         />
 
         <NumInput

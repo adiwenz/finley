@@ -21,6 +21,7 @@ import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
+import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
 import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
 import type { Plan } from "@finley/engine";
@@ -138,7 +139,6 @@ export function App() {
             <BudgetEditor
               budget={budget}
               setBudget={setBudget}
-              scrubMonth={scrubMonth}
             />
           </div>
 
@@ -150,6 +150,10 @@ export function App() {
             <RetirementPanel view={retirement} budget={budget} />
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} />
       </div>
 
       <div className="card">

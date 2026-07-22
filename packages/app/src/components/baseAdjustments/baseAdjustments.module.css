@@ -1,0 +1,60 @@
+.lineRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--rule, #e3dcc6);
+}
+
+.lineLabel {
+  font-size: 0.9rem;
+}
+
+.tier {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8570;
+}
+
+.groupHeading {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a8570;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.adjusted {
+  margin-left: 0.4rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b5761f;
+}
+
+/* The one question an edit asks — pinned under the row the user just changed. */
+.scopePrompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #b5761f;
+  border-radius: 6px;
+  background: #fdf6e8;
+}
+
+.scopeQuestion {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.routeEcho {
+  font-size: 0.8rem;
+  color: #3f7d5f;
+  margin-top: 0.5rem;
+}

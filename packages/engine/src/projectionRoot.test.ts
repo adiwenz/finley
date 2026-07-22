@@ -247,3 +247,139 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
     expect(p.toJSON()).toBe(before);
   });
 });
+
+describe("Projection root — per-line monthly resolution in the result (§Q27, issue #71)", () => {
+  const RENT = "line:rent";
+  const FUN = "line:fun";
+
+  it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
+    // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
+    const p = Projection.create({
+      plan: { ...samplePlan, goals: [] },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+      category: "wants",
+    });
+
+    const flows = p.run(nullJurisdiction).series.months[1]?.flows;
+    // Keyed by the allocations() id (`line:<id>`), author line ↔ funded line.
+    expect(flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(2_000));
+    expect(flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(500));
+  });
+
+  it("reports every line at its full amount even once the plan is insolvent", () => {
+    // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
+    // shortfall. §15 priority funds rent (a need) before fun (a want).
+    const p = Projection.create({
+      plan: {
+        ...samplePlan,
+        incomeCents: dollarsToCents(3_000),
+        openingBalanceCents: 0,
+        retirementDeferralPct: 0,
+        surplusSwept: false,
+        goals: [],
+        healthMonthlyCents: 0,
+        postCoverageHealthMonthlyCents: 0,
+        enrollsInPublicHealthCoverage: false,
+      },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(4_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "wants",
+    });
+
+    const months = p.run(nullJurisdiction).series.months;
+
+    // A squeezed month is absorbed by savings, then by credit — the household really
+    // did pay for all of it, so both lines report their full amount.
+    expect(months[1]?.flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(2_000));
+    expect(months[1]?.flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(4_000));
+
+    // And once even credit is exhausted, the budget is STILL reported as authored. The
+    // engine surfaces that the plan broke (`isInsolvent`); it does not decide on the
+    // user's behalf which spending they would have given up.
+    const broke = months.findIndex((m) => m.isInsolvent);
+    expect(broke).toBeGreaterThan(1);
+    const flows = months[broke]?.flows;
+    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[RENT]).toBeGreaterThan(0);
+    // The per-line map and the coarse rollup agree: nothing was rationed away.
+    const lineTotal = Object.values(flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
+    expect(lineTotal).toBe(flows?.expensesCents);
+  });
+
+  it("keeps every line funded from savings between retirement and the first benefit", () => {
+    // The retirement gap: samplePlan retires at 60 and claims its benefit at 67, so
+    // ages 60–67 have NO income at all. A household with savings funds its budget by
+    // drawing them down — that is the plan working, not a starved budget, so the
+    // per-line map must stay at full intent throughout the gap.
+    const p = Projection.create({
+      plan: {
+        ...samplePlan,
+        openingBalanceCents: dollarsToCents(2_000_000),
+        retirementDeferralPct: 0,
+        surplusSwept: false,
+        goals: [],
+        healthMonthlyCents: 0,
+        postCoverageHealthMonthlyCents: 0,
+        enrollsInPublicHealthCoverage: false,
+      },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+      category: "wants",
+    });
+
+    const months = p.run(nullJurisdiction).series.months;
+    // Age 63 — three years past retirement, four years before the benefit starts.
+    const gapMonth = (63 - samplePlan.currentAge) * 12;
+    const flows = months[gapMonth]?.flows;
+    expect(flows?.totalIncomeCents).toBe(0); // no paycheck, no benefit yet
+
+    // Fully funded = the funded lines add up to the month's whole intent. Asserted
+    // against the rollup rather than a literal, since a budget rises with prices.
+    const fundedTotal = (m: number): number =>
+      Object.values(months[m]?.flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
+    expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);
+    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0); // the first line to starve
+
+    // Nothing starves anywhere across the whole gap.
+    for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {
+      expect(fundedTotal(m)).toBe(months[m]?.flows?.expensesCents);
+    }
+  });
+});

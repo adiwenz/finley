@@ -47,7 +47,11 @@ export function fillToLimitSeamFor(
  * compilable — a `fill-to-limit` / `goal-paced` *expense* is meaningless (those
  * are contribution behaviours), so it is refused at compile time.
  */
-function compileExpenseLine(line: BudgetLine, ownerId: string): SimOwnedSeries {
+function compileExpenseLine(
+  line: BudgetLine,
+  ownerId: string,
+  annualInflationRate: number,
+): SimOwnedSeries {
   if (line.amountSource.kind !== "literal") {
     throw new Error(
       `Expense budget line "${line.id}" uses a ${line.amountSource.kind} amount source; ` +
@@ -59,16 +63,31 @@ function compileExpenseLine(line: BudgetLine, ownerId: string): SimOwnedSeries {
   const endMonth = line.span?.endMonth !== undefined ? line.span.endMonth - 1 : undefined;
   const monthlyCents: Cents = line.amountSource.monthlyCents;
 
+  // A budget line is authored in TODAY's dollars and rises with prices, exactly like
+  // the scalar `expenseCents` series it replaces. Compiling it `fixed` would model a
+  // household whose spending never rises for the whole horizon — which over decades
+  // understates lifetime cost badly enough to move the retirement age by years.
   const series = new SimCashFlowSeries(
     startMonth,
     monthlyCents,
-    { type: "fixed" },
+    { type: "inflationLinked", annualRate: annualInflationRate },
     { baselineUnit: "monthly", ...(endMonth !== undefined ? { endMonth } : {}) },
   );
   for (const o of line.overrides ?? []) {
-    series.addOverride(o.month, o.monthlyCents, o.scope);
+    // Reset the growth clock to the override's own month: an override means "from
+    // here the amount is X", where X is that month's dollars. Inheriting the prior
+    // segment's anchor would instead read X as today's dollars and inflate it forward
+    // — so a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
+    series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
-  return { series, ownerId, label: line.label };
+  // Tag the compiled series with its source line's label (for reporting) and its id, so
+  // the simulator can report each line's monthly amount without re-resolving (author
+  // line ↔ resolved series ↔ reported line — see ProjectionMonthFlows.lineMonthlyCents).
+  // The line's §15 priority is deliberately NOT carried: nothing downstream ranks lines,
+  // because a tight month is absorbed by savings and credit rather than by starving the
+  // low-priority ones. `budgetLinePriority` remains the ordering source of truth for the
+  // authoring view (`allocations.ts`); re-add it here when something actually ranks.
+  return { series, ownerId, label: line.label, lineId: line.id };
 }
 
 /**
@@ -77,14 +96,21 @@ function compileExpenseLine(line: BudgetLine, ownerId: string): SimOwnedSeries {
  * lines (targets other than `expense`) are skipped here: they route to the
  * contribution channels, not the expense series. Order is preserved so the
  * caller can keep it aligned with the prioritized budget.
+ *
+ * `annualInflationRate` (e.g. `0.03`) is the rate every line's amount rises at, since
+ * a budget is authored in today's dollars. It arrives from the caller like every other
+ * calendar fact — the engine never reads a rate it wasn't handed.
  */
 export function compileExpenseBudgetLines(
   lines: readonly BudgetLine[],
   ownerId: string,
+  annualInflationRate: number,
 ): SimOwnedSeries[] {
   const series: SimOwnedSeries[] = [];
   for (const line of lines) {
-    if (line.target.kind === "expense") series.push(compileExpenseLine(line, ownerId));
+    if (line.target.kind === "expense") {
+      series.push(compileExpenseLine(line, ownerId, annualInflationRate));
+    }
   }
   return series;
 }

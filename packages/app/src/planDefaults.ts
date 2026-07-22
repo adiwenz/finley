@@ -2,14 +2,25 @@
 
 import { dollarsToCents } from "@finley/engine";
 import type { Plan } from "@finley/engine";
+import { defaultBudgetTemplate, toBudgetLines } from "./components/baseAdjustments/budgetTemplate";
 
 export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
   incomeCents: dollarsToCents(5000),
+  // The line-item budget is the source of truth for spending: a non-empty
+  // `budgetLines` replaces the scalar `expenseCents` series wholesale (see
+  // `projectionBase.ts`), so a fresh plan opens with the prepopulated Base and the
+  // Base + Adjustments editor drives the projection. `expenseCents` is retained only
+  // because `Plan` still requires it; it is inert while lines exist, and #72 deletes it.
   expenseCents: dollarsToCents(3500),
   expenseOverrides: [],
+  budgetLines: toBudgetLines(defaultBudgetTemplate()),
   openingBalanceCents: dollarsToCents(10000),
-  savingsReturnPct: 7,
+  // A cash buffer, not an investment: the engine never sells this account (it is the
+  // liquid one, excluded from liquidation) and spending is charged straight against
+  // it. An equity-like default here quietly financed the plan out of a savings
+  // account earning stock-market returns. User-settable; this is only the opening value.
+  savingsReturnPct: 1,
   retirementReturnPct: 7,
   brokerageReturnPct: 7,
   retirementDeferralPct: 0,

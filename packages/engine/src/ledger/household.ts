@@ -50,6 +50,14 @@ export interface HouseholdSeries {
    * waterfall. Only meaningful on income series; absent otherwise.
    */
   readonly planDescriptor?: PlanDescriptor;
+  /**
+   * Provenance of an expense series compiled from a standing budget line (§Q27): the
+   * source line's id. Carried through so the simulator can report each line's monthly
+   * amount ({@link
+   * import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Only set on
+   * budget-line expense series; absent on scalar/health/event-caused series.
+   */
+  readonly lineId?: string;
 }
 
 /** The fields a derived liability carries whatever its kind. */

@@ -12,7 +12,12 @@
  */
 
 import { SimCashFlowSeries } from "./cashFlowSeries";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "./simAccount";
+import {
+  SimAccount,
+  CAPITAL_GAINS_TAX_PROFILE,
+  PRE_TAX_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+} from "./simAccount";
 import type { Cents } from "./money";
 import type { SimPerson, SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { SimGoal, GoalDisposal } from "./goal";
@@ -62,7 +67,12 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
       id: SAVINGS_ID,
       ownerId: PRIMARY_PERSON_ID,
       liquid: true,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      // A cash buffer, not an investment: money went in post-tax and comes out
+      // untaxed. It carried a capital-gains profile, which was wrong on its face and
+      // dangerous the moment anything treats savings as sellable — a capital-gains
+      // draw counts toward provisional income and pulls the government benefit into
+      // tax (see federalTax's provisional-income note).
+      taxProfile: TAX_EXEMPT_TAX_PROFILE,
       openingBalanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
     }),
@@ -268,7 +278,12 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     0,
     budget.incomeCents,
     { type: "inflationLinked", annualRate: inflationRate },
-    { baselineUnit: "monthly", endMonth: workingMonths - 1 },
+    // Earned income is `wages`, not the `ordinaryIncome` catch-all the series would
+    // otherwise default to. Tax and covered-earnings treat the two identically (the US
+    // seam taxes `wages + ordinaryIncome` in one bracket stack and covers both), so
+    // this changes no number — it just stops a paycheck being indistinguishable from a
+    // pre-tax account withdrawal, which is also booked `ordinaryIncome`.
+    { baselineUnit: "monthly", endMonth: workingMonths - 1, taxCategory: "wages" },
   );
   // General (non-health) expenses also grow with CPI — flat in real terms.
   const expenseSeries = new SimCashFlowSeries(
@@ -298,7 +313,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // See issue 84.
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
-      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID)
+      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID, inflationRate)
       : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID, label: "Expenses" }];
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);

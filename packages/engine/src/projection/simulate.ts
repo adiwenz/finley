@@ -12,6 +12,7 @@ import {
   type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
+import { budgetLineAllocationId } from "../allocations";
 import type { SimGoal } from "../goal";
 import {
   runWaterfall,
@@ -297,8 +298,13 @@ function buildIncomeSources(
  * uncovered obligation as a deficit on the first liquid account so the §5.1
  * cascade (called next) drains liquid assets before reaching for credit.
  *
- * Returns the tax charged this month (already reflected in take-home). The
- * per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
+ * Returns the tax charged this month (already reflected in take-home) — the §5.3
+ * chokepoint is the only place to observe it. The waterfall's own pre-cascade shortfall
+ * is deliberately NOT surfaced: it is a cash-flow gap, not a funding failure, since it
+ * is posted against the liquid account for savings to absorb. The only shortfall that
+ * means anything to a caller is the one that survives {@link applyShortfallCascade}.
+ *
+ * The per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
  */
 function allocateMonth(
   state: SimState,
@@ -358,16 +364,57 @@ function allocateMonth(
 }
 
 /**
+ * The per-line monthly map for this month (§Q27), keyed by each budget line's
+ * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
+ * lines the simulator runs today — contribution lines land in the #72 rewire) for their
+ * amount for that month — the budget exactly **as authored**, span and dated overrides
+ * applied.
+ *
+ * The simulator deliberately does NOT reallocate a squeezed month across the §15
+ * priority order. It never actually skips spending: an uncovered obligation is posted
+ * against the liquid account and cascades onto credit, so a line reported below its
+ * amount would describe money the household did in fact spend. And when even credit
+ * runs out, that is insolvency — already reported as `isInsolvent` and a null net
+ * worth — not a budget the plan quietly rewrote. Which spending to cut when a plan
+ * stops working is the user's call to make, not the engine's to assume.
+ *
+ * Untagged series (scalar/health expense) are ignored — the map is empty when the plan
+ * authors no budget lines.
+ */
+function computeLineMonthlyCents(
+  expenseSeries: readonly SimOwnedSeries[],
+  month: number,
+): Record<string, Cents> {
+  const byLine: Record<string, Cents> = {};
+  for (const s of expenseSeries) {
+    if (s.lineId === undefined) continue;
+    byLine[budgetLineAllocationId(s.lineId)] = s.series.getMonthlyCents(month);
+  }
+  return byLine;
+}
+
+/**
  * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
  * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
  * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
- * it too can be exhausted — #36). Returns true when every card's credit is used up and
- * a deficit remains: the plan is infeasible this month (`isInsolvent`).
+ * it too can be exhausted — #36).
+ *
+ * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
+ * amount the household genuinely could not pay. Zero is the common case: the month was
+ * paid for, whether out of take-home, by drawing savings down, or on credit.
+ *
+ * The distinction it draws is what makes a non-zero return meaningful. A budget squeezed
+ * by a bad month is meant to be absorbed — by savings first, then by credit — and the
+ * household still spent every dollar it budgeted. Only when there is nothing left to
+ * absorb it with has the plan actually failed, and that is what this reports: the §5.1
+ * terminal condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line
+ * is derived from it (see {@link computeLineMonthlyCents} for why the budget is reported
+ * as authored rather than rationed).
  */
-function applyShortfallCascade(state: SimState, month: number): boolean {
-  if (state.liquidAccount === null) return false;
+function applyShortfallCascade(state: SimState, month: number): Cents {
+  if (state.liquidAccount === null) return 0;
   const liquidBal = state.assetBalances.get(state.liquidAccount.id) ?? 0;
-  if (liquidBal >= 0) return false;
+  if (liquidBal >= 0) return 0;
 
   let deficit = -liquidBal;
   state.assetBalances.set(state.liquidAccount.id, 0);
@@ -383,7 +430,7 @@ function applyShortfallCascade(state: SimState, month: number): boolean {
     state.liabilityBalances.set(card.id, currentBal + borrow);
     deficit -= borrow;
   }
-  return deficit > 0;
+  return Math.max(0, deficit);
 }
 
 /** Step 8: one-time transfers to asset accounts (§3.2). Fixed + proportional; neither grows. */
@@ -668,14 +715,22 @@ export function simulateHousehold(
         expenseCents + totalPaymentsCents,
         month,
       );
-      isInsolvent = applyShortfallCascade(state, month);
+      // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
+      isInsolvent = applyShortfallCascade(state, month) > 0;
 
       applyAssetTransfers(state, month);
       compoundAssets(state, month);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      flows = buildFlows(incomeSources, taxCents, expenseCents, totalPaymentsCents);
+      const lineMonthlyCents = computeLineMonthlyCents(input.expenseSeries, month);
+      flows = buildFlows(
+        incomeSources,
+        taxCents,
+        expenseCents,
+        totalPaymentsCents,
+        lineMonthlyCents,
+      );
     }
 
     months.push(

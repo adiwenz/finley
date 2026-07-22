@@ -21,7 +21,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
   const [budget, setBudget] = useState<Plan>(initial);
   return (
     <>
-      <BudgetEditor budget={budget} setBudget={setBudget} scrubMonth={0} />
+      <BudgetEditor budget={budget} setBudget={setBudget} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
       <output data-testid="career-start-age">{budget.careerStartAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>

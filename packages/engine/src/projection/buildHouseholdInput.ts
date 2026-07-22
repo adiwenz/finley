@@ -40,7 +40,14 @@ export function buildHouseholdSimInput(
         planDescriptor: s.planDescriptor,
       });
     } else {
-      expenseSeries.push({ series: s.series, ownerId: s.ownerId, label: s.label });
+      // Preserve the budget-line provenance (§Q27) so the simulator can report each
+      // line's monthly amount; a scalar/health expense series carries none.
+      expenseSeries.push({
+        series: s.series,
+        ownerId: s.ownerId,
+        label: s.label,
+        ...(s.lineId !== undefined ? { lineId: s.lineId } : {}),
+      });
     }
   }
 
