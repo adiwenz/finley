@@ -34,7 +34,12 @@ export interface RetirementView {
   readonly headlineMonth: number | null;
   /** The plan's evaluation at the pinned retirement age (§7.1). */
   readonly target: RetirementEvaluation;
-  /** On-track % against the pinned age, whole-number and capped at 100 (§7.1). */
+  /**
+   * On-track % against the pinned age (§7.1), rounded DOWN to a tenth of a percent and
+   * clamped to [0, 100]. Rounding down (not to-nearest) is deliberate: a plan 99.97% of
+   * the way must not round UP to a reassuring "100%" it hasn't earned — and an infeasible
+   * plan's fraction is strictly < 1 (#78), so the floor keeps it honestly below 100.
+   */
   readonly targetOnTrackPct: number;
   /**
    * Medicare honesty flag (§5.4): fires when the plan retires before the
@@ -114,7 +119,8 @@ export function retirementView(
     headlineAge,
     headlineMonth,
     target,
-    targetOnTrackPct: Math.min(100, Math.max(0, Math.round(target.onTrackFraction * 100))),
+    // Floor to 0.1% so a hair under 100 never rounds up to 100 (§7.1, #78).
+    targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
     earlyRetireeHealth: earlyRetireeHealthFlag(budget, jurisdiction),
     // The authored residual (today's dollars); 0 and moot when not enrolling.
     residualHealthMonthlyCents: budget.enrollsInPublicHealthCoverage

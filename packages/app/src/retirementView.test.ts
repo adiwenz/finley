@@ -142,6 +142,21 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
     expect(view.targetOnTrackPct).toBeGreaterThanOrEqual(0);
     expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
   });
+
+  // #78: the default plan pinned at its authored age 65 is INFEASIBLE (feasible floor is
+  // 73) yet holds a `convertToEquity` home goal that keeps net worth positive throughout —
+  // exactly the shape that pinned the metric to a contradictory "100% of the way there".
+  // The panel must never render 100% for an infeasible plan, and the % is rounded DOWN to
+  // one decimal so a barely-short plan can't round UP to a reassuring 100.
+  it("never reads 100% for an infeasible plan and rounds the % DOWN to 0.1% (#78)", () => {
+    const view = viewOf(PLAN_DEFAULTS);
+    expect(view.target.feasible).toBe(false);
+    // Not the self-contradicting 100%.
+    expect(view.targetOnTrackPct).toBeLessThan(100);
+    // Rounded down to a tenth of a percent — never up.
+    expect(view.targetOnTrackPct).toBe(Math.floor(view.target.onTrackFraction * 1000) / 10);
+    expect(view.targetOnTrackPct).toBeLessThanOrEqual(view.target.onTrackFraction * 100);
+  });
 });
 
 describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medicare)", () => {
