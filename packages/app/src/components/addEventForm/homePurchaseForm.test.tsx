@@ -16,6 +16,7 @@ import {
   interpretLedger,
   replayLedger,
   createProjectionBase,
+  dollarsToCents,
   nullJurisdiction,
   type Household,
   type Plan,
@@ -74,25 +75,9 @@ describe("HomePurchaseForm — §4.5 soft DTI warning (#23)", () => {
   });
 
   it("stays silent when the purchase sits comfortably within the guideline", () => {
-    // A tiny mortgage on the same $5,000 gross income: $80k price, $60k down →
-    // $20k financed ≈ $126/mo → ~2.5% front-end, well under 28%.
-    const html = renderToStaticMarkup(
-      (() => {
-        const { household, series } = build(PLAN_DEFAULTS);
-        return (
-          <HomePurchaseForm
-            defaultMonth={0}
-            nextId={0}
-            horizonMonths={660}
-            onAdd={noop}
-            household={household}
-            series={series}
-            initialPrice={80_000}
-            initialDown={60_000}
-          />
-        );
-      })(),
-    );
+    // The same default $300k / $60k down purchase against a $50,000/mo gross
+    // income: ≈$1,516/mo is ~3% front-end, well under 28%.
+    const html = render({ ...PLAN_DEFAULTS, incomeCents: dollarsToCents(50_000) });
     expect(html).not.toContain("soft-warning");
   });
 });

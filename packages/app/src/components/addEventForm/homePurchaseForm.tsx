@@ -13,6 +13,18 @@ import { formatDollars } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
 import { assessHomePurchaseDti } from "./homePurchaseDti";
 
+/**
+ * Opening values for the form — a plausible starter purchase the user edits, not
+ * a recommendation. Dollars and percent, matching the inputs below; the cents
+ * conversion happens at the engine boundary.
+ */
+const DEFAULTS: Record<"priceDollars" | "downDollars" | "aprPct" | "termYears", number> = {
+  priceDollars: 300_000,
+  downDollars: 60_000,
+  aprPct: 6.5,
+  termYears: 30,
+};
+
 export function HomePurchaseForm({
   defaultMonth,
   nextId,
@@ -20,20 +32,15 @@ export function HomePurchaseForm({
   onAdd,
   household,
   series,
-  initialPrice = 300_000,
-  initialDown = 60_000,
 }: FormProps & {
   household: Household;
   series: ProjectionSeries;
-  /** Test seams so a render can start above/below the DTI guideline. */
-  initialPrice?: number;
-  initialDown?: number;
 }) {
   const [month, setMonth] = useState(defaultMonth);
-  const [price, setPrice] = useState(initialPrice);
-  const [down, setDown] = useState(initialDown);
-  const [apr, setApr] = useState(6.5);
-  const [termYears, setTermYears] = useState(30);
+  const [price, setPrice] = useState(DEFAULTS.priceDollars);
+  const [down, setDown] = useState(DEFAULTS.downDollars);
+  const [apr, setApr] = useState(DEFAULTS.aprPct);
+  const [termYears, setTermYears] = useState(DEFAULTS.termYears);
 
   // The §4.5 SOFT warning: advisory only, recomputed each render so it tracks the
   // live inputs. It never gates `submit` — the event records regardless (the only
