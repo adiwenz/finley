@@ -86,6 +86,8 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
   const series = new SimCashFlowSeries(startMonth, monthlyNowCents, growthMode, {
     baselineUnit: "monthly",
     endMonth: endMonthExclusive - 1,
+    // A job pays `wages` — see the note in projectionBase's scalar income series.
+    taxCategory: "wages",
   });
 
   return {
