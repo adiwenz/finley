@@ -22,7 +22,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
-import { budgetLinePriority, type BudgetLine } from "./budgetLine";
+import type { BudgetLine } from "./budgetLine";
 
 /**
  * The fill-to-limit cap seam for a jurisdiction (§12, §19): the function a
@@ -80,17 +80,14 @@ function compileExpenseLine(
     // — so a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
     series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
-  // Tag the compiled series with its source line's label (for reporting) plus its id +
-  // waterfall priority (§Q27), so the simulator can report each line's actually-funded
-  // amount without re-resolving (author line ↔ resolved series ↔ funded line — see
-  // ProjectionMonthFlows.lineMonthlyCents).
-  return {
-    series,
-    ownerId,
-    label: line.label,
-    lineId: line.id,
-    linePriority: budgetLinePriority(line),
-  };
+  // Tag the compiled series with its source line's label (for reporting) and its id, so
+  // the simulator can report each line's monthly amount without re-resolving (author
+  // line ↔ resolved series ↔ reported line — see ProjectionMonthFlows.lineMonthlyCents).
+  // The line's §15 priority is deliberately NOT carried: nothing downstream ranks lines,
+  // because a tight month is absorbed by savings and credit rather than by starving the
+  // low-priority ones. `budgetLinePriority` remains the ordering source of truth for the
+  // authoring view (`allocations.ts`); re-add it here when something actually ranks.
+  return { series, ownerId, label: line.label, lineId: line.id };
 }
 
 /**

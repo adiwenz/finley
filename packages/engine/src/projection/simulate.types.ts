@@ -195,15 +195,15 @@ export interface SimOwnedSeries {
   readonly planDescriptor?: PlanDescriptor;
   /**
    * Provenance tag for an EXPENSE series compiled from a standing budget line (§12,
-   * §Q27): the source line's authoring id and its flat waterfall priority (§15). Only
-   * set when the series was compiled from a {@link import("../budgetLine").BudgetLine};
-   * a scalar/health expense series carries neither. It keys the per-line map on {@link
-   * ProjectionMonthFlows.lineMonthlyCents} — author line ↔ resolved series ↔ reported
-   * line — without the simulator otherwise reading it.
+   * §Q27): the source line's authoring id. Only set when the series was compiled from a
+   * {@link import("../budgetLine").BudgetLine}; a scalar/health expense series carries
+   * none. It keys the per-line map on {@link ProjectionMonthFlows.lineMonthlyCents} —
+   * author line ↔ resolved series ↔ reported line — and the simulator reads it for
+   * nothing else. Notably it carries no §15 priority: nothing here ranks lines, because
+   * a tight month is absorbed by savings and credit rather than by starving the
+   * low-priority ones. Ordering lives in `budgetLine.ts` for the authoring view.
    */
   readonly lineId?: string;
-  /** Flat waterfall priority of the source budget line (§15); paired with {@link lineId}. */
-  readonly linePriority?: number;
 }
 
 /**

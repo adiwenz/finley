@@ -85,7 +85,6 @@ function baseSeries(
     label: os.label,
     planDescriptor: os.planDescriptor,
     ...(os.lineId !== undefined ? { lineId: os.lineId } : {}),
-    ...(os.linePriority !== undefined ? { linePriority: os.linePriority } : {}),
   };
 }
 
