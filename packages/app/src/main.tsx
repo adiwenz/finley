@@ -128,6 +128,7 @@ export function App() {
           <div className="card">
             <AddEventForm
               household={household}
+              series={series}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               nextId={ledger.nextSequenceNumber}
               horizonMonths={horizonMonths}
