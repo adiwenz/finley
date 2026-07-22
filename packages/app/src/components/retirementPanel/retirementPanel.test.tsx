@@ -27,6 +27,17 @@ describe("RetirementPanel", () => {
     expect(html).toContain("retire");
   });
 
+  it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction (#78)", () => {
+    // The default plan pinned at 65 is infeasible (feasible floor 73) but its
+    // convertToEquity home goal keeps net worth positive throughout — the shape that used
+    // to print the self-contradicting "100% of the way there — nearest feasible age 73".
+    const html = render(PLAN_DEFAULTS);
+    expect(html).not.toContain("on track (100%)");
+    expect(html).toContain("of the way there");
+    expect(html).toContain("the nearest feasible age is 73");
+    expect(html).not.toContain("100% of the way there");
+  });
+
   it("shows the pre-65 health nudge when the plan retires early and under-budgets (§5.4)", () => {
     const budget: Plan = {
       ...PLAN_DEFAULTS,

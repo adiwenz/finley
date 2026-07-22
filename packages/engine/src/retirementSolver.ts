@@ -50,15 +50,23 @@ export function projectScenario(scenario: Scenario, ctx: ProjectionContext): Pro
 }
 
 /**
+ * Does a single month survive (§0.5, §5.1)? True only when its real net worth is a
+ * known, non-negative figure AND the month is not insolvent. Net worth is null once
+ * insolvent and `null >= 0` is true in JS, so the null guard is load-bearing — else a
+ * post-insolvency month would wrongly count as surviving. This is the authoritative
+ * per-month failure signal every mode reads; the whole-series survival check and the
+ * on-track fraction both compose it, so they can never disagree on what "failure" means.
+ */
+function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
+  return m.netWorthRealCents !== null && m.netWorthRealCents >= 0 && !m.isInsolvent;
+}
+
+/**
  * Does the plan's real net worth stay ≥ 0 through life expectancy with no insolvent
  * month (§0.5, §5.1)? The single signal every mode reads — and what the graph plots.
  */
 export function realNetWorthSurvives(series: ProjectionSeries): boolean {
-  // Net worth is null once insolvent (§5.1) and `null >= 0` is true in JS, so guard
-  // null explicitly — else post-insolvency months would wrongly count as surviving.
-  return series.months.every(
-    (m) => m.netWorthRealCents !== null && m.netWorthRealCents >= 0 && !m.isInsolvent,
-  );
+  return series.months.every(monthSurvives);
 }
 
 /** Absolute simulation month a retirement `age` falls at, floored at 0. */
@@ -67,26 +75,42 @@ function retirementMonth(budget: Plan, age: number): number {
 }
 
 /**
- * On-track fraction (§7.1) for a plan that does NOT survive: the real nest egg it has
- * at the retirement boundary ÷ the nest egg it needed there to avoid running dry
- * (boundary balance + the deepest real shortfall it later hits). 0 with nothing at the
- * boundary; a surviving plan is 1.0 and never reaches here. Reporting caps it at 100%.
+ * On-track fraction (§7.1) for a plan that does NOT survive (#78).
+ *
+ * The magnitude is read from the authoritative failure signal — WHEN the plan first
+ * fails ({@link monthSurvives}: insolvency or a negative real net worth) — NOT from how
+ * far net worth dipped. Inferring the shortfall from the most-negative net worth was the
+ * bug: insolvency nulls the curve rather than driving it negative (§5.1) and phantom
+ * illiquid equity (#76) keeps solvent months positive, so the deepest value the old
+ * formula ever saw was a positive number → shortfall 0 → a flat, meaningless 1.0 for a
+ * plan that has plainly run out of money. And a *magnitude* off the post-insolvency curve
+ * would be fiction anyway (borrowing at 22% past an exhausted credit limit → a nonsense
+ * −$3M); the honest, computable quantity is timing.
+ *
+ * So on-track is the fraction of the retirement-to-life-expectancy window the plan stays
+ * solvent: fails the month after retiring → ~0 (nowhere near); fails just short of life
+ * expectancy → ~1 (almost there). The denominator counts the window inclusively, so a
+ * plan that fails even in its very last month is strictly < 1 — an infeasible plan is
+ * never 100%. 0 when it fails at or before the retirement boundary.
  */
 function computeOnTrackFraction(
   budget: Plan,
   age: number,
   series: ProjectionSeries,
 ): number {
-  const boundary = Math.min(retirementMonth(budget, age), series.months.length - 1);
-  // Net worth is null once insolvent (§5.1); a null boundary or low reads as 0.
-  const availableCents = series.months[boundary]?.netWorthRealCents ?? 0;
-  const realNetWorths = series.months
-    .map((m) => m.netWorthRealCents)
-    .filter((c): c is number => c !== null);
-  const lowestRealCents = realNetWorths.length > 0 ? Math.min(...realNetWorths) : 0;
-  const shortfallCents = Math.max(0, -lowestRealCents);
-  const requiredCents = availableCents + shortfallCents;
-  return availableCents <= 0 || requiredCents <= 0 ? 0 : availableCents / requiredCents;
+  const horizon = series.months.length - 1;
+  const boundary = Math.min(retirementMonth(budget, age), horizon);
+  // The retirement window, counted inclusively (boundary … horizon). ≥ 1 after the clamp,
+  // so it is a safe denominator; = 1 only when the pin sits at life expectancy.
+  const retirementWindow = horizon - boundary + 1;
+  // First month that fails the survival test — the honest failure signal (§5.1). A
+  // non-surviving series always has one; -1 is defensive (callers gate on `!feasible`).
+  const firstFailureMonth = series.months.findIndex((m) => !monthSurvives(m));
+  if (firstFailureMonth < 0) return 1;
+  // Solvent months lived in retirement before the failure; a pre-retirement failure is 0.
+  const solventInRetirement = Math.max(0, firstFailureMonth - boundary);
+  // solventInRetirement ≤ horizon − boundary < retirementWindow, so this is always < 1.
+  return Math.min(1, solventInRetirement / retirementWindow);
 }
 
 /**

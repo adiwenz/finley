@@ -21,10 +21,14 @@ export interface RetirementEvaluation {
   /** Does the plan's real net worth survive to life expectancy at this age? */
   readonly feasible: boolean;
   /**
-   * On-track fraction (§7.1): the real nest egg the plan has *at* this retirement age
-   * ÷ the nest egg it would have needed there to last to life expectancy. 1.0 = fully
-   * funded (the plan survives); 0.78 = "78% of the way to a feasible age-55
-   * retirement". Raw (not capped) — the reporting layer caps at 100%.
+   * On-track fraction (§7.1). 1.0 when the plan survives at this age. When it does NOT,
+   * this is how far off it is, read from the authoritative failure signal — WHEN the plan
+   * first fails (insolvency / negative real net worth, §5.1) — never from the magnitude of
+   * a net-worth dip (which insolvency nulls and phantom equity distorts, #78). Concretely:
+   * the fraction of the retirement-to-life-expectancy window the plan stays solvent, so a
+   * plan that fails the month after retiring is ~0 and one that fails just short of life
+   * expectancy is ~0.99. Strictly < 1 for any infeasible plan; the reporting layer floors
+   * it to 0.1% and caps at 100%.
    */
   readonly onTrackFraction: number;
   /**
