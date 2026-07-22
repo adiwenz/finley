@@ -192,6 +192,29 @@ describe("applyLineOverride", () => {
     ]);
   });
 
+  it("lets a 'from here forward' edit supersede every later override on that line", () => {
+    // "From here forward" means from here forward. Editing month 300 and then going
+    // back to edit month 100 leaves the line at the month-100 amount for the whole
+    // rest of the horizon — the more recent decision, made at the earlier point,
+    // outranks the one it reaches over. Intended, and pinned so it stays a decision.
+    let lines: readonly BudgetLine[] = [line("housing", dollarsToCents(1_600))];
+    lines = applyLineOverride(lines, "housing", {
+      month: 300,
+      monthlyCents: dollarsToCents(5_000),
+      scope: "fromHereForward",
+    });
+    lines = applyLineOverride(lines, "housing", {
+      month: 100,
+      monthlyCents: dollarsToCents(2_000),
+      scope: "fromHereForward",
+    });
+    const at = (month: number) =>
+      resolveRowsAtMonth(lines, month, 0).find((r) => r.lineId === "housing")?.monthlyCents;
+    expect(at(99)).toBe(dollarsToCents(1_600));
+    expect(at(100)).toBe(dollarsToCents(2_000));
+    expect(at(300)).toBe(dollarsToCents(2_000)); // superseded, not $5,000
+  });
+
   it("keeps overrides at other months and leaves other lines untouched", () => {
     const start = [
       line("housing", dollarsToCents(1_600), [

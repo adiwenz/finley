@@ -14,11 +14,18 @@ import { describeInsolvency, type PerLineBudgetData } from "./perLineBudget";
 
 /**
  * Per-line monthly budget chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws
- * each standing budget line's *actually funded* amount per month as a stacked area, so
- * the total is the funded budget and each band is a line. In a shortfall month the
- * §15 waterfall starves the lowest-priority lines first, so their bands visibly pinch
- * to zero — and the starved span is shaded amber with a plain-language summary above
- * the chart (which doubles as the figure's accessible description).
+ * each standing budget line's monthly amount as a stacked area — the budget **as
+ * authored**, with span, dated overrides, and price growth applied — so the total is
+ * the budget and each band is a line.
+ *
+ * A tight month does NOT pinch the low-priority bands. The simulator never skips
+ * spending: an uncovered obligation is charged against the liquid account and cascades
+ * onto credit, so drawing a band below its amount would depict money the household did
+ * in fact spend. What a shortfall produces instead is the terminal case — savings and
+ * credit both exhausted — and *that* is what the amber {@link ReferenceArea} shades,
+ * from the first insolvent month onward, with a plain-language summary above the chart
+ * (which doubles as the figure's accessible description). Which spending to give up
+ * once a plan stops working is the user's decision, not one this chart makes for them.
  *
  * The chart is also the **month picker**: clicking a point selects that month, marked
  * with a vertical rule, and the editor below re-resolves every budget row to it. That
@@ -70,7 +77,7 @@ export function PerLineBudgetChart({
       <p className={summary ? "alert alert-amber" : "hint"} data-testid="perline-summary">
         {summary ?? "This budget is financed across the whole horizon."}
       </p>
-      {/* Hidden data mirror for tests / screen readers: first row's funded per line. */}
+      {/* Hidden data mirror for tests / screen readers: first row's amount per line. */}
       <output data-testid="perline-first-row" hidden>
         {JSON.stringify(data.rows[0]?.centsByLine ?? {})}
       </output>

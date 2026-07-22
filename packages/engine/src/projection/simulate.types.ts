@@ -197,9 +197,9 @@ export interface SimOwnedSeries {
    * Provenance tag for an EXPENSE series compiled from a standing budget line (§12,
    * §Q27): the source line's authoring id and its flat waterfall priority (§15). Only
    * set when the series was compiled from a {@link import("../budgetLine").BudgetLine};
-   * a scalar/health expense series carries neither. It drives the per-line *actually
-   * funded* map on {@link ProjectionMonthFlows.lineMonthlyCents} — author line ↔ resolved
-   * series ↔ funded line — without the simulator otherwise reading it.
+   * a scalar/health expense series carries neither. It keys the per-line map on {@link
+   * ProjectionMonthFlows.lineMonthlyCents} — author line ↔ resolved series ↔ reported
+   * line — without the simulator otherwise reading it.
    */
   readonly lineId?: string;
   /** Flat waterfall priority of the source budget line (§15); paired with {@link lineId}. */

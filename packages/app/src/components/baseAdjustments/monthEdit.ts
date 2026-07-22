@@ -195,8 +195,17 @@ export function resolveRowsAtMonth(
 
 /**
  * Apply a routed line override to the standing lines — the one mutation the panel
- * performs on its own state. A `thisMonthOnly` override *replaces* any existing
- * override at the same month so repeated edits to the same point don't stack up.
+ * performs on its own state. An override *replaces* any existing override of the same
+ * scope at the same month, so repeated edits to the same point don't stack up.
+ *
+ * **A `fromHereForward` override supersedes every later one on that line.** Overrides
+ * are replayed in array order by `compileBudget`, and `SimCashFlowSeries.addOverride`
+ * drops the segments at or after the month it lands on — so editing month 100 after
+ * having edited month 300 leaves the line at the month-100 amount for the rest of the
+ * horizon. That is the intended reading of the gesture: "from here forward" means from
+ * here forward, and a later edit the user made earlier in the session does not get to
+ * outrank the more recent, earlier-in-time decision. The superseded entry stays in the
+ * array but no longer resolves anywhere, so it cannot resurrect.
  */
 export function applyLineOverride(
   lines: readonly BudgetLine[],

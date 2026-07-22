@@ -45,8 +45,9 @@ function expenseLine(
 /**
  * A prepopulated starter budget (AC3): housing, groceries, and transport as needs;
  * dining and subscriptions as wants. Amounts are round placeholders the user edits;
- * the tiers give the §15 waterfall a sensible funding order out of the box (needs
- * before wants), so a shortfall starves discretionary wants before essentials.
+ * the tiers group the budget the way a user reads it (essentials apart from
+ * discretionary). They do not ration anything: a tight month is absorbed by savings and
+ * then credit, never by dropping a line — see `perLineBudget.ts`.
  */
 export function defaultBudgetTemplate(): BudgetLineInput[] {
   return [

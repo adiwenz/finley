@@ -298,14 +298,11 @@ function buildIncomeSources(
  * uncovered obligation as a deficit on the first liquid account so the §5.1
  * cascade (called next) drains liquid assets before reaching for credit.
  *
- * Returns two facts the caller needs and cannot recompute:
- *   - `taxCents` — the tax charged this month (already reflected in take-home), which
- *     the §5.3 chokepoint is the only place to observe.
- *   - `shortfallCents` — the part of the shared obligation take-home (plus any
- *     liquidated assets already folded into `incomeSources`) could not cover, before
- *     the §5.1 cascade. This is a *cash-flow* gap, not a funding failure: it is posted
- *     against the liquid account, so savings absorb it silently. Only what survives
- *     the cascade (see {@link applyShortfallCascade}) is real starvation.
+ * Returns the tax charged this month (already reflected in take-home) — the §5.3
+ * chokepoint is the only place to observe it. The waterfall's own pre-cascade shortfall
+ * is deliberately NOT surfaced: it is a cash-flow gap, not a funding failure, since it
+ * is posted against the liquid account for savings to absorb. The only shortfall that
+ * means anything to a caller is the one that survives {@link applyShortfallCascade}.
  *
  * The per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
  */
@@ -316,7 +313,7 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): { taxCents: Cents; shortfallCents: Cents } {
+): Cents {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -363,14 +360,14 @@ function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  return { taxCents: result.taxCents, shortfallCents: result.shortfallCents };
+  return result.taxCents;
 }
 
 /**
- * The per-line *actually funded* map for this month (§Q27), keyed by each budget line's
+ * The per-line monthly map for this month (§Q27), keyed by each budget line's
  * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
  * lines the simulator runs today — contribution lines land in the #72 rewire) for their
- * amount for that month — the budget exactly as authored, span and dated overrides
+ * amount for that month — the budget exactly **as authored**, span and dated overrides
  * applied.
  *
  * The simulator deliberately does NOT reallocate a squeezed month across the §15
@@ -406,13 +403,13 @@ function computeLineMonthlyCents(
  * amount the household genuinely could not pay. Zero is the common case: the month was
  * paid for, whether out of take-home, by drawing savings down, or on credit.
  *
- * This is also the per-line starvation measure (§Q27), and the distinction it draws is
- * deliberate. The simulator never actually skips spending — an uncovered obligation is
- * posted against the liquid account and cascades onto credit — so reporting a line as
- * unfunded while the household is still solvent would describe money that was, in fact,
- * spent. A budget squeezed by a bad month is meant to be absorbed by savings; only when
- * there is nothing left to absorb it with has a line genuinely gone unfunded. That is
- * the same condition as `isInsolvent`, so the two are reported as one number.
+ * The distinction it draws is what makes a non-zero return meaningful. A budget squeezed
+ * by a bad month is meant to be absorbed — by savings first, then by credit — and the
+ * household still spent every dollar it budgeted. Only when there is nothing left to
+ * absorb it with has the plan actually failed, and that is what this reports: the §5.1
+ * terminal condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line
+ * is derived from it (see {@link computeLineMonthlyCents} for why the budget is reported
+ * as authored rather than rationed).
  */
 function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -710,9 +707,7 @@ export function simulateHousehold(
         ),
       ];
 
-      // Only the tax is read here: starvation is attributed from what the §5.1
-      // cascade could not absorb, not from this pre-cascade cash-flow gap.
-      const { taxCents } = allocateMonth(
+      const taxCents = allocateMonth(
         state,
         incomeSources,
         ctx,
