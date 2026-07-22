@@ -16,7 +16,11 @@ export const PLAN_DEFAULTS: Plan = {
   expenseOverrides: [],
   budgetLines: toBudgetLines(defaultBudgetTemplate()),
   openingBalanceCents: dollarsToCents(10000),
-  savingsReturnPct: 7,
+  // A cash buffer, not an investment: the engine never sells this account (it is the
+  // liquid one, excluded from liquidation) and spending is charged straight against
+  // it. An equity-like default here quietly financed the plan out of a savings
+  // account earning stock-market returns. User-settable; this is only the opening value.
+  savingsReturnPct: 1,
   retirementReturnPct: 7,
   brokerageReturnPct: 7,
   retirementDeferralPct: 0,
