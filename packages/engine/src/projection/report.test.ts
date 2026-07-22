@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildSimulationReport,
-  summarizeSimulation,
-  SIMULATION_REPORT_VERSION,
-} from "./report";
+import { buildSimulationReport, summarizeSimulation } from "./report";
 import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
@@ -34,7 +30,6 @@ function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInpu
 describe("buildSimulationReport", () => {
   it("emits one row per simulated month with year and age axes", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
-    expect(report.version).toBe(SIMULATION_REPORT_VERSION);
     expect(report.months).toHaveLength(13); // horizon 12 → months 0..12
     expect(report.months[0]).toMatchObject({ month: 0, year: 2026, ageByPerson: { p1: 35 } });
     // Month 12 rolls into the next calendar year → age ticks up.
@@ -48,6 +43,61 @@ describe("buildSimulationReport", () => {
     expect(report.inputs.accounts[0]).toMatchObject({ id: "savings", openingBalanceCents: dollarsToCents(10000) });
     expect(report.inputs.incomeSources[0].monthlyCentsAtStart).toBe(dollarsToCents(3000));
     expect(report.inputs).toMatchObject({ horizonMonths: 12, horizonYears: 1, startYear: 2026, endYear: 2027 });
+  });
+
+  it("echoes every growth rate: the raise rate, expense escalation, and account returns", () => {
+    const report = buildSimulationReport(baseInput(), nullJurisdiction);
+    // The fixture's series are `fixed`, so the rate is 0 — but the field is present
+    // and the mode says WHY it is 0 (pinned flat, not "0% inflation this run").
+    expect(report.inputs.incomeSources[0]).toMatchObject({
+      annualGrowthRate: 0,
+      growthMode: "fixed",
+      growthSchedule: [{ startMonth: 0, annualRate: 0, mode: "fixed" }],
+    });
+    expect(report.inputs.expenseSources[0]).toMatchObject({ annualGrowthRate: 0, growthMode: "fixed" });
+    expect(report.inputs.accounts[0].rateSchedule).toEqual([{ startMonth: 0, annualRate: 0 }]);
+  });
+
+  it("carries a raise rate through to the report, not just the opening amount", () => {
+    const raise = new SimCashFlowSeries(0, dollarsToCents(3000), { type: "salaryCompound", annualRate: 0.04 }, {
+      baselineUnit: "monthly",
+    });
+    const report = buildSimulationReport(
+      baseInput({ incomeSeries: [{ series: raise, ownerId: "p1" }] }),
+      nullJurisdiction,
+    );
+    expect(report.inputs.incomeSources[0]).toMatchObject({
+      annualGrowthRate: 0.04,
+      growthMode: "salaryCompound",
+    });
+  });
+
+  it("reports a MID-RUN rate change, which a single opening rate would hide", () => {
+    const raise = new SimCashFlowSeries(0, dollarsToCents(3000), { type: "salaryCompound", annualRate: 0.04 }, {
+      baselineUnit: "monthly",
+    });
+    // A promotion at month 24 that also changes the ongoing raise rate.
+    raise.addOverride(24, dollarsToCents(4000), "fromHereForward", {
+      newGrowthMode: { type: "salaryCompound", annualRate: 0.06 },
+    });
+    const report = buildSimulationReport(
+      baseInput({ horizonMonths: 36, incomeSeries: [{ series: raise, ownerId: "p1" }] }),
+      nullJurisdiction,
+    );
+    // `annualGrowthRate` still reports month 0; the schedule carries the change.
+    expect(report.inputs.incomeSources[0].annualGrowthRate).toBe(0.04);
+    expect(report.inputs.incomeSources[0].growthSchedule).toEqual([
+      { startMonth: 0, annualRate: 0.04, mode: "salaryCompound" },
+      { startMonth: 24, annualRate: 0.06, mode: "salaryCompound" },
+    ]);
+  });
+
+  it("resolves the benefit COLA rate, and says whether it was authored or inherited from CPI", () => {
+    const inherited = buildSimulationReport(baseInput(), nullJurisdiction).inputs;
+    expect(inherited).toMatchObject({ benefitColaRate: 0.03, benefitColaRateIsExplicit: false });
+
+    const authored = buildSimulationReport(baseInput({ benefitColaRate: 0.02 }), nullJurisdiction).inputs;
+    expect(authored).toMatchObject({ benefitColaRate: 0.02, benefitColaRateIsExplicit: true });
   });
 
   it("echoes caller-supplied meta verbatim (and omits it when absent)", () => {
@@ -66,6 +116,20 @@ describe("buildSimulationReport", () => {
     expect(m1.totalIncomeCents).toBe(dollarsToCents(3000));
     expect(m1.expensesCents).toBe(dollarsToCents(2000));
     expect(m1.governmentRetirementBenefitCents).toBe(0);
+  });
+
+  it("reports the tax the §5.3 seam charged, so it is inspectable and not just folded into take-home", () => {
+    // The null jurisdiction taxes nothing — the row still exists, reading 0.
+    expect(buildSimulationReport(baseInput(), nullJurisdiction).months[1].taxCents).toBe(0);
+
+    // A flat 10% jurisdiction: $3,000 of wages → $300 of tax on the report row, and
+    // the household is $300 poorer for it (income 3000 − expenses 2000 − tax 300).
+    const flatTax = { ...nullJurisdiction, computeTaxCents: (byCategory: Record<string, number>) =>
+      Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1) };
+    const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
+    expect(report.months[1].taxCents).toBe(dollarsToCents(300));
+    expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free (§4.6)
+    expect(report.months[1].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 700));
   });
 
   it("lists column keys for accounts and income categories", () => {

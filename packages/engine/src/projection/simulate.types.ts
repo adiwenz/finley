@@ -109,6 +109,13 @@ export interface ProjectionMonthFlows {
   readonly totalIncomeCents: Cents;
   /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
   readonly governmentRetirementBenefitCents: Cents;
+  /**
+   * Tax charged this month through the §5.3 jurisdiction seam, summed across every
+   * person. Already deducted from take-home by the waterfall — this is the reporting
+   * view of a figure the sim otherwise consumes silently, so `totalIncomeCents −
+   * taxCents` is the household's after-tax gross.
+   */
+  readonly taxCents: Cents;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
@@ -155,6 +162,13 @@ export interface SimPerson {
 export interface SimOwnedSeries {
   readonly series: SimCashFlowSeries;
   readonly ownerId: string;
+  /**
+   * Human-facing name for this stream ("Income", "Expenses", "Healthcare", or a
+   * budget line's own label). Diagnostic only — nothing in the simulation reads it.
+   * Without it a report can only number the series positionally, which tells a
+   * reader nothing about which line is which.
+   */
+  readonly label?: string;
   /**
    * Retirement-plan descriptor (§5.5) for an income source that funds a
    * person-owned account. Presence makes the source eligible for pre-tax deferral

@@ -68,7 +68,7 @@ function compileExpenseLine(line: BudgetLine, ownerId: string): SimOwnedSeries {
   for (const o of line.overrides ?? []) {
     series.addOverride(o.month, o.monthlyCents, o.scope);
   }
-  return { series, ownerId };
+  return { series, ownerId, label: line.label };
 }
 
 /**

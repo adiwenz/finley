@@ -299,7 +299,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
       ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID)
-      : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID }];
+      : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID, label: "Expenses" }];
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
@@ -308,6 +308,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const income: SimOwnedSeries = {
     series: incomeSeries,
     ownerId: PRIMARY_PERSON_ID,
+    label: "Income",
     planDescriptor:
       budget.retirementDeferralPct > 0
         ? { deferralFraction: budget.retirementDeferralPct / 100, fundAccountId: RETIREMENT_ID }
@@ -334,7 +335,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     initialIncomeSeries,
     initialExpenseSeries: [
       ...generalExpenseSeries,
-      { series: healthSeries, ownerId: PRIMARY_PERSON_ID },
+      { series: healthSeries, ownerId: PRIMARY_PERSON_ID, label: "Healthcare" },
     ],
     goals: buildPlanGoals(budget),
     sharedScheme: budget.sharedScheme,

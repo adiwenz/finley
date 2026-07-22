@@ -33,9 +33,14 @@ export function buildHouseholdSimInput(
     if (s.seriesType === "income") {
       // Preserve the §5.5 plan descriptor so plan-bearing income defers pre-tax
       // in the waterfall; expenses never carry one.
-      incomeSeries.push({ series: s.series, ownerId: s.ownerId, planDescriptor: s.planDescriptor });
+      incomeSeries.push({
+        series: s.series,
+        ownerId: s.ownerId,
+        label: s.label,
+        planDescriptor: s.planDescriptor,
+      });
     } else {
-      expenseSeries.push({ series: s.series, ownerId: s.ownerId });
+      expenseSeries.push({ series: s.series, ownerId: s.ownerId, label: s.label });
     }
   }
 

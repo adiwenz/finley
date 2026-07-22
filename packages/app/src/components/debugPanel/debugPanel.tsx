@@ -15,6 +15,8 @@ import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
 const pct = (whole: number) => `${whole}%`;
+/** A rate held as a FRACTION (0.03) rendered as a percentage ("3%"). */
+const ratePct = (fraction: number) => `${+(fraction * 100).toFixed(2)}%`;
 const yesNo = (b: boolean) => (b ? "yes" : "no");
 const targetDate = (d: number | "asap") => (d === "asap" ? "ASAP" : `month ${d}`);
 
@@ -43,6 +45,34 @@ function ConfigGroup({ title, rows }: { title: string; rows: readonly [string, R
       </dl>
     </div>
   );
+}
+
+/**
+ * Every per-series growth rate the run RESOLVED — the income "raise rate" and each
+ * expense line's escalation. These can only come from the report, never the plan:
+ * the plan carries no raise-rate field (income inherits CPI), and its single
+ * `healthInflationPct` compiles into a separate expense series with its own rate and
+ * its own mid-run step at Medicare age. So this group is the only place the rates the
+ * engine actually applied are visible.
+ */
+function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
+  const describe = (s: {
+    annualGrowthRate: number;
+    growthSchedule: readonly { annualRate: number }[];
+  }): ReactNode => {
+    // Annotate only when the RATE actually changes over the run. The health line
+    // carries two segments purely because its AMOUNT steps down at Medicare age —
+    // its rate never moves, so flagging "+1 change" there would be noise.
+    const rates = new Set(s.growthSchedule.map((g) => g.annualRate));
+    return rates.size > 1
+      ? `${ratePct(s.annualGrowthRate)} → ${ratePct([...rates].pop() ?? 0)}`
+      : ratePct(s.annualGrowthRate);
+  };
+  const rows: [string, ReactNode][] = [
+    ...inputs.incomeSources.map((s, i): [string, ReactNode] => [s.label ?? `Income ${i + 1}`, describe(s)]),
+    ...inputs.expenseSources.map((s, i): [string, ReactNode] => [s.label ?? `Expense ${i + 1}`, describe(s)]),
+  ];
+  return rows.length > 0 ? rows : [["—", "no series"]];
 }
 
 /** Every configurable knob, grouped — the authored plan plus resolved run facts. */
@@ -104,10 +134,15 @@ function Configuration({
         title="Inflation & levers"
         rows={[
           ["Inflation (CPI)", pct(budget.inflationPct)],
+          [
+            "SS COLA",
+            `${ratePct(inputs.benefitColaRate)}${inputs.benefitColaRateIsExplicit ? "" : " (from CPI)"}`,
+          ],
           ["Shared scheme", budget.sharedScheme],
           ["Leftover cash", budget.surplusSwept ? "swept to brokerage" : "idle in savings"],
         ]}
       />
+      <ConfigGroup title="Growth rates (resolved)" rows={growthRows(inputs)} />
       <ConfigGroup
         title={`Goals (${budget.goals.length})`}
         rows={
@@ -207,6 +242,7 @@ export function DebugPanel({
               ))}
               <th className={styles.group}>Income</th>
               <th>SS income</th>
+              <th>Tax</th>
               <th>Expenses</th>
               <th>Debt pmts</th>
               <th>Insolvent</th>
@@ -244,6 +280,7 @@ export function DebugPanel({
                 ))}
                 <td className={styles.group}>{formatDollars(m.totalIncomeCents)}</td>
                 <td>{formatDollars(m.governmentRetirementBenefitCents)}</td>
+                <td>{formatDollars(m.taxCents)}</td>
                 <td>{formatDollars(m.expensesCents)}</td>
                 <td>{formatDollars(m.liabilityPaymentsCents)}</td>
                 <td className={m.isInsolvent ? styles.flag : undefined}>

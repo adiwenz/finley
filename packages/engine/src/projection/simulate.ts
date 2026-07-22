@@ -307,7 +307,7 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): void {
+): Cents {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -353,6 +353,8 @@ function allocateMonth(
     const key = `${pid}|${ctx.year}`;
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
+
+  return result.taxCents;
 }
 
 /**
@@ -658,7 +660,14 @@ export function simulateHousehold(
         ),
       ];
 
-      allocateMonth(state, incomeSources, ctx, jurisdiction, expenseCents + totalPaymentsCents, month);
+      const taxCents = allocateMonth(
+        state,
+        incomeSources,
+        ctx,
+        jurisdiction,
+        expenseCents + totalPaymentsCents,
+        month,
+      );
       isInsolvent = applyShortfallCascade(state, month);
 
       applyAssetTransfers(state, month);
@@ -666,7 +675,7 @@ export function simulateHousehold(
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      flows = buildFlows(incomeSources, expenseCents, totalPaymentsCents);
+      flows = buildFlows(incomeSources, taxCents, expenseCents, totalPaymentsCents);
     }
 
     months.push(
