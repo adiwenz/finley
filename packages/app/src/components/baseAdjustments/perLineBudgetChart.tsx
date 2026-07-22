@@ -3,6 +3,7 @@ import {
   CartesianGrid,
   ComposedChart,
   ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -19,6 +20,12 @@ import { describeStarvation, type PerLineBudgetData } from "./perLineBudget";
  * to zero — and the starved span is shaded amber with a plain-language summary above
  * the chart (which doubles as the figure's accessible description).
  *
+ * The chart is also the **month picker**: clicking a point selects that month, marked
+ * with a vertical rule, and the editor below re-resolves every budget row to it. That
+ * is the whole "adjustment" gesture — pick a point, change a number, say how long.
+ * Selection is a controlled prop so the panel owns the month; the keyboard path to the
+ * same state lives beside the editor heading (Recharts clicks are pointer-only).
+ *
  * The summary and a hidden per-line data mirror are rendered independently of Recharts
  * so the behaviour is assertable without depending on SVG layout (Recharts needs a
  * real width, absent in jsdom).
@@ -29,8 +36,21 @@ const TIER_COLORS = ["#1f3a2e", "#3f7d5f", "#b5761f", "#c99a3f", "#8a8570"];
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const STARVE = "#b5761f";
+const MARKER = "#1f3a2e";
 
-export function PerLineBudgetChart({ data }: { data: PerLineBudgetData }) {
+export interface PerLineBudgetChartProps {
+  readonly data: PerLineBudgetData;
+  /** The month the editor is pointed at — marked with a vertical rule. */
+  readonly selectedMonth: number;
+  /** Called with the clicked month, so the panel can move the editor there. */
+  readonly onSelectMonth: (month: number) => void;
+}
+
+export function PerLineBudgetChart({
+  data,
+  selectedMonth,
+  onSelectMonth,
+}: PerLineBudgetChartProps) {
   const summary = describeStarvation(data);
   const rows = data.rows.map((r) => ({ month: r.month, ...r.fundedByLine }));
 
@@ -61,7 +81,15 @@ export function PerLineBudgetChart({ data }: { data: PerLineBudgetData }) {
       </output>
 
       <ResponsiveContainer width="100%" height={260}>
-        <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
+        <ComposedChart
+          data={rows}
+          margin={{ top: 12, right: 16, bottom: 8, left: 16 }}
+          style={{ cursor: "pointer" }}
+          onClick={(state: { activeLabel?: string | number } | null) => {
+            const label = Number(state?.activeLabel);
+            if (Number.isFinite(label)) onSelectMonth(label);
+          }}
+        >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="month"
@@ -90,6 +118,7 @@ export function PerLineBudgetChart({ data }: { data: PerLineBudgetData }) {
               fillOpacity={0.12}
             />
           ))}
+          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} ifOverflow="extendDomain" />
           {data.lines.map((line, i) => (
             <Area
               key={line.id}

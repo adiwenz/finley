@@ -320,4 +320,56 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
     // The coarse rollup remains the full intent (Plan), so the graph can show the gap.
     expect(flows?.expensesCents).toBe(dollarsToCents(6_000));
   });
+
+  it("keeps every line funded from savings between retirement and the first benefit", () => {
+    // The retirement gap: samplePlan retires at 60 and claims its benefit at 67, so
+    // ages 60–67 have NO income at all. A household with savings funds its budget by
+    // drawing them down — that is the plan working, not a starved budget, so the
+    // per-line map must stay at full intent throughout the gap.
+    const p = Projection.create({
+      plan: {
+        ...samplePlan,
+        openingBalanceCents: dollarsToCents(2_000_000),
+        retirementDeferralPct: 0,
+        surplusSwept: false,
+        goals: [],
+        healthMonthlyCents: 0,
+        postCoverageHealthMonthlyCents: 0,
+        enrollsInPublicHealthCoverage: false,
+      },
+      startYear: SAMPLE_START_YEAR,
+    });
+    p.addBudgetLine({
+      id: "rent",
+      label: "Rent",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
+      category: "needs",
+    });
+    p.addBudgetLine({
+      id: "fun",
+      label: "Fun",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+      category: "wants",
+    });
+
+    const months = p.run(nullJurisdiction).series.months;
+    // Age 63 — three years past retirement, four years before the benefit starts.
+    const gapMonth = (63 - samplePlan.currentAge) * 12;
+    const flows = months[gapMonth]?.flows;
+    expect(flows?.totalIncomeCents).toBe(0); // no paycheck, no benefit yet
+
+    // Fully funded = the funded lines add up to the month's whole intent. Asserted
+    // against the rollup rather than a literal, since a budget rises with prices.
+    const fundedTotal = (m: number): number =>
+      Object.values(months[m]?.flows?.lineFundedCents ?? {}).reduce((a, b) => a + b, 0);
+    expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);
+    expect(flows?.lineFundedCents[FUN]).toBeGreaterThan(0); // the first line to starve
+
+    // Nothing starves anywhere across the whole gap.
+    for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {
+      expect(fundedTotal(m)).toBe(months[m]?.flows?.expensesCents);
+    }
+  });
 });

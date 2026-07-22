@@ -44,7 +44,11 @@ describe("DebugPanel — resolved growth rates", () => {
 
   it("names each expense line separately, and does not mistake an amount step for a rate change", () => {
     const html = render(PLAN_DEFAULTS);
-    expect(html).toContain("<dt>Expenses</dt><dd>3%</dd>");
+    // The default plan authors a line-item budget, so each standing line is its own
+    // named series here rather than one lumped "Expenses" row. Every line is authored
+    // in today's dollars and rises with CPI.
+    expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
+    expect(html).toContain("<dt>Groceries</dt><dd>3%</dd>");
     // Health is a SEPARATE series with its own rate — and its amount step at Medicare
     // age must NOT read as a rate change, since the rate never moves.
     expect(html).toContain("<dt>Healthcare</dt><dd>3%</dd>");
@@ -58,9 +62,9 @@ describe("DebugPanel — resolved growth rates", () => {
 
 describe("DebugPanel — growth rate that actually changes", () => {
   it("shows a rate CHANGE as from → to, unlike a mere amount step", () => {
-    // Health inflation differing from CPI gives the two expense lines distinct rates.
+    // Health inflation differing from CPI gives the expense lines distinct rates.
     const html = render({ ...PLAN_DEFAULTS, healthInflationPct: 5 });
-    expect(html).toContain("<dt>Expenses</dt><dd>3%</dd>");
+    expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
     expect(html).toContain("<dt>Healthcare</dt><dd>5%</dd>");
   });
 });

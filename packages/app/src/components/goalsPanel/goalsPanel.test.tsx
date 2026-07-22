@@ -110,7 +110,7 @@ describe("GoalsPanel", () => {
 
 describe("BudgetEditor — person-partitioned panel with the four levers", () => {
   const html = renderToStaticMarkup(
-    <BudgetEditor budget={PLAN_DEFAULTS} setBudget={noop} scrubMonth={0} />,
+    <BudgetEditor budget={PLAN_DEFAULTS} setBudget={noop} />,
   );
 
   it("partitions into a member section plus a Shared section (§4.2)", () => {

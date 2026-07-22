@@ -139,7 +139,6 @@ export function App() {
             <BudgetEditor
               budget={budget}
               setBudget={setBudget}
-              scrubMonth={scrubMonth}
             />
           </div>
 
@@ -154,7 +153,7 @@ export function App() {
       </div>
 
       <div className="card">
-        <BaseAdjustmentsPanel plan={budget} />
+        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} />
       </div>
 
       <div className="card">

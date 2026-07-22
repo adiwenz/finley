@@ -29,17 +29,33 @@ const literalExpense = (id: string, monthly: number, over: Partial<BudgetLine> =
 });
 
 describe("compileExpenseBudgetLines", () => {
-  it("compiles a literal expense line to a flat monthly series", () => {
-    const [s] = compileExpenseBudgetLines([literalExpense("rent", dollarsToCents(2_000))], "p1");
+  it("compiles a literal expense line to a flat monthly series at a zero inflation rate", () => {
+    const [s] = compileExpenseBudgetLines([literalExpense("rent", dollarsToCents(2_000))], "p1", 0);
     expect(s.ownerId).toBe("p1");
     expect(s.series.getMonthlyCents(0)).toBe(dollarsToCents(2_000));
     expect(s.series.getMonthlyCents(120)).toBe(dollarsToCents(2_000)); // flat, no CPI growth
+  });
+
+  it("grows a line with inflation, like the scalar expense series it replaces", () => {
+    // A budget is authored in today's dollars. Compiling it flat would model a
+    // household whose spending never rises — over a lifetime that understates cost
+    // enough to move the retirement age by years.
+    const [s] = compileExpenseBudgetLines(
+      [literalExpense("rent", dollarsToCents(2_000))],
+      "p1",
+      0.03,
+    );
+    expect(s.series.getMonthlyCents(0)).toBe(dollarsToCents(2_000));
+    // Ten years of 3% compounding ≈ 2000 × 1.03^10 ≈ $2,688.
+    expect(s.series.getMonthlyCents(120)).toBeGreaterThan(dollarsToCents(2_600));
+    expect(s.series.getMonthlyCents(120)).toBeLessThan(dollarsToCents(2_750));
   });
 
   it("honors a line span: 0 before start, amount inside, 0 at/after the exclusive end", () => {
     const [s] = compileExpenseBudgetLines(
       [literalExpense("daycare", dollarsToCents(1_500), { span: { startMonth: 12, endMonth: 24 } })],
       "p1",
+      0,
     );
     expect(s.series.getMonthlyCents(11)).toBe(0);
     expect(s.series.getMonthlyCents(12)).toBe(dollarsToCents(1_500));
@@ -55,6 +71,7 @@ describe("compileExpenseBudgetLines", () => {
         }),
       ],
       "p1",
+      0,
     );
     expect(s.series.getMonthlyCents(35)).toBe(dollarsToCents(600));
     expect(s.series.getMonthlyCents(36)).toBe(dollarsToCents(900));
@@ -71,12 +88,12 @@ describe("compileExpenseBudgetLines", () => {
         amountSource: { kind: "fillToLimit" },
       },
     ];
-    expect(compileExpenseBudgetLines(lines, "p1")).toHaveLength(1);
+    expect(compileExpenseBudgetLines(lines, "p1", 0)).toHaveLength(1);
   });
 
   it("refuses a non-literal expense line (fill-to-limit / goal-paced are contribution behaviours)", () => {
     const bad = literalExpense("x", 0, { amountSource: { kind: "fillToLimit" } });
-    expect(() => compileExpenseBudgetLines([bad], "p1")).toThrow(/literal/);
+    expect(() => compileExpenseBudgetLines([bad], "p1", 0)).toThrow(/literal/);
   });
 });
 
@@ -94,18 +111,18 @@ describe("fillToLimitSeamFor", () => {
 });
 
 describe("createProjectionBase — the line-item budget drives spending (§12, AC1)", () => {
-  it("reproduces the scalar expense path when a single flat literal line replaces expenseCents", () => {
-    // A flat (fixed) literal line differs from the CPI-growing scalar line, so pick a
-    // scenario where that difference is what we assert: the line-item budget spends
-    // strictly LESS over time than the inflating scalar, ending richer.
+  it("reproduces the scalar expense path when a single literal line replaces expenseCents", () => {
+    // A budget line rises with prices exactly like the scalar `expenseCents` series it
+    // replaces, so one line carrying the whole scalar amount is indistinguishable from
+    // it — the parity that lets #72 delete the scalar path without moving any number.
     const scalar = project(samplePlan);
     const lineItem = project({
       ...samplePlan,
       budgetLines: [literalExpense("all-spend", samplePlan.expenseCents)],
     });
-    const endScalar = scalar.months.at(-1)!.netWorthNominalCents!;
-    const endLine = lineItem.months.at(-1)!.netWorthNominalCents!;
-    expect(endLine).toBeGreaterThan(endScalar);
+    expect(lineItem.months.at(-1)!.netWorthNominalCents).toBe(
+      scalar.months.at(-1)!.netWorthNominalCents,
+    );
   });
 
   it("spending more via the line-item budget leaves the household poorer (real driver, not a stub)", () => {
@@ -117,8 +134,11 @@ describe("createProjectionBase — the line-item budget drives spending (§12, A
       ...samplePlan,
       budgetLines: [literalExpense("spend", dollarsToCents(5_000))],
     });
-    expect(lean.months.at(-1)!.netWorthNominalCents!).toBeGreaterThan(
-      lavish.months.at(-1)!.netWorthNominalCents!,
+    // Compared mid-horizon: an inflating $5k/mo eventually exhausts the household and
+    // reports a null (insolvent) net worth, which is not a number to compare against.
+    const AT = 120;
+    expect(lean.months[AT]!.netWorthNominalCents!).toBeGreaterThan(
+      lavish.months[AT]!.netWorthNominalCents!,
     );
   });
 

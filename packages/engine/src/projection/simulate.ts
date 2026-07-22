@@ -304,7 +304,9 @@ function buildIncomeSources(
  *     the §5.3 chokepoint is the only place to observe.
  *   - `shortfallCents` — the part of the shared obligation take-home (plus any
  *     liquidated assets already folded into `incomeSources`) could not cover, before
- *     the §5.1 credit cascade; it drives the cascade and per-line starvation (§Q27).
+ *     the §5.1 cascade. This is a *cash-flow* gap, not a funding failure: it is posted
+ *     against the liquid account, so savings absorb it silently. Only what survives
+ *     the cascade (see {@link applyShortfallCascade}) is real starvation.
  *
  * The per-person annual deferral accumulator is updated so §5.4 caps hold across the year.
  */
@@ -369,17 +371,22 @@ function allocateMonth(
  * The per-line *actually funded* map for this month (§Q27), keyed by each budget line's
  * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
  * lines the simulator runs today — contribution lines land in the #72 rewire) for their
- * intent + §15 priority, then funds them in priority order against the cash the waterfall
- * could actually cover: the lines' total minus this month's household shortfall. In a
- * solvent month (shortfall 0) every line funds to its intent; in a shortfall the
- * lowest-priority lines starve first, so Plan and Result diverge exactly there and the
+ * intent + §15 priority, then funds them in priority order against what the household
+ * could actually pay out of take-home and savings: the lines' total minus the part
+ * §5.1 had to put on credit.
+ *
+ * The distinction matters most in retirement. A retiree between their last paycheck and
+ * their first benefit has no take-home at all, yet funds the whole budget by drawing
+ * savings down — so every line reads fully funded, as it should. A line starves only
+ * once savings are gone and the budget is running on credit, and then the
+ * lowest-priority lines go first, so Plan and Result diverge exactly there and the
  * starved line is named. Untagged series (scalar/health expense) are ignored — the map
  * is empty when the plan authors no budget lines.
  */
 function computeLineFundedCents(
   expenseSeries: readonly SimOwnedSeries[],
   month: number,
-  shortfallCents: Cents,
+  uncoveredCents: Cents,
 ): Record<string, Cents> {
   const intents: LineIntent[] = [];
   let linesTotal = 0;
@@ -394,22 +401,41 @@ function computeLineFundedCents(
     });
   }
   if (intents.length === 0) return {};
-  return fundLinesInPriorityOrder(intents, linesTotal - shortfallCents);
+  return fundLinesInPriorityOrder(intents, linesTotal - uncoveredCents);
 }
 
 /**
  * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
  * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
  * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
- * it too can be exhausted — #36). Returns true when every card's credit is used up and
- * a deficit remains: the plan is infeasible this month (`isInsolvent`).
+ * it too can be exhausted — #36).
+ *
+ * Reports two different failures, because §Q27 and §5.1 draw the line in different
+ * places:
+ *
+ *   - `uncoveredCents` — what savings could not absorb, i.e. the amount that had to go
+ *     onto credit. This is the per-line starvation measure. Spending **savings** is a
+ *     plan working as intended (a retiree between their last paycheck and their first
+ *     benefit has no take-home at all, yet funds the whole budget); reaching for a
+ *     **card** is the household failing to cover its budget, which is what the graph
+ *     should show as a starved line.
+ *   - `isInsolvent` — the §5.1 terminal flag: even the cards are exhausted.
+ *
+ * A month can be uncovered without being insolvent — that is exactly the case where
+ * the budget is being propped up by credit and the user should see it.
  */
-function applyShortfallCascade(state: SimState, month: number): boolean {
-  if (state.liquidAccount === null) return false;
+function applyShortfallCascade(
+  state: SimState,
+  month: number,
+): { uncoveredCents: Cents; isInsolvent: boolean } {
+  if (state.liquidAccount === null) return { uncoveredCents: 0, isInsolvent: false };
   const liquidBal = state.assetBalances.get(state.liquidAccount.id) ?? 0;
-  if (liquidBal >= 0) return false;
+  if (liquidBal >= 0) return { uncoveredCents: 0, isInsolvent: false };
 
-  let deficit = -liquidBal;
+  // Liquid only goes negative once savings are drained, so this IS the credit-funded
+  // part of the month — the honest starvation input.
+  const uncoveredCents = -liquidBal;
+  let deficit = uncoveredCents;
   state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
@@ -423,7 +449,7 @@ function applyShortfallCascade(state: SimState, month: number): boolean {
     state.liabilityBalances.set(card.id, currentBal + borrow);
     deficit -= borrow;
   }
-  return deficit > 0;
+  return { uncoveredCents, isInsolvent: deficit > 0 };
 }
 
 /** Step 8: one-time transfers to asset accounts (§3.2). Fixed + proportional; neither grows. */
@@ -700,7 +726,9 @@ export function simulateHousehold(
         ),
       ];
 
-      const { taxCents, shortfallCents } = allocateMonth(
+      // Only the tax is read here: starvation is attributed from what the §5.1
+      // cascade could not absorb, not from this pre-cascade cash-flow gap.
+      const { taxCents } = allocateMonth(
         state,
         incomeSources,
         ctx,
@@ -708,14 +736,17 @@ export function simulateHousehold(
         expenseCents + totalPaymentsCents,
         month,
       );
-      isInsolvent = applyShortfallCascade(state, month);
+      // What savings could not absorb (§Q27 starvation), and whether even credit ran out.
+      const cascade = applyShortfallCascade(state, month);
+      const uncoveredCents = cascade.uncoveredCents;
+      isInsolvent = cascade.isInsolvent;
 
       applyAssetTransfers(state, month);
       compoundAssets(state, month);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      const lineFundedCents = computeLineFundedCents(input.expenseSeries, month, shortfallCents);
+      const lineFundedCents = computeLineFundedCents(input.expenseSeries, month, uncoveredCents);
       flows = buildFlows(
         incomeSources,
         taxCents,

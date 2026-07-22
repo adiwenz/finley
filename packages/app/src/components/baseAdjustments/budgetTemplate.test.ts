@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { dollarsToCents } from "@finley/engine";
-import { defaultBudgetTemplate, quickstartFromIncome } from "./budgetTemplate";
+import { PLAN_DEFAULTS } from "../../planDefaults";
+import {
+  DEFAULT_TEMPLATE_TOTAL_CENTS,
+  defaultBudgetTemplate,
+  quickstartFromIncome,
+} from "./budgetTemplate";
 
 describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
   it("prepopulates a non-empty set of standing expense lines with stable ids", () => {
@@ -13,6 +18,17 @@ describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
     expect(new Set(lines.map((l) => l.id)).size).toBe(lines.length); // ids unique
     expect(lines.some((l) => l.category === "needs")).toBe(true);
     expect(lines.some((l) => l.category === "wants")).toBe(true);
+  });
+
+  it("spends exactly what the scalar default did, so itemizing changes authoring not amount", () => {
+    const total = defaultBudgetTemplate().reduce(
+      (sum, l) => sum + (l.amountSource as { monthlyCents: number }).monthlyCents,
+      0,
+    );
+    expect(total).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
+    // The scalar field the line-item budget replaced. If someone retunes the template
+    // without retuning this, the app's default retirement age moves silently.
+    expect(total).toBe(PLAN_DEFAULTS.expenseCents);
   });
 });
 
@@ -32,5 +48,23 @@ describe("quickstartFromIncome — the %-quickstart (§15, AC3)", () => {
     const lines = quickstartFromIncome(dollarsToCents(4_000));
     expect(lines.every((l) => l.amountSource.kind === "literal")).toBe(true);
     expect(lines.every((l) => l.target.kind === "expense")).toBe(true);
+  });
+
+  it("stops the savings line at retirement — a retiree draws savings down, not up", () => {
+    const savings = quickstartFromIncome(dollarsToCents(5_000), 240).find(
+      (l) => l.id === "savings",
+    );
+    expect(savings?.span).toEqual({ endMonth: 240 });
+  });
+
+  it("keeps needs and wants running past retirement — a retiree still eats", () => {
+    const lines = quickstartFromIncome(dollarsToCents(5_000), 240);
+    expect(lines.find((l) => l.id === "needs")?.span).toBeUndefined();
+    expect(lines.find((l) => l.id === "wants")?.span).toBeUndefined();
+  });
+
+  it("leaves the savings line open-ended when there is no retirement month", () => {
+    const savings = quickstartFromIncome(dollarsToCents(5_000)).find((l) => l.id === "savings");
+    expect(savings?.span).toBeUndefined();
   });
 });

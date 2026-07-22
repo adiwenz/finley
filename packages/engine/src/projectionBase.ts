@@ -298,7 +298,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // See issue 84.
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
-      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID)
+      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID, inflationRate)
       : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID, label: "Expenses" }];
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);

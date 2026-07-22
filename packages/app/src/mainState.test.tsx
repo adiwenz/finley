@@ -168,15 +168,26 @@ describe("App — budget edits", () => {
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
-  it("appends expense overrides without replacing earlier ones", () => {
+  // The scalar monthly-expenses control this once drove is gone: the line-item budget
+  // (Base + Adjustments) is the single source of truth for spending. Its equivalent
+  // guard — that overrides accumulate rather than replace one another — now lives in
+  // `baseAdjustments/monthEdit.test.ts` (applyLineOverride) and the panel's own tests.
+
+  it("drives the whole projection from a line-item budget edit", () => {
+    // The regression this guards: the Base + Adjustments panel used to hold the budget
+    // in its own state and project it separately, so raising spending past income moved
+    // its chart and nothing else — the net-worth graph never noticed.
+    const spy = vi.spyOn(engine, "createProjectionBase");
     render(<App />);
+    const callsAfterMount = spy.mock.calls.length;
 
-    for (let i = 0; i < 2; i++) {
-      // The editor button (not the snapshot panel's expense row of the same text).
-      fireEvent.click(screen.getByRole("button", { name: "$3,500/mo" }));
-      fireEvent.click(screen.getByText("From here forward"));
-    }
+    const housing = screen.getByRole("spinbutton", { name: /Housing/ });
+    fireEvent.change(housing, { target: { value: "9000" } }); // far past the $5,000 income
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
-    expect(screen.getAllByText(/From Year 0/)).toHaveLength(2);
+    // The app's projection base rebuilt, so every surface reflects the new budget.
+    expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
+    const lastPlan = spy.mock.calls.at(-1)?.[0];
+    expect(lastPlan?.budgetLines?.find((l) => l.id === "housing")?.overrides).toHaveLength(1);
   });
 });
