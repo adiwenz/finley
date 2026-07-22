@@ -39,7 +39,13 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
     case "RelationshipEvent":
       return { label: "Partnered", detail: `${e.person.name} joins the household` };
     case "ChildEvent":
-      return { label: "Had a child", detail: e.childName };
+      return {
+        label: "Had a child",
+        detail:
+          e.annualCostCents > 0
+            ? `${e.childName}, ${formatDollars(e.annualCostCents)}/yr`
+            : e.childName,
+      };
     case "SeparationEvent": {
       const bits: string[] = [];
       if (e.alimonyMonthlyCents > 0)
@@ -85,6 +91,8 @@ export function seriesLabel(s: SnapshotSeries): string {
       return "Alimony";
     case "childSupport":
       return "Child support";
+    case "childCost":
+      return "Child cost";
     case "base":
     case "budgetItem":
       return s.seriesType === "income" ? "Income" : "Expense";

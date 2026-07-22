@@ -71,13 +71,31 @@ const child: EventHandler<ChildEvent> = {
     }
     return ok;
   },
-  apply(event, state) {
+  apply(event, state, context) {
     state.childrenById.set(asChildId(event.childId), {
       id: event.childId,
       name: event.childName,
       birthMonth: event.birthMonth,
       causedByEventId: event.id,
     });
+    // A positive annual cost spawns a linked child-cost expense: bounded to
+    // exactly 18 years from birth (mirroring alimony's bounded shape) and
+    // inflation-linked so it stays real across that span (§4.1). The annual
+    // amount is the source of truth — the series distributes it (no pre-round, §4).
+    if (event.annualCostCents > 0) {
+      const CHILD_COST_YEARS = 18;
+      addSeries(state, {
+        id: asSeriesId(`${event.id}:childCost`),
+        causedByEventId: event.id,
+        role: "childCost",
+        ownerId: asPersonId(event.childId),
+        seriesType: "expense",
+        startMonth: event.birthMonth,
+        endMonth: event.birthMonth + CHILD_COST_YEARS * 12 - 1,
+        baseline: { unit: "annual", annualCents: event.annualCostCents },
+        growthMode: { type: "inflationLinked", annualRate: context.annualInflationRate },
+      });
+    }
   },
 };
 

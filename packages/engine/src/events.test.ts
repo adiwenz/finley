@@ -558,8 +558,8 @@ describe("event validation", () => {
   it("validateLedgerStructure rejects a duplicate event id", () => {
     const dup: Ledger = {
       events: [
-        { id: "x", type: "ChildEvent", sequenceNumber: 0, month: 0, childId: "k1", childName: "A", birthMonth: 0 },
-        { id: "x", type: "ChildEvent", sequenceNumber: 1, month: 0, childId: "k2", childName: "B", birthMonth: 0 },
+        { id: "x", type: "ChildEvent", sequenceNumber: 0, month: 0, childId: "k1", childName: "A", birthMonth: 0, annualCostCents: 0 },
+        { id: "x", type: "ChildEvent", sequenceNumber: 1, month: 0, childId: "k2", childName: "B", birthMonth: 0, annualCostCents: 0 },
       ],
       nextSequenceNumber: 2,
     };
@@ -668,10 +668,55 @@ describe("ChildEvent", () => {
       childId: "kid1",
       childName: "Charlie",
       birthMonth: 3,
+      annualCostCents: 0,
     });
     // Replay doesn't crash; child entity is tracked internally.
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
     expect(series.months.length).toBe(13);
+  });
+
+  it("annual cost spawns a bounded 18-year childCost expense that reduces net worth", () => {
+    const cfg: LedgerBaseConfig = {
+      ...baseConfig,
+      initialAccounts: [makeLiquidAccount("checking", dollarsToCents(12_000))],
+    };
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "c1",
+      type: "ChildEvent",
+      month: 0,
+      childId: "kid1",
+      childName: "Charlie",
+      birthMonth: 0,
+      // $12,000/yr = $1,000/mo — over the 12-month horizon drains the account.
+      annualCostCents: dollarsToCents(12_000),
+    });
+    const series = replayLedger(ledger, cfg, nullJurisdiction);
+    expect(series.months[12].netWorthNominalCents).toBe(0);
+
+    // The derived series is a childCost expense bounded to exactly 18 years.
+    const household = interpretLedger(ledger, cfg);
+    const cost = household.series.find((s) => s.role === "childCost")!;
+    expect(cost).toBeDefined();
+    expect(cost.seriesType).toBe("expense");
+    expect(cost.causedByEventId).toBe("c1");
+    expect(cost.startMonth).toBe(0);
+    expect(cost.endMonth).toBe(18 * 12 - 1);
+  });
+
+  it("a zero annual cost creates no childCost expense", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "c1",
+      type: "ChildEvent",
+      month: 0,
+      childId: "kid1",
+      childName: "Charlie",
+      birthMonth: 0,
+      annualCostCents: 0,
+    });
+    const household = interpretLedger(ledger, baseConfig);
+    expect(household.series.some((s) => s.role === "childCost")).toBe(false);
   });
 });
 

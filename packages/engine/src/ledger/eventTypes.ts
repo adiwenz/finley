@@ -52,12 +52,20 @@ export interface RelationshipEvent extends EventBase {
   readonly person: SimPerson;
 }
 
-/** Records a child. Affects expenses only if explicit expense events follow. */
+/**
+ * Records a child and its recurring cost. A positive `annualCostCents` spawns a
+ * linked child-cost expense (role `childCost`) running from `birthMonth` for
+ * exactly 18 years; the expense is tagged with this event's id, so undoing the
+ * child removes it via the dependency machinery. A zero cost records the child
+ * with no financial effect.
+ */
 export interface ChildEvent extends EventBase, CausedByFields {
   readonly type: "ChildEvent";
   readonly childId: string;
   readonly childName: string;
   readonly birthMonth: number;
+  /** Annual cost of the child in today's dollars; 0 for no cost (cents). */
+  readonly annualCostCents: Cents;
 }
 
 /**
@@ -208,7 +216,8 @@ export type SeriesRole =
   | "primaryIncome"
   | "budgetItem"
   | "alimony"
-  | "childSupport";
+  | "childSupport"
+  | "childCost";
 
 /**
  * How a series' baseline amount is expressed (§4). Annual baselines stay the

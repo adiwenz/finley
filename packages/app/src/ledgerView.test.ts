@@ -35,6 +35,7 @@ describe("summarizeEvent — one plain-language label per structural change", ()
       childId: "kid1",
       childName: "Robin",
       birthMonth: 24,
+      annualCostCents: 0,
     });
     expect(s.label).toBe("Had a child");
     expect(s.detail).toContain("Robin");
@@ -81,6 +82,7 @@ describe("timelineMarkers", () => {
       childId: "kid1",
       childName: "Robin",
       birthMonth: 24,
+      annualCostCents: 0,
     });
     ledger = add(ledger, {
       id: "j1",
@@ -108,6 +110,7 @@ describe("splitMarkers", () => {
       childId: "kid1",
       childName: "Robin",
       birthMonth: 12,
+      annualCostCents: 0,
     });
     ledger = add(ledger, {
       id: "c2",
@@ -116,6 +119,7 @@ describe("splitMarkers", () => {
       childId: "kid2",
       childName: "Sky",
       birthMonth: 48,
+      annualCostCents: 0,
     });
     const { passed, upcoming } = splitMarkers(ledger, 24);
     expect(passed.map((m) => m.id)).toEqual(["c1"]);
