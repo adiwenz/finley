@@ -34,9 +34,11 @@ export interface WithdrawalState {
  * The **tax-efficient default** order investment accounts are liquidated in during
  * decumulation (§16, D2), keyed by the account's neutral
  * {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
- * `capitalGains` first (brokerage + eligible goal funds, least tax friction — no
- * gross-up), then `ordinaryIncome` (taxed like an RMD), then `taxExempt` last
- * (preserve tax-free growth). Earlier in the list = drawn first.
+ * `capitalGains` first (brokerage + eligible goal funds, least tax friction under a
+ * preferential-rate regime), then `ordinaryIncome` (taxed like an RMD), then
+ * `taxExempt` last (preserve tax-free growth). Earlier in the list = drawn first.
+ * Every category is grossed up to net its need (#100); the order ranks them by how
+ * much tax that gross-up tends to cost, not by which ones are taxed at all.
  *
  * This is the DEFAULT, not a fixed rule: {@link buildWithdrawalSources} accepts an
  * override (§16 "overridable"), so a plan can, say, spend a tax-exempt account first
@@ -49,6 +51,21 @@ export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
   "ordinaryIncome",
   "taxExempt",
 ];
+
+/**
+ * Backstop on the gross-up climb in {@link buildWithdrawalSources} — a guard against a
+ * pathological seam spinning forever, NOT a tuning knob. The loop exits the moment it
+ * converges, so this bound is only reached by seams that never do.
+ *
+ * Set it high because exhausting it fails QUIETLY: the climb stops short of the fixed
+ * point, the draw lands light, and the shortfall rides to next month — the very leak
+ * this channel exists to prevent. Each step closes the remaining gap by the marginal
+ * rate, so the count scales with both the rate and the size of the need: `usJurisdiction`
+ * (max rate 0.6845, the 1.85x Social Security "torpedo" against the 37% bracket) settles
+ * in 37 steps on a $10k need and 56 on a $10M one, while a hypothetical 0.9-rate seam
+ * would want ~200. A realistic draw converges in about a dozen.
+ */
+const GROSS_UP_ITERATIONS = 1_000;
 
 /** Rank map (category → position) built from an ordered liquidation list. */
 function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCategory, number>> {
@@ -149,17 +166,41 @@ function estimateNetIncome(
  * spent first (D2), so the channel only liquidates investments for `gap − liquidBuffer`.
  * Sources are drawn in {@link DEFAULT_LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt),
  * or in a caller-supplied `liquidationOrder` override (§16 overridable), and
- * gated by {@link isLiquidatable}. Non-pre-tax draws inject as a non-taxable category
- * (net one-for-one, no gross-up); pre-tax draws inject as `ordinaryIncome`, grossed up
- * by a marginal rate differenced from `computeTaxCents` so the net still covers the
- * need (D3). The estimate is single-pass; the small residual self-corrects next month.
+ * gated by {@link isLiquidatable}. EVERY draw injects at its account's own withdrawal
+ * category and is grossed up so its net still covers the need (D3): the draw is solved
+ * as the least fixed point of `gross = need + inducedTax(gross)`, where the induced tax
+ * is `computeTaxCents` differenced over the WHOLE return (base vs base-plus-draw). Two
+ * consequences follow. A draw taxed at 0% on its own but pulling a government benefit
+ * into provisional-income taxability is still sized to net the need (#100), because the
+ * whole-return difference sees the benefit it drags in. And the draw nets the need
+ * EXACTLY rather than approximately — a fixed point satisfies `gross − tax = need` by
+ * construction — where inverting an implied rate (`need / (1 − rate)`) assumes tax scales
+ * proportionally with the draw and so falls short against a real bracket, which sits at
+ * `offset + rate × draw`. A genuinely untaxed draw nets one-for-one, the fixed point
+ * being `need` itself.
+ *
+ * Two limits of this sizing, both about what the seam is assumed to look like. Neither
+ * binds `usJurisdiction`, and both are things a NEW jurisdiction could walk into:
+ *
+ * 1. The climb assumes the seam is MONOTONE — a larger draw never owes less tax. That is
+ *    what makes a rising sequence stop at the least (cheapest) solution rather than
+ *    oscillate. A refundable credit that phases IN over the draw (EITC-shaped: more
+ *    income buys a bigger credit, so net tax FALLS) breaks the assumption, and the loop
+ *    would return whatever it happened to hold when the iteration budget ran out.
+ * 2. The draw is only ever sized UP from `need`, never down. Under a notch — a threshold
+ *    that taxes the whole return more once crossed, rather than just the excess, as
+ *    Australia's Medicare Levy Surcharge does — deliberately drawing LESS and carrying a
+ *    small shortfall can leave the household better off than paying the lump. This
+ *    channel cannot express that: it will cross the notch, and if the lump outruns the
+ *    balance it empties the account. Nothing in a bracket-and-phase-in seam has a notch,
+ *    so this is latent (#107).
  *
  * RMD interaction (no double-withdraw): RMD sources are already in `nonWithdrawalSources`,
  * so their income shrinks the gap and their forced pre-tax draw already reduced the
  * balances here — total pre-tax drawn settles at `max(desired, required)` without an
  * additive draw (the full binding + its dedicated tests stay in #32).
  *
- * Absent tax seam (v1 null jurisdiction) → tax is 0, so pre-tax draws net one-for-one.
+ * Absent tax seam (v1 null jurisdiction) → tax is 0, so every draw nets one-for-one.
  */
 export function buildWithdrawalSources(
   state: WithdrawalState,
@@ -203,42 +244,47 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
-    // A withdrawal that produces ordinary income is taxed in full at the chokepoint,
-    // so it must be grossed up to net the need; a capital-gains / tax-exempt draw
-    // lands one-for-one in v1 (the jurisdiction taxes 0 of it today). "Whole draw is
-    // ordinary income" is the neutral signal, not a US vehicle string.
-    if (withdrawalCategory === "ordinaryIncome") {
-      // Gross up so the withdrawal NETS the needed cash (D3): difference the tax
-      // seam at the owner's running taxable income to get the marginal rate on the
-      // draw. Cap the gross at the balance; the net it actually delivers reduces the
-      // remaining need, and the owner's taxable base rises for any later draw.
-      const base = taxableByOwner.get(account.ownerId) ?? {};
-      const withDraw = (draw: Cents): TaxableByCategory => ({
-        ...base,
-        ordinaryIncome: (base.ordinaryIncome ?? 0) + draw,
-      });
-      const baseTax = computeTaxCents(base);
-      const marginalTax = computeTaxCents(withDraw(need)) - baseTax;
-      const marginalRate = Math.min(0.99, Math.max(0, marginalTax / need));
-      const grossWanted = Math.ceil(need / (1 - marginalRate));
-      const gross = Math.min(balance, grossWanted);
-      const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
-      const netDelivered = gross - taxOnGross;
-
-      state.assetBalances.set(account.id, balance - gross);
-      taxableByOwner.set(account.ownerId, withDraw(gross));
-      need -= netDelivered;
-      sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: "ordinaryIncome" });
-    } else {
-      // A capital-gains / tax-exempt draw injects at its own withdrawal category and
-      // nets one-for-one in v1 (the jurisdiction taxes 0 of it today — basis
-      // tracking and preferential rates are a later slice). The category is the
-      // account's own neutral provenance, never a US vehicle string.
-      const gross = Math.min(balance, need);
-      state.assetBalances.set(account.id, balance - gross);
-      need -= gross;
-      sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: withdrawalCategory });
+    // Difference the tax over the WHOLE return, not the draw's own-category rate: a
+    // capital-gains / tax-exempt draw can read as 0% on its own yet still raise the
+    // return's tax by pulling a government benefit into provisional-income taxability
+    // (#100), and an own-category rate would multiply by 0 and miss it. The category is
+    // the account's own neutral provenance, never a US vehicle string.
+    const base = taxableByOwner.get(account.ownerId) ?? {};
+    const withDraw = (draw: Cents): TaxableByCategory => ({
+      ...base,
+      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + draw,
+    });
+    const baseTax = computeTaxCents(base);
+    const inducedTax = (draw: Cents): Cents => computeTaxCents(withDraw(draw)) - baseTax;
+    // Sizing the draw is circular: the tax depends on the draw, and the draw has to
+    // cover the tax. Solve it by climbing to the least fixed point of
+    // `gross = need + inducedTax(gross)` (see the doc above for why a fixed point is the
+    // right target and why the closed-form inversion is not). Climb from `need` rather
+    // than down from a guess — since the tax only rises with the draw, a rising sequence
+    // stops at the FIRST solution, and a first solution is the cheapest liquidation that
+    // nets the need. Iterate rather than invert because `computeTaxCents` is a black box:
+    // the jurisdiction supplies it, so its form is unknown here by construction.
+    let gross = Math.min(balance, need);
+    for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
+      const wanted = need + inducedTax(gross);
+      // The account cannot cover its own gross-up: take what is there and let the rest
+      // of the need fall to the next source in the liquidation order.
+      if (wanted >= balance) {
+        gross = balance;
+        break;
+      }
+      if (wanted === gross) break;
+      gross = wanted;
     }
+    // The net this actually delivers reduces the remaining need, and the owner's taxable
+    // base rises for any later draw.
+    const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
+    const netDelivered = gross - taxOnGross;
+
+    state.assetBalances.set(account.id, balance - gross);
+    taxableByOwner.set(account.ownerId, withDraw(gross));
+    need -= netDelivered;
+    sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: withdrawalCategory });
   }
 
   return sources;

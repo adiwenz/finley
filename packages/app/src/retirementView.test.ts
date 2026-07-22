@@ -9,6 +9,11 @@ import {
   addEvent,
   emptyLedger,
   PRIMARY_PERSON_ID,
+  SimAccount,
+  CAPITAL_GAINS_TAX_PROFILE,
+  buildWithdrawalSources,
+  type WithdrawalState,
+  type JurisdictionContext,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -284,5 +289,90 @@ describe("retirementView — the timeline events count toward retirement (issue 
     // would be equal — this is the regression guard for that.
     expect(baselineAge).toBe(62);
     expect(withChildAge as number).toBeGreaterThan(62);
+  });
+});
+
+/**
+ * #100 — sweeping surplus into the brokerage must not make retirement WORSE. Before the
+ * fix, a capital-gains withdrawal was injected one-for-one with no gross-up, so under
+ * the real US jurisdiction it under-delivered by the tax it induced on the Social
+ * Security benefit (provisional income). The permanent monthly shortfall accrued to the
+ * §5.1 synthetic card at 22% APR until it tripped `isInsolvent` — with millions still in
+ * the brokerage — so `surplusSwept: true` reported a strictly LATER feasible age than
+ * leaving the surplus idle. These pin the whole-return gross-up end to end against the
+ * real jurisdiction (the swept run holds and now retires earlier, not later).
+ */
+describe("retirementView — surplus sweep does not make retirement worse (#100)", () => {
+  const swept: Plan = { ...PLAN_DEFAULTS, surplusSwept: true };
+  const idle: Plan = { ...PLAN_DEFAULTS, surplusSwept: false };
+
+  it("does not push the earliest feasible retirement age later than leaving surplus idle (AC2)", () => {
+    const sweptAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge;
+    const idleAge = solveRetirement(scenarioOf(idle), CTX).fullRetirementAge;
+    expect(sweptAge).not.toBeNull();
+    expect(idleAge).not.toBeNull();
+    // Sweeping surplus into a 7% brokerage produces far more wealth than a 1% cash
+    // buffer, so it must reach feasibility no later — and in fact earlier.
+    expect(sweptAge as number).toBeLessThanOrEqual(idleAge as number);
+    expect(sweptAge as number).toBeLessThan(idleAge as number);
+  });
+
+  it("does not reach insolvency on revolving-card interest while holding liquidatable assets, across the full horizon (AC3, AC4)", () => {
+    const feasibleAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge as number;
+    const series = projectScenario(scenarioOf({ ...swept, retirementAge: feasibleAge }), CTX);
+    let maxCardCents = 0;
+    for (const month of series.months) {
+      // A household holding millions in a brokerage must never be flagged insolvent.
+      expect(month.isInsolvent).toBe(false);
+      for (const bal of Object.values(month.liabilityBalancesCents)) {
+        maxCardCents = Math.max(maxCardCents, bal);
+      }
+    }
+    // The synthetic card never grinds upward: with the draw netting the need, only the
+    // single-pass residual ever touches it — cents, not the $50k limit it used to hit.
+    expect(maxCardCents).toBeLessThan(dollarsToCents(100));
+    // The plan genuinely lasts to life expectancy at this age.
+    expect(realNetWorthSurvives(series)).toBe(true);
+  });
+});
+
+describe("every draw nets its need under the real jurisdiction (#100)", () => {
+  // The engine's own #100 tests model the tax seam with synthetic jurisdictions, since
+  // the engine cannot import the rules package. This is the proof against the seam that
+  // actually ships. It is a REAL shortfall guard, not a hypothetical: sizing the draw by
+  // inverting an implied rate (`need / (1 − rate)`) under-delivered by $500.61 on a $50k
+  // need here, because a bracket is `offset + rate × draw` rather than proportional to
+  // the draw. Solving `gross = need + inducedTax(gross)` instead nets the need exactly.
+  it.each([1_000, 5_000, 20_000, 50_000])("nets a $%i need to the cent", (needDollars) => {
+    const opening = dollarsToCents(5_000_000);
+    const brokerage = new SimAccount({
+      id: "brokerage",
+      ownerId: PRIMARY_PERSON_ID,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: opening,
+      initialAnnualRate: 0,
+    });
+    const state: WithdrawalState = {
+      accounts: [brokerage],
+      assetBalances: new Map([["brokerage", opening]]),
+      liquidAccount: null,
+      goals: [],
+    };
+    const need = dollarsToCents(needDollars);
+    const ctx: JurisdictionContext = { year: START_YEAR };
+    const sources = buildWithdrawalSources(state, usJurisdiction, 1, [], need, ctx);
+
+    // Re-file the draws as a tax return and check what the household actually keeps.
+    const byCategory: Record<string, number> = {};
+    for (const s of sources) {
+      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.grossCents;
+    }
+    const gross = sources.reduce((sum, s) => sum + s.grossCents, 0);
+    const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
+    expect(net).toBeGreaterThanOrEqual(need);
+    // Exactly the need, not merely enough: a fixed point satisfies `gross − tax = need`,
+    // so an overshoot would mean liquidating more than the household has to.
+    expect(net).toBe(need);
   });
 });

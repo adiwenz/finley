@@ -388,3 +388,191 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     expect(DEFAULT_LIQUIDATION_ORDER).toEqual(["capitalGains", "ordinaryIncome", "taxExempt"]);
   });
 });
+
+describe("Every taxed draw nets the need — whole-return gross-up (#100)", () => {
+  const ctx = { year: 2026 };
+
+  /** A withdrawal state over the given accounts, each seeded to `dollars`. */
+  function state(accounts: SimAccount[], dollarsById: Record<string, number>): WithdrawalState {
+    const assetBalances = new Map<string, number>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return { accounts, assetBalances, liquidAccount: null, goals: [] };
+  }
+
+  /**
+   * The household's actual after-tax income across ALL sources combined — the number
+   * the obligations are funded from. Sums the gross and subtracts each owner's tax on
+   * the COMBINED per-category map (tax is computed once at the §5.3 chokepoint over the
+   * whole return, so category interactions — a draw pulling a benefit into taxability —
+   * are captured here exactly as the simulator would).
+   */
+  function householdNetCents(
+    sources: readonly IncomeSourceMonth[],
+    jurisdiction: Jurisdiction,
+  ): number {
+    const byOwner = new Map<string, Record<string, number>>();
+    let gross = 0;
+    for (const s of sources) {
+      gross += s.grossCents;
+      const map = byOwner.get(s.ownerId) ?? {};
+      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + s.grossCents;
+      byOwner.set(s.ownerId, map);
+    }
+    let tax = 0;
+    for (const map of byOwner.values()) tax += jurisdiction.computeTaxCents(map, ctx);
+    return gross - tax;
+  }
+
+  /**
+   * A jurisdiction modelling the provisional-income trap at the heart of #100: a
+   * capital-gains draw is taxed at 0% on its OWN, and the government benefit is taxed
+   * at 0% on its OWN, but the draw pulls the benefit into taxability — so tax lands on
+   * income the household already had. A per-category own-rate gross-up (×0%) cannot see
+   * this; only differencing the whole return can.
+   */
+  const provisionalTrap: Jurisdiction = {
+    id: "provisional-trap",
+    computeTaxCents: (byCat) => {
+      const benefit = byCat.governmentRetirementBenefit ?? 0;
+      if (benefit === 0) return 0;
+      const other =
+        (byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0) + (byCat.taxExempt ?? 0);
+      const provisional = other + Math.round(benefit * 0.5);
+      const taxableBenefit = Math.max(
+        0,
+        Math.min(benefit, provisional - dollarsToCents(1_000)),
+      );
+      return Math.round(taxableBenefit * 0.25);
+    },
+  };
+
+  it("sizes a 0%-rate capital-gains draw that pulls a benefit into taxability to net the need (AC5)", () => {
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
+    const st = state(accounts, { brokerage: 100_000 });
+    // A $2k benefit already booked as income; obligations are $3k → a $1k net need must
+    // come from the brokerage. On its own the draw AND the benefit each tax at 0%, so a
+    // naive one-for-one draw under-delivers by exactly the tax it induces on the benefit.
+    const benefit: IncomeSourceMonth[] = [
+      { ownerId: "p1", grossCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
+    ];
+    const sources = buildWithdrawalSources(
+      st,
+      provisionalTrap,
+      1,
+      benefit,
+      dollarsToCents(3_000),
+      ctx,
+    );
+    // The whole return (benefit + draw) must net at least the $3k of obligations.
+    const net = householdNetCents([...benefit, ...sources], provisionalTrap);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(3_000));
+    // The draw was grossed up above the bare $1k need to absorb the induced tax.
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBeGreaterThan(dollarsToCents(1_000));
+  });
+
+  it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need (AC1)", () => {
+    // A flat 20% tax on the capitalGains category — the draw's own rate is non-zero
+    // here, but the point is the same: the sized draw must net the need, not the gross.
+    const flatGains: Jurisdiction = {
+      id: "flat-gains-20",
+      computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.2),
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
+    const st = state(accounts, { brokerage: 100_000 });
+    const sources = buildWithdrawalSources(st, flatGains, 1, [], dollarsToCents(2_000), ctx);
+    const net = householdNetCents(sources, flatGains);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(2_000));
+    // Gross ≈ 2000 / (1 − 0.20) = $2,500 leaves the brokerage.
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
+    expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_501));
+  });
+
+  it("sizes the draw to need + the LUMP when a cliff induces a fixed tax, not 100x the need", () => {
+    // A discontinuous seam: crossing $30k of non-benefit income makes the ENTIRE
+    // benefit taxable at 50% at once. The induced tax is a lump — the same $50k at any
+    // draw past the cliff — so the proportional model behind `need / (1 − rate)` does
+    // not apply. Sizing off the implied rate (50k tax on a 1k draw reads as 5000%,
+    // clamped to 99%) would draw 100 × the need; the fixed point lands on need + lump.
+    const cliff: Jurisdiction = {
+      id: "cliff-50",
+      computeTaxCents: (byCat) => {
+        const benefit = byCat.governmentRetirementBenefit ?? 0;
+        const other =
+          (byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0) + (byCat.taxExempt ?? 0);
+        return other > dollarsToCents(30_000) ? Math.round(benefit * 0.5) : 0;
+      },
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
+    const st = state(accounts, { brokerage: 500_000 });
+    // A $100k benefit plus $29.5k of gains sits just under the cliff, so the base tax
+    // is 0. Funding $1k more tips the household over it.
+    const booked: IncomeSourceMonth[] = [
+      { ownerId: "p1", grossCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
+      { ownerId: "p1", grossCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
+    ];
+    const sources = buildWithdrawalSources(
+      st,
+      cliff,
+      1,
+      booked,
+      dollarsToCents(130_500), // $129.5k already booked + $1k of unfunded need
+      ctx,
+    );
+    // The draw still nets the need — the whole point of the gross-up survives.
+    const net = householdNetCents([...booked, ...sources], cliff);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(130_500));
+    // ...and it costs need + lump ($51k), NOT the clamp's 100 × need ($100k).
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBe(dollarsToCents(51_000));
+  });
+
+  it("spills to the next source when an account cannot cover its own gross-up", () => {
+    // A flat 20% on both categories. The brokerage holds $1k against a $10k need, so it
+    // cannot fund even its own gross-up — it empties, delivers its $800 net, and the
+    // REMAINING need (not the original) grosses up against the pre-tax account behind it.
+    const flat20: Jurisdiction = {
+      id: "flat-20",
+      computeTaxCents: (byCat) =>
+        Math.round(((byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.2),
+    };
+    const accounts = [
+      account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 1_000),
+      account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+    ];
+    const st = state(accounts, { brokerage: 1_000, pretax: 100_000 });
+    const sources = buildWithdrawalSources(st, flat20, 1, [], dollarsToCents(10_000), ctx);
+
+    // The brokerage is emptied, not overdrawn.
+    expect(st.assetBalances.get("brokerage")).toBe(0);
+    // It netted $800 of the $10k, leaving $9,200 to gross up at 20% → $11,500 pre-tax.
+    expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(100_000 - 11_500));
+    // And the household still ends up with the full obligation covered.
+    expect(householdNetCents(sources, flat20)).toBeGreaterThanOrEqual(dollarsToCents(10_000));
+  });
+
+  it("takes the LEAST draw that nets the need when two cliffs offer more than one", () => {
+    // Two cliffs stack two lumps. Both $3k and $45k are genuine solutions here — each
+    // nets exactly $1k — because a step tax makes `need + lump` a fixed point inside
+    // every region it lands in. Climbing from `need` finds the cheap one; descending
+    // from the closed-form guess ($100k, the clamp) would settle on the $45k one and
+    // liquidate 15x more than the household needs.
+    const twoCliffs: Jurisdiction = {
+      id: "two-cliffs",
+      computeTaxCents: (byCat) => {
+        const draw = byCat.capitalGains ?? 0;
+        if (draw > dollarsToCents(4_000)) return dollarsToCents(44_000);
+        if (draw > dollarsToCents(500)) return dollarsToCents(2_000);
+        return 0;
+      },
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
+    const st = state(accounts, { brokerage: 500_000 });
+    const sources = buildWithdrawalSources(st, twoCliffs, 1, [], dollarsToCents(1_000), ctx);
+    const net = householdNetCents(sources, twoCliffs);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(1_000));
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBe(dollarsToCents(3_000));
+  });
+});
