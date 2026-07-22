@@ -193,13 +193,26 @@ The redesign introduces a facade.
   table. Curve starts at "now" (§4.6, no pre-today history); month 0 is a
   flow-free opening snapshot.
 - **Per-line monthly resolution in the result** (Q27=yes). Extend
-  `ProjectionMonthFlows` with a **line-keyed map**: each budget/contribution
-  line's *actually funded* amount that month, by line id (same ids as the §13
-  `allocations()` authoring view — author line ↔ resolved line). Keep today's
-  coarse rollups (`expensesCents`, `incomeByCategoryCents`) as convenience sums.
-  Required to graph monthly budgets and to show which line the §15 waterfall
-  **starved** in a shortfall (Plan = intent, Result = actually funded; they
-  differ exactly in a shortfall — that gap is the interesting thing to graph).
+  `ProjectionMonthFlows` with a **line-keyed map** (`lineMonthlyCents`): each
+  budget line's monthly amount, by line id (same ids as the §13 `allocations()`
+  authoring view — author line ↔ resolved line). Keep today's coarse rollups
+  (`expensesCents`, `incomeByCategoryCents`) as convenience sums. Required to
+  graph monthly budgets per line.
+
+  The map reports the budget **as authored** — span, dated overrides and price
+  growth applied — and is deliberately NOT rationed by the §15 waterfall in a
+  tight month. This reverses the original intent (which was to show which line
+  the waterfall "starved"), for two reasons found in implementation:
+
+  1. The simulator never actually skips spending. An uncovered obligation is
+     posted against the liquid account and cascades onto credit (§5.1), so a
+     line reported below its amount describes money that WAS spent.
+  2. Once savings and credit are both exhausted the month is insolvent, which
+     `isInsolvent` already reports. "Starved" and "insolvent" collapse to the
+     same condition, so the starved-line view added nothing.
+
+  Deciding what spending to give up when a plan stops working is the user's
+  call, not the engine's to assume. See issue #71.
 
 - **Packaging: facade ships inside `@finley/engine`** (Q28=A) as the headline
   public API; the existing functional barrel (`interpretLedger`,
