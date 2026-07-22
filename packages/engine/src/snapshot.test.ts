@@ -94,6 +94,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       childId: "kid1",
       childName: "Robin",
       birthMonth: 24,
+      annualCostCents: 0,
     });
     expect(snapshotAt(ledger, 23, { initialPersons: primary }).children).toHaveLength(0);
     const snap = snapshotAt(ledger, 48, { initialPersons: primary });

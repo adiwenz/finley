@@ -52,7 +52,7 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       if (!Number.isInteger(event.birthMonth)) {
         return bad(event, `birthMonth must be an integer (got ${event.birthMonth})`);
       }
-      return { ok: true };
+      return nonNegative(event, "annualCostCents", event.annualCostCents) ?? { ok: true };
     case "SeparationEvent":
       return (
         nonNegative(event, "alimonyMonthlyCents", event.alimonyMonthlyCents) ??
