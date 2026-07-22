@@ -52,6 +52,21 @@ export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
   "taxExempt",
 ];
 
+/**
+ * Backstop on the gross-up climb in {@link buildWithdrawalSources} — a guard against a
+ * pathological seam spinning forever, NOT a tuning knob. The loop exits the moment it
+ * converges, so this bound is only reached by seams that never do.
+ *
+ * Set it high because exhausting it fails QUIETLY: the climb stops short of the fixed
+ * point, the draw lands light, and the shortfall rides to next month — the very leak
+ * this channel exists to prevent. Each step closes the remaining gap by the marginal
+ * rate, so the count scales with both the rate and the size of the need: `usJurisdiction`
+ * (max rate 0.6845, the 1.85x Social Security "torpedo" against the 37% bracket) settles
+ * in 37 steps on a $10k need and 56 on a $10M one, while a hypothetical 0.9-rate seam
+ * would want ~200. A realistic draw converges in about a dozen.
+ */
+const GROSS_UP_ITERATIONS = 1_000;
+
 /** Rank map (category → position) built from an ordered liquidation list. */
 function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCategory, number>> {
   const map: Partial<Record<TaxCategory, number>> = {};
@@ -152,12 +167,33 @@ function estimateNetIncome(
  * Sources are drawn in {@link DEFAULT_LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt),
  * or in a caller-supplied `liquidationOrder` override (§16 overridable), and
  * gated by {@link isLiquidatable}. EVERY draw injects at its account's own withdrawal
- * category and is grossed up so its net still covers the need (D3): the gross-up
- * differences `computeTaxCents` over the whole return (base vs base-plus-draw), so a
- * draw taxed at 0% on its own but pulling a government benefit into provisional-income
- * taxability is still sized to net the need (#100), and a genuinely untaxed draw (null
- * jurisdiction) nets one-for-one. The estimate is single-pass; the small residual
- * self-corrects next month.
+ * category and is grossed up so its net still covers the need (D3): the draw is solved
+ * as the least fixed point of `gross = need + inducedTax(gross)`, where the induced tax
+ * is `computeTaxCents` differenced over the WHOLE return (base vs base-plus-draw). Two
+ * consequences follow. A draw taxed at 0% on its own but pulling a government benefit
+ * into provisional-income taxability is still sized to net the need (#100), because the
+ * whole-return difference sees the benefit it drags in. And the draw nets the need
+ * EXACTLY rather than approximately — a fixed point satisfies `gross − tax = need` by
+ * construction — where inverting an implied rate (`need / (1 − rate)`) assumes tax scales
+ * proportionally with the draw and so falls short against a real bracket, which sits at
+ * `offset + rate × draw`. A genuinely untaxed draw nets one-for-one, the fixed point
+ * being `need` itself.
+ *
+ * Two limits of this sizing, both about what the seam is assumed to look like. Neither
+ * binds `usJurisdiction`, and both are things a NEW jurisdiction could walk into:
+ *
+ * 1. The climb assumes the seam is MONOTONE — a larger draw never owes less tax. That is
+ *    what makes a rising sequence stop at the least (cheapest) solution rather than
+ *    oscillate. A refundable credit that phases IN over the draw (EITC-shaped: more
+ *    income buys a bigger credit, so net tax FALLS) breaks the assumption, and the loop
+ *    would return whatever it happened to hold when the iteration budget ran out.
+ * 2. The draw is only ever sized UP from `need`, never down. Under a notch — a threshold
+ *    that taxes the whole return more once crossed, rather than just the excess, as
+ *    Australia's Medicare Levy Surcharge does — deliberately drawing LESS and carrying a
+ *    small shortfall can leave the household better off than paying the lump. This
+ *    channel cannot express that: it will cross the notch, and if the lump outruns the
+ *    balance it empties the account. Nothing in a bracket-and-phase-in seam has a notch,
+ *    so this is latent (#107).
  *
  * RMD interaction (no double-withdraw): RMD sources are already in `nonWithdrawalSources`,
  * so their income shrinks the gap and their forced pre-tax draw already reduced the
@@ -208,28 +244,40 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
-    // Gross up EVERY taxed draw so it NETS the needed cash (D3), whatever its category.
-    // The tax is differenced over the WHOLE return (base vs base+draw at the draw's own
-    // category), NOT the draw's own-category rate: a capital-gains / tax-exempt draw can
-    // read as 0% on its own yet still raise the return's tax by pulling a government
-    // benefit into provisional-income taxability (#100). Differencing the whole return
-    // captures that where an own-category rate would multiply by 0 and change nothing;
-    // it also naturally nets one-for-one when the draw is genuinely untaxed (null
-    // jurisdiction, or a category the jurisdiction never taxes). The category is the
-    // account's own neutral provenance, never a US vehicle string.
+    // Difference the tax over the WHOLE return, not the draw's own-category rate: a
+    // capital-gains / tax-exempt draw can read as 0% on its own yet still raise the
+    // return's tax by pulling a government benefit into provisional-income taxability
+    // (#100), and an own-category rate would multiply by 0 and miss it. The category is
+    // the account's own neutral provenance, never a US vehicle string.
     const base = taxableByOwner.get(account.ownerId) ?? {};
     const withDraw = (draw: Cents): TaxableByCategory => ({
       ...base,
       [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + draw,
     });
     const baseTax = computeTaxCents(base);
-    // Difference the seam at the running taxable income to get the marginal rate on the
-    // draw, then cap the gross at the balance; the net it actually delivers reduces the
-    // remaining need, and the owner's taxable base rises for any later draw.
-    const marginalTax = computeTaxCents(withDraw(need)) - baseTax;
-    const marginalRate = Math.min(0.99, Math.max(0, marginalTax / need));
-    const grossWanted = Math.ceil(need / (1 - marginalRate));
-    const gross = Math.min(balance, grossWanted);
+    const inducedTax = (draw: Cents): Cents => computeTaxCents(withDraw(draw)) - baseTax;
+    // Sizing the draw is circular: the tax depends on the draw, and the draw has to
+    // cover the tax. Solve it by climbing to the least fixed point of
+    // `gross = need + inducedTax(gross)` (see the doc above for why a fixed point is the
+    // right target and why the closed-form inversion is not). Climb from `need` rather
+    // than down from a guess — since the tax only rises with the draw, a rising sequence
+    // stops at the FIRST solution, and a first solution is the cheapest liquidation that
+    // nets the need. Iterate rather than invert because `computeTaxCents` is a black box:
+    // the jurisdiction supplies it, so its form is unknown here by construction.
+    let gross = Math.min(balance, need);
+    for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
+      const wanted = need + inducedTax(gross);
+      // The account cannot cover its own gross-up: take what is there and let the rest
+      // of the need fall to the next source in the liquidation order.
+      if (wanted >= balance) {
+        gross = balance;
+        break;
+      }
+      if (wanted === gross) break;
+      gross = wanted;
+    }
+    // The net this actually delivers reduces the remaining need, and the owner's taxable
+    // base rises for any later draw.
     const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
     const netDelivered = gross - taxOnGross;
 

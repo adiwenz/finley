@@ -9,6 +9,11 @@ import {
   addEvent,
   emptyLedger,
   PRIMARY_PERSON_ID,
+  SimAccount,
+  CAPITAL_GAINS_TAX_PROFILE,
+  buildWithdrawalSources,
+  type WithdrawalState,
+  type JurisdictionContext,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -313,5 +318,46 @@ describe("retirementView — surplus sweep does not make retirement worse (#100)
     expect(maxCardCents).toBeLessThan(dollarsToCents(100));
     // The plan genuinely lasts to life expectancy at this age.
     expect(realNetWorthSurvives(series)).toBe(true);
+  });
+});
+
+describe("every draw nets its need under the real jurisdiction (#100)", () => {
+  // The engine's own #100 tests model the tax seam with synthetic jurisdictions, since
+  // the engine cannot import the rules package. This is the proof against the seam that
+  // actually ships. It is a REAL shortfall guard, not a hypothetical: sizing the draw by
+  // inverting an implied rate (`need / (1 − rate)`) under-delivered by $500.61 on a $50k
+  // need here, because a bracket is `offset + rate × draw` rather than proportional to
+  // the draw. Solving `gross = need + inducedTax(gross)` instead nets the need exactly.
+  it.each([1_000, 5_000, 20_000, 50_000])("nets a $%i need to the cent", (needDollars) => {
+    const opening = dollarsToCents(5_000_000);
+    const brokerage = new SimAccount({
+      id: "brokerage",
+      ownerId: PRIMARY_PERSON_ID,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: opening,
+      initialAnnualRate: 0,
+    });
+    const state: WithdrawalState = {
+      accounts: [brokerage],
+      assetBalances: new Map([["brokerage", opening]]),
+      liquidAccount: null,
+      goals: [],
+    };
+    const need = dollarsToCents(needDollars);
+    const ctx: JurisdictionContext = { year: START_YEAR };
+    const sources = buildWithdrawalSources(state, usJurisdiction, 1, [], need, ctx);
+
+    // Re-file the draws as a tax return and check what the household actually keeps.
+    const byCategory: Record<string, number> = {};
+    for (const s of sources) {
+      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.grossCents;
+    }
+    const gross = sources.reduce((sum, s) => sum + s.grossCents, 0);
+    const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
+    expect(net).toBeGreaterThanOrEqual(need);
+    // Exactly the need, not merely enough: a fixed point satisfies `gross − tax = need`,
+    // so an overshoot would mean liquidating more than the household has to.
+    expect(net).toBe(need);
   });
 });

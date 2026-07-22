@@ -488,4 +488,91 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
     expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_501));
   });
+
+  it("sizes the draw to need + the LUMP when a cliff induces a fixed tax, not 100x the need", () => {
+    // A discontinuous seam: crossing $30k of non-benefit income makes the ENTIRE
+    // benefit taxable at 50% at once. The induced tax is a lump — the same $50k at any
+    // draw past the cliff — so the proportional model behind `need / (1 − rate)` does
+    // not apply. Sizing off the implied rate (50k tax on a 1k draw reads as 5000%,
+    // clamped to 99%) would draw 100 × the need; the fixed point lands on need + lump.
+    const cliff: Jurisdiction = {
+      id: "cliff-50",
+      computeTaxCents: (byCat) => {
+        const benefit = byCat.governmentRetirementBenefit ?? 0;
+        const other =
+          (byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0) + (byCat.taxExempt ?? 0);
+        return other > dollarsToCents(30_000) ? Math.round(benefit * 0.5) : 0;
+      },
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
+    const st = state(accounts, { brokerage: 500_000 });
+    // A $100k benefit plus $29.5k of gains sits just under the cliff, so the base tax
+    // is 0. Funding $1k more tips the household over it.
+    const booked: IncomeSourceMonth[] = [
+      { ownerId: "p1", grossCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
+      { ownerId: "p1", grossCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
+    ];
+    const sources = buildWithdrawalSources(
+      st,
+      cliff,
+      1,
+      booked,
+      dollarsToCents(130_500), // $129.5k already booked + $1k of unfunded need
+      ctx,
+    );
+    // The draw still nets the need — the whole point of the gross-up survives.
+    const net = householdNetCents([...booked, ...sources], cliff);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(130_500));
+    // ...and it costs need + lump ($51k), NOT the clamp's 100 × need ($100k).
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBe(dollarsToCents(51_000));
+  });
+
+  it("spills to the next source when an account cannot cover its own gross-up", () => {
+    // A flat 20% on both categories. The brokerage holds $1k against a $10k need, so it
+    // cannot fund even its own gross-up — it empties, delivers its $800 net, and the
+    // REMAINING need (not the original) grosses up against the pre-tax account behind it.
+    const flat20: Jurisdiction = {
+      id: "flat-20",
+      computeTaxCents: (byCat) =>
+        Math.round(((byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.2),
+    };
+    const accounts = [
+      account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 1_000),
+      account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+    ];
+    const st = state(accounts, { brokerage: 1_000, pretax: 100_000 });
+    const sources = buildWithdrawalSources(st, flat20, 1, [], dollarsToCents(10_000), ctx);
+
+    // The brokerage is emptied, not overdrawn.
+    expect(st.assetBalances.get("brokerage")).toBe(0);
+    // It netted $800 of the $10k, leaving $9,200 to gross up at 20% → $11,500 pre-tax.
+    expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(100_000 - 11_500));
+    // And the household still ends up with the full obligation covered.
+    expect(householdNetCents(sources, flat20)).toBeGreaterThanOrEqual(dollarsToCents(10_000));
+  });
+
+  it("takes the LEAST draw that nets the need when two cliffs offer more than one", () => {
+    // Two cliffs stack two lumps. Both $3k and $45k are genuine solutions here — each
+    // nets exactly $1k — because a step tax makes `need + lump` a fixed point inside
+    // every region it lands in. Climbing from `need` finds the cheap one; descending
+    // from the closed-form guess ($100k, the clamp) would settle on the $45k one and
+    // liquidate 15x more than the household needs.
+    const twoCliffs: Jurisdiction = {
+      id: "two-cliffs",
+      computeTaxCents: (byCat) => {
+        const draw = byCat.capitalGains ?? 0;
+        if (draw > dollarsToCents(4_000)) return dollarsToCents(44_000);
+        if (draw > dollarsToCents(500)) return dollarsToCents(2_000);
+        return 0;
+      },
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
+    const st = state(accounts, { brokerage: 500_000 });
+    const sources = buildWithdrawalSources(st, twoCliffs, 1, [], dollarsToCents(1_000), ctx);
+    const net = householdNetCents(sources, twoCliffs);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(1_000));
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBe(dollarsToCents(3_000));
+  });
 });
