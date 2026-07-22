@@ -388,3 +388,104 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     expect(DEFAULT_LIQUIDATION_ORDER).toEqual(["capitalGains", "ordinaryIncome", "taxExempt"]);
   });
 });
+
+describe("Every taxed draw nets the need — whole-return gross-up (#100)", () => {
+  const ctx = { year: 2026 };
+
+  /** A withdrawal state over the given accounts, each seeded to `dollars`. */
+  function state(accounts: SimAccount[], dollarsById: Record<string, number>): WithdrawalState {
+    const assetBalances = new Map<string, number>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return { accounts, assetBalances, liquidAccount: null, goals: [] };
+  }
+
+  /**
+   * The household's actual after-tax income across ALL sources combined — the number
+   * the obligations are funded from. Sums the gross and subtracts each owner's tax on
+   * the COMBINED per-category map (tax is computed once at the §5.3 chokepoint over the
+   * whole return, so category interactions — a draw pulling a benefit into taxability —
+   * are captured here exactly as the simulator would).
+   */
+  function householdNetCents(
+    sources: readonly IncomeSourceMonth[],
+    jurisdiction: Jurisdiction,
+  ): number {
+    const byOwner = new Map<string, Record<string, number>>();
+    let gross = 0;
+    for (const s of sources) {
+      gross += s.grossCents;
+      const map = byOwner.get(s.ownerId) ?? {};
+      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + s.grossCents;
+      byOwner.set(s.ownerId, map);
+    }
+    let tax = 0;
+    for (const map of byOwner.values()) tax += jurisdiction.computeTaxCents(map, ctx);
+    return gross - tax;
+  }
+
+  /**
+   * A jurisdiction modelling the provisional-income trap at the heart of #100: a
+   * capital-gains draw is taxed at 0% on its OWN, and the government benefit is taxed
+   * at 0% on its OWN, but the draw pulls the benefit into taxability — so tax lands on
+   * income the household already had. A per-category own-rate gross-up (×0%) cannot see
+   * this; only differencing the whole return can.
+   */
+  const provisionalTrap: Jurisdiction = {
+    id: "provisional-trap",
+    computeTaxCents: (byCat) => {
+      const benefit = byCat.governmentRetirementBenefit ?? 0;
+      if (benefit === 0) return 0;
+      const other =
+        (byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0) + (byCat.taxExempt ?? 0);
+      const provisional = other + Math.round(benefit * 0.5);
+      const taxableBenefit = Math.max(
+        0,
+        Math.min(benefit, provisional - dollarsToCents(1_000)),
+      );
+      return Math.round(taxableBenefit * 0.25);
+    },
+  };
+
+  it("sizes a 0%-rate capital-gains draw that pulls a benefit into taxability to net the need (AC5)", () => {
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
+    const st = state(accounts, { brokerage: 100_000 });
+    // A $2k benefit already booked as income; obligations are $3k → a $1k net need must
+    // come from the brokerage. On its own the draw AND the benefit each tax at 0%, so a
+    // naive one-for-one draw under-delivers by exactly the tax it induces on the benefit.
+    const benefit: IncomeSourceMonth[] = [
+      { ownerId: "p1", grossCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
+    ];
+    const sources = buildWithdrawalSources(
+      st,
+      provisionalTrap,
+      1,
+      benefit,
+      dollarsToCents(3_000),
+      ctx,
+    );
+    // The whole return (benefit + draw) must net at least the $3k of obligations.
+    const net = householdNetCents([...benefit, ...sources], provisionalTrap);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(3_000));
+    // The draw was grossed up above the bare $1k need to absorb the induced tax.
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBeGreaterThan(dollarsToCents(1_000));
+  });
+
+  it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need (AC1)", () => {
+    // A flat 20% tax on the capitalGains category — the draw's own rate is non-zero
+    // here, but the point is the same: the sized draw must net the need, not the gross.
+    const flatGains: Jurisdiction = {
+      id: "flat-gains-20",
+      computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.2),
+    };
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
+    const st = state(accounts, { brokerage: 100_000 });
+    const sources = buildWithdrawalSources(st, flatGains, 1, [], dollarsToCents(2_000), ctx);
+    const net = householdNetCents(sources, flatGains);
+    expect(net).toBeGreaterThanOrEqual(dollarsToCents(2_000));
+    // Gross ≈ 2000 / (1 − 0.20) = $2,500 leaves the brokerage.
+    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
+    expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_501));
+  });
+});

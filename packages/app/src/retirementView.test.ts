@@ -271,3 +271,47 @@ describe("retirementView — the timeline events count toward retirement (issue 
     expect(withChildAge as number).toBeGreaterThan(62);
   });
 });
+
+/**
+ * #100 — sweeping surplus into the brokerage must not make retirement WORSE. Before the
+ * fix, a capital-gains withdrawal was injected one-for-one with no gross-up, so under
+ * the real US jurisdiction it under-delivered by the tax it induced on the Social
+ * Security benefit (provisional income). The permanent monthly shortfall accrued to the
+ * §5.1 synthetic card at 22% APR until it tripped `isInsolvent` — with millions still in
+ * the brokerage — so `surplusSwept: true` reported a strictly LATER feasible age than
+ * leaving the surplus idle. These pin the whole-return gross-up end to end against the
+ * real jurisdiction (the swept run holds and now retires earlier, not later).
+ */
+describe("retirementView — surplus sweep does not make retirement worse (#100)", () => {
+  const swept: Plan = { ...PLAN_DEFAULTS, surplusSwept: true };
+  const idle: Plan = { ...PLAN_DEFAULTS, surplusSwept: false };
+
+  it("does not push the earliest feasible retirement age later than leaving surplus idle (AC2)", () => {
+    const sweptAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge;
+    const idleAge = solveRetirement(scenarioOf(idle), CTX).fullRetirementAge;
+    expect(sweptAge).not.toBeNull();
+    expect(idleAge).not.toBeNull();
+    // Sweeping surplus into a 7% brokerage produces far more wealth than a 1% cash
+    // buffer, so it must reach feasibility no later — and in fact earlier.
+    expect(sweptAge as number).toBeLessThanOrEqual(idleAge as number);
+    expect(sweptAge as number).toBeLessThan(idleAge as number);
+  });
+
+  it("does not reach insolvency on revolving-card interest while holding liquidatable assets, across the full horizon (AC3, AC4)", () => {
+    const feasibleAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge as number;
+    const series = projectScenario(scenarioOf({ ...swept, retirementAge: feasibleAge }), CTX);
+    let maxCardCents = 0;
+    for (const month of series.months) {
+      // A household holding millions in a brokerage must never be flagged insolvent.
+      expect(month.isInsolvent).toBe(false);
+      for (const bal of Object.values(month.liabilityBalancesCents)) {
+        maxCardCents = Math.max(maxCardCents, bal);
+      }
+    }
+    // The synthetic card never grinds upward: with the draw netting the need, only the
+    // single-pass residual ever touches it — cents, not the $50k limit it used to hit.
+    expect(maxCardCents).toBeLessThan(dollarsToCents(100));
+    // The plan genuinely lasts to life expectancy at this age.
+    expect(realNetWorthSurvives(series)).toBe(true);
+  });
+});

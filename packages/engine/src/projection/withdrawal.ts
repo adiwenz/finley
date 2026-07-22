@@ -34,9 +34,11 @@ export interface WithdrawalState {
  * The **tax-efficient default** order investment accounts are liquidated in during
  * decumulation (§16, D2), keyed by the account's neutral
  * {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
- * `capitalGains` first (brokerage + eligible goal funds, least tax friction — no
- * gross-up), then `ordinaryIncome` (taxed like an RMD), then `taxExempt` last
- * (preserve tax-free growth). Earlier in the list = drawn first.
+ * `capitalGains` first (brokerage + eligible goal funds, least tax friction under a
+ * preferential-rate regime), then `ordinaryIncome` (taxed like an RMD), then
+ * `taxExempt` last (preserve tax-free growth). Earlier in the list = drawn first.
+ * Every category is grossed up to net its need (#100); the order ranks them by how
+ * much tax that gross-up tends to cost, not by which ones are taxed at all.
  *
  * This is the DEFAULT, not a fixed rule: {@link buildWithdrawalSources} accepts an
  * override (§16 "overridable"), so a plan can, say, spend a tax-exempt account first
@@ -149,17 +151,20 @@ function estimateNetIncome(
  * spent first (D2), so the channel only liquidates investments for `gap − liquidBuffer`.
  * Sources are drawn in {@link DEFAULT_LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt),
  * or in a caller-supplied `liquidationOrder` override (§16 overridable), and
- * gated by {@link isLiquidatable}. Non-pre-tax draws inject as a non-taxable category
- * (net one-for-one, no gross-up); pre-tax draws inject as `ordinaryIncome`, grossed up
- * by a marginal rate differenced from `computeTaxCents` so the net still covers the
- * need (D3). The estimate is single-pass; the small residual self-corrects next month.
+ * gated by {@link isLiquidatable}. EVERY draw injects at its account's own withdrawal
+ * category and is grossed up so its net still covers the need (D3): the gross-up
+ * differences `computeTaxCents` over the whole return (base vs base-plus-draw), so a
+ * draw taxed at 0% on its own but pulling a government benefit into provisional-income
+ * taxability is still sized to net the need (#100), and a genuinely untaxed draw (null
+ * jurisdiction) nets one-for-one. The estimate is single-pass; the small residual
+ * self-corrects next month.
  *
  * RMD interaction (no double-withdraw): RMD sources are already in `nonWithdrawalSources`,
  * so their income shrinks the gap and their forced pre-tax draw already reduced the
  * balances here — total pre-tax drawn settles at `max(desired, required)` without an
  * additive draw (the full binding + its dedicated tests stay in #32).
  *
- * Absent tax seam (v1 null jurisdiction) → tax is 0, so pre-tax draws net one-for-one.
+ * Absent tax seam (v1 null jurisdiction) → tax is 0, so every draw nets one-for-one.
  */
 export function buildWithdrawalSources(
   state: WithdrawalState,
@@ -203,42 +208,35 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
-    // A withdrawal that produces ordinary income is taxed in full at the chokepoint,
-    // so it must be grossed up to net the need; a capital-gains / tax-exempt draw
-    // lands one-for-one in v1 (the jurisdiction taxes 0 of it today). "Whole draw is
-    // ordinary income" is the neutral signal, not a US vehicle string.
-    if (withdrawalCategory === "ordinaryIncome") {
-      // Gross up so the withdrawal NETS the needed cash (D3): difference the tax
-      // seam at the owner's running taxable income to get the marginal rate on the
-      // draw. Cap the gross at the balance; the net it actually delivers reduces the
-      // remaining need, and the owner's taxable base rises for any later draw.
-      const base = taxableByOwner.get(account.ownerId) ?? {};
-      const withDraw = (draw: Cents): TaxableByCategory => ({
-        ...base,
-        ordinaryIncome: (base.ordinaryIncome ?? 0) + draw,
-      });
-      const baseTax = computeTaxCents(base);
-      const marginalTax = computeTaxCents(withDraw(need)) - baseTax;
-      const marginalRate = Math.min(0.99, Math.max(0, marginalTax / need));
-      const grossWanted = Math.ceil(need / (1 - marginalRate));
-      const gross = Math.min(balance, grossWanted);
-      const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
-      const netDelivered = gross - taxOnGross;
+    // Gross up EVERY taxed draw so it NETS the needed cash (D3), whatever its category.
+    // The tax is differenced over the WHOLE return (base vs base+draw at the draw's own
+    // category), NOT the draw's own-category rate: a capital-gains / tax-exempt draw can
+    // read as 0% on its own yet still raise the return's tax by pulling a government
+    // benefit into provisional-income taxability (#100). Differencing the whole return
+    // captures that where an own-category rate would multiply by 0 and change nothing;
+    // it also naturally nets one-for-one when the draw is genuinely untaxed (null
+    // jurisdiction, or a category the jurisdiction never taxes). The category is the
+    // account's own neutral provenance, never a US vehicle string.
+    const base = taxableByOwner.get(account.ownerId) ?? {};
+    const withDraw = (draw: Cents): TaxableByCategory => ({
+      ...base,
+      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + draw,
+    });
+    const baseTax = computeTaxCents(base);
+    // Difference the seam at the running taxable income to get the marginal rate on the
+    // draw, then cap the gross at the balance; the net it actually delivers reduces the
+    // remaining need, and the owner's taxable base rises for any later draw.
+    const marginalTax = computeTaxCents(withDraw(need)) - baseTax;
+    const marginalRate = Math.min(0.99, Math.max(0, marginalTax / need));
+    const grossWanted = Math.ceil(need / (1 - marginalRate));
+    const gross = Math.min(balance, grossWanted);
+    const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
+    const netDelivered = gross - taxOnGross;
 
-      state.assetBalances.set(account.id, balance - gross);
-      taxableByOwner.set(account.ownerId, withDraw(gross));
-      need -= netDelivered;
-      sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: "ordinaryIncome" });
-    } else {
-      // A capital-gains / tax-exempt draw injects at its own withdrawal category and
-      // nets one-for-one in v1 (the jurisdiction taxes 0 of it today — basis
-      // tracking and preferential rates are a later slice). The category is the
-      // account's own neutral provenance, never a US vehicle string.
-      const gross = Math.min(balance, need);
-      state.assetBalances.set(account.id, balance - gross);
-      need -= gross;
-      sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: withdrawalCategory });
-    }
+    state.assetBalances.set(account.id, balance - gross);
+    taxableByOwner.set(account.ownerId, withDraw(gross));
+    need -= netDelivered;
+    sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: withdrawalCategory });
   }
 
   return sources;
