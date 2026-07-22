@@ -70,6 +70,15 @@ interface SimState {
   readonly cascadeCards: readonly RevolvingCard[];
   readonly assetBalances: Map<string, Cents>;
   /**
+   * Per-account cost basis (§#94) — the post-tax principal booked into each account.
+   * Rises with post-tax deposits (surplus sweep, goal funding), falls pro-rata as the
+   * account is drawn, and is drained to 0 when a goal fund is spent/converted. A draw
+   * books only its gain (`draw − pro-rata basis`) to tax. Pre-tax accounts keep basis
+   * 0 by construction: their contributions were tax-deferred going in, so the whole
+   * withdrawal is taxable. Parallels `assetBalances` in shape and lifecycle.
+   */
+  readonly basisByAccount: Map<string, Cents>;
+  /**
    * The authoritative, mutable current balance of each liability — updated in
    * place after each month's payment is applied (advanceLiabilities). This Map,
    * NOT the origination amortization schedule, is the source of truth for what
@@ -131,8 +140,15 @@ interface SimState {
 /** Build the run's static config and opening balances (the pre-loop setup). */
 function initSimState(input: HouseholdSimInput): SimState {
   const assetBalances = new Map<string, Cents>();
+  const basisByAccount = new Map<string, Cents>();
   for (const acc of input.accounts) {
     assetBalances.set(acc.id, acc.openingBalanceCents);
+    // Opening basis (§#94): a pre-tax account has zero basis by definition (its
+    // contributions were never taxed), so its whole balance is taxable on the way
+    // out. Every other account opens with unknown basis; assume basis == opening
+    // balance (no embedded gain) — the friendly default. It understates tax for a
+    // user modelling an already-appreciated portfolio, which is the documented cost.
+    basisByAccount.set(acc.id, acc.taxProfile.contributionsPreTax ? 0 : acc.openingBalanceCents);
   }
 
   const properties: SimProperty[] = [...(input.properties ?? [])];
@@ -203,6 +219,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     liabilities,
     cascadeCards,
     assetBalances,
+    basisByAccount,
     liabilityBalances,
     properties,
     propertyValues,
@@ -348,6 +365,14 @@ function allocateMonth(
 
   for (const [id, amount] of result.accountDepositsCents) {
     state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
+    // Post-tax deposits (surplus sweep, goal funding) add cost basis — they are
+    // dollars the household has already paid tax on (§#94). Pre-tax deposits
+    // (deferrals + employer match into a tax-deferred account) add none: that money
+    // is taxed on the way OUT, so its basis stays 0 and the whole draw is taxable.
+    const acc = accountsById.get(id);
+    if (acc !== undefined && !acc.taxProfile.contributionsPreTax) {
+      state.basisByAccount.set(id, (state.basisByAccount.get(id) ?? 0) + amount);
+    }
   }
 
   if (result.shortfallCents > 0 && state.liquidAccount !== null) {
@@ -441,6 +466,19 @@ function applyAssetTransfers(state: SimState, month: number): void {
       const fixed = t.amountCents ?? 0;
       const proportional = Math.round(prev * (t.proportionalFraction ?? 0));
       state.assetBalances.set(acc.id, prev + fixed + proportional);
+      // Keep cost basis coherent through transfers (§#94): a proportional move (a
+      // crash, say) scales basis with the balance; a fixed OUTFLOW returns basis
+      // pro-rata like a draw; a fixed post-tax INFLUX adds basis. Pre-tax accounts
+      // stay at basis 0 — an influx there is untaxed-in, fully taxable-out.
+      const basis = Math.max(0, state.basisByAccount.get(acc.id) ?? 0);
+      let nextBasis = basis + Math.round(basis * (t.proportionalFraction ?? 0));
+      if (fixed < 0) {
+        const basisFraction = prev > 0 ? Math.min(1, basis / prev) : 0;
+        nextBasis -= Math.min(nextBasis, Math.round(-fixed * basisFraction));
+      } else if (fixed > 0 && !acc.taxProfile.contributionsPreTax) {
+        nextBasis += fixed;
+      }
+      state.basisByAccount.set(acc.id, Math.max(0, nextBasis));
     }
   }
 }
@@ -549,6 +587,10 @@ function fireGoalDispositions(state: SimState, month: number): void {
     if (goal.disposition !== "spend" && goal.disposition !== "convertToEquity") continue;
     const maturedCents = Math.max(0, state.assetBalances.get(goal.fundAccountId) ?? 0);
     state.assetBalances.set(goal.fundAccountId, 0);
+    // The fund is fully drained — spent, or swapped to illiquid equity (which the
+    // decumulation loop never sees, so it needs no carried basis). Zero its basis to
+    // match, so a re-used account id could not resurrect stale basis (§#94).
+    state.basisByAccount.set(goal.fundAccountId, 0);
     if (goal.disposition === "convertToEquity" && maturedCents > 0) {
       const fundAccount = state.accounts.find((a) => a.id === goal.fundAccountId);
       state.properties.push({

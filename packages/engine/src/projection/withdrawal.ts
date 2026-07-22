@@ -21,6 +21,14 @@ export interface WithdrawalState {
   /** The authoritative mutable balances; a drawdown reduces its source account in place. */
   readonly assetBalances: Map<string, Cents>;
   /**
+   * Per-account cost basis (§#94) — the post-tax principal the owner has already
+   * paid tax on. A draw books only its GAIN (`draw − pro-rata basis`) to tax; the
+   * basis it returns falls out of the account's basis here, pro-rata. An absent
+   * entry is basis 0 → the whole draw is taxable, which is exactly right for a
+   * pre-tax account (its contributions were never taxed going in).
+   */
+  readonly basisByAccount: Map<string, Cents>;
+  /**
    * The first liquid account (the §5.1 shortfall sink). Its beginning-of-month
    * balance is spent down BEFORE any investment is liquidated (D2): the withdrawal
    * only funds the shortfall the liquid buffer can't, so the cascade drains cash first.
@@ -138,14 +146,17 @@ function estimateNetIncome(
   const taxableByOwner = new Map<string, TaxableByCategory>();
   for (const src of sources) {
     grossTotal += src.grossCents;
-    // Full gross booked under its provenance category — the jurisdiction owns the
-    // inclusion %, so the engine never pre-applies a fraction (§5.4).
+    // Booked under its provenance category — the jurisdiction owns the inclusion %,
+    // so the engine never pre-applies a fraction (§5.4). A source may book less than
+    // its gross as taxable (a returned-basis fund draw, an accrued-interest booking
+    // with gross 0) — honor its explicit taxable amount so the gross-up baseline sees
+    // the same taxable base the tax seam will (#94).
     let map = taxableByOwner.get(src.ownerId);
     if (map === undefined) {
       map = {};
       taxableByOwner.set(src.ownerId, map);
     }
-    addCategory(map, src.taxCategory, src.grossCents);
+    addCategory(map, src.taxCategory, src.taxableCents ?? src.grossCents);
   }
   let taxTotal = 0;
   for (const taxable of taxableByOwner.values()) taxTotal += computeTaxCents(taxable);
@@ -244,15 +255,24 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
+    // Cost basis (#94): only the GAIN portion of a draw is taxable — principal the
+    // owner already paid tax on is returned untaxed. Pro-rata (specific-lot is out of
+    // scope): a draw of `d` returns `d × basis/balance` of basis and books the rest as
+    // gain. basis 0 (a pre-tax account, no basis) → the whole draw is the gain, which
+    // is the pre-tax "fully taxable" behavior falling out naturally, not special-cased.
+    const basis = Math.max(0, state.basisByAccount.get(account.id) ?? 0);
+    const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
+    const gainOf = (draw: Cents): Cents => draw - Math.min(basis, Math.round(draw * basisFraction));
     // Difference the tax over the WHOLE return, not the draw's own-category rate: a
     // capital-gains / tax-exempt draw can read as 0% on its own yet still raise the
     // return's tax by pulling a government benefit into provisional-income taxability
     // (#100), and an own-category rate would multiply by 0 and miss it. The category is
-    // the account's own neutral provenance, never a US vehicle string.
+    // the account's own neutral provenance, never a US vehicle string. Only the gain is
+    // booked to the taxable map — the full gross is still paid out as take-home below.
     const base = taxableByOwner.get(account.ownerId) ?? {};
     const withDraw = (draw: Cents): TaxableByCategory => ({
       ...base,
-      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + draw,
+      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + gainOf(draw),
     });
     const baseTax = computeTaxCents(base);
     const inducedTax = (draw: Cents): Cents => computeTaxCents(withDraw(draw)) - baseTax;
@@ -281,10 +301,20 @@ export function buildWithdrawalSources(
     const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
     const netDelivered = gross - taxOnGross;
 
+    // The draw returns basis pro-rata; the rest is the taxable gain. Reduce the
+    // account's basis by the principal it just returned, so the next draw's gain
+    // fraction is measured against the basis that remains (#94).
+    const gainCents = gainOf(gross);
+    state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
     taxableByOwner.set(account.ownerId, withDraw(gross));
     need -= netDelivered;
-    sources.push({ ownerId: account.ownerId, grossCents: gross, taxCategory: withdrawalCategory });
+    sources.push({
+      ownerId: account.ownerId,
+      grossCents: gross,
+      taxCategory: withdrawalCategory,
+      taxableCents: gainCents,
+    });
   }
 
   return sources;

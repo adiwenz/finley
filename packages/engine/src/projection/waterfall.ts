@@ -56,6 +56,17 @@ export interface IncomeSourceMonth {
   readonly taxCategory: TaxCategory;
   /** Present → eligible for pre-tax deferral (§5.0 step 1). Absent → post-deferral. */
   readonly planDescriptor?: PlanDescriptor;
+  /**
+   * The taxable base this source contributes, when it is NOT the full gross. Two
+   * uses, both #94:
+   *  - a returned-basis fund withdrawal books only its **gain** here (< gross) — the
+   *    whole gross is still paid out as take-home, only the taxable base shrinks;
+   *  - an accrued-interest booking (savings, Commit 2) books its interest here with
+   *    `grossCents` 0 — the interest is taxed without re-injecting cash the balance
+   *    already holds.
+   * Absent → the full gross is taxable (wages, benefit, RMD, pre-tax draws).
+   */
+  readonly taxableCents?: Cents;
 }
 
 /** Lever 2: how much each person contributes to shared obligations (§5.0 step 3). */
@@ -175,11 +186,14 @@ function applyDeferrals(
       }
     }
 
-    // The taxable base for this source is its full gross booked under its own
-    // provenance category, less any pre-tax deferral (which reduces taxable income
-    // from that same source). The jurisdiction's tax seam applies each category's
-    // inclusion % — the whole gross is still paid out as take-home below.
-    addCategory(taxableFor(src.ownerId), src.taxCategory, Math.max(0, src.grossCents - deferred));
+    // The taxable base for this source is its gross (or its explicit `taxableCents`
+    // when the taxable amount differs from the cash — a returned-basis fund draw or
+    // an accrued-interest booking, #94) booked under its own provenance category,
+    // less any pre-tax deferral (which reduces taxable income from that same source).
+    // The jurisdiction's tax seam applies each category's inclusion % — the whole
+    // gross is still paid out as take-home below.
+    const taxable = src.taxableCents ?? src.grossCents;
+    addCategory(taxableFor(src.ownerId), src.taxCategory, Math.max(0, taxable - deferred));
   }
   return { grossByPerson, taxableByPerson, deferredByPerson };
 }
