@@ -12,7 +12,17 @@ import {
   type MonthEdit,
 } from "./monthEdit";
 
-const START_YEAR = 2026;
+/** Most routing assertions are about which primitive is chosen, not price growth. */
+const NO_INFLATION = { annualInflationRate: 0 };
+const CPI = { annualInflationRate: 0.03 };
+
+/**
+ * Storing an amount deflates it and re-reading re-inflates it, each rounding to whole
+ * cents, so a round-trip can land a cent off. That is immaterial to the user (every
+ * figure is displayed in whole dollars) but must not be asserted away as exact.
+ */
+const expectCents = (actual: number | undefined, expected: number) =>
+  expect(Math.abs((actual ?? NaN) - expected)).toBeLessThanOrEqual(2);
 
 function line(id: string, monthlyCents: number, overrides?: BudgetLine["overrides"]): BudgetLine {
   return {
@@ -36,7 +46,7 @@ const edit = (over: Partial<MonthEdit>): MonthEdit => ({
 
 describe("routeMonthEdit — spend rows", () => {
   it("routes a from-here-forward spend edit to a standing dated override", () => {
-    const route = routeMonthEdit(edit({ scope: "fromHereForward" }));
+    const route = routeMonthEdit(edit({ scope: "fromHereForward" }), NO_INFLATION);
     expect(route).toEqual({
       kind: "lineOverride",
       lineId: "housing",
@@ -45,7 +55,7 @@ describe("routeMonthEdit — spend rows", () => {
   });
 
   it("routes a just-this-month spend edit to a single-month override", () => {
-    const route = routeMonthEdit(edit({ scope: "thisMonthOnly" }));
+    const route = routeMonthEdit(edit({ scope: "thisMonthOnly" }), NO_INFLATION);
     expect(route).toMatchObject({
       kind: "lineOverride",
       override: { scope: "thisMonthOnly", month: 14 },
@@ -55,9 +65,7 @@ describe("routeMonthEdit — spend rows", () => {
 
 describe("routeMonthEdit — income row", () => {
   it("routes a permanent income change to a job/stream override, never a budget line", () => {
-    const route = routeMonthEdit(
-      edit({ row: { kind: "income" }, scope: "fromHereForward" }),
-    );
+    const route = routeMonthEdit(edit({ row: { kind: "income" }, scope: "fromHereForward" }), NO_INFLATION);
     expect(route).toEqual({
       kind: "incomeOverride",
       month: 14,
@@ -66,14 +74,12 @@ describe("routeMonthEdit — income row", () => {
   });
 
   it("routes a one-month income change to a ledger transaction for the delta", () => {
-    const route = routeMonthEdit(
-      edit({
+    const route = routeMonthEdit(edit({
         row: { kind: "income" },
         scope: "thisMonthOnly",
         priorAmountCents: dollarsToCents(5_000),
         newAmountCents: dollarsToCents(5_800),
-      }),
-    );
+      }), NO_INFLATION);
     // The +$800 bonus, not the $5,800 — the standing income is untouched.
     expect(route).toEqual({
       kind: "ledgerTransaction",
@@ -83,14 +89,12 @@ describe("routeMonthEdit — income row", () => {
   });
 
   it("signs a one-month income drop negative (a missed paycheck is cash out)", () => {
-    const route = routeMonthEdit(
-      edit({
+    const route = routeMonthEdit(edit({
         row: { kind: "income" },
         scope: "thisMonthOnly",
         priorAmountCents: dollarsToCents(5_000),
         newAmountCents: dollarsToCents(3_000),
-      }),
-    );
+      }), NO_INFLATION);
     expect(route).toMatchObject({ amountCents: dollarsToCents(-2_000) });
   });
 });
@@ -105,28 +109,76 @@ describe("resolveRowsAtMonth", () => {
   ];
 
   it("shows the base amount at a month before any override", () => {
-    const rows = resolveRowsAtMonth(lines, 0, START_YEAR);
+    const rows = resolveRowsAtMonth(lines, 0, 0);
     expect(rows[0]).toMatchObject({ monthlyCents: dollarsToCents(1_600), overridden: false });
   });
 
   it("shows a one-month override only at its own month", () => {
-    expect(resolveRowsAtMonth(lines, 6, START_YEAR)[0]).toMatchObject({
+    expect(resolveRowsAtMonth(lines, 6, 0)[0]).toMatchObject({
       monthlyCents: dollarsToCents(900),
       overridden: true,
     });
-    expect(resolveRowsAtMonth(lines, 7, START_YEAR)[0]?.monthlyCents).toBe(dollarsToCents(1_600));
+    expect(resolveRowsAtMonth(lines, 7, 0)[0]?.monthlyCents).toBe(dollarsToCents(1_600));
   });
 
   it("carries a from-here-forward override to every later month", () => {
-    expect(resolveRowsAtMonth(lines, 24, START_YEAR)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
-    expect(resolveRowsAtMonth(lines, 400, START_YEAR)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
+    expect(resolveRowsAtMonth(lines, 24, 0)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
+    expect(resolveRowsAtMonth(lines, 400, 0)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
   });
 
   it("leaves an unadjusted line flat across the horizon", () => {
-    expect(resolveRowsAtMonth(lines, 300, START_YEAR)[1]).toMatchObject({
+    expect(resolveRowsAtMonth(lines, 300, 0)[1]).toMatchObject({
       monthlyCents: dollarsToCents(600),
       overridden: false,
     });
+  });
+
+  it("shows each row in the selected month's dollars, grown with inflation", () => {
+    // The editor sits under the graph and must agree with it: a $600 line authored
+    // today really does cost more in ten years, and the row has to say so.
+    const [, food] = resolveRowsAtMonth(lines, 120, CPI.annualInflationRate);
+    expectCents(food?.monthlyCents, Math.round(dollarsToCents(600) * Math.pow(1.03, 10)));
+    expect(resolveRowsAtMonth(lines, 0, CPI.annualInflationRate)[1]?.monthlyCents).toBe(
+      dollarsToCents(600),
+    );
+  });
+});
+
+describe("routeMonthEdit — what you type is what the month costs", () => {
+  // The round-trip that makes the editor trustworthy: type a number while looking at a
+  // month, and the projection charges exactly that number at exactly that month.
+  const roundTrip = (scope: "thisMonthOnly" | "fromHereForward", month: number): number => {
+    const base = line("housing", dollarsToCents(1_600));
+    const route = routeMonthEdit(
+      edit({ row: { kind: "line", lineId: "housing" }, month, scope, newAmountCents: dollarsToCents(3_000) }),
+      CPI,
+    );
+    if (route.kind !== "lineOverride") throw new Error("expected a line override");
+    const next = applyLineOverride([base], "housing", route.override);
+    return resolveRowsAtMonth(next, month, CPI.annualInflationRate)[0]!.monthlyCents;
+  };
+
+  it("charges the typed amount at the edited month for a one-month change", () => {
+    expectCents(roundTrip("thisMonthOnly", 360), dollarsToCents(3_000));
+  });
+
+  it("charges the typed amount at the edited month for a from-here-forward change", () => {
+    // Stored deflated to anchor dollars, so it renders back to what was typed rather
+    // than jumping to an inflated $3,000 the moment it lands.
+    expectCents(roundTrip("fromHereForward", 360), dollarsToCents(3_000));
+  });
+
+  it("keeps a from-here-forward change growing with prices after the edited month", () => {
+    const route = routeMonthEdit(
+      edit({ month: 120, scope: "fromHereForward", newAmountCents: dollarsToCents(3_000) }),
+      CPI,
+    );
+    if (route.kind !== "lineOverride") throw new Error("expected a line override");
+    const next = applyLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
+    const atEdit = resolveRowsAtMonth(next, 120, CPI.annualInflationRate)[0]!.monthlyCents;
+    const tenYearsLater = resolveRowsAtMonth(next, 240, CPI.annualInflationRate)[0]!.monthlyCents;
+    expectCents(atEdit, dollarsToCents(3_000));
+    expectCents(tenYearsLater, Math.round(atEdit * Math.pow(1.03, 10)));
   });
 });
 

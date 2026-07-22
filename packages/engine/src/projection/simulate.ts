@@ -12,7 +12,6 @@ import {
   type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
-import { fundLinesInPriorityOrder, type LineIntent } from "../budgetLine";
 import { budgetLineAllocationId } from "../allocations";
 import type { SimGoal } from "../goal";
 import {
@@ -371,37 +370,30 @@ function allocateMonth(
  * The per-line *actually funded* map for this month (§Q27), keyed by each budget line's
  * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
  * lines the simulator runs today — contribution lines land in the #72 rewire) for their
- * intent + §15 priority, then funds them in priority order against what the household
- * could actually pay out of take-home and savings: the lines' total minus the part
- * §5.1 had to put on credit.
+ * amount for that month — the budget exactly as authored, span and dated overrides
+ * applied.
  *
- * The distinction matters most in retirement. A retiree between their last paycheck and
- * their first benefit has no take-home at all, yet funds the whole budget by drawing
- * savings down — so every line reads fully funded, as it should. A line starves only
- * once savings are gone and the budget is running on credit, and then the
- * lowest-priority lines go first, so Plan and Result diverge exactly there and the
- * starved line is named. Untagged series (scalar/health expense) are ignored — the map
- * is empty when the plan authors no budget lines.
+ * The simulator deliberately does NOT reallocate a squeezed month across the §15
+ * priority order. It never actually skips spending: an uncovered obligation is posted
+ * against the liquid account and cascades onto credit, so a line reported below its
+ * amount would describe money the household did in fact spend. And when even credit
+ * runs out, that is insolvency — already reported as `isInsolvent` and a null net
+ * worth — not a budget the plan quietly rewrote. Which spending to cut when a plan
+ * stops working is the user's call to make, not the engine's to assume.
+ *
+ * Untagged series (scalar/health expense) are ignored — the map is empty when the plan
+ * authors no budget lines.
  */
-function computeLineFundedCents(
+function computeLineMonthlyCents(
   expenseSeries: readonly SimOwnedSeries[],
   month: number,
-  uncoveredCents: Cents,
 ): Record<string, Cents> {
-  const intents: LineIntent[] = [];
-  let linesTotal = 0;
+  const byLine: Record<string, Cents> = {};
   for (const s of expenseSeries) {
     if (s.lineId === undefined) continue;
-    const intendedCents = s.series.getMonthlyCents(month);
-    linesTotal += intendedCents;
-    intents.push({
-      id: budgetLineAllocationId(s.lineId),
-      priority: s.linePriority ?? 0,
-      intendedCents,
-    });
+    byLine[budgetLineAllocationId(s.lineId)] = s.series.getMonthlyCents(month);
   }
-  if (intents.length === 0) return {};
-  return fundLinesInPriorityOrder(intents, linesTotal - uncoveredCents);
+  return byLine;
 }
 
 /**
@@ -410,32 +402,24 @@ function computeLineFundedCents(
  * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
  * it too can be exhausted — #36).
  *
- * Reports two different failures, because §Q27 and §5.1 draw the line in different
- * places:
+ * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
+ * amount the household genuinely could not pay. Zero is the common case: the month was
+ * paid for, whether out of take-home, by drawing savings down, or on credit.
  *
- *   - `uncoveredCents` — what savings could not absorb, i.e. the amount that had to go
- *     onto credit. This is the per-line starvation measure. Spending **savings** is a
- *     plan working as intended (a retiree between their last paycheck and their first
- *     benefit has no take-home at all, yet funds the whole budget); reaching for a
- *     **card** is the household failing to cover its budget, which is what the graph
- *     should show as a starved line.
- *   - `isInsolvent` — the §5.1 terminal flag: even the cards are exhausted.
- *
- * A month can be uncovered without being insolvent — that is exactly the case where
- * the budget is being propped up by credit and the user should see it.
+ * This is also the per-line starvation measure (§Q27), and the distinction it draws is
+ * deliberate. The simulator never actually skips spending — an uncovered obligation is
+ * posted against the liquid account and cascades onto credit — so reporting a line as
+ * unfunded while the household is still solvent would describe money that was, in fact,
+ * spent. A budget squeezed by a bad month is meant to be absorbed by savings; only when
+ * there is nothing left to absorb it with has a line genuinely gone unfunded. That is
+ * the same condition as `isInsolvent`, so the two are reported as one number.
  */
-function applyShortfallCascade(
-  state: SimState,
-  month: number,
-): { uncoveredCents: Cents; isInsolvent: boolean } {
-  if (state.liquidAccount === null) return { uncoveredCents: 0, isInsolvent: false };
+function applyShortfallCascade(state: SimState, month: number): Cents {
+  if (state.liquidAccount === null) return 0;
   const liquidBal = state.assetBalances.get(state.liquidAccount.id) ?? 0;
-  if (liquidBal >= 0) return { uncoveredCents: 0, isInsolvent: false };
+  if (liquidBal >= 0) return 0;
 
-  // Liquid only goes negative once savings are drained, so this IS the credit-funded
-  // part of the month — the honest starvation input.
-  const uncoveredCents = -liquidBal;
-  let deficit = uncoveredCents;
+  let deficit = -liquidBal;
   state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
@@ -449,7 +433,7 @@ function applyShortfallCascade(
     state.liabilityBalances.set(card.id, currentBal + borrow);
     deficit -= borrow;
   }
-  return { uncoveredCents, isInsolvent: deficit > 0 };
+  return Math.max(0, deficit);
 }
 
 /** Step 8: one-time transfers to asset accounts (§3.2). Fixed + proportional; neither grows. */
@@ -736,23 +720,21 @@ export function simulateHousehold(
         expenseCents + totalPaymentsCents,
         month,
       );
-      // What savings could not absorb (§Q27 starvation), and whether even credit ran out.
-      const cascade = applyShortfallCascade(state, month);
-      const uncoveredCents = cascade.uncoveredCents;
-      isInsolvent = cascade.isInsolvent;
+      // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
+      isInsolvent = applyShortfallCascade(state, month) > 0;
 
       applyAssetTransfers(state, month);
       compoundAssets(state, month);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      const lineFundedCents = computeLineFundedCents(input.expenseSeries, month, uncoveredCents);
+      const lineMonthlyCents = computeLineMonthlyCents(input.expenseSeries, month);
       flows = buildFlows(
         incomeSources,
         taxCents,
         expenseCents,
         totalPaymentsCents,
-        lineFundedCents,
+        lineMonthlyCents,
       );
     }
 

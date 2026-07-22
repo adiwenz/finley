@@ -121,16 +121,22 @@ export interface ProjectionMonthFlows {
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
   readonly liabilityPaymentsCents: Cents;
   /**
-   * Per-budget-line *actually funded* amount this month, keyed by the line's
-   * `allocations()` id (`line:<id>`, so author line ↔ resolved line ↔ funded line —
-   * §Q27). Each value is what the §15 waterfall could fund for that line from the
-   * month's cash; in a shortfall the lowest-priority lines are starved below their
-   * intent (Plan) — that gap is the interesting thing to graph. `expensesCents` above
-   * stays the coarse rollup (it also includes non-line spend like health); this map
-   * itemizes only the standing budget lines the simulator ran. Empty when the plan
-   * authors no budget lines (the scalar path).
+   * Per-budget-line monthly amount this month, keyed by the line's `allocations()` id
+   * (`line:<id>`, so author line ↔ resolved line ↔ reported line — §Q27). This is the
+   * budget as authored: span and dated overrides applied, price growth accrued.
+   *
+   * It is deliberately NOT rationed by the §15 waterfall in a tight month. The
+   * simulator never skips spending — an uncovered obligation cascades onto credit — so
+   * a line reported below its amount would describe money that was in fact spent; and
+   * once credit is gone the plan is insolvent (see {@link ProjectionMonth.isInsolvent}),
+   * which is a fact to surface, not a licence to silently drop the user's discretionary
+   * spending on their behalf.
+   *
+   * `expensesCents` above stays the coarse rollup (it also includes non-line spend like
+   * health); this map itemizes only the standing budget lines the simulator ran. Empty
+   * when the plan authors no budget lines (the scalar path).
    */
-  readonly lineFundedCents: Readonly<Record<string, Cents>>;
+  readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
 }
 
 export interface ProjectionSeries {
@@ -192,7 +198,7 @@ export interface SimOwnedSeries {
    * §Q27): the source line's authoring id and its flat waterfall priority (§15). Only
    * set when the series was compiled from a {@link import("../budgetLine").BudgetLine};
    * a scalar/health expense series carries neither. It drives the per-line *actually
-   * funded* map on {@link ProjectionMonthFlows.lineFundedCents} — author line ↔ resolved
+   * funded* map on {@link ProjectionMonthFlows.lineMonthlyCents} — author line ↔ resolved
    * series ↔ funded line — without the simulator otherwise reading it.
    */
   readonly lineId?: string;

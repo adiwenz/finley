@@ -79,7 +79,7 @@ function compileExpenseLine(
   // Tag the compiled series with its source line's label (for reporting) plus its id +
   // waterfall priority (§Q27), so the simulator can report each line's actually-funded
   // amount without re-resolving (author line ↔ resolved series ↔ funded line — see
-  // ProjectionMonthFlows.lineFundedCents).
+  // ProjectionMonthFlows.lineMonthlyCents).
   return {
     series,
     ownerId,

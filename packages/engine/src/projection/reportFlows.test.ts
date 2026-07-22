@@ -47,7 +47,7 @@ describe("buildFlows", () => {
   it("carries the per-line funded map straight through (§Q27)", () => {
     const lineFunded = { "line:rent": 2_000_00, "line:fun": 100_00 };
     const flows = buildFlows([], 0, 3_200_00, 0, lineFunded);
-    expect(flows.lineFundedCents).toEqual(lineFunded);
+    expect(flows.lineMonthlyCents).toEqual(lineFunded);
   });
 
   it("yields empty buckets and zero totals for a month with no income", () => {
@@ -56,6 +56,6 @@ describe("buildFlows", () => {
     expect(flows.totalIncomeCents).toBe(0);
     expect(flows.governmentRetirementBenefitCents).toBe(0);
     expect(flows.taxCents).toBe(0);
-    expect(flows.lineFundedCents).toEqual({});
+    expect(flows.lineMonthlyCents).toEqual({});
   });
 });

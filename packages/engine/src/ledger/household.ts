@@ -54,7 +54,7 @@ export interface HouseholdSeries {
    * Provenance of an expense series compiled from a standing budget line (§Q27): the
    * source line's id and its §15 priority. Carried through so the simulator can report
    * each line's actually-funded amount ({@link
-   * import("../projection/simulate").ProjectionMonthFlows.lineFundedCents}). Only set on
+   * import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Only set on
    * budget-line expense series; absent on scalar/health/event-caused series.
    */
   readonly lineId?: string;

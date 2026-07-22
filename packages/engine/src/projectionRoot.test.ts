@@ -275,11 +275,11 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
 
     const flows = p.run(nullJurisdiction).series.months[1]?.flows;
     // Keyed by the allocations() id (`line:<id>`), author line ↔ funded line.
-    expect(flows?.lineFundedCents[RENT]).toBe(dollarsToCents(2_000));
-    expect(flows?.lineFundedCents[FUN]).toBe(dollarsToCents(500));
+    expect(flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(2_000));
+    expect(flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(500));
   });
 
-  it("starves the lowest-priority line in a shortfall while the coarse rollup stays the intent", () => {
+  it("reports every line at its full amount even once the plan is insolvent", () => {
     // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
     // shortfall. §15 priority funds rent (a need) before fun (a want).
     const p = Projection.create({
@@ -311,14 +311,24 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
       category: "wants",
     });
 
-    const flows = p.run(nullJurisdiction).series.months[1]?.flows;
-    // Result ≠ Plan exactly in the shortfall: fun (lowest priority) is fully starved,
-    // rent is partially funded — below its $4,000 intent — and never below fun.
-    expect(flows?.lineFundedCents[FUN]).toBe(0);
-    expect(flows?.lineFundedCents[RENT]).toBeGreaterThan(0);
-    expect(flows?.lineFundedCents[RENT]).toBeLessThan(dollarsToCents(4_000));
-    // The coarse rollup remains the full intent (Plan), so the graph can show the gap.
-    expect(flows?.expensesCents).toBe(dollarsToCents(6_000));
+    const months = p.run(nullJurisdiction).series.months;
+
+    // A squeezed month is absorbed by savings, then by credit — the household really
+    // did pay for all of it, so both lines report their full amount.
+    expect(months[1]?.flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(2_000));
+    expect(months[1]?.flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(4_000));
+
+    // And once even credit is exhausted, the budget is STILL reported as authored. The
+    // engine surfaces that the plan broke (`isInsolvent`); it does not decide on the
+    // user's behalf which spending they would have given up.
+    const broke = months.findIndex((m) => m.isInsolvent);
+    expect(broke).toBeGreaterThan(1);
+    const flows = months[broke]?.flows;
+    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[RENT]).toBeGreaterThan(0);
+    // The per-line map and the coarse rollup agree: nothing was rationed away.
+    const lineTotal = Object.values(flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
+    expect(lineTotal).toBe(flows?.expensesCents);
   });
 
   it("keeps every line funded from savings between retirement and the first benefit", () => {
@@ -363,9 +373,9 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
     // Fully funded = the funded lines add up to the month's whole intent. Asserted
     // against the rollup rather than a literal, since a budget rises with prices.
     const fundedTotal = (m: number): number =>
-      Object.values(months[m]?.flows?.lineFundedCents ?? {}).reduce((a, b) => a + b, 0);
+      Object.values(months[m]?.flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);
-    expect(flows?.lineFundedCents[FUN]).toBeGreaterThan(0); // the first line to starve
+    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0); // the first line to starve
 
     // Nothing starves anywhere across the whole gap.
     for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {

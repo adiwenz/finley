@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars } from "../../format";
-import { describeStarvation, type PerLineBudgetData } from "./perLineBudget";
+import { describeInsolvency, type PerLineBudgetData } from "./perLineBudget";
 
 /**
  * Per-line monthly budget chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws
@@ -35,7 +35,7 @@ import { describeStarvation, type PerLineBudgetData } from "./perLineBudget";
 const TIER_COLORS = ["#1f3a2e", "#3f7d5f", "#b5761f", "#c99a3f", "#8a8570"];
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
-const STARVE = "#b5761f";
+const INSOLVENT = "#b5761f";
 const MARKER = "#1f3a2e";
 
 export interface PerLineBudgetChartProps {
@@ -51,17 +51,12 @@ export function PerLineBudgetChart({
   selectedMonth,
   onSelectMonth,
 }: PerLineBudgetChartProps) {
-  const summary = describeStarvation(data);
-  const rows = data.rows.map((r) => ({ month: r.month, ...r.fundedByLine }));
-
-  // Contiguous starved spans → one shaded ReferenceArea each (visually marks where the
-  // waterfall could not fund the whole budget).
-  const starvedSpans: Array<{ from: number; to: number }> = [];
-  for (const month of data.starvedMonths) {
-    const last = starvedSpans[starvedSpans.length - 1];
-    if (last && month === last.to + 1) last.to = month;
-    else starvedSpans.push({ from: month, to: month });
-  }
+  const summary = describeInsolvency(data);
+  const rows = data.rows.map((r) => ({ month: r.month, ...r.centsByLine }));
+  // The horizon runs to life expectancy (§7). Pin the axis to it: left to itself the
+  // domain stretches past the last month to accommodate the selection rule and the
+  // open-ended insolvency band, drawing empty years the plan never reaches.
+  const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
 
   return (
     <div
@@ -69,15 +64,15 @@ export function PerLineBudgetChart({
       aria-label={
         summary
           ? `Monthly budget by line. ${summary}`
-          : "Monthly budget by line — every line fully funded throughout."
+          : "Monthly budget by line — the plan finances this budget throughout."
       }
     >
       <p className={summary ? "alert alert-amber" : "hint"} data-testid="perline-summary">
-        {summary ?? "Every budget line is fully funded across the horizon."}
+        {summary ?? "This budget is financed across the whole horizon."}
       </p>
       {/* Hidden data mirror for tests / screen readers: first row's funded per line. */}
       <output data-testid="perline-first-row" hidden>
-        {JSON.stringify(data.rows[0]?.fundedByLine ?? {})}
+        {JSON.stringify(data.rows[0]?.centsByLine ?? {})}
       </output>
 
       <ResponsiveContainer width="100%" height={260}>
@@ -94,6 +89,8 @@ export function PerLineBudgetChart({
           <XAxis
             dataKey="month"
             type="number"
+            domain={[0, lastMonth]}
+            allowDataOverflow
             tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
@@ -109,16 +106,21 @@ export function PerLineBudgetChart({
             labelFormatter={(label) => `Month ${label}`}
             contentStyle={{ fontSize: 12 }}
           />
-          {starvedSpans.map((span) => (
+          {data.insolventFromMonth !== null && (
             <ReferenceArea
-              key={`starve-${span.from}`}
-              x1={span.from}
-              x2={span.to}
-              fill={STARVE}
+              x1={data.insolventFromMonth}
+              x2={lastMonth}
+              fill={INSOLVENT}
               fillOpacity={0.12}
+              label={{
+                value: "unfunded — savings & credit exhausted",
+                position: "insideTop",
+                fill: INSOLVENT,
+                fontSize: 11,
+              }}
             />
-          ))}
-          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} ifOverflow="extendDomain" />
+          )}
+          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
           {data.lines.map((line, i) => (
             <Area
               key={line.id}

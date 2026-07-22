@@ -33,7 +33,7 @@
  * authoring state, so one plan can be re-run under different rule sets without
  * mutation. `ProjectionResult` carries the already-monthly {@link ProjectionSeries}
  * plus the insolvency marker; per-line monthly resolution (§Q27, slice 8, issue #71)
- * now rides inside each month's `flows.lineFundedCents`. The §5 solver outputs
+ * now rides inside each month's `flows.lineMonthlyCents`. The §5 solver outputs
  * (career-exit/work-optional ages, on-track %) remain deferred.
  *
  * Packaging (§ "npm API", Q28): the root ships *inside* `@finley/engine` as the
@@ -154,7 +154,7 @@ export interface BuyHomeInput {
  * and **immutable** (frozen): the plan is authoring state, the result is one pipeline
  * pass under a specific jurisdiction. It carries the already-monthly {@link
  * ProjectionSeries} the chart reads — including per-line monthly resolution in each
- * month's `flows.lineFundedCents` (§Q27, slice 8) — plus the first insolvent month (a
+ * month's `flows.lineMonthlyCents` (§Q27, slice 8) — plus the first insolvent month (a
  * convenience the app already derives). The §5 solver outputs / on-track % stay deferred.
  */
 export interface ProjectionResult {

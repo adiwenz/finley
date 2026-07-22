@@ -11,9 +11,9 @@
  *     just this month, or from here forward? {@link routeMonthEdit} sends the result
  *     to the right primitive — line override, ledger transaction, or job/stream
  *     income override (AC4). There is no `Adjustment` entity underneath.
- *   - **Graph** — the per-line monthly budget, drawn from the engine's per-line
- *     *actually funded* map, visibly starving the lowest-priority line in a shortfall
- *     (AC2).
+ *   - **Graph** — the per-line monthly budget as authored, each line at what it really
+ *     costs that month. Spending is never rationed away behind the user's back; if the
+ *     plan stops being financeable the graph says so outright (AC2).
  *
  * The selected month is labelled with its calendar year *and* the household's age at
  * that point, so a far-future edit reads as the milestone it is ("age 50") rather than
@@ -43,18 +43,19 @@ import { NumInput } from "../numInput/numInput";
 import { quickstartFromIncome, toBudgetLines } from "./budgetTemplate";
 import {
   applyLineOverride,
+  growthFactorAt,
   resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
   type EditScope,
+  type MonthEditContext,
   type MonthEditRoute,
 } from "./monthEdit";
+import { buildIncomeChartData } from "./incomeByCategory";
+import { IncomeChart } from "./incomeChart";
 import { buildPerLineBudgetData, type ChartLine } from "./perLineBudget";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
 import styles from "./baseAdjustments.module.css";
-
-const literalCents = (line: BudgetLine): number =>
-  line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
 
 /** "month 180 · 2041 · age 50" — the point on the budget, in the terms a user thinks in. */
 function describeMonth(month: number, currentAge: number): string {
@@ -106,6 +107,12 @@ export interface BaseAdjustmentsPanelProps {
 export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = useMemo(() => plan.budgetLines ?? [], [plan.budgetLines]);
+  // Every row is shown in the selected month's dollars, so the editor needs the same
+  // price growth the projection uses to get there and back.
+  const editCtx: MonthEditContext = useMemo(
+    () => ({ annualInflationRate: plan.inflationPct / 100 }),
+    [plan.inflationPct],
+  );
   const setLines = (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
     setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? [])] }));
 
@@ -117,19 +124,49 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     ReadonlyArray<{ month: number; monthlyCents: number }>
   >([]);
 
+  // Project the plan (whose budgetLines these are) once: the chart reads the per-line
+  // amounts off it, and the income row reads the income it actually pays each month.
+  const projected = useMemo(() => {
+    const result = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction);
+    const chartLines: ChartLine[] = lines.map((l) => ({
+      id: budgetLineAllocationId(l.id),
+      label: l.label,
+    }));
+    return {
+      chartData: buildPerLineBudgetData(result.series, chartLines),
+      incomeData: buildIncomeChartData(result.series),
+      /** Gross income the projection pays in each month, indexed by month. */
+      incomeByMonth: result.series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
+    };
+  }, [plan, lines]);
+  const chartData = projected.chartData;
+
   // ── What the budget resolves to at the selected point ──
   const rows = useMemo(
-    () => resolveRowsAtMonth(lines, selectedMonth, START_YEAR),
-    [lines, selectedMonth],
+    () => resolveRowsAtMonth(lines, selectedMonth, editCtx.annualInflationRate),
+    [lines, selectedMonth, editCtx],
   );
 
-  /** Income at the selected month: the standing amount, with any raise applied. */
+  /**
+   * Income at the selected month, read off the projection rather than synthesized. A
+   * row that just grew `plan.incomeCents` with inflation described a household that
+   * works forever: it kept compounding a salary through retirement instead of stopping
+   * at the last paycheck and picking the government benefit up at the claiming age.
+   *
+   * A local income override still wins where one applies — it is stored in anchor
+   * dollars, so it is re-inflated to this month the same way a spend line is. Those
+   * overrides do not reach the projection until #72 moves income onto jobs, so the
+   * graph will not move for them yet.
+   */
   const incomeAtMonth = useMemo(() => {
     const applicable = incomeOverrides
       .filter((o) => o.month <= selectedMonth)
       .sort((a, b) => b.month - a.month)[0];
-    return applicable?.monthlyCents ?? plan.incomeCents;
-  }, [incomeOverrides, selectedMonth, plan.incomeCents]);
+    if (applicable !== undefined) {
+      return Math.round(applicable.monthlyCents * growthFactorAt(selectedMonth, editCtx));
+    }
+    return projected.incomeByMonth[selectedMonth] ?? 0;
+  }, [incomeOverrides, selectedMonth, editCtx, projected]);
 
   /**
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
@@ -153,7 +190,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   /** Answer the how-long question — the one gesture that commits a change (§20). */
   function commit(scope: EditScope): void {
     if (pending === null) return;
-    const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
+    const route = routeMonthEdit({ ...pending, month: selectedMonth, scope }, editCtx);
     setLastRoute(route);
     if (route.kind === "lineOverride") {
       setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);
@@ -176,17 +213,6 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     setPending(null);
   }
 
-  // Project the plan (whose budgetLines these are) for the per-line funded chart.
-  const chartData = useMemo(() => {
-    const projection = Projection.create({ plan, startYear: START_YEAR });
-    const result = projection.run(usJurisdiction);
-    const chartLines: ChartLine[] = lines.map((l) => ({
-      id: budgetLineAllocationId(l.id),
-      label: l.label,
-      intendedCents: literalCents(l),
-    }));
-    return buildPerLineBudgetData(result.series, chartLines);
-  }, [plan, lines]);
 
   const horizonMonths = chartData.rows.length;
 
@@ -197,12 +223,21 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
       {/* ── Graph: click a point to move the editor there (AC2 + the edit gesture) ── */}
       <div>
         <div className="row-between">
-          <h3>Monthly budget by line</h3>
+          <h3>Income &amp; spending over time</h3>
           <button className="btn" onClick={applyQuickstart} type="button">
             Quickstart from income (50/30/20)
           </button>
         </div>
-        <p className="hint">Click the graph to edit the budget at any point in time.</p>
+        <p className="hint">Click either graph to edit at any point in time.</p>
+
+        <h4 className={styles.groupHeading}>Monthly income by source</h4>
+        <IncomeChart
+          data={projected.incomeData}
+          selectedMonth={selectedMonth}
+          onSelectMonth={selectMonth}
+        />
+
+        <h4 className={styles.groupHeading}>Monthly spending by line</h4>
         <PerLineBudgetChart
           data={chartData}
           selectedMonth={selectedMonth}
@@ -224,11 +259,11 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
 
         <h4 className={styles.groupHeading}>Income</h4>
         <div className={styles.lineRow}>
-          <span className={styles.lineLabel}>Take-home</span>
+          <span className={styles.lineLabel}>Income</span>
           <NumInput
-            label="Take-home"
+            label="Income"
             value={Math.round(displayedCents({ kind: "income" }, incomeAtMonth, pending) / 100)}
-            onChange={(v) => stageEdit({ kind: "income" }, "Take-home", incomeAtMonth, v)}
+            onChange={(v) => stageEdit({ kind: "income" }, "Income", incomeAtMonth, v)}
             prefix="$"
             step={100}
           />

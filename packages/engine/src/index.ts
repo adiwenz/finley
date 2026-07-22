@@ -54,7 +54,6 @@ export type {
   BudgetLine,
   ResolveLineContext,
   ResolvedBudgetLine,
-  LineIntent,
 } from "./budgetLine";
 export {
   taxTreatmentForLine,
@@ -62,7 +61,6 @@ export {
   budgetLinePriority,
   orderBudgetLines,
   resolveBudget,
-  fundLinesInPriorityOrder,
 } from "./budgetLine";
 export {
   compileExpenseBudgetLines,
