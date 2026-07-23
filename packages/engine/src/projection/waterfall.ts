@@ -386,6 +386,13 @@ function fundGoalsAndContributions(
   // draws in the priority order the caller supplied, and BEFORE the asap goals below so a
   // fill-order goal cannot starve a standing saving. Conserves: the borrowed part is both
   // deposited and subtracted back as the shortfall, so `deposits − shortfall` is unchanged.
+  //
+  // Disclosed simplification `contributionsNotAssetFunded` (see projection/assumptions.ts):
+  // the shortfall goes to savings/credit only. Unlike unaffordable SPENDING — which
+  // `simulate.ts` funds by selling investments (buildWithdrawalSources) before this runs —
+  // a contribution is never funded by liquidating other holdings, so it can flip the plan
+  // insolvent while investment balances remain (the model won't sell one holding to feed
+  // another).
   let contributionShortfall: Cents = 0;
   for (const c of input.contributions ?? []) {
     const wanted = Math.max(0, c.monthlyCents);
