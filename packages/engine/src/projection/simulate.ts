@@ -14,6 +14,7 @@ import {
 import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { TaxCategory } from "../cashFlowSeries";
 import { budgetLineAllocationId } from "../allocations";
+import { orderBudgetLines, resolveBudgetLineMonthlyCents, type BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import {
   runWaterfall,
@@ -129,6 +130,8 @@ interface SimState {
    * re-earmarked, or drawn thereafter (§5.2, #28).
    */
   goals: SimGoal[];
+  /** Standing account-contribution budget lines (§12) — resolved & funded each month. */
+  readonly contributionLines: readonly BudgetLine[];
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
@@ -252,6 +255,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     propertyValues,
     personIds,
     goals: [...(input.goals ?? [])],
+    contributionLines: input.contributionLines ?? [],
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
@@ -368,6 +372,23 @@ function allocateMonth(
   // account id (0 for an unknown account → a flat even spread).
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
+  // Standing account contributions (§12): resolve each line's amount for THIS month
+  // (literal / fill-to-limit / goal-paced) against its own target account's live
+  // balance and rate, in waterfall priority order, so the funding step draws them from
+  // discretionary in the order the tiers imply. Zero-amount lines (out of span, or a
+  // goal-paced line past its deadline) drop out.
+  const contributions = orderBudgetLines(state.contributionLines).flatMap((line) => {
+    if (line.target.kind !== "account") return [];
+    const accountId = line.target.accountId;
+    const monthlyCents = resolveBudgetLineMonthlyCents(line, {
+      month,
+      year: ctx.year,
+      currentBalanceCents: state.assetBalances.get(accountId) ?? 0,
+      fundMonthlyRate: accountsById.get(accountId)?.getMonthlyRateAt(month) ?? 0,
+    });
+    return monthlyCents > 0 ? [{ accountId, monthlyCents }] : [];
+  });
+
   const result = runWaterfall({
     personIds: state.personIds,
     incomeSources,
@@ -375,6 +396,7 @@ function allocateMonth(
     sharedScheme: state.sharedScheme,
     surplusDestination: state.surplusDestination,
     goals: state.goals,
+    contributions,
     nowMonth: month,
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,

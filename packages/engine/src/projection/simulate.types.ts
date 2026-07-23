@@ -14,6 +14,7 @@ import type { SimAccount } from "../simAccount";
 import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
 import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
+import type { BudgetLine } from "../budgetLine";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -261,6 +262,14 @@ export interface HouseholdSimInput {
    * Retirement is just the highest-priority horizon goal. Defaults to none.
    */
   readonly goals?: readonly SimGoal[];
+  /**
+   * Standing account-contribution budget lines (§12/§15): "put $X into this account"
+   * each month. Resolved per-month and funded from discretionary alongside goals, so a
+   * recurring saving/investment contribution accumulates in its account instead of
+   * idling. Expense lines are NOT here — they arrive precompiled in `expenseSeries`.
+   * Defaults to none.
+   */
+  readonly contributionLines?: readonly BudgetLine[];
   /**
    * Lever 2 (§5.0): how partners split shared obligations. Defaults to
    * `"proportional"` (to take-home) — the robust default that degrades gracefully

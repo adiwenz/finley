@@ -86,6 +86,14 @@ export interface WaterfallInput {
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
   /**
+   * Standing account-contribution budget lines resolved for this month (§12/§15) —
+   * "put $X into this account", already in waterfall priority order and post-tax.
+   * Funded from the discretionary pool alongside goals (after dated goal paces, before
+   * `asap` goals), so a recurring saving/investment contribution actually lands in the
+   * account instead of idling. Underfunds silently when the pool is short. Absent → none.
+   */
+  readonly contributions?: readonly { readonly accountId: string; readonly monthlyCents: Cents }[];
+  /**
    * The absolute month being allocated (0 = "now"). Sets each dated goal's
    * `monthsRemaining = targetDate − nowMonth` for the #26 sinking-fund pace. Absent
    * → 0.
@@ -299,12 +307,13 @@ function splitSharedObligation(
  * all goals amortize concurrently to their own deadlines and the order is a no-op;
  * only when the paces exceed the month's cash does priority decide who falls behind.
  *
- * `asap` goals have no deadline, hence no pace, so they fund fill-order from whatever
- * remains AFTER every dated pace (a second pass), in priority order. The exact
- * leftover after all of that lands in the surplus destination — the balancing figure,
- * so every discretionary cent is conserved regardless of rounding.
+ * Standing account contributions (§12) fund between the two goal passes — after every
+ * dated pace, before the `asap` fill — each drawing its month's amount from the same
+ * pool. `asap` goals then fund fill-order from whatever remains, in priority order. The
+ * exact leftover after all of that lands in the surplus destination — the balancing
+ * figure, so every discretionary cent is conserved regardless of rounding.
  */
-function fundGoals(
+function fundGoalsAndContributions(
   input: WaterfallInput,
   leftoverByPerson: Map<string, Cents>,
   totalDiscretionary: Cents,
@@ -360,6 +369,20 @@ function fundGoals(
     fundGoalUpTo(goal, pace);
   }
 
+  // Standing account contributions (§12/§15): fund each "put $X into this account"
+  // line from the shared discretionary pool, in the priority order the caller supplied.
+  // BEFORE the asap goals below, so a fill-order goal cannot starve a standing saving.
+  // Draws through the SAME `sharedPoolRemaining` / `goalDepositsTotal` accounting as
+  // goals, so the surplus residual stays conserved; underfunds silently when the pool
+  // is exhausted (you don't borrow to save).
+  for (const c of input.contributions ?? []) {
+    const fund = Math.min(Math.max(0, c.monthlyCents), sharedPoolRemaining);
+    if (fund <= 0) continue;
+    addDeposit(deposits, c.accountId, fund);
+    goalDepositsTotal += fund;
+    sharedPoolRemaining -= fund;
+  }
+
   // Pass 2 — asap goals (no deadline, no pace) fill-order from the remainder.
   for (const goal of orderedGoals) {
     if (goal.targetDate !== "asap") continue;
@@ -396,7 +419,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     input,
     takeHomeByPerson,
   );
-  fundGoals(input, leftoverByPerson, totalDiscretionary, deposits);
+  fundGoalsAndContributions(input, leftoverByPerson, totalDiscretionary, deposits);
 
   return {
     taxCents,

@@ -27,6 +27,7 @@ import type { Plan, GoalPlan } from "./plan";
 import { type Person } from "./person";
 import { compilePersonIncomeSeries } from "./compilePerson";
 import { compileExpenseBudgetLines } from "./compileBudget";
+import type { BudgetLine, TaxTreatment } from "./budgetLine";
 
 /**
  * The environment + jurisdiction the plan→projection mapping is resolved against.
@@ -48,6 +49,23 @@ const SAVINGS_ID = "savings";
 /** The pre-tax retirement account a {@link Job}'s 401(k) deferral funds (§11). */
 export const RETIREMENT_ID = "retirement";
 const BROKERAGE_ID = "brokerage";
+
+/**
+ * The standing accounts a budget **contribution** line (§12) may pay into, with their
+ * portable {@link TaxTreatment}. Only **post-tax** targets: a contribution is funded out
+ * of already-taxed take-home, so paying it into a pre-tax account (retirement) would
+ * skip the deduction and overstate tax — pre-tax saving is the job's 401(k) deferral
+ * (§11), authored on the job, not here. The app builds its target picker from this list,
+ * so account ids are never hardcoded in the UI.
+ */
+export const CONTRIBUTION_TARGETS: readonly {
+  readonly accountId: string;
+  readonly label: string;
+  readonly taxTreatment: TaxTreatment;
+}[] = [
+  { accountId: BROKERAGE_ID, label: "Brokerage", taxTreatment: "postTax" },
+  { accountId: SAVINGS_ID, label: "Cash savings", taxTreatment: "postTax" },
+];
 
 /** The fund account a goal accumulates into (one per goal, so goals don't share a balance). */
 export function goalFundAccountId(goal: GoalPlan): string {
@@ -212,10 +230,15 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // Additive branch (§12, issue #67): a non-empty line-item budget is the new
   // source of truth for spending — compile its EXPENSE lines (spans + dated
   // overrides ride into each series) and use them in place of the scalar
-  // `expenseCents` series. Contribution lines route to the contribution channels
-  // (resolveBudget), not here; they land in the waterfall in the #72 rewire. When
-  // absent/empty, the scalar expense series above is used (still live until #72).
+  // `expenseCents` series. Contribution lines (account targets) are carried through
+  // separately (`contributionLines` below) and funded in the waterfall each month.
+  // When absent/empty, the scalar expense series above is used.
   const budgetLines = budget.budgetLines;
+  // Account-target lines fund the waterfall's contribution step; expense lines compile
+  // to spending series above. Split them once here (§12).
+  const contributionLines: readonly BudgetLine[] = (budgetLines ?? []).filter(
+    (l) => l.target.kind === "account",
+  );
   // Every expense line is owned by the primary person, but that owner is inert
   // today: the simulator sums all expense series into one household obligation
   // and splits it by `sharedScheme`, never reading an expense's ownerId. So every
@@ -259,6 +282,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
       { series: healthSeries, ownerId: PRIMARY_PERSON_ID, label: "Healthcare" },
     ],
     goals: buildPlanGoals(budget),
+    contributionLines,
     sharedScheme: budget.sharedScheme,
     surplusDestination,
   };

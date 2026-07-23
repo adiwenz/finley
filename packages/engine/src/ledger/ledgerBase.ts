@@ -10,6 +10,7 @@ import type { SimOwnedSeries } from "../projection/simulate";
 import type { Person } from "../person";
 import type { SimAccount } from "../simAccount";
 import type { SimGoal } from "../goal";
+import type { BudgetLine } from "../budgetLine";
 import type {
   SharedContributionScheme,
   SurplusDestination,
@@ -42,6 +43,13 @@ export interface LedgerBaseConfig {
    * ledger (§10.2): reprioritizing a goal is a plan edit, not a life event.
    */
   readonly goals?: readonly SimGoal[];
+  /**
+   * Standing account-contribution budget lines (§12): "put $X into this account" each
+   * month, funded from discretionary in the waterfall. Like goals and the budget series,
+   * they live on the value-editing surface, not the event ledger. Expense budget lines
+   * are compiled into {@link initialExpenseSeries}; only account-target lines are here.
+   */
+  readonly contributionLines?: readonly BudgetLine[];
   /** Lever 2 (§5.0): how partners split shared obligations. Default proportional. */
   readonly sharedScheme?: SharedContributionScheme;
   /** Lever 4 (§5.0): where leftover cash lands once every goal is funded. */

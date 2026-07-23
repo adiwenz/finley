@@ -127,6 +127,9 @@ export function buildHouseholdSimInput(
     // §5.0 waterfall config lives on the value-editing surface (§10.2), not the
     // ledger, so it rides along on the base rather than being derived from events.
     goals: base.goals,
+    // Standing account-contribution lines (§12) ride on the base like goals — value-plane
+    // data, not ledger-derived — and fund their accounts in the waterfall each month.
+    contributionLines: base.contributionLines,
     sharedScheme: base.sharedScheme,
     surplusDestination: base.surplusDestination,
   };
