@@ -50,12 +50,14 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
         submit();
       }}
     >
+      {/* step=1: salary is free-form dollars — a larger spinner step would make the
+          browser reject an off-step value (e.g. $5,250) on submit (HTML5 validity). */}
       <NumInput
         label="Monthly salary"
         value={monthlyDollars}
         onChange={setMonthlyDollars}
         prefix="$"
-        step={100}
+        step={1}
         min={0}
       />
       <NumInput label="Start age" value={startAge} onChange={setStartAge} min={14} max={100} step={1} />

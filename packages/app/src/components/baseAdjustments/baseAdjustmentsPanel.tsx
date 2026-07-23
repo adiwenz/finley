@@ -48,7 +48,19 @@ import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
-import { quickstartFromIncome, toBudgetLines } from "./budgetTemplate";
+import { redistributeToTiers } from "./budgetTemplate";
+import { BudgetLineForm } from "./budgetLineForm";
+import {
+  addLineFromDraft,
+  blankLineDraft,
+  contributionLinesOf,
+  contributionTargets,
+  expenseLinesOf,
+  lineToDraft,
+  removeLine,
+  updateLineFromDraft,
+  type BudgetLineDraft,
+} from "./budgetLines";
 import { addIncomeOverride, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
 import {
   applyLineOverride,
@@ -158,10 +170,34 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const chartData = projected.chartData;
 
   // ── What the budget resolves to at the selected point ──
+  // Only EXPENSE lines get month-resolved amounts (the inline stage/commit override
+  // flow). Contribution lines are a separate concern (a flat literal into an account),
+  // listed in their own subsection below.
+  const expenseLines = useMemo(() => expenseLinesOf(lines), [lines]);
+  const contributionLines = useMemo(() => contributionLinesOf(lines), [lines]);
   const rows = useMemo(
-    () => resolveRowsAtMonth(lines, selectedMonth, editCtx.annualInflationRate),
-    [lines, selectedMonth, editCtx],
+    () => resolveRowsAtMonth(expenseLines, selectedMonth, editCtx.annualInflationRate),
+    [expenseLines, selectedMonth, editCtx],
   );
+
+  // Add / edit / delete of budget lines (structural — distinct from the inline amount
+  // override above). One disclosed form at a time, like the Jobs and Goals panels.
+  const [lineAuthoring, setLineAuthoring] = useState<
+    { kind: "edit"; id: string } | { kind: "new" } | null
+  >(null);
+
+  function addLine(draft: BudgetLineDraft): void {
+    setLines((prev) => addLineFromDraft(prev, draft));
+    setLineAuthoring(null);
+  }
+  function editLine(id: string, draft: BudgetLineDraft): void {
+    setLines((prev) => updateLineFromDraft(prev, id, draft));
+    setLineAuthoring(null);
+  }
+  function deleteLine(id: string): void {
+    setLines((prev) => removeLine(prev, id));
+    if (lineAuthoring?.kind === "edit" && lineAuthoring.id === id) setLineAuthoring(null);
+  }
 
   /**
    * The month whose income the row and the one-off control act on. Month 0 is the
@@ -259,7 +295,8 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
   function applyQuickstart(): void {
-    setLines(() => toBudgetLines(quickstartFromIncome(totalMonthlyIncomeCents(plan), retirementMonth)));
+    // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
+    setLines((prev) => redistributeToTiers(prev, totalMonthlyIncomeCents(plan), retirementMonth));
     setPending(null);
   }
 
@@ -406,27 +443,53 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
 
         <h4 className={styles.groupHeading}>Spending</h4>
         {rows.map((row) => (
-          <div key={row.lineId} className={styles.lineRow}>
-            <span className={styles.lineLabel}>
-              {row.label} <span className={styles.tier}>{row.category}</span>
-              {row.overridden && (
-                <span className={styles.adjusted} title="Adjusted at or before this month">
-                  adjusted
-                </span>
-              )}
-            </span>
-            <NumInput
-              label={row.label}
-              value={Math.round(
-                displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
-                  100,
-              )}
-              onChange={(v) =>
-                stageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
-              }
-              prefix="$"
-              step={50}
-            />
+          <div key={row.lineId}>
+            <div className={styles.lineRow}>
+              <span className={styles.lineLabel}>
+                {row.label} <span className={styles.tier}>{row.category}</span>
+                {row.overridden && (
+                  <span className={styles.adjusted} title="Adjusted at or before this month">
+                    adjusted
+                  </span>
+                )}
+              </span>
+              <NumInput
+                label={row.label}
+                value={Math.round(
+                  displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
+                    100,
+                )}
+                onChange={(v) =>
+                  stageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
+                }
+                prefix="$"
+                step={50}
+              />
+              <span className={styles.rowActions}>
+                <button
+                  type="button"
+                  aria-label={`Edit ${row.label}`}
+                  onClick={() =>
+                    setLineAuthoring((a) =>
+                      a?.kind === "edit" && a.id === row.lineId ? null : { kind: "edit", id: row.lineId },
+                    )
+                  }
+                >
+                  Edit
+                </button>
+                <button type="button" aria-label={`Delete ${row.label}`} onClick={() => deleteLine(row.lineId)}>
+                  Delete
+                </button>
+              </span>
+            </div>
+            {lineAuthoring?.kind === "edit" && lineAuthoring.id === row.lineId && (
+              <BudgetLineForm
+                initial={lineToDraft(lines.find((l) => l.id === row.lineId)!)}
+                submitLabel="Save"
+                onSubmit={(draft) => editLine(row.lineId, draft)}
+                onCancel={() => setLineAuthoring(null)}
+              />
+            )}
           </div>
         ))}
 
@@ -454,6 +517,77 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
           <p className={styles.routeEcho} data-testid="adjustment-route">
             {describeRoute(lastRoute.route, lastRoute.label)}
           </p>
+        )}
+
+        {/* ── Savings & contributions: money paid into an account each month (§12).
+            Unlike spending, these accumulate in net worth — funded by the sim. ── */}
+        <h4 className={styles.groupHeading}>Savings &amp; contributions</h4>
+        {contributionLines.length === 0 ? (
+          <p className="hint">
+            No recurring contributions yet. Add one to pay into a brokerage or savings
+            account each month — it accumulates in your net worth.
+          </p>
+        ) : (
+          contributionLines.map((line) => {
+            const monthly = line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
+            const accountId = line.target.kind === "account" ? line.target.accountId : "";
+            const dest = contributionTargets.find((t) => t.accountId === accountId)?.label ?? accountId;
+            return (
+              <div key={line.id}>
+                <div className={styles.lineRow}>
+                  <span className={styles.lineLabel}>
+                    {line.label} <span className={styles.target}>→ {dest}</span>
+                  </span>
+                  <span className={styles.readonlyValue}>{formatDollars(monthly)}/mo</span>
+                  <span className={styles.rowActions}>
+                    <button
+                      type="button"
+                      aria-label={`Edit ${line.label}`}
+                      onClick={() =>
+                        setLineAuthoring((a) =>
+                          a?.kind === "edit" && a.id === line.id ? null : { kind: "edit", id: line.id },
+                        )
+                      }
+                    >
+                      Edit
+                    </button>
+                    <button type="button" aria-label={`Delete ${line.label}`} onClick={() => deleteLine(line.id)}>
+                      Delete
+                    </button>
+                  </span>
+                </div>
+                {lineAuthoring?.kind === "edit" && lineAuthoring.id === line.id && (
+                  <BudgetLineForm
+                    initial={lineToDraft(line)}
+                    submitLabel="Save"
+                    onSubmit={(draft) => editLine(line.id, draft)}
+                    onCancel={() => setLineAuthoring(null)}
+                  />
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {/* ── Add a new budget item (expense or contribution) ── */}
+        {lineAuthoring?.kind === "new" ? (
+          <BudgetLineForm
+            initial={blankLineDraft("expense")}
+            submitLabel="Add"
+            onSubmit={addLine}
+            onCancel={() => setLineAuthoring(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              setPending(null);
+              setLineAuthoring({ kind: "new" });
+            }}
+          >
+            + Add a budget item
+          </button>
         )}
       </div>
     </section>

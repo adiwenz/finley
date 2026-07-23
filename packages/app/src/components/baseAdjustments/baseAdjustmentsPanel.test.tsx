@@ -129,11 +129,16 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(screen.getByTestId("income-summary").textContent).toMatch(/No income from Year/);
   });
 
-  it("replaces the base with a 50/30/20 quickstart from income", () => {
+  it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
     renderPanel(PLAN_DEFAULTS);
+    // Housing is a named line before quickstart…
+    expect(spin(/Housing/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Quickstart/i }));
-    expect(spin(/Needs \(50%\)/)).toBeTruthy();
-    expect(spin(/Savings \(20%\)/)).toBeTruthy();
+    // …and still is after (the budget was rebalanced, not replaced by 3 buckets).
+    expect(spin(/Housing/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /Needs \(50%\)/ })).toBeNull();
+    // A real savings contribution line is seeded for the empty savings tier.
+    expect(screen.getByLabelText(/Delete Savings/i)).toBeTruthy();
   });
 });
 
@@ -289,6 +294,59 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     setOneOffAmount(9000);
     applyOneOff();
     expect(incomeReadonlyDollars()).toBe(9000);
+  });
+});
+
+describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)", () => {
+  const openAdd = () => fireEvent.click(screen.getByRole("button", { name: /Add a budget item/i }));
+  const setName = (name: string) =>
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: name } });
+  const setType = (v: string) =>
+    fireEvent.change(screen.getByLabelText("Item type"), { target: { value: v } });
+  const setAmount = (dollars: number) =>
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly amount/ }), {
+      target: { value: String(dollars) },
+    });
+  const submitAdd = () => fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+  it("adds a named expense line", () => {
+    renderPanel(PLAN_DEFAULTS);
+    openAdd();
+    setName("Pet care");
+    setAmount(120);
+    submitAdd();
+    expect(spin(/Pet care/)).toBeTruthy();
+  });
+
+  it("adds a contribution line into an account, shown under Savings & contributions", () => {
+    renderPanel(PLAN_DEFAULTS);
+    // No contributions to begin with.
+    expect(screen.getByText(/No recurring contributions yet/i)).toBeTruthy();
+    openAdd();
+    setName("Auto-invest");
+    setType("contribution"); // reveals the account picker; forces savings tier
+    setAmount(500);
+    submitAdd();
+    // Appears as a contribution row with its destination, not an editable spending row.
+    const row = screen.getByText("Auto-invest").closest("div")!;
+    expect(row.textContent).toMatch(/Brokerage/);
+    expect(screen.getByLabelText(/Delete Auto-invest/i)).toBeTruthy();
+  });
+
+  it("renames a line in place via its edit form", () => {
+    renderPanel(PLAN_DEFAULTS);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Housing/i }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rent" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(spin(/Rent/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
+  });
+
+  it("deletes a line", () => {
+    renderPanel(PLAN_DEFAULTS);
+    expect(spin(/Subscriptions/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Delete Subscriptions/i }));
+    expect(screen.queryByRole("spinbutton", { name: /Subscriptions/ })).toBeNull();
   });
 });
 
