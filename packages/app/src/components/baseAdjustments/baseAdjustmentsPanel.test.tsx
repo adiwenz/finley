@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents, type Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { setJobMonthlyIncome } from "../../planPeople";
+import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 
 afterEach(cleanup);
@@ -296,35 +296,90 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(incomeReadonlyDollars()).toBe(9000);
   });
 
-  it("applies a permanent raise that holds from the selected month forward", () => {
-    // A raise rides a JobRaise, so the new pay persists — unlike "set pay this month",
-    // the next month is also raised, and the month before is untouched.
+  it("applies a permanent pay change that holds from the selected month forward", () => {
+    // A permanent change rides a JobRaise, so the new pay persists — unlike "set pay this
+    // month", the next month is also changed, and the month before is untouched.
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
     expect(incomeReadonlyDollars()).toBe(5000);
     openOneOff();
-    setOneOffKind("raiseTo");
+    setOneOffKind("raiseTo"); // "Set new pay" — the ongoing figure, up OR down
     setOneOffAmount(8000);
     applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/raised to \$8,000/i);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$8,000/i);
     expect(incomeReadonlyDollars()).toBe(8000);
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(8000); // PERSISTS (not a one-month change)
     selectMonth(5);
-    expect(incomeReadonlyDollars()).toBe(5000); // before the raise: old pay
+    expect(incomeReadonlyDollars()).toBe(5000); // before the change: old pay
   });
 
-  it("raises pay by a delta from the selected month forward", () => {
+  it("changes pay by a delta from the selected month forward", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
     openOneOff();
-    setOneOffKind("raiseBy");
+    setOneOffKind("raiseBy"); // "Change pay by (+/−)"
     setOneOffAmount(1500);
     applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/raised by \$1,500/i);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay changed by \$1,500/i);
     expect(incomeReadonlyDollars()).toBe(6500); // 5,000 + 1,500, ongoing
     selectMonth(12);
     expect(incomeReadonlyDollars()).toBe(6500);
+  });
+});
+
+describe("OneOffIncomeEditor — draft state (single nullable draft)", () => {
+  const kindSelect = () => screen.getByLabelText("Pay change kind") as HTMLSelectElement;
+  const amountValue = () => Number(spin(/Amount/).value);
+  const cancel = () => fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+
+  it("opens with a clean default draft — a bonus of $0, no job pre-picked", () => {
+    renderPanel(PLAN_DEFAULTS);
+    openOneOff();
+    expect(kindSelect().value).toBe("addBonus");
+    expect(amountValue()).toBe(0);
+  });
+
+  it("discards unsaved values on cancel", () => {
+    renderPanel(PLAN_DEFAULTS);
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(9000);
+    cancel();
+    // The form is closed and nothing was applied — no confirmation note.
+    expect(screen.queryByLabelText("Pay change kind")).toBeNull();
+    expect(screen.queryByTestId("pay-change-route")).toBeNull();
+  });
+
+  it("reopens clean after a cancel — the discarded draft does not leak back", () => {
+    renderPanel(PLAN_DEFAULTS);
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(9000);
+    cancel();
+    openOneOff();
+    expect(kindSelect().value).toBe("addBonus"); // not the cancelled "setTo"
+    expect(amountValue()).toBe(0); // not the cancelled 9000
+  });
+
+  it("defaults to the first job with several jobs, unless another is picked", () => {
+    // A second open-ended job for the same person makes the job picker appear; the pay
+    // change should target Job 1 by default and honour an explicit pick otherwise.
+    const twoJobs = addJobFromDraft(PLAN_DEFAULTS, blankJobDraft(PLAN_DEFAULTS));
+    renderPanel(twoJobs);
+    selectMonth(6);
+
+    openOneOff();
+    expect(screen.getByLabelText("Job")).toBeTruthy(); // picker only shows with >1 job
+    setOneOffAmount(2000);
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Job 1/); // defaulted
+
+    openOneOff();
+    fireEvent.change(screen.getByLabelText("Job"), { target: { value: "job-2" } });
+    setOneOffAmount(1000);
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Job 2/); // honoured
   });
 });
 
