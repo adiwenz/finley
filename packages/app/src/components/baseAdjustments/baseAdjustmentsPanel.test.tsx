@@ -27,11 +27,11 @@ afterEach(cleanup);
 const incomeReadonlyDollars = (): number =>
   Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
 
-/** Open the one-off control, then drive its kind / amount and apply. */
+/** Open the pay-change control, then drive its kind / amount and apply. */
 const openOneOff = () =>
-  fireEvent.click(screen.getByRole("button", { name: /One-off change this month/i }));
+  fireEvent.click(screen.getByRole("button", { name: /Change pay at this month/i }));
 const setOneOffKind = (value: string) =>
-  fireEvent.change(screen.getByLabelText("One-off kind"), { target: { value } });
+  fireEvent.change(screen.getByLabelText("Pay change kind"), { target: { value } });
 const setOneOffAmount = (dollars: number) =>
   fireEvent.change(screen.getByRole("spinbutton", { name: /Amount/ }), {
     target: { value: String(dollars) },
@@ -269,7 +269,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     openOneOff();
     setOneOffAmount(2000); // default kind is "bonus (add on top)"
     applyOneOff();
-    expect(screen.getByTestId("one-off-route").textContent).toMatch(/bonus of \$2,000/i);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/bonus of \$2,000/i);
     expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
   });
 
@@ -279,7 +279,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     openOneOff();
     setOneOffKind("missed");
     applyOneOff();
-    expect(screen.getByTestId("one-off-route").textContent).toMatch(/missed paycheck/i);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/missed paycheck/i);
     expect(incomeReadonlyDollars()).toBe(0);
     // The next month is untouched — the override is a single month.
     selectMonth(7);
@@ -294,6 +294,37 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     setOneOffAmount(9000);
     applyOneOff();
     expect(incomeReadonlyDollars()).toBe(9000);
+  });
+
+  it("applies a permanent raise that holds from the selected month forward", () => {
+    // A raise rides a JobRaise, so the new pay persists — unlike "set pay this month",
+    // the next month is also raised, and the month before is untouched.
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+    expect(incomeReadonlyDollars()).toBe(5000);
+    openOneOff();
+    setOneOffKind("raiseTo");
+    setOneOffAmount(8000);
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/raised to \$8,000/i);
+    expect(incomeReadonlyDollars()).toBe(8000);
+    selectMonth(7);
+    expect(incomeReadonlyDollars()).toBe(8000); // PERSISTS (not a one-month change)
+    selectMonth(5);
+    expect(incomeReadonlyDollars()).toBe(5000); // before the raise: old pay
+  });
+
+  it("raises pay by a delta from the selected month forward", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+    openOneOff();
+    setOneOffKind("raiseBy");
+    setOneOffAmount(1500);
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/raised by \$1,500/i);
+    expect(incomeReadonlyDollars()).toBe(6500); // 5,000 + 1,500, ongoing
+    selectMonth(12);
+    expect(incomeReadonlyDollars()).toBe(6500);
   });
 });
 

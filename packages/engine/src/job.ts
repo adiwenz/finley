@@ -58,6 +58,30 @@ export interface JobIncomeOverride {
 }
 
 /**
+ * A **permanent** step change to a job's pay from a given month onward (§6, §10.3) — a
+ * raise, or a pay cut. Where a {@link JobIncomeOverride} perturbs a single month, a raise
+ * opens a new salary segment: the new pay is in force from `month` and then keeps growing
+ * at the job's own real-plus-CPI rate. It is a value edit on the standing job (the same
+ * job now pays differently), never a timeline life event — and it is what lets a raise
+ * ride ONE continuous job instead of forcing a job to be split in two.
+ *
+ *   - `raiseTo` sets pay to an absolute monthly figure from `month` on (a new salary).
+ *   - `raiseBy` adds `cents` on top of what the job would otherwise pay that month, from
+ *     `month` on (a delta raise). A negative `cents` is a pay cut.
+ *
+ * Like overrides, a raise rides the job's own series, so the raised pay is taxed as
+ * `wages` and flows through the 401(k) deferral. `cents` is nominal at `month` (the actual
+ * paycheck that month), matching the one-month `setTo`.
+ */
+export interface JobRaise {
+  /** Absolute simulation month (from "now") the new pay takes effect and holds from. */
+  readonly month: number;
+  readonly kind: "raiseTo" | "raiseBy";
+  /** For `raiseTo`, the new absolute monthly pay; for `raiseBy`, the monthly amount added on. */
+  readonly cents: Cents;
+}
+
+/**
  * The pre-tax 401(k)-style deferral a job carries (§11). Deferral lives on the
  * **job**, not the person, because the employer match and the elected fraction
  * are a property of that employment. Compiles to the income source's
@@ -100,6 +124,12 @@ export interface Job {
    * {@link JobIncomeOverride}.
    */
   readonly incomeOverrides?: readonly JobIncomeOverride[];
+  /**
+   * Permanent step changes to pay (raises / cuts), each keyed by simulation month and in
+   * force from that month forward. Optional. See {@link JobRaise}. Applied BEFORE the
+   * one-month {@link incomeOverrides}, so a later bonus adds on top of the raised pay.
+   */
+  readonly raises?: readonly JobRaise[];
 }
 
 /**

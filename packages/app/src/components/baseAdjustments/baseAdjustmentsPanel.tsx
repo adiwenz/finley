@@ -42,6 +42,7 @@ import {
   budgetLineAllocationId,
   type BudgetLine,
   type JobIncomeOverride,
+  type JobRaise,
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -61,7 +62,7 @@ import {
   updateLineFromDraft,
   type BudgetLineDraft,
 } from "./budgetLines";
-import { addIncomeOverride, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
+import { addIncomeOverride, addJobRaise, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
 import {
   applyLineOverride,
   resolveRowsAtMonth,
@@ -131,8 +132,16 @@ export interface BaseAdjustmentsPanelProps {
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
 }
 
-/** A one-off income change made against the selected month — the flavours share one form. */
-type OneOffKind = "addBonus" | "setTo" | "missed";
+/**
+ * A pay change made against the selected month — all flavours share one form. The first
+ * three are one-month perturbations (a {@link JobIncomeOverride}); the last two are
+ * PERMANENT step changes from the month forward (a {@link JobRaise}).
+ */
+type PayChangeKind = "addBonus" | "setTo" | "missed" | "raiseTo" | "raiseBy";
+
+/** Whether a pay-change kind is a permanent raise (rides a {@link JobRaise}) vs. one month. */
+const isRaiseKind = (kind: PayChangeKind): kind is "raiseTo" | "raiseBy" =>
+  kind === "raiseTo" || kind === "raiseBy";
 
 export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
@@ -219,33 +228,48 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
    */
   const incomeAtMonth = projected.incomeByMonth[incomeMonth] ?? 0;
 
-  // ── One-off income change against the selected month (§10.3/§20) ──
+  // ── Pay change against the selected month: one-month perturbations + permanent raises (§6/§10.3/§20) ──
   const jobs = primaryJobs(plan);
   const [oneOffOpen, setOneOffOpen] = useState(false);
-  const [oneOffKind, setOneOffKind] = useState<OneOffKind>("addBonus");
+  const [oneOffKind, setOneOffKind] = useState<PayChangeKind>("addBonus");
   const [oneOffDollars, setOneOffDollars] = useState(0);
   const [oneOffJobId, setOneOffJobId] = useState<string | null>(null);
-  /** A short confirmation of the last one-off applied, echoed like the spending route. */
+  /** A short confirmation of the last pay change applied, echoed like the spending route. */
   const [oneOffNote, setOneOffNote] = useState<string | null>(null);
 
-  /** The job a one-off targets: the explicit pick, else the first job. */
+  /** The job a pay change targets: the explicit pick, else the first job. */
   const targetJobId = oneOffJobId ?? jobs[0]?.id ?? null;
 
   /**
-   * Apply the one-off to the target job's {@link JobIncomeOverride}s at the selected
-   * month: a bonus adds on top of that month's pay, a missed paycheck sets it to $0, and
-   * "set pay this month" overrides it to an absolute figure. All ride the job's series,
-   * so they are taxed as wages and run through its 401(k) — a bonus is not tax-free cash.
+   * Apply the pay change to the target job at the selected month. The one-month kinds ride
+   * a {@link JobIncomeOverride} (a bonus adds on top of that month's pay, a missed paycheck
+   * zeroes it, "set pay this month" fixes an absolute figure for the one month); the raise
+   * kinds ride a {@link JobRaise} that holds from this month FORWARD (a new pay, or a delta).
+   * All ride the job's series, so they are taxed as wages and run through its 401(k) — a
+   * bonus is not tax-free cash, and a raise is not a magic influx.
    */
   function applyOneOff(): void {
     if (targetJobId === null) return;
     const cents = dollarsToCents(oneOffDollars);
+    const jobLabel = `Job ${Math.max(0, jobs.findIndex((j) => j.id === targetJobId)) + 1}`;
+
+    if (isRaiseKind(oneOffKind)) {
+      const raise: JobRaise = { month: incomeMonth, kind: oneOffKind, cents };
+      setBudget((p) => addJobRaise(p, targetJobId, raise));
+      const what =
+        oneOffKind === "raiseTo"
+          ? `pay raised to ${formatDollars(cents)}`
+          : `pay raised by ${formatDollars(cents)}`;
+      setOneOffNote(`→ ${what} on ${jobLabel} from month ${incomeMonth} onward (ongoing)`);
+      setOneOffOpen(false);
+      return;
+    }
+
     const override: JobIncomeOverride =
       oneOffKind === "missed"
         ? { month: incomeMonth, kind: "setTo", cents: 0 }
         : { month: incomeMonth, kind: oneOffKind, cents };
     setBudget((p) => addIncomeOverride(p, targetJobId, override));
-    const jobLabel = `Job ${Math.max(0, jobs.findIndex((j) => j.id === targetJobId)) + 1}`;
     const what =
       oneOffKind === "missed"
         ? "missed paycheck"
@@ -364,21 +388,29 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
           below. This shows the total your jobs pay at the selected month.
         </p>
 
-        {/* One-off, single-month change: a bonus, a missed paycheck, or a corrected
-            month — a per-job {@link JobIncomeOverride}, taxed as wages (§10.3/§20). */}
+        {/* Pay change against the selected month: one-month perturbations (a bonus, a
+            missed paycheck, a corrected month — a per-job {@link JobIncomeOverride}) and
+            PERMANENT raises from this month forward (a {@link JobRaise}). All taxed as
+            wages through the job's series (§6/§10.3/§20). */}
         <div className={styles.oneOff}>
           {oneOffOpen ? (
-            <div className={styles.oneOffForm} role="group" aria-label="One-off income change">
+            <div className={styles.oneOffForm} role="group" aria-label="Pay change at this month">
               <label className="field">
                 <span className="field-label">Change</span>
                 <select
-                  aria-label="One-off kind"
+                  aria-label="Pay change kind"
                   value={oneOffKind}
-                  onChange={(e) => setOneOffKind(e.target.value as OneOffKind)}
+                  onChange={(e) => setOneOffKind(e.target.value as PayChangeKind)}
                 >
-                  <option value="addBonus">Bonus (add on top)</option>
-                  <option value="missed">Missed paycheck</option>
-                  <option value="setTo">Set pay this month</option>
+                  <optgroup label="This month only">
+                    <option value="addBonus">Bonus (add on top)</option>
+                    <option value="missed">Missed paycheck</option>
+                    <option value="setTo">Set pay this month</option>
+                  </optgroup>
+                  <optgroup label="Permanent (from this month on)">
+                    <option value="raiseTo">Raise — set new pay</option>
+                    <option value="raiseBy">Raise — increase pay by</option>
+                  </optgroup>
                 </select>
               </label>
               {jobs.length > 1 && (
@@ -403,8 +435,8 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
                   value={oneOffDollars}
                   onChange={setOneOffDollars}
                   prefix="$"
-                  step={100}
-                  min={0}
+                  step={1}
+                  min={oneOffKind === "raiseBy" ? undefined : 0}
                 />
               )}
               <div className={styles.oneOffActions}>
@@ -431,11 +463,11 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
                 setOneOffOpen(true);
               }}
             >
-              + One-off change this month
+              + Change pay at this month
             </button>
           )}
           {oneOffNote && (
-            <p className={styles.routeEcho} data-testid="one-off-route">
+            <p className={styles.routeEcho} data-testid="pay-change-route">
               {oneOffNote}
             </p>
           )}

@@ -110,6 +110,19 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
     taxCategory: "wages",
   });
 
+  // Permanent raises (§6, §10.3): a step change to pay that holds from its month forward.
+  // Each opens a new salary segment via a `fromHereForward` override with `resetAnchor`, so
+  // the new pay compounds from here at the job's own real+CPI rate. `raiseBy` reads the
+  // month's pre-raise baseline and adds to it; `raiseTo` replaces it. Applied in month order
+  // (so successive raises compound) and BEFORE the one-month overrides below, so a bonus in a
+  // later month lands on top of the raised pay. Raises outside the paid span are ignored — a
+  // job cannot be raised in a month it is not worked.
+  for (const r of [...(job.raises ?? [])].sort((a, b) => a.month - b.month)) {
+    if (r.month < startMonth || r.month > endMonthExclusive - 1) continue;
+    const newMonthly = r.kind === "raiseTo" ? r.cents : series.getMonthlyCents(r.month) + r.cents;
+    series.addOverride(r.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
+  }
+
   // One-month pay perturbations (§10.3, §20): a bonus, missed paycheck, or single-month
   // correction rides the job's own series as a `thisMonthOnly` override, so it is taxed
   // as wages and runs through the 401(k) deferral like regular pay. `addBonus` reads the

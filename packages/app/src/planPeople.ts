@@ -14,6 +14,7 @@ import {
   RETIREMENT_ID,
   type Job,
   type JobIncomeOverride,
+  type JobRaise,
   type Plan,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
@@ -130,7 +131,8 @@ export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
 
 /**
  * Rewrite the job with `id` from a form draft, preserving the parts the form doesn't
- * edit: any one-month {@link JobIncomeOverride}s and an employer match on the deferral.
+ * edit: any one-month {@link JobIncomeOverride}s, permanent {@link JobRaise}s, and an
+ * employer match on the deferral.
  */
 export function updateJobFromDraft(plan: Plan, id: string, draft: JobDraft): Plan {
   const birthYear = primaryBirthYear(plan);
@@ -143,7 +145,11 @@ export function updateJobFromDraft(plan: Plan, id: string, draft: JobDraft): Pla
         rebuilt.deferral && j.deferral?.employerMatchFraction !== undefined
           ? { ...rebuilt, deferral: { ...rebuilt.deferral, employerMatchFraction: j.deferral.employerMatchFraction } }
           : rebuilt;
-      return j.incomeOverrides ? { ...withMatch, incomeOverrides: j.incomeOverrides } : withMatch;
+      return {
+        ...withMatch,
+        ...(j.incomeOverrides ? { incomeOverrides: j.incomeOverrides } : {}),
+        ...(j.raises ? { raises: j.raises } : {}),
+      };
     }),
   };
 }
@@ -169,6 +175,26 @@ export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncome
               ...(j.incomeOverrides ?? []).filter((o) => o.month !== override.month),
               override,
             ],
+          }
+        : j,
+    ),
+  };
+}
+
+/**
+ * Attach a permanent raise (or pay cut) to a specific job (§6, §10.3) — a step change
+ * that holds from `raise.month` forward, distinct from the one-month {@link addIncomeOverride}.
+ * At most one raise per (job, month): a new one replaces any existing at that month, so
+ * re-editing the same month is idempotent.
+ */
+export function addJobRaise(plan: Plan, jobId: string, raise: JobRaise): Plan {
+  return {
+    ...plan,
+    jobs: plan.jobs.map((j) =>
+      j.id === jobId
+        ? {
+            ...j,
+            raises: [...(j.raises ?? []).filter((r) => r.month !== raise.month), raise],
           }
         : j,
     ),
