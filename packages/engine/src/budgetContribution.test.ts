@@ -88,4 +88,23 @@ describe("budget contribution lines fund their account (#72 rewire)", () => {
     expect(firstInsolvent).toBeGreaterThan(0); // month 0 is the flow-free snapshot
     expect(firstInsolvent).toBeLessThan(13); // and it's immediate, not a far-future failure
   });
+
+  it("does NOT inflate net worth when a committed contribution overshoots into insolvency", () => {
+    // The whole point: a $10,000,000/mo contribution you can't fund must not show as a
+    // ~$10M net-worth spike in the insolvent month. The part that couldn't actually be
+    // funded (from cash, savings, or credit) is unwound, so net worth stays near the
+    // pre-contribution level rather than booking a phantom asset.
+    const absurd: Plan = {
+      ...samplePlan,
+      goals: [],
+      budgetLines: [rent, { ...invest, amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(10_000_000) } }],
+    };
+    const months = project(absurd).months;
+    const firstInsolvent = months.findIndex((m) => m.isInsolvent);
+    expect(firstInsolvent).toBeGreaterThan(0);
+    const nw = months[firstInsolvent].netWorthNominalCents;
+    expect(nw).not.toBeNull();
+    // Nowhere near the $10M deposit — it stays around opening savings + real monthly saving.
+    expect(nw!).toBeLessThan(dollarsToCents(1_000_000));
+  });
 });
