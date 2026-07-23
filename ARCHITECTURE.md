@@ -70,10 +70,19 @@ The engine defines *what a jurisdiction must supply*; a `rules` package implemen
 shape (finalize when building the tax seams, `BUILD_SPEC.md` §5.3–5.5):
 
 - `computeTax(taxableIncome, context) → taxCents`
+- `taxableWithdrawalCents(basis, context) → taxCents` and `returnTaxTreatment(returnKind, context)`
+  — the engine tracks each account's **cost basis** and compounds its return (state); the
+  jurisdiction owns the *return-of-capital policy* (how much of a draw is taxable given basis)
+  and the *accrual-vs-realization* treatment of a return. Absent → the engine taxes the full
+  gross and accrues nothing, so the "engine passes the full gross" default holds (#94).
 - contribution limits + catch-up (by account type, age band, year)
 - government programs: Social Security benefit formula (from an earnings record), Medicare
   eligibility + health-cost step, RMD schedule
 - all figures parameterized by year, so `US-2026` and `US-2027` are separate data, same shape
+
+The recurring pattern for policy that needs engine-held state (RMD, cost basis): the **engine
+owns and accumulates the state**, passes a snapshot, and the **jurisdiction owns the decision**.
+Tax *rates, brackets, methods, and timing* live in `rules`; the engine never decides them.
 
 The engine ships a **null jurisdiction** (zero tax, no programs) so it runs and is testable
 with no rules package present. This is what lets Phase 1 (below) complete standalone.

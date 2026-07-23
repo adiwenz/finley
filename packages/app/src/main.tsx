@@ -112,6 +112,17 @@ export function App() {
               or payroll tax. Not a licensed financial advisor. Jurisdiction:{" "}
               {usJurisdiction.id}.
             </p>
+
+            {report.assumptions.length > 0 && (
+              <details className="assumptions">
+                <summary>Assumptions &amp; simplifications</summary>
+                <ul>
+                  {report.assumptions.map((a) => (
+                    <li key={a.id}>{a.text}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
 
           <div className="card">

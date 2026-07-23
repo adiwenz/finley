@@ -12,6 +12,7 @@ import {
   type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
+import type { TaxCategory } from "../cashFlowSeries";
 import { budgetLineAllocationId } from "../allocations";
 import type { SimGoal } from "../goal";
 import {
@@ -69,6 +70,28 @@ interface SimState {
   /** Credit cards (incl. synthetic) sorted ascending by APR — shortfall cascade order. */
   readonly cascadeCards: readonly RevolvingCard[];
   readonly assetBalances: Map<string, Cents>;
+  /**
+   * Per-account cost basis (§#94) — the post-tax principal booked into each account.
+   * Rises with post-tax deposits (surplus sweep, goal funding), falls pro-rata as the
+   * account is drawn, and is drained to 0 when a goal fund is spent/converted. A draw
+   * books only its gain (`draw − pro-rata basis`) to tax. Pre-tax accounts keep basis
+   * 0 by construction: their contributions were tax-deferred going in, so the whole
+   * withdrawal is taxable. Parallels `assetBalances` in shape and lifecycle.
+   */
+  readonly basisByAccount: Map<string, Cents>;
+  /**
+   * Credited return awaiting accrual-taxation, keyed by ACCOUNT id (§#94 Commit 2). For
+   * every account whose {@link SimAccount.taxProfile} declares a `returnKind` that the
+   * JURISDICTION marks `taxAtAccrual` — a cash buffer, and there may be several —
+   * `compoundAssets` records the credited growth here together with the jurisdiction-
+   * chosen income category; the NEXT month's waterfall books each through the single
+   * §5.3 seam. Keyed per account (not per owner) so two cash accounts held by one person
+   * accumulate independently rather than overwriting each other. Compounding runs AFTER
+   * that seam, so the figure is necessarily taxed one month on — an accrual lag, not the
+   * old defer-to-withdrawal leak. Each account's entry is refreshed every month (and
+   * cleared when the jurisdiction defers it), so it never carries stale.
+   */
+  readonly accruedReturnByAccount: Map<string, { cents: Cents; category: TaxCategory }>;
   /**
    * The authoritative, mutable current balance of each liability — updated in
    * place after each month's payment is applied (advanceLiabilities). This Map,
@@ -131,8 +154,16 @@ interface SimState {
 /** Build the run's static config and opening balances (the pre-loop setup). */
 function initSimState(input: HouseholdSimInput): SimState {
   const assetBalances = new Map<string, Cents>();
+  const basisByAccount = new Map<string, Cents>();
   for (const acc of input.accounts) {
     assetBalances.set(acc.id, acc.openingBalanceCents);
+    // Opening basis (§#94): a pre-tax account has zero basis by definition (its
+    // contributions were never taxed), so its whole balance is taxable on the way
+    // out. Every other account opens with unknown basis; assume basis == opening
+    // balance (no embedded gain) — the friendly default. It understates tax for a
+    // user modelling an already-appreciated portfolio, which is the documented cost
+    // disclosed to the app as MODEL_ASSUMPTIONS["postTaxOpeningBasis"] (assumptions.ts).
+    basisByAccount.set(acc.id, acc.taxProfile.contributionsPreTax ? 0 : acc.openingBalanceCents);
   }
 
   const properties: SimProperty[] = [...(input.properties ?? [])];
@@ -203,6 +234,8 @@ function initSimState(input: HouseholdSimInput): SimState {
     liabilities,
     cascadeCards,
     assetBalances,
+    basisByAccount,
+    accruedReturnByAccount: new Map<string, { cents: Cents; category: TaxCategory }>(),
     liabilityBalances,
     properties,
     propertyValues,
@@ -348,6 +381,14 @@ function allocateMonth(
 
   for (const [id, amount] of result.accountDepositsCents) {
     state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
+    // Post-tax deposits (surplus sweep, goal funding) add cost basis — they are
+    // dollars the household has already paid tax on (§#94). Pre-tax deposits
+    // (deferrals + employer match into a tax-deferred account) add none: that money
+    // is taxed on the way OUT, so its basis stays 0 and the whole draw is taxable.
+    const acc = accountsById.get(id);
+    if (acc !== undefined && !acc.taxProfile.contributionsPreTax) {
+      state.basisByAccount.set(id, (state.basisByAccount.get(id) ?? 0) + amount);
+    }
   }
 
   if (result.shortfallCents > 0 && state.liquidAccount !== null) {
@@ -441,16 +482,92 @@ function applyAssetTransfers(state: SimState, month: number): void {
       const fixed = t.amountCents ?? 0;
       const proportional = Math.round(prev * (t.proportionalFraction ?? 0));
       state.assetBalances.set(acc.id, prev + fixed + proportional);
+      // Keep cost basis coherent through transfers (§#94): a proportional move (a
+      // crash, say) scales basis with the balance; a fixed OUTFLOW returns basis
+      // pro-rata like a draw; a fixed post-tax INFLUX adds basis. Pre-tax accounts
+      // stay at basis 0 — an influx there is untaxed-in, fully taxable-out.
+      const basis = Math.max(0, state.basisByAccount.get(acc.id) ?? 0);
+      let nextBasis = basis + Math.round(basis * (t.proportionalFraction ?? 0));
+      if (fixed < 0) {
+        const basisFraction = prev > 0 ? Math.min(1, basis / prev) : 0;
+        nextBasis -= Math.min(nextBasis, Math.round(-fixed * basisFraction));
+      } else if (fixed > 0 && !acc.taxProfile.contributionsPreTax) {
+        nextBasis += fixed;
+      }
+      state.basisByAccount.set(acc.id, Math.max(0, nextBasis));
     }
   }
 }
 
 /** Step 9: compound every asset account exactly once at preciseMonthlyRate(rateAt(m)) (§0.2). */
-function compoundAssets(state: SimState, month: number): void {
+function compoundAssets(
+  state: SimState,
+  month: number,
+  jurisdiction: Jurisdiction,
+  ctx: JurisdictionContext,
+): void {
   for (const acc of state.accounts) {
     const bal = state.assetBalances.get(acc.id) ?? 0;
-    state.assetBalances.set(acc.id, Math.round(bal * (1 + acc.getMonthlyRateAt(month))));
+    const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
+    state.assetBalances.set(acc.id, grown);
+    // Interest accrual (§#94 Commit 2): the engine owns the compounding and the accrual
+    // bookkeeping; the JURISDICTION owns whether this account's return is taxed at
+    // accrual and under which category (`returnTaxTreatment`). Only an account that
+    // declares a neutral `returnKind` is considered — and the jurisdiction may still
+    // defer it. Record the credited growth with the jurisdiction-chosen category; the
+    // next month's waterfall taxes it through the single §5.3 seam (this step runs after
+    // that seam, so it can only be taxed one month on). Refresh every considered account
+    // each month — clearing it when the return is deferred — so no figure carries stale.
+    if (acc.taxProfile.returnKind !== undefined) {
+      const treatment = jurisdiction.returnTaxTreatment?.(acc.taxProfile.returnKind, ctx);
+      if (treatment?.taxAtAccrual) {
+        state.accruedReturnByAccount.set(acc.id, {
+          cents: Math.max(0, grown - bal),
+          category: treatment.category,
+        });
+      } else {
+        state.accruedReturnByAccount.delete(acc.id);
+      }
+    }
   }
+}
+
+/**
+ * Last month's credited interest as this month's taxable income (§#94 Commit 2). The
+ * cash was already credited to each buffer's balance by `compoundAssets`, so these are
+ * ZERO-gross sources — `grossCents` 0, only `taxableCents` booked — taxed through the
+ * §5.3 seam without re-injecting cash the balance already holds. One source per
+ * (owner, tax category): two cash accounts one person holds, each keyed independently
+ * in the accrual map, combine into a single booking of their shared category so the
+ * seam sees the owner's whole interest at once. Empty in month 1 (nothing has
+ * compounded yet) and whenever every buffer's return was zero. Interest is ordinary
+ * income, so it lands in the §5.4 provisional-income formula and can pull a government
+ * benefit into taxability.
+ */
+function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
+  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
+  const byOwnerCategory = new Map<
+    string,
+    { ownerId: string; category: TaxCategory; cents: Cents }
+  >();
+  for (const [accountId, accrued] of state.accruedReturnByAccount) {
+    if (accrued.cents <= 0) continue;
+    const acc = accountsById.get(accountId);
+    if (acc === undefined) continue;
+    const category = accrued.category;
+    const key = `${acc.ownerId} ${category}`;
+    const entry = byOwnerCategory.get(key);
+    if (entry === undefined) {
+      byOwnerCategory.set(key, { ownerId: acc.ownerId, category, cents: accrued.cents });
+    } else {
+      entry.cents += accrued.cents;
+    }
+  }
+  const sources: IncomeSourceMonth[] = [];
+  for (const { ownerId, category, cents } of byOwnerCategory.values()) {
+    sources.push({ ownerId, grossCents: 0, taxCategory: category, taxableCents: cents });
+  }
+  return sources;
 }
 
 /**
@@ -549,6 +666,12 @@ function fireGoalDispositions(state: SimState, month: number): void {
     if (goal.disposition !== "spend" && goal.disposition !== "convertToEquity") continue;
     const maturedCents = Math.max(0, state.assetBalances.get(goal.fundAccountId) ?? 0);
     state.assetBalances.set(goal.fundAccountId, 0);
+    // The fund is fully drained — spent, or swapped to illiquid equity (which the
+    // decumulation loop never sees, so it needs no carried basis). Zero its basis to
+    // match, so a re-used account id could not resurrect stale basis (§#94). The
+    // dropped basis on a convertToEquity swap is disclosed to the app as
+    // MODEL_ASSUMPTIONS["convertedEquityNoBasis"] (assumptions.ts).
+    state.basisByAccount.set(goal.fundAccountId, 0);
     if (goal.disposition === "convertToEquity" && maturedCents > 0) {
       const fundAccount = state.accounts.find((a) => a.id === goal.fundAccountId);
       state.properties.push({
@@ -675,6 +798,10 @@ export function simulateHousehold(
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
+        // Last month's credited cash interest, taxed as ordinary income at accrual
+        // (§#94 Commit 2) — a non-withdrawal taxable source, so it shrinks the gap and
+        // feeds provisional income exactly like a benefit or RMD would.
+        ...buildInterestAccrualSources(state),
         ...buildGovernmentBenefitSources(
           state,
           jurisdiction,
@@ -719,7 +846,7 @@ export function simulateHousehold(
       isInsolvent = applyShortfallCascade(state, month) > 0;
 
       applyAssetTransfers(state, month);
-      compoundAssets(state, month);
+      compoundAssets(state, month, jurisdiction, ctx);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);

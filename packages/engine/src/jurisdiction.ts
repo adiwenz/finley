@@ -1,6 +1,7 @@
 import type { Cents } from "./money";
 import type { EarningsRecord } from "./earningsRecord";
 import type { TaxCategory } from "./cashFlowSeries";
+import type { AccountReturnKind } from "./simAccount";
 
 /**
  * The jurisdiction interface — the plug-and-play seam (ARCHITECTURE.md, §5.3–5.5).
@@ -93,6 +94,37 @@ export interface HealthCostContext extends JurisdictionContext {
   readonly age: number;
 }
 
+/**
+ * The engine-held state a {@link Jurisdiction.taxableWithdrawalCents} decision reads:
+ * the amount drawn, the account's cost basis and balance the draw is measured against,
+ * and the draw's neutral provenance category. The engine OWNS and tracks the basis
+ * (across deposits, draws, transfers) exactly as it accumulates pre-tax balances for
+ * the RMD seam; the jurisdiction reads this snapshot and owns the return-of-capital
+ * policy. `basisCents` 0 (a pre-tax account, no basis) means the whole draw is taxable.
+ */
+export interface WithdrawalTaxBasis {
+  /** The gross amount withdrawn this draw. */
+  readonly grossCents: Cents;
+  /** Cost basis remaining in the account — principal already taxed going in. */
+  readonly basisCents: Cents;
+  /** Account balance the draw is measured against (the basis-fraction denominator). */
+  readonly balanceCents: Cents;
+  /** The account's neutral withdrawal provenance category (never a US vehicle string). */
+  readonly category: TaxCategory;
+}
+
+/**
+ * How a {@link Jurisdiction.returnTaxTreatment} decision classifies an account's
+ * periodic return: taxed as it accrues (bank interest) or deferred to withdrawal
+ * (capital appreciation), and — when accrued — under which {@link TaxCategory}.
+ */
+export interface ReturnTaxTreatment {
+  /** True → tax the credited return in the year it accrues; false → defer to withdrawal. */
+  readonly taxAtAccrual: boolean;
+  /** The category the accrued return is booked under (moot when `taxAtAccrual` is false). */
+  readonly category: TaxCategory;
+}
+
 export interface Jurisdiction {
   /** Stable identifier, e.g. `"null"` or `"US-2026"`. */
   readonly id: string;
@@ -123,6 +155,36 @@ export interface Jurisdiction {
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Cents;
+
+  /**
+   * §5.3 seam: how much of a post-tax account withdrawal is TAXABLE, given the cost
+   * basis the engine tracks ({@link WithdrawalTaxBasis}). This parallels the RMD seam —
+   * the engine owns the basis STATE and calls this per draw; the JURISDICTION owns the
+   * return-of-capital POLICY (is principal returned tax-free, and by what accounting
+   * method — pro-rata, specific-lot, average-cost). The engine books the returned value
+   * to `computeTaxCents` and reduces basis by `grossCents − taxable` (the principal
+   * returned), so the state update stays method-agnostic. Called inside the withdrawal
+   * gross-up loop for many probe amounts, so it MUST be pure and monotone non-decreasing
+   * in `grossCents` (a rising taxable base is what lets the loop climb to its least fixed
+   * point). Optional: absent (null jurisdiction) → the whole `grossCents` is taxable —
+   * the engine never pre-reduces the base itself, preserving the "engine passes the full
+   * gross" contract of {@link computeTaxCents} for a jurisdiction that models no basis.
+   */
+  taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
+
+  /**
+   * §5.3 seam: how an account's periodic RETURN is taxed, given the neutral kind of
+   * return it produces ({@link import("./simAccount").SimAccountTaxProfile.returnKind}).
+   * The engine owns the compounding and the accrual bookkeeping; the JURISDICTION owns
+   * the policy — is the return taxed as it accrues (bank interest, US: yes, as ordinary
+   * income) or deferred to withdrawal and taxed there against basis (capital
+   * appreciation)? Called each month for every account that declares a `returnKind`.
+   * Optional: absent (null jurisdiction), or any return the jurisdiction marks
+   * `taxAtAccrual: false` → the engine books nothing at accrual and the return is
+   * deferred. This is what moves interest's accrual-timing and ordinary-income
+   * categorization out of the engine and into `rules`, where it belongs (#94 follow-up).
+   */
+  returnTaxTreatment?(returnKind: AccountReturnKind, ctx: JurisdictionContext): ReturnTaxTreatment;
 
   /**
    * §5.4 seam: which income {@link TaxCategory} flows count toward the covered-

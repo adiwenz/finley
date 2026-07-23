@@ -9,6 +9,7 @@ import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 import { computeFederalTaxCents } from "./federalTax";
+import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -40,6 +41,7 @@ export {
   type FederalTaxTables,
   type OrdinaryBracket,
 } from "./federalTax";
+export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -60,6 +62,8 @@ export {
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
+  taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
+  returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   isCoveredEarnings,
   defaultBenefitClaimingAge: DEFAULT_BENEFIT_CLAIMING_AGE,

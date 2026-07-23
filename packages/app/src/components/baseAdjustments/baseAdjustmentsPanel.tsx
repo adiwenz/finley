@@ -55,6 +55,8 @@ import { buildIncomeChartData } from "./incomeByCategory";
 import { IncomeChart } from "./incomeChart";
 import { buildPerLineBudgetData, type ChartLine } from "./perLineBudget";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
+import { buildTaxChartData } from "./taxesByMonth";
+import { TaxChart } from "./taxChart";
 import styles from "./baseAdjustments.module.css";
 
 /** "month 180 · 2041 · age 50" — the point on the budget, in the terms a user thinks in. */
@@ -141,6 +143,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     return {
       chartData: buildPerLineBudgetData(result.series, chartLines),
       incomeData: buildIncomeChartData(result.series),
+      taxData: buildTaxChartData(result.series),
       /** Gross income the projection pays in each month, indexed by month. */
       incomeByMonth: result.series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
     };
@@ -247,6 +250,13 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
         <h4 className={styles.groupHeading}>Monthly spending by line</h4>
         <PerLineBudgetChart
           data={chartData}
+          selectedMonth={selectedMonth}
+          onSelectMonth={selectMonth}
+        />
+
+        <h4 className={styles.groupHeading}>Monthly tax paid</h4>
+        <TaxChart
+          data={projected.taxData}
           selectedMonth={selectedMonth}
           onSelectMonth={selectMonth}
         />

@@ -356,6 +356,9 @@ describe("every draw nets its need under the real jurisdiction (#100)", () => {
     const state: WithdrawalState = {
       accounts: [brokerage],
       assetBalances: new Map([["brokerage", opening]]),
+      // Basis absent → 0 → the whole draw is taxable, isolating the gross-up arithmetic
+      // this test proves (the cost-basis path has its own tests, #94).
+      basisByAccount: new Map(),
       liquidAccount: null,
       goals: [],
     };

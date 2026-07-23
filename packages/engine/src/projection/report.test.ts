@@ -107,6 +107,16 @@ describe("buildSimulationReport", () => {
     expect(report.meta).toEqual(meta);
   });
 
+  it("carries the model's disclosed assumptions & simplifications (#94)", () => {
+    const report = buildSimulationReport(baseInput(), nullJurisdiction);
+    const ids = report.assumptions.map((a) => a.id);
+    // The two basis-related simplifications the engine deliberately makes must reach
+    // the consumer so the app can disclose them; each carries plain-language text.
+    expect(ids).toContain("postTaxOpeningBasis");
+    expect(ids).toContain("convertedEquityNoBasis");
+    for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
+  });
+
   it("surfaces cash flows per month (month 0 flow-free; month 1 carries income and expenses)", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     expect(report.months[0].totalIncomeCents).toBe(0);
