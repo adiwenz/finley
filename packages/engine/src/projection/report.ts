@@ -185,10 +185,12 @@ export interface SimulationReport {
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
   /**
-   * Model simplifications worth disclosing to the end user (§#94) — the engine
-   * declares them where each is embodied ({@link MODEL_ASSUMPTIONS}) so a consumer
-   * can render an "assumptions & simplifications" surface rather than re-deriving
-   * them. Stable across a run; the same list every report carries today.
+   * Model simplifications worth disclosing to the end user (§#94) — the engine's own
+   * neutral ones ({@link MODEL_ASSUMPTIONS}) followed by the jurisdiction's own
+   * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}, e.g. US tax-
+   * threshold forward indexing), so a consumer can render an "assumptions &
+   * simplifications" surface rather than re-deriving them. Each is declared where it is
+   * embodied. Stable across a run.
    */
   readonly assumptions: readonly ModelAssumption[];
   /**
@@ -315,12 +317,16 @@ function unionKeys(
  * can build the report without paying for a second simulation.
  *
  * `meta` is echoed verbatim onto {@link SimulationReport.meta} — the seam for a
- * consumer's higher-level config that the engine's own inputs don't carry.
+ * consumer's higher-level config that the engine's own inputs don't carry. Pass the
+ * `jurisdiction` so its own disclosures ({@link
+ * import("../jurisdiction").Jurisdiction.modelAssumptions}) join the engine's on the
+ * report; omit it (the standalone path) and the report carries only the engine's.
  */
 export function summarizeSimulation(
   input: HouseholdSimInput,
   series: ProjectionSeries,
   meta?: Readonly<Record<string, unknown>>,
+  jurisdiction?: Jurisdiction,
 ): SimulationReport {
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const birthYearById = new Map<string, number>();
@@ -365,7 +371,9 @@ export function summarizeSimulation(
     inputs: echoInputs(input),
     columns,
     months,
-    assumptions: MODEL_ASSUMPTIONS,
+    // Engine's neutral simplifications first, then the jurisdiction's own (§5.0): the
+    // US-specific caveats (e.g. tax-threshold forward indexing) ride the jurisdiction.
+    assumptions: [...MODEL_ASSUMPTIONS, ...(jurisdiction?.modelAssumptions ?? [])],
     ...(meta !== undefined ? { meta } : {}),
   };
 }
@@ -380,5 +388,5 @@ export function buildSimulationReport(
   jurisdiction: Jurisdiction,
   meta?: Readonly<Record<string, unknown>>,
 ): SimulationReport {
-  return summarizeSimulation(input, simulateHousehold(input, jurisdiction), meta);
+  return summarizeSimulation(input, simulateHousehold(input, jurisdiction), meta, jurisdiction);
 }

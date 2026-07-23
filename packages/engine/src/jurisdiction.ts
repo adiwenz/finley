@@ -2,6 +2,7 @@ import type { Cents } from "./money";
 import type { EarningsRecord } from "./earningsRecord";
 import type { TaxCategory } from "./cashFlowSeries";
 import type { AccountReturnKind } from "./simAccount";
+import type { ModelAssumption } from "./projection/assumptions";
 
 /**
  * The jurisdiction interface — the plug-and-play seam (ARCHITECTURE.md, §5.3–5.5).
@@ -155,6 +156,18 @@ export interface Jurisdiction {
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Cents;
+
+  /**
+   * §5.4 seam (disclosure): model simplifications SPECIFIC to this jurisdiction's
+   * rules, surfaced so a consumer can show them alongside the engine's own neutral
+   * {@link import("./projection/assumptions").MODEL_ASSUMPTIONS}. The report
+   * concatenates the two (engine assumptions first), so any US-specific caveat — e.g.
+   * that the tax brackets, standard deduction, and capital-gains thresholds are grown
+   * forward at an ASSUMED flat rate rather than the IRS's published yearly figures —
+   * lives HERE in `rules`, never in the neutral engine (§5.0). Optional: absent (v1
+   * null jurisdiction) → the report carries only the engine's assumptions.
+   */
+  readonly modelAssumptions?: readonly ModelAssumption[];
 
   /**
    * §5.3 seam: how much of a post-tax account withdrawal is TAXABLE, given the cost

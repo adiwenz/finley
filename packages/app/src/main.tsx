@@ -61,7 +61,13 @@ export function App() {
   // meta, so knobs the engine input compiles away — life expectancy, retirement age,
   // health lines — survive into the debug output and download.
   const report = useMemo(
-    () => summarizeSimulation(simInput, series, { plan: budget, jurisdictionId: usJurisdiction.id }),
+    () =>
+      summarizeSimulation(
+        simInput,
+        series,
+        { plan: budget, jurisdictionId: usJurisdiction.id },
+        usJurisdiction,
+      ),
     [simInput, series, budget],
   );
 
