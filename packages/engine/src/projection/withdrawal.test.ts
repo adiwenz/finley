@@ -18,8 +18,8 @@ import {
   simulateHousehold,
   type HouseholdSimInput,
   type SimOwnedSeries,
-  type SimPerson,
 } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 import {
   buildWithdrawalSources,
   DEFAULT_LIQUIDATION_ORDER,

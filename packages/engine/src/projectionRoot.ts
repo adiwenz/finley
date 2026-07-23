@@ -50,7 +50,7 @@ import type { BudgetLine } from "./budgetLine";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
 import type { NewLifeEvent } from "./ledger/eventTypes";
-import type { SimPerson } from "./projection/simulate";
+import type { Person } from "./person";
 import type { ProjectionSeries } from "./projection/simulate";
 import type { LiabilityKind } from "./liability";
 import type { GrowthMode } from "./cashFlowSeries";
@@ -94,19 +94,21 @@ export type BudgetLineInput = Omit<BudgetLine, "id"> & { readonly id?: string };
 export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
 
 /**
- * A `marry` payload: the incoming partner. `birthYear` is **required** — it is what
- * makes a benefit basis (§5.4) and the age-50 deferral catch-up (§11) computable, and
- * a spouse with no birth year is a data-entry gap rather than an intent (`SimPerson`
- * keeps it optional because *that* is the compiled shape, where absent legitimately
- * means "model no benefit"). `benefitClaimingAge` defaults to the jurisdiction's
- * full retirement age (US: 67) and `priorEarningsCents` to no record.
+ * A `marry` payload: the incoming partner, authored as a {@link Person} (§8). `birthYear`
+ * is **required** — it is what makes a benefit basis (§5.4) and the age-50 deferral
+ * catch-up (§11) computable, and a spouse with no birth year is a data-entry gap rather
+ * than an intent. `retirementTargetAge` defaults to 65 and `benefitClaimingAge` to the US
+ * full retirement age (67). `jobs` defaults to none (a partner whose earned income the
+ * caller has not authored); their pre-"now" covered-earnings record is derived from those
+ * jobs at the sim boundary, so an empty list models no benefit basis of their own.
  */
 export interface MarryInput {
   readonly month: number;
   readonly name: string;
   readonly birthYear: number;
+  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
-  readonly priorEarningsCents?: Readonly<Record<number, number>>;
+  readonly jobs?: readonly Job[];
   /** Override the minted person id. */
   readonly id?: string;
 }
@@ -326,16 +328,13 @@ export class Projection {
    */
   marry(input: MarryInput): string {
     const { id, nextSeq } = mint(this.state, "person", input.id);
-    const person: SimPerson = {
+    const person: Person = {
       id,
       name: input.name,
       birthYear: input.birthYear,
-      ...(input.benefitClaimingAge !== undefined
-        ? { benefitClaimingAge: input.benefitClaimingAge }
-        : {}),
-      ...(input.priorEarningsCents !== undefined
-        ? { priorEarningsCents: input.priorEarningsCents }
-        : {}),
+      retirementTargetAge: input.retirementTargetAge ?? 65,
+      benefitClaimingAge: input.benefitClaimingAge ?? 67,
+      jobs: input.jobs ?? [],
     };
     this.commitEvent({ id, type: "RelationshipEvent", month: input.month, person }, nextSeq);
     return id;

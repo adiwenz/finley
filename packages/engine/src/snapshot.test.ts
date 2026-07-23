@@ -15,8 +15,18 @@ import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
+import type { Person } from "./person";
 
-const primary = [{ id: "p1", name: "Alex" }];
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
+
+const primary = [personLit("p1", "Alex")];
 // Validation base for fixtures — includes a liquid account so DebtPayoff
 // fixtures (which require an account to draw from) pass. Used only to validate
 // fixture events; each test still snapshots/replays against its own base.
@@ -57,7 +67,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 36,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     expect(snapshotAt(ledger, 35, { initialPersons: primary }).persons.map((p) => p.id)).toEqual(["p1"]);
     // The month you marry shows you married.
@@ -70,7 +80,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 12,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -148,7 +158,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     ledger = add(ledger, {
       id: "j2",
@@ -321,7 +331,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     };
     // Partner joins beyond the horizon — must not appear at the clamped month.
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 30, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 30, person: personLit("p2", "Sam"),
     });
     const projection = replayLedger(ledger, base, nullJurisdiction);
     const household = interpretLedger(ledger, base);

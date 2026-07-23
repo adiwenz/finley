@@ -9,13 +9,23 @@ import {
   type LedgerBaseConfig,
   type NewLifeEvent,
   type SnapshotSeries,
+  type Person,
 } from "@finley/engine";
 import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
+
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
 
 const addBase: LedgerBaseConfig = {
   horizonMonths: 360,
   annualInflationRate: 0,
-  initialPersons: [{ id: "p1", name: "Alex" }],
+  initialPersons: [personLit("p1", "Alex")],
 };
 
 /** Build a ledger fixture, asserting each event passes validation. */

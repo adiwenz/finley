@@ -17,6 +17,7 @@ import {
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, careerJob } from "./testing/samplePlan";
+import { compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan } from "./plan";
 
 const START_YEAR = 2026;
@@ -87,7 +88,10 @@ describe("createProjectionBase — earned income before current age comes from t
   });
   const priorYears = (careerStartAge: number) => {
     const base = createProjectionBase(planFromCareerStart(careerStartAge), ctx());
-    return Object.keys(base.initialPersons![0].priorEarningsCents!)
+    // initialPersons holds authoring Persons now; derive the pre-"now" record from the
+    // person's jobs, exactly as the sim boundary does.
+    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
+    return Object.keys(prior)
       .map(Number)
       .sort((a, b) => a - b);
   };

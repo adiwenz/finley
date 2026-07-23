@@ -36,9 +36,20 @@ import type {
   SimProperty,
 } from "./simulate.types";
 
-// Re-exported so existing importers (and the engine barrel in index.ts) keep
-// resolving the simulator's public types through ./simulate.
-export type * from "./simulate.types";
+// Re-exported so existing importers (and the engine barrel in index.ts) keep resolving
+// the simulator's public types through ./simulate. `SimPerson` is deliberately OMITTED:
+// since the #72 hinge it is an engine-INTERNAL compiled shape (the app authors the
+// standing `Person` and the sim derives `SimPerson` via `compilePerson`), so it must not
+// ride the public barrel. Internal engine code imports it directly from ./simulate.types.
+export type {
+  HouseholdSimInput,
+  LiabilityPaymentRecord,
+  SimOwnedSeries,
+  ProjectionMonth,
+  ProjectionMonthFlows,
+  ProjectionSeries,
+  SimProperty,
+} from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
 

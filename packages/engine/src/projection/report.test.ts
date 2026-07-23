@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSimulationReport, summarizeSimulation } from "./report";
-import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";

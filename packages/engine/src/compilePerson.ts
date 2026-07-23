@@ -15,8 +15,28 @@
 import type { Cents } from "./money";
 import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
+import type { SimPerson } from "./projection/simulate.types";
 import type { Job } from "./job";
 import type { Person } from "./person";
+
+/**
+ * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson}
+ * (§3, §4.6, §8) — the seam that keeps the authoring roster (identity + retirement
+ * inputs + jobs) out of the pure sim core. The sim needs only identity, the benefit
+ * basis (`birthYear` + `benefitClaimingAge`), and the pre-"now" covered-earnings record,
+ * which is derived directly from the person's jobs (never simulated). `retirementTargetAge`
+ * and `jobs` do not cross into the sim — they drive the forward income series
+ * (compiled separately by {@link compilePersonIncomeSeries}) and the job spans.
+ */
+export function compilePerson(person: Person, nowYear: number, inflationRate: number): SimPerson {
+  return {
+    id: person.id,
+    name: person.name,
+    birthYear: person.birthYear,
+    benefitClaimingAge: person.benefitClaimingAge,
+    priorEarningsCents: compilePersonPriorEarnings(person, nowYear, inflationRate),
+  };
+}
 
 /** Annual salary (nominal = real, since it is today's dollars) at a calendar year. */
 function realSalaryCentsAt(job: Job, year: number): number {

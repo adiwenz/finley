@@ -4,7 +4,8 @@ import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earn
 import { priceGovernmentBenefitBaseMonthlyCents } from "../governmentBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { SimPerson, SimOwnedSeries } from "./simulate";
+import type { SimOwnedSeries } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 
 /**
  * The slice of the simulator's state that the government-benefit bookkeeping reads.

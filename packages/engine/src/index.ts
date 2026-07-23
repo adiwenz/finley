@@ -15,11 +15,12 @@ export * from "./jurisdiction";
 export * from "./earningsRecord";
 export * from "./governmentBenefit";
 export * from "./goal";
-// The standing Job/Person authoring model (§1–§8, issue #64). `Person` here is
-// the source-of-truth household member (identity + retirement/benefit inputs + jobs);
-// it is distinct from the lower-level simulator `SimPerson`
-// (`./projection/simulate`), which is the compiled shape the sim consumes. The
-// seam between them is `compilePerson`.
+// The standing Job/Person authoring model (§1–§8, issue #64). `Person` is THE
+// public household-member type (identity + retirement/benefit inputs + jobs) — the
+// app authors and edits the roster as `Person`s (§8). The lower-level simulator
+// `SimPerson` is the *compiled* shape the sim consumes; since the #72 hinge it is
+// engine-INTERNAL (no longer barrel-exported), derived from a `Person` at the sim
+// boundary via `compilePerson`.
 export type { Job, PersonId, SalaryTrajectory, JobDeferral } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
@@ -42,8 +43,9 @@ export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compile
 // The line-item budget authoring model (§12, §15, §18, §19, issue #67, slice 4):
 // a prioritized list of dollar line items (expenses + account contributions) with
 // {literal, fill-to-limit, goal-paced} amount sources, spans + dated overrides.
-// Added additively alongside the scalar `Plan.expenseCents` / `retirementDeferralPct`
-// / `surplusSwept` path (removed only in #72). `compileBudget` is the sim seam.
+// The #72 hinge deleted the scalar `retirementDeferralPct` / `surplusSwept` levers
+// (deferral now rides the Job, §11); `expenseCents` remains as the engine-native
+// scalar-expense fallback. `compileBudget` is the sim seam.
 export type {
   TaxTreatment,
   BudgetTarget,

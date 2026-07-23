@@ -9,14 +9,21 @@ import type { Cents } from "../money";
 import type { GrowthMode } from "../cashFlowSeries";
 import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { SimPerson } from "../projection/simulate";
+import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
 export interface HouseholdMembership {
-  readonly person: SimPerson;
+  /**
+   * The household member as **authoring** {@link Person} data (§8) — identity, the
+   * retirement/benefit inputs, and their jobs. The lower-level {@link
+   * import("../projection/simulate").SimPerson} the sim consumes is *derived* from this
+   * at the sim boundary via {@link import("../compilePerson").compilePerson}; the roster
+   * the app holds and edits never touches it.
+   */
+  readonly person: Person;
   readonly startMonth: number;
   readonly endMonth: number | null;
 }

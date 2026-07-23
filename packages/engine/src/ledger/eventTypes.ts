@@ -8,7 +8,7 @@
 import type { Cents } from "../money";
 import type { GrowthMode, TaxCategory } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { SimPerson } from "../projection/simulate";
+import type { Person } from "../person";
 
 // ─── Durable entity ──────────────────────────────────────────────────────────
 
@@ -46,10 +46,10 @@ export interface CausedByFields {
 
 // ─── Event types ─────────────────────────────────────────────────────────────
 
-/** Adds a new person (partner/spouse) to the household. */
+/** Adds a new person (partner/spouse) to the household — authoring {@link Person} data. */
 export interface RelationshipEvent extends EventBase {
   readonly type: "RelationshipEvent";
-  readonly person: SimPerson;
+  readonly person: Person;
 }
 
 /**

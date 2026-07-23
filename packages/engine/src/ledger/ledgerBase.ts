@@ -6,7 +6,8 @@
  * artifacts, never life events (§10.3 rule 1), so they are provided here.
  */
 
-import type { SimPerson, SimOwnedSeries } from "../projection/simulate";
+import type { SimOwnedSeries } from "../projection/simulate";
+import type { Person } from "../person";
 import type { SimAccount } from "../simAccount";
 import type { SimGoal } from "../goal";
 import type {
@@ -23,8 +24,8 @@ export interface LedgerBaseConfig {
    */
   readonly benefitColaRate?: number;
   readonly startYear?: number;
-  /** Persons present before any events (e.g. the primary account holder). */
-  readonly initialPersons?: readonly SimPerson[];
+  /** Persons present before any events (e.g. the primary account holder) — authoring {@link Person}s. */
+  readonly initialPersons?: readonly Person[];
   /** Accounts managed outside the event ledger (payoff events attach outflows). */
   readonly initialAccounts?: readonly SimAccount[];
   /**

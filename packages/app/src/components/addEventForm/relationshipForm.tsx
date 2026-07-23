@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MonthSelect, type FormProps } from "./formControls";
+import { START_YEAR } from "../../config";
 
 export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
   const [month, setMonth] = useState(defaultMonth);
@@ -12,7 +13,18 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
       id: `e${nextId}`,
       type: "RelationshipEvent",
       month,
-      person: { id: `p-${nextId}`, name: name || "Partner" },
+      // Authoring Person (§8): the form collects only a name today, so the
+      // retirement/benefit inputs take sensible defaults and the partner joins with no
+      // authored jobs (no earned income until the app can author them). birthYear is a
+      // generic-adult placeholder — it only drives the age display, since jobs are empty.
+      person: {
+        id: `p-${nextId}`,
+        name: name || "Partner",
+        birthYear: START_YEAR - 40,
+        retirementTargetAge: 65,
+        benefitClaimingAge: 67,
+        jobs: [],
+      },
     });
   }
 

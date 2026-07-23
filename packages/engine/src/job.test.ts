@@ -10,7 +10,7 @@ import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from 
 import { samplePlan, careerJob } from "./testing/samplePlan";
 import { deriveRealGrowthPct, type Job } from "./job";
 import type { Person } from "./person";
-import { compilePersonIncomeSeries } from "./compilePerson";
+import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -71,7 +71,13 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
 
   it("computes pre-'now' earnings directly from the jobs (§4.6)", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
-    const prior = base.initialPersons![0].priorEarningsCents!;
+    // The roster holds authoring Persons; the pre-"now" covered-earnings record is
+    // derived from their jobs (the sim boundary does the same via compilePerson).
+    const prior = compilePersonPriorEarnings(
+      base.initialPersons![0],
+      START_YEAR,
+      samplePlan.inflationPct / 100,
+    );
     // The record covers exactly the pre-"now" working years [careerStart … now).
     expect(Object.keys(prior).length).toBeGreaterThan(0);
     // Sim still starts at "now" — no pre-"now" months are simulated (§4.6).

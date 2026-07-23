@@ -7,9 +7,9 @@
  *
  * This module imports nothing from `projection/*`, so the standing types stay
  * clear of the simulator core (the sim dependency lives in `compilePerson`).
- * It lands **additively**, alongside the scalar `Plan.incomeCents` /
- * `careerStartAge` / `JobChangeEvent` path — both compile into the same
- * `LedgerBaseConfig`, so nothing existing is removed here (that is #72's job).
+ * Since the #72 hinge this is the **sole** source of truth for earned income —
+ * the scalar `Plan.incomeCents` / `careerStartAge` / `JobChangeEvent` path it
+ * was built alongside has been deleted.
  */
 
 import type { Cents } from "./money";

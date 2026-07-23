@@ -18,14 +18,14 @@ import {
   PRE_TAX_TAX_PROFILE,
   CASH_INTEREST_TAX_PROFILE,
 } from "./simAccount";
-import type { SimPerson, SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
+import type { SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan } from "./plan";
 import { type Person } from "./person";
-import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
+import { compilePersonIncomeSeries } from "./compilePerson";
 import { compileExpenseBudgetLines } from "./compileBudget";
 
 /**
@@ -197,19 +197,6 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     jobs: budget.jobs,
   };
 
-  // Give the projection a benefit basis (§5.4): a birth year derived from today's age
-  // plus the pinned claiming age, so the engine accumulates earnings while working and
-  // pays a government retirement benefit from the claiming age. The pre-"now" covered
-  // years (§4.6) come directly from the jobs, so the benefit reflects a full career
-  // rather than only in-model earnings.
-  const person: SimPerson = {
-    id: PRIMARY_PERSON_ID,
-    name: budget.name,
-    birthYear,
-    benefitClaimingAge: budget.benefitClaimingAge,
-    priorEarningsCents: compilePersonPriorEarnings(standingPerson, startYear, inflationRate),
-  };
-
   // General (non-health) expenses grow with CPI — flat in real terms.
   const expenseSeries = new SimCashFlowSeries(
     0,
@@ -262,7 +249,9 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,
-    initialPersons: [person],
+    // The roster holds authoring Persons (§8); the sim's SimPerson is derived at the
+    // sim boundary (buildHouseholdSimInput → compilePerson), never here.
+    initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),
     initialIncomeSeries,
     initialExpenseSeries: [

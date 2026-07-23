@@ -18,8 +18,18 @@ import {
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
+import type { Person } from "./person";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
 
 function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
   return new SimAccount({
@@ -35,7 +45,7 @@ function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
 const baseConfig: LedgerBaseConfig = {
   horizonMonths: 12,
   annualInflationRate: 0,
-  initialPersons: [{ id: "p1", name: "Alice" }],
+  initialPersons: [personLit("p1", "Alice")],
 };
 
 // Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff
@@ -70,7 +80,7 @@ describe("RelationshipEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     // Replay doesn't crash; p2 is now in state (not directly observable in
     // projection but needed for subsequent events).
@@ -214,7 +224,7 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     // Partner income: $2000/mo from month 0
     ledger = add(ledger, {
@@ -253,7 +263,7 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -279,7 +289,7 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -555,10 +565,10 @@ describe("event validation", () => {
 
   it("validateNewEvent rejects a duplicate person id", () => {
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 0, person: personLit("p2", "Sam"),
     });
     const result = validateNewEvent(ledger, baseConfig, {
-      id: "r2", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Other" },
+      id: "r2", type: "RelationshipEvent", month: 0, person: personLit("p2", "Other"),
     });
     expect(result.ok).toBe(false);
   });
@@ -572,7 +582,7 @@ describe("event validation", () => {
 
   it("validateNewEvent rejects separating from an already-separated partner", () => {
     let ledger = emptyLedger;
-    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" } });
+    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: personLit("p2", "Sam") });
     ledger = add(ledger, {
       id: "sep1", type: "SeparationEvent", month: 6, partnerPersonId: "p2",
       alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
@@ -587,7 +597,7 @@ describe("event validation", () => {
   it("validateNewEvent rejects separating before the partnership month", () => {
     // Partner joins at month 60; a separation dated month 12 predates the partnership.
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 60, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 60, person: personLit("p2", "Sam"),
     });
     const result = validateNewEvent(ledger, baseConfig, {
       id: "sep1", type: "SeparationEvent", month: 12, partnerPersonId: "p2",
@@ -615,7 +625,7 @@ describe("replay order", () => {
       id: "j2", type: "BudgetItemStartEvent", month: 12, seriesId: "s2", ownerId: "p1",
       seriesType: "income", monthlyCents: dollarsToCents(5_000), growthMode: { type: "fixed" }, taxCategory: "wages",
     });
-    const snap = snapshotAt(ledger, 12, { initialPersons: [{ id: "p1", name: "Alice" }] });
+    const snap = snapshotAt(ledger, 12, { initialPersons: [personLit("p1", "Alice")] });
     // s1 ended at month 11 (12−1); only s2 is active at month 12.
     expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
   });
@@ -634,7 +644,7 @@ describe("replay order", () => {
       seriesType: "income", monthlyCents: dollarsToCents(2_000), growthMode: { type: "fixed" }, taxCategory: "wages",
     };
     const ledger: Ledger = { events: [j2, end1, j1], nextSequenceNumber: 3 };
-    const snap = snapshotAt(ledger, 0, { initialPersons: [{ id: "p1", name: "Alice" }] });
+    const snap = snapshotAt(ledger, 0, { initialPersons: [personLit("p1", "Alice")] });
     // Sorted by (month, seq): j1 creates s1, end1 ends it, j2 creates s2 → only s2 active.
     expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
   });
@@ -713,7 +723,7 @@ describe("removeEvent — Strategy A", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -831,7 +841,7 @@ describe("removeEvent — Strategy B cascade", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     // Income event tagged as child of r1 via sourceEventId
     ledger = add(ledger, {
@@ -944,7 +954,7 @@ function baseWith(openingCents: number, inflation = 0): LedgerBaseConfig {
   return {
     horizonMonths: 24,
     annualInflationRate: inflation,
-    initialPersons: [{ id: "p1", name: "Alice" }],
+    initialPersons: [personLit("p1", "Alice")],
     initialAccounts: [savings(openingCents)],
   };
 }
