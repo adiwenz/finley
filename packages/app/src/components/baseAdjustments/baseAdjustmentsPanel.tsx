@@ -61,7 +61,7 @@ import {
   updateLineFromDraft,
   type BudgetLineDraft,
 } from "./budgetLines";
-import { addIncomeOverride, addJobRaise, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
+import { addIncomeOverride, addJobPayChange, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
 import {
   applyLineOverride,
   resolveRowsAtMonth,
@@ -216,7 +216,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
    */
   const incomeAtMonth = projected.incomeByMonth[incomeMonth] ?? 0;
 
-  // ── Pay change against the selected month: one-month perturbations + permanent raises (§6/§10.3/§20) ──
+  // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
   // The form and its transient state live in {@link OneOffIncomeEditor}; the panel keeps
   // only plan mutation, so the child never touches `Plan` or `setBudget`.
   const jobs = primaryJobs(plan);
@@ -330,15 +330,15 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
         </p>
 
         {/* Pay change against the selected month: one-month perturbations (a bonus, a
-            missed paycheck, a corrected month — a per-job {@link JobIncomeOverride}) and
-            PERMANENT changes from this month forward (a {@link JobRaise}). All taxed as
-            wages through the job's series (§6/§10.3/§20). The form owns its own transient
+            corrected month, or $0 for a missed paycheck — a per-job {@link JobIncomeOverride})
+            and PERMANENT changes from this month forward (a {@link JobPayChange}). All taxed
+            as wages through the job's series (§6/§10.3/§20). The form owns its own transient
             state; the panel keeps only plan mutation. */}
         <OneOffIncomeEditor
           jobs={jobs}
           incomeMonth={incomeMonth}
           onApplyOverride={(jobId, override) => setBudget((p) => addIncomeOverride(p, jobId, override))}
-          onApplyRaise={(jobId, raise) => setBudget((p) => addJobRaise(p, jobId, raise))}
+          onApplyPayChange={(jobId, payChange) => setBudget((p) => addJobPayChange(p, jobId, payChange))}
         />
 
         <h4 className={styles.groupHeading}>Spending</h4>

@@ -110,17 +110,18 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
     taxCategory: "wages",
   });
 
-  // Permanent raises (§6, §10.3): a step change to pay that holds from its month forward.
-  // Each opens a new salary segment via a `fromHereForward` override with `resetAnchor`, so
-  // the new pay compounds from here at the job's own real+CPI rate. `raiseBy` reads the
-  // month's pre-raise baseline and adds to it; `raiseTo` replaces it. Applied in month order
-  // (so successive raises compound) and BEFORE the one-month overrides below, so a bonus in a
-  // later month lands on top of the raised pay. Raises outside the paid span are ignored — a
-  // job cannot be raised in a month it is not worked.
-  for (const r of [...(job.raises ?? [])].sort((a, b) => a.month - b.month)) {
-    if (r.month < startMonth || r.month > endMonthExclusive - 1) continue;
-    const newMonthly = r.kind === "raiseTo" ? r.cents : series.getMonthlyCents(r.month) + r.cents;
-    series.addOverride(r.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
+  // Permanent pay changes (§6, §10.3): a step change to pay that holds from its month
+  // forward. Each opens a new salary segment via a `fromHereForward` override with
+  // `resetAnchor`, so the new pay compounds from here at the job's own real+CPI rate.
+  // `changeBy` reads the month's pre-change baseline and adds to it (a negative delta is a
+  // cut); `setTo` replaces it. Applied in month order (so successive changes compound) and
+  // BEFORE the one-month overrides below, so a bonus in a later month lands on top of the
+  // changed pay. Pay changes outside the paid span are ignored — a job cannot be repriced
+  // in a month it is not worked.
+  for (const c of [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month)) {
+    if (c.month < startMonth || c.month > endMonthExclusive - 1) continue;
+    const newMonthly = c.kind === "setTo" ? c.cents : series.getMonthlyCents(c.month) + c.cents;
+    series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
   }
 
   // One-month pay perturbations (§10.3, §20): a bonus, missed paycheck, or single-month

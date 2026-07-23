@@ -143,7 +143,7 @@ describe("Job/Person standing model — one-month income overrides (§10.3, §20
   });
 });
 
-describe("Job/Person standing model — permanent raises (§6, §10.3)", () => {
+describe("Job/Person standing model — permanent pay changes (§6, §10.3)", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
@@ -158,52 +158,52 @@ describe("Job/Person standing model — permanent raises (§6, §10.3)", () => {
   // A real-flat $6,000/mo job: within a growth-anchor year the monthly pay is round.
   const base: Job = salariedJob(dollarsToCents(6000));
 
-  it("raiseTo sets a new pay that holds from its month forward, unlike a one-month setTo", () => {
-    const job: Job = { ...base, raises: [{ month: 6, kind: "raiseTo", cents: dollarsToCents(9000) }] };
-    expect(monthly(job, 5)).toBe(dollarsToCents(6000)); // before the raise: old pay
-    expect(monthly(job, 6)).toBe(dollarsToCents(9000)); // the raise month
+  it("setTo sets a new ongoing pay that holds from its month forward, unlike a one-month override", () => {
+    const job: Job = { ...base, payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
+    expect(monthly(job, 5)).toBe(dollarsToCents(6000)); // before the change: old pay
+    expect(monthly(job, 6)).toBe(dollarsToCents(9000)); // the pay-change month
     expect(monthly(job, 11)).toBe(dollarsToCents(9000)); // and it PERSISTS (not one month)
   });
 
-  it("raiseBy adds to the month's baseline from its month forward; a negative delta is a cut", () => {
-    const up: Job = { ...base, raises: [{ month: 6, kind: "raiseBy", cents: dollarsToCents(2000) }] };
+  it("changeBy adds to the month's baseline from its month forward; a negative delta is a cut", () => {
+    const up: Job = { ...base, payChanges: [{ month: 6, kind: "changeBy", cents: dollarsToCents(2000) }] };
     expect(monthly(up, 5)).toBe(dollarsToCents(6000));
     expect(monthly(up, 6)).toBe(dollarsToCents(8000)); // 6000 + 2000, ongoing
     expect(monthly(up, 11)).toBe(dollarsToCents(8000));
-    const cut: Job = { ...base, raises: [{ month: 6, kind: "raiseBy", cents: -dollarsToCents(2000) }] };
+    const cut: Job = { ...base, payChanges: [{ month: 6, kind: "changeBy", cents: -dollarsToCents(2000) }] };
     expect(monthly(cut, 6)).toBe(dollarsToCents(4000)); // a pay cut
   });
 
-  it("compounds successive raises in month order", () => {
+  it("compounds successive pay changes in month order", () => {
     const job: Job = {
       ...base,
-      raises: [
-        { month: 6, kind: "raiseTo", cents: dollarsToCents(9000) },
-        { month: 9, kind: "raiseBy", cents: dollarsToCents(1000) },
+      payChanges: [
+        { month: 6, kind: "setTo", cents: dollarsToCents(9000) },
+        { month: 9, kind: "changeBy", cents: dollarsToCents(1000) },
       ],
     };
     expect(monthly(job, 6)).toBe(dollarsToCents(9000));
-    expect(monthly(job, 9)).toBe(dollarsToCents(10000)); // 9000 raised + 1000
+    expect(monthly(job, 9)).toBe(dollarsToCents(10000)); // 9000 set + 1000 delta
   });
 
-  it("applies raises BEFORE one-month overrides, so a later bonus lands on the raised pay", () => {
+  it("applies pay changes BEFORE one-month overrides, so a later bonus lands on the changed pay", () => {
     const job: Job = {
       ...base,
-      raises: [{ month: 6, kind: "raiseTo", cents: dollarsToCents(9000) }],
+      payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }],
       incomeOverrides: [{ month: 8, kind: "addBonus", cents: dollarsToCents(1000) }],
     };
-    expect(monthly(job, 7)).toBe(dollarsToCents(9000)); // raised pay
-    expect(monthly(job, 8)).toBe(dollarsToCents(10000)); // raised pay + bonus
-    expect(monthly(job, 9)).toBe(dollarsToCents(9000)); // bonus was one month; raise persists
+    expect(monthly(job, 7)).toBe(dollarsToCents(9000)); // changed pay
+    expect(monthly(job, 8)).toBe(dollarsToCents(10000)); // changed pay + bonus
+    expect(monthly(job, 9)).toBe(dollarsToCents(9000)); // bonus was one month; pay change persists
   });
 
-  it("ignores a raise outside the job's paid span — a job cannot be raised when not worked", () => {
-    const ended: Job = { ...base, endYear: START_YEAR + 1, raises: [{ month: 30, kind: "raiseTo", cents: dollarsToCents(9000) }] };
+  it("ignores a pay change outside the job's paid span — a job cannot be repriced when not worked", () => {
+    const ended: Job = { ...base, endYear: START_YEAR + 1, payChanges: [{ month: 30, kind: "setTo", cents: dollarsToCents(9000) }] };
     expect(monthly(ended, 30)).toBe(0);
   });
 
-  it("carries the raised pay through the projection as taxable wages, every month after", () => {
-    const job: Job = { ...base, raises: [{ month: 6, kind: "raiseTo", cents: dollarsToCents(9000) }] };
+  it("carries the changed pay through the projection as taxable wages, every month after", () => {
+    const job: Job = { ...base, payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
     const series = project({ ...samplePlan, jobs: [job] }).months;
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000));

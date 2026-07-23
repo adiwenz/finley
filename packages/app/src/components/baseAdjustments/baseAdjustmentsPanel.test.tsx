@@ -273,14 +273,25 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
   });
 
-  it("applies a missed paycheck as $0 income that month, only that month", () => {
+  it("sets pay to $0 for one month (a missed paycheck), taxed on $0 wages that month", () => {
+    // There is no dedicated "missed paycheck" kind anymore: a missed month is just
+    // "Set pay this month" to $0. It must zero BOTH the income and the wage tax for the
+    // month — you are not taxed on a paycheck you did not receive.
     renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
+    const monthOneTax = () =>
+      (JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}").taxCents as number) ?? 0;
+    // Month 1 normally pays $5,000 of wages and is taxed on them.
+    expect(monthOneTax()).toBeGreaterThan(0);
+
+    selectMonth(1);
     openOneOff();
-    setOneOffKind("missed");
+    setOneOffKind("setTo");
+    setOneOffAmount(0); // the missed-paycheck case
     applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/missed paycheck/i);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$0/i);
     expect(incomeReadonlyDollars()).toBe(0);
+    // Taxed on $0 wages, not the full salary: month 1's tax falls to $0.
+    expect(monthOneTax()).toBe(0);
     // The next month is untouched — the override is a single month.
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(5000);
@@ -297,13 +308,13 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
   });
 
   it("applies a permanent pay change that holds from the selected month forward", () => {
-    // A permanent change rides a JobRaise, so the new pay persists — unlike "set pay this
-    // month", the next month is also changed, and the month before is untouched.
+    // A permanent change rides a JobPayChange, so the new pay persists — unlike "set pay
+    // this month", the next month is also changed, and the month before is untouched.
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
     expect(incomeReadonlyDollars()).toBe(5000);
     openOneOff();
-    setOneOffKind("raiseTo"); // "Set new pay" — the ongoing figure, up OR down
+    setOneOffKind("setOngoing"); // "Set new pay" — the ongoing figure, up OR down
     setOneOffAmount(8000);
     applyOneOff();
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$8,000/i);
@@ -318,7 +329,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
     openOneOff();
-    setOneOffKind("raiseBy"); // "Change pay by (+/−)"
+    setOneOffKind("changeOngoing"); // "Change pay by (+/−)"
     setOneOffAmount(1500);
     applyOneOff();
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay changed by \$1,500/i);
@@ -363,14 +374,14 @@ describe("OneOffIncomeEditor — draft state (single nullable draft)", () => {
   });
 
   it("defaults to the first job with several jobs, unless another is picked", () => {
-    // A second open-ended job for the same person makes the job picker appear; the pay
-    // change should target Job 1 by default and honour an explicit pick otherwise.
+    // With a second open-ended job for the same person, the pay change should target Job 1
+    // by default and honour an explicit pick otherwise.
     const twoJobs = addJobFromDraft(PLAN_DEFAULTS, blankJobDraft(PLAN_DEFAULTS));
     renderPanel(twoJobs);
     selectMonth(6);
 
     openOneOff();
-    expect(screen.getByLabelText("Job")).toBeTruthy(); // picker only shows with >1 job
+    expect(screen.getByLabelText("Job")).toBeTruthy();
     setOneOffAmount(2000);
     applyOneOff();
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Job 1/); // defaulted
