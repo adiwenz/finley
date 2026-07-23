@@ -7,7 +7,12 @@ import {
   TAX_EXEMPT_TAX_PROFILE,
 } from "../simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
+import {
+  nullJurisdiction,
+  type Jurisdiction,
+  type WithdrawalTaxBasis,
+} from "../jurisdiction";
+import type { Cents } from "../money";
 import type { SimGoal, GoalDisposal } from "../goal";
 import {
   simulateHousehold,
@@ -629,10 +634,28 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     return gross - tax;
   }
 
+  // The taxable-base policy now lives behind the jurisdiction seam (#94 follow-up), so a
+  // test that wants to observe the engine WIRING supplies a representative rule. This is
+  // the US pro-rata return-of-capital: only the gain of a draw is taxable, basis returned
+  // in proportion to how much of the balance is basis. (The rule's own arithmetic is
+  // covered in @finley/rules; here it verifies the engine passes basis and honors gain.)
+  const proRata = (b: WithdrawalTaxBasis): Cents => {
+    if (b.balanceCents <= 0 || b.basisCents <= 0) return b.grossCents;
+    const frac = Math.min(1, b.basisCents / b.balanceCents);
+    return b.grossCents - Math.min(b.basisCents, Math.round(b.grossCents * frac));
+  };
+  /** A no-tax jurisdiction that still returns basis — isolates the gain arithmetic. */
+  const proRataNoTax: Jurisdiction = {
+    id: "prorata-no-tax",
+    computeTaxCents: () => 0,
+    taxableWithdrawalCents: proRata,
+  };
+
   /** A flat tax on the capitalGains category only — makes the taxable base observable. */
   const flatGains20: Jurisdiction = {
     id: "flat-gains-20",
     computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.2),
+    taxableWithdrawalCents: proRata,
   };
 
   it("books $0 taxable for a principal-only draw (basis == balance, no growth yet)", () => {
@@ -683,13 +706,13 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // $100k balance / $50k basis → 50% gain fraction, no tax seam (isolate arithmetic).
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 50_000 });
-    const first = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(20_000), ctx);
+    const first = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
     // Drew $20k: $10k gain booked, $10k basis returned → $40k basis on $80k balance.
     expect(first[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(80_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(40_000));
     // The gain fraction held at 50% — a second $20k draw books another $10k of gain.
-    const second = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(20_000), ctx);
+    const second = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
     expect(second[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(30_000));
   });

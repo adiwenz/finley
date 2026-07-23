@@ -1146,6 +1146,9 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "flat-ordinary-10",
       computeTaxCents: (byCat) =>
         Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
+      // Interest is taxed at accrual as ordinary income (the policy now lives on the
+      // jurisdiction, not the account) — so an interest-bearing account accrues here.
+      returnTaxTreatment: () => ({ taxAtAccrual: true, category: "ordinaryIncome" }),
     };
 
     /** A liquid cash buffer (savings) — post-tax in, tax-free withdrawal, taxable interest. */

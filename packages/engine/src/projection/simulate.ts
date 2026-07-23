@@ -80,17 +80,18 @@ interface SimState {
    */
   readonly basisByAccount: Map<string, Cents>;
   /**
-   * Credited interest awaiting taxation, keyed by ACCOUNT id (§#94 Commit 2). Every
-   * account whose {@link SimAccount.taxProfile} declares a `returnTaxCategory` — a
-   * cash buffer, and there may be several — has its credited growth recorded here by
-   * `compoundAssets`; the NEXT month's waterfall books each as income of that category
-   * through the single §5.3 seam. Keyed per account (not per owner) so two cash
-   * accounts held by one person accumulate independently rather than overwriting each
-   * other. Compounding runs AFTER that seam, so the credited figure is necessarily
-   * taxed one month on — an accrual lag, not the old defer-to-withdrawal leak. Each
-   * account's entry is overwritten every month, so it never carries stale.
+   * Credited return awaiting accrual-taxation, keyed by ACCOUNT id (§#94 Commit 2). For
+   * every account whose {@link SimAccount.taxProfile} declares a `returnKind` that the
+   * JURISDICTION marks `taxAtAccrual` — a cash buffer, and there may be several —
+   * `compoundAssets` records the credited growth here together with the jurisdiction-
+   * chosen income category; the NEXT month's waterfall books each through the single
+   * §5.3 seam. Keyed per account (not per owner) so two cash accounts held by one person
+   * accumulate independently rather than overwriting each other. Compounding runs AFTER
+   * that seam, so the figure is necessarily taxed one month on — an accrual lag, not the
+   * old defer-to-withdrawal leak. Each account's entry is refreshed every month (and
+   * cleared when the jurisdiction defers it), so it never carries stale.
    */
-  readonly interestAccruedByAccountCents: Map<string, Cents>;
+  readonly accruedReturnByAccount: Map<string, { cents: Cents; category: TaxCategory }>;
   /**
    * The authoritative, mutable current balance of each liability — updated in
    * place after each month's payment is applied (advanceLiabilities). This Map,
@@ -234,7 +235,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     cascadeCards,
     assetBalances,
     basisByAccount,
-    interestAccruedByAccountCents: new Map<string, Cents>(),
+    accruedReturnByAccount: new Map<string, { cents: Cents; category: TaxCategory }>(),
     liabilityBalances,
     properties,
     propertyValues,
@@ -499,22 +500,34 @@ function applyAssetTransfers(state: SimState, month: number): void {
 }
 
 /** Step 9: compound every asset account exactly once at preciseMonthlyRate(rateAt(m)) (§0.2). */
-function compoundAssets(state: SimState, month: number): void {
+function compoundAssets(
+  state: SimState,
+  month: number,
+  jurisdiction: Jurisdiction,
+  ctx: JurisdictionContext,
+): void {
   for (const acc of state.accounts) {
     const bal = state.assetBalances.get(acc.id) ?? 0;
     const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
     state.assetBalances.set(acc.id, grown);
-    // Interest accrual (§#94 Commit 2): an account whose profile declares a
-    // `returnTaxCategory` (a cash buffer) earns interest — currently-taxable income
-    // booked in the year it is credited. 100% of a cash return is that interest, so no
-    // basis is involved and the credited growth IS the taxable amount. Record it per
-    // account; the next month's waterfall taxes it through the single §5.3 seam (this
-    // step runs after that seam, so it can only be taxed one month on). Every such
-    // account is written every month — including 0 when it did not grow — so no figure
-    // carries stale. Accounts with no `returnTaxCategory` (brokerage, pre-tax, genuine
-    // tax-exempt) never get an entry: their return is deferred, not taxed at accrual.
-    if (acc.taxProfile.returnTaxCategory !== undefined) {
-      state.interestAccruedByAccountCents.set(acc.id, Math.max(0, grown - bal));
+    // Interest accrual (§#94 Commit 2): the engine owns the compounding and the accrual
+    // bookkeeping; the JURISDICTION owns whether this account's return is taxed at
+    // accrual and under which category (`returnTaxTreatment`). Only an account that
+    // declares a neutral `returnKind` is considered — and the jurisdiction may still
+    // defer it. Record the credited growth with the jurisdiction-chosen category; the
+    // next month's waterfall taxes it through the single §5.3 seam (this step runs after
+    // that seam, so it can only be taxed one month on). Refresh every considered account
+    // each month — clearing it when the return is deferred — so no figure carries stale.
+    if (acc.taxProfile.returnKind !== undefined) {
+      const treatment = jurisdiction.returnTaxTreatment?.(acc.taxProfile.returnKind, ctx);
+      if (treatment?.taxAtAccrual) {
+        state.accruedReturnByAccount.set(acc.id, {
+          cents: Math.max(0, grown - bal),
+          category: treatment.category,
+        });
+      } else {
+        state.accruedReturnByAccount.delete(acc.id);
+      }
     }
   }
 }
@@ -537,17 +550,17 @@ function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
     string,
     { ownerId: string; category: TaxCategory; cents: Cents }
   >();
-  for (const [accountId, interestCents] of state.interestAccruedByAccountCents) {
-    if (interestCents <= 0) continue;
+  for (const [accountId, accrued] of state.accruedReturnByAccount) {
+    if (accrued.cents <= 0) continue;
     const acc = accountsById.get(accountId);
-    const category = acc?.taxProfile.returnTaxCategory;
-    if (acc === undefined || category === undefined) continue;
+    if (acc === undefined) continue;
+    const category = accrued.category;
     const key = `${acc.ownerId} ${category}`;
     const entry = byOwnerCategory.get(key);
     if (entry === undefined) {
-      byOwnerCategory.set(key, { ownerId: acc.ownerId, category, cents: interestCents });
+      byOwnerCategory.set(key, { ownerId: acc.ownerId, category, cents: accrued.cents });
     } else {
-      entry.cents += interestCents;
+      entry.cents += accrued.cents;
     }
   }
   const sources: IncomeSourceMonth[] = [];
@@ -833,7 +846,7 @@ export function simulateHousehold(
       isInsolvent = applyShortfallCascade(state, month) > 0;
 
       applyAssetTransfers(state, month);
-      compoundAssets(state, month);
+      compoundAssets(state, month, jurisdiction, ctx);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);

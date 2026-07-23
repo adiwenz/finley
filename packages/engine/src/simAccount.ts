@@ -18,6 +18,15 @@ import type { Cents } from "./money";
 import { preciseMonthlyRate, type TaxCategory } from "./cashFlowSeries";
 
 /**
+ * The neutral KIND of return an account produces (§5.3) — an economic fact, not a tax
+ * rule. "interest": a currently-taxable cash yield (a bank / money-market balance).
+ * "appreciation": an unrealized capital gain. The engine states the kind; the
+ * JURISDICTION owns whether/when/how it is taxed ({@link
+ * import("./jurisdiction").Jurisdiction.returnTaxTreatment}).
+ */
+export type AccountReturnKind = "interest" | "appreciation";
+
+/**
  * A neutral, structured description of an account's tax *behavior* (§5.3 seam 2) —
  * the engine's mechanics need behavior, never a jurisdiction's branded vehicle
  * name. The jurisdiction owns the tax *consequence*; the account only states, in
@@ -32,15 +41,15 @@ export interface SimAccountTaxProfile {
   /** Whether the account is subject to jurisdiction forced distributions (RMD-like). */
   readonly forcedDistributionEligible: boolean;
   /**
-   * When set, the account's periodic RETURN is currently-taxable income of this
-   * category — bank interest on a cash buffer, taxed in the year it is credited
-   * (§#94) — booked at accrual, NOT deferred as an unrealized gain taxed at
-   * withdrawal. Absent (the default) → the return is deferred: a brokerage books
-   * its gain at withdrawal against cost basis, a pre-tax account books the whole
-   * draw, a genuine tax-exempt vehicle books nothing. This is engine-neutral
-   * BEHAVIOR — the jurisdiction still owns the rate on {@link returnTaxCategory}.
+   * The neutral KIND of return this account produces ({@link AccountReturnKind}), when
+   * it matters for taxation. "interest" marks a cash buffer whose return the jurisdiction
+   * may tax at accrual; absent (or "appreciation") → an unrealized gain, deferred to
+   * withdrawal and taxed there against cost basis. The engine states the kind and owns
+   * the accrual bookkeeping; the JURISDICTION owns whether/when/how it is taxed
+   * ({@link import("./jurisdiction").Jurisdiction.returnTaxTreatment}) — accrual-vs-
+   * realization timing and the income category live in `rules`, never here (#94).
    */
-  readonly returnTaxCategory?: TaxCategory;
+  readonly returnKind?: AccountReturnKind;
 }
 
 /**
@@ -70,16 +79,17 @@ export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
 
 /**
  * The cash buffer / savings profile (§#94): post-tax in, and its return is bank
- * interest — currently-taxable ordinary income booked in the year it is credited,
+ * interest (`returnKind: "interest"`) — which the jurisdiction may tax at accrual,
  * whether or not the buffer is ever withdrawn. That accrual taxation is exactly why
  * the withdrawal itself is tax-free. Distinct from {@link TAX_EXEMPT_TAX_PROFILE},
- * whose growth is genuinely never taxed (a Roth-like vehicle).
+ * whose growth is genuinely never taxed (a Roth-like vehicle). The timing and income
+ * category of that interest live in `rules`, not on this profile.
  */
 export const CASH_INTEREST_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "taxExempt",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
-  returnTaxCategory: "ordinaryIncome",
+  returnKind: "interest",
 };
 
 export const TAX_EXEMPT_TAX_PROFILE: SimAccountTaxProfile = {

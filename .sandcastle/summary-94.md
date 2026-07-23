@@ -185,11 +185,50 @@ Branch review surfaced two gaps in Commit 2 and one disclosure gap; all three ar
 - **`simulate.test.ts`** (+1 multi-account test, profile swap), **`report.test.ts`** (+1
   assumptions test).
 
-### Still open — engine vs. rules boundary
-`returnTaxCategory` keeps accrual-vs-realization and the ordinary-income categorization in engine
-mechanism (consistent with Commit 1's `taxableCents`), rather than behind the jurisdiction seam.
-That is a deliberate, unresolved design question flagged in review, not settled by this follow-up.
-
 ### Post-follow-up verification
 - `npm run check` — **green**: purity + `tsc --noEmit` clean + **641 tests passed | 45 todo (686)**
   across 54 files (+2 net new tests over the branch's 639, zero regressions).
+
+---
+
+## Engine ↔ rules boundary realignment (full seam)
+
+Review flagged that #94 decided the **taxable base** inside the engine (`taxableCents` = gain
+not gross; interest categorized as ordinary income at accrual), which is tax *policy* — the
+`computeTaxCents` contract says the engine "passes the full gross" and the jurisdiction owns
+"how much of each category is taxed." The engine already had the right template for policy that
+needs engine-held state — the **RMD seam** (`requiredMinimumDistributionCents(preTaxBalance, ctx)`:
+engine accumulates the balance, rules decide the amount). This change moves #94's policy behind
+the same kind of seam.
+
+### Two new jurisdiction methods (both optional; null jurisdiction implements neither)
+- **`taxableWithdrawalCents(basis, ctx)`** — the engine tracks and passes the cost basis
+  (`{grossCents, basisCents, balanceCents, category}`); the JURISDICTION returns the taxable
+  amount. **Absent → the whole gross is taxable**, which *restores* the "engine passes the full
+  gross" contract by construction. The engine reduces basis by `gross − taxable` (method-agnostic).
+- **`returnTaxTreatment(returnKind, ctx)`** — given the account's neutral `returnKind`
+  (`"interest"` | `"appreciation"`), the JURISDICTION returns `{taxAtAccrual, category}`. This is
+  where accrual-vs-realization timing and the income category now live.
+
+### What moved
+- **`jurisdiction.ts`** — the two methods + `WithdrawalTaxBasis` / `ReturnTaxTreatment` types.
+- **`simAccount.ts`** — `returnTaxCategory?: TaxCategory` → neutral `returnKind?: AccountReturnKind`
+  (the category was policy; the kind is an economic fact). `CASH_INTEREST_TAX_PROFILE` uses it.
+- **`withdrawal.ts`** — `gainOf` now calls `taxableWithdrawalCents` (was engine pro-rata math).
+- **`simulate.ts`** — `compoundAssets` asks `returnTaxTreatment`; the accrual map stores the
+  jurisdiction-chosen category (`accruedReturnByAccount`).
+- **`packages/rules/investmentTax.ts`** (new) — `taxableWithdrawalCents` (US pro-rata return of
+  capital) + `returnTaxTreatment` (interest→ordinary/accrual, appreciation→deferred), wired into
+  `usJurisdiction`. The engine no longer contains any of this policy.
+
+### Consequence for tests
+The default **inverts**: a jurisdiction that doesn't implement the seams gets full-gross
+withdrawals and no accrual (correct for a no-tax jurisdiction). So the pro-rata *arithmetic*
+tests moved to `packages/rules/investmentTax.test.ts`; the engine tests now verify the *wiring*
+(engine passes basis, honors the returned taxable amount, updates basis) with representative
+stubs. `computeTaxCents`'s contract is reconciled: the engine only passes a base below gross via
+a jurisdiction that opted into `taxableWithdrawalCents`.
+
+### Post-realignment verification
+- `npm run check` — **green**: purity + `tsc --noEmit` clean + **648 tests passed | 45 todo (693)**
+  across 55 files (+7 over the prior follow-up: `investmentTax` rules tests; zero regressions).

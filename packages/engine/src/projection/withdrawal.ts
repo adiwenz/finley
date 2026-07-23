@@ -255,14 +255,18 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
-    // Cost basis (#94): only the GAIN portion of a draw is taxable — principal the
-    // owner already paid tax on is returned untaxed. Pro-rata (specific-lot is out of
-    // scope): a draw of `d` returns `d × basis/balance` of basis and books the rest as
-    // gain. basis 0 (a pre-tax account, no basis) → the whole draw is the gain, which
-    // is the pre-tax "fully taxable" behavior falling out naturally, not special-cased.
+    // Cost basis (#94): only the GAIN portion of a draw is taxable — but WHICH portion
+    // is the jurisdiction's call, not the engine's. The engine owns and passes the basis
+    // state; the jurisdiction owns the return-of-capital policy and accounting method
+    // (`taxableWithdrawalCents`, mirroring the RMD seam). Absent seam → the whole draw is
+    // taxable, which restores the "engine passes the full gross" default and is exactly
+    // the pre-tax "fully taxable" behavior for a basis-0 account.
     const basis = Math.max(0, state.basisByAccount.get(account.id) ?? 0);
-    const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
-    const gainOf = (draw: Cents): Cents => draw - Math.min(basis, Math.round(draw * basisFraction));
+    const gainOf = (draw: Cents): Cents =>
+      jurisdiction.taxableWithdrawalCents?.(
+        { grossCents: draw, basisCents: basis, balanceCents: balance, category: withdrawalCategory },
+        ctx,
+      ) ?? draw;
     // Difference the tax over the WHOLE return, not the draw's own-category rate: a
     // capital-gains / tax-exempt draw can read as 0% on its own yet still raise the
     // return's tax by pulling a government benefit into provisional-income taxability
@@ -301,9 +305,9 @@ export function buildWithdrawalSources(
     const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
     const netDelivered = gross - taxOnGross;
 
-    // The draw returns basis pro-rata; the rest is the taxable gain. Reduce the
-    // account's basis by the principal it just returned, so the next draw's gain
-    // fraction is measured against the basis that remains (#94).
+    // The taxable gain is what the jurisdiction returned; the rest of the gross is
+    // principal returned. Reduce the account's basis by that principal (method-agnostic:
+    // gross − taxable), so the next draw is measured against the basis that remains (#94).
     const gainCents = gainOf(gross);
     state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
