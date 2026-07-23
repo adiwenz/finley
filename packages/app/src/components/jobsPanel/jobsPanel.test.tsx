@@ -59,6 +59,18 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
     expect(within(screen.getByLabelText("Job 1")).getByText("$8,000/mo")).toBeTruthy();
   });
 
+  it("caps the 401(k) contribution at 100% — you can't defer more than your salary", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    const deferral = spin(/401\(k\) contribution/i);
+    fireEvent.change(deferral, { target: { value: "1000" } });
+    fireEvent.blur(deferral); // NumInput clamps to its max on blur
+    expect(Number(deferral.value)).toBe(100);
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // Saved at the cap — the row shows 100% to 401(k), not 1000%.
+    expect(within(screen.getByLabelText("Job 1")).getByText(/100% to 401\(k\)/i)).toBeTruthy();
+  });
+
   it("turns an open-ended job into a fixed-term one via the end-age control", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));

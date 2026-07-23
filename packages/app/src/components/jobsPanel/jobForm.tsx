@@ -86,12 +86,16 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
 
       <details className="advanced">
         <summary>Advanced</summary>
+        {/* Capped at 100%: you can't defer more than your whole paycheck. The annual
+            DOLLAR elective limit is enforced separately by the engine (§5.4) — deferral
+            past it is paid as taxable income, disclosed by the nudge on the Jobs panel. */}
         <NumInput
           label="401(k) contribution"
           value={deferralPct}
           onChange={setDeferralPct}
           suffix="%"
           min={0}
+          max={100}
           step={1}
         />
         <NumInput
