@@ -468,7 +468,11 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
   });
 
-  it("underfunds a contribution when discretionary is short — never overdraws", () => {
+  it("borrows a committed contribution the pool can't cover — a shortfall, not a smaller save", () => {
+    // Committed outflow: the whole $500 lands in the account even though only $200 of
+    // discretionary can pay for it; the remaining $300 is a shortfall the §5.1 cascade
+    // meets from savings/credit. An unaffordable auto-invest breaks the plan, it is not
+    // silently shrunk to fit.
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(3000))],
@@ -476,8 +480,24 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
         contributions: [{ accountId: "brokerage", monthlyCents: dollarsToCents(500) }],
       }),
     );
-    expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(200)); // capped at the pool
+    expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(500)); // the FULL contribution
     expect(r.accountDepositsCents.get("checking")).toBeUndefined(); // nothing left to idle
+    expect(r.shortfallCents).toBe(dollarsToCents(300)); // the borrowed remainder
+    // Still conserved: deposits − shortfall = gross − obligations.
+    const deposited = [...r.accountDepositsCents.values()].reduce((s, v) => s + v, 0);
+    expect(deposited - r.shortfallCents).toBe(dollarsToCents(3000) - dollarsToCents(2800));
+  });
+
+  it("adds no shortfall when a contribution fits the discretionary pool", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        sharedObligationCents: dollarsToCents(1000),
+        contributions: [{ accountId: "brokerage", monthlyCents: dollarsToCents(500) }],
+      }),
+    );
+    expect(r.shortfallCents).toBe(0);
+    expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(500));
   });
 
   it("conserves: contributions draw from the same pool, surplus is the residual", () => {
@@ -499,9 +519,10 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3200)); // 4000 − 500 − 300
   });
 
-  it("funds higher-priority contributions first when the pool can't cover both", () => {
-    // Only $600 discretionary; the caller passes contributions already in priority
-    // order, so the first is funded fully and the second takes the remainder.
+  it("lands both committed contributions in full, borrowing what the pool can't cover", () => {
+    // Only $600 discretionary against $1,000 of contributions: both land in full (committed),
+    // and the $400 the pool can't cover is a single shortfall. Priority order decides which
+    // dollars are paid vs borrowed, but every contribution is deposited whole.
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(3600))],
@@ -513,6 +534,7 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
       }),
     );
     expect(r.accountDepositsCents.get("brokerage")).toBe(dollarsToCents(500));
-    expect(r.accountDepositsCents.get("savings")).toBe(dollarsToCents(100)); // only $100 left
+    expect(r.accountDepositsCents.get("savings")).toBe(dollarsToCents(500)); // deposited in full…
+    expect(r.shortfallCents).toBe(dollarsToCents(400)); // …$400 of it borrowed
   });
 });

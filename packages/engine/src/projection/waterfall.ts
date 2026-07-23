@@ -87,10 +87,12 @@ export interface WaterfallInput {
   readonly goals: readonly SimGoal[];
   /**
    * Standing account-contribution budget lines resolved for this month (§12/§15) —
-   * "put $X into this account", already in waterfall priority order and post-tax.
-   * Funded from the discretionary pool alongside goals (after dated goal paces, before
-   * `asap` goals), so a recurring saving/investment contribution actually lands in the
-   * account instead of idling. Underfunds silently when the pool is short. Absent → none.
+   * "put $X into this account", already in waterfall priority order and post-tax. A
+   * COMMITTED outflow: the full amount always lands in the account (funded from the
+   * discretionary pool after dated goal paces, before `asap` goals), and the part the pool
+   * cannot cover is borrowed — a shortfall that the §5.1 cascade meets from savings then
+   * credit, so an unaffordable contribution makes the plan unfinanceable like unaffordable
+   * spending (it is NOT silently shrunk to fit). Absent → none.
    */
   readonly contributions?: readonly { readonly accountId: string; readonly monthlyCents: Cents }[];
   /**
@@ -308,17 +310,22 @@ function splitSharedObligation(
  * only when the paces exceed the month's cash does priority decide who falls behind.
  *
  * Standing account contributions (§12) fund between the two goal passes — after every
- * dated pace, before the `asap` fill — each drawing its month's amount from the same
- * pool. `asap` goals then fund fill-order from whatever remains, in priority order. The
- * exact leftover after all of that lands in the surplus destination — the balancing
- * figure, so every discretionary cent is conserved regardless of rounding.
+ * dated pace, before the `asap` fill. Unlike goals they are COMMITTED: the full amount
+ * always lands in the account, and the part the discretionary pool cannot cover is
+ * returned as a shortfall (borrowed via the §5.1 cascade), so an unaffordable contribution
+ * breaks the plan rather than silently shrinking. `asap` goals then fund fill-order from
+ * whatever remains, in priority order. The exact leftover after all of that lands in the
+ * surplus destination — the balancing figure, so every discretionary cent is conserved.
+ *
+ * Returns the total contribution shortfall (0 when every contribution fit the pool) for
+ * the caller to fold into the household shortfall.
  */
 function fundGoalsAndContributions(
   input: WaterfallInput,
   leftoverByPerson: Map<string, Cents>,
   totalDiscretionary: Cents,
   deposits: Map<string, Cents>,
-): void {
+): Cents {
   const orderedGoals = [...input.goals].sort((a, b) => a.priority - b.priority);
   const nowMonth = input.nowMonth ?? 0;
   const rateOf = input.goalFundMonthlyRate ?? (() => 0);
@@ -369,18 +376,25 @@ function fundGoalsAndContributions(
     fundGoalUpTo(goal, pace);
   }
 
-  // Standing account contributions (§12/§15): fund each "put $X into this account"
-  // line from the shared discretionary pool, in the priority order the caller supplied.
-  // BEFORE the asap goals below, so a fill-order goal cannot starve a standing saving.
-  // Draws through the SAME `sharedPoolRemaining` / `goalDepositsTotal` accounting as
-  // goals, so the surplus residual stays conserved; underfunds silently when the pool
-  // is exhausted (you don't borrow to save).
+  // Standing account contributions (§12/§15) are a COMMITTED monthly outflow, not a
+  // sweep of whatever is left over: "put $X into this account" means the full $X lands
+  // in the account (like a spending line's full amount is always spent), funded from the
+  // discretionary pool as far as it reaches. The part the pool cannot cover is BORROWED
+  // — returned as a shortfall that the §5.1 cascade drains savings then credit to meet,
+  // so a contribution beyond your means makes the plan unfinanceable exactly as
+  // unaffordable spending does (you do not silently save less than you asked to). Funding
+  // draws in the priority order the caller supplied, and BEFORE the asap goals below so a
+  // fill-order goal cannot starve a standing saving. Conserves: the borrowed part is both
+  // deposited and subtracted back as the shortfall, so `deposits − shortfall` is unchanged.
+  let contributionShortfall: Cents = 0;
   for (const c of input.contributions ?? []) {
-    const fund = Math.min(Math.max(0, c.monthlyCents), sharedPoolRemaining);
-    if (fund <= 0) continue;
-    addDeposit(deposits, c.accountId, fund);
-    goalDepositsTotal += fund;
-    sharedPoolRemaining -= fund;
+    const wanted = Math.max(0, c.monthlyCents);
+    if (wanted <= 0) continue;
+    addDeposit(deposits, c.accountId, wanted); // the whole contribution lands in the account
+    const funded = Math.min(wanted, sharedPoolRemaining); // paid from discretionary cash…
+    goalDepositsTotal += funded;
+    sharedPoolRemaining -= funded;
+    contributionShortfall += wanted - funded; // …the rest is borrowed (a shortfall)
   }
 
   // Pass 2 — asap goals (no deadline, no pace) fill-order from the remainder.
@@ -398,6 +412,7 @@ function fundGoalsAndContributions(
         : input.liquidAccountId;
     if (destId !== null) addDeposit(deposits, destId, surplusCents);
   }
+  return contributionShortfall;
 }
 
 /**
@@ -419,12 +434,20 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     input,
     takeHomeByPerson,
   );
-  fundGoalsAndContributions(input, leftoverByPerson, totalDiscretionary, deposits);
+  // A committed contribution the discretionary pool can't cover is borrowed — its
+  // shortfall joins the obligation shortfall for the §5.1 cascade (drain savings → credit
+  // → insolvency), so an unaffordable auto-invest breaks the plan like unaffordable spending.
+  const contributionShortfall = fundGoalsAndContributions(
+    input,
+    leftoverByPerson,
+    totalDiscretionary,
+    deposits,
+  );
 
   return {
     taxCents,
     deferredByPersonCents: deferredByPerson,
     accountDepositsCents: deposits,
-    shortfallCents,
+    shortfallCents: shortfallCents + contributionShortfall,
   };
 }

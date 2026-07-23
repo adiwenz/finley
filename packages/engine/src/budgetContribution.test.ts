@@ -4,6 +4,10 @@
  * behaviour) or — worse — modelled as an expense that leaves net worth. These pin the
  * end-to-end fact through the real projection: a "$500/mo into brokerage" line moves
  * money account→account (net worth is not reduced) and the brokerage balance climbs.
+ *
+ * A contribution is also a COMMITTED outflow: the full amount always lands in the account,
+ * and the part discretionary can't cover is borrowed (a §5.1 shortfall), so an unaffordable
+ * auto-invest makes the plan unfinanceable rather than silently shrinking to fit.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
@@ -59,19 +63,29 @@ describe("budget contribution lines fund their account (#72 rewire)", () => {
     expect(netB).toBeGreaterThanOrEqual(netA);
   });
 
-  it("underfunds rather than overdraws when discretionary can't cover it", () => {
-    // Rent $7,900/mo against ~$8k take-home leaves almost nothing for a $500 contribution.
-    const tight: Plan = {
+  it("is committed: the FULL contribution lands even when discretionary can't cover it", () => {
+    // Take-home is ~$7,200/mo ($8k gross − 10% deferral). Rent $6,500 + $600 health leaves
+    // ~$100 discretionary, far short of the $500 contribution — yet the whole $500 still
+    // lands in brokerage each month (the rest borrowed), identical to the comfortable arm.
+    const strainedRent = { ...rent, amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(6500) } };
+    const strained: Plan = { ...samplePlan, goals: [], budgetLines: [strainedRent, invest] };
+    const comfy = project(withContribution).months; // rent $3,000 — $500 easily afforded
+    const tight = project(strained).months;
+    // Same brokerage balance in both: an unaffordable contribution is borrowed, never shrunk.
+    expect(tight[12].accountBalancesCents["brokerage"]).toBe(comfy[12].accountBalancesCents["brokerage"]);
+  });
+
+  it("makes the plan unfinanceable when the contribution is far beyond your means", () => {
+    // $1,000,000/mo into brokerage on an ~$7.2k take-home: it can't be borrowed for long, so
+    // the §5.1 cascade exhausts savings and credit within the first year and the plan is insolvent.
+    const absurd: Plan = {
       ...samplePlan,
       goals: [],
-      budgetLines: [
-        { ...rent, amountSource: { kind: "literal", monthlyCents: dollarsToCents(7900) } },
-        invest,
-      ],
+      budgetLines: [rent, { ...invest, amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(1_000_000) } }],
     };
-    const months = project(tight).months;
-    // Some (small) amount still saved, but far below the full $500/mo × 12.
-    const brokerageAt12 = months[12].accountBalancesCents["brokerage"] ?? 0;
-    expect(brokerageAt12).toBeLessThan(dollarsToCents(500 * 12));
+    const months = project(absurd).months;
+    const firstInsolvent = months.findIndex((m) => m.isInsolvent);
+    expect(firstInsolvent).toBeGreaterThan(0); // month 0 is the flow-free snapshot
+    expect(firstInsolvent).toBeLessThan(13); // and it's immediate, not a far-future failure
   });
 });
