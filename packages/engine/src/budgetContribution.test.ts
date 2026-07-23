@@ -107,4 +107,25 @@ describe("budget contribution lines fund their account (#72 rewire)", () => {
     // Nowhere near the $10M deposit — it stays around opening savings + real monthly saving.
     expect(nw!).toBeLessThan(dollarsToCents(1_000_000));
   });
+
+  it("an overshoot covered by savings is a neutral transfer — no phantom, and NOT insolvent", () => {
+    // This is the boundary that makes the phantom an INSOLVENCY-only effect: a $5,000/mo
+    // contribution overshoots the ~$3,600 discretionary, but $20k opening savings absorbs
+    // the ~$1,400/mo gap for over a year — so the overshoot is funded for REAL (savings
+    // drawn down), not borrowed into thin air. Net worth must be ~unchanged vs no
+    // contribution (a neutral cash→brokerage transfer), never inflated by the $5,000, and
+    // the month stays solvent. Below insolvency there is nothing to unwind.
+    const overshoot: Plan = {
+      ...samplePlan,
+      goals: [],
+      budgetLines: [rent, { ...invest, amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(5000) } }],
+    };
+    const withMonths = project(overshoot).months;
+    const withNW = withMonths[1].netWorthNominalCents ?? 0;
+    const withoutNW = project(withoutContribution).months[1].netWorthNominalCents ?? 0;
+    expect(withMonths[1].isInsolvent).toBe(false);
+    // Not inflated by the $5,000 — the two differ only by one month of brokerage-vs-cash
+    // return (a few dollars), never the contribution amount.
+    expect(withNW - withoutNW).toBeLessThan(dollarsToCents(100));
+  });
 });
