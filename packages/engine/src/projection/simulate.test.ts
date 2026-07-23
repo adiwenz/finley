@@ -4,7 +4,7 @@ import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
-  TAX_EXEMPT_TAX_PROFILE,
+  CASH_INTEREST_TAX_PROFILE,
 } from "../simAccount";
 import {
   AmortizingLoan,
@@ -1149,12 +1149,12 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     };
 
     /** A liquid cash buffer (savings) — post-tax in, tax-free withdrawal, taxable interest. */
-    function savings(openingDollars: number, annualRate: number): SimAccount {
+    function savings(openingDollars: number, annualRate: number, id = "savings"): SimAccount {
       return new SimAccount({
-        id: "savings",
+        id,
         ownerId: "p1",
-        liquid: true,
-        taxProfile: TAX_EXEMPT_TAX_PROFILE,
+        liquid: id === "savings",
+        taxProfile: CASH_INTEREST_TAX_PROFILE,
         openingBalanceCents: dollarsToCents(openingDollars),
         initialAnnualRate: annualRate,
       });
@@ -1199,6 +1199,49 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       for (const m of [1, 2, 3, 4]) {
         expect(series.months[m].flows?.taxCents).toBe(dollarsToCents(300));
       }
+    });
+
+    it("taxes EVERY cash account's interest, not only the liquid shortfall sink", () => {
+      // The model can hold more than one cash account (a second savings/reserve).
+      // Interest accrual is a per-account tax keyed on the account's `returnTaxCategory`,
+      // not on the single liquid sink, so a second NON-liquid cash buffer's interest
+      // must be taxed too. Hold the topology fixed — same liquid buffer, same surplus
+      // sweep — and vary ONLY the second account: a brokerage (return deferred, taxed
+      // at a withdrawal that never happens → adds no tax) vs a cash reserve (interest
+      // taxed at accrual). Same balance and rate on both, so the tax gap is exactly the
+      // reserve's interest tax, with no surplus-sweep confound.
+      const brokerage = new SimAccount({
+        id: "brokerage",
+        ownerId: "p1",
+        liquid: false,
+        taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+        openingBalanceCents: dollarsToCents(120_000),
+        initialAnnualRate: 0.12,
+      });
+      const reserve = savings(120_000, 0.12, "reserve"); // a second, NON-liquid cash buffer
+      function runWith(second: SimAccount) {
+        return simulateHousehold(
+          {
+            horizonMonths: 4,
+            annualInflationRate: 0,
+            persons: [makePerson()],
+            accounts: [savings(120_000, 0.12), second],
+            incomeSeries: [{ series: monthlyIncome(dollarsToCents(3_000)), ownerId: "p1" }],
+            expenseSeries: [],
+          },
+          flatOrdinary10,
+        );
+      }
+      // Month 2 taxes month 1's credited interest. The brokerage's growth is deferred
+      // (never withdrawn → never taxed); the reserve's interest is taxed at accrual, so
+      // the reserve run taxes strictly more — it would be EQUAL if the second buffer's
+      // interest were dropped (the old single-liquid-account bug).
+      const brokerageTax = runWith(brokerage).months[2].flows?.taxCents ?? 0;
+      const reserveTax = runWith(reserve).months[2].flows?.taxCents ?? 0;
+      expect(reserveTax).toBeGreaterThan(brokerageTax);
+      // The gap is ~10% of the reserve's ~$1.1k first-month interest on $120k — the
+      // reserve's interest is genuinely booked, not silently dropped or overwritten.
+      expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(100));
     });
   });
 });

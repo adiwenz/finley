@@ -17,6 +17,7 @@ import type { Jurisdiction } from "../jurisdiction";
 import type { SimGoal } from "../goal";
 import { AmortizingLoan, RevolvingCard } from "../liability";
 import { simulateHousehold } from "./simulate";
+import { MODEL_ASSUMPTIONS, type ModelAssumption } from "./assumptions";
 import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
@@ -183,6 +184,13 @@ export interface SimulationReport {
   readonly inputs: ReportInputs;
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
+  /**
+   * Model simplifications worth disclosing to the end user (§#94) — the engine
+   * declares them where each is embodied ({@link MODEL_ASSUMPTIONS}) so a consumer
+   * can render an "assumptions & simplifications" surface rather than re-deriving
+   * them. Stable across a run; the same list every report carries today.
+   */
+  readonly assumptions: readonly ModelAssumption[];
   /**
    * Caller-supplied configuration echoed back verbatim (see the `meta` argument of
    * {@link summarizeSimulation}). The engine treats it as an opaque bag — it stays
@@ -357,6 +365,7 @@ export function summarizeSimulation(
     inputs: echoInputs(input),
     columns,
     months,
+    assumptions: MODEL_ASSUMPTIONS,
     ...(meta !== undefined ? { meta } : {}),
   };
 }

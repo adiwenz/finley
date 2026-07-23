@@ -16,7 +16,7 @@ import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
-  TAX_EXEMPT_TAX_PROFILE,
+  CASH_INTEREST_TAX_PROFILE,
 } from "./simAccount";
 import type { Cents } from "./money";
 import type { SimPerson, SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
@@ -71,8 +71,10 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
       // untaxed. It carried a capital-gains profile, which was wrong on its face and
       // dangerous the moment anything treats savings as sellable — a capital-gains
       // draw counts toward provisional income and pulls the government benefit into
-      // tax (see federalTax's provisional-income note).
-      taxProfile: TAX_EXEMPT_TAX_PROFILE,
+      // tax (see federalTax's provisional-income note). Its withdrawal is tax-free
+      // BECAUSE its interest is taxed as ordinary income at accrual (§#94), which the
+      // cash profile — not the genuinely tax-exempt one — declares.
+      taxProfile: CASH_INTEREST_TAX_PROFILE,
       openingBalanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
     }),

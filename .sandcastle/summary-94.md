@@ -140,3 +140,56 @@ withdrawal for the funds, accrual-at-compounding for cash.
 - **Commit 2:** retirement/earning months **no longer report $0 tax** while savings grows;
   tax appears in the (next) month the interest is credited, **not** only once savings is
   drawn; a plan that **never withdraws** savings still pays tax on its interest. ✓
+
+---
+
+## Review follow-up (post-branch review)
+
+Branch review surfaced two gaps in Commit 2 and one disclosure gap; all three are fixed.
+
+### A. Interest accrual is now PER-ACCOUNT, not just the liquid sink
+- **The defect.** Commit 2 keyed accrual on the single `state.liquidAccount` and stored it in
+  a map keyed by **ownerId** (`savingsInterestAccruedCents`). The model can hold more than one
+  cash account (a second savings/reserve), so (1) any cash buffer that wasn't the shortfall
+  sink had its interest go untaxed, and (2) two cash accounts under one owner would **overwrite**
+  each other in the map rather than sum — so even the intended case could silently drop interest.
+- **The fix — declared account behavior, not liquidity.** A new neutral
+  `SimAccountTaxProfile.returnTaxCategory?: TaxCategory` states "this account's *return* is
+  currently-taxable income of this category, booked at accrual." `compoundAssets` records
+  accrued interest for **every** account that declares it, keyed per **account id** (so multiple
+  buffers accumulate independently); `buildInterestAccrualSources` aggregates each owner's
+  accrued interest by category into one zero-gross booking. The discriminator is *behavior*, not
+  "non-brokerage": a pre-tax account is also non-brokerage but its growth is tax-*deferred*, so
+  it correctly declares no `returnTaxCategory` and never accrues.
+- **Sharper profile split.** The cash buffer moved from `TAX_EXEMPT_TAX_PROFILE` to a new
+  `CASH_INTEREST_TAX_PROFILE` (`taxExempt` out, `returnTaxCategory: ordinaryIncome`) — its
+  withdrawal is tax-free *because* its interest is taxed at accrual. `TAX_EXEMPT_TAX_PROFILE`
+  now means a genuinely tax-exempt vehicle (a future Roth) whose growth is never taxed, so it
+  won't misfire. `SimState.savingsInterestAccruedCents` (ownerId-keyed) →
+  `interestAccruedByAccountCents` (accountId-keyed); `buildSavingsInterestSources` →
+  `buildInterestAccrualSources`.
+
+### B. Model simplifications are now disclosed to the app (engine-declared)
+- The two basis-related simplifications were previously code comments only. New
+  `projection/assumptions.ts` exports `MODEL_ASSUMPTIONS` (`postTaxOpeningBasis`,
+  `convertedEquityNoBasis`), carried on `SimulationReport.assumptions`, rendered by the app as
+  an "Assumptions & simplifications" section (`main.tsx`). The embodying code in `simulate.ts`
+  points to each assumption by id. Scoped to the two #94 simplifications; structured so others
+  (accrual lag, year-boundary timing, RMD/SS) can be promoted to disclosures later.
+
+### C. Files touched (review follow-up)
+- **`simAccount.ts`** — `returnTaxCategory` field + `CASH_INTEREST_TAX_PROFILE`.
+- **`projectionBase.ts`** — savings buffer uses the cash profile.
+- **`simulate.ts`** — per-account accrual + rename; **`report.ts`** / **`index.ts`** — assumptions
+  surface; **`projection/assumptions.ts`** (new); **`main.tsx`** — render.
+- **`simulate.test.ts`** (+1 multi-account test, profile swap), **`report.test.ts`** (+1
+  assumptions test).
+
+### Still open — engine vs. rules boundary
+`returnTaxCategory` keeps accrual-vs-realization and the ordinary-income categorization in engine
+mechanism (consistent with Commit 1's `taxableCents`), rather than behind the jurisdiction seam.
+That is a deliberate, unresolved design question flagged in review, not settled by this follow-up.
+
+### Post-follow-up verification
+- `npm run check` — **green**: purity + `tsc --noEmit` clean + **641 tests passed | 45 todo (686)**
+  across 54 files (+2 net new tests over the branch's 639, zero regressions).

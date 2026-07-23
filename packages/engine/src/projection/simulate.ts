@@ -12,6 +12,7 @@ import {
   type SimLiability,
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
+import type { TaxCategory } from "../cashFlowSeries";
 import { budgetLineAllocationId } from "../allocations";
 import type { SimGoal } from "../goal";
 import {
@@ -79,15 +80,17 @@ interface SimState {
    */
   readonly basisByAccount: Map<string, Cents>;
   /**
-   * Credited interest on the liquid cash buffer, per owner, awaiting taxation
-   * (§#94 Commit 2). A cash account's return is interest — taxable as ordinary income
-   * in the year it is credited, whether or not it is ever withdrawn. `compoundAssets`
-   * writes the buffer's credited growth here; the NEXT month's waterfall books it as
-   * `ordinaryIncome` through the single §5.3 seam. Compounding runs AFTER that seam,
-   * so the credited figure is necessarily taxed one month on — an accrual lag, not the
-   * old defer-to-withdrawal leak. Overwritten every month, so it never carries stale.
+   * Credited interest awaiting taxation, keyed by ACCOUNT id (§#94 Commit 2). Every
+   * account whose {@link SimAccount.taxProfile} declares a `returnTaxCategory` — a
+   * cash buffer, and there may be several — has its credited growth recorded here by
+   * `compoundAssets`; the NEXT month's waterfall books each as income of that category
+   * through the single §5.3 seam. Keyed per account (not per owner) so two cash
+   * accounts held by one person accumulate independently rather than overwriting each
+   * other. Compounding runs AFTER that seam, so the credited figure is necessarily
+   * taxed one month on — an accrual lag, not the old defer-to-withdrawal leak. Each
+   * account's entry is overwritten every month, so it never carries stale.
    */
-  readonly savingsInterestAccruedCents: Map<string, Cents>;
+  readonly interestAccruedByAccountCents: Map<string, Cents>;
   /**
    * The authoritative, mutable current balance of each liability — updated in
    * place after each month's payment is applied (advanceLiabilities). This Map,
@@ -157,7 +160,8 @@ function initSimState(input: HouseholdSimInput): SimState {
     // contributions were never taxed), so its whole balance is taxable on the way
     // out. Every other account opens with unknown basis; assume basis == opening
     // balance (no embedded gain) — the friendly default. It understates tax for a
-    // user modelling an already-appreciated portfolio, which is the documented cost.
+    // user modelling an already-appreciated portfolio, which is the documented cost
+    // disclosed to the app as MODEL_ASSUMPTIONS["postTaxOpeningBasis"] (assumptions.ts).
     basisByAccount.set(acc.id, acc.taxProfile.contributionsPreTax ? 0 : acc.openingBalanceCents);
   }
 
@@ -230,7 +234,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     cascadeCards,
     assetBalances,
     basisByAccount,
-    savingsInterestAccruedCents: new Map<string, Cents>(),
+    interestAccruedByAccountCents: new Map<string, Cents>(),
     liabilityBalances,
     properties,
     propertyValues,
@@ -500,38 +504,55 @@ function compoundAssets(state: SimState, month: number): void {
     const bal = state.assetBalances.get(acc.id) ?? 0;
     const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
     state.assetBalances.set(acc.id, grown);
-    // Interest accrual (§#94 Commit 2): the liquid cash buffer's return is interest,
-    // taxable as ordinary income in the year it is credited — 100% of a cash return is
-    // currently-taxable interest, so no basis is involved and the credited growth IS
-    // the taxable amount. Record it for its owner; the next month's waterfall taxes it
-    // through the single §5.3 seam (this step runs after that seam, so it can only be
-    // taxed one month on). Overwrite unconditionally — including with 0 when the buffer
-    // did not grow — so the figure never carries stale into a later month.
-    if (state.liquidAccount !== null && acc.id === state.liquidAccount.id) {
-      state.savingsInterestAccruedCents.set(acc.ownerId, Math.max(0, grown - bal));
+    // Interest accrual (§#94 Commit 2): an account whose profile declares a
+    // `returnTaxCategory` (a cash buffer) earns interest — currently-taxable income
+    // booked in the year it is credited. 100% of a cash return is that interest, so no
+    // basis is involved and the credited growth IS the taxable amount. Record it per
+    // account; the next month's waterfall taxes it through the single §5.3 seam (this
+    // step runs after that seam, so it can only be taxed one month on). Every such
+    // account is written every month — including 0 when it did not grow — so no figure
+    // carries stale. Accounts with no `returnTaxCategory` (brokerage, pre-tax, genuine
+    // tax-exempt) never get an entry: their return is deferred, not taxed at accrual.
+    if (acc.taxProfile.returnTaxCategory !== undefined) {
+      state.interestAccruedByAccountCents.set(acc.id, Math.max(0, grown - bal));
     }
   }
 }
 
 /**
- * Last month's credited savings interest as this month's taxable ordinary income
- * (§#94 Commit 2). One ZERO-gross source per owner with accrued interest: the cash was
- * already credited to the balance by `compoundAssets`, so `grossCents` is 0 and only
- * `taxableCents` is booked — the interest is taxed through the §5.3 seam without being
- * re-injected as spendable income. Empty in month 1 (nothing has compounded yet) and
- * whenever the buffer's return was zero. Interest is ordinary income, so it lands in the
- * §5.4 provisional-income formula and can pull a government benefit into taxability.
+ * Last month's credited interest as this month's taxable income (§#94 Commit 2). The
+ * cash was already credited to each buffer's balance by `compoundAssets`, so these are
+ * ZERO-gross sources — `grossCents` 0, only `taxableCents` booked — taxed through the
+ * §5.3 seam without re-injecting cash the balance already holds. One source per
+ * (owner, tax category): two cash accounts one person holds, each keyed independently
+ * in the accrual map, combine into a single booking of their shared category so the
+ * seam sees the owner's whole interest at once. Empty in month 1 (nothing has
+ * compounded yet) and whenever every buffer's return was zero. Interest is ordinary
+ * income, so it lands in the §5.4 provisional-income formula and can pull a government
+ * benefit into taxability.
  */
-function buildSavingsInterestSources(state: SimState): IncomeSourceMonth[] {
-  const sources: IncomeSourceMonth[] = [];
-  for (const [ownerId, interestCents] of state.savingsInterestAccruedCents) {
+function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
+  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
+  const byOwnerCategory = new Map<
+    string,
+    { ownerId: string; category: TaxCategory; cents: Cents }
+  >();
+  for (const [accountId, interestCents] of state.interestAccruedByAccountCents) {
     if (interestCents <= 0) continue;
-    sources.push({
-      ownerId,
-      grossCents: 0,
-      taxCategory: "ordinaryIncome",
-      taxableCents: interestCents,
-    });
+    const acc = accountsById.get(accountId);
+    const category = acc?.taxProfile.returnTaxCategory;
+    if (acc === undefined || category === undefined) continue;
+    const key = `${acc.ownerId} ${category}`;
+    const entry = byOwnerCategory.get(key);
+    if (entry === undefined) {
+      byOwnerCategory.set(key, { ownerId: acc.ownerId, category, cents: interestCents });
+    } else {
+      entry.cents += interestCents;
+    }
+  }
+  const sources: IncomeSourceMonth[] = [];
+  for (const { ownerId, category, cents } of byOwnerCategory.values()) {
+    sources.push({ ownerId, grossCents: 0, taxCategory: category, taxableCents: cents });
   }
   return sources;
 }
@@ -634,7 +655,9 @@ function fireGoalDispositions(state: SimState, month: number): void {
     state.assetBalances.set(goal.fundAccountId, 0);
     // The fund is fully drained — spent, or swapped to illiquid equity (which the
     // decumulation loop never sees, so it needs no carried basis). Zero its basis to
-    // match, so a re-used account id could not resurrect stale basis (§#94).
+    // match, so a re-used account id could not resurrect stale basis (§#94). The
+    // dropped basis on a convertToEquity swap is disclosed to the app as
+    // MODEL_ASSUMPTIONS["convertedEquityNoBasis"] (assumptions.ts).
     state.basisByAccount.set(goal.fundAccountId, 0);
     if (goal.disposition === "convertToEquity" && maturedCents > 0) {
       const fundAccount = state.accounts.find((a) => a.id === goal.fundAccountId);
@@ -762,10 +785,10 @@ export function simulateHousehold(
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
-        // Last month's credited savings interest, taxed as ordinary income at accrual
+        // Last month's credited cash interest, taxed as ordinary income at accrual
         // (§#94 Commit 2) — a non-withdrawal taxable source, so it shrinks the gap and
         // feeds provisional income exactly like a benefit or RMD would.
-        ...buildSavingsInterestSources(state),
+        ...buildInterestAccrualSources(state),
         ...buildGovernmentBenefitSources(
           state,
           jurisdiction,

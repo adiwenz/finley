@@ -135,6 +135,7 @@ export * from "./projection/rmd";
 export * from "./projection/withdrawal";
 export * from "./projection/buildHouseholdInput";
 export * from "./projection/report";
+export * from "./projection/assumptions";
 export * from "./projection/snapshot";
 
 // Event ledger.

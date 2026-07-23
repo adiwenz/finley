@@ -31,6 +31,16 @@ export interface SimAccountTaxProfile {
   readonly contributionsPreTax: boolean;
   /** Whether the account is subject to jurisdiction forced distributions (RMD-like). */
   readonly forcedDistributionEligible: boolean;
+  /**
+   * When set, the account's periodic RETURN is currently-taxable income of this
+   * category — bank interest on a cash buffer, taxed in the year it is credited
+   * (§#94) — booked at accrual, NOT deferred as an unrealized gain taxed at
+   * withdrawal. Absent (the default) → the return is deferred: a brokerage books
+   * its gain at withdrawal against cost basis, a pre-tax account books the whole
+   * draw, a genuine tax-exempt vehicle books nothing. This is engine-neutral
+   * BEHAVIOR — the jurisdiction still owns the rate on {@link returnTaxCategory}.
+   */
+  readonly returnTaxCategory?: TaxCategory;
 }
 
 /**
@@ -38,11 +48,13 @@ export interface SimAccountTaxProfile {
  * (see `projectionBase.ts`) — exported so the mapping and tests share one neutral
  * definition rather than re-deriving the behavior-preserving map by hand.
  *
- * {@link CAPITAL_GAINS_TAX_PROFILE} is a brokerage / cash / goal fund (post-tax
- * in, capital-gains out, no forced draw); {@link PRE_TAX_TAX_PROFILE} is a
+ * {@link CAPITAL_GAINS_TAX_PROFILE} is a brokerage / goal fund (post-tax in,
+ * capital-gains out, no forced draw); {@link PRE_TAX_TAX_PROFILE} is a
  * tax-deferred retirement account (tax-deferred in, ordinary-income out,
- * forced-distribution eligible). A future tax-exempt vehicle is
- * {@link TAX_EXEMPT_TAX_PROFILE} (post-tax in, tax-free out, no forced draw).
+ * forced-distribution eligible). {@link CASH_INTEREST_TAX_PROFILE} is the cash
+ * buffer / savings account — its RETURN is taxable interest booked at accrual,
+ * which is precisely why its withdrawal is tax-free. {@link TAX_EXEMPT_TAX_PROFILE}
+ * is a genuine tax-exempt vehicle (post-tax in, tax-free out, growth never taxed).
  */
 export const CAPITAL_GAINS_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "capitalGains",
@@ -54,6 +66,20 @@ export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "ordinaryIncome",
   contributionsPreTax: true,
   forcedDistributionEligible: true,
+};
+
+/**
+ * The cash buffer / savings profile (§#94): post-tax in, and its return is bank
+ * interest — currently-taxable ordinary income booked in the year it is credited,
+ * whether or not the buffer is ever withdrawn. That accrual taxation is exactly why
+ * the withdrawal itself is tax-free. Distinct from {@link TAX_EXEMPT_TAX_PROFILE},
+ * whose growth is genuinely never taxed (a Roth-like vehicle).
+ */
+export const CASH_INTEREST_TAX_PROFILE: SimAccountTaxProfile = {
+  withdrawalCategory: "taxExempt",
+  contributionsPreTax: false,
+  forcedDistributionEligible: false,
+  returnTaxCategory: "ordinaryIncome",
 };
 
 export const TAX_EXEMPT_TAX_PROFILE: SimAccountTaxProfile = {
