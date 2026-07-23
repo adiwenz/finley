@@ -4,9 +4,11 @@
  * directly (value-plane edits, §10.3 — never a timeline event), each re-running the
  * projection so net worth and the retirement solver move live. A person may hold any
  * number of jobs, several possibly open-ended; none is privileged — there is no "career
- * job". One-off, single-month changes (a bonus, a missed paycheck) are made against the
- * income graph in Base + Adjustments, where a month is selected; this panel is standing
- * job data only.
+ * job". Dated changes — a one-off single month (a bonus, or $0 for a missed paycheck) and a
+ * permanent pay change (a raise or a cut) — are authored against the income graph in Base +
+ * Adjustments, where a month is selected. This panel is standing job data, but it *lists*
+ * each job's permanent pay changes (which move what the job pays, unlike the headline
+ * starting salary) and lets them be removed here.
  *
  * The 401(k) elective-limit nudge lives here now (it left the Budget editor with the
  * deferral): a deferral summed across jobs that tops the year's IRS limit is not an
@@ -21,6 +23,7 @@ import {
   addJobFromDraft,
   updateJobFromDraft,
   removeJob,
+  removeJobPayChange,
   blankJobDraft,
   jobToDraft,
   jobStartAge,
@@ -49,6 +52,19 @@ function describeSpan(budget: Plan, job: Plan["jobs"][number]): string {
     : `age ${start}–${end}`;
 }
 
+/** The age the owner reaches in a given simulation month (for a pay change's "from age N"). */
+function ageAtMonth(budget: Plan, month: number): number {
+  return budget.currentAge + Math.floor(month / 12);
+}
+
+/** "Pay set to $0/mo from age 35" / "Pay cut $500/mo from age 40" — a permanent pay change. */
+function describePayChange(budget: Plan, change: NonNullable<Plan["jobs"][number]["payChanges"]>[number]): string {
+  const at = `from age ${ageAtMonth(budget, change.month)}`;
+  if (change.kind === "setTo") return `Pay set to ${formatDollars(change.cents)}/mo ${at}`;
+  const verb = change.cents < 0 ? "cut" : "raised";
+  return `Pay ${verb} ${formatDollars(Math.abs(change.cents))}/mo ${at}`;
+}
+
 export function JobsPanel({ budget, setBudget }: JobsPanelProps) {
   const jobs = primaryJobs(budget);
   const [authoring, setAuthoring] = useState<Authoring>(null);
@@ -69,6 +85,10 @@ export function JobsPanel({ budget, setBudget }: JobsPanelProps) {
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
 
+  function removePayChange(id: string, month: number) {
+    setBudget((current) => removeJobPayChange(current, id, month));
+  }
+
   return (
     <>
       <h2>Jobs &amp; income</h2>
@@ -85,11 +105,17 @@ export function JobsPanel({ budget, setBudget }: JobsPanelProps) {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
             const label = `Job ${i + 1}`;
             const overrideCount = job.incomeOverrides?.length ?? 0;
+            // Permanent pay changes, oldest first — listed in full below (not just counted),
+            // since a raise/cut moves what the job actually pays and the headline shows only
+            // the STARTING salary.
+            const payChanges = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
             return (
               <li key={job.id} className={styles.row} aria-label={label}>
                 <div className={styles.head}>
                   <span className={styles.name}>{label}</span>
-                  <span className={styles.salary}>{formatDollars(monthlyCents)}/mo</span>
+                  <span className={styles.salary} title="Starting salary — see pay changes below">
+                    {formatDollars(monthlyCents)}/mo{payChanges.length > 0 ? " to start" : ""}
+                  </span>
                 </div>
                 <div className={styles.meta}>{describeSpan(budget, job)}</div>
                 {(job.deferral || overrideCount > 0) && (
@@ -99,9 +125,25 @@ export function JobsPanel({ budget, setBudget }: JobsPanelProps) {
                       : ""}
                     {job.deferral && overrideCount > 0 ? " · " : ""}
                     {overrideCount > 0
-                      ? `${overrideCount} one-off adjustment${overrideCount === 1 ? "" : "s"}`
+                      ? `${overrideCount} one-off (single-month) adjustment${overrideCount === 1 ? "" : "s"}`
                       : ""}
                   </div>
+                )}
+                {payChanges.length > 0 && (
+                  <ul className={styles.payChanges} aria-label={`Pay changes on ${label}`}>
+                    {payChanges.map((change) => (
+                      <li key={change.month} className={styles.payChange}>
+                        <span>{describePayChange(budget, change)}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove pay change at age ${ageAtMonth(budget, change.month)} on ${label}`}
+                          onClick={() => removePayChange(job.id, change.month)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
                 <div className={styles.actions}>
                   <button

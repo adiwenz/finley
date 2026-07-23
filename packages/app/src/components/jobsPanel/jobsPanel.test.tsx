@@ -10,9 +10,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { useState } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import type { Plan } from "@finley/engine";
+import { dollarsToCents, type Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { setJobDeferralFraction, primaryJobs } from "../../planPeople";
+import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";
 import { JobsPanel } from "./jobsPanel";
 
 afterEach(cleanup);
@@ -75,6 +75,42 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Delete Job 1/i }));
     expect(jobCount()).toBe(0);
     expect(screen.getByText(/No jobs yet/i)).toBeTruthy();
+  });
+});
+
+describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
+  // A pay change lands on the job's `payChanges`, not its starting salary — so the job
+  // headline stays $5,000/mo while the change is what actually moves pay. (§72 bug: the
+  // panel used to show only the starting figure, hiding the change entirely.)
+  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "career", { month: 12, kind: "setTo", cents: 0 });
+
+  it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
+    render(<Harness initial={withSetToZero} />);
+    const row = screen.getByLabelText("Job 1");
+    // Headline is the starting salary, now flagged as such since a change follows it.
+    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+    // The change itself is listed in full — age 36 = current 35 + month 12.
+    expect(within(row).getByText(/Pay set to \$0\/mo from age 36/)).toBeTruthy();
+  });
+
+  it("does not conflate a permanent pay change with a one-off (single-month) adjustment", () => {
+    render(<Harness initial={withSetToZero} />);
+    // The pay change must NOT be counted as a one-off adjustment (the old mislabel).
+    expect(screen.queryByText(/one-off/i)).toBeNull();
+  });
+
+  it("removes a pay change, restoring the plain starting salary", () => {
+    render(<Harness initial={withSetToZero} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove pay change at age 36 on Job 1/i }));
+    expect(screen.queryByText(/Pay set to \$0\/mo/)).toBeNull();
+    // No pay changes left, so the headline drops the "to start" qualifier.
+    expect(within(screen.getByLabelText("Job 1")).getByText("$5,000/mo")).toBeTruthy();
+  });
+
+  it("describes a delta cut with the right verb and sign", () => {
+    const cut = addJobPayChange(PLAN_DEFAULTS, "career", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
+    render(<Harness initial={cut} />);
+    expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
   });
 });
 
