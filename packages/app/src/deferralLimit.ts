@@ -14,7 +14,7 @@
 import { retirementDeferralLimitCents } from "@finley/rules";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
-import { careerAnnualSalaryCents, careerDeferralFraction } from "./planPeople";
+import { primaryBirthYear, primaryJobs } from "./planPeople";
 
 export interface DeferralLimitCrossing {
   /** Calendar year of the first crossing. */
@@ -37,20 +37,33 @@ export interface DeferralLimitCrossing {
  * and nominal indexed limit, not the exact month-by-month cap the engine applies.
  */
 export function firstDeferralLimitCrossing(budget: Plan): DeferralLimitCrossing | null {
-  // Income and the pre-tax deferral now ride on the primary person's career job (§11),
-  // not a scalar plan lever: read the elected fraction and today's salary off it.
-  const fraction = careerDeferralFraction(budget);
-  if (fraction <= 0) return null;
+  // The elective limit is per PERSON, across every plan they defer into — so sum the
+  // deferral over ALL of the primary person's jobs, not one "career" job (§11). Each job
+  // defers only in the years it is worked, at its own elected fraction, on its own
+  // growing salary; the household can hold several jobs, several possibly open-ended.
+  const deferringJobs = primaryJobs(budget).filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
+  if (deferringJobs.length === 0) return null;
 
-  const annualIncomeNowCents = careerAnnualSalaryCents(budget);
   const inflation = budget.inflationPct / 100;
+  const birthYear = primaryBirthYear(budget);
 
   for (let k = 0; budget.currentAge + k < budget.retirementAge; k++) {
     const year = START_YEAR + k;
     const age = budget.currentAge + k;
-    const annualDeferralCents = Math.round(
-      annualIncomeNowCents * Math.pow(1 + inflation, k) * fraction,
-    );
+
+    let annualDeferralCents = 0;
+    for (const j of deferringJobs) {
+      const endYearExclusive = j.endYear ?? birthYear + budget.retirementAge;
+      if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
+      // Nominal salary this year: today's-dollars salary grown by its real slope from the
+      // job's start, then CPI-indexed to nominal — the same seam the engine compiles.
+      const realCents =
+        j.salary.startingSalaryCents * Math.pow(1 + j.salary.realGrowthPct / 100, year - j.startYear);
+      const nominalCents = realCents * Math.pow(1 + inflation, year - START_YEAR);
+      annualDeferralCents += nominalCents * j.deferral!.deferralFraction;
+    }
+    annualDeferralCents = Math.round(annualDeferralCents);
+
     const limitCents = retirementDeferralLimitCents({ year, age });
     if (annualDeferralCents > limitCents) {
       return { year, age, annualDeferralCents, limitCents };

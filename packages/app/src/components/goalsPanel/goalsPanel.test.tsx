@@ -120,7 +120,10 @@ describe("BudgetEditor — person-partitioned panel with the four levers", () =>
 
   it("discloses advanced controls behind a summary (§10.4)", () => {
     expect(html).toContain("<summary>Advanced</summary>");
-    expect(html).toContain("401(k) contribution"); // lever 1, disclosed
+    // The account-return knobs are the disclosed levers; the 401(k) deferral moved onto
+    // jobs (§11, issue #72), so it is no longer a Budget-editor field.
+    expect(html).toContain("Retirement return");
+    expect(html).not.toContain("401(k) contribution");
   });
 
   it("exposes the shared-scheme lever (§5.0)", () => {

@@ -9,10 +9,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { useState } from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents } from "@finley/engine";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { careerStartAge, setCareerDeferralFraction, setMonthlyIncome } from "../../planPeople";
 import type { Plan } from "@finley/engine";
 
 afterEach(cleanup);
@@ -24,7 +22,6 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
-      <output data-testid="career-start-age">{careerStartAge(budget)}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
       <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
@@ -78,29 +75,6 @@ describe("BudgetEditor — Social Security claiming age (§5.4)", () => {
   });
 });
 
-describe("BudgetEditor — career start age (§4.6/§5.4, #41)", () => {
-  it("shows the career-start-age control seeded from the plan (default 18)", () => {
-    render(<Harness />);
-    const input = screen.getByLabelText(/Career start age/i) as HTMLInputElement;
-    expect(input.value).toBe("18");
-  });
-
-  it("edits flow back into careerStartAge (started working at 25)", () => {
-    render(<Harness />);
-    const input = screen.getByLabelText(/Career start age/i);
-    fireEvent.change(input, { target: { value: "25" } });
-    expect(screen.getByTestId("career-start-age").textContent).toBe("25");
-  });
-
-  it("caps the control at the current age — no future working years to seed", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, currentAge: 35 }} />);
-    const input = screen.getByLabelText(/Career start age/i);
-    fireEvent.change(input, { target: { value: "50" } });
-    fireEvent.blur(input);
-    expect(screen.getByTestId("career-start-age").textContent).toBe("35");
-  });
-});
-
 describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => {
   it("shows the health-inflation control seeded from the plan", () => {
     render(<Harness />);
@@ -131,36 +105,6 @@ describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => 
     const select = screen.getByLabelText(/Medicare at 65/i);
     fireEvent.change(select, { target: { value: "self-fund" } });
     expect(screen.getByTestId("enrolls").textContent).toBe("false");
-  });
-});
-
-describe("BudgetEditor — 401(k) deferral over the IRS limit (§5.4)", () => {
-  it("discloses that contributions above the annual limit are paid as taxable income", () => {
-    // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
-    render(<Harness initial={setCareerDeferralFraction(PLAN_DEFAULTS, 0.5)} />);
-    expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
-  });
-
-  it("shows no such disclosure when the deferral stays under the limit", () => {
-    render(<Harness />); // default 0% deferral
-    expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
-  });
-
-  it("discloses a crossing that only happens in a later year as income inflates", () => {
-    // $48k/yr at 50% = $24k, under the $24,500 limit today but past it within a few
-    // years (3% income growth vs 2.5% limit indexing) — the precise-scan case.
-    render(
-      <Harness
-        initial={setCareerDeferralFraction(
-          setMonthlyIncome(
-            { ...PLAN_DEFAULTS, inflationPct: 3, currentAge: 35, retirementAge: 65 },
-            dollarsToCents(4000),
-          ),
-          0.5,
-        )}
-      />,
-    );
-    expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
   });
 });
 

@@ -58,3 +58,32 @@
   color: #3f7d5f;
   margin-top: 0.5rem;
 }
+
+/* Read-only income figure (income is authored in the Jobs panel, not here). */
+.readonlyValue {
+  grid-column: 2 / -1;
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+/* One-off (single-month) income change, disclosed under the read-only income row. */
+.oneOff {
+  margin-top: 0.5rem;
+}
+
+.oneOffForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--rule, #e3dcc6);
+  border-radius: 6px;
+}
+
+.oneOffActions {
+  display: flex;
+  gap: 0.5rem;
+}

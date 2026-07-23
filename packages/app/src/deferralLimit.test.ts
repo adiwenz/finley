@@ -4,7 +4,7 @@ import { PLAN_DEFAULTS } from "./planDefaults";
 import type { Plan } from "@finley/engine";
 import { dollarsToCents } from "@finley/engine";
 import { START_YEAR } from "./config";
-import { setCareerDeferralFraction, setMonthlyIncome } from "./planPeople";
+import { setJobDeferralFraction, setJobMonthlyIncome } from "./planPeople";
 
 /**
  * A budget built off the defaults with the career job's salary + deferral set — income
@@ -16,8 +16,8 @@ function budget(opts: {
   overrides?: Partial<Plan>;
 }): Plan {
   let plan: Plan = { ...PLAN_DEFAULTS, ...(opts.overrides ?? {}) };
-  if (opts.monthlyIncome !== undefined) plan = setMonthlyIncome(plan, dollarsToCents(opts.monthlyIncome));
-  if (opts.deferralPct !== undefined) plan = setCareerDeferralFraction(plan, opts.deferralPct / 100);
+  if (opts.monthlyIncome !== undefined) plan = setJobMonthlyIncome(plan, "career", dollarsToCents(opts.monthlyIncome));
+  if (opts.deferralPct !== undefined) plan = setJobDeferralFraction(plan, "career", opts.deferralPct / 100);
   return plan;
 }
 

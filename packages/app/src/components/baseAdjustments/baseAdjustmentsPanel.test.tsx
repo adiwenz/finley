@@ -18,10 +18,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents, type Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { setMonthlyIncome } from "../../planPeople";
+import { setJobMonthlyIncome } from "../../planPeople";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 
 afterEach(cleanup);
+
+/** The read-only income figure at the selected month, as a whole-dollar number. */
+const incomeReadonlyDollars = (): number =>
+  Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
+
+/** Open the one-off control, then drive its kind / amount and apply. */
+const openOneOff = () =>
+  fireEvent.click(screen.getByRole("button", { name: /One-off change this month/i }));
+const setOneOffKind = (value: string) =>
+  fireEvent.change(screen.getByLabelText("One-off kind"), { target: { value } });
+const setOneOffAmount = (dollars: number) =>
+  fireEvent.change(screen.getByRole("spinbutton", { name: /Amount/ }), {
+    target: { value: String(dollars) },
+  });
+const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
 /**
  * The budget now lives on the plan, so the panel is controlled — these tests own the
@@ -59,6 +74,18 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(Number(spin(/Housing/).value)).toBe(1600);
   });
 
+  it("shows the standing income as a read-only total at the opening month, not $0", () => {
+    // Income is authored in the Jobs panel; this row only displays the compiled total.
+    // Month 0 is the projection's flow-free opening snapshot (the engine accrues flows
+    // only for month > 0 — GH #34), so `incomeByMonth[0]` is $0 even though the job pays
+    // a full salary; the row reads the standing rate (month 1) at the opening month.
+    renderPanel(PLAN_DEFAULTS);
+    expect(screen.getByTestId("selected-month").textContent).toMatch(/month 0/);
+    expect(incomeReadonlyDollars()).toBe(5000);
+    // The income figure is not an editable field — standing pay is edited in Jobs.
+    expect(screen.queryByRole("spinbutton", { name: /^Income$/ })).toBeNull();
+  });
+
   it("grows every row with inflation as you move along the budget", () => {
     // The editor sits directly under the graph, so it has to agree with it: scrub out
     // thirty years and the rows must show thirty-years-from-now dollars, not today's.
@@ -71,22 +98,22 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(Number(spin(/Housing/).value)).toBe(today);
   });
 
-  it("stops income at retirement and picks the benefit up at the claiming age", () => {
-    // The row reads the income the projection actually pays. It used to just compound
-    // `incomeCents` with inflation, describing a household that works forever — at
-    // age 81 it showed a $19k salary for someone who retired at 65.
+  it("shows income stopping at retirement and the benefit picking up at the claiming age", () => {
+    // The read-only figure is the income the projection actually pays — it stops at
+    // retirement and the government benefit picks up at the claiming age, rather than a
+    // salary compounding forever (at age 81 the old scalar row showed a $19k salary).
     renderPanel(PLAN_DEFAULTS);
     const monthAtAge = (age: number) => (age - PLAN_DEFAULTS.currentAge) * 12;
 
     selectMonth(monthAtAge(60)); // still working
-    const working = Number(spin(/Income/).value);
+    const working = incomeReadonlyDollars();
     expect(working).toBeGreaterThan(0);
 
     selectMonth(monthAtAge(66)); // retired at 65, benefit not claimed until 67
-    expect(Number(spin(/Income/).value)).toBe(0);
+    expect(incomeReadonlyDollars()).toBe(0);
 
     selectMonth(monthAtAge(70)); // benefit is being paid
-    const benefit = Number(spin(/Income/).value);
+    const benefit = incomeReadonlyDollars();
     expect(benefit).toBeGreaterThan(0);
     expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
   });
@@ -228,27 +255,40 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(Number(spin(/Housing/).value)).toBe(before);
   });
 
-  it("routes a permanent income change to a job/stream override, never a budget line", () => {
+  it("applies a one-off bonus on top of the selected month's pay, taxed through the sim", () => {
+    // A bonus is a per-job JobIncomeOverride taxed as wages, so the read-only income at
+    // that month rises by exactly the bonus — the projection, not just the label, moves.
     renderPanel(PLAN_DEFAULTS);
-    selectMonth(14);
-    editRow(/Income/, 9000);
-    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
-    expect(screen.getByTestId("adjustment-route").textContent).toMatch(/income override/i);
-    expect(Number(spin(/Income/).value)).toBe(9000);
+    selectMonth(6); // year 0, base $5,000/mo
+    expect(incomeReadonlyDollars()).toBe(5000);
+    openOneOff();
+    setOneOffAmount(2000); // default kind is "bonus (add on top)"
+    applyOneOff();
+    expect(screen.getByTestId("one-off-route").textContent).toMatch(/bonus of \$2,000/i);
+    expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
   });
 
-  it("routes a one-month income change to a ledger transaction for the delta", () => {
+  it("applies a missed paycheck as $0 income that month, only that month", () => {
     renderPanel(PLAN_DEFAULTS);
-    selectMonth(14);
-    // Read the "before" figure AT the edited month — income inflates like everything else.
-    const atMonth14 = Number(spin(/Income/).value);
-    editRow(/Income/, atMonth14 + 800);
-    fireEvent.click(screen.getByRole("button", { name: /Just this month/i }));
-    const echo = screen.getByTestId("adjustment-route").textContent ?? "";
-    expect(echo).toMatch(/ledger transaction/i);
-    expect(echo).toMatch(/month 14/);
-    // The delta, not the new total — the standing income is untouched.
-    expect(echo).toMatch(/\$800/);
+    selectMonth(6);
+    openOneOff();
+    setOneOffKind("missed");
+    applyOneOff();
+    expect(screen.getByTestId("one-off-route").textContent).toMatch(/missed paycheck/i);
+    expect(incomeReadonlyDollars()).toBe(0);
+    // The next month is untouched — the override is a single month.
+    selectMonth(7);
+    expect(incomeReadonlyDollars()).toBe(5000);
+  });
+
+  it("sets an absolute one-month pay figure", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(9000);
+    applyOneOff();
+    expect(incomeReadonlyDollars()).toBe(9000);
   });
 });
 
@@ -266,7 +306,7 @@ describe("BaseAdjustmentsPanel — long-horizon points (AC5)", () => {
 describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(1_500)),
+    ...setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
     healthMonthlyCents: 0,
@@ -292,7 +332,7 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
 
   it("reports a comfortable budget as financed throughout", () => {
     const richPlan: Plan = {
-      ...setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(8_000)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
       healthMonthlyCents: 0,

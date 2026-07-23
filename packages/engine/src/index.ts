@@ -21,7 +21,7 @@ export * from "./goal";
 // `SimPerson` is the *compiled* shape the sim consumes; since the #72 hinge it is
 // engine-INTERNAL (no longer barrel-exported), derived from a `Person` at the sim
 // boundary via `compilePerson`.
-export type { Job, PersonId, SalaryTrajectory, JobDeferral } from "./job";
+export type { Job, PersonId, SalaryTrajectory, JobDeferral, JobIncomeOverride } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
 // The authoring per-person account ownership model (§9, §10, issue #68). An

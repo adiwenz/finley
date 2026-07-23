@@ -110,6 +110,18 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
     taxCategory: "wages",
   });
 
+  // One-month pay perturbations (§10.3, §20): a bonus, missed paycheck, or single-month
+  // correction rides the job's own series as a `thisMonthOnly` override, so it is taxed
+  // as wages and runs through the 401(k) deferral like regular pay. `addBonus` reads the
+  // month's baseline (grown pay, before any override) and adds to it; `setTo` replaces
+  // it. Overrides outside the job's paid span are ignored — a job cannot pay in a month
+  // it is not worked. Applied in month order so two edits to one month compose predictably.
+  for (const ov of [...(job.incomeOverrides ?? [])].sort((a, b) => a.month - b.month)) {
+    if (ov.month < startMonth || ov.month > endMonthExclusive - 1) continue;
+    const target = ov.kind === "setTo" ? ov.cents : series.getMonthlyCents(ov.month) + ov.cents;
+    series.addOverride(ov.month, Math.max(0, target), "thisMonthOnly");
+  }
+
   return {
     series,
     ownerId: owner.id,

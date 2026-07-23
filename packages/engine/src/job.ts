@@ -36,6 +36,28 @@ export interface SalaryTrajectory {
 }
 
 /**
+ * A one-month perturbation of a job's earned income (§10.3, §20) — a bonus, a missed
+ * paycheck, or a one-off "this month I actually earned X" correction. Keyed by the
+ * absolute simulation `month` (relative to "now"), like the plan's expense overrides.
+ * It is a **value edit on the standing job**, never a timeline life event: the same
+ * job pays a different amount for exactly one month.
+ *
+ *   - `setTo` overrides the month's pay to an absolute figure — `cents: 0` is a missed
+ *     paycheck, any other value is a one-month salary correction.
+ *   - `addBonus` adds `cents` on top of what the job would otherwise pay that month.
+ *
+ * Both ride the job's own income series, so they are taxed as `wages` and flow through
+ * the job's 401(k) deferral exactly as regular pay does — a bonus is not tax-free cash.
+ */
+export interface JobIncomeOverride {
+  /** Absolute simulation month (from "now") the override applies to. */
+  readonly month: number;
+  readonly kind: "setTo" | "addBonus";
+  /** For `setTo`, the month's absolute monthly pay; for `addBonus`, the amount added. */
+  readonly cents: Cents;
+}
+
+/**
  * The pre-tax 401(k)-style deferral a job carries (§11). Deferral lives on the
  * **job**, not the person, because the employer match and the elected fraction
  * are a property of that employment. Compiles to the income source's
@@ -72,6 +94,12 @@ export interface Job {
   readonly endYear: number | null;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
+  /**
+   * One-month pay perturbations (bonuses, missed paychecks, single-month corrections),
+   * each keyed by simulation month. Optional — a job with none omits it. See
+   * {@link JobIncomeOverride}.
+   */
+  readonly incomeOverrides?: readonly JobIncomeOverride[];
 }
 
 /**

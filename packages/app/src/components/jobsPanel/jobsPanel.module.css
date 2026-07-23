@@ -1,0 +1,68 @@
+/* Jobs panel (§6, issue #72) — a list of the primary person's jobs, mirroring the
+   Goals panel's bordered-card list so the two authoring surfaces read the same. */
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.name {
+  font-weight: 600;
+}
+
+.salary {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.actions button {
+  font: inherit;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border-input);
+  background: var(--color-white);
+  cursor: pointer;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border);
+}
+
+.formActions {
+  display: flex;
+  gap: 6px;
+}

@@ -10,7 +10,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { SimulationReport } from "@finley/engine";
 import type { Plan } from "@finley/engine";
-import { careerDeferralFraction, monthlyIncomeCents } from "../../planPeople";
+import { blendedDeferralFraction, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
@@ -103,7 +103,10 @@ function Configuration({
       <ConfigGroup
         title="Monthly cash flow"
         rows={[
-          ["Income (career job)", formatDollars(monthlyIncomeCents(budget))],
+          [
+            `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
+            formatDollars(totalMonthlyIncomeCents(budget)),
+          ],
           ["Expenses (general)", formatDollars(budget.expenseCents)],
           ["Opening balance", formatDollars(budget.openingBalanceCents)],
           ["Expense overrides", `${budget.expenseOverrides.length}`],
@@ -115,7 +118,7 @@ function Configuration({
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],
-          ["Retirement deferral (career job)", pct(Math.round(careerDeferralFraction(budget) * 100))],
+          ["Retirement deferral (blended)", pct(Math.round(blendedDeferralFraction(budget) * 100))],
         ]}
       />
       <ConfigGroup

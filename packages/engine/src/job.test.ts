@@ -90,3 +90,55 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
     expect(deriveRealGrowthPct(100, 2020, 100, 2020)).toBe(0);
   });
 });
+
+describe("Job/Person standing model — one-month income overrides (§10.3, §20)", () => {
+  const person = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - samplePlan.currentAge,
+    retirementTargetAge: samplePlan.retirementAge,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+  const monthly = (job: Job, month: number): number =>
+    compilePersonIncomeSeries(person([job]), START_YEAR, samplePlan.inflationPct / 100)[0].series.getMonthlyCents(month);
+
+  // A real-flat $6,000/mo job so a month's baseline pay is a round $6,000.
+  const base: Job = careerJob(dollarsToCents(6000));
+
+  it("leaves every other month untouched (override is one month only)", () => {
+    // Months 0–11 are year 0, so baseline pay is a round $6,000 (a real-flat salary
+    // grows at CPI, so later years are not round).
+    const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "setTo", cents: 0 }] };
+    expect(monthly(job, 5)).toBe(dollarsToCents(6000));
+    expect(monthly(job, 6)).toBe(0);
+    expect(monthly(job, 7)).toBe(dollarsToCents(6000));
+  });
+
+  it("setTo 0 models a missed paycheck; setTo X a one-month salary correction", () => {
+    expect(monthly({ ...base, incomeOverrides: [{ month: 10, kind: "setTo", cents: 0 }] }, 10)).toBe(0);
+    expect(
+      monthly({ ...base, incomeOverrides: [{ month: 10, kind: "setTo", cents: dollarsToCents(9000) }] }, 10),
+    ).toBe(dollarsToCents(9000));
+  });
+
+  it("addBonus adds on top of the month's grown baseline pay", () => {
+    const job: Job = { ...base, incomeOverrides: [{ month: 10, kind: "addBonus", cents: dollarsToCents(2000) }] };
+    expect(monthly(job, 10)).toBe(dollarsToCents(8000)); // 6000 base + 2000 bonus
+  });
+
+  it("ignores an override outside the job's paid span — a job cannot pay when not worked", () => {
+    // A fixed-term job ending before month 24 gets a bonus at month 30: no effect.
+    const ended: Job = { ...base, endYear: START_YEAR + 1, incomeOverrides: [{ month: 30, kind: "addBonus", cents: dollarsToCents(5000) }] };
+    expect(monthly(ended, 30)).toBe(0);
+  });
+
+  it("taxes a bonus as wages through the projection, not as untaxed cash", () => {
+    // A large one-month bonus raises that month's gross wages, so the projection's
+    // income flow for the month reflects base + bonus (the series feeds the waterfall).
+    const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
+    const series = project({ ...samplePlan, jobs: [job] }).months;
+    expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // 6000 + 3000
+    expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
+  });
+});
