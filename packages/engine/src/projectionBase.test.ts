@@ -16,7 +16,7 @@ import {
 } from "./index";
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, careerJob } from "./testing/samplePlan";
+import { samplePlan, salariedJob } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan } from "./plan";
 
@@ -80,14 +80,14 @@ describe("createProjectionBase — retirement + government benefit wired into th
 });
 
 describe("createProjectionBase — earned income before current age comes from the job (§4.6, #41)", () => {
-  // The age a career began is now the career job's `startYear`, not a scalar field.
-  const planFromCareerStart = (careerStartAge: number): Plan => ({
+  // The age a job began is now the job's `startYear`, not a scalar field.
+  const planFromStartAge = (startAge: number): Plan => ({
     ...samplePlan,
     currentAge: 40,
-    jobs: [careerJob(dollarsToCents(8000), { currentAge: 40, careerStartAge })],
+    jobs: [salariedJob(dollarsToCents(8000), { currentAge: 40, startAge })],
   });
-  const priorYears = (careerStartAge: number) => {
-    const base = createProjectionBase(planFromCareerStart(careerStartAge), ctx());
+  const priorYears = (startAge: number) => {
+    const base = createProjectionBase(planFromStartAge(startAge), ctx());
     // initialPersons holds authoring Persons now; derive the pre-"now" record from the
     // person's jobs, exactly as the sim boundary does.
     const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
@@ -96,21 +96,21 @@ describe("createProjectionBase — earned income before current age comes from t
       .sort((a, b) => a - b);
   };
 
-  it("seeds prior earnings from the configured career start age, not a fixed 18", () => {
-    // currentAge 40, startYear 2026: ages [careerStartAge, 40) map to the calendar
-    // years [2026 − (40 − careerStartAge) … 2025], one entry per pre-"now" working year.
+  it("seeds prior earnings from the configured job start age, not a fixed 18", () => {
+    // currentAge 40, startYear 2026: ages [startAge, 40) map to the calendar
+    // years [2026 − (40 − startAge) … 2025], one entry per pre-"now" working year.
     const from18 = priorYears(18);
     const from30 = priorYears(30);
     expect(from18).toHaveLength(40 - 18);
     expect(from30).toHaveLength(40 - 30);
-    // A later career start seeds fewer years and pushes the earliest one later in time.
+    // A later job start seeds fewer years and pushes the earliest one later in time.
     expect(from30[0]).toBeGreaterThan(from18[0]);
     // Both records still run up to the year before "now".
     expect(from18.at(-1)).toBe(START_YEAR - 1);
     expect(from30.at(-1)).toBe(START_YEAR - 1);
   });
 
-  it("lowers the priced government benefit when the career started later (fewer covered years)", () => {
+  it("lowers the priced government benefit when the job started later (fewer covered years)", () => {
     // The US AIME (§5.4) divides a fixed 35-year window, so seeding fewer pre-"now" years
     // leaves more $0 slots and drags the benefit down. A jurisdiction that prices the benefit
     // straight off the covered record surfaces the difference in late net worth.
@@ -120,8 +120,8 @@ describe("createProjectionBase — earned income before current age comes from t
         return Math.round(total / 420);
       },
     });
-    const early = netWorthAtAge(planFromCareerStart(18), 80, priced);
-    const late = netWorthAtAge(planFromCareerStart(35), 80, priced);
+    const early = netWorthAtAge(planFromStartAge(18), 80, priced);
+    const late = netWorthAtAge(planFromStartAge(35), 80, priced);
     expect(early).toBeGreaterThan(late);
   });
 });
@@ -159,7 +159,7 @@ describe("createProjectionBase — horizon spans to life expectancy (§7)", () =
 describe("createProjectionBase — health as its own additive, growing expense (§5.4)", () => {
   const saver: Plan = {
     ...samplePlan,
-    jobs: [careerJob(dollarsToCents(6_000))],
+    jobs: [salariedJob(dollarsToCents(6_000))],
     expenseCents: dollarsToCents(3_000),
     goals: [],
   };
@@ -186,7 +186,7 @@ describe("createProjectionBase — health as its own additive, growing expense (
       currentAge: 55,
       retirementAge: 90,
       lifeExpectancy: 90,
-      jobs: [careerJob(dollarsToCents(6_000), { currentAge: 55 })],
+      jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
       expenseCents: dollarsToCents(3_000),
       healthMonthlyCents: dollarsToCents(1_000),
       postCoverageHealthMonthlyCents: dollarsToCents(400),
@@ -208,7 +208,7 @@ describe("createProjectionBase — health as its own additive, growing expense (
       currentAge: 55,
       retirementAge: 90,
       lifeExpectancy: 90,
-      jobs: [careerJob(dollarsToCents(6_000), { currentAge: 55 })],
+      jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
       healthMonthlyCents: dollarsToCents(1_000),
       postCoverageHealthMonthlyCents: dollarsToCents(400),
       goals: [],

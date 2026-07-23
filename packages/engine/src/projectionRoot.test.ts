@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "./projectionRoot";
-import { samplePlan, careerJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -287,7 +287,7 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
     const p = Projection.create({
       plan: {
         ...samplePlan,
-        jobs: [careerJob(dollarsToCents(3_000))],
+        jobs: [salariedJob(dollarsToCents(3_000))],
         openingBalanceCents: 0,
         goals: [],
         healthMonthlyCents: 0,

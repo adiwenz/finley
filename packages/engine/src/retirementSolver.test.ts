@@ -20,7 +20,7 @@ import { scenarioOf } from "./scenario";
 import { dollarsToCents } from "./cashFlowSeries";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, careerJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 
 const START_YEAR = SAMPLE_START_YEAR;
@@ -96,7 +96,7 @@ describe("retirementSolver — target mode (§7.1)", () => {
     // equity keeps net worth positive the whole way — the issue's exact repro shape.
     const insolventWithEquity: Plan = {
       ...samplePlan,
-      jobs: [careerJob(dollarsToCents(11000))],
+      jobs: [salariedJob(dollarsToCents(11000))],
       expenseCents: dollarsToCents(5000),
       openingBalanceCents: dollarsToCents(30000),
       retirementAge: 56,

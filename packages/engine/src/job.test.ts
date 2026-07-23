@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
 import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
-import { samplePlan, careerJob } from "./testing/samplePlan";
+import { samplePlan, salariedJob } from "./testing/samplePlan";
 import { deriveRealGrowthPct, type Job } from "./job";
 import type { Person } from "./person";
 import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
@@ -25,7 +25,7 @@ function project(plan: Plan) {
 }
 
 /** The sample plan's single open-ended career job (real-flat salary, deferral on it). */
-const openEndedJob: Job = careerJob(dollarsToCents(8000), { deferralFraction: 0.1 });
+const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
 
 describe("Job/Person standing model — additive compilation (issue #64)", () => {
   it("allows any number of open-ended (null-end) jobs — no elevated career job (§5, issue #66)", () => {
@@ -104,7 +104,7 @@ describe("Job/Person standing model — one-month income overrides (§10.3, §20
     compilePersonIncomeSeries(person([job]), START_YEAR, samplePlan.inflationPct / 100)[0].series.getMonthlyCents(month);
 
   // A real-flat $6,000/mo job so a month's baseline pay is a round $6,000.
-  const base: Job = careerJob(dollarsToCents(6000));
+  const base: Job = salariedJob(dollarsToCents(6000));
 
   it("leaves every other month untouched (override is one month only)", () => {
     // Months 0–11 are year 0, so baseline pay is a round $6,000 (a real-flat salary
