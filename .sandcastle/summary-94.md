@@ -232,3 +232,22 @@ a jurisdiction that opted into `taxableWithdrawalCents`.
 ### Post-realignment verification
 - `npm run check` — **green**: purity + `tsc --noEmit` clean + **648 tests passed | 45 todo (693)**
   across 55 files (+7 over the prior follow-up: `investmentTax` rules tests; zero regressions).
+
+---
+
+## Related app change — "Monthly tax paid" chart
+
+The #94 work makes tax the household actually pays move (interest at accrual, gain-only
+on fund draws), but tax was the one flow with no graph — it is netted out at the §5.3
+chokepoint and never shown. Added a third chart to the Base + Adjustments panel, below the
+income and per-line budget charts, built the same way (Recharts area, shared x-axis, shared
+click-to-select month gesture, hidden data mirror + a11y summary):
+- **`taxesByMonth.ts`** — `buildTaxChartData(series)` from `flows.taxCents` (total only — the
+  jurisdiction owns the per-category combination, so no synthesized split) + `describeTaxes`.
+- **`taxChart.tsx`** — single rust-toned band; **`baseAdjustmentsPanel.tsx`** renders it.
+- **`taxesByMonth.test.ts`** (+7 tests).
+
+Live QA (Playwright against the dev server) confirmed: both assumptions render verbatim; the
+tax chart shows a sensible shape (tracks earned income, peaks ~Yr 30, collapses at retirement
+with a residual band from withdrawals/benefit + accrued interest); click-to-select moves the
+editor month identically to the income and budget charts. `npm run check` — **655 | 45 todo**.
