@@ -18,7 +18,6 @@ import {
   PRE_TAX_TAX_PROFILE,
   CASH_INTEREST_TAX_PROFILE,
 } from "./simAccount";
-import type { Cents } from "./money";
 import type { SimPerson, SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
@@ -46,7 +45,7 @@ export interface ProjectionContext {
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
 const SAVINGS_ID = "savings";
-/** The pre-tax retirement account a deferral (scalar lever or a {@link Job}) funds. */
+/** The pre-tax retirement account a {@link Job}'s 401(k) deferral funds (§11). */
 export const RETIREMENT_ID = "retirement";
 const BROKERAGE_ID = "brokerage";
 
@@ -179,115 +178,39 @@ function buildHealthSeries(budget: Plan, coverageAge: number | undefined): SimCa
   return series;
 }
 
-/**
- * Nominal covered earnings for the working ages in `[fromAge, toAge)`, assuming
- * a constant *real* (today's) salary across the whole span: each year is today's
- * salary inflated to that calendar year at CPI, keyed by calendar year. Consistent
- * with how in-model income is modelled (inflation-linked, flat in real terms). Both
- * the pre-"now" record seed and the panel's benefit calc read from this shape.
- */
-function careerEarningsCents(
-  budget: Plan,
-  startYear: number,
-  fromAge: number,
-  toAge: number,
-): Record<number, Cents> {
-  const annualSalaryNow = budget.incomeCents * 12;
-  const inflationRate = budget.inflationPct / 100;
-  const earnings: Record<number, Cents> = {};
-  for (let age = fromAge; age < toAge; age++) {
-    const year = startYear + (age - budget.currentAge); // < startYear for ages before "now"
-    earnings[year] = Math.round(annualSalaryNow * Math.pow(1 + inflationRate, age - budget.currentAge));
-  }
-  return earnings;
-}
-
-/**
- * The full nominal covered-earnings record the plan implies — the whole career,
- * from the authored career start age through retirement. The panel prices the
- * benefit from this same record the graph accumulates, so both surfaces report the
- * same benefit.
- */
-export function fullCareerEarningsCents(budget: Plan, startYear: number): Record<number, Cents> {
-  return careerEarningsCents(budget, startYear, budget.careerStartAge, budget.retirementAge);
-}
-
-/**
- * Reconstruct the person's covered earnings for the working years BEFORE the
- * simulation starts (the §4.6 pre-"now" summary the engine seeds from).
- *
- * Why this is needed even for someone who will work a "full" 30 years in-model:
- * a benefit formula may look back over a long earnings window (US AIME, §5.4:
- * sums a worker's highest 35 indexed years and always divides by a fixed
- * 420-month (35-year) window). A 35-year-old who retires at 65
- * only earns 30 in-model years, so 5 slots would be counted as $0 and drag the
- * benefit down ~1/7. A real 35-year-old has instead been earning since the age
- * they started their career, and those years fill the record — so we seed ages
- * {@link Plan.careerStartAge} → today.
- */
-function seedPriorEarnings(budget: Plan, startYear: number): Record<number, Cents> {
-  return careerEarningsCents(budget, startYear, budget.careerStartAge, budget.currentAge);
-}
-
 export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
   const { startYear } = ctx;
-  // Give the projection a benefit basis (§5.4): a birth year derived from today's age
-  // plus the pinned claiming age, so the engine accumulates earnings while working
-  // and pays a government retirement benefit from the claiming age — the same lever the
-  // retirement panel reasons about, now present in the graph too. Seed the years
-  // worked BEFORE "now" so the benefit reflects a full career, not just in-model
-  // earnings (see seedPriorEarnings).
   const inflationRate = budget.inflationPct / 100;
   const birthYear = startYear - budget.currentAge;
 
-  // Additive branch (§1, issue #64): a non-empty jobs list is the new source of
-  // truth for earned income — compile the standing Job model; otherwise fall through
-  // to the scalar `incomeCents`/`careerStartAge` path (still live until #72). Both
-  // produce the same shapes (pre-"now" earnings record + forward income series),
-  // so the rest of the base build is identical.
-  const standingPerson: Person | undefined =
-    budget.jobs != null && budget.jobs.length > 0
-      ? {
-          id: PRIMARY_PERSON_ID,
-          name: budget.name,
-          birthYear,
-          retirementTargetAge: budget.retirementAge,
-          benefitClaimingAge: budget.benefitClaimingAge,
-          jobs: budget.jobs,
-        }
-      : undefined;
+  // §1 (issue #64, #72 hinge): the standing Job model is the sole source of truth for
+  // earned income. Assemble the primary member as an authoring {@link Person} —
+  // identity, the retirement/benefit inputs, and the authored jobs — and compile it
+  // for the sim: the pre-"now" covered-earnings record and forward income series both
+  // fall directly out of the jobs' spans and salaries (§4.6/§6), never a scalar lever.
+  const standingPerson: Person = {
+    id: PRIMARY_PERSON_ID,
+    name: budget.name,
+    birthYear,
+    retirementTargetAge: budget.retirementAge,
+    benefitClaimingAge: budget.benefitClaimingAge,
+    jobs: budget.jobs,
+  };
 
   // Give the projection a benefit basis (§5.4): a birth year derived from today's age
-  // plus the pinned claiming age, so the engine accumulates earnings while working
-  // and pays a government retirement benefit from the claiming age — the same lever the
-  // retirement panel reasons about, now present in the graph too. Seed the years
-  // worked BEFORE "now" so the benefit reflects a full career, not just in-model
-  // earnings (from jobs directly when present, else the scalar seedPriorEarnings).
+  // plus the pinned claiming age, so the engine accumulates earnings while working and
+  // pays a government retirement benefit from the claiming age. The pre-"now" covered
+  // years (§4.6) come directly from the jobs, so the benefit reflects a full career
+  // rather than only in-model earnings.
   const person: SimPerson = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
     benefitClaimingAge: budget.benefitClaimingAge,
-    priorEarningsCents: standingPerson
-      ? compilePersonPriorEarnings(standingPerson, startYear, inflationRate)
-      : seedPriorEarnings(budget, startYear),
+    priorEarningsCents: compilePersonPriorEarnings(standingPerson, startYear, inflationRate),
   };
 
-  // Income runs until retirement then stops (§7); while working it grows with CPI,
-  // so it holds constant in real terms rather than eroding against rising prices.
-  const workingMonths = Math.max(0, (budget.retirementAge - budget.currentAge) * 12);
-  const incomeSeries = new SimCashFlowSeries(
-    0,
-    budget.incomeCents,
-    { type: "inflationLinked", annualRate: inflationRate },
-    // Earned income is `wages`, not the `ordinaryIncome` catch-all the series would
-    // otherwise default to. Tax and covered-earnings treat the two identically (the US
-    // seam taxes `wages + ordinaryIncome` in one bracket stack and covers both), so
-    // this changes no number — it just stops a paycheck being indistinguishable from a
-    // pre-tax account withdrawal, which is also booked `ordinaryIncome`.
-    { baselineUnit: "monthly", endMonth: workingMonths - 1, taxCategory: "wages" },
-  );
-  // General (non-health) expenses also grow with CPI — flat in real terms.
+  // General (non-health) expenses grow with CPI — flat in real terms.
   const expenseSeries = new SimCashFlowSeries(
     0,
     budget.expenseCents,
@@ -320,27 +243,19 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
-  // Lever 1 (§5.5): a positive deferral % turns the income into a plan-bearing
-  // source that defers pre-tax into the retirement account.
-  const income: SimOwnedSeries = {
-    series: incomeSeries,
-    ownerId: PRIMARY_PERSON_ID,
-    label: "Income",
-    planDescriptor:
-      budget.retirementDeferralPct > 0
-        ? { deferralFraction: budget.retirementDeferralPct / 100, fundAccountId: RETIREMENT_ID }
-        : undefined,
-  };
+  // Each job compiles into its own forward income {@link SimOwnedSeries}, running from
+  // "now" (or the job's later start) to its end (§6). Pre-tax 401(k) deferral and any
+  // employer match ride on the job (§11), compiled into the source's plan descriptor.
+  const initialIncomeSeries: readonly SimOwnedSeries[] = compilePersonIncomeSeries(
+    standingPerson,
+    startYear,
+    inflationRate,
+  );
 
-  // Jobs present → compile each job into its own forward income series; else the
-  // single scalar income source. Deferral rides on the job (§11) in the job path.
-  const initialIncomeSeries: readonly SimOwnedSeries[] = standingPerson
-    ? compilePersonIncomeSeries(standingPerson, startYear, inflationRate)
-    : [income];
-
-  const surplusDestination: SurplusDestination = budget.surplusSwept
-    ? { kind: "swept", accountId: BROKERAGE_ID }
-    : { kind: "idle" };
+  // Leftover cash idles in the liquid account by default; a household that wants it
+  // invested authors a contribution budget line to the brokerage (§12/§15). The
+  // scalar "sweep everything" lever is gone with the #72 hinge.
+  const surplusDestination: SurplusDestination = { kind: "idle" };
 
   return {
     horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),

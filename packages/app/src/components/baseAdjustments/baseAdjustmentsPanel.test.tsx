@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents, type Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { setMonthlyIncome } from "../../planPeople";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 
 afterEach(cleanup);
@@ -264,11 +265,9 @@ describe("BaseAdjustmentsPanel — long-horizon points (AC5)", () => {
 
 describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
   const brokePlan: Plan = {
-    ...PLAN_DEFAULTS,
-    incomeCents: dollarsToCents(1_500), // far below the ~$3,000 template budget
+    // $1,500/mo income, far below the ~$3,000 template budget.
+    ...setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(1_500)),
     openingBalanceCents: 0,
-    retirementDeferralPct: 0,
-    surplusSwept: false,
     goals: [],
     healthMonthlyCents: 0,
     postCoverageHealthMonthlyCents: 0,
@@ -293,8 +292,7 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
 
   it("reports a comfortable budget as financed throughout", () => {
     const richPlan: Plan = {
-      ...PLAN_DEFAULTS,
-      incomeCents: dollarsToCents(8_000),
+      ...setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
       healthMonthlyCents: 0,

@@ -12,6 +12,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { dollarsToCents } from "@finley/engine";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { careerStartAge, setCareerDeferralFraction, setMonthlyIncome } from "../../planPeople";
 import type { Plan } from "@finley/engine";
 
 afterEach(cleanup);
@@ -23,7 +24,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
     <>
       <BudgetEditor budget={budget} setBudget={setBudget} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
-      <output data-testid="career-start-age">{budget.careerStartAge}</output>
+      <output data-testid="career-start-age">{careerStartAge(budget)}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
       <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
@@ -136,7 +137,7 @@ describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => 
 describe("BudgetEditor — 401(k) deferral over the IRS limit (§5.4)", () => {
   it("discloses that contributions above the annual limit are paid as taxable income", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
-    render(<Harness initial={{ ...PLAN_DEFAULTS, retirementDeferralPct: 50 }} />);
+    render(<Harness initial={setCareerDeferralFraction(PLAN_DEFAULTS, 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
   });
 
@@ -150,14 +151,13 @@ describe("BudgetEditor — 401(k) deferral over the IRS limit (§5.4)", () => {
     // years (3% income growth vs 2.5% limit indexing) — the precise-scan case.
     render(
       <Harness
-        initial={{
-          ...PLAN_DEFAULTS,
-          incomeCents: dollarsToCents(4000),
-          retirementDeferralPct: 50,
-          inflationPct: 3,
-          currentAge: 35,
-          retirementAge: 65,
-        }}
+        initial={setCareerDeferralFraction(
+          setMonthlyIncome(
+            { ...PLAN_DEFAULTS, inflationPct: 3, currentAge: 35, retirementAge: 65 },
+            dollarsToCents(4000),
+          ),
+          0.5,
+        )}
       />,
     );
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();

@@ -43,7 +43,7 @@ describe("App — event ledger", () => {
 
     fireEvent.click(screen.getByText("Add event"));
 
-    // A default "Started a job" event now has one timeline marker (one Remove).
+    // The default "Added an expense" event now has one timeline marker (one Remove).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
     // Ledger edits must not churn budget identity (projection base is memoized).
@@ -108,14 +108,14 @@ describe("App — event ledger", () => {
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     fireEvent.click(screen.getByText("Add event"));
 
-    // Back to the default "Started a job"; its month defaults to Year 0, before
-    // the partnership — so there's no one but you to attribute income to.
+    // Back to the default "Added an expense"; its month defaults to Year 0, before
+    // the partnership — so there's no one but you to attribute the expense to.
     fireEvent.change(screen.getByLabelText("What happened?"), {
-      target: { value: "JobChangeEvent" },
+      target: { value: "BudgetItemStartEvent" },
     });
     expect(screen.queryByLabelText("Whose")).toBeNull();
 
-    // Move the job to Year 5 — the partner is now in the household and eligible.
+    // Move the expense to Year 5 — the partner is now in the household and eligible.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     const owner = screen.getByLabelText("Whose");
     expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();

@@ -14,6 +14,7 @@
 import { retirementDeferralLimitCents } from "@finley/rules";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
+import { careerAnnualSalaryCents, careerDeferralFraction } from "./planPeople";
 
 export interface DeferralLimitCrossing {
   /** Calendar year of the first crossing. */
@@ -36,10 +37,12 @@ export interface DeferralLimitCrossing {
  * and nominal indexed limit, not the exact month-by-month cap the engine applies.
  */
 export function firstDeferralLimitCrossing(budget: Plan): DeferralLimitCrossing | null {
-  const fraction = budget.retirementDeferralPct / 100;
+  // Income and the pre-tax deferral now ride on the primary person's career job (§11),
+  // not a scalar plan lever: read the elected fraction and today's salary off it.
+  const fraction = careerDeferralFraction(budget);
   if (fraction <= 0) return null;
 
-  const annualIncomeNowCents = budget.incomeCents * 12;
+  const annualIncomeNowCents = careerAnnualSalaryCents(budget);
   const inflation = budget.inflationPct / 100;
 
   for (let k = 0; budget.currentAge + k < budget.retirementAge; k++) {

@@ -66,11 +66,6 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
       };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
-    case "JobChangeEvent":
-      return {
-        label: "Started a job",
-        detail: `${formatDollars(Math.round(e.annualIncomeCents / 12))}/mo`,
-      };
     case "BudgetItemStartEvent":
       return {
         label: e.seriesType === "income" ? "Added income" : "Added an expense",

@@ -23,16 +23,23 @@ import type { Plan, GoalPlan } from "@finley/engine";
 
 const baseBudget: Plan = {
   name: "Alex",
-  incomeCents: dollarsToCents(5000),
+  // Income is a single real-flat career job — $5,000/mo, the surplus source below.
+  jobs: [
+    {
+      id: "career",
+      ownerId: "p1",
+      startYear: START_YEAR - 35 + 18,
+      endYear: null,
+      salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+    },
+  ],
   expenseCents: dollarsToCents(3500),
   expenseOverrides: [],
   openingBalanceCents: 0,
   savingsReturnPct: 0,
   retirementReturnPct: 0,
   brokerageReturnPct: 0,
-  retirementDeferralPct: 0,
   sharedScheme: "proportional",
-  surplusSwept: false,
   goals: [],
   // No health line here: these tests pin the $1,500/mo surplus ($5,000 − $3,500)
   // that goal funding draws from, and health is a separate additive expense (§5.4).
@@ -42,7 +49,6 @@ const baseBudget: Plan = {
   healthInflationPct: 3,
   inflationPct: 3,
   currentAge: 35,
-  careerStartAge: 18,
   retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,

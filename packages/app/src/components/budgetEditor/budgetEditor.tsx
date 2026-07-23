@@ -17,6 +17,14 @@ import type { Dispatch, SetStateAction } from "react";
 import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
 import type { Plan } from "@finley/engine";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
+import {
+  careerDeferralFraction,
+  careerStartAge,
+  monthlyIncomeCents,
+  setCareerDeferralFraction,
+  setCareerStartAge,
+  setMonthlyIncome,
+} from "../../planPeople";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 
@@ -56,8 +64,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
 
         <NumInput
           label="Monthly income"
-          value={budget.incomeCents / 100}
-          onChange={(v) => updateBudget({ incomeCents: dollarsToCents(v) })}
+          value={monthlyIncomeCents(budget) / 100}
+          onChange={(v) => setBudget((p) => setMonthlyIncome(p, dollarsToCents(v)))}
           prefix="$"
           step={100}
         />
@@ -153,8 +161,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
             Clamped at ≤ current age (no future working years to seed). */}
         <NumInput
           label="Career start age"
-          value={budget.careerStartAge}
-          onChange={(careerStartAge) => updateBudget({ careerStartAge })}
+          value={careerStartAge(budget)}
+          onChange={(age) => setBudget((p) => setCareerStartAge(p, age))}
           min={14}
           max={budget.currentAge}
           step={1}
@@ -219,8 +227,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           />
           <NumInput
             label="401(k) contribution"
-            value={budget.retirementDeferralPct}
-            onChange={(retirementDeferralPct) => updateBudget({ retirementDeferralPct })}
+            value={Math.round(careerDeferralFraction(budget) * 100)}
+            onChange={(pct) => setBudget((p) => setCareerDeferralFraction(p, pct / 100))}
             suffix="%"
             min={0}
             step={1}
@@ -251,17 +259,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           >
             <option value="proportional">Proportional to income</option>
             <option value="even">Split evenly</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field-label">Leftover cash</span>
-          <select
-            value={budget.surplusSwept ? "swept" : "idle"}
-            onChange={(e) => updateBudget({ surplusSwept: e.target.value === "swept" })}
-          >
-            <option value="idle">Keep in savings</option>
-            <option value="swept">Sweep to investments</option>
           </select>
         </label>
       </section>

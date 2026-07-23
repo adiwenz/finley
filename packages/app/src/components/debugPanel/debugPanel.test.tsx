@@ -37,9 +37,10 @@ describe("DebugPanel — resolved growth rates", () => {
   it("shows the income raise rate, which the plan itself does not carry", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Growth rates (resolved)");
-    // Named from the series itself, not numbered positionally; the amount is not
-    // repeated here — it already appears under Monthly cash flow.
-    expect(html).toContain("<dt>Income</dt><dd>3%</dd>");
+    // Named from the series itself (each job's income series is labelled by its job id),
+    // not numbered positionally; the amount is not repeated here — it already appears
+    // under Monthly cash flow.
+    expect(html).toContain("<dt>Income · career</dt><dd>3%</dd>");
   });
 
   it("names each expense line separately, and does not mistake an amount step for a rate change", () => {

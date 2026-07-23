@@ -155,23 +155,6 @@ export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly amountCents: Cents;
 }
 
-/**
- * Starts (or changes) a person's primary income. Creates a new income series
- * from `month` forward. If `replacesSeriesId` is given, the existing series is
- * ended at month−1. `annualIncomeCents` is the source of truth — it is
- * distributed to months by the series machinery, never pre-rounded (§4).
- */
-export interface JobChangeEvent extends EventBase, CausedByFields {
-  readonly type: "JobChangeEvent";
-  readonly seriesId: string;
-  readonly ownerId: string;
-  readonly annualIncomeCents: Cents;
-  readonly growthMode: GrowthMode;
-  readonly taxCategory: TaxCategory;
-  /** Series to end at month−1 when this job starts. */
-  readonly replacesSeriesId?: string;
-}
-
 /** Creates a recurring income or expense series from `month` forward. */
 export interface BudgetItemStartEvent extends EventBase, CausedByFields {
   readonly type: "BudgetItemStartEvent";
@@ -186,7 +169,7 @@ export interface BudgetItemStartEvent extends EventBase, CausedByFields {
 /** Ends a recurring income or expense series at month−1. */
 export interface BudgetItemEndEvent extends EventBase {
   readonly type: "BudgetItemEndEvent";
-  /** `seriesId` of the BudgetItemStartEvent or JobChangeEvent to end. */
+  /** `seriesId` of the {@link BudgetItemStartEvent} to end. */
   readonly seriesId: string;
 }
 
@@ -197,7 +180,6 @@ export type LifeEvent =
   | HomePurchaseEvent
   | LoanEvent
   | DebtPayoffEvent
-  | JobChangeEvent
   | BudgetItemStartEvent
   | BudgetItemEndEvent;
 

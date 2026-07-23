@@ -16,7 +16,7 @@ import {
 } from "./index";
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan } from "./testing/samplePlan";
+import { samplePlan, careerJob } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 
 const START_YEAR = 2026;
@@ -78,9 +78,15 @@ describe("createProjectionBase — retirement + government benefit wired into th
   });
 });
 
-describe("createProjectionBase — earned income before current age is user-configurable (§4.6, #41)", () => {
+describe("createProjectionBase — earned income before current age comes from the job (§4.6, #41)", () => {
+  // The age a career began is now the career job's `startYear`, not a scalar field.
+  const planFromCareerStart = (careerStartAge: number): Plan => ({
+    ...samplePlan,
+    currentAge: 40,
+    jobs: [careerJob(dollarsToCents(8000), { currentAge: 40, careerStartAge })],
+  });
   const priorYears = (careerStartAge: number) => {
-    const base = createProjectionBase({ ...samplePlan, currentAge: 40, careerStartAge }, ctx());
+    const base = createProjectionBase(planFromCareerStart(careerStartAge), ctx());
     return Object.keys(base.initialPersons![0].priorEarningsCents!)
       .map(Number)
       .sort((a, b) => a - b);
@@ -110,8 +116,8 @@ describe("createProjectionBase — earned income before current age is user-conf
         return Math.round(total / 420);
       },
     });
-    const early = netWorthAtAge({ ...samplePlan, careerStartAge: 18 }, 80, priced);
-    const late = netWorthAtAge({ ...samplePlan, careerStartAge: 35 }, 80, priced);
+    const early = netWorthAtAge(planFromCareerStart(18), 80, priced);
+    const late = netWorthAtAge(planFromCareerStart(35), 80, priced);
     expect(early).toBeGreaterThan(late);
   });
 });
@@ -149,11 +155,9 @@ describe("createProjectionBase — horizon spans to life expectancy (§7)", () =
 describe("createProjectionBase — health as its own additive, growing expense (§5.4)", () => {
   const saver: Plan = {
     ...samplePlan,
-    incomeCents: dollarsToCents(6_000),
+    jobs: [careerJob(dollarsToCents(6_000))],
     expenseCents: dollarsToCents(3_000),
     goals: [],
-    surplusSwept: false,
-    retirementDeferralPct: 0,
   };
 
   it("spends the health line: adding health lowers ending net worth", () => {
@@ -178,14 +182,12 @@ describe("createProjectionBase — health as its own additive, growing expense (
       currentAge: 55,
       retirementAge: 90,
       lifeExpectancy: 90,
-      incomeCents: dollarsToCents(6_000),
+      jobs: [careerJob(dollarsToCents(6_000), { currentAge: 55 })],
       expenseCents: dollarsToCents(3_000),
       healthMonthlyCents: dollarsToCents(1_000),
       postCoverageHealthMonthlyCents: dollarsToCents(400),
       healthInflationPct: 5,
       goals: [],
-      surplusSwept: false,
-      retirementDeferralPct: 0,
     };
     const covered = mockJurisdiction({ publicHealthCoverageAge: 65 });
     const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, covered);
@@ -202,11 +204,10 @@ describe("createProjectionBase — health as its own additive, growing expense (
       currentAge: 55,
       retirementAge: 90,
       lifeExpectancy: 90,
+      jobs: [careerJob(dollarsToCents(6_000), { currentAge: 55 })],
       healthMonthlyCents: dollarsToCents(1_000),
       postCoverageHealthMonthlyCents: dollarsToCents(400),
       goals: [],
-      surplusSwept: false,
-      retirementDeferralPct: 0,
     };
     const noCoverage = mockJurisdiction(); // no publicHealthCoverageAge
     const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, noCoverage);

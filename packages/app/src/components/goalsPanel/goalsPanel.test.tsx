@@ -123,9 +123,10 @@ describe("BudgetEditor — person-partitioned panel with the four levers", () =>
     expect(html).toContain("401(k) contribution"); // lever 1, disclosed
   });
 
-  it("exposes the shared-scheme and surplus-destination levers (§5.0)", () => {
+  it("exposes the shared-scheme lever (§5.0)", () => {
+    // The surplus-destination lever is gone with the #72 hinge: leftover cash idles, and
+    // investing it is authored as a brokerage contribution line, not a scalar toggle.
     expect(html).toContain("Shared expenses split");
     expect(html).toContain("Split evenly");
-    expect(html).toContain("Sweep to investments");
   });
 });

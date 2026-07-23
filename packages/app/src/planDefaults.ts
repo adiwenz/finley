@@ -1,17 +1,38 @@
 /** Opening values for a fresh plan. */
 
-import { dollarsToCents } from "@finley/engine";
-import type { Plan } from "@finley/engine";
+import { dollarsToCents, PRIMARY_PERSON_ID } from "@finley/engine";
+import type { Plan, Job } from "@finley/engine";
+import { START_YEAR } from "./config";
 import { defaultBudgetTemplate, toBudgetLines } from "./components/baseAdjustments/budgetTemplate";
+
+const DEFAULT_CURRENT_AGE = 35;
+const DEFAULT_CAREER_START_AGE = 18;
+
+/**
+ * The default plan's single open-ended "career" {@link Job} (§1/§6, issue #72) — the
+ * source of truth for earned income now that the scalar `incomeCents` /
+ * `careerStartAge` / `retirementDeferralPct` fields are gone. A real-flat salary
+ * (`realGrowthPct: 0`, so it grows at CPI and holds constant in real terms — the exact
+ * behaviour the scalar income lever had) anchored at the age the career began, ending
+ * at the person's retirement age. Its `startYear` seeds the pre-"now" covered-earnings
+ * record (§4.6); a 401(k) deferral, when the user sets one, rides on it (§11).
+ */
+const DEFAULT_CAREER_JOB: Job = {
+  id: "career",
+  ownerId: PRIMARY_PERSON_ID,
+  startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_CAREER_START_AGE,
+  endYear: null,
+  salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+};
 
 export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
-  incomeCents: dollarsToCents(5000),
+  jobs: [DEFAULT_CAREER_JOB],
   // The line-item budget is the source of truth for spending: a non-empty
   // `budgetLines` replaces the scalar `expenseCents` series wholesale (see
   // `projectionBase.ts`), so a fresh plan opens with the prepopulated Base and the
   // Base + Adjustments editor drives the projection. `expenseCents` is retained only
-  // because `Plan` still requires it; it is inert while lines exist, and #72 deletes it.
+  // as the engine-native fallback; it is inert while lines exist.
   expenseCents: dollarsToCents(3500),
   expenseOverrides: [],
   budgetLines: toBudgetLines(defaultBudgetTemplate()),
@@ -23,9 +44,7 @@ export const PLAN_DEFAULTS: Plan = {
   savingsReturnPct: 1,
   retirementReturnPct: 7,
   brokerageReturnPct: 7,
-  retirementDeferralPct: 0,
   sharedScheme: "proportional",
-  surplusSwept: false,
   // Two goals that outrun the surplus, so the priority tradeoff is visible (§5.2).
   goals: [
     {
@@ -56,10 +75,7 @@ export const PLAN_DEFAULTS: Plan = {
   healthInflationPct: 3,
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
-  currentAge: 35,
-  // The age the SS-covered career is assumed to have begun — seeds the pre-"now"
-  // earnings record, so it drives the priced benefit (§4.6/§5.4). User-editable.
-  careerStartAge: 18,
+  currentAge: DEFAULT_CURRENT_AGE,
   retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,

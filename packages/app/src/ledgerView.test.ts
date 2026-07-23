@@ -41,22 +41,6 @@ describe("summarizeEvent — one plain-language label per structural change", ()
     expect(s.detail).toContain("Robin");
   });
 
-  it("labels a job change with the monthly amount", () => {
-    const s = summarizeEvent({
-      id: "j1",
-      type: "JobChangeEvent",
-      month: 12,
-      sequenceNumber: 0,
-      seriesId: "s1",
-      ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
-    expect(s.label).toBe("Started a job");
-    expect(s.detail).toContain("5,000");
-  });
-
   it("labels a separation", () => {
     const s = summarizeEvent({
       id: "sep1",
@@ -86,11 +70,12 @@ describe("timelineMarkers", () => {
     });
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 12,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });

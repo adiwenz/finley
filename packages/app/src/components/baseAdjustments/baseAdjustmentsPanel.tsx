@@ -41,9 +41,9 @@ import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { quickstartFromIncome, toBudgetLines } from "./budgetTemplate";
+import { applyIncomeRaise, monthlyIncomeCents } from "../../planPeople";
 import {
   applyLineOverride,
-  inflateFromTo,
   resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
@@ -109,9 +109,20 @@ function displayedCents(row: EditRow, resolvedCents: number, pending: PendingEdi
 export interface BaseAdjustmentsPanelProps {
   readonly plan: Plan;
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * Post a one-off income cash event to the ledger (§18/§20): a `thisMonthOnly` income
+   * edit is a discrete bonus/missed-paycheck, so it routes to a real ledger transaction
+   * for the delta rather than a standing change. Supplied by the app, which owns the
+   * ledger; absent in isolated renders, where the panel still reports the route.
+   */
+  readonly onIncomeTransaction?: (month: number, deltaCents: number) => void;
 }
 
-export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({
+  plan,
+  setBudget,
+  onIncomeTransaction,
+}: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = useMemo(() => plan.budgetLines ?? [], [plan.budgetLines]);
   // Every row is shown in the selected month's dollars, so the editor needs the same
@@ -127,10 +138,6 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const [pending, setPending] = useState<PendingEdit | null>(null);
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
-  /** Standing income overrides, kept locally until #72 rewires income onto jobs. */
-  const [incomeOverrides, setIncomeOverrides] = useState<
-    ReadonlyArray<{ month: number; monthlyCents: number }>
-  >([]);
 
   // Project the plan (whose budgetLines these are) once: the chart reads the per-line
   // amounts off it, and the income row reads the income it actually pays each month.
@@ -157,25 +164,14 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   );
 
   /**
-   * Income at the selected month, read off the projection rather than synthesized. A
-   * row that just grew `plan.incomeCents` with inflation described a household that
-   * works forever: it kept compounding a salary through retirement instead of stopping
-   * at the last paycheck and picking the government benefit up at the claiming age.
-   *
-   * A local income override still wins where one applies — it is stored in anchor
-   * dollars, so it is re-inflated to this month the same way a spend line is. Those
-   * overrides do not reach the projection until #72 moves income onto jobs, so the
-   * graph will not move for them yet.
+   * Income at the selected month, read straight off the projection. Because income now
+   * rides the person's {@link import("@finley/engine").Job}s (§6), a `fromHereForward`
+   * raise is a real edit to `plan.jobs` — so the row, the income graph, and net worth
+   * all move together for it, no local override state required. The row also reflects
+   * the projection stopping income at retirement and picking the government benefit up
+   * at the claiming age, rather than compounding a salary forever.
    */
-  const incomeAtMonth = useMemo(() => {
-    const applicable = incomeOverrides
-      .filter((o) => o.month <= selectedMonth)
-      .sort((a, b) => b.month - a.month)[0];
-    if (applicable !== undefined) {
-      return inflateFromTo(applicable.monthlyCents, applicable.month, selectedMonth, editCtx);
-    }
-    return projected.incomeByMonth[selectedMonth] ?? 0;
-  }, [incomeOverrides, selectedMonth, editCtx, projected]);
+  const incomeAtMonth = projected.incomeByMonth[selectedMonth] ?? 0;
 
   /**
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
@@ -204,13 +200,14 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     if (route.kind === "lineOverride") {
       setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);
     } else if (route.kind === "incomeOverride") {
-      setIncomeOverrides((prev) => [
-        ...prev.filter((o) => o.month !== route.month),
-        { month: route.month, monthlyCents: route.monthlyCents },
-      ]);
+      // A permanent income change is a raise: it rides the person's career job (§6),
+      // so it moves the income graph and net worth, not just this row.
+      setBudget((p) => applyIncomeRaise(p, route.month, route.monthlyCents));
+    } else {
+      // A one-month income change is a discrete cash event: post it to the ledger as a
+      // real one-off transaction for the delta (§18) — no more echo without a write.
+      onIncomeTransaction?.(route.month, route.amountCents);
     }
-    // A ledgerTransaction is a discrete cash event the app's ledger owns; the panel
-    // reports where it routed and leaves the standing budget alone (rewired in #72).
     setPending(null);
   }
 
@@ -218,7 +215,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
   function applyQuickstart(): void {
-    setLines(() => toBudgetLines(quickstartFromIncome(plan.incomeCents, retirementMonth)));
+    setLines(() => toBudgetLines(quickstartFromIncome(monthlyIncomeCents(plan), retirementMonth)));
     setPending(null);
   }
 

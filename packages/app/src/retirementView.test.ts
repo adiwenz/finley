@@ -19,6 +19,7 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
+import { setMonthlyIncome } from "./planPeople";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
@@ -73,7 +74,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
     const broke: Plan = {
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
-      incomeCents: 0,
+      jobs: [], // no jobs → no earned income
       expenseCents: PLAN_DEFAULTS.expenseCents,
     };
     const view = viewOf(broke);
@@ -93,7 +94,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
     // disposition difference is masked. Give the plan a bit more income so a feasible
     // age exists BELOW that floor and the phantom-fund effect is visible again — the
     // point under test is the disposition delta, not the absolute age.
-    const higherIncome: Plan = { ...PLAN_DEFAULTS, incomeCents: dollarsToCents(7000) };
+    const higherIncome: Plan = setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(7000));
     // With the fund correctly swapped to illiquid equity at maturity, the earliest
     // feasible (partial retirement) age is 62. (Absolute ages here track
     // PLAN_DEFAULTS; they moved when the default savings return dropped to a
@@ -260,7 +261,7 @@ describe("retirementView — the timeline events count toward retirement (issue 
     // Social-Security floor (67), where an added expense flips it infeasible rather
     // than merely later. Use a plan with headroom below the floor so "the age moves
     // strictly LATER" is the observable — the coupling under test, not the constant.
-    const plan: Plan = { ...PLAN_DEFAULTS, incomeCents: dollarsToCents(7000) };
+    const plan: Plan = setMonthlyIncome(PLAN_DEFAULTS, dollarsToCents(7000));
     // Attach an $800/mo childcare expense from now, the way the app's AddEventForm would.
     const base = createProjectionBase(plan, CTX);
     const added = addEvent(
@@ -292,49 +293,10 @@ describe("retirementView — the timeline events count toward retirement (issue 
   });
 });
 
-/**
- * #100 — sweeping surplus into the brokerage must not make retirement WORSE. Before the
- * fix, a capital-gains withdrawal was injected one-for-one with no gross-up, so under
- * the real US jurisdiction it under-delivered by the tax it induced on the Social
- * Security benefit (provisional income). The permanent monthly shortfall accrued to the
- * §5.1 synthetic card at 22% APR until it tripped `isInsolvent` — with millions still in
- * the brokerage — so `surplusSwept: true` reported a strictly LATER feasible age than
- * leaving the surplus idle. These pin the whole-return gross-up end to end against the
- * real jurisdiction (the swept run holds and now retires earlier, not later).
- */
-describe("retirementView — surplus sweep does not make retirement worse (#100)", () => {
-  const swept: Plan = { ...PLAN_DEFAULTS, surplusSwept: true };
-  const idle: Plan = { ...PLAN_DEFAULTS, surplusSwept: false };
-
-  it("does not push the earliest feasible retirement age later than leaving surplus idle (AC2)", () => {
-    const sweptAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge;
-    const idleAge = solveRetirement(scenarioOf(idle), CTX).fullRetirementAge;
-    expect(sweptAge).not.toBeNull();
-    expect(idleAge).not.toBeNull();
-    // Sweeping surplus into a 7% brokerage produces far more wealth than a 1% cash
-    // buffer, so it must reach feasibility no later — and in fact earlier.
-    expect(sweptAge as number).toBeLessThanOrEqual(idleAge as number);
-    expect(sweptAge as number).toBeLessThan(idleAge as number);
-  });
-
-  it("does not reach insolvency on revolving-card interest while holding liquidatable assets, across the full horizon (AC3, AC4)", () => {
-    const feasibleAge = solveRetirement(scenarioOf(swept), CTX).fullRetirementAge as number;
-    const series = projectScenario(scenarioOf({ ...swept, retirementAge: feasibleAge }), CTX);
-    let maxCardCents = 0;
-    for (const month of series.months) {
-      // A household holding millions in a brokerage must never be flagged insolvent.
-      expect(month.isInsolvent).toBe(false);
-      for (const bal of Object.values(month.liabilityBalancesCents)) {
-        maxCardCents = Math.max(maxCardCents, bal);
-      }
-    }
-    // The synthetic card never grinds upward: with the draw netting the need, only the
-    // single-pass residual ever touches it — cents, not the $50k limit it used to hit.
-    expect(maxCardCents).toBeLessThan(dollarsToCents(100));
-    // The plan genuinely lasts to life expectancy at this age.
-    expect(realNetWorthSurvives(series)).toBe(true);
-  });
-});
+// The surplus-sweep-vs-idle comparison that lived here is retired with the #72 hinge:
+// `surplusSwept` is gone and leftover cash always idles (a household that wants surplus
+// invested authors a brokerage contribution line). The #100 whole-return gross-up the
+// old test exercised end-to-end is still pinned directly below against the real seam.
 
 describe("every draw nets its need under the real jurisdiction (#100)", () => {
   // The engine's own #100 tests model the tax seam with synthetic jurisdictions, since

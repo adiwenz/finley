@@ -20,7 +20,7 @@ import { scenarioOf } from "./scenario";
 import { dollarsToCents } from "./cashFlowSeries";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, careerJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 
 const START_YEAR = SAMPLE_START_YEAR;
@@ -51,14 +51,14 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
   });
 
   it("returns null when even working to life expectancy fails", () => {
-    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, incomeCents: 0 };
+    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
     expect(earliestPartialRetirementAge(scenarioOf(broke), CTX)).toBeNull();
   });
 
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
     // Once insolvent, net worth is null (§5.1). `null >= 0` is `true` in JS, so a
     // naive survival check would wrongly pass those months — this pins the guard.
-    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, incomeCents: 0 };
+    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
     const series = projectScenario(scenarioOf(broke), CTX);
     // Precondition: the plan really does produce null net-worth months.
     expect(series.months.some((m) => m.netWorthRealCents === null)).toBe(true);
@@ -96,10 +96,9 @@ describe("retirementSolver — target mode (§7.1)", () => {
     // equity keeps net worth positive the whole way — the issue's exact repro shape.
     const insolventWithEquity: Plan = {
       ...samplePlan,
-      incomeCents: dollarsToCents(11000),
+      jobs: [careerJob(dollarsToCents(11000))],
       expenseCents: dollarsToCents(5000),
       openingBalanceCents: dollarsToCents(30000),
-      retirementDeferralPct: 0,
       retirementAge: 56,
       lifeExpectancy: 85,
       goals: [

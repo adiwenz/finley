@@ -56,7 +56,7 @@ describe("assessHomePurchaseDti (§4.5, #23)", () => {
   });
 
   it("does not trip a divide-by-zero warning at zero gross income", () => {
-    const noIncome: Plan = { ...PLAN_DEFAULTS, incomeCents: 0 };
+    const noIncome: Plan = { ...PLAN_DEFAULTS, jobs: [] };
     const { household, series } = build(noIncome);
     const dti = assessHomePurchaseDti(household, series, purchase);
     expect(dti.monthlyGrossCents).toBe(0);

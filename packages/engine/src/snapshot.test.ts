@@ -102,33 +102,41 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     expect(snap.children[0].ageMonths).toBe(24);
   });
 
-  it("income from a job is active from its start and ends when replaced", () => {
+  it("income is active from its start and ends when replaced", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(36_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(3_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
+    });
+    // At month 24, end s1 and start s2 in its place.
+    ledger = add(ledger, {
+      id: "end1",
+      type: "BudgetItemEndEvent",
+      month: 24,
+      seriesId: "s1",
     });
     ledger = add(ledger, {
       id: "j2",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 24,
       seriesId: "s2",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
-      replacesSeriesId: "s1",
     });
-    // At month 12 the first job is the active income.
+    // At month 12 the first income series is active.
     const early = snapshotAt(ledger, 12, { initialPersons: primary });
     expect(early.income.map((s) => s.id)).toEqual(["s1"]);
-    expect(early.income[0].role).toBe("primaryIncome");
+    expect(early.income[0].role).toBe("budgetItem");
     // At month 24 the replacement is active; the old one ended at month 23.
     const later = snapshotAt(ledger, 24, { initialPersons: primary });
     expect(later.income.map((s) => s.id)).toEqual(["s2"]);
@@ -144,12 +152,13 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     });
     ledger = add(ledger, {
       id: "j2",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       causedByEventId: "r1",
       seriesId: "s2",
       ownerId: "p2",
-      annualIncomeCents: dollarsToCents(48_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(4_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -227,11 +236,12 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "salaryCompound", annualRate: 0.1 },
       taxCategory: "wages",
     });

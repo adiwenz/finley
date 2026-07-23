@@ -7,6 +7,7 @@ import {
   summarizeSimulation,
   createProjectionBase,
   firstInsolventMonth,
+  PRIMARY_PERSON_ID,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -63,6 +64,42 @@ export function App() {
     () => summarizeSimulation(simInput, series, { plan: budget, jurisdictionId: usJurisdiction.id }),
     [simInput, series, budget],
   );
+
+  /**
+   * A one-month income change from the Base + Adjustments income row (§18/§20): a
+   * discrete bonus (positive) or missed paycheck (negative) for the delta, posted to the
+   * ledger as a single-month series that starts at `month` and ends the next month. A
+   * bonus is one-month income; a shortfall is a one-month expense (income series are
+   * non-negative). Both halves ride the ledger the whole app already replays.
+   */
+  function recordIncomeTransaction(month: number, deltaCents: number): void {
+    const seriesId = `income-adj-${month}-${ledger.nextSequenceNumber}`;
+    recordEvent(
+      deltaCents >= 0
+        ? {
+            id: seriesId,
+            type: "BudgetItemStartEvent",
+            month,
+            seriesId,
+            ownerId: PRIMARY_PERSON_ID,
+            seriesType: "income",
+            monthlyCents: deltaCents,
+            growthMode: { type: "fixed" },
+            taxCategory: "wages",
+          }
+        : {
+            id: seriesId,
+            type: "BudgetItemStartEvent",
+            month,
+            seriesId,
+            ownerId: PRIMARY_PERSON_ID,
+            seriesType: "expense",
+            monthlyCents: -deltaCents,
+            growthMode: { type: "fixed" },
+          },
+    );
+    recordEvent({ id: `${seriesId}-end`, type: "BudgetItemEndEvent", month: month + 1, seriesId });
+  }
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
@@ -165,7 +202,11 @@ export function App() {
       </div>
 
       <div className="card">
-        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} />
+        <BaseAdjustmentsPanel
+          plan={budget}
+          setBudget={setBudget}
+          onIncomeTransaction={recordIncomeTransaction}
+        />
       </div>
 
       <div className="card">
