@@ -40,7 +40,7 @@ describe("DebugPanel — resolved growth rates", () => {
     // Named from the series itself (each job's income series is labelled by its job id),
     // not numbered positionally; the amount is not repeated here — it already appears
     // under Monthly cash flow.
-    expect(html).toContain("<dt>Income · career</dt><dd>3%</dd>");
+    expect(html).toContain("<dt>Income · job-1</dt><dd>3%</dd>");
   });
 
   it("names each expense line separately, and does not mistake an amount step for a rate change", () => {

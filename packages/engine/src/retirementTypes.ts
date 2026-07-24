@@ -48,9 +48,9 @@ export interface RetirementEvaluation {
  *  - **`partialRetirementAge`** — the earliest age every **open-ended** (`null`-end) job
  *    can end while the authored **fixed-term** jobs + passive income + government benefit keep running.
  *    This is the subjective "stepped back" milestone; the on-track % pairs with it.
- *  - **`fullRetirementAge`** — the earliest age **ALL** jobs (career + supplemental) can
+ *  - **`fullRetirementAge`** — the earliest age **ALL** jobs (open-ended + fixed-term) can
  *    cease and the plan still survive on passive income + government benefit + assets alone. Always
- *    ≥ `partialRetirementAge`: dropping the supplemental income can only make survival harder.
+ *    ≥ `partialRetirementAge`: dropping the still-running income can only make survival harder.
  *  - **`latestAuthoredWorkStopAge`** — the derived `max(job endYears)` as an age: the latest
  *    any authored job is scheduled to stop. `null` for a scalar (jobs-less) plan.
  *

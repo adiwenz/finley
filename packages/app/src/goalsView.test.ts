@@ -23,10 +23,10 @@ import type { Plan, GoalPlan } from "@finley/engine";
 
 const baseBudget: Plan = {
   name: "Alex",
-  // Income is a single real-flat career job — $5,000/mo, the surplus source below.
+  // Income is a single real-flat job — $5,000/mo, the surplus source below.
   jobs: [
     {
-      id: "career",
+      id: "job-1",
       ownerId: "p1",
       startYear: START_YEAR - 35 + 18,
       endYear: null,

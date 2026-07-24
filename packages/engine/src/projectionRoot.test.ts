@@ -23,7 +23,7 @@ const P1 = "p1" as PersonId;
 
 function freshProjection(): Projection {
   // Start from an empty job list so the ids these tests mint (and the roster lengths
-  // they assert) reflect only the jobs added under test, not the fixture's career job.
+  // they assert) reflect only the jobs added under test, not the fixture's job.
   return Projection.create({ plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR });
 }
 

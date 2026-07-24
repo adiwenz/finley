@@ -181,9 +181,9 @@ export function earliestPartialRetirementAge(scenario: Scenario, ctx: Projection
 /**
  * The plan's jobs with every job's end capped at `age` (§5 full retirement): each job
  * stops no later than the calendar year the owner turns `age` — the age they become
- * work-optional. A `null`-end (open-ended, career) job is resolved to `age` itself (in
- * this mode the candidate age *is* the career-exit target — see {@link
- * projectFullRetirement}, which pins `retirementAge: age`), so working the career longer
+ * work-optional. A `null`-end (open-ended) job is resolved to `age` itself (in
+ * this mode the candidate age *is* the work-exit target — see {@link
+ * projectFullRetirement}, which pins `retirementAge: age`), so working longer
  * genuinely earns more before the full stop. A fixed-term job that already ends before
  * `age` keeps its earlier end; nothing is extended past its authored stop. The result
  * has only explicit ends. Empty for a jobs-less plan.
@@ -239,10 +239,10 @@ export function evaluateFullRetirementAtAge(
 }
 
 /**
- * §5 **full retirement** solver output: the earliest age at which ALL jobs (career +
- * supplemental) can cease and the plan still survive to life expectancy on passive
+ * §5 **full retirement** solver output: the earliest age at which ALL jobs (open-ended +
+ * fixed-term) can cease and the plan still survive to life expectancy on passive
  * income + government benefit + assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping
- * the supplemental income can only make survival harder. Null when no age survives.
+ * the still-running income can only make survival harder. Null when no age survives.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);

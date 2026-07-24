@@ -94,7 +94,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
     // disposition difference is masked. Give the plan a bit more income so a feasible
     // age exists BELOW that floor and the phantom-fund effect is visible again — the
     // point under test is the disposition delta, not the absolute age.
-    const higherIncome: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(7000));
+    const higherIncome: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
     // With the fund correctly swapped to illiquid equity at maturity, the earliest
     // feasible (partial retirement) age is 62. (Absolute ages here track
     // PLAN_DEFAULTS; they moved when the default savings return dropped to a
@@ -261,7 +261,7 @@ describe("retirementView — the timeline events count toward retirement (issue 
     // Social-Security floor (67), where an added expense flips it infeasible rather
     // than merely later. Use a plan with headroom below the floor so "the age moves
     // strictly LATER" is the observable — the coupling under test, not the constant.
-    const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(7000));
+    const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
     // Attach an $800/mo childcare expense from now, the way the app's AddEventForm would.
     const base = createProjectionBase(plan, CTX);
     const added = addEvent(

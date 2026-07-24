@@ -24,7 +24,7 @@ function project(plan: Plan) {
   return replayLedger(emptyLedger, createProjectionBase(plan, ctx()), nullJurisdiction);
 }
 
-/** The sample plan's single open-ended career job (real-flat salary, deferral on it). */
+/** The sample plan's single open-ended job (real-flat salary, deferral on it). */
 const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
 
 describe("Job/Person standing model — additive compilation (issue #64)", () => {

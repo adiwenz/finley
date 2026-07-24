@@ -131,11 +131,11 @@ export interface Plan {
    * First-class {@link Job} standing model (§1–§8, issue #64) — the **source of
    * truth for earned income** since the #72 hinge deleted the scalar `incomeCents` /
    * `careerStartAge` path. `createProjectionBase` compiles these jobs into the base
-   * income series (the primary member's open-ended "career" job ends at
+   * income series (the primary member's open-ended jobs end at
    * {@link retirementAge}; fixed-term jobs carry their own end). A person's covered
    * SS earnings, including the pre-"now" record (§4.6), are derived directly from the
-   * jobs' spans and salaries — so when a career began is now the earliest job's
-   * `startYear`, not a separate scalar field.
+   * jobs' spans and salaries — so when a person started working is now the earliest
+   * job's `startYear`, not a separate scalar field.
    */
   readonly jobs: readonly Job[];
   /**

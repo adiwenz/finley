@@ -113,7 +113,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
   // A pay change lands on the job's `payChanges`, not its starting salary — so the job
   // headline stays $5,000/mo while the change is what actually moves pay. (§72 bug: the
   // panel used to show only the starting figure, hiding the change entirely.)
-  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "career", { month: 12, kind: "setTo", cents: 0 });
+  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
     render(<Harness initial={withSetToZero} />);
@@ -139,7 +139,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
   });
 
   it("describes a delta cut with the right verb and sign", () => {
-    const cut = addJobPayChange(PLAN_DEFAULTS, "career", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
+    const cut = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
     render(<Harness initial={cut} />);
     expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
   });
@@ -148,7 +148,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
 describe("JobsPanel — 401(k) elective-limit nudge (§5.4)", () => {
   it("discloses that a deferral over the annual limit is paid as taxable income", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
-    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "career", 0.5)} />);
+    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
     // The row also surfaces the elected rate.
     expect(within(screen.getByLabelText("Job 1")).getByText(/50% to 401\(k\)/i)).toBeTruthy();
