@@ -28,13 +28,13 @@ describe("RetirementPanel", () => {
   });
 
   it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction (#78)", () => {
-    // The default plan pinned at 65 is infeasible (feasible floor 73) but its
+    // The default plan pinned at 65 is infeasible (feasible floor 75) but its
     // convertToEquity home goal keeps net worth positive throughout — the shape that used
-    // to print the self-contradicting "100% of the way there — nearest feasible age 73".
+    // to print the self-contradicting "100% of the way there — nearest feasible age 75".
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");
     expect(html).toContain("of the way there");
-    expect(html).toContain("the nearest feasible age is 73");
+    expect(html).toContain("the nearest feasible age is 75");
     expect(html).not.toContain("100% of the way there");
   });
 

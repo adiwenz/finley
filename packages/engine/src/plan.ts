@@ -20,6 +20,25 @@ export interface ValueOverride {
 }
 
 /**
+ * The kind of account a goal's fund is held in — the thing a person actually knows
+ * ("my emergency fund is in savings"). It is the source of truth from which the
+ * projection derives the fund account's {@link import("./simAccount").SimAccountTaxProfile}
+ * and its liquidity, rather than hard-coding every goal to a capital-gains investment
+ * (issue #101). Whole-account-type list, so the four standing vehicles are all
+ * expressible:
+ *  - `"cash"`      — a cash/savings buffer: tax-free withdrawal (interest taxed at
+ *                    accrual), and liquid, because a cash reserve's whole purpose is
+ *                    to be reachable;
+ *  - `"brokerage"` — a taxable investment: post-tax in, capital-gains out, and liquid
+ *                    (a taxable brokerage is sellable on demand);
+ *  - `"taxExempt"` — a Roth-like vehicle: post-tax in, tax-free out, growth untaxed,
+ *                    illiquid (locked up by age/penalty rules);
+ *  - `"preTax"`    — a tax-deferred retirement account: pre-tax in, ordinary-income
+ *                    out, illiquid.
+ */
+export type GoalAccountType = "cash" | "brokerage" | "taxExempt" | "preTax";
+
+/**
  * A funding goal. Priority is the goal's position in {@link Plan.goals}
  * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
  * accumulates into its own derived fund account (`goal-<id>`).
@@ -34,6 +53,12 @@ interface GoalPlanBase {
    * a high-return, market-risk account).
    */
   readonly annualReturnPct: number;
+  /**
+   * The {@link GoalAccountType} the fund is held in — the fund account's tax profile
+   * and liquidity derive from it (issue #101). Optional: a goal that never declared a
+   * type keeps the `"brokerage"` default (capital-gains, liquid).
+   */
+  readonly accountType?: GoalAccountType;
 }
 
 /**

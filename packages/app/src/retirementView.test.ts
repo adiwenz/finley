@@ -96,10 +96,10 @@ describe("retirementView — headline age driven off the real projection (#37)",
     // point under test is the disposition delta, not the absolute age.
     const higherIncome: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
     // With the fund correctly swapped to illiquid equity at maturity, the earliest
-    // feasible (partial retirement) age is 62. (Absolute ages here track
-    // PLAN_DEFAULTS; they moved when the default savings return dropped to a
-    // cash-realistic 1%. The DELTA below is what this test is actually about.)
-    expect(solveRetirement(scenarioOf(higherIncome), CTX).partialRetirementAge).toBe(62);
+    // feasible (partial retirement) age is 64. (Absolute ages here track
+    // PLAN_DEFAULTS; they moved again when the default emergency fund became a
+    // cash-realistic 1% cash account (issue #101). The DELTA below is the point.)
+    expect(solveRetirement(scenarioOf(higherIncome), CTX).partialRetirementAge).toBe(64);
 
     // Counterfactual: had the same fund been `drawDown` (drawable — the pre-#28
     // behavior where a matured one-time fund kept compounding in the portfolio), the
@@ -113,16 +113,16 @@ describe("retirementView — headline age driven off the real projection (#37)",
     };
     const phantomAge = solveRetirement(scenarioOf(asDrawableFund), CTX).partialRetirementAge;
     expect(phantomAge).not.toBeNull();
-    expect(phantomAge as number).toBeLessThan(62);
+    expect(phantomAge as number).toBeLessThan(64);
   });
 });
 
 describe("retirementView — target mode against the pinned age (§7.1)", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
-    // Real single-filer federal tax (#53) plus a cash-realistic 1% savings return lift
-    // the default plan's feasible floor to 73, so pin the target there — at/above the
-    // floor — to exercise the "pinned age survives → 100%" branch.
-    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 73 };
+    // Real single-filer federal tax (#53) plus a cash-realistic 1% emergency-fund return
+    // (issue #101) lift the default plan's feasible floor to 75, so pin the target there —
+    // at/above the floor — to exercise the "pinned age survives → 100%" branch.
+    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 75 };
     const view = viewOf(pinnedAtFloor);
     expect(view.target.feasible).toBe(true);
     expect(view.target.nearestFeasibleAge).toBe(pinnedAtFloor.retirementAge);
@@ -150,7 +150,7 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
   });
 
   // #78: the default plan pinned at its authored age 65 is INFEASIBLE (feasible floor is
-  // 73) yet holds a `convertToEquity` home goal that keeps net worth positive throughout —
+  // 75) yet holds a `convertToEquity` home goal that keeps net worth positive throughout —
   // exactly the shape that pinned the metric to a contradictory "100% of the way there".
   // The panel must never render 100% for an infeasible plan, and the % is rounded DOWN to
   // one decimal so a barely-short plan can't round UP to a reassuring 100.
@@ -285,11 +285,11 @@ describe("retirementView — the timeline events count toward retirement (issue 
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
-    // The bare-plan baseline retires at 62; the scenario carrying the childcare expense
+    // The bare-plan baseline retires at 64; the scenario carrying the childcare expense
     // must retire strictly later. If the panel still projected an empty ledger, the two
     // would be equal — this is the regression guard for that.
-    expect(baselineAge).toBe(62);
-    expect(withChildAge as number).toBeGreaterThan(62);
+    expect(baselineAge).toBe(64);
+    expect(withChildAge as number).toBeGreaterThan(64);
   });
 });
 
