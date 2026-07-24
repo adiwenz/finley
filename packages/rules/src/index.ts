@@ -8,7 +8,7 @@ import {
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
-import { computeFederalTaxCents } from "./federalTax";
+import { computeFederalTaxCents, FEDERAL_TAX_ASSUMPTIONS } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 
 export {
@@ -38,6 +38,7 @@ export {
   computeFederalTaxCents,
   taxableSocialSecurityCents,
   FEDERAL_TAX_BASE_YEAR,
+  FEDERAL_TAX_ASSUMPTIONS,
   type FederalTaxTables,
   type OrdinaryBracket,
 } from "./federalTax";
@@ -72,4 +73,5 @@ export const usJurisdiction: Jurisdiction = {
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
   healthCostBenchmarkMonthlyCents,
+  modelAssumptions: FEDERAL_TAX_ASSUMPTIONS,
 };

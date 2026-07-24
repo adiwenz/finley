@@ -56,28 +56,19 @@ export type GoalPlan = GoalPlanBase & GoalDisposal;
  */
 export interface Plan {
   readonly name: string;
-  readonly incomeCents: number;
   readonly expenseCents: number;
   readonly expenseOverrides: readonly ValueOverride[];
   readonly openingBalanceCents: number;
   /**
    * Per-account annual return, as whole-number percents. Each standing account
-   * carries its own rate so, e.g., the swept brokerage can out-earn idle savings
-   * (which is what makes the surplus-destination choice move net worth, not just
-   * shuffle balances). Goal fund accounts carry their own rate on {@link GoalPlan}.
+   * carries its own rate so, e.g., a brokerage can out-earn idle savings. Goal
+   * fund accounts carry their own rate on {@link GoalPlan}.
    */
   readonly savingsReturnPct: number;
   readonly retirementReturnPct: number;
   readonly brokerageReturnPct: number;
-  /**
-   * Fraction of income deferred pre-tax into the retirement account, as a
-   * whole-number percent. 0 = no plan (income is fully post-tax).
-   */
-  readonly retirementDeferralPct: number;
   /** How shared obligations are split between partners. */
   readonly sharedScheme: SharedContributionScheme;
-  /** True sweeps leftover cash to a brokerage; false idles it. */
-  readonly surplusSwept: boolean;
   /** Funding goals in priority order (array index = priority). */
   readonly goals: readonly GoalPlan[];
   /**
@@ -122,17 +113,6 @@ export interface Plan {
   readonly inflationPct: number;
   /** Age at "now" — the base the retirement solver counts years from. */
   readonly currentAge: number;
-  /**
-   * Age the person's covered-earnings career is assumed to have begun —
-   * the first year seeded into the pre-"now" earnings record (§4.6). User-set
-   * rather than a fixed 18, because when the career started drives how many years
-   * of the benefit formula's earnings window are filled (§5.4; US AIME: a fixed
-   * 35-year window): someone who started at 25 has four fewer covered years than
-   * someone who started at 18, which lowers the priced benefit. Expected to satisfy
-   * `careerStartAge ≤ currentAge`; when equal
-   * there are no pre-"now" years to seed.
-   */
-  readonly careerStartAge: number;
   /** The pinned/desired retirement age; target mode reports on-track % against it. */
   readonly retirementAge: number;
   /** Age the portfolio must last to — the retirement survival horizon. */
@@ -148,26 +128,25 @@ export interface Plan {
    */
   readonly benefitColaRate?: number;
   /**
-   * First-class {@link Job} standing model (§1–§8, issue #64), added **additively**
-   * alongside the scalar {@link incomeCents} / {@link careerStartAge} path. When
-   * present and non-empty, `createProjectionBase` compiles these jobs into the base
-   * income series instead of the scalar income; when absent or empty, the scalar
-   * path is used. Optional so no existing `Plan` literal needs editing. The scalar
-   * fields are removed only in #72.
+   * First-class {@link Job} standing model (§1–§8, issue #64) — the **source of
+   * truth for earned income** since the #72 hinge deleted the scalar `incomeCents` /
+   * `careerStartAge` path. `createProjectionBase` compiles these jobs into the base
+   * income series (the primary member's open-ended "career" job ends at
+   * {@link retirementAge}; fixed-term jobs carry their own end). A person's covered
+   * SS earnings, including the pre-"now" record (§4.6), are derived directly from the
+   * jobs' spans and salaries — so when a career began is now the earliest job's
+   * `startYear`, not a separate scalar field.
    */
-  readonly jobs?: readonly Job[];
+  readonly jobs: readonly Job[];
   /**
    * First-class line-item {@link BudgetLine} budget (§12, §15, §18, §19, issue #67,
-   * slice 4), added **additively** alongside the scalar {@link expenseCents} /
-   * {@link retirementDeferralPct} / {@link surplusSwept} path. A prioritized list of
-   * dollar line items — expenses and account contributions — each with a
-   * `{ literal, fill-to-limit, goal-paced }` amount source and optional spans + dated
-   * overrides. When present and non-empty, `createProjectionBase` compiles the
-   * *expense* lines into the base expense series instead of the scalar
-   * {@link expenseCents}; contribution lines resolve via {@link
-   * import("./budgetLine").resolveBudget} pending the #72 waterfall rewire. Optional
-   * so no existing `Plan` literal needs editing. The scalar fields are removed only
-   * in #72.
+   * slice 4): a prioritized list of dollar line items — expenses and account
+   * contributions — each with a `{ literal, fill-to-limit, goal-paced }` amount
+   * source and optional spans + dated overrides. When present and non-empty,
+   * `createProjectionBase` compiles the *expense* lines into the base expense series
+   * in place of the scalar {@link expenseCents}; contribution lines resolve via
+   * {@link import("./budgetLine").resolveBudget}. Optional: an engine-native fixture
+   * may still author spending through the scalar {@link expenseCents} series.
    */
   readonly budgetLines?: readonly BudgetLine[];
 }

@@ -17,22 +17,57 @@
 import type { Plan } from "../plan";
 import type { Job } from "../job";
 import { dollarsToCents } from "../cashFlowSeries";
+import { RETIREMENT_ID } from "../projectionBase";
 
 /** Calendar year the sample-plan solver tests freeze "now" at (mirrors the app's START_YEAR). */
 export const SAMPLE_START_YEAR = 2026;
 
+const SAMPLE_CURRENT_AGE = 40;
+const SAMPLE_START_AGE = 18;
+
+/**
+ * A single open-ended, flat-salary {@link Job} that reproduces the old scalar income
+ * lever exactly: a real-flat salary (`realGrowthPct: 0` → grows at CPI nominally, holding
+ * constant in real terms) anchored in the past so it pays from "now", ending at the
+ * owner's `retirementTargetAge`. `startAge` sets the job's `startYear` (which seeds the
+ * pre-"now" covered-earnings record, §4.6), and an optional deferral rides on the job
+ * (§11). This is the fixture equivalent of the deleted `incomeCents` / `careerStartAge` /
+ * `retirementDeferralPct` scalar fields — but it is just one job, in no way privileged;
+ * a fixture can hold several (see {@link baristaPlan}).
+ */
+export function salariedJob(
+  monthlyIncomeCents: number,
+  opts?: {
+    currentAge?: number;
+    startAge?: number;
+    deferralFraction?: number;
+  },
+): Job {
+  const currentAge = opts?.currentAge ?? SAMPLE_CURRENT_AGE;
+  const startAge = opts?.startAge ?? SAMPLE_START_AGE;
+  const birthYear = SAMPLE_START_YEAR - currentAge;
+  const deferralFraction = opts?.deferralFraction ?? 0;
+  return {
+    id: "job-main",
+    ownerId: "p1",
+    startYear: birthYear + startAge,
+    endYear: null,
+    salary: { startingSalaryCents: monthlyIncomeCents * 12, realGrowthPct: 0 },
+    ...(deferralFraction > 0
+      ? { deferral: { deferralFraction, fundAccountId: RETIREMENT_ID } }
+      : {}),
+  };
+}
+
 export const samplePlan = {
   name: "Sample",
-  incomeCents: dollarsToCents(8000),
   expenseCents: dollarsToCents(4000),
   expenseOverrides: [],
   openingBalanceCents: dollarsToCents(20000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,
   brokerageReturnPct: 6,
-  retirementDeferralPct: 10,
   sharedScheme: "proportional",
-  surplusSwept: true,
   goals: [
     {
       id: "emergency",
@@ -48,11 +83,11 @@ export const samplePlan = {
   enrollsInPublicHealthCoverage: true,
   healthInflationPct: 3,
   inflationPct: 3,
-  currentAge: 40,
-  careerStartAge: 18,
+  currentAge: SAMPLE_CURRENT_AGE,
   retirementAge: 60,
   lifeExpectancy: 85,
   benefitClaimingAge: 67,
+  jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 })],
 } satisfies Plan;
 
 const BARISTA_CURRENT_AGE = 45;
@@ -85,16 +120,13 @@ const baristaSupplementalJob: Job = {
 
 export const baristaPlan = {
   name: "Barista",
-  incomeCents: 0, // income comes from jobs, not the scalar lever
   expenseCents: dollarsToCents(5500),
   expenseOverrides: [],
   openingBalanceCents: dollarsToCents(200000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,
   brokerageReturnPct: 6,
-  retirementDeferralPct: 0,
   sharedScheme: "proportional",
-  surplusSwept: true,
   goals: [],
   healthMonthlyCents: dollarsToCents(600),
   postCoverageHealthMonthlyCents: dollarsToCents(400),
@@ -102,7 +134,6 @@ export const baristaPlan = {
   healthInflationPct: 3,
   inflationPct: 3,
   currentAge: BARISTA_CURRENT_AGE,
-  careerStartAge: 25,
   retirementAge: 60,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,

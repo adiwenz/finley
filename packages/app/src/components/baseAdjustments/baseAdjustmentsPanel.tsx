@@ -24,7 +24,14 @@
  * app — net worth, the retirement solver, everything. A non-empty `budgetLines`
  * replaces the scalar `expenseCents` series outright (`projectionBase.ts`), which is
  * why the old scalar monthly-expenses control is gone: one budget, one place to edit
- * it. Income is still the scalar lever until the #72 hinge moves it onto jobs.
+ * it.
+ *
+ * Earned income is NOT edited here. Standing pay lives on the person's jobs, authored in
+ * the Jobs panel (§6, issue #72); this panel only *displays* the compiled income total at
+ * the selected month (read-only). The one exception is a **one-off, single-month** change
+ * — a bonus, a missed paycheck, a corrected month — which writes a per-job
+ * {@link import("@finley/engine").JobIncomeOverride} taxed as wages, so it belongs with the
+ * month-selection UI here rather than in the standing Jobs panel.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -40,10 +47,23 @@ import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
-import { quickstartFromIncome, toBudgetLines } from "./budgetTemplate";
+import { redistributeToTiers } from "./budgetTemplate";
+import { BudgetLineForm } from "./budgetLineForm";
+import { PayChangeEditor } from "./payChangeEditor";
+import {
+  addLineFromDraft,
+  blankLineDraft,
+  contributionLinesOf,
+  contributionTargets,
+  expenseLinesOf,
+  lineToDraft,
+  removeLine,
+  updateLineFromDraft,
+  type BudgetLineDraft,
+} from "./budgetLines";
+import { addIncomeOverride, addJobPayChange, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
 import {
   applyLineOverride,
-  inflateFromTo,
   resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
@@ -127,10 +147,6 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const [pending, setPending] = useState<PendingEdit | null>(null);
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
-  /** Standing income overrides, kept locally until #72 rewires income onto jobs. */
-  const [incomeOverrides, setIncomeOverrides] = useState<
-    ReadonlyArray<{ month: number; monthlyCents: number }>
-  >([]);
 
   // Project the plan (whose budgetLines these are) once: the chart reads the per-line
   // amounts off it, and the income row reads the income it actually pays each month.
@@ -151,31 +167,59 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const chartData = projected.chartData;
 
   // ── What the budget resolves to at the selected point ──
+  // Only EXPENSE lines get month-resolved amounts (the inline stage/commit override
+  // flow). Contribution lines are a separate concern (a flat literal into an account),
+  // listed in their own subsection below.
+  const expenseLines = useMemo(() => expenseLinesOf(lines), [lines]);
+  const contributionLines = useMemo(() => contributionLinesOf(lines), [lines]);
   const rows = useMemo(
-    () => resolveRowsAtMonth(lines, selectedMonth, editCtx.annualInflationRate),
-    [lines, selectedMonth, editCtx],
+    () => resolveRowsAtMonth(expenseLines, selectedMonth, editCtx.annualInflationRate),
+    [expenseLines, selectedMonth, editCtx],
   );
 
+  // Add / edit / delete of budget lines (structural — distinct from the inline amount
+  // override above). One disclosed form at a time, like the Jobs and Goals panels.
+  const [lineAuthoring, setLineAuthoring] = useState<
+    { kind: "edit"; id: string } | { kind: "new" } | null
+  >(null);
+
+  function addLine(draft: BudgetLineDraft): void {
+    setLines((prev) => addLineFromDraft(prev, draft));
+    setLineAuthoring(null);
+  }
+  function editLine(id: string, draft: BudgetLineDraft): void {
+    setLines((prev) => updateLineFromDraft(prev, id, draft));
+    setLineAuthoring(null);
+  }
+  function deleteLine(id: string): void {
+    setLines((prev) => removeLine(prev, id));
+    if (lineAuthoring?.kind === "edit" && lineAuthoring.id === id) setLineAuthoring(null);
+  }
+
   /**
-   * Income at the selected month, read off the projection rather than synthesized. A
-   * row that just grew `plan.incomeCents` with inflation described a household that
-   * works forever: it kept compounding a salary through retirement instead of stopping
-   * at the last paycheck and picking the government benefit up at the claiming age.
-   *
-   * A local income override still wins where one applies — it is stored in anchor
-   * dollars, so it is re-inflated to this month the same way a spend line is. Those
-   * overrides do not reach the projection until #72 moves income onto jobs, so the
-   * graph will not move for them yet.
+   * The month whose income the row and the one-off control act on. Month 0 is the
+   * projection's flow-free opening snapshot (`simulate.ts` accrues flows only for
+   * `month > 0`, so "now" is not redefined as an earning month — GH #34), so income
+   * reads $0 there even while the jobs pay full salaries. Reading month 0 verbatim showed
+   * the row at $0; the income chart already skips that month ({@link buildIncomeChartData}),
+   * so the row does too by acting on month 1 when the opening month is selected.
    */
-  const incomeAtMonth = useMemo(() => {
-    const applicable = incomeOverrides
-      .filter((o) => o.month <= selectedMonth)
-      .sort((a, b) => b.month - a.month)[0];
-    if (applicable !== undefined) {
-      return inflateFromTo(applicable.monthlyCents, applicable.month, selectedMonth, editCtx);
-    }
-    return projected.incomeByMonth[selectedMonth] ?? 0;
-  }, [incomeOverrides, selectedMonth, editCtx, projected]);
+  const incomeMonth = Math.max(1, selectedMonth);
+
+  /**
+   * Income the projection actually pays that month, summed across every job (§6), plus
+   * any government benefit once earnings stop. Standing income is authored in the Jobs
+   * panel — this row only *displays* the compiled total, so multiple jobs (any of them
+   * open-ended) are reflected here without the row having to pick "the" income. The
+   * figure also shows income stopping at retirement and the benefit picking up at the
+   * claiming age, rather than a salary compounding forever.
+   */
+  const incomeAtMonth = projected.incomeByMonth[incomeMonth] ?? 0;
+
+  // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
+  // The form and its transient state live in {@link PayChangeEditor}; the panel keeps
+  // only plan mutation, so the child never touches `Plan` or `setBudget`.
+  const jobs = primaryJobs(plan);
 
   /**
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
@@ -196,21 +240,19 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
     setPending({ row, label, priorAmountCents: priorCents, newAmountCents });
   }
 
-  /** Answer the how-long question — the one gesture that commits a change (§20). */
+  /**
+   * Answer the how-long question — the one gesture that commits a spending change (§20).
+   * Only budget *lines* are edited in place here now; earned income is authored in the
+   * Jobs panel (standing) or via the one-off control above (single month), so a staged
+   * edit is always a line override.
+   */
   function commit(scope: EditScope): void {
     if (pending === null) return;
     const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
     setLastRoute({ route, label: pending.label });
     if (route.kind === "lineOverride") {
       setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);
-    } else if (route.kind === "incomeOverride") {
-      setIncomeOverrides((prev) => [
-        ...prev.filter((o) => o.month !== route.month),
-        { month: route.month, monthlyCents: route.monthlyCents },
-      ]);
     }
-    // A ledgerTransaction is a discrete cash event the app's ledger owns; the panel
-    // reports where it routed and leaves the standing budget alone (rewired in #72).
     setPending(null);
   }
 
@@ -218,7 +260,8 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
   function applyQuickstart(): void {
-    setLines(() => toBudgetLines(quickstartFromIncome(plan.incomeCents, retirementMonth)));
+    // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
+    setLines((prev) => redistributeToTiers(prev, totalMonthlyIncomeCents(plan), retirementMonth));
     setPending(null);
   }
 
@@ -277,38 +320,76 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
         <h4 className={styles.groupHeading}>Income</h4>
         <div className={styles.lineRow}>
           <span className={styles.lineLabel}>Income</span>
-          <NumInput
-            label="Income"
-            value={Math.round(displayedCents({ kind: "income" }, incomeAtMonth, pending) / 100)}
-            onChange={(v) => stageEdit({ kind: "income" }, "Income", incomeAtMonth, v)}
-            prefix="$"
-            step={100}
-          />
+          <span className={styles.readonlyValue} data-testid="income-readonly">
+            {formatDollars(incomeAtMonth)}/mo
+          </span>
         </div>
+        <p className="hint">
+          Income comes from your jobs — edit your standing pay in “Jobs &amp; income”
+          below. This shows the total your jobs pay at the selected month.
+        </p>
+
+        {/* Pay change against the selected month: one-month perturbations (a bonus, a
+            corrected month, or $0 for a missed paycheck — a per-job {@link JobIncomeOverride})
+            and PERMANENT changes from this month forward (a {@link JobPayChange}). All taxed
+            as wages through the job's series (§6/§10.3/§20). The form owns its own transient
+            state; the panel keeps only plan mutation. */}
+        <PayChangeEditor
+          jobs={jobs}
+          incomeMonth={incomeMonth}
+          onApplyOverride={(jobId, override) => setBudget((p) => addIncomeOverride(p, jobId, override))}
+          onApplyPayChange={(jobId, payChange) => setBudget((p) => addJobPayChange(p, jobId, payChange))}
+        />
 
         <h4 className={styles.groupHeading}>Spending</h4>
         {rows.map((row) => (
-          <div key={row.lineId} className={styles.lineRow}>
-            <span className={styles.lineLabel}>
-              {row.label} <span className={styles.tier}>{row.category}</span>
-              {row.overridden && (
-                <span className={styles.adjusted} title="Adjusted at or before this month">
-                  adjusted
-                </span>
-              )}
-            </span>
-            <NumInput
-              label={row.label}
-              value={Math.round(
-                displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
-                  100,
-              )}
-              onChange={(v) =>
-                stageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
-              }
-              prefix="$"
-              step={50}
-            />
+          <div key={row.lineId}>
+            <div className={styles.lineRow}>
+              <span className={styles.lineLabel}>
+                {row.label} <span className={styles.tier}>{row.category}</span>
+                {row.overridden && (
+                  <span className={styles.adjusted} title="Adjusted at or before this month">
+                    adjusted
+                  </span>
+                )}
+              </span>
+              <NumInput
+                label={row.label}
+                value={Math.round(
+                  displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
+                    100,
+                )}
+                onChange={(v) =>
+                  stageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
+                }
+                prefix="$"
+                step={50}
+              />
+              <span className={styles.rowActions}>
+                <button
+                  type="button"
+                  aria-label={`Edit ${row.label}`}
+                  onClick={() =>
+                    setLineAuthoring((a) =>
+                      a?.kind === "edit" && a.id === row.lineId ? null : { kind: "edit", id: row.lineId },
+                    )
+                  }
+                >
+                  Edit
+                </button>
+                <button type="button" aria-label={`Delete ${row.label}`} onClick={() => deleteLine(row.lineId)}>
+                  Delete
+                </button>
+              </span>
+            </div>
+            {lineAuthoring?.kind === "edit" && lineAuthoring.id === row.lineId && (
+              <BudgetLineForm
+                initial={lineToDraft(lines.find((l) => l.id === row.lineId)!)}
+                submitLabel="Save"
+                onSubmit={(draft) => editLine(row.lineId, draft)}
+                onCancel={() => setLineAuthoring(null)}
+              />
+            )}
           </div>
         ))}
 
@@ -336,6 +417,77 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
           <p className={styles.routeEcho} data-testid="adjustment-route">
             {describeRoute(lastRoute.route, lastRoute.label)}
           </p>
+        )}
+
+        {/* ── Savings & contributions: money paid into an account each month (§12).
+            Unlike spending, these accumulate in net worth — funded by the sim. ── */}
+        <h4 className={styles.groupHeading}>Savings &amp; contributions</h4>
+        {contributionLines.length === 0 ? (
+          <p className="hint">
+            No recurring contributions yet. Add one to pay into a brokerage or savings
+            account each month — it accumulates in your net worth.
+          </p>
+        ) : (
+          contributionLines.map((line) => {
+            const monthly = line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
+            const accountId = line.target.kind === "account" ? line.target.accountId : "";
+            const dest = contributionTargets.find((t) => t.accountId === accountId)?.label ?? accountId;
+            return (
+              <div key={line.id}>
+                <div className={styles.lineRow}>
+                  <span className={styles.lineLabel}>
+                    {line.label} <span className={styles.target}>→ {dest}</span>
+                  </span>
+                  <span className={styles.readonlyValue}>{formatDollars(monthly)}/mo</span>
+                  <span className={styles.rowActions}>
+                    <button
+                      type="button"
+                      aria-label={`Edit ${line.label}`}
+                      onClick={() =>
+                        setLineAuthoring((a) =>
+                          a?.kind === "edit" && a.id === line.id ? null : { kind: "edit", id: line.id },
+                        )
+                      }
+                    >
+                      Edit
+                    </button>
+                    <button type="button" aria-label={`Delete ${line.label}`} onClick={() => deleteLine(line.id)}>
+                      Delete
+                    </button>
+                  </span>
+                </div>
+                {lineAuthoring?.kind === "edit" && lineAuthoring.id === line.id && (
+                  <BudgetLineForm
+                    initial={lineToDraft(line)}
+                    submitLabel="Save"
+                    onSubmit={(draft) => editLine(line.id, draft)}
+                    onCancel={() => setLineAuthoring(null)}
+                  />
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {/* ── Add a new budget item (expense or contribution) ── */}
+        {lineAuthoring?.kind === "new" ? (
+          <BudgetLineForm
+            initial={blankLineDraft("expense")}
+            submitLabel="Add"
+            onSubmit={addLine}
+            onCancel={() => setLineAuthoring(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              setPending(null);
+              setLineAuthoring({ kind: "new" });
+            }}
+          >
+            + Add a budget item
+          </button>
         )}
       </div>
     </section>

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { computeGoalProgress, isEarmarkedForDisposition, type SimGoal, type GoalDisposal } from "./goal";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
-import { simulateHousehold, type SimPerson } from "./projection/simulate";
+import { simulateHousehold } from "./projection/simulate";
+import type { SimPerson } from "./projection/simulate.types";
 import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 

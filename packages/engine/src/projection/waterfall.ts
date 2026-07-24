@@ -86,6 +86,16 @@ export interface WaterfallInput {
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
   /**
+   * Standing account-contribution budget lines resolved for this month (§12/§15) —
+   * "put $X into this account", already in waterfall priority order and post-tax. A
+   * COMMITTED outflow: the full amount always lands in the account (funded from the
+   * discretionary pool after dated goal paces, before `asap` goals), and the part the pool
+   * cannot cover is borrowed — a shortfall that the §5.1 cascade meets from savings then
+   * credit, so an unaffordable contribution makes the plan unfinanceable like unaffordable
+   * spending (it is NOT silently shrunk to fit). Absent → none.
+   */
+  readonly contributions?: readonly { readonly accountId: string; readonly monthlyCents: Cents }[];
+  /**
    * The absolute month being allocated (0 = "now"). Sets each dated goal's
    * `monthsRemaining = targetDate − nowMonth` for the #26 sinking-fund pace. Absent
    * → 0.
@@ -299,17 +309,23 @@ function splitSharedObligation(
  * all goals amortize concurrently to their own deadlines and the order is a no-op;
  * only when the paces exceed the month's cash does priority decide who falls behind.
  *
- * `asap` goals have no deadline, hence no pace, so they fund fill-order from whatever
- * remains AFTER every dated pace (a second pass), in priority order. The exact
- * leftover after all of that lands in the surplus destination — the balancing figure,
- * so every discretionary cent is conserved regardless of rounding.
+ * Standing account contributions (§12) fund between the two goal passes — after every
+ * dated pace, before the `asap` fill. Unlike goals they are COMMITTED: the full amount
+ * always lands in the account, and the part the discretionary pool cannot cover is
+ * returned as a shortfall (borrowed via the §5.1 cascade), so an unaffordable contribution
+ * breaks the plan rather than silently shrinking. `asap` goals then fund fill-order from
+ * whatever remains, in priority order. The exact leftover after all of that lands in the
+ * surplus destination — the balancing figure, so every discretionary cent is conserved.
+ *
+ * Returns the total contribution shortfall (0 when every contribution fit the pool) for
+ * the caller to fold into the household shortfall.
  */
-function fundGoals(
+function fundGoalsAndContributions(
   input: WaterfallInput,
   leftoverByPerson: Map<string, Cents>,
   totalDiscretionary: Cents,
   deposits: Map<string, Cents>,
-): void {
+): Cents {
   const orderedGoals = [...input.goals].sort((a, b) => a.priority - b.priority);
   const nowMonth = input.nowMonth ?? 0;
   const rateOf = input.goalFundMonthlyRate ?? (() => 0);
@@ -360,6 +376,34 @@ function fundGoals(
     fundGoalUpTo(goal, pace);
   }
 
+  // Standing account contributions (§12/§15) are a COMMITTED monthly outflow, not a
+  // sweep of whatever is left over: "put $X into this account" means the full $X lands
+  // in the account (like a spending line's full amount is always spent), funded from the
+  // discretionary pool as far as it reaches. The part the pool cannot cover is BORROWED
+  // — returned as a shortfall that the §5.1 cascade drains savings then credit to meet,
+  // so a contribution beyond your means makes the plan unfinanceable exactly as
+  // unaffordable spending does (you do not silently save less than you asked to). Funding
+  // draws in the priority order the caller supplied, and BEFORE the asap goals below so a
+  // fill-order goal cannot starve a standing saving. Conserves: the borrowed part is both
+  // deposited and subtracted back as the shortfall, so `deposits − shortfall` is unchanged.
+  //
+  // Disclosed simplification `contributionsNotAssetFunded` (see projection/assumptions.ts):
+  // the shortfall goes to savings/credit only. Unlike unaffordable SPENDING — which
+  // `simulate.ts` funds by selling investments (buildWithdrawalSources) before this runs —
+  // a contribution is never funded by liquidating other holdings, so it can flip the plan
+  // insolvent while investment balances remain (the model won't sell one holding to feed
+  // another).
+  let contributionShortfall: Cents = 0;
+  for (const c of input.contributions ?? []) {
+    const wanted = Math.max(0, c.monthlyCents);
+    if (wanted <= 0) continue;
+    addDeposit(deposits, c.accountId, wanted); // the whole contribution lands in the account
+    const funded = Math.min(wanted, sharedPoolRemaining); // paid from discretionary cash…
+    goalDepositsTotal += funded;
+    sharedPoolRemaining -= funded;
+    contributionShortfall += wanted - funded; // …the rest is borrowed (a shortfall)
+  }
+
   // Pass 2 — asap goals (no deadline, no pace) fill-order from the remainder.
   for (const goal of orderedGoals) {
     if (goal.targetDate !== "asap") continue;
@@ -375,6 +419,7 @@ function fundGoals(
         : input.liquidAccountId;
     if (destId !== null) addDeposit(deposits, destId, surplusCents);
   }
+  return contributionShortfall;
 }
 
 /**
@@ -396,12 +441,20 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     input,
     takeHomeByPerson,
   );
-  fundGoals(input, leftoverByPerson, totalDiscretionary, deposits);
+  // A committed contribution the discretionary pool can't cover is borrowed — its
+  // shortfall joins the obligation shortfall for the §5.1 cascade (drain savings → credit
+  // → insolvency), so an unaffordable auto-invest breaks the plan like unaffordable spending.
+  const contributionShortfall = fundGoalsAndContributions(
+    input,
+    leftoverByPerson,
+    totalDiscretionary,
+    deposits,
+  );
 
   return {
     taxCents,
     deferredByPersonCents: deferredByPerson,
     accountDepositsCents: deposits,
-    shortfallCents,
+    shortfallCents: shortfallCents + contributionShortfall,
   };
 }

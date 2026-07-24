@@ -14,6 +14,7 @@ import {
 import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { TaxCategory } from "../cashFlowSeries";
 import { budgetLineAllocationId } from "../allocations";
+import { orderBudgetLines, resolveBudgetLineMonthlyCents, type BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import {
   runWaterfall,
@@ -36,9 +37,20 @@ import type {
   SimProperty,
 } from "./simulate.types";
 
-// Re-exported so existing importers (and the engine barrel in index.ts) keep
-// resolving the simulator's public types through ./simulate.
-export type * from "./simulate.types";
+// Re-exported so existing importers (and the engine barrel in index.ts) keep resolving
+// the simulator's public types through ./simulate. `SimPerson` is deliberately OMITTED:
+// since the #72 hinge it is an engine-INTERNAL compiled shape (the app authors the
+// standing `Person` and the sim derives `SimPerson` via `compilePerson`), so it must not
+// ride the public barrel. Internal engine code imports it directly from ./simulate.types.
+export type {
+  HouseholdSimInput,
+  LiabilityPaymentRecord,
+  SimOwnedSeries,
+  ProjectionMonth,
+  ProjectionMonthFlows,
+  ProjectionSeries,
+  SimProperty,
+} from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
 
@@ -118,6 +130,8 @@ interface SimState {
    * re-earmarked, or drawn thereafter (§5.2, #28).
    */
   goals: SimGoal[];
+  /** Standing account-contribution budget lines (§12) — resolved & funded each month. */
+  readonly contributionLines: readonly BudgetLine[];
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
@@ -241,6 +255,7 @@ function initSimState(input: HouseholdSimInput): SimState {
     propertyValues,
     personIds,
     goals: [...(input.goals ?? [])],
+    contributionLines: input.contributionLines ?? [],
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
@@ -346,7 +361,7 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): Cents {
+): { taxCents: Cents; contributions: readonly { accountId: string; monthlyCents: Cents }[] } {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -357,6 +372,23 @@ function allocateMonth(
   // account id (0 for an unknown account → a flat even spread).
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
+  // Standing account contributions (§12): resolve each line's amount for THIS month
+  // (literal / fill-to-limit / goal-paced) against its own target account's live
+  // balance and rate, in waterfall priority order, so the funding step draws them from
+  // discretionary in the order the tiers imply. Zero-amount lines (out of span, or a
+  // goal-paced line past its deadline) drop out.
+  const contributions = orderBudgetLines(state.contributionLines).flatMap((line) => {
+    if (line.target.kind !== "account") return [];
+    const accountId = line.target.accountId;
+    const monthlyCents = resolveBudgetLineMonthlyCents(line, {
+      month,
+      year: ctx.year,
+      currentBalanceCents: state.assetBalances.get(accountId) ?? 0,
+      fundMonthlyRate: accountsById.get(accountId)?.getMonthlyRateAt(month) ?? 0,
+    });
+    return monthlyCents > 0 ? [{ accountId, monthlyCents }] : [];
+  });
+
   const result = runWaterfall({
     personIds: state.personIds,
     incomeSources,
@@ -364,6 +396,7 @@ function allocateMonth(
     sharedScheme: state.sharedScheme,
     surplusDestination: state.surplusDestination,
     goals: state.goals,
+    contributions,
     nowMonth: month,
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
@@ -401,7 +434,41 @@ function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  return result.taxCents;
+  // Return the resolved contributions so the caller can unwind any unfundable slice once
+  // the §5.1 cascade has decided how much of the month's shortfall genuinely couldn't be met.
+  return { taxCents: result.taxCents, contributions };
+}
+
+/**
+ * Undo the phantom part of a COMMITTED contribution (§12). A contribution deposits its
+ * FULL amount into the target account and returns the unfunded remainder as a shortfall
+ * (see {@link import("./waterfall").runWaterfall}). When even savings and every credit
+ * card can't cover that shortfall — the month is insolvent — the uncovered slice was still
+ * deposited, which would book an asset the household never actually funded (net worth
+ * spiking by a contribution it could not make). Reverse exactly that slice, lowest-priority
+ * contribution first, so net worth reflects only what was really moved and the insolvency
+ * isn't masked by a phantom balance. `allocateMonth` added the full amount and its cost
+ * basis; this removes the unfundable part of both.
+ */
+function unwindUnfundedContributions(
+  state: SimState,
+  contributions: readonly { accountId: string; monthlyCents: Cents }[],
+  uncoveredCents: Cents,
+): void {
+  if (uncoveredCents <= 0) return;
+  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
+  let remaining = uncoveredCents;
+  for (let i = contributions.length - 1; i >= 0 && remaining > 0; i--) {
+    const c = contributions[i];
+    const cut = Math.min(remaining, c.monthlyCents);
+    if (cut <= 0) continue;
+    state.assetBalances.set(c.accountId, (state.assetBalances.get(c.accountId) ?? 0) - cut);
+    const acc = accountsById.get(c.accountId);
+    if (acc !== undefined && !acc.taxProfile.contributionsPreTax) {
+      state.basisByAccount.set(c.accountId, Math.max(0, (state.basisByAccount.get(c.accountId) ?? 0) - cut));
+    }
+    remaining -= cut;
+  }
 }
 
 /**
@@ -834,7 +901,7 @@ export function simulateHousehold(
         ),
       ];
 
-      const taxCents = allocateMonth(
+      const { taxCents, contributions } = allocateMonth(
         state,
         incomeSources,
         ctx,
@@ -843,7 +910,12 @@ export function simulateHousehold(
         month,
       );
       // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
-      isInsolvent = applyShortfallCascade(state, month) > 0;
+      const uncoveredCents = applyShortfallCascade(state, month);
+      isInsolvent = uncoveredCents > 0;
+      // A committed contribution deposits in full and borrows the rest; if that borrowing
+      // couldn't be funded (this uncovered slice), unwind the phantom deposit so net worth
+      // isn't inflated by a contribution the household could not actually make (§12).
+      unwindUnfundedContributions(state, contributions, uncoveredCents);
 
       applyAssetTransfers(state, month);
       compoundAssets(state, month, jurisdiction, ctx);

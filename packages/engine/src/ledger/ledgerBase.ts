@@ -6,9 +6,11 @@
  * artifacts, never life events (§10.3 rule 1), so they are provided here.
  */
 
-import type { SimPerson, SimOwnedSeries } from "../projection/simulate";
+import type { SimOwnedSeries } from "../projection/simulate";
+import type { Person } from "../person";
 import type { SimAccount } from "../simAccount";
 import type { SimGoal } from "../goal";
+import type { BudgetLine } from "../budgetLine";
 import type {
   SharedContributionScheme,
   SurplusDestination,
@@ -23,8 +25,8 @@ export interface LedgerBaseConfig {
    */
   readonly benefitColaRate?: number;
   readonly startYear?: number;
-  /** Persons present before any events (e.g. the primary account holder). */
-  readonly initialPersons?: readonly SimPerson[];
+  /** Persons present before any events (e.g. the primary account holder) — authoring {@link Person}s. */
+  readonly initialPersons?: readonly Person[];
   /** Accounts managed outside the event ledger (payoff events attach outflows). */
   readonly initialAccounts?: readonly SimAccount[];
   /**
@@ -41,6 +43,13 @@ export interface LedgerBaseConfig {
    * ledger (§10.2): reprioritizing a goal is a plan edit, not a life event.
    */
   readonly goals?: readonly SimGoal[];
+  /**
+   * Standing account-contribution budget lines (§12): "put $X into this account" each
+   * month, funded from discretionary in the waterfall. Like goals and the budget series,
+   * they live on the value-editing surface, not the event ledger. Expense budget lines
+   * are compiled into {@link initialExpenseSeries}; only account-target lines are here.
+   */
+  readonly contributionLines?: readonly BudgetLine[];
   /** Lever 2 (§5.0): how partners split shared obligations. Default proportional. */
   readonly sharedScheme?: SharedContributionScheme;
   /** Lever 4 (§5.0): where leftover cash lands once every goal is funded. */

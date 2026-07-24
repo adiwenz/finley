@@ -180,17 +180,19 @@ export function earliestPartialRetirementAge(scenario: Scenario, ctx: Projection
 
 /**
  * The plan's jobs with every job's end capped at `age` (§5 full retirement): each job
- * stops no later than the calendar year the owner turns `age`. A `null`-end (open-ended)
- * job is first resolved to its `retirementTargetAge` end (`retirementAge` here), then
- * capped — so a supplemental job that already ends before `age` keeps its earlier end,
- * and nothing is extended. The result has only explicit ends, so `retirementAge` no
- * longer moves any of them. Empty for a scalar (jobs-less) plan.
+ * stops no later than the calendar year the owner turns `age` — the age they become
+ * work-optional. A `null`-end (open-ended, career) job is resolved to `age` itself (in
+ * this mode the candidate age *is* the career-exit target — see {@link
+ * projectFullRetirement}, which pins `retirementAge: age`), so working the career longer
+ * genuinely earns more before the full stop. A fixed-term job that already ends before
+ * `age` keeps its earlier end; nothing is extended past its authored stop. The result
+ * has only explicit ends. Empty for a jobs-less plan.
  */
 function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): Job[] {
   const birthYear = ctx.startYear - budget.currentAge;
   const capYear = birthYear + age;
   return (budget.jobs ?? []).map((job) => {
-    const naturalEndExclusive = job.endYear ?? birthYear + budget.retirementAge;
+    const naturalEndExclusive = job.endYear ?? capYear;
     return { ...job, endYear: Math.min(naturalEndExclusive, capYear) };
   });
 }

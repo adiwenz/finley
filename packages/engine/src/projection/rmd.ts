@@ -2,7 +2,7 @@ import type { Cents } from "../money";
 import type { SimAccount } from "../simAccount";
 import type { Jurisdiction } from "../jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { SimPerson } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 
 /**
  * The slice of the simulator's state the RMD bookkeeping reads and mutates. A

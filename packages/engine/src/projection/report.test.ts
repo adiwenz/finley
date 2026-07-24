@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSimulationReport, summarizeSimulation } from "./report";
-import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
@@ -110,10 +111,12 @@ describe("buildSimulationReport", () => {
   it("carries the model's disclosed assumptions & simplifications (#94)", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     const ids = report.assumptions.map((a) => a.id);
-    // The two basis-related simplifications the engine deliberately makes must reach
-    // the consumer so the app can disclose them; each carries plain-language text.
+    // The engine's neutral simplifications must reach the consumer so the app can disclose
+    // them: the two post-tax basis ones (#94), plus how a committed account contribution is
+    // funded (§12). Each carries plain-language text.
     expect(ids).toContain("postTaxOpeningBasis");
     expect(ids).toContain("convertedEquityNoBasis");
+    expect(ids).toContain("contributionsNotAssetFunded");
     for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
   });
 
@@ -162,5 +165,21 @@ describe("buildSimulationReport", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     const roundTripped = JSON.parse(JSON.stringify(report));
     expect(roundTripped).toEqual(report);
+  });
+
+  it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {
+    // A jurisdiction that declares its own simplifications gets them merged onto the
+    // report — engine's neutral assumptions first, the jurisdiction's after — so a US
+    // tax caveat rides `rules`, never the neutral engine (§5.0).
+    const jurisdictionAssumption = { id: "j-specific", text: "A jurisdiction-specific caveat." };
+    const withAssumptions = {
+      ...nullJurisdiction,
+      modelAssumptions: [jurisdictionAssumption],
+    };
+    const engineOnly = buildSimulationReport(baseInput(), nullJurisdiction).assumptions;
+    const merged = buildSimulationReport(baseInput(), withAssumptions).assumptions;
+    expect(merged).toEqual([...engineOnly, jurisdictionAssumption]);
+    // The neutral engine list is unchanged when no jurisdiction assumptions are present.
+    expect(engineOnly).not.toContainEqual(jurisdictionAssumption);
   });
 });

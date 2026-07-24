@@ -22,6 +22,7 @@ import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
+import { JobsPanel } from "./components/jobsPanel/jobsPanel";
 import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
 import type { Plan } from "@finley/engine";
@@ -60,7 +61,13 @@ export function App() {
   // meta, so knobs the engine input compiles away — life expectancy, retirement age,
   // health lines — survive into the debug output and download.
   const report = useMemo(
-    () => summarizeSimulation(simInput, series, { plan: budget, jurisdictionId: usJurisdiction.id }),
+    () =>
+      summarizeSimulation(
+        simInput,
+        series,
+        { plan: budget, jurisdictionId: usJurisdiction.id },
+        usJurisdiction,
+      ),
     [simInput, series, budget],
   );
 
@@ -162,6 +169,10 @@ export function App() {
             <RetirementPanel view={retirement} budget={budget} />
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <JobsPanel budget={budget} setBudget={setBudget} />
       </div>
 
       <div className="card">

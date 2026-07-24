@@ -7,9 +7,9 @@
  *
  * This module imports nothing from `projection/*`, so the standing types stay
  * clear of the simulator core (the sim dependency lives in `compilePerson`).
- * It lands **additively**, alongside the scalar `Plan.incomeCents` /
- * `careerStartAge` / `JobChangeEvent` path — both compile into the same
- * `LedgerBaseConfig`, so nothing existing is removed here (that is #72's job).
+ * Since the #72 hinge this is the **sole** source of truth for earned income —
+ * the scalar `Plan.incomeCents` / `careerStartAge` / `JobChangeEvent` path it
+ * was built alongside has been deleted.
  */
 
 import type { Cents } from "./money";
@@ -33,6 +33,53 @@ export interface SalaryTrajectory {
    * model's inflation-linked, real-flat salary exactly.
    */
   readonly realGrowthPct: number;
+}
+
+/**
+ * A one-month perturbation of a job's earned income (§10.3, §20) — a bonus, a missed
+ * paycheck, or a one-off "this month I actually earned X" correction. Keyed by the
+ * absolute simulation `month` (relative to "now"), like the plan's expense overrides.
+ * It is a **value edit on the standing job**, never a timeline life event: the same
+ * job pays a different amount for exactly one month.
+ *
+ *   - `setTo` overrides the month's pay to an absolute figure — `cents: 0` is a missed
+ *     paycheck, any other value is a one-month salary correction.
+ *   - `addBonus` adds `cents` on top of what the job would otherwise pay that month.
+ *
+ * Both ride the job's own income series, so they are taxed as `wages` and flow through
+ * the job's 401(k) deferral exactly as regular pay does — a bonus is not tax-free cash.
+ */
+export interface JobIncomeOverride {
+  /** Absolute simulation month (from "now") the override applies to. */
+  readonly month: number;
+  readonly kind: "setTo" | "addBonus";
+  /** For `setTo`, the month's absolute monthly pay; for `addBonus`, the amount added. */
+  readonly cents: Cents;
+}
+
+/**
+ * A **permanent** step change to a job's pay from a given month onward (§6, §10.3) — a
+ * raise OR a pay cut (the reason this is a *pay change*, not a "raise": the new pay can be
+ * lower than before). Where a {@link JobIncomeOverride} perturbs a single month, a pay
+ * change opens a new salary segment: the new pay is in force from `month` and then keeps
+ * growing at the job's own real-plus-CPI rate. It is a value edit on the standing job (the
+ * same job now pays differently), never a timeline life event — and it is what lets a pay
+ * change ride ONE continuous job instead of forcing a job to be split in two.
+ *
+ *   - `setTo` sets pay to an absolute monthly figure from `month` on (a new salary).
+ *   - `changeBy` adds `cents` on top of what the job would otherwise pay that month, from
+ *     `month` on (a delta). A negative `cents` is a pay cut.
+ *
+ * Like overrides, a pay change rides the job's own series, so the new pay is taxed as
+ * `wages` and flows through the 401(k) deferral. `cents` is nominal at `month` (the actual
+ * paycheck that month), matching the one-month `setTo`.
+ */
+export interface JobPayChange {
+  /** Absolute simulation month (from "now") the new pay takes effect and holds from. */
+  readonly month: number;
+  readonly kind: "setTo" | "changeBy";
+  /** For `setTo`, the new absolute monthly pay; for `changeBy`, the monthly amount added on. */
+  readonly cents: Cents;
 }
 
 /**
@@ -72,6 +119,18 @@ export interface Job {
   readonly endYear: number | null;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
+  /**
+   * One-month pay perturbations (bonuses, missed paychecks, single-month corrections),
+   * each keyed by simulation month. Optional — a job with none omits it. See
+   * {@link JobIncomeOverride}.
+   */
+  readonly incomeOverrides?: readonly JobIncomeOverride[];
+  /**
+   * Permanent step changes to pay (raises / cuts), each keyed by simulation month and in
+   * force from that month forward. Optional. See {@link JobPayChange}. Applied BEFORE the
+   * one-month {@link incomeOverrides}, so a later bonus adds on top of the changed pay.
+   */
+  readonly payChanges?: readonly JobPayChange[];
 }
 
 /**

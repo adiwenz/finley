@@ -12,7 +12,7 @@
 import type { Cents } from "../money";
 import type { GrowthMode, TaxCategory } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { SimPerson } from "../projection/simulate";
+import type { Person } from "../person";
 import type {
   AccountId,
   ChildId,
@@ -24,9 +24,9 @@ import type {
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
-/** Membership as an explicit interval (§3): durable person, active window. */
+/** Membership as an explicit interval (§3): durable authoring person, active window. */
 export interface PersonMembership {
-  readonly person: SimPerson;
+  readonly person: Person;
   /** Month the person joined; `-Infinity` for base (pre-event) household. */
   startMonth: number;
   /** Month membership ended (separation), or `null` while still a member. */

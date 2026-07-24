@@ -18,8 +18,18 @@ import {
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
+import type { Person } from "./person";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
 
 function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
   return new SimAccount({
@@ -35,7 +45,7 @@ function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
 const baseConfig: LedgerBaseConfig = {
   horizonMonths: 12,
   annualInflationRate: 0,
-  initialPersons: [{ id: "p1", name: "Alice" }],
+  initialPersons: [personLit("p1", "Alice")],
 };
 
 // Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff
@@ -70,7 +80,7 @@ describe("RelationshipEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     // Replay doesn't crash; p2 is now in state (not directly observable in
     // projection but needed for subsequent events).
@@ -79,9 +89,9 @@ describe("RelationshipEvent", () => {
   });
 });
 
-// ─── JobChangeEvent ───────────────────────────────────────────────────────────
+// ─── Income series (BudgetItemStartEvent) ─────────────────────────────────────
 
-describe("JobChangeEvent", () => {
+describe("income series (BudgetItemStartEvent)", () => {
   it("creates income series that increases the liquid account balance", () => {
     const cfg: LedgerBaseConfig = {
       ...baseConfig,
@@ -90,11 +100,12 @@ describe("JobChangeEvent", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000), // $5000/mo
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000), // $5000/mo
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -103,7 +114,7 @@ describe("JobChangeEvent", () => {
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(60_000));
   });
 
-  it("replacesSeriesId ends the previous income series at month−1", () => {
+  it("ending an income series and starting a new one swaps the active income", () => {
     const cfg: LedgerBaseConfig = {
       ...baseConfig,
       initialAccounts: [makeLiquidAccount()],
@@ -112,25 +123,32 @@ describe("JobChangeEvent", () => {
     // First job: $3000/mo from month 0
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(36_000), // $3000/mo
+      seriesType: "income",
+      monthlyCents: dollarsToCents(3_000), // $3000/mo
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
-    // Job change at month 6: $6000/mo, replaces s1
+    // Job change at month 6: end s1, then start s2 at $6000/mo
+    ledger = add(ledger, {
+      id: "end1",
+      type: "BudgetItemEndEvent",
+      month: 6,
+      seriesId: "s1",
+    });
     ledger = add(ledger, {
       id: "j2",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 6,
       seriesId: "s2",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(72_000), // $6000/mo
+      seriesType: "income",
+      monthlyCents: dollarsToCents(6_000), // $6000/mo
       growthMode: { type: "fixed" },
       taxCategory: "wages",
-      replacesSeriesId: "s1",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
     // Old job ends at month 5 (endMonth = 6−1); new job starts at month 6.
@@ -206,16 +224,17 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     // Partner income: $2000/mo from month 0
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p2",
-      annualIncomeCents: dollarsToCents(24_000), // $2000/mo
+      seriesType: "income",
+      monthlyCents: dollarsToCents(2_000), // $2000/mo
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -244,7 +263,7 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -270,7 +289,7 @@ describe("SeparationEvent", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -445,29 +464,6 @@ describe("addEvent — sequence numbers", () => {
   });
 });
 
-// ─── Annual income precision (§4) ─────────────────────────────────────────────
-
-describe("JobChangeEvent — annual precision", () => {
-  it("distributes annual income across months summing exactly to the annual cents", () => {
-    const annualCents = dollarsToCents(100_000) + 7; // deliberately not divisible by 12
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "j1",
-      type: "JobChangeEvent",
-      month: 0,
-      seriesId: "s1",
-      ownerId: "p1",
-      annualIncomeCents: annualCents,
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
-    const household = interpretLedger(ledger, baseConfig);
-    const income = household.series.find((s) => s.role === "primaryIncome")!;
-    const total = income.series.getRangeCents(0, 11).reduce((a, b) => a + b, 0);
-    expect(total).toBe(annualCents);
-  });
-});
-
 // ─── removeEvent — base replay context (§7) ───────────────────────────────────
 
 describe("removeEvent — replays against base-seeded people", () => {
@@ -475,11 +471,12 @@ describe("removeEvent — replays against base-seeded people", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -568,19 +565,10 @@ describe("event validation", () => {
 
   it("validateNewEvent rejects a duplicate person id", () => {
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 0, person: personLit("p2", "Sam"),
     });
     const result = validateNewEvent(ledger, baseConfig, {
-      id: "r2", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Other" },
-    });
-    expect(result.ok).toBe(false);
-  });
-
-  it("validateNewEvent rejects a JobChange replacing a nonexistent series", () => {
-    const result = validateNewEvent(emptyLedger, baseConfig, {
-      id: "j1", type: "JobChangeEvent", month: 0, seriesId: "s1", ownerId: "p1",
-      annualIncomeCents: dollarsToCents(1_000), growthMode: { type: "fixed" }, taxCategory: "wages",
-      replacesSeriesId: "ghost",
+      id: "r2", type: "RelationshipEvent", month: 0, person: personLit("p2", "Other"),
     });
     expect(result.ok).toBe(false);
   });
@@ -594,7 +582,7 @@ describe("event validation", () => {
 
   it("validateNewEvent rejects separating from an already-separated partner", () => {
     let ledger = emptyLedger;
-    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: { id: "p2", name: "Sam" } });
+    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: personLit("p2", "Sam") });
     ledger = add(ledger, {
       id: "sep1", type: "SeparationEvent", month: 6, partnerPersonId: "p2",
       alimonyMonthlyCents: 0, alimonyDurationMonths: 0, childSupportMonthlyCents: 0,
@@ -609,7 +597,7 @@ describe("event validation", () => {
   it("validateNewEvent rejects separating before the partnership month", () => {
     // Partner joins at month 60; a separation dated month 12 predates the partnership.
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 60, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 60, person: personLit("p2", "Sam"),
     });
     const result = validateNewEvent(ledger, baseConfig, {
       id: "sep1", type: "SeparationEvent", month: 12, partnerPersonId: "p2",
@@ -623,35 +611,41 @@ describe("event validation", () => {
 // ─── Replay order — (month, sequenceNumber) (§5, §6) ──────────────────────────
 
 describe("replay order", () => {
-  it("same-month producer-before-consumer: a replacement applies after the series it replaces", () => {
+  it("same-month producer-before-consumer: an end applies after the series it ends", () => {
     let ledger = emptyLedger;
+    // s1 runs from month 0; at month 12 it ends and s2 begins in the same month.
     ledger = add(ledger, {
-      id: "j1", type: "JobChangeEvent", month: 12, seriesId: "s1", ownerId: "p1",
-      annualIncomeCents: dollarsToCents(36_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+      id: "j1", type: "BudgetItemStartEvent", month: 0, seriesId: "s1", ownerId: "p1",
+      seriesType: "income", monthlyCents: dollarsToCents(3_000), growthMode: { type: "fixed" }, taxCategory: "wages",
     });
     ledger = add(ledger, {
-      id: "j2", type: "JobChangeEvent", month: 12, seriesId: "s2", ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000), growthMode: { type: "fixed" }, taxCategory: "wages",
-      replacesSeriesId: "s1",
+      id: "end1", type: "BudgetItemEndEvent", month: 12, seriesId: "s1",
     });
-    const snap = snapshotAt(ledger, 12, { initialPersons: [{ id: "p1", name: "Alice" }] });
+    ledger = add(ledger, {
+      id: "j2", type: "BudgetItemStartEvent", month: 12, seriesId: "s2", ownerId: "p1",
+      seriesType: "income", monthlyCents: dollarsToCents(5_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+    });
+    const snap = snapshotAt(ledger, 12, { initialPersons: [personLit("p1", "Alice")] });
+    // s1 ended at month 11 (12−1); only s2 is active at month 12.
     expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
   });
 
   it("orders by sequenceNumber, not array position", () => {
     // Hand-built ledger with the events stored in reverse of their sequence.
     const j1: LifeEvent = {
-      id: "j1", type: "JobChangeEvent", sequenceNumber: 0, month: 0, seriesId: "s1", ownerId: "p1",
-      annualIncomeCents: dollarsToCents(12_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+      id: "j1", type: "BudgetItemStartEvent", sequenceNumber: 0, month: 0, seriesId: "s1", ownerId: "p1",
+      seriesType: "income", monthlyCents: dollarsToCents(1_000), growthMode: { type: "fixed" }, taxCategory: "wages",
+    };
+    const end1: LifeEvent = {
+      id: "end1", type: "BudgetItemEndEvent", sequenceNumber: 1, month: 0, seriesId: "s1",
     };
     const j2: LifeEvent = {
-      id: "j2", type: "JobChangeEvent", sequenceNumber: 1, month: 0, seriesId: "s2", ownerId: "p1",
-      annualIncomeCents: dollarsToCents(24_000), growthMode: { type: "fixed" }, taxCategory: "wages",
-      replacesSeriesId: "s1",
+      id: "j2", type: "BudgetItemStartEvent", sequenceNumber: 2, month: 0, seriesId: "s2", ownerId: "p1",
+      seriesType: "income", monthlyCents: dollarsToCents(2_000), growthMode: { type: "fixed" }, taxCategory: "wages",
     };
-    const ledger: Ledger = { events: [j2, j1], nextSequenceNumber: 2 };
-    const snap = snapshotAt(ledger, 0, { initialPersons: [{ id: "p1", name: "Alice" }] });
-    // Sorted by (month, seq): j1 creates s1, then j2 replaces it → only s2 active.
+    const ledger: Ledger = { events: [j2, end1, j1], nextSequenceNumber: 3 };
+    const snap = snapshotAt(ledger, 0, { initialPersons: [personLit("p1", "Alice")] });
+    // Sorted by (month, seq): j1 creates s1, end1 ends it, j2 creates s2 → only s2 active.
     expect(snap.income.map((s) => s.id)).toEqual(["s2"]);
   });
 });
@@ -729,7 +723,7 @@ describe("removeEvent — Strategy A", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -847,17 +841,18 @@ describe("removeEvent — Strategy B cascade", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Bob" },
+      person: personLit("p2", "Bob"),
     });
-    // Job event tagged as child of r1 via sourceEventId
+    // Income event tagged as child of r1 via sourceEventId
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       causedByEventId: "r1",
       seriesId: "s1",
       ownerId: "p2",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -906,11 +901,12 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(36_000), // $3000/mo
+      seriesType: "income",
+      monthlyCents: dollarsToCents(3_000), // $3000/mo
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -958,7 +954,7 @@ function baseWith(openingCents: number, inflation = 0): LedgerBaseConfig {
   return {
     horizonMonths: 24,
     annualInflationRate: inflation,
-    initialPersons: [{ id: "p1", name: "Alice" }],
+    initialPersons: [personLit("p1", "Alice")],
     initialAccounts: [savings(openingCents)],
   };
 }

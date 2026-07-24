@@ -14,14 +14,15 @@ import {
   simulateHousehold,
   type HouseholdSimInput,
   type SimOwnedSeries,
-  type SimPerson,
   type ProjectionSeries,
   type SimProperty,
 } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
+import { compilePerson } from "../compilePerson";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -100,9 +101,17 @@ export function buildHouseholdSimInput(
     appreciationAnnualRate: growthAnnualRate(p.appreciationMode),
   }));
 
-  // Durable household roster (§3): membership intervals govern each person's
-  // income series lifetime; the roster itself is the set of people who ever joined.
-  const persons: SimPerson[] = household.memberships.map((m) => m.person);
+  // Durable household roster (§3): membership intervals govern each person's income
+  // series lifetime; the roster itself is the set of people who ever joined. The roster
+  // holds authoring {@link Person}s (§8) — compile each to the {@link SimPerson} the sim
+  // consumes here, at the boundary, so the pre-"now" covered-earnings record (§4.6) is
+  // derived from the jobs rather than baked into the roster. `startYear` is the frozen
+  // "now" the base was built against; the ambient default keeps a startYear-less test base
+  // (no benefit basis intended) from throwing.
+  const nowYear = base.startYear ?? 0;
+  const persons: SimPerson[] = household.memberships.map((m) =>
+    compilePerson(m.person, nowYear, base.annualInflationRate),
+  );
 
   return {
     horizonMonths: base.horizonMonths,
@@ -118,6 +127,9 @@ export function buildHouseholdSimInput(
     // §5.0 waterfall config lives on the value-editing surface (§10.2), not the
     // ledger, so it rides along on the base rather than being derived from events.
     goals: base.goals,
+    // Standing account-contribution lines (§12) ride on the base like goals — value-plane
+    // data, not ledger-derived — and fund their accounts in the waterfall each month.
+    contributionLines: base.contributionLines,
     sharedScheme: base.sharedScheme,
     surplusDestination: base.surplusDestination,
   };

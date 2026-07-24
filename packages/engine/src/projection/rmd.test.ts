@@ -8,7 +8,8 @@ import {
 } from "../simAccount";
 import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 
 /** A non-compounding account so balances move only by RMD withdrawal/deposit. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {

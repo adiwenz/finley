@@ -14,6 +14,18 @@ describe("usJurisdiction (US-2026)", () => {
     ).toBe(0);
   });
 
+  it("exposes its federal-tax simplifications through the modelAssumptions seam", () => {
+    // The US tax-threshold indexing / frozen-SS-threshold disclosures ride the
+    // jurisdiction (§5.0), so the report surfaces them without the engine holding a
+    // US fact. Stable ids let a consumer key/style each.
+    const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
+    expect(ids).toContain("taxThresholdForwardIndexing");
+    expect(ids).toContain("socialSecurityThresholdsUnindexed");
+    for (const a of usJurisdiction.modelAssumptions ?? []) {
+      expect(a.text.length).toBeGreaterThan(0);
+    }
+  });
+
   it("runs real single-filer federal tax through the seam (#53)", () => {
     // $100k/yr of wages = $100k/12 per month → annual tax $13,170 → the month's
     // 1/12 share (brackets + standard deduction, single filer).

@@ -15,7 +15,6 @@ import type {
   ChildEvent,
   DebtPayoffEvent,
   HomePurchaseEvent,
-  JobChangeEvent,
   LifeEvent,
   LifeEventType,
   LoanEvent,
@@ -299,46 +298,6 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
-const jobChange: EventHandler<JobChangeEvent> = {
-  check(event, state) {
-    if (state.seriesById.has(asSeriesId(event.seriesId))) {
-      return fail(event, `series "${event.seriesId}" already exists`);
-    }
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
-    if (event.replacesSeriesId != null) {
-      const prev = state.seriesById.get(asSeriesId(event.replacesSeriesId));
-      if (!prev) {
-        return fail(event, `replaced series "${event.replacesSeriesId}" not found`);
-      }
-      if (prev.endMonth !== null) {
-        return fail(event, `replaced series "${event.replacesSeriesId}" is not active`);
-      }
-    }
-    return ok;
-  },
-  apply(event, state) {
-    if (event.replacesSeriesId != null) {
-      const prev = state.seriesById.get(asSeriesId(event.replacesSeriesId));
-      if (prev && prev.endMonth === null) prev.endMonth = event.month - 1;
-    }
-    addSeries(state, {
-      id: asSeriesId(event.seriesId),
-      causedByEventId: event.id,
-      role: "primaryIncome",
-      ownerId: asPersonId(event.ownerId),
-      seriesType: "income",
-      startMonth: event.month,
-      endMonth: null,
-      // Annual is the source of truth — the series distributes it (no pre-round, §4).
-      baseline: { unit: "annual", annualCents: event.annualIncomeCents },
-      growthMode: event.growthMode,
-      taxCategory: event.taxCategory,
-    });
-  },
-};
-
 const budgetItemStart: EventHandler<BudgetItemStartEvent> = {
   check(event, state) {
     if (state.seriesById.has(asSeriesId(event.seriesId))) {
@@ -401,7 +360,6 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
-  JobChangeEvent: jobChange,
   BudgetItemStartEvent: budgetItemStart,
   BudgetItemEndEvent: budgetItemEnd,
 };

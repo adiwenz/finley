@@ -4,7 +4,6 @@ import { useState } from "react";
 import type { LifeEvent, NewLifeEvent, Household, ProjectionSeries } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
-import { JobForm } from "./jobForm";
 import { ExpenseForm } from "./expenseForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
@@ -20,7 +19,6 @@ import styles from "./addEventForm.module.css";
  */
 type EventKind = Extract<
   LifeEvent["type"],
-  | "JobChangeEvent"
   | "BudgetItemStartEvent"
   | "LoanEvent"
   | "HomePurchaseEvent"
@@ -30,7 +28,6 @@ type EventKind = Extract<
 >;
 
 const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
-  { value: "JobChangeEvent", label: "Started a job" },
   { value: "BudgetItemStartEvent", label: "Added an expense" },
   { value: "LoanEvent", label: "Took out a loan" },
   { value: "HomePurchaseEvent", label: "Bought a home" },
@@ -55,7 +52,7 @@ export function AddEventForm({
   horizonMonths: number;
   onAdd: (event: NewLifeEvent) => void;
 }) {
-  const [kind, setKind] = useState<EventKind>("JobChangeEvent");
+  const [kind, setKind] = useState<EventKind>("BudgetItemStartEvent");
 
   const formProps = { defaultMonth, nextId, horizonMonths, onAdd };
 
@@ -77,7 +74,6 @@ export function AddEventForm({
         </select>
       </label>
 
-      {kind === "JobChangeEvent" && <JobForm {...formProps} household={household} />}
       {kind === "BudgetItemStartEvent" && <ExpenseForm {...formProps} household={household} />}
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (

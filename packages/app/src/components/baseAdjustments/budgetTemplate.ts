@@ -6,16 +6,23 @@
  *
  *   - {@link defaultBudgetTemplate} — a sensible starter set of line items across the
  *     needs → wants tiers, so a new user has a budget to edit rather than author.
- *   - {@link quickstartFromIncome} — the classic 50/30/20 %-split of take-home into
- *     needs / wants / savings, for a user who would rather start from their income.
+ *   - {@link redistributeToTiers} — the classic 50/30/20 rule applied *non-destructively*
+ *     to the existing budget: rebalance each tier's lines to 50/30/20 of income without
+ *     discarding the user's named lines, seeding a real savings contribution if needed.
  *
- * Both return {@link BudgetLineInput}s (id-carrying so the chart, overrides, and the
- * `allocations()` view can key on them) and only `literal` expense lines — the shape
- * the simulator funds today (contribution/`fillToLimit` lines land with the #72
- * rewire). Pure and side-effect-free; the app calls these to seed component state.
+ * The template returns {@link BudgetLineInput}s (id-carrying so the chart, overrides, and
+ * the `allocations()` view can key on them). Since the #72 rewire the simulator funds both
+ * expense lines and account-contribution lines, so a seeded savings line is a real
+ * contribution (into the brokerage), not a vanishing expense. Pure and side-effect-free.
  */
 
-import { dollarsToCents, type BudgetLine, type BudgetLineInput } from "@finley/engine";
+import {
+  CONTRIBUTION_TARGETS,
+  dollarsToCents,
+  type BudgetCategory,
+  type BudgetLine,
+  type BudgetLineInput,
+} from "@finley/engine";
 
 /**
  * Promote authoring inputs to standing {@link BudgetLine}s. Every template line
@@ -68,33 +75,98 @@ export function defaultBudgetTemplate(): BudgetLineInput[] {
  */
 export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(3_500);
 
+/** The account a seeded savings line contributes into — the first post-tax target (brokerage). */
+const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
+
+/** The 50/30/20 fractions the quickstart targets, by tier. */
+const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
+const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
+
+/** A literal contribution line into an account (the funded shape a savings line takes, §12). */
+function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLine {
+  const account = DEFAULT_CONTRIBUTION_ACCOUNT;
+  const line: BudgetLine = {
+    id: "seed-savings",
+    label: "Savings",
+    target: { kind: "account", accountId: account.accountId, taxTreatment: account.taxTreatment },
+    amountSource: { kind: "literal", monthlyCents },
+    category: "savings",
+  };
+  // Saving is done out of a paycheck: stop the contribution at retirement, when the
+  // household is drawing savings down rather than adding to it (§19). Needs/wants run on.
+  return retirementMonth === undefined ? line : { ...line, span: { endMonth: retirementMonth } };
+}
+
+/** A seeded expense line for an empty needs/wants tier. */
+function seedExpenseLine(category: "needs" | "wants", monthlyCents: number): BudgetLine {
+  const label = category === "needs" ? "Needs" : "Wants";
+  return {
+    id: `seed-${category}`,
+    label,
+    target: { kind: "expense" },
+    amountSource: { kind: "literal", monthlyCents },
+    category,
+  };
+}
+
+/** A copy of a literal line with a new monthly amount (non-literal lines pass through). */
+function withMonthlyCents(line: BudgetLine, monthlyCents: number): BudgetLine {
+  return line.amountSource.kind === "literal"
+    ? { ...line, amountSource: { kind: "literal", monthlyCents } }
+    : line;
+}
+
 /**
- * The %-quickstart (§15, AC3): the 50/30/20 rule applied to monthly income — 50%
- * needs, 30% wants, 20% savings — as three literal lines. A one-click alternative to
- * the itemized {@link defaultBudgetTemplate} for a user who thinks in percentages.
- * Rounded to whole cents; the last slice is not force-balanced (each is an independent
- * budget target, not a partition of a fixed pot).
+ * The %-quickstart (§15, AC3), **non-destructively**: rebalance the *existing* budget so
+ * each tier hits the 50/30/20 rule of monthly income — 50% needs, 30% wants, 20% savings
+ * — WITHOUT discarding the user's named lines. Each tier's literal lines are scaled so the
+ * tier total lands on its target, preserving every line's share within the tier (an
+ * even split when the tier's lines currently sum to 0). A tier with **no** lines is seeded
+ * one starter (needs/wants → an expense line; savings → a real contribution line into the
+ * brokerage, so the 20% actually accumulates rather than vanishing). Non-`literal` lines
+ * (goal-paced / fill-to-limit) are left untouched — they compute their own amount.
  *
- * `retirementMonth` ends the **savings** line's span (§19). Saving is something a
- * household does out of a paycheck: once it retires it is drawing its savings *down*,
- * so a standing "put 20% away" line that ran forever would have a retiree contributing
- * to savings out of the savings it is simultaneously spending. Needs and wants keep
- * running — a retiree still eats. Omit the argument and the savings line never stops
- * (the right behaviour when there is no retirement date to key on).
- *
- * The savings slice is modelled as an `expense` line because that is the only shape
- * the simulator funds today; it becomes a real contribution line (`target: account`)
- * in the #72 rewire, at which point the span here is what tells that line when to stop.
+ * `retirementMonth` ends a seeded savings line's span (saving stops once the household is
+ * drawing down); omit it and the line runs open-ended. Original line order is preserved;
+ * seeds for empty tiers are appended.
  */
-export function quickstartFromIncome(
+export function redistributeToTiers(
+  lines: readonly BudgetLine[],
   monthlyIncomeCents: number,
   retirementMonth?: number,
-): BudgetLineInput[] {
-  const pct = (fraction: number) => Math.round(monthlyIncomeCents * fraction);
-  const savings = expenseLine("savings", "Savings (20%)", "savings", pct(0.2));
-  return [
-    expenseLine("needs", "Needs (50%)", "needs", pct(0.5)),
-    expenseLine("wants", "Wants (30%)", "wants", pct(0.3)),
-    retirementMonth === undefined ? savings : { ...savings, span: { endMonth: retirementMonth } },
-  ];
+): BudgetLine[] {
+  const target = (tier: BudgetCategory) => Math.round(monthlyIncomeCents * TIER_FRACTION[tier]);
+
+  // Per-tier literal totals and counts, to scale each line to its share of the target.
+  const literalTotal: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
+  const literalCount: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
+  for (const l of lines) {
+    if (l.amountSource.kind !== "literal") continue;
+    literalTotal[l.category] += l.amountSource.monthlyCents;
+    literalCount[l.category] += 1;
+  }
+
+  const scaled = lines.map((l) => {
+    if (l.amountSource.kind !== "literal") return l;
+    const total = literalTotal[l.category];
+    const newCents =
+      total > 0
+        ? Math.round((l.amountSource.monthlyCents / total) * target(l.category))
+        : Math.round(target(l.category) / literalCount[l.category]); // even split when all 0
+    return withMonthlyCents(l, newCents);
+  });
+
+  // Seed a starter for any tier the budget has no line in at all, so the rule is fully
+  // expressed (an empty tier can't be scaled into existence).
+  const seeds: BudgetLine[] = [];
+  for (const tier of TIERS) {
+    if (lines.some((l) => l.category === tier)) continue;
+    seeds.push(
+      tier === "savings"
+        ? seedSavingsLine(target("savings"), retirementMonth)
+        : seedExpenseLine(tier, target(tier)),
+    );
+  }
+
+  return [...scaled, ...seeds];
 }

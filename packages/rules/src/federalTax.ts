@@ -1,4 +1,4 @@
-import type { Cents, TaxCategory } from "@finley/engine";
+import type { Cents, TaxCategory, ModelAssumption } from "@finley/engine";
 
 /**
  * US federal income tax for a SINGLE FILER (§5.3 seam 1) — the real policy behind
@@ -157,6 +157,37 @@ export function federalTaxTables(year: number): FederalTaxTables {
     capitalGainsFifteenTopCents: indexForward(BASE_LTCG_FIFTEEN_TOP_CENTS, year, ROUND_50_CENTS),
   };
 }
+
+/**
+ * User-facing disclosures for the federal-tax simplifications this module makes — the
+ * `rules` side of the engine's {@link import("@finley/engine").Jurisdiction.modelAssumptions}
+ * seam, co-located by `id` with the code they describe ({@link indexForward} /
+ * {@link taxableSocialSecurityCents}), exactly as the engine co-locates its own
+ * {@link import("@finley/engine").MODEL_ASSUMPTIONS}. `usJurisdiction` hands these to the
+ * report so the "assumptions & simplifications" surface explains why a threshold moves
+ * (or doesn't) year to year. ⚠ Estimates, not advice.
+ */
+export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
+  {
+    id: "taxThresholdForwardIndexing",
+    text:
+      "Federal tax figures — the income-tax brackets, the standard deduction, and the " +
+      "0%/15% capital-gains thresholds — are grown forward at an assumed 2.5%/yr (a flat " +
+      "stand-in for the IRS's yearly inflation adjustment), not the plan's own inflation " +
+      "rate, and then rounded down to the nearest $50 to mirror the way the tax code " +
+      "publishes these figures. The tax rates themselves are held constant. Actual figures " +
+      "are legislated and published each year and will differ.",
+  },
+  {
+    id: "socialSecurityThresholdsUnindexed",
+    text:
+      "The income levels that decide how much of your Social Security is taxable " +
+      "($25,000 / $34,000 for a single filer) are frozen — held flat in every year — " +
+      "because they are fixed in statute and, unlike the tax brackets, have never been " +
+      "adjusted for inflation. As other income grows, this means more of your benefit " +
+      "becomes taxable over time.",
+  },
+];
 
 /**
  * The taxable portion of a US government retirement benefit (Social Security) for a

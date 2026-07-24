@@ -9,15 +9,14 @@
  * Spending is NOT edited here. The line-item budget (Base + Adjustments) is the single
  * source of truth for expenses — a non-empty `Plan.budgetLines` replaces the scalar
  * `expenseCents` series outright (`projectionBase.ts`), so a second scalar control
- * would have been an editable field with no effect. Income stays here until #72 moves
- * it onto jobs.
+ * would have been an editable field with no effect. Earned income is likewise NOT edited
+ * here: the Jobs panel is the single authoring surface for jobs (salary, span, 401(k)),
+ * so income, the age a career began, and the pre-tax deferral all live per-job there.
  */
 
 import type { Dispatch, SetStateAction } from "react";
 import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
 import type { Plan } from "@finley/engine";
-import { firstDeferralLimitCrossing } from "../../deferralLimit";
-import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 
 interface BudgetEditorProps {
@@ -29,13 +28,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
   function updateBudget(patch: Partial<Plan>) {
     setBudget((current) => ({ ...current, ...patch }));
   }
-
-  // §5.4 disclosure: a deferral rate whose yearly total tops the IRS elective limit
-  // is not an error — contributions just stop at the cap and the overflow is paid as
-  // taxable income (see the waterfall's applyDeferrals). Surface the first year that
-  // happens over the whole career, not just today: income and the limit grow at
-  // different rates, so a plan under the cap now can cross it later.
-  const deferralCrossing = firstDeferralLimitCrossing(budget);
 
   return (
     <>
@@ -53,14 +45,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
             onChange={(e) => updateBudget({ name: e.target.value })}
           />
         </label>
-
-        <NumInput
-          label="Monthly income"
-          value={budget.incomeCents / 100}
-          onChange={(v) => updateBudget({ incomeCents: dollarsToCents(v) })}
-          prefix="$"
-          step={100}
-        />
 
         <NumInput
           label="Monthly health care (before 65)"
@@ -147,24 +131,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           step={1}
         />
 
-        {/* §4.6/§5.4: the age the person's SS-covered career began. Seeds the
-            pre-"now" earnings record, so it fills the AIME's fixed 35-year window —
-            starting later leaves fewer covered years and lowers the priced benefit.
-            Clamped at ≤ current age (no future working years to seed). */}
-        <NumInput
-          label="Career start age"
-          value={budget.careerStartAge}
-          onChange={(careerStartAge) => updateBudget({ careerStartAge })}
-          min={14}
-          max={budget.currentAge}
-          step={1}
-        />
-        <p className="hint">
-          The age you began working. Earlier means more Social-Security-covered years,
-          which raises the estimated benefit. Social Security figures are an estimate,
-          not advice.
-        </p>
-
         {/* §5.4: the pinned Social Security claiming age (62–70). The retirement
             solver reads it — benefits begin at this age, so delaying raises the
             monthly benefit but pushes it later. An estimate, not advice. */}
@@ -217,22 +183,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
             min={0}
             step={0.5}
           />
-          <NumInput
-            label="401(k) contribution"
-            value={budget.retirementDeferralPct}
-            onChange={(retirementDeferralPct) => updateBudget({ retirementDeferralPct })}
-            suffix="%"
-            min={0}
-            step={1}
-          />
-          {deferralCrossing && (
-            <p className="hint">
-              At this rate your yearly 401(k) contribution tops the elective limit
-              ({formatDollars(deferralCrossing.limitCents)} in {deferralCrossing.year}).
-              Past the limit, contributions stop and the rest is paid as taxable income.
-              Estimate, not advice.
-            </p>
-          )}
         </details>
       </section>
 
@@ -251,17 +201,6 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           >
             <option value="proportional">Proportional to income</option>
             <option value="even">Split evenly</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field-label">Leftover cash</span>
-          <select
-            value={budget.surplusSwept ? "swept" : "idle"}
-            onChange={(e) => updateBudget({ surplusSwept: e.target.value === "swept" })}
-          >
-            <option value="idle">Keep in savings</option>
-            <option value="swept">Sweep to investments</option>
           </select>
         </label>
       </section>

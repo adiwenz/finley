@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents } from "@finley/engine";
+import { dollarsToCents, type BudgetLine } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import {
   DEFAULT_TEMPLATE_TOTAL_CENTS,
   defaultBudgetTemplate,
-  quickstartFromIncome,
+  redistributeToTiers,
+  toBudgetLines,
 } from "./budgetTemplate";
+
+/** Sum the literal monthly cents of a tier's lines. */
+const tierTotal = (lines: readonly BudgetLine[], category: string): number =>
+  lines
+    .filter((l) => l.category === category)
+    .reduce((s, l) => s + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0), 0);
 
 describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
   it("prepopulates a non-empty set of standing expense lines with stable ids", () => {
@@ -32,39 +39,51 @@ describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
   });
 });
 
-describe("quickstartFromIncome — the %-quickstart (§15, AC3)", () => {
-  it("splits monthly income 50/30/20 across needs/wants/savings", () => {
-    const income = dollarsToCents(5_000);
-    const lines = quickstartFromIncome(income);
-    const byCategory = Object.fromEntries(
-      lines.map((l) => [l.category, l.amountSource]),
-    );
-    expect((byCategory.needs as { monthlyCents: number }).monthlyCents).toBe(dollarsToCents(2_500));
-    expect((byCategory.wants as { monthlyCents: number }).monthlyCents).toBe(dollarsToCents(1_500));
-    expect((byCategory.savings as { monthlyCents: number }).monthlyCents).toBe(dollarsToCents(1_000));
+describe("redistributeToTiers — the non-destructive 50/30/20 quickstart (§15, AC3)", () => {
+  const income = dollarsToCents(5_000);
+
+  it("preserves the user's named lines — it rebalances, it does not replace", () => {
+    const before = toBudgetLines(defaultBudgetTemplate());
+    const after = redistributeToTiers(before, income);
+    // Every original line survives by id (Housing, Groceries, Dining, …).
+    for (const l of before) expect(after.some((a) => a.id === l.id)).toBe(true);
   });
 
-  it("keeps every quickstart line a literal expense line", () => {
-    const lines = quickstartFromIncome(dollarsToCents(4_000));
-    expect(lines.every((l) => l.amountSource.kind === "literal")).toBe(true);
-    expect(lines.every((l) => l.target.kind === "expense")).toBe(true);
+  it("rebalances each tier's existing lines to hit 50/30/20 of income", () => {
+    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income);
+    expect(tierTotal(after, "needs")).toBe(dollarsToCents(2_500));
+    expect(tierTotal(after, "wants")).toBe(dollarsToCents(1_500));
   });
 
-  it("stops the savings line at retirement — a retiree draws savings down, not up", () => {
-    const savings = quickstartFromIncome(dollarsToCents(5_000), 240).find(
-      (l) => l.id === "savings",
-    );
-    expect(savings?.span).toEqual({ endMonth: 240 });
+  it("preserves each line's share within its tier when scaling", () => {
+    // Two needs lines 3:1 → after scaling to $2,500 they stay 3:1 ($1,875 / $625).
+    const lines: BudgetLine[] = [
+      { id: "a", label: "A", target: { kind: "expense" }, amountSource: { kind: "literal", monthlyCents: dollarsToCents(1_500) }, category: "needs" },
+      { id: "b", label: "B", target: { kind: "expense" }, amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) }, category: "needs" },
+    ];
+    const after = redistributeToTiers(lines, income);
+    const amt = (id: string) => {
+      const s = after.find((l) => l.id === id)!.amountSource;
+      return s.kind === "literal" ? s.monthlyCents : 0;
+    };
+    expect(amt("a")).toBe(dollarsToCents(1_875));
+    expect(amt("b")).toBe(dollarsToCents(625));
   });
 
-  it("keeps needs and wants running past retirement — a retiree still eats", () => {
-    const lines = quickstartFromIncome(dollarsToCents(5_000), 240);
-    expect(lines.find((l) => l.id === "needs")?.span).toBeUndefined();
-    expect(lines.find((l) => l.id === "wants")?.span).toBeUndefined();
+  it("seeds a real savings CONTRIBUTION line for an empty savings tier", () => {
+    // The default template has no savings-tier line, so the 20% is seeded — and as a
+    // funded contribution into an account (not a vanishing expense).
+    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income, 240);
+    const savings = after.filter((l) => l.category === "savings");
+    expect(savings.length).toBe(1);
+    expect(savings[0].target.kind).toBe("account");
+    expect((savings[0].amountSource as { monthlyCents: number }).monthlyCents).toBe(dollarsToCents(1_000));
+    // Saving stops at the retirement month (a retiree draws down, not up).
+    expect(savings[0].span).toEqual({ endMonth: 240 });
   });
 
-  it("leaves the savings line open-ended when there is no retirement month", () => {
-    const savings = quickstartFromIncome(dollarsToCents(5_000)).find((l) => l.id === "savings");
-    expect(savings?.span).toBeUndefined();
+  it("leaves a seeded savings line open-ended when there is no retirement month", () => {
+    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income);
+    expect(after.find((l) => l.category === "savings")?.span).toBeUndefined();
   });
 });

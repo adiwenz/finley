@@ -15,8 +15,18 @@ import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
+import type { Person } from "./person";
 
-const primary = [{ id: "p1", name: "Alex" }];
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
+
+const primary = [personLit("p1", "Alex")];
 // Validation base for fixtures — includes a liquid account so DebtPayoff
 // fixtures (which require an account to draw from) pass. Used only to validate
 // fixture events; each test still snapshots/replays against its own base.
@@ -57,7 +67,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 36,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     expect(snapshotAt(ledger, 35, { initialPersons: primary }).persons.map((p) => p.id)).toEqual(["p1"]);
     // The month you marry shows you married.
@@ -70,7 +80,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 12,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     ledger = add(ledger, {
       id: "sep1",
@@ -102,33 +112,41 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     expect(snap.children[0].ageMonths).toBe(24);
   });
 
-  it("income from a job is active from its start and ends when replaced", () => {
+  it("income is active from its start and ends when replaced", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(36_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(3_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
+    });
+    // At month 24, end s1 and start s2 in its place.
+    ledger = add(ledger, {
+      id: "end1",
+      type: "BudgetItemEndEvent",
+      month: 24,
+      seriesId: "s1",
     });
     ledger = add(ledger, {
       id: "j2",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 24,
       seriesId: "s2",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
-      replacesSeriesId: "s1",
     });
-    // At month 12 the first job is the active income.
+    // At month 12 the first income series is active.
     const early = snapshotAt(ledger, 12, { initialPersons: primary });
     expect(early.income.map((s) => s.id)).toEqual(["s1"]);
-    expect(early.income[0].role).toBe("primaryIncome");
+    expect(early.income[0].role).toBe("budgetItem");
     // At month 24 the replacement is active; the old one ended at month 23.
     const later = snapshotAt(ledger, 24, { initialPersons: primary });
     expect(later.income.map((s) => s.id)).toEqual(["s2"]);
@@ -140,16 +158,17 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: { id: "p2", name: "Sam" },
+      person: personLit("p2", "Sam"),
     });
     ledger = add(ledger, {
       id: "j2",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       causedByEventId: "r1",
       seriesId: "s2",
       ownerId: "p2",
-      annualIncomeCents: dollarsToCents(48_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(4_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -227,11 +246,12 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 0,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "salaryCompound", annualRate: 0.1 },
       taxCategory: "wages",
     });
@@ -311,7 +331,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     };
     // Partner joins beyond the horizon — must not appear at the clamped month.
     const ledger = add(emptyLedger, {
-      id: "r1", type: "RelationshipEvent", month: 30, person: { id: "p2", name: "Sam" },
+      id: "r1", type: "RelationshipEvent", month: 30, person: personLit("p2", "Sam"),
     });
     const projection = replayLedger(ledger, base, nullJurisdiction);
     const household = interpretLedger(ledger, base);

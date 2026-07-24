@@ -58,3 +58,70 @@
   color: #3f7d5f;
   margin-top: 0.5rem;
 }
+
+/* Read-only income figure (income is authored in the Jobs panel, not here). */
+.readonlyValue {
+  grid-column: 2 / -1;
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+/* One-off (single-month) income change, disclosed under the read-only income row. */
+.oneOff {
+  margin-top: 0.5rem;
+}
+
+.oneOffForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--rule, #e3dcc6);
+  border-radius: 6px;
+}
+
+.oneOffActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Add/edit form for a budget line (name, category/target, amount). */
+.itemForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border: 1px dashed var(--rule, #e3dcc6);
+  border-radius: 6px;
+}
+
+.itemActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Per-row Edit/Delete controls on a budget line. */
+.rowActions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.rowActions button {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border-input, #cfc8b0);
+  background: var(--color-white, #fff);
+  cursor: pointer;
+}
+
+/* A contribution line's destination tag ("→ Brokerage"). */
+.target {
+  font-size: 0.75rem;
+  color: #3f7d5f;
+}

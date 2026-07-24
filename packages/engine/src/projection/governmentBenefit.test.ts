@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import { simulateHousehold, type HouseholdSimInput, type SimPerson } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 
 /** A liquid, non-compounding cash account — surplus idles here so net worth = Σ benefit deposits. */
 function cashAccount(): SimAccount {

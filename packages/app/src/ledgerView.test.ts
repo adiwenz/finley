@@ -9,13 +9,23 @@ import {
   type LedgerBaseConfig,
   type NewLifeEvent,
   type SnapshotSeries,
+  type Person,
 } from "@finley/engine";
 import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
+
+const personLit = (id: string, name: string): Person => ({
+  id,
+  name,
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+});
 
 const addBase: LedgerBaseConfig = {
   horizonMonths: 360,
   annualInflationRate: 0,
-  initialPersons: [{ id: "p1", name: "Alex" }],
+  initialPersons: [personLit("p1", "Alex")],
 };
 
 /** Build a ledger fixture, asserting each event passes validation. */
@@ -39,22 +49,6 @@ describe("summarizeEvent — one plain-language label per structural change", ()
     });
     expect(s.label).toBe("Had a child");
     expect(s.detail).toContain("Robin");
-  });
-
-  it("labels a job change with the monthly amount", () => {
-    const s = summarizeEvent({
-      id: "j1",
-      type: "JobChangeEvent",
-      month: 12,
-      sequenceNumber: 0,
-      seriesId: "s1",
-      ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
-    expect(s.label).toBe("Started a job");
-    expect(s.detail).toContain("5,000");
   });
 
   it("labels a separation", () => {
@@ -86,11 +80,12 @@ describe("timelineMarkers", () => {
     });
     ledger = add(ledger, {
       id: "j1",
-      type: "JobChangeEvent",
+      type: "BudgetItemStartEvent",
       month: 12,
       seriesId: "s1",
       ownerId: "p1",
-      annualIncomeCents: dollarsToCents(60_000),
+      seriesType: "income",
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });

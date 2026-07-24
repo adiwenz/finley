@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "./projectionRoot";
-import { samplePlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -22,7 +22,9 @@ import type { PersonId } from "./job";
 const P1 = "p1" as PersonId;
 
 function freshProjection(): Projection {
-  return Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR });
+  // Start from an empty job list so the ids these tests mint (and the roster lengths
+  // they assert) reflect only the jobs added under test, not the fixture's career job.
+  return Projection.create({ plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR });
 }
 
 const openEndedJob = {
@@ -285,10 +287,8 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
     const p = Projection.create({
       plan: {
         ...samplePlan,
-        incomeCents: dollarsToCents(3_000),
+        jobs: [salariedJob(dollarsToCents(3_000))],
         openingBalanceCents: 0,
-        retirementDeferralPct: 0,
-        surplusSwept: false,
         goals: [],
         healthMonthlyCents: 0,
         postCoverageHealthMonthlyCents: 0,
@@ -340,8 +340,6 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
       plan: {
         ...samplePlan,
         openingBalanceCents: dollarsToCents(2_000_000),
-        retirementDeferralPct: 0,
-        surplusSwept: false,
         goals: [],
         healthMonthlyCents: 0,
         postCoverageHealthMonthlyCents: 0,

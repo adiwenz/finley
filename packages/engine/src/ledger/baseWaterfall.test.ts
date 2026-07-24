@@ -9,8 +9,16 @@ import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import { nullJurisdiction } from "../jurisdiction";
+import type { Person } from "../person";
 
-const person = { id: "p1", name: "Alex" };
+const person: Person = {
+  id: "p1",
+  name: "Alex",
+  birthYear: 1990,
+  retirementTargetAge: 65,
+  benefitClaimingAge: 67,
+  jobs: [],
+};
 
 function monthly(cents: number): SimCashFlowSeries {
   return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, type SimPerson } from "./simulate";
+import { simulateHousehold } from "./simulate";
+import type { SimPerson } from "./simulate.types";
 import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
