@@ -27,6 +27,16 @@ import * as path from "path";
 
 const execPromise = promisify(exec);
 
+// Stream progress live on GitHub Actions. When stdout is a pipe rather than a
+// TTY (i.e. CI), Node writes it asynchronously and batches the writes, so our
+// summary lines don't surface until the process is about to exit — a 20-minute
+// run looks frozen, then dumps everything at the end. Forcing the handles into
+// blocking mode makes each console.log flush immediately. No-op on a dev
+// machine, where stdout is already a blocking TTY.
+for (const stream of [process.stdout, process.stderr] as any[]) {
+  stream?._handle?.setBlocking?.(true);
+}
+
 const planSchema = z.object({
   issues: z.array(
     z.object({

@@ -29,7 +29,7 @@ on:
         description: "Sandbox provider"
         type: choice
         options: [cloud, docker]
-        default: cloud
+        default: docker
   # Uncomment to also run on a schedule (UTC). Scheduled runs default to cloud.
   # schedule:
   #   - cron: "0 7 * * *"
@@ -124,4 +124,4 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run Sandcastle
-        run: npx tsx .sandcastle/new_flow/main.ts --sandbox "${{ inputs.sandbox || 'cloud' }}" --review push
+        run: npx tsx .sandcastle/new_flow/main.ts --sandbox "${{ inputs.sandbox || 'docker' }}" --review push
