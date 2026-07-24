@@ -118,15 +118,16 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
   });
 
-  it("graphs income separately from spending, and flags the retirement gap", () => {
+  it("graphs income by source, and flags the retirement gap as a savings drawdown", () => {
     // Income is not a budget line (§6/§17), so it gets its own graph above the budget.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("income-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(Object.values(firstRow).some((v) => v > 0)).toBe(true);
-    // Retires at 65, claims at 67 — so there is a stretch with no income at all.
-    expect(screen.getByTestId("income-summary").textContent).toMatch(/No income from Year/);
+    // Retires at 65, claims at 67 — that stretch is lived off savings, and the graph now
+    // names it a drawdown rather than showing a misleading flat zero (issue #99).
+    expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
   });
 
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {

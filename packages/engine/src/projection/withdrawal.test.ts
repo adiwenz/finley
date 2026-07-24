@@ -3,6 +3,7 @@ import {
   SimAccount,
   type SimAccountTaxProfile,
   CAPITAL_GAINS_TAX_PROFILE,
+  CASH_INTEREST_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
 } from "../simAccount";
@@ -338,7 +339,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     ];
     const st = state(accounts, { pretax: 10_000, taxexempt: 10_000, brokerage: 10_000 });
     // $5k need, no other income → the capital-gains brokerage is tapped first.
-    const sources = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(5_000), ctx);
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(5_000), ctx);
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(5_000)); // drawn
     expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000)); // untouched
     expect(st.assetBalances.get("taxexempt")).toBe(dollarsToCents(10_000)); // untouched
@@ -354,7 +355,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     ];
     const st = state(accounts, { pretax: 10_000, taxexempt: 10_000, brokerage: 10_000 });
     // Override: draw tax-exempt FIRST (e.g. a bequest strategy) — the opposite of the default.
-    const sources = buildWithdrawalSources(
+    const { sources } = buildWithdrawalSources(
       st,
       nullJurisdiction,
       1,
@@ -376,7 +377,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     const rmd: IncomeSourceMonth[] = [
       { ownerId: "p1", grossCents: dollarsToCents(3_000), taxCategory: "ordinaryIncome" },
     ];
-    const sources = buildWithdrawalSources(
+    const { sources } = buildWithdrawalSources(
       st,
       nullJurisdiction,
       1,
@@ -470,7 +471,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const benefit: IncomeSourceMonth[] = [
       { ownerId: "p1", grossCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
     ];
-    const sources = buildWithdrawalSources(
+    const { sources } = buildWithdrawalSources(
       st,
       provisionalTrap,
       1,
@@ -495,7 +496,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     };
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
     const st = state(accounts, { brokerage: 100_000 });
-    const sources = buildWithdrawalSources(st, flatGains, 1, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains, 1, [], dollarsToCents(2_000), ctx);
     const net = householdNetCents(sources, flatGains);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(2_000));
     // Gross ≈ 2000 / (1 − 0.20) = $2,500 leaves the brokerage.
@@ -527,7 +528,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
       { ownerId: "p1", grossCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
       { ownerId: "p1", grossCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
     ];
-    const sources = buildWithdrawalSources(
+    const { sources } = buildWithdrawalSources(
       st,
       cliff,
       1,
@@ -557,7 +558,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
       account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
     ];
     const st = state(accounts, { brokerage: 1_000, pretax: 100_000 });
-    const sources = buildWithdrawalSources(st, flat20, 1, [], dollarsToCents(10_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flat20, 1, [], dollarsToCents(10_000), ctx);
 
     // The brokerage is emptied, not overdrawn.
     expect(st.assetBalances.get("brokerage")).toBe(0);
@@ -584,7 +585,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     };
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
     const st = state(accounts, { brokerage: 500_000 });
-    const sources = buildWithdrawalSources(st, twoCliffs, 1, [], dollarsToCents(1_000), ctx);
+    const { sources } = buildWithdrawalSources(st, twoCliffs, 1, [], dollarsToCents(1_000), ctx);
     const net = householdNetCents(sources, twoCliffs);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(1_000));
     const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
@@ -662,7 +663,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // Balance == basis: every dollar is returned principal, nothing is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 100_000 });
-    const sources = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(2_000), ctx);
     // No gain → no tax → the draw is exactly the need, not grossed up.
     const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
@@ -675,7 +676,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // $100k balance on $60k basis → 40% of any draw is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 60_000 });
-    const sources = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(6_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(6_000), ctx);
     // gross g nets g − 0.2·(0.4·g) = 0.92·g = $6k → g ≈ $6,521.74, gain ≈ 40% of it.
     const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
     const gain = sources.reduce((s, x) => s + (x.taxableCents ?? x.grossCents), 0);
@@ -694,7 +695,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     };
     // No basis entry → basis 0 → the whole draw is the gain, taxed in full.
     const st = state(accounts, { pretax: 100_000 });
-    const sources = buildWithdrawalSources(st, flatOrdinary20, 1, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatOrdinary20, 1, [], dollarsToCents(2_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
     // Grossed up ~2000/(1−0.2) = $2,500 — the full-gross-taxable behavior is preserved.
     expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
@@ -706,14 +707,103 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // $100k balance / $50k basis → 50% gain fraction, no tax seam (isolate arithmetic).
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 50_000 });
-    const first = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
+    const { sources: first } = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
     // Drew $20k: $10k gain booked, $10k basis returned → $40k basis on $80k balance.
     expect(first[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(80_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(40_000));
     // The gain fraction held at 50% — a second $20k draw books another $10k of gain.
-    const second = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
+    const { sources: second } = buildWithdrawalSources(st, proRataNoTax, 1, [], dollarsToCents(20_000), ctx);
     expect(second[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(30_000));
+  });
+});
+
+describe("Liquid-buffer drawdown reporting (issue #99)", () => {
+  const ctx = { year: 2026 };
+
+  /** A state whose liquid cash account holds `cashDollars`, plus an investable brokerage. */
+  function stateWithCash(cashDollars: number, brokerageDollars: number): WithdrawalState {
+    const cash = account("cash", CASH_INTEREST_TAX_PROFILE, cashDollars, true);
+    const brokerage = account("brokerage", CAPITAL_GAINS_TAX_PROFILE, brokerageDollars);
+    const assetBalances = new Map<string, number>([
+      ["cash", dollarsToCents(cashDollars)],
+      ["brokerage", dollarsToCents(brokerageDollars)],
+    ]);
+    return {
+      accounts: [cash, brokerage],
+      assetBalances,
+      basisByAccount: new Map(),
+      liquidAccount: cash,
+      goals: [],
+    };
+  }
+
+  it("reports the whole gap as a drawdown, and sells nothing, when cash covers it", () => {
+    const st = stateWithCash(10_000, 100_000);
+    // $3k need, no other income; $10k cash buffer absorbs it all → no investment sold.
+    const { sources, liquidDrawdownCents } = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      1,
+      [],
+      dollarsToCents(3_000),
+      ctx,
+    );
+    expect(sources).toEqual([]);
+    expect(liquidDrawdownCents).toBe(dollarsToCents(3_000));
+    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(100_000)); // untouched
+  });
+
+  it("caps the drawdown at the buffer and sells investments for the rest", () => {
+    const st = stateWithCash(2_000, 100_000);
+    // $5k need; only $2k of cash → drawdown is the $2k buffer, the $3k rest is sold.
+    const { sources, liquidDrawdownCents } = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      1,
+      [],
+      dollarsToCents(5_000),
+      ctx,
+    );
+    expect(liquidDrawdownCents).toBe(dollarsToCents(2_000));
+    expect(sources).toHaveLength(1);
+    expect(sources[0].grossCents).toBe(dollarsToCents(3_000)); // no tax seam → one-for-one
+  });
+
+  it("reports no drawdown when income already covers the month", () => {
+    const st = stateWithCash(10_000, 100_000);
+    const { sources, liquidDrawdownCents } = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      1,
+      [{ ownerId: "p1", grossCents: dollarsToCents(4_000), taxCategory: "wages" }],
+      dollarsToCents(3_000), // obligations below the $4k income
+      ctx,
+    );
+    expect(sources).toEqual([]);
+    expect(liquidDrawdownCents).toBe(0);
+  });
+
+  it("names an investment draw by its account (issue #99)", () => {
+    const brokerage = new SimAccount({
+      id: "brokerage",
+      ownerId: "p1",
+      label: "Brokerage",
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: dollarsToCents(100_000),
+      initialAnnualRate: 0,
+    });
+    const st: WithdrawalState = {
+      accounts: [brokerage],
+      assetBalances: new Map([["brokerage", dollarsToCents(100_000)]]),
+      basisByAccount: new Map(),
+      liquidAccount: null,
+      goals: [],
+    };
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, 1, [], dollarsToCents(5_000), ctx);
+    expect(sources[0].sourceId).toBe("brokerage");
+    expect(sources[0].label).toBe("Brokerage");
   });
 });

@@ -1,79 +1,107 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData, describeIncomeGap } from "./incomeByCategory";
 
-/** A minimal series fixture: month 0 has no flows; later months carry income buckets. */
-function seriesOf(...byCategory: Record<string, number>[]): ProjectionSeries {
+/** A minimal series fixture: month 0 has no flows; later months carry income sources. */
+function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
-    ...byCategory.map((incomeByCategoryCents, i) => ({
+    ...perMonth.map((incomeSources, i) => ({
       month: i + 1,
-      flows: { incomeByCategoryCents },
+      flows: { incomeSources },
     })),
   ];
   return { months } as unknown as ProjectionSeries;
 }
 
+const source = (
+  sourceId: string,
+  grossCents: number,
+  category: ProjectionIncomeSource["category"],
+  label = sourceId,
+): ProjectionIncomeSource => ({ sourceId, label, category, grossCents });
+
 describe("buildIncomeChartData", () => {
-  it("emits one row per flowed month with income bucketed by category", () => {
+  it("emits one row per flowed month with income keyed by source", () => {
     const data = buildIncomeChartData(
-      seriesOf({ ordinaryIncome: dollarsToCents(5_000), taxExempt: dollarsToCents(200) }),
+      seriesOf([source("job:a", dollarsToCents(5_000), "wages", "Job A")]),
     );
     expect(data.rows).toHaveLength(1);
     expect(data.rows[0]!.month).toBe(1);
-    expect(data.rows[0]!.centsByCategory.ordinaryIncome).toBe(dollarsToCents(5_000));
-    expect(data.rows[0]!.totalCents).toBe(dollarsToCents(5_200));
+    expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000));
+    expect(data.rows[0]!.totalCents).toBe(dollarsToCents(5_000));
   });
 
-  it("drops categories that carry nothing across the whole horizon", () => {
-    // An empty band would show a legend entry for money the household never receives.
+  it("keeps two jobs in one tax bucket as distinct bands (the whole point of issue #99)", () => {
     const data = buildIncomeChartData(
-      seriesOf({ ordinaryIncome: dollarsToCents(5_000), capitalGains: 0 }),
+      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
+        source("job:b", dollarsToCents(2_000), "wages", "Job B"),
+      ]),
     );
-    expect(data.categories.map((c) => c.id)).toEqual(["ordinaryIncome"]);
+    expect(data.sources.map((s) => s.id)).toEqual(["job:a", "job:b"]);
+    expect(data.sources.map((s) => s.label)).toEqual(["Job A", "Job B"]);
   });
 
-  it("names each category for a human, and orders the benefit last", () => {
+  it("drops sources that carry nothing across the whole horizon", () => {
     const data = buildIncomeChartData(
-      seriesOf({
-        governmentRetirementBenefit: dollarsToCents(2_000),
-        ordinaryIncome: dollarsToCents(5_000),
-      }),
+      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
+        source("brokerage", 0, "capitalGains", "Brokerage"),
+      ]),
     );
-    expect(data.categories).toEqual([
-      { id: "ordinaryIncome", label: "Pre-tax withdrawals" },
-      { id: "governmentRetirementBenefit", label: "Government benefit" },
-    ]);
+    expect(data.sources.map((s) => s.id)).toEqual(["job:a"]);
   });
 
-  it("finds the retirement gap: the first month with no income at all", () => {
+  it("orders sources by provenance, benefit before the savings drawdown", () => {
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("savings-drawdown", dollarsToCents(1_000), "savingsDrawdown", "Savings drawdown"),
+        source("benefit:p1", dollarsToCents(2_000), "governmentRetirementBenefit", "Government benefit"),
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
+      ]),
+    );
+    expect(data.sources.map((s) => s.id)).toEqual(["job:a", "benefit:p1", "savings-drawdown"]);
+  });
+
+  it("finds the first savings-drawdown month — living off savings, not zero income", () => {
     const data = buildIncomeChartData(
       seriesOf(
-        { ordinaryIncome: dollarsToCents(5_000) },
-        {}, // retired, benefit not yet claimed
-        { governmentRetirementBenefit: dollarsToCents(2_000) },
+        [source("job:a", dollarsToCents(5_000), "wages", "Job A")],
+        [source("savings-drawdown", dollarsToCents(3_000), "savingsDrawdown", "Savings drawdown")],
+        [source("benefit:p1", dollarsToCents(2_000), "governmentRetirementBenefit", "Government benefit")],
       ),
     );
-    expect(data.firstMonthWithNoIncome).toBe(2);
+    expect(data.firstSavingsDrawdownMonth).toBe(2);
+    // A month with a drawdown band is NOT a no-income month.
+    expect(data.firstMonthWithNoIncome).toBeNull();
   });
 
-  it("reports no gap when income never stops", () => {
+  it("flags a genuine zero month only when nothing at all covers spending", () => {
     const data = buildIncomeChartData(
-      seriesOf({ ordinaryIncome: dollarsToCents(5_000) }, { ordinaryIncome: dollarsToCents(5_100) }),
+      seriesOf([source("job:a", dollarsToCents(5_000), "wages", "Job A")], []),
     );
-    expect(data.firstMonthWithNoIncome).toBeNull();
+    expect(data.firstMonthWithNoIncome).toBe(2);
+    expect(data.firstSavingsDrawdownMonth).toBeNull();
   });
 });
 
 describe("describeIncomeGap", () => {
-  it("returns null when income continues throughout", () => {
+  it("returns null when income runs continuously with no drawdown", () => {
     expect(
-      describeIncomeGap(buildIncomeChartData(seriesOf({ ordinaryIncome: dollarsToCents(5_000) }))),
+      describeIncomeGap(
+        buildIncomeChartData(seriesOf([source("job:a", dollarsToCents(5_000), "wages")])),
+      ),
     ).toBeNull();
   });
 
-  it("names the year income stops", () => {
-    const data = buildIncomeChartData(seriesOf({ ordinaryIncome: dollarsToCents(5_000) }, {}));
-    expect(describeIncomeGap(data)).toMatch(/No income from Year 1/);
+  it("names the year the household starts living off savings", () => {
+    const data = buildIncomeChartData(
+      seriesOf(
+        [source("job:a", dollarsToCents(5_000), "wages")],
+        [source("savings-drawdown", dollarsToCents(3_000), "savingsDrawdown", "Savings drawdown")],
+      ),
+    );
+    expect(describeIncomeGap(data)).toMatch(/living off savings/i);
   });
 });

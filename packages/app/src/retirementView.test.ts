@@ -326,7 +326,7 @@ describe("every draw nets its need under the real jurisdiction (#100)", () => {
     };
     const need = dollarsToCents(needDollars);
     const ctx: JurisdictionContext = { year: START_YEAR };
-    const sources = buildWithdrawalSources(state, usJurisdiction, 1, [], need, ctx);
+    const { sources } = buildWithdrawalSources(state, usJurisdiction, 1, [], need, ctx);
 
     // Re-file the draws as a tax return and check what the household actually keeps.
     const byCategory: Record<string, number> = {};

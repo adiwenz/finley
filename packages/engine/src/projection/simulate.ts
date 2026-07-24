@@ -48,6 +48,8 @@ export type {
   SimOwnedSeries,
   ProjectionMonth,
   ProjectionMonthFlows,
+  ProjectionIncomeSource,
+  IncomeSourceCategory,
   ProjectionSeries,
   SimProperty,
 } from "./simulate.types";
@@ -334,6 +336,11 @@ function buildIncomeSources(
       grossCents,
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       planDescriptor: s.planDescriptor,
+      // Report each income series as its own source (issue #99), so two jobs read apart
+      // rather than collapsing into one `wages` band. Fall back to the owner when a
+      // series carries no id (positional labelling is the reporting layer's job).
+      sourceId: s.sourceId ?? `income:${s.ownerId}`,
+      label: s.label ?? "Income",
     });
   }
   return sources;
@@ -632,7 +639,16 @@ function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   }
   const sources: IncomeSourceMonth[] = [];
   for (const { ownerId, category, cents } of byOwnerCategory.values()) {
-    sources.push({ ownerId, grossCents: 0, taxCategory: category, taxableCents: cents });
+    // Zero-gross (the cash is already in the balance) — reported under a stable id so
+    // the flow view can key it, though it carries no cash to band (issue #99).
+    sources.push({
+      ownerId,
+      grossCents: 0,
+      taxCategory: category,
+      taxableCents: cents,
+      sourceId: `interest:${ownerId}:${category}`,
+      label: "Interest",
+    });
   }
   return sources;
 }
@@ -889,17 +905,15 @@ export function simulateHousehold(
       // as RMD/benefit — so the shortfall is funded by selling assets (taxed once at the
       // chokepoint) instead of landing on the synthetic credit card. RMD income is
       // already counted here, so the desired draw never double-withdraws (#32).
-      const incomeSources = [
-        ...nonWithdrawalSources,
-        ...buildWithdrawalSources(
-          state,
-          jurisdiction,
-          month,
-          nonWithdrawalSources,
-          expenseCents + totalPaymentsCents,
-          ctx,
-        ),
-      ];
+      const withdrawal = buildWithdrawalSources(
+        state,
+        jurisdiction,
+        month,
+        nonWithdrawalSources,
+        expenseCents + totalPaymentsCents,
+        ctx,
+      );
+      const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
       const { taxCents, contributions } = allocateMonth(
         state,
@@ -929,6 +943,9 @@ export function simulateHousehold(
         expenseCents,
         totalPaymentsCents,
         lineMonthlyCents,
+        // The liquid-buffer drawdown the withdrawal channel measured — reported as a
+        // `savingsDrawdown` source so a month lived on savings isn't a zero-income band (#99).
+        withdrawal.liquidDrawdownCents,
       );
     }
 

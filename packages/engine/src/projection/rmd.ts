@@ -82,7 +82,15 @@ export function buildRmdSources(
       remaining -= take;
     }
 
-    sources.push({ ownerId: person.id, grossCents: required, taxCategory: "ordinaryIncome" });
+    sources.push({
+      ownerId: person.id,
+      grossCents: required,
+      taxCategory: "ordinaryIncome",
+      // Reported as its own source (issue #99) — a forced distribution reads apart from
+      // an elective pre-tax draw even though both are `ordinaryIncome`.
+      sourceId: `rmd:${person.id}`,
+      label: "Required distribution",
+    });
   }
 
   return sources;

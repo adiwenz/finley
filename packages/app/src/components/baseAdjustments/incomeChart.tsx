@@ -27,10 +27,18 @@ import { describeIncomeGap, type IncomeChartData } from "./incomeByCategory";
  */
 
 // Cooler than the budget's earth tones, so the two charts read as different quantities.
-const CATEGORY_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd", "#3f7d5f"];
+const SOURCE_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd", "#3f7d5f"];
+// The savings drawdown is not income — a muted, distinct tone sets it apart from the
+// real source bands above it (issue #99).
+const SAVINGS_DRAWDOWN_COLOR = "#b08968";
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
+
+const colorFor = (category: string, index: number): string =>
+  category === "savingsDrawdown"
+    ? SAVINGS_DRAWDOWN_COLOR
+    : SOURCE_COLORS[index % SOURCE_COLORS.length];
 
 export interface IncomeChartProps {
   readonly data: IncomeChartData;
@@ -42,7 +50,7 @@ export interface IncomeChartProps {
 
 export function IncomeChart({ data, selectedMonth, onSelectMonth }: IncomeChartProps) {
   const summary = describeIncomeGap(data);
-  const rows = data.rows.map((r) => ({ month: r.month, ...r.centsByCategory }));
+  const rows = data.rows.map((r) => ({ month: r.month, ...r.centsBySource }));
   const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
 
   return (
@@ -59,9 +67,9 @@ export function IncomeChart({ data, selectedMonth, onSelectMonth }: IncomeChartP
       <p className="hint" data-testid="income-summary">
         {summary ?? "Income continues across the whole horizon."}
       </p>
-      {/* Hidden data mirror for tests / screen readers: first row's income per category. */}
+      {/* Hidden data mirror for tests / screen readers: first row's income per source. */}
       <output data-testid="income-first-row" hidden>
-        {JSON.stringify(data.rows[0]?.centsByCategory ?? {})}
+        {JSON.stringify(data.rows[0]?.centsBySource ?? {})}
       </output>
 
       <ResponsiveContainer width="100%" height={180}>
@@ -96,15 +104,15 @@ export function IncomeChart({ data, selectedMonth, onSelectMonth }: IncomeChartP
             contentStyle={{ fontSize: 12 }}
           />
           <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
-          {data.categories.map((category, i) => (
+          {data.sources.map((source, i) => (
             <Area
-              key={category.id}
+              key={source.id}
               type="monotone"
-              dataKey={category.id}
-              name={category.label}
+              dataKey={source.id}
+              name={source.label}
               stackId="income"
-              stroke={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
-              fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+              stroke={colorFor(source.category, i)}
+              fill={colorFor(source.category, i)}
               fillOpacity={0.6}
               isAnimationActive={false}
             />

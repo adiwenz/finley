@@ -52,6 +52,12 @@ export interface HouseholdSeries {
    */
   readonly label?: string;
   /**
+   * Stable per-source id carried over from the base series (issue #99) — a job's id, so
+   * per-source income reporting can name *which* job a paycheck came from. Diagnostic
+   * only; nothing in the interpretation or simulation reads it.
+   */
+  readonly sourceId?: string;
+  /**
    * Retirement-plan descriptor (§5.5) for an income series funding a person-owned
    * account. Presence makes the source eligible for pre-tax deferral in the §5.0
    * waterfall. Only meaningful on income series; absent otherwise.

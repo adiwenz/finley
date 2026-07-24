@@ -160,6 +160,9 @@ export function buildGovernmentBenefitSources(
       ownerId: person.id,
       grossCents: paid,
       taxCategory: "governmentRetirementBenefit",
+      // Reported per person (issue #99), so a two-earner household shows each benefit.
+      sourceId: `benefit:${person.id}`,
+      label: "Government benefit",
     });
   }
   return sources;

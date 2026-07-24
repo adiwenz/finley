@@ -38,6 +38,7 @@ export function buildHouseholdSimInput(
         series: s.series,
         ownerId: s.ownerId,
         label: s.label,
+        ...(s.sourceId !== undefined ? { sourceId: s.sourceId } : {}),
         planDescriptor: s.planDescriptor,
       });
     } else {

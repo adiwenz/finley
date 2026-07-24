@@ -1,6 +1,7 @@
 /**
  * Monthly income graph data — the income-side companion to {@link
- * import("./perLineBudget")} ("Base + Adjustments", issue #71).
+ * import("./perLineBudget")} ("Base + Adjustments", issue #71), reporting income
+ * **by source** (issue #99).
  *
  * Income is deliberately NOT a budget line: spending is authored as `Plan.budgetLines`,
  * while income rides jobs and passive streams (§6/§17). So it gets its own graph rather
@@ -8,103 +9,114 @@
  * retirement legible: earnings stop at the last paycheck, there is a gap until the
  * claiming age, and the government benefit picks up from there.
  *
- * Bands are the engine's {@link TaxCategory} buckets, because that is the breakdown
- * `ProjectionMonthFlows` actually reports. Earned income is tagged `wages`, so a
- * paycheck reads apart from a pre-tax account draw (`ordinaryIncome`) — but the buckets
- * are still a tax classification, not a source list: two jobs share one band, and every
- * pre-tax account shares another. A true per-source breakdown needs the engine to
- * report income by source; see the issue linked from #71.
+ * Bands are the engine's per-source flows (`ProjectionMonthFlows.incomeSources`), not
+ * tax-category buckets, so each band names its own source: *which* job pays, *which*
+ * account a decumulation draw drains. The previous version banded by {@link
+ * import("@finley/engine").ProjectionMonthFlows.incomeByCategoryCents} — a tax
+ * classification — which forced hedged labels ("Pre-tax withdrawals" covered every
+ * pre-tax account) and collapsed two jobs into one band; issue #99 replaced that.
  *
- * A second limitation is invisible here by construction: while the liquid savings
- * account still covers the gap, the §5.1 cascade charges spending straight against it
- * and no withdrawal source is created — so a household living off its savings shows
- * ZERO income, not a drawdown band.
+ * It also surfaces the **savings drawdown**: while cash savings cover the retirement
+ * gap the engine reports a `savingsDrawdown` source rather than nothing, so "living off
+ * savings" reads as its own band instead of a misleading flat zero.
  *
  * Pure: the app passes the series in and this derives the chart shape, with no charting
  * library dependency (so it is unit-testable in node).
  */
 
-import type { ProjectionSeries } from "@finley/engine";
+import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
 
-/** One income band on the chart: a tax-category bucket and how to name it. */
-export interface IncomeCategory {
+/** One income band on the chart: a source, how to name it, and its provenance. */
+export interface IncomeSourceBand {
+  /** The engine's stable `sourceId` — the band's identity across months. */
   readonly id: string;
   readonly label: string;
+  /** Provenance category, driving band colour and display order. */
+  readonly category: IncomeSourceCategory;
 }
 
 /** One month's income row for the chart. */
 export interface IncomeMonthRow {
   readonly month: number;
-  /** Gross income this month, keyed by tax category. */
-  readonly centsByCategory: Readonly<Record<string, number>>;
+  /** Gross cash this month, keyed by source id. */
+  readonly centsBySource: Readonly<Record<string, number>>;
   readonly totalCents: number;
 }
 
 export interface IncomeChartData {
   readonly rows: readonly IncomeMonthRow[];
-  /** Only the categories that actually carry money somewhere, in display order. */
-  readonly categories: readonly IncomeCategory[];
-  /** First month with no income at all, or `null` if income never stops. */
+  /** Only the sources that actually carry money somewhere, in display order. */
+  readonly sources: readonly IncomeSourceBand[];
+  /**
+   * First month with no income AND no savings drawdown — a genuine nothing, which under
+   * a solvent plan should not happen (the gap is now a drawdown band). `null` otherwise.
+   */
   readonly firstMonthWithNoIncome: number | null;
+  /** First month funded by drawing down cash savings, or `null` if that never happens. */
+  readonly firstSavingsDrawdownMonth: number | null;
 }
 
 /**
- * Human labels for the engine's tax categories. `ordinaryIncome` is named for what it
- * actually contains rather than what it is usually made of — see the module note.
+ * Stable display order by provenance category: earned income, then withdrawals by tax
+ * friction, then the government benefit, and the savings drawdown last (it is not income,
+ * so it reads beneath the real sources). Anything unrecognised sorts to the very end.
  */
-const CATEGORY_LABELS: Record<string, string> = {
-  wages: "Earned income",
-  ordinaryIncome: "Pre-tax withdrawals",
-  capitalGains: "Investment withdrawals",
-  taxExempt: "Tax-exempt withdrawals",
-  governmentRetirementBenefit: "Government benefit",
-};
-
-/** Stable display order; anything unrecognised sorts to the end, alphabetically. */
-const CATEGORY_ORDER = [
+const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
   "governmentRetirementBenefit",
+  "savingsDrawdown",
 ];
+
+function categoryRank(category: string): number {
+  const i = CATEGORY_ORDER.indexOf(category as IncomeSourceCategory);
+  return i === -1 ? CATEGORY_ORDER.length : i;
+}
 
 /**
  * Build the income chart data from a projection series. One row per *flowed* month
- * (month 0 is the flow-free opening snapshot, §4.6, so it is skipped). Categories that
- * are zero across the whole horizon are dropped, so a plan with no benefit or no
- * capital gains does not carry empty bands and an unexplained legend entry.
+ * (month 0 is the flow-free opening snapshot, §4.6, so it is skipped). Sources that
+ * carry nothing across the whole horizon are dropped, so a plan with no benefit or no
+ * drawdown does not carry an empty band and an unexplained legend entry.
  */
 export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData {
   const rows: IncomeMonthRow[] = [];
-  const seen = new Set<string>();
+  // First-seen label/category per source id, and whether it ever carried money.
+  const seen = new Map<string, IncomeSourceBand>();
+  const order: string[] = [];
   let firstMonthWithNoIncome: number | null = null;
+  let firstSavingsDrawdownMonth: number | null = null;
 
   for (const m of series.months) {
-    const byCategory = m.flows?.incomeByCategoryCents;
-    if (byCategory === undefined) continue; // month 0 / any flow-free snapshot
+    const sources = m.flows?.incomeSources;
+    if (sources === undefined) continue; // month 0 / any flow-free snapshot
 
+    const centsBySource: Record<string, number> = {};
     let totalCents = 0;
-    for (const [category, cents] of Object.entries(byCategory)) {
-      if (cents !== 0) seen.add(category);
-      totalCents += cents;
+    for (const s of sources) {
+      if (s.grossCents === 0) continue;
+      centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.grossCents;
+      totalCents += s.grossCents;
+      if (!seen.has(s.sourceId)) {
+        seen.set(s.sourceId, { id: s.sourceId, label: s.label, category: s.category });
+        order.push(s.sourceId);
+      }
+      if (s.category === "savingsDrawdown" && firstSavingsDrawdownMonth === null) {
+        firstSavingsDrawdownMonth = m.month;
+      }
     }
     if (totalCents === 0 && firstMonthWithNoIncome === null) firstMonthWithNoIncome = m.month;
-    rows.push({ month: m.month, centsByCategory: byCategory, totalCents });
+    rows.push({ month: m.month, centsBySource, totalCents });
   }
 
-  const categories = [...seen]
-    .sort((a, b) => {
-      const ia = CATEGORY_ORDER.indexOf(a);
-      const ib = CATEGORY_ORDER.indexOf(b);
-      if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
-    })
-    .map((id) => ({ id, label: CATEGORY_LABELS[id] ?? id }));
+  const sources = order
+    .map((id) => seen.get(id)!)
+    // Sort by category order, ties broken by first-appearance (already in `order`).
+    .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
 
-  return { rows, categories, firstMonthWithNoIncome };
+  return { rows, sources, firstMonthWithNoIncome, firstSavingsDrawdownMonth };
 }
 
 /** Year (1-based) of an absolute month, for a human-facing "Year N" label. */
@@ -113,14 +125,23 @@ function yearOf(month: number): number {
 }
 
 /**
- * A one-line summary for the a11y label / status line, or `null` when income never
- * stops. Names the first month with no income at all — the retirement gap between the
- * last paycheck and the first benefit, which is the thing worth pointing at.
+ * A one-line summary for the a11y label / status line, or `null` when income runs
+ * continuously with no savings drawdown. Names the retirement gap for what it actually
+ * is — a stretch lived off savings, drawn as its own band — rather than the old,
+ * misleading "no income" framing (issue #99).
  */
 export function describeIncomeGap(data: IncomeChartData): string | null {
-  if (data.firstMonthWithNoIncome === null) return null;
-  return (
-    `No income from Year ${yearOf(data.firstMonthWithNoIncome)} — savings cover spending directly ` +
-    `until the next source starts, which is why nothing is drawn here.`
-  );
+  if (data.firstSavingsDrawdownMonth !== null) {
+    return (
+      `From Year ${yearOf(data.firstSavingsDrawdownMonth)} you're living off savings — ` +
+      `the drawdown band is spending covered by cash, not income.`
+    );
+  }
+  if (data.firstMonthWithNoIncome !== null) {
+    return (
+      `No income and no savings left from Year ${yearOf(data.firstMonthWithNoIncome)} — ` +
+      `nothing is covering spending here.`
+    );
+  }
+  return null;
 }

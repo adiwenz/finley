@@ -142,6 +142,9 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
     // A household can hold several jobs, so name each by its own id rather than
     // letting a report fall back to positional numbering.
     label: `Income · ${job.id}`,
+    // Per-source income reporting (issue #99) keys each job's band by this stable id, so
+    // two jobs read apart on the income graph and one ending is legible as that job.
+    sourceId: `job:${job.id}`,
     planDescriptor: job.deferral
       ? {
           deferralFraction: job.deferral.deferralFraction,
