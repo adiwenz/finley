@@ -18,6 +18,26 @@ const EXPENSE_CATEGORIES: readonly { value: BudgetCategory; label: string }[] = 
   { value: "savings", label: "Savings" },
 ];
 
+const defaultAccountId = (): string => contributionTargets[0]?.accountId ?? "brokerage";
+
+/**
+ * The form's live state, a discriminated union on `kind` — the same shape the draft it
+ * submits has. `label`/`dollars` are shared; the kind-specific field (an expense's tier vs.
+ * a contribution's target account) lives ONLY on its own arm, so the in-progress form can
+ * never represent an impossible combination (an expense with an account, a contribution
+ * with a "wants" tier). Switching kind rebuilds the arm, keeping the shared fields.
+ */
+type FormState =
+  | { readonly kind: "expense"; readonly label: string; readonly dollars: number; readonly category: BudgetCategory }
+  | { readonly kind: "contribution"; readonly label: string; readonly dollars: number; readonly accountId: string };
+
+function initialState(initial: BudgetLineDraft): FormState {
+  const dollars = Math.round(initial.monthlyCents / 100);
+  return initial.kind === "contribution"
+    ? { kind: "contribution", label: initial.label, dollars, accountId: initial.accountId }
+    : { kind: "expense", label: initial.label, dollars, category: initial.category };
+}
+
 interface BudgetLineFormProps {
   readonly initial: BudgetLineDraft;
   readonly submitLabel: string;
@@ -26,23 +46,35 @@ interface BudgetLineFormProps {
 }
 
 export function BudgetLineForm({ initial, submitLabel, onSubmit, onCancel }: BudgetLineFormProps) {
-  const [label, setLabel] = useState(initial.label);
-  const [kind, setKind] = useState<BudgetLineDraft["kind"]>(initial.kind);
-  const [category, setCategory] = useState<BudgetCategory>(initial.category);
-  const [dollars, setDollars] = useState(Math.round(initial.monthlyCents / 100));
-  const [accountId, setAccountId] = useState(
-    initial.accountId ?? contributionTargets[0]?.accountId,
-  );
+  const [state, setState] = useState<FormState>(() => initialState(initial));
+
+  const setLabel = (label: string) => setState((s) => ({ ...s, label }));
+  const setDollars = (dollars: number) => setState((s) => ({ ...s, dollars }));
+  const setCategory = (category: BudgetCategory) =>
+    setState((s) => (s.kind === "expense" ? { ...s, category } : s));
+  const setAccountId = (accountId: string) =>
+    setState((s) => (s.kind === "contribution" ? { ...s, accountId } : s));
+
+  // Switching kind can't just flip a flag — the union carries different fields per arm, so
+  // rebuild the arm with a valid default for its own field, preserving name and amount.
+  function setKind(kind: "expense" | "contribution") {
+    setState((s) =>
+      s.kind === kind
+        ? s
+        : kind === "contribution"
+          ? { kind: "contribution", label: s.label, dollars: s.dollars, accountId: defaultAccountId() }
+          : { kind: "expense", label: s.label, dollars: s.dollars, category: "needs" },
+    );
+  }
 
   function submit() {
-    onSubmit({
-      label: label.trim(),
-      // A contribution is inherently a savings-tier line; an expense keeps its tier.
-      category: kind === "contribution" ? "savings" : category,
-      monthlyCents: Math.round(dollars * 100),
-      kind,
-      accountId: kind === "contribution" ? accountId : undefined,
-    });
+    const label = state.label.trim();
+    const monthlyCents = Math.round(state.dollars * 100);
+    onSubmit(
+      state.kind === "contribution"
+        ? { kind: "contribution", label, monthlyCents, accountId: state.accountId }
+        : { kind: "expense", label, monthlyCents, category: state.category },
+    );
   }
 
   return (
@@ -56,27 +88,27 @@ export function BudgetLineForm({ initial, submitLabel, onSubmit, onCancel }: Bud
     >
       <label className="field">
         <span className="field-label">Name</span>
-        <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <input type="text" value={state.label} onChange={(e) => setLabel(e.target.value)} />
       </label>
 
       <label className="field">
         <span className="field-label">Type</span>
         <select
           aria-label="Item type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as BudgetLineDraft["kind"])}
+          value={state.kind}
+          onChange={(e) => setKind(e.target.value as FormState["kind"])}
         >
           <option value="expense">Expense</option>
           <option value="contribution">Contribution (into an account)</option>
         </select>
       </label>
 
-      {kind === "expense" ? (
+      {state.kind === "expense" ? (
         <label className="field">
           <span className="field-label">Category</span>
           <select
             aria-label="Category"
-            value={category}
+            value={state.category}
             onChange={(e) => setCategory(e.target.value as BudgetCategory)}
           >
             {EXPENSE_CATEGORIES.map((c) => (
@@ -91,7 +123,7 @@ export function BudgetLineForm({ initial, submitLabel, onSubmit, onCancel }: Bud
           <span className="field-label">Into account</span>
           <select
             aria-label="Into account"
-            value={accountId}
+            value={state.accountId}
             onChange={(e) => setAccountId(e.target.value)}
           >
             {contributionTargets.map((t) => (
@@ -105,7 +137,7 @@ export function BudgetLineForm({ initial, submitLabel, onSubmit, onCancel }: Bud
 
       {/* step=1: a monthly amount is free-form dollars — a larger spinner step (50) would
           make the browser reject an off-step value like $120 on submit (HTML5 validity). */}
-      <NumInput label="Monthly amount" value={dollars} onChange={setDollars} prefix="$" step={1} min={0} />
+      <NumInput label="Monthly amount" value={state.dollars} onChange={setDollars} prefix="$" step={1} min={0} />
 
       <div className={styles.itemActions}>
         <button type="submit" className="btn primary">
