@@ -339,7 +339,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
   });
 });
 
-describe("OneOffIncomeEditor — draft state (single nullable draft)", () => {
+describe("PayChangeEditor — draft state (single nullable draft)", () => {
   const kindSelect = () => screen.getByLabelText("Pay change kind") as HTMLSelectElement;
   const amountValue = () => Number(spin(/Amount/).value);
   const cancel = () => fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));

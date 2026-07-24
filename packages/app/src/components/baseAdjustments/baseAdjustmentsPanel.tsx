@@ -49,7 +49,7 @@ import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { redistributeToTiers } from "./budgetTemplate";
 import { BudgetLineForm } from "./budgetLineForm";
-import { OneOffIncomeEditor } from "./oneOffIncomeEditor";
+import { PayChangeEditor } from "./payChangeEditor";
 import {
   addLineFromDraft,
   blankLineDraft,
@@ -217,7 +217,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   const incomeAtMonth = projected.incomeByMonth[incomeMonth] ?? 0;
 
   // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
-  // The form and its transient state live in {@link OneOffIncomeEditor}; the panel keeps
+  // The form and its transient state live in {@link PayChangeEditor}; the panel keeps
   // only plan mutation, so the child never touches `Plan` or `setBudget`.
   const jobs = primaryJobs(plan);
 
@@ -334,7 +334,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
             and PERMANENT changes from this month forward (a {@link JobPayChange}). All taxed
             as wages through the job's series (§6/§10.3/§20). The form owns its own transient
             state; the panel keeps only plan mutation. */}
-        <OneOffIncomeEditor
+        <PayChangeEditor
           jobs={jobs}
           incomeMonth={incomeMonth}
           onApplyOverride={(jobId, override) => setBudget((p) => addIncomeOverride(p, jobId, override))}

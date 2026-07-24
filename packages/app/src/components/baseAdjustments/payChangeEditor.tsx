@@ -43,7 +43,7 @@ const isPermanentChange = (kind: PayChangeKind): kind is "setOngoing" | "changeO
  * of this: it is the result of the LAST applied change, so it outlives the form it came
  * from and would be wrong to reset every time the draft's fields move.
  */
-interface OneOffDraft {
+interface PayChangeDraft {
   readonly kind: PayChangeKind;
   readonly dollars: number;
   /** The explicitly picked job, or `null` to fall back to the first job. */
@@ -51,9 +51,9 @@ interface OneOffDraft {
 }
 
 /** The draft a freshly opened form starts from: a bonus, no amount, no explicit job pick. */
-const freshDraft = (): OneOffDraft => ({ kind: "addBonus", dollars: 0, jobId: null });
+const freshDraft = (): PayChangeDraft => ({ kind: "addBonus", dollars: 0, jobId: null });
 
-export interface OneOffIncomeEditorProps {
+export interface PayChangeEditorProps {
   readonly jobs: readonly Job[];
   /** The month the change is applied at (the panel's selected month, floored to a paying month). */
   readonly incomeMonth: number;
@@ -63,14 +63,14 @@ export interface OneOffIncomeEditorProps {
   readonly onApplyPayChange: (jobId: string, payChange: JobPayChange) => void;
 }
 
-export function OneOffIncomeEditor({
+export function PayChangeEditor({
   jobs,
   incomeMonth,
   onApplyOverride,
   onApplyPayChange,
-}: OneOffIncomeEditorProps) {
+}: PayChangeEditorProps) {
   /** The open form's contents, or `null` when the form is closed. */
-  const [draft, setDraft] = useState<OneOffDraft | null>(null);
+  const [draft, setDraft] = useState<PayChangeDraft | null>(null);
   /** A short confirmation of the last pay change applied, echoed like the spending route. */
   const [note, setNote] = useState<string | null>(null);
 
