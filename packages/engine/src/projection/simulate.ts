@@ -368,7 +368,11 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): { taxCents: Cents; contributions: readonly { accountId: string; monthlyCents: Cents }[] } {
+): {
+  taxCents: Cents;
+  taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
+  contributions: readonly { accountId: string; monthlyCents: Cents }[];
+} {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -409,6 +413,11 @@ function allocateMonth(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
+    // Optional per-category breakdown (§5.3, #110): only wired when the jurisdiction
+    // supplies it, so a jurisdiction that declines yields no breakdown (single band).
+    computeTaxByCategoryCents: jurisdiction.computeTaxByCategoryCents
+      ? (taxableByCategory) => jurisdiction.computeTaxByCategoryCents!(taxableByCategory, ctx)
+      : undefined,
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
       const birthYear = state.personsById.get(pid)?.birthYear;
@@ -443,7 +452,7 @@ function allocateMonth(
 
   // Return the resolved contributions so the caller can unwind any unfundable slice once
   // the §5.1 cascade has decided how much of the month's shortfall genuinely couldn't be met.
-  return { taxCents: result.taxCents, contributions };
+  return { taxCents: result.taxCents, taxByCategoryCents: result.taxByCategoryCents, contributions };
 }
 
 /**
@@ -886,7 +895,7 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
-      const { taxCents, contributions } = allocateMonth(
+      const { taxCents, taxByCategoryCents, contributions } = allocateMonth(
         state,
         incomeSources,
         ctx,
@@ -920,6 +929,9 @@ export function simulateHousehold(
         // The liquid-buffer drawdown the withdrawal channel measured — reported as a
         // `savingsDrawdown` source so a month lived on savings isn't a zero-income band (#99).
         withdrawal.liquidDrawdownCents,
+        // The per-category tax breakdown (§5.3, #110), undefined when the jurisdiction
+        // declines it — the app then draws one band, as before.
+        taxByCategoryCents,
       );
     }
 

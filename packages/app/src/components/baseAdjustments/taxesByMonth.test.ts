@@ -11,6 +11,23 @@ function seriesOf(...taxCents: number[]): ProjectionSeries {
   return { months } as unknown as ProjectionSeries;
 }
 
+/** A fixture whose flowed months carry a per-category tax breakdown (issue #110). */
+function seriesWithBreakdown(
+  ...breakdowns: Readonly<Record<string, number>>[]
+): ProjectionSeries {
+  const months = [
+    { month: 0 },
+    ...breakdowns.map((byCategory, i) => ({
+      month: i + 1,
+      flows: {
+        taxCents: Object.values(byCategory).reduce((s, c) => s + c, 0),
+        taxByCategoryCents: byCategory,
+      },
+    })),
+  ];
+  return { months } as unknown as ProjectionSeries;
+}
+
 describe("buildTaxChartData", () => {
   it("emits one row per flowed month, skipping the flow-free month 0", () => {
     const data = buildTaxChartData(seriesOf(dollarsToCents(300), dollarsToCents(420)));
@@ -42,6 +59,60 @@ describe("buildTaxChartData", () => {
     const data = buildTaxChartData(seriesOf(0, 0));
     expect(data.hasAnyTax).toBe(false);
     expect(data.totalCents).toBe(0);
+  });
+});
+
+describe("buildTaxChartData — per-category stacking (issue #110)", () => {
+  it("has no category breakdown when the engine reports only a total (single band)", () => {
+    const data = buildTaxChartData(seriesOf(dollarsToCents(300), dollarsToCents(420)));
+    expect(data.hasCategoryBreakdown).toBe(false);
+    expect(data.categories).toEqual([]);
+  });
+
+  it("exposes the union of tax categories in stable stacking order", () => {
+    const data = buildTaxChartData(
+      seriesWithBreakdown(
+        { wages: dollarsToCents(200), capitalGains: dollarsToCents(50) },
+        { wages: dollarsToCents(180), governmentRetirementBenefit: dollarsToCents(40) },
+      ),
+    );
+    expect(data.hasCategoryBreakdown).toBe(true);
+    // Wages first, then the benefit, then gains — the documented order.
+    expect(data.categories.map((c) => c.category)).toEqual([
+      "wages",
+      "governmentRetirementBenefit",
+      "capitalGains",
+    ]);
+  });
+
+  it("keeps each month's per-category cents, and the bands sum to the month total", () => {
+    const data = buildTaxChartData(
+      seriesWithBreakdown({ wages: dollarsToCents(200), capitalGains: dollarsToCents(50) }),
+    );
+    const row = data.rows[0]!;
+    expect(row.centsByCategory.wages).toBe(dollarsToCents(200));
+    expect(row.centsByCategory.capitalGains).toBe(dollarsToCents(50));
+    const banded = Object.values(row.centsByCategory).reduce((s, c) => s + c, 0);
+    expect(banded).toBe(row.taxCents);
+  });
+
+  it("drops a category that carries no tax anywhere (no empty legend band)", () => {
+    const data = buildTaxChartData(
+      seriesWithBreakdown({ wages: dollarsToCents(200), capitalGains: 0 }),
+    );
+    expect(data.categories.map((c) => c.category)).toEqual(["wages"]);
+  });
+
+  it("still totals and peaks correctly off the breakdown months", () => {
+    const data = buildTaxChartData(
+      seriesWithBreakdown(
+        { wages: dollarsToCents(300) },
+        { wages: dollarsToCents(500), capitalGains: dollarsToCents(400) },
+      ),
+    );
+    expect(data.totalCents).toBe(dollarsToCents(1200));
+    expect(data.peakMonthlyCents).toBe(dollarsToCents(900));
+    expect(data.peakMonth).toBe(2);
   });
 });
 

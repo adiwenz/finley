@@ -8,7 +8,11 @@ import {
 import { requiredMinimumDistributionCents } from "./rmd";
 import { retirementDeferralLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
-import { computeFederalTaxCents, FEDERAL_TAX_ASSUMPTIONS } from "./federalTax";
+import {
+  computeFederalTaxCents,
+  computeFederalTaxByCategoryCents,
+  FEDERAL_TAX_ASSUMPTIONS,
+} from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 
 export {
@@ -35,7 +39,9 @@ import { MEDICARE_ELIGIBILITY_AGE } from "./healthCosts";
 export {
   federalTaxTables,
   federalAnnualTaxCents,
+  federalAnnualTaxByCategoryCents,
   computeFederalTaxCents,
+  computeFederalTaxByCategoryCents,
   taxableSocialSecurityCents,
   FEDERAL_TAX_BASE_YEAR,
   FEDERAL_TAX_ASSUMPTIONS,
@@ -63,6 +69,8 @@ export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
+  computeTaxByCategoryCents: (taxableByCategory, ctx) =>
+    computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,

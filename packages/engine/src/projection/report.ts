@@ -161,6 +161,12 @@ export interface ReportMonth {
   readonly governmentRetirementBenefitCents: Cents;
   /** Tax charged this month through the §5.3 jurisdiction seam, all persons summed. */
   readonly taxCents: Cents;
+  /**
+   * This month's tax broken out by {@link TaxCategory} (issue #110) — the tax analog of
+   * `incomeByCategoryCents`. Absent when the jurisdiction declines the breakdown (a
+   * consumer then draws the single `taxCents` band). Σ === `taxCents` when present.
+   */
+  readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -178,6 +184,12 @@ export interface ReportColumns {
   readonly liabilityIds: readonly string[];
   readonly propertyIds: readonly string[];
   readonly incomeCategories: readonly string[];
+  /**
+   * The union of tax categories that appear across the run (issue #110), so a consumer
+   * can lay out the stacked tax chart's bands. Empty when the jurisdiction reports no
+   * per-category breakdown anywhere (a single-band tax chart).
+   */
+  readonly taxCategories: readonly string[];
 }
 
 export interface SimulationReport {
@@ -352,6 +364,7 @@ export function summarizeSimulation(
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       taxCents: flows?.taxCents ?? 0,
+      taxByCategoryCents: flows?.taxByCategoryCents,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,
@@ -365,6 +378,7 @@ export function summarizeSimulation(
     liabilityIds: unionKeys(months, (m) => m.liabilityBalancesCents),
     propertyIds: unionKeys(months, (m) => m.propertyValuesCents),
     incomeCategories: unionKeys(months, (m) => m.incomeByCategoryCents),
+    taxCategories: unionKeys(months, (m) => m.taxByCategoryCents ?? {}),
   };
 
   return {

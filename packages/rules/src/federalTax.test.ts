@@ -4,8 +4,15 @@ import {
   federalTaxTables,
   taxableSocialSecurityCents,
   federalAnnualTaxCents,
+  federalAnnualTaxByCategoryCents,
   computeFederalTaxCents,
+  computeFederalTaxByCategoryCents,
 } from "./federalTax";
+
+/** Σ of a per-category tax map — the invariant the attribution must preserve. */
+function sumCents(byCategory: Partial<Record<string, number>>): number {
+  return Object.values(byCategory).reduce((s: number, v) => s + (v ?? 0), 0);
+}
 
 // All figures are annual cents unless a test says otherwise. The seam the engine
 // wires (`computeFederalTaxCents`) receives MONTHLY per-category amounts; the pure
@@ -128,5 +135,75 @@ describe("computeFederalTaxCents — the monthly seam", () => {
 
   it("returns 0 for a monthly slice that annualizes below the standard deduction", () => {
     expect(computeFederalTaxCents({ wages: 100_00 }, 2026)).toBe(0);
+  });
+});
+
+describe("federalAnnualTaxByCategoryCents — per-category attribution (§5.3, issue #110)", () => {
+  it("attributes all tax to the sole taxed category (wages only)", () => {
+    const total = federalAnnualTaxCents({ wages: 100_000_00 }, 2026);
+    const byCategory = federalAnnualTaxByCategoryCents({ wages: 100_000_00 }, 2026);
+    expect(byCategory).toEqual({ wages: total });
+  });
+
+  it("keeps the split summing EXACTLY to the scalar total (the AC invariant)", () => {
+    const input = {
+      wages: 30_000_00,
+      capitalGains: 20_000_00,
+      governmentRetirementBenefit: 30_000_00,
+    };
+    const total = federalAnnualTaxCents(input, 2026);
+    const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
+    expect(sumCents(byCategory)).toBe(total);
+  });
+
+  it("attributes the preferential capital-gains tax to the capitalGains bucket alone", () => {
+    // wages 50,000 + gains 20,000 → total 4,487.50 → 4,487 (rounded). The ordinary
+    // tax (3,820) rides `wages`; the gains tax (667.50) rides `capitalGains`.
+    const input = { wages: 50_000_00, capitalGains: 20_000_00 };
+    const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
+    expect(sumCents(byCategory)).toBe(federalAnnualTaxCents(input, 2026));
+    // The gains bear their own preferential tax, not an average blended rate.
+    expect(byCategory.capitalGains).toBe(667_50);
+    expect(byCategory.wages).toBe(3_820_00);
+  });
+
+  it("never attributes tax to tax-exempt income (it is never taxed)", () => {
+    const input = { wages: 100_000_00, taxExempt: 40_000_00 };
+    const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
+    expect(byCategory.taxExempt).toBeUndefined();
+    expect(sumCents(byCategory)).toBe(federalAnnualTaxCents(input, 2026));
+  });
+
+  it("attributes benefit tax only to the included portion of the government benefit", () => {
+    // Benefit 30,000 + wages 30,000: 13,850 of the benefit is taxable; the split
+    // shares the ordinary tax between wages and the benefit by their taxable weight.
+    const input = { wages: 30_000_00, governmentRetirementBenefit: 30_000_00 };
+    const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
+    expect(sumCents(byCategory)).toBe(federalAnnualTaxCents(input, 2026));
+    expect(byCategory.governmentRetirementBenefit).toBeGreaterThan(0);
+    expect(byCategory.wages).toBeGreaterThan(byCategory.governmentRetirementBenefit ?? 0);
+  });
+
+  it("returns an empty map when no tax is owed", () => {
+    expect(federalAnnualTaxByCategoryCents({ wages: 12_000_00 }, 2026)).toEqual({});
+    expect(federalAnnualTaxByCategoryCents({}, 2026)).toEqual({});
+  });
+});
+
+describe("computeFederalTaxByCategoryCents — the monthly per-category seam", () => {
+  it("sums to the scalar monthly seam exactly", () => {
+    const monthly = {
+      wages: Math.round(60_000_00 / 12),
+      capitalGains: Math.round(20_000_00 / 12),
+    };
+    const total = computeFederalTaxCents(monthly, 2026);
+    const byCategory = computeFederalTaxByCategoryCents(monthly, 2026);
+    expect(sumCents(byCategory)).toBe(total);
+    expect(byCategory.wages).toBeGreaterThan(0);
+    expect(byCategory.capitalGains).toBeGreaterThan(0);
+  });
+
+  it("returns an empty map for a slice that annualizes below the standard deduction", () => {
+    expect(computeFederalTaxByCategoryCents({ wages: 100_00 }, 2026)).toEqual({});
   });
 });

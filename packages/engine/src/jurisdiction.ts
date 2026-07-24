@@ -158,6 +158,34 @@ export interface Jurisdiction {
   ): Cents;
 
   /**
+   * §5.3 seam (disclosure, issue #110): the SAME tax total as {@link computeTaxCents},
+   * but broken out per {@link TaxCategory} — how much of the person-month's tax each
+   * income category bore. This exists because US tax is NOT linearly separable by
+   * category (progressive brackets, the standard deduction stacking down onto gains,
+   * the preferential cap-gains rate stacked on top of ordinary income, and government-
+   * benefit provisional-income inclusion all mean a dollar's tax depends on the whole
+   * return), so attributing tax to a category is the JURISDICTION's call — it owns and
+   * documents the attribution method (e.g. proportional-to-taxable) — not the engine's
+   * nor the app's to synthesize.
+   *
+   * The engine carries the result as `taxByCategoryCents` (the tax analog of
+   * `incomeByCategoryCents`) so a consumer can STACK the monthly-tax chart by category,
+   * exactly as the income chart stacks. CONTRACT: Σ of the returned map MUST equal
+   * {@link computeTaxCents} for the same input — the breakdown re-describes the total,
+   * it never restates it.
+   *
+   * Additive and OPTIONAL by design: the scalar {@link computeTaxCents} stays the sole
+   * contract the withdrawal gross-up loop depends on (it needs one number, many times,
+   * as a marginal-tax probe). A jurisdiction that declines this — absent, or the null
+   * jurisdiction — yields no breakdown, and the app falls back to a single tax band, as
+   * before. Called at most once per person-month, only for reporting.
+   */
+  computeTaxByCategoryCents?(
+    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
    * §5.4 seam (disclosure): model simplifications SPECIFIC to this jurisdiction's
    * rules, surfaced so a consumer can show them alongside the engine's own neutral
    * {@link import("./projection/assumptions").MODEL_ASSUMPTIONS}. The report

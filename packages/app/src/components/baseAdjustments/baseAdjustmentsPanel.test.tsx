@@ -301,6 +301,20 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
   });
 
+  it("stacks the monthly-tax chart by category, matching the income chart (issue #110)", () => {
+    // The US jurisdiction reports tax per category, so the tax chart draws a real stack:
+    // wages tax while the household earns, and the split's Σ equals the row total.
+    renderPanel(PLAN_DEFAULTS);
+    const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
+    expect(bands).toContain("Wages");
+    const firstRow = JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}");
+    const banded = Object.entries(firstRow.centsByCategory as Record<string, number>).reduce(
+      (s, [, c]) => s + c,
+      0,
+    );
+    expect(banded).toBe(firstRow.taxCents as number);
+  });
+
   it("sets pay to $0 for one month (a missed paycheck), taxed on $0 wages that month", () => {
     // There is no dedicated "missed paycheck" kind anymore: a missed month is just
     // "Set pay this month" to $0. It must zero BOTH the income and the wage tax for the

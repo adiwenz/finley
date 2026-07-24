@@ -127,6 +127,18 @@ export interface WaterfallInput {
    */
   readonly computeTaxCents: (taxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
   /**
+   * §5.3 seam (issue #110): the per-{@link TaxCategory} breakdown of the SAME tax
+   * `computeTaxCents` returns. Optional — when the jurisdiction declines the breakdown
+   * (null jurisdiction, or none wired) this is absent and the waterfall reports no
+   * `taxByCategoryCents`, so the app falls back to a single tax band. When present it is
+   * called once per person and the per-person maps are summed into one household map; its
+   * Σ per person equals that person's `computeTaxCents`, so the household breakdown sums
+   * to the household `taxCents`. Additive only — take-home still uses the scalar total.
+   */
+  readonly computeTaxByCategoryCents?: (
+    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
+  ) => Partial<Record<TaxCategory, Cents>>;
+  /**
    * §5.4 seam: a person's REMAINING annual deferral room this month (limit minus
    * what they have already deferred this year). `Infinity` = uncapped.
    */
@@ -135,6 +147,13 @@ export interface WaterfallInput {
 
 export interface WaterfallResult {
   readonly taxCents: Cents;
+  /**
+   * §5.3 (issue #110): this month's household tax broken out per {@link TaxCategory} —
+   * the tax analog of `incomeByCategoryCents`, summed across every person. Present only
+   * when the jurisdiction supplies {@link WaterfallInput.computeTaxByCategoryCents};
+   * `undefined` when it declines (the app then draws one band). Σ === `taxCents`.
+   */
+  readonly taxByCategoryCents?: Partial<Record<TaxCategory, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
@@ -231,17 +250,34 @@ function computeTakeHome(
   grossByPerson: Map<string, Cents>,
   taxableByPerson: Map<string, TaxableByCategory>,
   deferredByPerson: Map<string, Cents>,
-): { taxCents: Cents; takeHomeByPerson: Map<string, Cents> } {
+): {
+  taxCents: Cents;
+  takeHomeByPerson: Map<string, Cents>;
+  taxByCategoryCents: TaxableByCategory | undefined;
+} {
+  const breakdownSeam = input.computeTaxByCategoryCents;
   let taxCents: Cents = 0;
+  // Only accumulate a household breakdown when the jurisdiction supplies the seam;
+  // otherwise it stays undefined and the result carries no `taxByCategoryCents` (§5.3,
+  // #110) — the app draws a single band, exactly as before.
+  const taxByCategoryCents: TaxableByCategory | undefined = breakdownSeam ? {} : undefined;
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
     const deferral = deferredByPerson.get(pid) ?? 0;
-    const tax = input.computeTaxCents(taxableByPerson.get(pid) ?? {});
+    const taxable = taxableByPerson.get(pid) ?? {};
+    // Take-home is ALWAYS charged against the scalar total: the breakdown is purely a
+    // reporting re-description whose Σ equals this same figure (the seam's contract).
+    const tax = input.computeTaxCents(taxable);
     taxCents += tax;
+    if (breakdownSeam && taxByCategoryCents) {
+      for (const [category, cents] of Object.entries(breakdownSeam(taxable))) {
+        if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+      }
+    }
     takeHomeByPerson.set(pid, gross - deferral - tax);
   }
-  return { taxCents, takeHomeByPerson };
+  return { taxCents, takeHomeByPerson, taxByCategoryCents };
 }
 
 /**
@@ -441,7 +477,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   const deposits = new Map<string, Cents>();
 
   const { grossByPerson, taxableByPerson, deferredByPerson } = applyDeferrals(input, deposits);
-  const { taxCents, takeHomeByPerson } = computeTakeHome(
+  const { taxCents, takeHomeByPerson, taxByCategoryCents } = computeTakeHome(
     input,
     grossByPerson,
     taxableByPerson,
@@ -463,6 +499,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
 
   return {
     taxCents,
+    taxByCategoryCents,
     deferredByPersonCents: deferredByPerson,
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,

@@ -45,6 +45,12 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * withdrawal channel) is appended as its own `savingsDrawdown` source so "living off
  * savings" is visible — but is kept OUT of the category rollup and the total, which stay
  * the taxable-income view (a drawdown is spending an asset, not income).
+ *
+ * The optional `taxByCategoryCents` (issue #110) is the per-category split of `taxCents`
+ * the waterfall obtained from the jurisdiction's breakdown seam; it rides straight
+ * through (absent → the consumer draws a single tax band). It is passed pre-computed
+ * rather than re-derived here because attribution is the jurisdiction's call, not the
+ * report layer's — this module only buckets what the sim already resolved.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -53,6 +59,7 @@ export function buildFlows(
   liabilityPaymentsCents: Cents,
   spendingItems: readonly SpendingItem[],
   liquidDrawdownCents: Cents = 0,
+  taxByCategoryCents?: Readonly<Record<string, Cents>>,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -104,6 +111,10 @@ export function buildFlows(
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
+    // The per-category tax breakdown (§5.3, #110) — the tax analog of
+    // `incomeByCategoryCents`. Absent when the jurisdiction declines the breakdown, so a
+    // consumer falls back to the single `taxCents` band. Σ === `taxCents` when present.
+    taxByCategoryCents,
     expensesCents,
     liabilityPaymentsCents,
     // Not a second pass over the series: the per-line map and the spending items

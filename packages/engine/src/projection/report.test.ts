@@ -152,6 +152,39 @@ describe("buildSimulationReport", () => {
     expect(report.columns.incomeCategories).toContain("ordinaryIncome");
   });
 
+  it("carries the jurisdiction's per-category tax breakdown, summing to taxCents (issue #110)", () => {
+    // A jurisdiction that both taxes AND splits: a flat 10% total, attributed half to
+    // wages and half to ordinaryIncome. The report must carry the split, and its Σ must
+    // equal the scalar `taxCents` the take-home already used — the AC invariant.
+    const splittingTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) =>
+        Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const total = Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1);
+        const half = Math.round(total / 2);
+        return { wages: half, ordinaryIncome: total - half };
+      },
+    };
+    const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
+    const m1 = report.months[1];
+    expect(m1.taxCents).toBe(dollarsToCents(300));
+    expect(m1.taxByCategoryCents).toBeDefined();
+    const split = m1.taxByCategoryCents!;
+    const sum = Object.values(split).reduce((s: number, c) => s + (c ?? 0), 0);
+    expect(sum).toBe(m1.taxCents);
+    // The union of categories is exposed for the stacked-chart column layout.
+    expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
+  });
+
+  it("omits the breakdown when the jurisdiction declines it — single band, as before (issue #110)", () => {
+    // The null jurisdiction implements no `computeTaxByCategoryCents`: every row's
+    // breakdown is absent, and the column union is empty (a single-band tax chart).
+    const report = buildSimulationReport(baseInput(), nullJurisdiction);
+    for (const m of report.months) expect(m.taxByCategoryCents).toBeUndefined();
+    expect(report.columns.taxCategories).toEqual([]);
+  });
+
   it("summarizeSimulation matches a report built from the same run", () => {
     const input = baseInput();
     const series = simulateHousehold(input, nullJurisdiction);

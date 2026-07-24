@@ -141,6 +141,19 @@ export interface ProjectionMonthFlows {
    * taxCents` is the household's after-tax gross.
    */
   readonly taxCents: Cents;
+  /**
+   * This month's tax broken out BY {@link TaxCategory} (issue #110) — the tax analog of
+   * `incomeByCategoryCents`, summed across every person. The jurisdiction owns the
+   * attribution method (US tax is not linearly separable by category — progressive
+   * brackets, the standard deduction, the capital-gains preference, and benefit
+   * inclusion), so the engine carries whatever split the jurisdiction reports without
+   * synthesizing one itself. Σ of the map equals `taxCents` when present.
+   *
+   * OPTIONAL: absent when the jurisdiction declines the breakdown (the null jurisdiction,
+   * or any that does not implement the seam), in which case a consumer falls back to the
+   * single `taxCents` band, exactly as before this issue.
+   */
+  readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
