@@ -147,6 +147,41 @@ describe("App — event ledger", () => {
   });
 });
 
+describe("App — starter simulations (issue #119)", () => {
+  it("loads a scenario's plan and its seed timeline together", () => {
+    render(<App />);
+    // Opens on the healthy default with an empty timeline.
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Alex");
+    expect(screen.getByText(/No life events yet/)).toBeTruthy();
+
+    // Pick the student-loan scenario: its plan AND its seed loan event load at once.
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "student-loan" },
+    });
+
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Riley");
+    expect((screen.getByLabelText(/Opening balance/) as HTMLInputElement).value).toBe("4000");
+    // The $45k student loan arrived as a real timeline event (one Remove control).
+    expect(screen.getAllByText("Remove")).toHaveLength(1);
+    expect(screen.queryByText(/No life events yet/)).toBeNull();
+  });
+
+  it("swaps back to a plan-only scenario, clearing the prior seed timeline", () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "student-loan" },
+    });
+    expect(screen.getAllByText("Remove")).toHaveLength(1);
+
+    // The credit-card scenario carries no seed events — loading it clears the loan.
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "living-on-credit" },
+    });
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Jordan");
+    expect(screen.getByText(/No life events yet/)).toBeTruthy();
+  });
+});
+
 describe("App — budget edits", () => {
   it("rebuilds the projection base on a budget edit but not on scrub", () => {
     const spy = vi.spyOn(engine, "createProjectionBase");
