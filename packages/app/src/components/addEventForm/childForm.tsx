@@ -8,40 +8,50 @@ import { MonthSelect, type FormProps } from "./formControls";
 // Illustrative default annual cost of raising a child (today's dollars).
 const DEFAULT_ANNUAL_COST = 15_000;
 
+/** The form's live state — one draft in the terms the fields speak, not a hook per field. */
+interface ChildDraft {
+  readonly month: number;
+  readonly name: string;
+  readonly annualCost: number;
+}
+
 export function ChildForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
-  const [month, setMonth] = useState(defaultMonth);
-  const [name, setName] = useState("");
-  const [annualCost, setAnnualCost] = useState(DEFAULT_ANNUAL_COST);
+  const [draft, setDraft] = useState<ChildDraft>(() => ({
+    month: defaultMonth,
+    name: "",
+    annualCost: DEFAULT_ANNUAL_COST,
+  }));
+  const patch = (fields: Partial<ChildDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   function submit() {
     onAdd({
       id: `e${nextId}`,
       type: "ChildEvent",
-      month,
+      month: draft.month,
       childId: `child-${nextId}`,
-      childName: name || "Child",
-      birthMonth: month,
-      annualCostCents: dollarsToCents(annualCost),
+      childName: draft.name || "Child",
+      birthMonth: draft.month,
+      annualCostCents: dollarsToCents(draft.annualCost),
     });
   }
 
   return (
     <>
-      <MonthSelect value={month} horizonMonths={horizonMonths} onChange={setMonth} />
+      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
       <label className="field">
         <span className="field-label">Name</span>
         <input
           className="text-input"
           type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={draft.name}
+          onChange={(e) => patch({ name: e.target.value })}
           placeholder="Child's name"
         />
       </label>
       <NumInput
         label="Annual cost"
-        value={annualCost}
-        onChange={setAnnualCost}
+        value={draft.annualCost}
+        onChange={(annualCost) => patch({ annualCost })}
         prefix="$"
         suffix="/yr"
         min={0}
