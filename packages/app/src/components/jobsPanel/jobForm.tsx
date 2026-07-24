@@ -9,7 +9,7 @@
  * The same form backs both add and edit — `initial` seeds it.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { JobDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import styles from "./jobsPanel.module.css";
@@ -23,21 +23,50 @@ interface JobFormProps {
   onCancel: () => void;
 }
 
+/**
+ * The form's live state, in the terms the fields speak — one object, not a hook per field.
+ * `endAge: null` IS "open-ended": the checkbox is derived from it rather than tracked
+ * separately, so the two can never disagree. (Salary is held in whole dollars, the unit the
+ * input edits; it's converted to cents on submit.)
+ */
+interface JobFormDraft {
+  readonly monthlyDollars: number;
+  readonly startAge: number;
+  /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
+  readonly endAge: number | null;
+  readonly deferralPct: number;
+  readonly realGrowthPct: number;
+}
+
+/** A sensible finite end age to fall back to when none was ever entered. */
+const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
+
 export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormProps) {
-  const [monthlyDollars, setMonthlyDollars] = useState(Math.round(initial.monthlyCents / 100));
-  const [startAge, setStartAge] = useState(initial.startAge);
-  const [openEnded, setOpenEnded] = useState(initial.endAge === null);
-  const [endAge, setEndAge] = useState(initial.endAge ?? Math.max(initial.startAge + 1, 65));
-  const [deferralPct, setDeferralPct] = useState(initial.deferralPct);
-  const [realGrowthPct, setRealGrowthPct] = useState(initial.realGrowthPct);
+  const [draft, setDraft] = useState<JobFormDraft>(() => ({
+    monthlyDollars: Math.round(initial.monthlyCents / 100),
+    startAge: initial.startAge,
+    endAge: initial.endAge,
+    deferralPct: initial.deferralPct,
+    realGrowthPct: initial.realGrowthPct,
+  }));
+
+  // The last finite end age the user had, remembered across "open-ended" toggles: ticking
+  // the box sets `endAge` to null (the field disappears), and unticking restores THIS value
+  // rather than snapping back to a default. Not part of the draft — it's a UX memory, not
+  // domain state — so `endAge` stays a single source of truth.
+  const lastFiniteEndAge = useRef(initial.endAge ?? defaultEndAge(initial.startAge));
+
+  const patch = (fields: Partial<JobFormDraft>) => setDraft((d) => ({ ...d, ...fields }));
+
+  const openEnded = draft.endAge === null;
 
   function submit() {
     onSubmit({
-      monthlyCents: Math.round(monthlyDollars * 100),
-      startAge,
-      endAge: openEnded ? null : Math.max(startAge + 1, endAge),
-      realGrowthPct,
-      deferralPct,
+      monthlyCents: Math.round(draft.monthlyDollars * 100),
+      startAge: draft.startAge,
+      endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
+      realGrowthPct: draft.realGrowthPct,
+      deferralPct: draft.deferralPct,
     });
   }
 
@@ -54,27 +83,37 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
           browser reject an off-step value (e.g. $5,250) on submit (HTML5 validity). */}
       <NumInput
         label="Monthly salary"
-        value={monthlyDollars}
-        onChange={setMonthlyDollars}
+        value={draft.monthlyDollars}
+        onChange={(v) => patch({ monthlyDollars: v })}
         prefix="$"
         step={1}
         min={0}
       />
-      <NumInput label="Start age" value={startAge} onChange={setStartAge} min={14} max={100} step={1} />
+      <NumInput
+        label="Start age"
+        value={draft.startAge}
+        onChange={(v) => patch({ startAge: v })}
+        min={14}
+        max={100}
+        step={1}
+      />
       <label className="field field-check">
         <input
           type="checkbox"
           checked={openEnded}
-          onChange={(e) => setOpenEnded(e.target.checked)}
+          onChange={(e) => patch({ endAge: e.target.checked ? null : lastFiniteEndAge.current })}
         />
         <span className="field-label">Open-ended (runs until retirement)</span>
       </label>
-      {!openEnded && (
+      {draft.endAge !== null && (
         <NumInput
           label="End age"
-          value={endAge}
-          onChange={setEndAge}
-          min={startAge + 1}
+          value={draft.endAge}
+          onChange={(v) => {
+            lastFiniteEndAge.current = v;
+            patch({ endAge: v });
+          }}
+          min={draft.startAge + 1}
           max={100}
           step={1}
         />
@@ -91,8 +130,8 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
             past it is paid as taxable income, disclosed by the nudge on the Jobs panel. */}
         <NumInput
           label="401(k) contribution"
-          value={deferralPct}
-          onChange={setDeferralPct}
+          value={draft.deferralPct}
+          onChange={(v) => patch({ deferralPct: v })}
           suffix="%"
           min={0}
           max={100}
@@ -100,8 +139,8 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
         />
         <NumInput
           label="Raises above inflation"
-          value={realGrowthPct}
-          onChange={setRealGrowthPct}
+          value={draft.realGrowthPct}
+          onChange={(v) => patch({ realGrowthPct: v })}
           suffix="%/yr"
           min={0}
           step={0.5}

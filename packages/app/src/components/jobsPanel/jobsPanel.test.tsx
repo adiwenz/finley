@@ -81,6 +81,25 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
     expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–50/)).toBeTruthy();
   });
 
+  it("remembers the entered end age across an open-ended toggle instead of resetting it", () => {
+    // endAge:null IS open-ended, but the last finite value is kept so ticking the box on
+    // then off restores the user's number rather than snapping back to the 65 default.
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // reveal the end-age field
+    fireEvent.change(spin(/End age/i), { target: { value: "52" } });
+
+    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // back to open-ended
+    expect(screen.queryByRole("spinbutton", { name: /End age/i })).toBeNull(); // field hidden
+
+    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // fixed-term again
+    expect(Number(spin(/End age/i).value)).toBe(52); // the user's 52, not the default
+
+    // And it saves as the restored value.
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–52/)).toBeTruthy();
+  });
+
   it("deletes a job", () => {
     render(<Harness />);
     expect(jobCount()).toBe(1);
