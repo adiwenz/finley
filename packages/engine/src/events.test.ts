@@ -89,6 +89,81 @@ describe("RelationshipEvent", () => {
   });
 });
 
+// ─── RelationshipEvent — a partner's own jobs (issue #118) ────────────────────
+
+describe("RelationshipEvent — partner jobs", () => {
+  // A base anchored to a real calendar "now" so the partner's jobs (authored in
+  // calendar years) compile into forward income relative to it.
+  const jobsCfg: LedgerBaseConfig = {
+    horizonMonths: 12,
+    annualInflationRate: 0,
+    startYear: 2020,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [makeLiquidAccount()],
+  };
+
+  /** A partner carrying one open-ended $2,000/mo job that starts at "now". */
+  const partnerWith2kJob = (): Person => ({
+    ...personLit("p2", "Bob"),
+    jobs: [
+      {
+        id: "pj1",
+        ownerId: "p2",
+        startYear: 2020,
+        endYear: null,
+        salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+      },
+    ],
+  });
+
+  it("a partner's job drives forward earned income in the projection", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith2kJob(),
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    // $2,000/mo earned by the partner across months 1–12 → $24,000.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(24_000));
+  });
+
+  it("a separated partner's job income ends at separation", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith2kJob(),
+    });
+    ledger = add(ledger, {
+      id: "sep1",
+      type: "SeparationEvent",
+      month: 6,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    // Months 1–5 pay ($2,000 × 5 = $10,000); the job stops at separation.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
+  });
+
+  it("a partner with no jobs adds no income (single-earner plans unchanged)", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: personLit("p2", "Bob"),
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    expect(series.months[12].netWorthNominalCents).toBe(0);
+  });
+});
+
 // ─── Income series (BudgetItemStartEvent) ─────────────────────────────────────
 
 describe("income series (BudgetItemStartEvent)", () => {

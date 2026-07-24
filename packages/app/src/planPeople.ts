@@ -15,6 +15,7 @@ import {
   type Job,
   type JobIncomeOverride,
   type JobPayChange,
+  type PersonId,
   type Plan,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
@@ -87,9 +88,14 @@ export interface JobDraft {
   readonly deferralPct: number;
 }
 
-/** The draft that seeds a fresh job: unnamed, real-flat $3,000/mo, starting now, open-ended. */
+/** The draft that seeds a fresh job at a given current age: unnamed, real-flat $3,000/mo, open-ended. */
+export function blankJobDraftForAge(currentAge: number): JobDraft {
+  return { name: "", monthlyCents: 3000 * 100, startAge: currentAge, endAge: null, realGrowthPct: 0, deferralPct: 0 };
+}
+
+/** The draft that seeds a fresh job for the primary person (starts at their current age). */
 export function blankJobDraft(plan: Plan): JobDraft {
-  return { name: "", monthlyCents: 3000 * 100, startAge: plan.currentAge, endAge: null, realGrowthPct: 0, deferralPct: 0 };
+  return blankJobDraftForAge(plan.currentAge);
 }
 
 /** Read an existing job back into a {@link JobDraft} to seed the edit form. */
@@ -112,13 +118,17 @@ function nextJobId(plan: Plan): string {
   return `job-${n}`;
 }
 
-/** Build a {@link Job} for the primary person from a draft (ages → years, %→fraction). */
-function jobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
+/**
+ * Build a {@link Job} for a given owner from a draft (ages → years, %→fraction). Ages
+ * resolve against the OWNER's `birthYear`, so the same form authors the primary person's
+ * jobs and a partner's jobs (issue #118) — only the owner id and birth year differ.
+ */
+export function buildJobFromDraft(id: string, ownerId: PersonId, birthYear: number, draft: JobDraft): Job {
   const name = draft.name.trim();
   const base: Job = {
     id,
     ...(name ? { name } : {}),
-    ownerId: PRIMARY_PERSON_ID,
+    ownerId,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: { startingSalaryCents: draft.monthlyCents * 12, realGrowthPct: draft.realGrowthPct },
@@ -126,6 +136,11 @@ function jobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
   return draft.deferralPct > 0
     ? { ...base, deferral: { deferralFraction: draft.deferralPct / 100, fundAccountId: RETIREMENT_ID } }
     : base;
+}
+
+/** Build a {@link Job} for the primary person from a draft (ages resolve against their birth year). */
+function jobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
+  return buildJobFromDraft(id, PRIMARY_PERSON_ID, birthYear, draft);
 }
 
 /** Append a new job to the primary person from a form draft. */
