@@ -30,6 +30,7 @@ interface JobFormProps {
  * input edits; it's converted to cents on submit.)
  */
 interface JobFormDraft {
+  readonly name: string;
   readonly monthlyDollars: number;
   readonly startAge: number;
   /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
@@ -43,6 +44,7 @@ const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
 
 export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormProps) {
   const [draft, setDraft] = useState<JobFormDraft>(() => ({
+    name: initial.name,
     monthlyDollars: Math.round(initial.monthlyCents / 100),
     startAge: initial.startAge,
     endAge: initial.endAge,
@@ -62,6 +64,7 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
 
   function submit() {
     onSubmit({
+      name: draft.name,
       monthlyCents: Math.round(draft.monthlyDollars * 100),
       startAge: draft.startAge,
       endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
@@ -79,6 +82,19 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
         submit();
       }}
     >
+      {/* Optional human title. Blank leaves the job unnamed — reports fall back to its
+          stable id — so it never forces a name on a quick add. */}
+      <label className="field">
+        <span className="field-label">Job name (optional)</span>
+        <span className="field-input-wrap">
+          <input
+            type="text"
+            value={draft.name}
+            placeholder="e.g. Software Engineer"
+            onChange={(e) => patch({ name: e.target.value })}
+          />
+        </span>
+      </label>
       {/* step=1: salary is free-form dollars — a larger spinner step would make the
           browser reject an off-step value (e.g. $5,250) on submit (HTML5 validity). */}
       <NumInput

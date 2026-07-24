@@ -139,9 +139,10 @@ function compileJobIncome(job: Job, owner: Person, nowYear: number, inflationRat
   return {
     series,
     ownerId: owner.id,
-    // A household can hold several jobs, so name each by its own id rather than
-    // letting a report fall back to positional numbering.
-    label: `Income · ${job.id}`,
+    // A household can hold several jobs, so name each by its human title when the user
+    // set one, else its stable id — never a positional fallback that shifts as jobs are
+    // added or removed.
+    label: `Income · ${job.name?.trim() || job.id}`,
     // Per-source income reporting (issue #99) keys each job's band by this stable id, so
     // two jobs read apart on the income graph and one ending is legible as that job.
     sourceId: `job:${job.id}`,
