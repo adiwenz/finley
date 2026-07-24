@@ -187,6 +187,17 @@ export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
       "adjusted for inflation. As other income grows, this means more of your benefit " +
       "becomes taxable over time.",
   },
+  {
+    id: "taxAttributionProportional",
+    text:
+      "When the tax bill is broken out — by income type, or by individual job — each " +
+      "slice is assigned in proportion to how much taxable income it contributed, not by " +
+      "tracing which specific dollars fell in which bracket. Because the brackets are " +
+      "progressive, an added source of income (a second job, say) is really taxed at a " +
+      "higher rate than your average, so this breakdown shows each source's average share " +
+      "of the tax rather than the extra tax that source alone caused. The whole bill is " +
+      "exact; only the split between sources is an estimate.",
+  },
 ];
 
 /**

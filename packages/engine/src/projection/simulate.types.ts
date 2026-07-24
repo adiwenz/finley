@@ -154,6 +154,26 @@ export interface ProjectionMonthFlows {
    * single `taxCents` band, exactly as before this issue.
    */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
+  /**
+   * This month's tax broken out BY SOURCE (issue #110 follow-up) — the finer sibling of
+   * `taxByCategoryCents`, keyed by each source's reporting id (the same `sourceId` used in
+   * {@link incomeSources}, falling back to its tax category). Two jobs no longer collapse
+   * into one `wages` band: each carries the tax it bore, apportioned per person by taxable
+   * weight so two earners in different brackets never cross-subsidise. Lets a chart stack
+   * tax by job. Σ === `taxCents`, and Σ within a category === that category's
+   * `taxByCategoryCents`. Absent whenever `taxByCategoryCents` is (the jurisdiction declined
+   * the breakdown). Attribution is proportional/average-rate, not marginal (disclosed as
+   * `taxAttributionProportional`).
+   */
+  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * This month's pre-tax deferral broken out BY SOURCE (issue #110 follow-up), keyed like
+   * {@link taxBySourceCents}. A source that deferred nothing is absent. With `grossCents`
+   * (from {@link incomeSources}) and `taxBySourceCents`, a consumer can show a source's
+   * take-home (gross − deferral − tax) — e.g. an income chart comparing spendable income
+   * against the month's obligations rather than gross. Absent when no source deferred.
+   */
+  readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */

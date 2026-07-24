@@ -30,7 +30,7 @@
  * routes the shortfall through the §5.1 cascade.
  */
 
-import { splitEven, type Cents } from "../money";
+import { splitEven, apportionByWeight, type Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import { requiredContributionCents } from "../requiredContribution";
@@ -154,6 +154,28 @@ export interface WaterfallResult {
    * `undefined` when it declines (the app then draws one band). Σ === `taxCents`.
    */
   readonly taxByCategoryCents?: Partial<Record<TaxCategory, Cents>>;
+  /**
+   * §5.3 (issue #110 follow-up): this month's tax broken out per income SOURCE — the
+   * finer sibling of {@link taxByCategoryCents}, keyed by each source's reporting id
+   * (`sourceId`, falling back to its tax category) so a chart can name *which job* bore
+   * the tax instead of collapsing every paycheck into one `wages` band. Each category's
+   * tax is apportioned across the sources in that category by their taxable weight, PER
+   * PERSON (so two earners in different brackets never cross-subsidise), then summed to
+   * the household. Present only with {@link WaterfallInput.computeTaxByCategoryCents};
+   * `undefined` when the jurisdiction declines. Σ === `taxCents`; Σ within a category ===
+   * that category's `taxByCategoryCents`. Attribution is proportional (average-rate), not
+   * marginal — the caveat disclosed as `taxAttributionProportional`.
+   */
+  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * This month's pre-tax deferral broken out per income SOURCE (same keying as
+   * {@link taxBySourceCents}), summed across the household. Lets a consumer compute a
+   * source's take-home (gross − deferral − tax) — e.g. an income chart that compares
+   * spendable income against the month's obligations. Always present (deferral is
+   * jurisdiction-independent); a source that defers nothing is simply absent. Σ ===
+   * Σ `deferredByPersonCents`.
+   */
+  readonly deferralBySourceCents: Readonly<Record<string, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
@@ -170,6 +192,19 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 
 /** A per-person map of taxable amount by {@link TaxCategory}. */
 type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
+
+/**
+ * One income source's taxable contribution for a person, tagged with its reporting key
+ * and tax category — the weights the per-source tax attribution (issue #110 follow-up)
+ * apportions each category's tax across. `key` is the source's `sourceId` (falling back
+ * to its tax category), matching how {@link import("./reportFlows").buildFlows} bands the
+ * income side, so tax bands line up with income bands.
+ */
+interface SourceTaxable {
+  readonly key: string;
+  readonly category: TaxCategory;
+  readonly taxableCents: Cents;
+}
 
 /** Add `amount` to `map[category]` (creating the entry at 0 first). */
 function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cents): void {
@@ -193,6 +228,8 @@ function applyDeferrals(
 ): {
   grossByPerson: Map<string, Cents>;
   taxableByPerson: Map<string, TaxableByCategory>;
+  sourceTaxableByPerson: Map<string, SourceTaxable[]>;
+  deferralBySource: Map<string, Cents>;
   deferredByPerson: Map<string, Cents>;
 } {
   const roomRemaining = new Map<string, number>();
@@ -200,6 +237,11 @@ function applyDeferrals(
 
   const grossByPerson = new Map<string, Cents>();
   const taxableByPerson = new Map<string, TaxableByCategory>();
+  // Per person, each source's taxable weight (for the per-source tax split), and the
+  // household deferral keyed the same way (both keyed by `sourceId` ?? tax category, the
+  // reporting key the income side bands on — see `buildFlows`).
+  const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
+  const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   const taxableFor = (pid: string): TaxableByCategory => {
     let m = taxableByPerson.get(pid);
@@ -211,6 +253,7 @@ function applyDeferrals(
   };
   for (const src of input.incomeSources) {
     grossByPerson.set(src.ownerId, (grossByPerson.get(src.ownerId) ?? 0) + src.grossCents);
+    const sourceKey = src.sourceId ?? src.taxCategory;
 
     let deferred = 0;
     if (src.planDescriptor && src.grossCents > 0) {
@@ -220,6 +263,7 @@ function applyDeferrals(
       if (deferred > 0) {
         roomRemaining.set(src.ownerId, room - deferred);
         deferredByPerson.set(src.ownerId, (deferredByPerson.get(src.ownerId) ?? 0) + deferred);
+        deferralBySource.set(sourceKey, (deferralBySource.get(sourceKey) ?? 0) + deferred);
         const match = Math.round(deferred * (src.planDescriptor.employerMatchFraction ?? 0));
         addDeposit(deposits, src.planDescriptor.fundAccountId, deferred + match);
       }
@@ -231,10 +275,21 @@ function applyDeferrals(
     // less any pre-tax deferral (which reduces taxable income from that same source).
     // The jurisdiction's tax seam applies each category's inclusion % — the whole
     // gross is still paid out as take-home below.
-    const taxable = src.taxableCents ?? src.grossCents;
-    addCategory(taxableFor(src.ownerId), src.taxCategory, Math.max(0, taxable - deferred));
+    const sourceTaxable = Math.max(0, (src.taxableCents ?? src.grossCents) - deferred);
+    addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
+    // Record this source's taxable weight so its share of the category's tax can be
+    // attributed back to it below (§5.3, #110). The weight is exactly the amount added
+    // to the category total, so the per-source split reconciles to the category tax.
+    if (sourceTaxable > 0) {
+      let list = sourceTaxableByPerson.get(src.ownerId);
+      if (list === undefined) {
+        list = [];
+        sourceTaxableByPerson.set(src.ownerId, list);
+      }
+      list.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceTaxable });
+    }
   }
-  return { grossByPerson, taxableByPerson, deferredByPerson };
+  return { grossByPerson, taxableByPerson, sourceTaxableByPerson, deferralBySource, deferredByPerson };
 }
 
 /**
@@ -249,11 +304,13 @@ function computeTakeHome(
   input: WaterfallInput,
   grossByPerson: Map<string, Cents>,
   taxableByPerson: Map<string, TaxableByCategory>,
+  sourceTaxableByPerson: Map<string, SourceTaxable[]>,
   deferredByPerson: Map<string, Cents>,
 ): {
   taxCents: Cents;
   takeHomeByPerson: Map<string, Cents>;
   taxByCategoryCents: TaxableByCategory | undefined;
+  taxBySourceCents: Record<string, Cents> | undefined;
 } {
   const breakdownSeam = input.computeTaxByCategoryCents;
   let taxCents: Cents = 0;
@@ -261,6 +318,7 @@ function computeTakeHome(
   // otherwise it stays undefined and the result carries no `taxByCategoryCents` (§5.3,
   // #110) — the app draws a single band, exactly as before.
   const taxByCategoryCents: TaxableByCategory | undefined = breakdownSeam ? {} : undefined;
+  const taxBySourceCents: Record<string, Cents> | undefined = breakdownSeam ? {} : undefined;
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
@@ -270,14 +328,56 @@ function computeTakeHome(
     // reporting re-description whose Σ equals this same figure (the seam's contract).
     const tax = input.computeTaxCents(taxable);
     taxCents += tax;
-    if (breakdownSeam && taxByCategoryCents) {
-      for (const [category, cents] of Object.entries(breakdownSeam(taxable))) {
+    if (breakdownSeam && taxByCategoryCents && taxBySourceCents) {
+      const perCategory = breakdownSeam(taxable);
+      for (const [category, cents] of Object.entries(perCategory)) {
         if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
       }
+      attributeTaxToSources(
+        perCategory,
+        sourceTaxableByPerson.get(pid) ?? [],
+        taxBySourceCents,
+      );
     }
     takeHomeByPerson.set(pid, gross - deferral - tax);
   }
-  return { taxCents, takeHomeByPerson, taxByCategoryCents };
+  return { taxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents };
+}
+
+/**
+ * Split one person's per-category tax down to the individual sources that bore it
+ * (§5.3, issue #110 follow-up), accumulating into the household `into` map. Within each
+ * category, the tax is apportioned across that category's sources by their taxable
+ * weight ({@link apportionByWeight}, so Σ shares === the category's tax exactly). All
+ * sources in a category face identical treatment from the jurisdiction (it only sees the
+ * summed per-category taxable), so proportional-to-taxable is the neutral, information-
+ * preserving split — average-rate, not marginal (disclosed as `taxAttributionProportional`).
+ *
+ * Doing this per person (this is called once per person) keeps two earners in different
+ * brackets from cross-subsidising: each person's own tax is split only across their own
+ * sources. A category that carries tax but whose sources weren't recorded (defensive —
+ * shouldn't happen, since the taxable that produced the tax came from those sources) is
+ * attributed to the category key itself, so the household Σ still reconciles to `taxCents`.
+ */
+function attributeTaxToSources(
+  perCategory: TaxableByCategory,
+  sources: readonly SourceTaxable[],
+  into: Record<string, Cents>,
+): void {
+  const add = (key: string, cents: Cents): void => {
+    if (cents > 0) into[key] = (into[key] ?? 0) + cents;
+  };
+  for (const [category, categoryTax] of Object.entries(perCategory)) {
+    if (!categoryTax || categoryTax <= 0) continue;
+    const weights = sources
+      .filter((s) => s.category === category)
+      .map((s) => [s.key, s.taxableCents] as const);
+    if (weights.length === 0) {
+      add(category, categoryTax); // fallback — keep the household Σ exact
+      continue;
+    }
+    for (const [key, cents] of apportionByWeight(categoryTax, weights)) add(key, cents);
+  }
 }
 
 /**
@@ -476,11 +576,13 @@ function fundGoalsAndContributions(
 export function runWaterfall(input: WaterfallInput): WaterfallResult {
   const deposits = new Map<string, Cents>();
 
-  const { grossByPerson, taxableByPerson, deferredByPerson } = applyDeferrals(input, deposits);
-  const { taxCents, takeHomeByPerson, taxByCategoryCents } = computeTakeHome(
+  const { grossByPerson, taxableByPerson, sourceTaxableByPerson, deferralBySource, deferredByPerson } =
+    applyDeferrals(input, deposits);
+  const { taxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents } = computeTakeHome(
     input,
     grossByPerson,
     taxableByPerson,
+    sourceTaxableByPerson,
     deferredByPerson,
   );
   const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
@@ -500,6 +602,8 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   return {
     taxCents,
     taxByCategoryCents,
+    taxBySourceCents,
+    deferralBySourceCents: Object.fromEntries(deferralBySource),
     deferredByPersonCents: deferredByPerson,
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,

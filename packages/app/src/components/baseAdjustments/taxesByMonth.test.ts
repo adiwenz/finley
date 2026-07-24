@@ -11,21 +11,37 @@ function seriesOf(...taxCents: number[]): ProjectionSeries {
   return { months } as unknown as ProjectionSeries;
 }
 
-/** A fixture whose flowed months carry a per-category tax breakdown (issue #110). */
-function seriesWithBreakdown(
-  ...breakdowns: Readonly<Record<string, number>>[]
-): ProjectionSeries {
-  const months = [
+/** A tax-bearing source for a month fixture: its id, human label, provenance category, tax. */
+interface SrcSpec {
+  readonly id: string;
+  readonly label: string;
+  readonly category: string;
+  readonly cents: number;
+}
+
+/**
+ * A fixture whose flowed months carry a per-SOURCE tax breakdown (issue #110 follow-up),
+ * plus the matching `incomeSources` so the chart can learn each source's label. Each month
+ * is a list of tax-bearing sources.
+ */
+function seriesWithBreakdown(...months: readonly SrcSpec[][]): ProjectionSeries {
+  const rows = [
     { month: 0 },
-    ...breakdowns.map((byCategory, i) => ({
+    ...months.map((sources, i) => ({
       month: i + 1,
       flows: {
-        taxCents: Object.values(byCategory).reduce((s, c) => s + c, 0),
-        taxByCategoryCents: byCategory,
+        taxCents: sources.reduce((s, x) => s + x.cents, 0),
+        taxBySourceCents: Object.fromEntries(sources.map((x) => [x.id, x.cents])),
+        incomeSources: sources.map((x) => ({
+          sourceId: x.id,
+          label: x.label,
+          category: x.category,
+          grossCents: Math.max(x.cents, 1),
+        })),
       },
     })),
   ];
-  return { months } as unknown as ProjectionSeries;
+  return { months: rows } as unknown as ProjectionSeries;
 }
 
 describe("buildTaxChartData", () => {
@@ -62,52 +78,89 @@ describe("buildTaxChartData", () => {
   });
 });
 
-describe("buildTaxChartData — per-category stacking (issue #110)", () => {
-  it("has no category breakdown when the engine reports only a total (single band)", () => {
+describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () => {
+  it("has no source breakdown when the engine reports only a total (single band)", () => {
     const data = buildTaxChartData(seriesOf(dollarsToCents(300), dollarsToCents(420)));
-    expect(data.hasCategoryBreakdown).toBe(false);
-    expect(data.categories).toEqual([]);
+    expect(data.hasSourceBreakdown).toBe(false);
+    expect(data.sources).toEqual([]);
   });
 
-  it("exposes the union of tax categories in stable stacking order", () => {
+  it("splits wages into a band per job, naming each from its income source", () => {
+    const data = buildTaxChartData(
+      seriesWithBreakdown([
+        { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(400) },
+        { id: "job-b", label: "Side gig", category: "wages", cents: dollarsToCents(200) },
+      ]),
+    );
+    expect(data.hasSourceBreakdown).toBe(true);
+    // Two distinct wage bands, each carrying its own job's name — not one lumped band.
+    expect(data.sources.map((s) => s.id)).toEqual(["job-a", "job-b"]);
+    expect(data.sources.map((s) => s.label)).toEqual(["Day job", "Side gig"]);
+  });
+
+  it("orders bands by provenance category, wages before benefit before gains", () => {
     const data = buildTaxChartData(
       seriesWithBreakdown(
-        { wages: dollarsToCents(200), capitalGains: dollarsToCents(50) },
-        { wages: dollarsToCents(180), governmentRetirementBenefit: dollarsToCents(40) },
+        [
+          { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(200) },
+          { id: "draw", label: "Brokerage", category: "capitalGains", cents: dollarsToCents(50) },
+        ],
+        [
+          { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(180) },
+          { id: "ss", label: "Social Security", category: "governmentRetirementBenefit", cents: dollarsToCents(40) },
+        ],
       ),
     );
-    expect(data.hasCategoryBreakdown).toBe(true);
-    // Wages first, then the benefit, then gains — the documented order.
-    expect(data.categories.map((c) => c.category)).toEqual([
+    expect(data.sources.map((s) => s.category)).toEqual([
       "wages",
       "governmentRetirementBenefit",
       "capitalGains",
     ]);
   });
 
-  it("keeps each month's per-category cents, and the bands sum to the month total", () => {
+  it("keeps each month's per-source cents, and the bands sum to the month total", () => {
     const data = buildTaxChartData(
-      seriesWithBreakdown({ wages: dollarsToCents(200), capitalGains: dollarsToCents(50) }),
+      seriesWithBreakdown([
+        { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(200) },
+        { id: "draw", label: "Brokerage", category: "capitalGains", cents: dollarsToCents(50) },
+      ]),
     );
     const row = data.rows[0]!;
-    expect(row.centsByCategory.wages).toBe(dollarsToCents(200));
-    expect(row.centsByCategory.capitalGains).toBe(dollarsToCents(50));
-    const banded = Object.values(row.centsByCategory).reduce((s, c) => s + c, 0);
+    expect(row.centsBySource["job-a"]).toBe(dollarsToCents(200));
+    expect(row.centsBySource["draw"]).toBe(dollarsToCents(50));
+    const banded = Object.values(row.centsBySource).reduce((s, c) => s + c, 0);
     expect(banded).toBe(row.taxCents);
   });
 
-  it("drops a category that carries no tax anywhere (no empty legend band)", () => {
+  it("drops a source that carries no tax anywhere (no empty legend band)", () => {
     const data = buildTaxChartData(
-      seriesWithBreakdown({ wages: dollarsToCents(200), capitalGains: 0 }),
+      seriesWithBreakdown([
+        { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(200) },
+        { id: "job-b", label: "Side gig", category: "wages", cents: 0 },
+      ]),
     );
-    expect(data.categories.map((c) => c.category)).toEqual(["wages"]);
+    expect(data.sources.map((s) => s.id)).toEqual(["job-a"]);
+  });
+
+  it("labels a category-keyed fallback source (an untitled stream) in English", () => {
+    // The engine keys a source with no id by its tax category; with no income band to name
+    // it, the chart still reads it as a category label rather than the raw key.
+    const months = [
+      { month: 0 },
+      { month: 1, flows: { taxCents: dollarsToCents(300), taxBySourceCents: { wages: dollarsToCents(300) } } },
+    ];
+    const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
+    expect(data.sources).toEqual([{ id: "wages", label: "Wages", category: "wages" }]);
   });
 
   it("still totals and peaks correctly off the breakdown months", () => {
     const data = buildTaxChartData(
       seriesWithBreakdown(
-        { wages: dollarsToCents(300) },
-        { wages: dollarsToCents(500), capitalGains: dollarsToCents(400) },
+        [{ id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(300) }],
+        [
+          { id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(500) },
+          { id: "draw", label: "Brokerage", category: "capitalGains", cents: dollarsToCents(400) },
+        ],
       ),
     );
     expect(data.totalCents).toBe(dollarsToCents(1200));

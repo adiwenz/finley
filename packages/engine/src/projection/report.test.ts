@@ -177,12 +177,47 @@ describe("buildSimulationReport", () => {
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
+  it("splits the tax by income SOURCE, naming each job and summing to taxCents (issue #110 follow-up)", () => {
+    // Two jobs for one person; a wages-taxing jurisdiction that reports the per-category
+    // breakdown. The engine attributes the wages tax down to each job by taxable weight.
+    const mkJob = (cents: number) =>
+      new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
+    const wagesTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) => Math.round((byCategory.wages ?? 0) * 0.1),
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const t = Math.round((byCategory.wages ?? 0) * 0.1);
+        return t > 0 ? { wages: t } : {};
+      },
+    };
+    const report = buildSimulationReport(
+      baseInput({
+        incomeSeries: [
+          { series: mkJob(dollarsToCents(4000)), ownerId: "p1", sourceId: "job-a" },
+          { series: mkJob(dollarsToCents(2000)), ownerId: "p1", sourceId: "job-b" },
+        ],
+      }),
+      wagesTax as typeof nullJurisdiction,
+    );
+    const m1 = report.months[1];
+    // $6000 taxable wages → $600 tax, split 4000:2000 → $400 / $200.
+    expect(m1.taxBySourceCents).toEqual({ "job-a": dollarsToCents(400), "job-b": dollarsToCents(200) });
+    const sum = Object.values(m1.taxBySourceCents!).reduce((s: number, c) => s + (c ?? 0), 0);
+    expect(sum).toBe(m1.taxCents);
+    // The union of tax-bearing sources is exposed for the per-job chart's columns.
+    expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
+  });
+
   it("omits the breakdown when the jurisdiction declines it — single band, as before (issue #110)", () => {
     // The null jurisdiction implements no `computeTaxByCategoryCents`: every row's
-    // breakdown is absent, and the column union is empty (a single-band tax chart).
+    // breakdown is absent, and the column unions are empty (a single-band tax chart).
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
-    for (const m of report.months) expect(m.taxByCategoryCents).toBeUndefined();
+    for (const m of report.months) {
+      expect(m.taxByCategoryCents).toBeUndefined();
+      expect(m.taxBySourceCents).toBeUndefined();
+    }
     expect(report.columns.taxCategories).toEqual([]);
+    expect(report.columns.taxSources).toEqual([]);
   });
 
   it("summarizeSimulation matches a report built from the same run", () => {

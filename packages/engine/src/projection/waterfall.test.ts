@@ -538,3 +538,111 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
     expect(r.shortfallCents).toBe(dollarsToCents(400)); // …$400 of it borrowed
   });
 });
+
+describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", () => {
+  const wageJob = (ownerId: string, sourceId: string, grossCents: number): IncomeSourceMonth => ({
+    ownerId,
+    grossCents,
+    taxCategory: "wages",
+    sourceId,
+  });
+  // A flat-10%-on-wages jurisdiction that also reports the per-category breakdown, so the
+  // waterfall can attribute it down to sources. computeTaxCents and the breakdown agree.
+  const flatWageTax = {
+    computeTaxCents: (byCat: Partial<Record<string, number>>) => Math.round((byCat.wages ?? 0) * 0.1),
+    computeTaxByCategoryCents: (byCat: Partial<Record<string, number>>) => {
+      const wagesTax = Math.round((byCat.wages ?? 0) * 0.1);
+      return wagesTax > 0 ? { wages: wagesTax } : {};
+    },
+  };
+
+  it("splits one person's wage tax across their jobs by taxable weight, summing to the total", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          wageJob("p1", "job-a", dollarsToCents(6000)),
+          wageJob("p1", "job-b", dollarsToCents(2000)),
+        ],
+        ...flatWageTax,
+      }),
+    );
+    // Total wage tax = 10% of $8000 = $800, split 6000:2000 → $600 / $200.
+    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(600), "job-b": dollarsToCents(200) });
+    expect(r.taxByCategoryCents).toEqual({ wages: dollarsToCents(800) });
+    const sourceSum = Object.values(r.taxBySourceCents ?? {}).reduce((s, v) => s + v, 0);
+    expect(sourceSum).toBe(r.taxCents); // exact-sum invariant
+  });
+
+  it("splits each person's tax across only their own jobs — no cross-person subsidy", () => {
+    // A progressive stub: 10% up to $4000 taxable, 30% above. p1 ($8000) is in the higher
+    // band, p2 ($2000) in the lower — so their average rates differ, and a household-level
+    // split by taxable would misattribute. Per-person keeps each job's tax honest.
+    const progressive = (wages: number) =>
+      Math.round(Math.min(wages, dollarsToCents(4000)) * 0.1 + Math.max(0, wages - dollarsToCents(4000)) * 0.3);
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["p1", "p2"],
+        incomeSources: [
+          wageJob("p1", "job-a", dollarsToCents(8000)),
+          wageJob("p2", "job-b", dollarsToCents(2000)),
+        ],
+        computeTaxCents: (byCat) => progressive(byCat.wages ?? 0),
+        computeTaxByCategoryCents: (byCat) => {
+          const t = progressive(byCat.wages ?? 0);
+          return t > 0 ? { wages: t } : {};
+        },
+      }),
+    );
+    // p1: 4000×10% + 4000×30% = 400 + 1200 = $1600. p2: 2000×10% = $200.
+    // Each is a single job, so it bears exactly its owner's tax (a household split by
+    // taxable would give job-a (1600+200)×0.8 = $1440 — wrong).
+    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(1600), "job-b": dollarsToCents(200) });
+  });
+
+  it("reports pre-tax deferral per source, keyed like the tax split", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            grossCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            sourceId: "job-a",
+            planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000
+          },
+          wageJob("p1", "job-b", dollarsToCents(2000)), // no deferral
+        ],
+        ...flatWageTax,
+      }),
+    );
+    expect(r.deferralBySourceCents).toEqual({ "job-a": dollarsToCents(1000) });
+    // job-b defers nothing, so it is simply absent (not a 0 entry).
+    expect(r.deferralBySourceCents["job-b"]).toBeUndefined();
+    // Tax is on taxable = ($5000−$1000) + $2000 = $6000 → $600, split 4000:2000.
+    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(400), "job-b": dollarsToCents(200) });
+  });
+
+  it("falls back to the tax-category key for a wage source with no sourceId", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [{ ownerId: "p1", grossCents: dollarsToCents(3000), taxCategory: "wages" }],
+        ...flatWageTax,
+      }),
+    );
+    // No sourceId → keyed by category, matching how the income side bands it.
+    expect(r.taxBySourceCents).toEqual({ wages: dollarsToCents(300) });
+  });
+
+  it("omits the per-source breakdown when the jurisdiction declines it", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
+        computeTaxCents: (byCat) => Math.round((byCat.wages ?? 0) * 0.1),
+        // No computeTaxByCategoryCents → no breakdown at all.
+      }),
+    );
+    expect(r.taxBySourceCents).toBeUndefined();
+    expect(r.taxByCategoryCents).toBeUndefined();
+    expect(r.taxCents).toBe(dollarsToCents(500));
+  });
+});

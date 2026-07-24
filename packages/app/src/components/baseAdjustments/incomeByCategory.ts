@@ -38,9 +38,19 @@ export interface IncomeSourceBand {
 /** One month's income row for the chart. */
 export interface IncomeMonthRow {
   readonly month: number;
-  /** Gross cash this month, keyed by source id. */
+  /** Gross cash this month, keyed by source id (pre-tax, pre-deferral). */
   readonly centsBySource: Readonly<Record<string, number>>;
+  /**
+   * Take-home cash this month, keyed by source id: each source's gross minus the pre-tax
+   * deferral it made and the tax it bore (issue #110 follow-up), so it never exceeds
+   * `centsBySource`. This is the money actually available to cover the month's spending —
+   * the honest quantity to read against `spendingNeedCents`. A source with no deferral or
+   * tax (a cash drawdown) has the same value as its gross.
+   */
+  readonly netCentsBySource: Readonly<Record<string, number>>;
   readonly totalCents: number;
+  /** Σ of `netCentsBySource` — total take-home (after tax and deferral) this month. */
+  readonly takeHomeCents: number;
   /**
    * The month's spending need — the obligations the income (and any drawdown) has to
    * cover: non-liability expenses + scheduled liability payments (the exact
@@ -72,6 +82,17 @@ export interface IncomeChartData {
 
 /** Which view of the income chart is showing (issue #99 follow-up). */
 export type IncomeMode = "simple" | "advanced";
+
+/**
+ * Which dollar basis the income bands are drawn on (issue #110 follow-up):
+ *   - `takeHome` (the honest default) — each source's cash after its own tax and pre-tax
+ *     deferral, i.e. what's actually available to cover the month's spending. Read this
+ *     against the spending-need line: gross would overstate the headroom by the tax and
+ *     the 401(k) money that never reaches the checking account.
+ *   - `gross` — the pre-tax, pre-deferral paycheck, for reading raw earning power / the
+ *     shape of when jobs stop and the benefit starts.
+ */
+export type IncomeBasis = "takeHome" | "gross";
 
 /**
  * Stable stacking order by provenance category (bottom of the stack → top). The two
@@ -116,12 +137,25 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     const sources = m.flows?.incomeSources;
     if (sources === undefined) continue; // month 0 / any flow-free snapshot
 
+    // The per-source tax and deferral the engine attributed this month (issue #110
+    // follow-up), keyed the same way as `incomeSources`. Absent → 0 (no take-home haircut).
+    const taxBySource = m.flows?.taxBySourceCents ?? {};
+    const deferralBySource = m.flows?.deferralBySourceCents ?? {};
+
     const centsBySource: Record<string, number> = {};
+    const netCentsBySource: Record<string, number> = {};
     let totalCents = 0;
+    let takeHomeCents = 0;
     for (const s of sources) {
       if (s.grossCents === 0) continue;
       centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.grossCents;
       totalCents += s.grossCents;
+      // Take-home = gross − this source's pre-tax deferral − the tax it bore. Clamped at 0
+      // defensively (a source's tax never exceeds its taxable base, so this rarely bites).
+      const haircut = (taxBySource[s.sourceId] ?? 0) + (deferralBySource[s.sourceId] ?? 0);
+      const net = Math.max(0, s.grossCents - haircut);
+      netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + net;
+      takeHomeCents += net;
       if (!seen.has(s.sourceId)) {
         seen.set(s.sourceId, { id: s.sourceId, label: s.label, category: s.category });
         order.push(s.sourceId);
@@ -135,7 +169,7 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     // Obligations = expenses + scheduled liability payments (the waterfall's
     // `sharedObligationCents`, the same figure the decumulation gap covers).
     const spendingNeedCents = (m.flows?.expensesCents ?? 0) + (m.flows?.liabilityPaymentsCents ?? 0);
-    rows.push({ month: m.month, centsBySource, totalCents, spendingNeedCents });
+    rows.push({ month: m.month, centsBySource, netCentsBySource, totalCents, takeHomeCents, spendingNeedCents });
   }
 
   const sources = order
@@ -166,19 +200,35 @@ function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   return { id: SIMPLE_LIVING_OFF_SAVINGS_ID, label: "Living off savings", category: "savingsDrawdown" };
 }
 
+/** The per-source cash for a row on the chosen {@link IncomeBasis} — net (take-home) or gross. */
+function rowCentsFor(row: IncomeMonthRow, basis: IncomeBasis): Readonly<Record<string, number>> {
+  return basis === "gross" ? row.centsBySource : row.netCentsBySource;
+}
+
 /**
- * The bands and per-month rows to draw for a given {@link IncomeMode}. `advanced` is the
- * full per-source data unchanged (every job, every account draw, the benefit, the
- * drawdown). `simple` collapses via {@link simpleBandOf} — re-keying each row's cash onto
- * the collapsed band ids and summing — so "most people" see three ideas (wages, Social
- * Security, living off savings) instead of seven. Pure: the spending-need line and totals
- * ride through untouched.
+ * The bands and per-month rows to draw for a given {@link IncomeMode} and {@link
+ * IncomeBasis}. `advanced` keeps every source its own band (every job, every account draw,
+ * the benefit, the drawdown); `simple` collapses via {@link simpleBandOf} so "most people"
+ * see three ideas (wages, Social Security, living off savings) instead of seven. The
+ * `basis` selects each row's dollar figures — `takeHome` (default) draws the cash left
+ * after tax and deferral, the honest read against the spending-need line; `gross` draws the
+ * pre-tax paycheck. The returned rows' `centsBySource` carries whichever basis was chosen,
+ * so the chart renders it without knowing which. Pure: the spending-need line rides through
+ * untouched, and `totalCents` is recomputed for the chosen basis.
  */
 export function incomeBandsForMode(
   data: IncomeChartData,
   mode: IncomeMode,
+  basis: IncomeBasis = "takeHome",
 ): { readonly sources: readonly IncomeSourceBand[]; readonly rows: readonly IncomeMonthRow[] } {
-  if (mode === "advanced") return { sources: data.sources, rows: data.rows };
+  if (mode === "advanced") {
+    const rows = data.rows.map((r) => {
+      const centsBySource = rowCentsFor(r, basis);
+      const totalCents = Object.values(centsBySource).reduce((s, c) => s + c, 0);
+      return { ...r, centsBySource, totalCents };
+    });
+    return { sources: data.sources, rows };
+  }
 
   const bandForSource = new Map<string, IncomeSourceBand>();
   const collapsed = new Map<string, IncomeSourceBand>();
@@ -197,11 +247,13 @@ export function incomeBandsForMode(
 
   const rows = data.rows.map((r) => {
     const centsBySource: Record<string, number> = {};
-    for (const [srcId, cents] of Object.entries(r.centsBySource)) {
+    let totalCents = 0;
+    for (const [srcId, cents] of Object.entries(rowCentsFor(r, basis))) {
       const bandId = bandForSource.get(srcId)?.id ?? srcId;
       centsBySource[bandId] = (centsBySource[bandId] ?? 0) + cents;
+      totalCents += cents;
     }
-    return { month: r.month, centsBySource, totalCents: r.totalCents, spendingNeedCents: r.spendingNeedCents };
+    return { ...r, centsBySource, totalCents };
   });
   return { sources, rows };
 }

@@ -371,6 +371,8 @@ function allocateMonth(
 ): {
   taxCents: Cents;
   taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
+  taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
+  deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
   // The deferral cap is per person, not per household: the annual limit (with any
@@ -452,7 +454,13 @@ function allocateMonth(
 
   // Return the resolved contributions so the caller can unwind any unfundable slice once
   // the §5.1 cascade has decided how much of the month's shortfall genuinely couldn't be met.
-  return { taxCents: result.taxCents, taxByCategoryCents: result.taxByCategoryCents, contributions };
+  return {
+    taxCents: result.taxCents,
+    taxByCategoryCents: result.taxByCategoryCents,
+    taxBySourceCents: result.taxBySourceCents,
+    deferralBySourceCents: result.deferralBySourceCents,
+    contributions,
+  };
 }
 
 /**
@@ -895,14 +903,15 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
-      const { taxCents, taxByCategoryCents, contributions } = allocateMonth(
-        state,
-        incomeSources,
-        ctx,
-        jurisdiction,
-        expenseCents + totalPaymentsCents,
-        month,
-      );
+      const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
+        allocateMonth(
+          state,
+          incomeSources,
+          ctx,
+          jurisdiction,
+          expenseCents + totalPaymentsCents,
+          month,
+        );
       // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
       const uncoveredCents = applyShortfallCascade(state, month);
       isInsolvent = uncoveredCents > 0;
@@ -932,6 +941,10 @@ export function simulateHousehold(
         // The per-category tax breakdown (§5.3, #110), undefined when the jurisdiction
         // declines it — the app then draws one band, as before.
         taxByCategoryCents,
+        // The finer per-SOURCE tax split and per-source deferral (issue #110 follow-up),
+        // so a chart can band tax by job and show take-home per source.
+        taxBySourceCents,
+        deferralBySourceCents,
       );
     }
 

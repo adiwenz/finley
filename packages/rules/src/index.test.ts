@@ -21,6 +21,7 @@ describe("usJurisdiction (US-2026)", () => {
     const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
     expect(ids).toContain("taxThresholdForwardIndexing");
     expect(ids).toContain("socialSecurityThresholdsUnindexed");
+    expect(ids).toContain("taxAttributionProportional");
     for (const a of usJurisdiction.modelAssumptions ?? []) {
       expect(a.text.length).toBeGreaterThan(0);
     }

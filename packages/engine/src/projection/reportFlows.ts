@@ -51,6 +51,11 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * through (absent → the consumer draws a single tax band). It is passed pre-computed
  * rather than re-derived here because attribution is the jurisdiction's call, not the
  * report layer's — this module only buckets what the sim already resolved.
+ *
+ * The finer `taxBySourceCents` (issue #110 follow-up) and `deferralBySourceCents` ride
+ * through the same way, keyed by the SAME `sourceId ?? taxCategory` this function bands
+ * the income side on — so a consumer can line each income band up with the tax it bore
+ * and the deferral it made, and draw a per-job tax chart or a take-home income view.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -60,6 +65,8 @@ export function buildFlows(
   spendingItems: readonly SpendingItem[],
   liquidDrawdownCents: Cents = 0,
   taxByCategoryCents?: Readonly<Record<string, Cents>>,
+  taxBySourceCents?: Readonly<Record<string, Cents>>,
+  deferralBySourceCents?: Readonly<Record<string, Cents>>,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -115,6 +122,10 @@ export function buildFlows(
     // `incomeByCategoryCents`. Absent when the jurisdiction declines the breakdown, so a
     // consumer falls back to the single `taxCents` band. Σ === `taxCents` when present.
     taxByCategoryCents,
+    // The finer per-source tax split and per-source deferral (issue #110 follow-up),
+    // keyed like `incomeSources`. Absent when the jurisdiction declines the breakdown.
+    taxBySourceCents,
+    deferralBySourceCents,
     expensesCents,
     liabilityPaymentsCents,
     // Not a second pass over the series: the per-line map and the spending items

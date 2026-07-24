@@ -9,25 +9,35 @@
  * This graph makes it explicit — how much tax the plan pays each month, and how that
  * shape moves as earned income gives way to withdrawals and the government benefit.
  *
- * It STACKS BY TAX CATEGORY (issue #110), mirroring the income chart: the engine now
- * reports the tax broken out per `TaxCategory` (`ProjectionMonthFlows.taxByCategoryCents`)
- * because the JURISDICTION owns the attribution — US tax is not linearly separable by
- * category (progressive brackets, the capital-gains preference, benefit inclusion), so the
- * split is the jurisdiction's call, not the app's to synthesize. When the jurisdiction
- * declines the breakdown (a null jurisdiction, or one that does not implement the seam) the
- * chart falls back to a single band on the `taxCents` total, exactly as before.
+ * It STACKS BY INCOME SOURCE (issue #110 follow-up), mirroring the income chart exactly:
+ * the engine now reports the tax broken out per source (`ProjectionMonthFlows
+ * .taxBySourceCents`) — which JOB, which account draw bore it — because the JURISDICTION
+ * owns the category attribution (US tax is not linearly separable — progressive brackets,
+ * the capital-gains preference, benefit inclusion) and the engine then splits each
+ * category's tax across the sources in it by taxable weight. So a two-earner household sees
+ * *which job* is taxed, not a single lumped `wages` band. Bands are coloured and ordered by
+ * each source's provenance category (wages first, then the benefit, then the drawdown-side
+ * categories) so the tax chart reads consistently with the income chart. When the
+ * jurisdiction declines the breakdown (a null jurisdiction, or one that does not implement
+ * the seam) the chart falls back to a single band on the `taxCents` total, as before.
+ *
+ * ⚠ The per-source split is proportional (average-rate), not marginal — the caveat the
+ * report discloses as `taxAttributionProportional`. Adding a second job really costs more
+ * tax than its average share, so a band shows a source's *average* share of the bill.
  *
  * Pure: the app passes the series in and this derives the chart shape, with no charting
  * library dependency (so it is unit-testable in node).
  */
 
-import type { ProjectionSeries, TaxCategory } from "@finley/engine";
+import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
 
-/** One tax band on the stacked chart: a tax category and how to name it. */
-export interface TaxCategoryBand {
-  /** The engine's {@link TaxCategory} — the band's identity and colour/order driver. */
-  readonly category: TaxCategory;
+/** One tax band on the stacked chart: a source, how to name it, and its provenance. */
+export interface TaxSourceBand {
+  /** The engine's stable source id (a job's id, an account draw, or a category fallback). */
+  readonly id: string;
   readonly label: string;
+  /** Provenance category, driving band colour and stacking order (as on the income chart). */
+  readonly category: string;
 }
 
 /** One month's tax row for the chart. */
@@ -35,21 +45,21 @@ export interface TaxMonthRow {
   readonly month: number;
   /** Total tax this month — the sum of the bands, and the single-band value in fallback. */
   readonly taxCents: number;
-  /** This month's tax keyed by {@link TaxCategory}; empty when no breakdown is reported. */
-  readonly centsByCategory: Readonly<Record<string, number>>;
+  /** This month's tax keyed by source id; empty when no per-source breakdown is reported. */
+  readonly centsBySource: Readonly<Record<string, number>>;
 }
 
 export interface TaxChartData {
   readonly rows: readonly TaxMonthRow[];
   /**
-   * The tax categories that carry tax somewhere, in stable stacking order (issue #110).
-   * Empty when the engine reports no per-category breakdown — the chart then draws a
-   * single total band. Categories that are zero across the whole horizon are dropped, so
-   * there is no empty legend entry.
+   * The income sources that carry tax somewhere, in stable stacking order (issue #110
+   * follow-up). Empty when the engine reports no per-source breakdown — the chart then
+   * draws a single total band. Sources that are zero across the whole horizon are dropped,
+   * so there is no empty legend entry.
    */
-  readonly categories: readonly TaxCategoryBand[];
-  /** True when at least one month carried a per-category breakdown (else a single band). */
-  readonly hasCategoryBreakdown: boolean;
+  readonly sources: readonly TaxSourceBand[];
+  /** True when at least one month carried a per-source breakdown (else a single band). */
+  readonly hasSourceBreakdown: boolean;
   /** Total nominal tax paid across the whole horizon (the sum of every month). */
   readonly totalCents: number;
   /** The largest single month's tax, and the month it falls in — the visible peak. */
@@ -60,28 +70,34 @@ export interface TaxChartData {
 }
 
 /**
- * Stable stacking order (bottom → top) and human labels for the tax bands, mirroring the
- * income chart's category order so the two charts read consistently: earned **wages** at
- * the base, then the **government benefit**, then the drawdown-side categories. Anything
- * unrecognised sorts to the end.
+ * Human labels for a source keyed only by its tax CATEGORY (the fallback key the engine
+ * uses for an untitled source — e.g. a wage stream with no job id). A real job bands under
+ * its own name; these cover the fallback so a category-keyed band still reads in English.
  */
-const TAX_CATEGORY_LABELS: Readonly<Record<TaxCategory, string>> = {
+const TAX_CATEGORY_LABELS: Readonly<Record<string, string>> = {
   wages: "Wages",
   governmentRetirementBenefit: "Social Security",
   ordinaryIncome: "Ordinary income",
   capitalGains: "Capital gains",
   taxExempt: "Tax-exempt",
 };
-const CATEGORY_ORDER: readonly TaxCategory[] = [
+
+/**
+ * Stable stacking order (bottom → top) by provenance category, matching the income chart
+ * so the two line up: earned **wages** at the base, then the **government benefit**, then
+ * the drawdown-side categories. Anything unrecognised sorts to the end.
+ */
+const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
   "governmentRetirementBenefit",
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
+  "savingsDrawdown",
 ];
 
 function categoryRank(category: string): number {
-  const i = CATEGORY_ORDER.indexOf(category as TaxCategory);
+  const i = CATEGORY_ORDER.indexOf(category as IncomeSourceCategory);
   return i === -1 ? CATEGORY_ORDER.length : i;
 }
 
@@ -90,54 +106,69 @@ function categoryRank(category: string): number {
  * is the flow-free opening snapshot, §4.6, so it is skipped), mirroring the income chart
  * exactly so the two line up point-for-point on the shared axis.
  *
- * When a month carries `taxByCategoryCents` the row keeps the per-category split (whose Σ
- * equals `taxCents`, by the seam's contract); the union of categories that ever carry tax
- * becomes the stacked bands. When NO month carries a breakdown, `categories` is empty and
- * the row's `taxCents` is the single-band value — the pre-#110 behaviour, preserved.
+ * When a month carries `taxBySourceCents` the row keeps the per-source split (whose Σ
+ * equals `taxCents`, by the seam's contract); the union of sources that ever carry tax
+ * becomes the stacked bands, named from the month's `incomeSources` where available. When
+ * NO month carries a breakdown, `sources` is empty and the row's `taxCents` is the
+ * single-band value — the pre-breakdown behaviour, preserved.
  */
 export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   const rows: TaxMonthRow[] = [];
   let totalCents = 0;
   let peakMonthlyCents = 0;
   let peakMonth = 0;
-  let hasCategoryBreakdown = false;
-  // Which categories ever carried a positive tax — drives the (dropped-if-empty) bands.
-  const categoryTotals = new Map<string, number>();
+  let hasSourceBreakdown = false;
+  // Label/category per source id, learned from the income-source flows (the income side
+  // names each job); tax-only keys fall back to a category label below.
+  const registry = new Map<string, { label: string; category: string }>();
+  // Which sources ever carried a positive tax — drives the (dropped-if-empty) bands, in
+  // first-appearance order (a Map preserves insertion order).
+  const sourceTotals = new Map<string, number>();
 
   for (const m of series.months) {
     const flows = m.flows;
     if (flows === undefined) continue; // month 0 / any flow-free snapshot
+    // Learn each income source's name/provenance so a tax band can label its job.
+    for (const s of flows.incomeSources ?? []) {
+      if (!registry.has(s.sourceId)) registry.set(s.sourceId, { label: s.label, category: s.category });
+    }
+
     const taxCents = Math.max(0, flows.taxCents ?? 0);
     totalCents += taxCents;
     if (taxCents > peakMonthlyCents) {
       peakMonthlyCents = taxCents;
       peakMonth = m.month;
     }
-    const centsByCategory: Record<string, number> = {};
-    const breakdown = flows.taxByCategoryCents;
+
+    const centsBySource: Record<string, number> = {};
+    const breakdown = flows.taxBySourceCents;
     if (breakdown !== undefined) {
-      hasCategoryBreakdown = true;
-      for (const [category, cents] of Object.entries(breakdown)) {
+      hasSourceBreakdown = true;
+      for (const [sourceId, cents] of Object.entries(breakdown)) {
         const value = Math.max(0, cents ?? 0);
         if (value === 0) continue;
-        centsByCategory[category] = (centsByCategory[category] ?? 0) + value;
-        categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + value);
+        centsBySource[sourceId] = (centsBySource[sourceId] ?? 0) + value;
+        sourceTotals.set(sourceId, (sourceTotals.get(sourceId) ?? 0) + value);
       }
     }
-    rows.push({ month: m.month, taxCents, centsByCategory });
+    rows.push({ month: m.month, taxCents, centsBySource });
   }
 
-  const categories: TaxCategoryBand[] = [...categoryTotals.keys()]
-    .sort((a, b) => categoryRank(a) - categoryRank(b))
-    .map((category) => ({
-      category: category as TaxCategory,
-      label: TAX_CATEGORY_LABELS[category as TaxCategory] ?? category,
-    }));
+  const sources: TaxSourceBand[] = [...sourceTotals.keys()]
+    .map((id) => {
+      const known = registry.get(id);
+      if (known !== undefined) return { id, label: known.label, category: known.category };
+      // A tax-only key (no income band) — an untitled source keyed by its category, or a
+      // zero-cash booking. Name it from the category table, or the raw key as a last resort.
+      return { id, label: TAX_CATEGORY_LABELS[id] ?? id, category: id };
+    })
+    // Sort by category order, ties broken by first-appearance (the Map's insertion order).
+    .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
 
   return {
     rows,
-    categories,
-    hasCategoryBreakdown,
+    sources,
+    hasSourceBreakdown,
     totalCents,
     peakMonthlyCents,
     peakMonth,

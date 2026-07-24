@@ -15,6 +15,7 @@ import { formatDollars } from "../../format";
 import {
   describeIncomeGap,
   incomeBandsForMode,
+  type IncomeBasis,
   type IncomeChartData,
   type IncomeMode,
   type IncomeSourceBand,
@@ -34,6 +35,12 @@ import {
  *   - **Advanced** — every source as its own band (which job, which account draining,
  *     the benefit, the cash drawdown), for the reader who wants the full breakdown.
  *     The gain-vs-principal split of the drawdown lands later via issue #122.
+ *
+ * Bands are drawn on a **take-home** basis by default (issue #110 follow-up): each source's
+ * cash after its own tax and pre-tax deferral — the money actually available to meet the
+ * spending-need line. Gross would draw the paycheck *above* the tax and 401(k) money that
+ * never reach the checking account, overstating the headroom against spending. The
+ * "Pre-tax (gross)" toggle switches the bands back to gross for reading raw earning power.
  *
  * As with the budget chart, the summary and hidden data mirrors render independently of
  * Recharts so the behaviour is assertable without SVG layout (Recharts needs a real
@@ -91,8 +98,9 @@ export interface IncomeChartProps {
 
 export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: IncomeChartProps) {
   const [mode, setMode] = useState<IncomeMode>("simple");
+  const [basis, setBasis] = useState<IncomeBasis>("takeHome");
   const summary = describeIncomeGap(data);
-  const view = incomeBandsForMode(data, mode);
+  const view = incomeBandsForMode(data, mode, basis);
   const colors = colorsForBands(view.sources);
   const rows = view.rows.map((r) => ({
     month: r.month,
@@ -117,15 +125,27 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
         <p className="hint" data-testid="income-summary">
           {summary ?? "Income continues across the whole horizon."}
         </p>
-        {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
-          <input
-            type="checkbox"
-            checked={mode === "advanced"}
-            onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
-          />
-          Advanced view
-        </label>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
+          {/* Take-home is the default (bands = cash after tax + deferral); this toggle
+              switches to gross for reading raw earning power (issue #110 follow-up). */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={basis === "gross"}
+              onChange={(e) => setBasis(e.target.checked ? "gross" : "takeHome")}
+            />
+            Pre-tax (gross)
+          </label>
+          {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={mode === "advanced"}
+              onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
+            />
+            Advanced view
+          </label>
+        </div>
       </div>
 
       {/* Hidden data mirrors for tests / screen readers: the active view's first-row

@@ -196,6 +196,54 @@ describe("incomeBandsForMode", () => {
   });
 });
 
+describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)", () => {
+  /** A month whose flows carry per-source gross, tax, and deferral. */
+  function seriesWithTax(gross: number, tax: number, deferral: number): ProjectionSeries {
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [source("job:a", gross, "wages", "Day job")],
+          taxBySourceCents: { "job:a": tax },
+          deferralBySourceCents: { "job:a": deferral },
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+        },
+      },
+    ];
+    return { months } as unknown as ProjectionSeries;
+  }
+
+  it("take-home (the default) draws gross minus the source's tax and deferral", () => {
+    const data = buildIncomeChartData(
+      seriesWithTax(dollarsToCents(5_000), dollarsToCents(800), dollarsToCents(1_000)),
+    );
+    // The row keeps both bases; take-home = 5000 − 800 tax − 1000 deferral = 3200.
+    expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000)); // gross retained
+    expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(3_200));
+    expect(data.rows[0]!.takeHomeCents).toBe(dollarsToCents(3_200));
+    // The default basis the chart draws is take-home.
+    const takeHome = incomeBandsForMode(data, "advanced");
+    expect(takeHome.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(3_200));
+  });
+
+  it("gross basis draws the pre-tax paycheck", () => {
+    const data = buildIncomeChartData(
+      seriesWithTax(dollarsToCents(5_000), dollarsToCents(800), dollarsToCents(1_000)),
+    );
+    const gross = incomeBandsForMode(data, "advanced", "gross");
+    expect(gross.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000));
+  });
+
+  it("take-home equals gross when no tax or deferral is reported (flows without the maps)", () => {
+    const data = buildIncomeChartData(
+      seriesOf([source("job:a", dollarsToCents(5_000), "wages", "Day job")]),
+    );
+    expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(5_000));
+  });
+});
+
 describe("describeIncomeGap", () => {
   it("returns null when income runs continuously with no drawdown", () => {
     expect(

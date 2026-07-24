@@ -167,6 +167,15 @@ export interface ReportMonth {
    * consumer then draws the single `taxCents` band). Σ === `taxCents` when present.
    */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
+  /**
+   * This month's tax broken out by income SOURCE (issue #110 follow-up) — the finer
+   * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
+   * tax is named rather than collapsed into `wages`. Absent when the jurisdiction declines
+   * the breakdown. Σ === `taxCents` when present.
+   */
+  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  /** This month's pre-tax deferral by income source (issue #110 follow-up); absent when none deferred. */
+  readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -190,6 +199,12 @@ export interface ReportColumns {
    * per-category breakdown anywhere (a single-band tax chart).
    */
   readonly taxCategories: readonly string[];
+  /**
+   * The union of income-source ids that ever bore tax across the run (issue #110
+   * follow-up), so a consumer can lay out a per-source (per-job) stacked tax chart. Empty
+   * when the jurisdiction reports no per-source breakdown anywhere.
+   */
+  readonly taxSources: readonly string[];
 }
 
 export interface SimulationReport {
@@ -365,6 +380,8 @@ export function summarizeSimulation(
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       taxCents: flows?.taxCents ?? 0,
       taxByCategoryCents: flows?.taxByCategoryCents,
+      taxBySourceCents: flows?.taxBySourceCents,
+      deferralBySourceCents: flows?.deferralBySourceCents,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,
@@ -379,6 +396,7 @@ export function summarizeSimulation(
     propertyIds: unionKeys(months, (m) => m.propertyValuesCents),
     incomeCategories: unionKeys(months, (m) => m.incomeByCategoryCents),
     taxCategories: unionKeys(months, (m) => m.taxByCategoryCents ?? {}),
+    taxSources: unionKeys(months, (m) => m.taxBySourceCents ?? {}),
   };
 
   return {

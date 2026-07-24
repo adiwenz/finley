@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars } from "../../format";
-import { describeTaxes, type TaxCategoryBand, type TaxChartData } from "./taxesByMonth";
+import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
  * Monthly tax-paid chart — stacked below the income and per-line budget charts (issue
@@ -18,18 +18,20 @@ import { describeTaxes, type TaxCategoryBand, type TaxChartData } from "./taxesB
  * selection marker. Read together with the two above it, it shows the wedge between gross
  * income and gross spending that the tax seam takes out each month.
  *
- * It STACKS BY TAX CATEGORY (issue #110), matching the income chart: the jurisdiction now
- * reports the tax broken out per category (it owns that combination — brackets, the
- * capital-gains preference, benefit inclusion), so each band names the income category
- * that bore it, in a "money leaving" rust family distinct from the income blues and the
- * budget greens. When the jurisdiction declines the breakdown (a null jurisdiction) the
- * chart falls back to a single total band, as before. As with the sibling charts, the
- * summary and a hidden data mirror render independently of Recharts so the behaviour is
- * assertable without SVG layout (Recharts needs a real width, absent in jsdom).
+ * It STACKS BY INCOME SOURCE (issue #110 follow-up), matching the income chart: the engine
+ * splits the tax down to the job / account draw that bore it, so each band names its source
+ * and is coloured by that source's provenance category — a "money leaving" rust family,
+ * distinct from the income blues and the budget greens, with one tone per category so a
+ * household's jobs read as sibling shades. When the jurisdiction declines the breakdown (a
+ * null jurisdiction) the chart falls back to a single total band, as before. As with the
+ * sibling charts, the summary and a hidden data mirror render independently of Recharts so
+ * the behaviour is assertable without SVG layout (Recharts needs a real width, absent in
+ * jsdom).
  */
 
-// The single-band fallback colour, and a rust family (one step per category) for the
-// stacked view — all read as "tax / money leaving", set apart from the income bands.
+// The single-band fallback colour, and a rust family (one tone per provenance category)
+// for the stacked view — all read as "tax / money leaving", set apart from the income
+// bands. Sources in the same category share a tone; the fallback rotates for anything else.
 const TAX_COLOR = "#8c3b3b";
 const TAX_CATEGORY_COLORS: Readonly<Record<string, string>> = {
   wages: "#8c3b3b",
@@ -37,6 +39,7 @@ const TAX_CATEGORY_COLORS: Readonly<Record<string, string>> = {
   ordinaryIncome: "#7a4a3a",
   capitalGains: "#b8794f",
   taxExempt: "#6f5a4a",
+  savingsDrawdown: "#9c6b4a",
 };
 const TAX_FALLBACK_COLORS = ["#8c3b3b", "#a85a4a", "#b8794f", "#7a4a3a", "#6f5a4a"];
 const AXIS = "#6b6552";
@@ -44,7 +47,7 @@ const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
 
 /** A colour per tax band: the category's rust tone, or a rotating fallback. */
-function colorForCategory(band: TaxCategoryBand, index: number): string {
+function colorForSource(band: TaxSourceBand, index: number): string {
   return TAX_CATEGORY_COLORS[band.category] ?? TAX_FALLBACK_COLORS[index % TAX_FALLBACK_COLORS.length]!;
 }
 
@@ -58,12 +61,12 @@ export interface TaxChartProps {
 
 export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) {
   const summary = describeTaxes(data);
-  // Stacked view when the jurisdiction reported a per-category breakdown; otherwise a
-  // single total band (the pre-#110 fallback). Each row carries either the per-category
-  // cents (keyed by category) or the lone `taxCents`.
-  const stacked = data.hasCategoryBreakdown && data.categories.length > 0;
+  // Stacked view when the jurisdiction reported a per-source breakdown; otherwise a single
+  // total band (the fallback). Each row carries either the per-source cents (keyed by
+  // source id) or the lone `taxCents`.
+  const stacked = data.hasSourceBreakdown && data.sources.length > 0;
   const rows = data.rows.map((r) =>
-    stacked ? { month: r.month, ...r.centsByCategory } : { month: r.month, taxCents: r.taxCents },
+    stacked ? { month: r.month, ...r.centsBySource } : { month: r.month, taxCents: r.taxCents },
   );
   const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
 
@@ -80,12 +83,12 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
         {summary ?? "No income tax is paid over the horizon."}
       </p>
       {/* Hidden data mirror for tests / screen readers: first row's tax (total + any
-          per-category split) and the band labels currently stacked. */}
+          per-source split) and the band labels currently stacked. */}
       <output data-testid="tax-first-row" hidden>
         {JSON.stringify(data.rows[0] ?? {})}
       </output>
       <output data-testid="tax-bands" hidden>
-        {JSON.stringify(data.categories.map((c) => c.label))}
+        {JSON.stringify(data.sources.map((s) => s.label))}
       </output>
 
       <ResponsiveContainer width="100%" height={180}>
@@ -122,15 +125,15 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
           {stacked ? (
-            data.categories.map((band, i) => (
+            data.sources.map((band, i) => (
               <Area
-                key={band.category}
+                key={band.id}
                 type="monotone"
-                dataKey={band.category}
+                dataKey={band.id}
                 name={band.label}
                 stackId="tax"
-                stroke={colorForCategory(band, i)}
-                fill={colorForCategory(band, i)}
+                stroke={colorForSource(band, i)}
+                fill={colorForSource(band, i)}
                 fillOpacity={0.6}
                 isAnimationActive={false}
               />
