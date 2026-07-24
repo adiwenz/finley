@@ -10,10 +10,10 @@
  */
 
 import { useState } from "react";
-import type { GoalDisposition } from "@finley/engine";
+import type { GoalDisposition, GoalAccountType } from "@finley/engine";
 import { dollarsToCents, centsToDollars, isDisposingDisposition } from "@finley/engine";
 import type { GoalDraft } from "../../goalsView";
-import { goalDisposal, dispositionLabel } from "../../goalsView";
+import { goalDisposal, dispositionLabel, GOAL_ACCOUNT_TYPES } from "../../goalsView";
 import { NumInput } from "../numInput/numInput";
 
 const DISPOSITIONS: readonly GoalDisposition[] = [
@@ -45,6 +45,11 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
     typeof initial?.targetDate === "number" ? initial.targetDate : 12,
   );
   const [annualReturnPct, setAnnualReturnPct] = useState(initial?.annualReturnPct ?? 0);
+  // The account type the fund is held in (issue #101) — the thing a person actually
+  // knows. A fresh goal defaults to cash/savings, the most familiar kind.
+  const [accountType, setAccountType] = useState<GoalAccountType>(
+    initial?.accountType ?? "cash",
+  );
 
   // A firing disposition can't be "as soon as possible" — there'd be no month to
   // fire at. Force the date control back to a concrete month while one is selected.
@@ -56,6 +61,7 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
       name: name.trim(),
       targetCents: dollarsToCents(targetDollars),
       annualReturnPct,
+      accountType,
       ...goalDisposal(disposition, asapChecked ? "asap" : targetMonth),
     });
   }
@@ -111,6 +117,19 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
           min={0}
         />
       )}
+      <label className="field">
+        <span className="field-label">Where is this money held?</span>
+        <select
+          value={accountType}
+          onChange={(e) => setAccountType(e.target.value as GoalAccountType)}
+        >
+          {GOAL_ACCOUNT_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <NumInput
         label="Fund return"
         value={annualReturnPct}

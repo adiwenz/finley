@@ -13,12 +13,16 @@ import {
   dollarsToCents,
   nullJurisdiction,
   SYNTHETIC_CARD_ID,
+  CASH_INTEREST_TAX_PROFILE,
+  CAPITAL_GAINS_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+  PRE_TAX_TAX_PROFILE,
 } from "./index";
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, salariedJob } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
-import type { Plan } from "./plan";
+import type { Plan, GoalPlan } from "./plan";
 
 const START_YEAR = 2026;
 
@@ -194,6 +198,91 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
     expect(savings.taxProfile.withdrawalCategory).not.toBe("capitalGains");
     expect(savings.taxProfile.withdrawalCategory).toBe("taxExempt");
     expect(savings.taxProfile.returnKind).toBe("interest");
+  });
+});
+
+describe("createProjectionBase — a goal declares its account type (issue #101)", () => {
+  /** The `emergency` goal's derived fund account under a given account type. */
+  function goalFund(plan: Plan) {
+    return createProjectionBase(plan, ctx()).initialAccounts!.find((a) => a.id === "goal-emergency")!;
+  }
+
+  /** samplePlan with the emergency goal's account type set. */
+  function withEmergencyType(accountType: GoalPlan["accountType"]): Plan {
+    return {
+      ...samplePlan,
+      goals: samplePlan.goals.map((g) => (g.id === "emergency" ? { ...g, accountType } : g)),
+    };
+  }
+
+  it("derives a cash goal's fund into the cash-interest profile and marks it liquid", () => {
+    // The canonical cash goal (an emergency fund) is money held as cash, not an
+    // investment: its withdrawal must be tax-free (its interest is taxed at accrual),
+    // and it must be reachable — the one goal whose whole purpose is to be liquid.
+    const fund = goalFund(withEmergencyType("cash"));
+    expect(fund.taxProfile).toEqual(CASH_INTEREST_TAX_PROFILE);
+    expect(fund.taxProfile.withdrawalCategory).toBe("taxExempt");
+    expect(fund.taxProfile.returnKind).toBe("interest");
+    expect(fund.liquid).toBe(true);
+  });
+
+  it("derives a brokerage goal's fund into the capital-gains profile, illiquid", () => {
+    const fund = goalFund(withEmergencyType("brokerage"));
+    expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
+    expect(fund.liquid).toBe(false);
+  });
+
+  it("derives a tax-exempt goal's fund into the tax-exempt profile, illiquid", () => {
+    const fund = goalFund(withEmergencyType("taxExempt"));
+    expect(fund.taxProfile).toEqual(TAX_EXEMPT_TAX_PROFILE);
+    expect(fund.liquid).toBe(false);
+  });
+
+  it("derives a pre-tax goal's fund into the pre-tax profile, illiquid", () => {
+    const fund = goalFund(withEmergencyType("preTax"));
+    expect(fund.taxProfile).toEqual(PRE_TAX_TAX_PROFILE);
+    expect(fund.liquid).toBe(false);
+  });
+
+  it("defaults an unauthored account type to the legacy capital-gains investment", () => {
+    // Behaviour-preserving: a goal that never declared a type keeps the profile every
+    // goal fund carried before this issue, so existing plans project identically.
+    const fund = goalFund(samplePlan);
+    expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
+    expect(fund.liquid).toBe(false);
+  });
+
+  it("does not report a cash goal's drawdown as capital-gains investment income", () => {
+    // A cash goal drawn down in decumulation must never surface as a capitalGains draw:
+    // that would count toward provisional income and pull the benefit into tax (#100).
+    const plan: Plan = {
+      ...samplePlan,
+      goals: [
+        {
+          id: "emergency",
+          name: "Emergency fund",
+          targetCents: dollarsToCents(20000),
+          targetDate: 24,
+          disposition: "drawDown",
+          annualReturnPct: 4,
+          accountType: "cash",
+        },
+      ],
+    };
+    const series = project(plan, mockJurisdiction());
+    const anyCapitalGainsFromGoal = series.months.some((m) =>
+      (m.flows?.incomeSources ?? []).some(
+        (s) => s.label === "Emergency fund" && s.category === "capitalGains",
+      ),
+    );
+    expect(anyCapitalGainsFromGoal).toBe(false);
+    // And it is drawn down at all — a cash draw reports tax-free, by the goal's name.
+    const drawnByName = series.months.some((m) =>
+      (m.flows?.incomeSources ?? []).some(
+        (s) => s.label === "Emergency fund" && s.category === "taxExempt",
+      ),
+    );
+    expect(drawnByName).toBe(true);
   });
 });
 

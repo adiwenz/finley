@@ -17,13 +17,15 @@ import {
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   CASH_INTEREST_TAX_PROFILE,
+  TAX_EXEMPT_TAX_PROFILE,
+  type SimAccountTaxProfile,
 } from "./simAccount";
 import type { SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
-import type { Plan, GoalPlan } from "./plan";
+import type { Plan, GoalPlan, GoalAccountType } from "./plan";
 import { type Person } from "./person";
 import { compilePersonIncomeSeries } from "./compilePerson";
 import { compileExpenseBudgetLines } from "./compileBudget";
@@ -73,6 +75,39 @@ export function goalFundAccountId(goal: GoalPlan): string {
 }
 
 /**
+ * The account-shape a {@link GoalAccountType} resolves to on the goal's fund account:
+ * the neutral tax behaviour and whether the balance is liquid. This is the single
+ * seam issue #101 adds — the user authors what KIND of account holds the goal (the
+ * thing they actually know), and the projection derives the tax treatment and
+ * liquidity from it rather than hard-coding capital-gains-and-illiquid.
+ *
+ * Only `"cash"` is liquid: a cash reserve's whole purpose is to be reachable, and its
+ * withdrawal is tax-free precisely because its return is interest taxed at accrual
+ * (§#94). Every investment vehicle is illiquid (funded through the goal mechanism, not
+ * the surplus sweep) and taxed on withdrawal per its profile. An unauthored type keeps
+ * the legacy `"brokerage"` shape, so pre-#101 plans project identically.
+ */
+export const GOAL_ACCOUNT_SHAPES: Readonly<
+  Record<GoalAccountType, { readonly taxProfile: SimAccountTaxProfile; readonly liquid: boolean }>
+> = {
+  cash: { taxProfile: CASH_INTEREST_TAX_PROFILE, liquid: true },
+  brokerage: { taxProfile: CAPITAL_GAINS_TAX_PROFILE, liquid: false },
+  taxExempt: { taxProfile: TAX_EXEMPT_TAX_PROFILE, liquid: false },
+  preTax: { taxProfile: PRE_TAX_TAX_PROFILE, liquid: false },
+};
+
+/** The default account type for a goal that never declared one — the pre-#101 behaviour. */
+const DEFAULT_GOAL_ACCOUNT_TYPE: GoalAccountType = "brokerage";
+
+/** Resolve a goal's fund-account tax profile + liquidity from its authored account type. */
+export function goalAccountShape(goal: GoalPlan): {
+  readonly taxProfile: SimAccountTaxProfile;
+  readonly liquid: boolean;
+} {
+  return GOAL_ACCOUNT_SHAPES[goal.accountType ?? DEFAULT_GOAL_ACCOUNT_TYPE];
+}
+
+/**
  * Every account implied by the plan: the liquid savings account, the pre-tax
  * retirement account (funded by the deferral lever), the sweep-target brokerage,
  * and one fund account per goal. All non-liquid accounts carry the plan's return
@@ -116,15 +151,19 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     }),
   ];
   for (const goal of budget.goals) {
+    // The account TYPE the user authored (cash/brokerage/tax-exempt/pre-tax) is the
+    // source of truth; the fund's tax profile and liquidity derive from it (issue #101)
+    // rather than every goal being a hard-coded capital-gains investment.
+    const { taxProfile, liquid } = goalAccountShape(goal);
     accounts.push(
       new SimAccount({
         id: goalFundAccountId(goal),
         ownerId: PRIMARY_PERSON_ID,
         // Name the fund by its goal (issue #99): a goal fund being drawn down in
-        // decumulation reads as that goal by name, not an anonymous `capitalGains` band.
+        // decumulation reads as that goal by name, not an anonymous tax-bucket band.
         label: goal.name,
-        liquid: false,
-        taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+        liquid,
+        taxProfile,
         openingBalanceCents: 0,
         initialAnnualRate: goal.annualReturnPct / 100,
       }),

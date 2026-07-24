@@ -13,7 +13,13 @@ import {
   isDisposingDisposition,
   type ProjectionSeries,
 } from "@finley/engine";
-import type { Plan, GoalPlan, GoalDisposition, GoalDisposal } from "@finley/engine";
+import type {
+  Plan,
+  GoalPlan,
+  GoalDisposition,
+  GoalDisposal,
+  GoalAccountType,
+} from "@finley/engine";
 
 /**
  * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the
@@ -106,7 +112,28 @@ export type GoalDraft = {
   readonly name: string;
   readonly targetCents: number;
   readonly annualReturnPct: number;
+  /**
+   * The kind of account the goal's fund is held in (issue #101). Optional so a draft
+   * that omits it keeps the engine's legacy default (a capital-gains investment); the
+   * authoring form always supplies one.
+   */
+  readonly accountType?: GoalAccountType;
 } & GoalDisposal;
+
+/**
+ * The selectable goal account types, in the order the authoring form lists them, each
+ * paired with a plain-language label. The default emergency-style goal is `"cash"`
+ * (issue #101). Kept here so the form never hardcodes the engine's account-type union.
+ */
+export const GOAL_ACCOUNT_TYPES: readonly {
+  readonly value: GoalAccountType;
+  readonly label: string;
+}[] = [
+  { value: "cash", label: "Cash / savings" },
+  { value: "brokerage", label: "Taxable brokerage" },
+  { value: "taxExempt", label: "Tax-exempt (Roth-like)" },
+  { value: "preTax", label: "Pre-tax retirement" },
+];
 
 /**
  * Build a legal {@link GoalDisposal} from an independently-held disposition and date

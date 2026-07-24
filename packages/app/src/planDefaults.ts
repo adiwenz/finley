@@ -54,9 +54,13 @@ export const PLAN_DEFAULTS: Plan = {
       name: "Emergency fund",
       targetCents: dollarsToCents(15000),
       targetDate: 24,
-      // A liquid reserve: built to target, then retained in net worth (§5.2).
+      // A liquid reserve: built to target, then retained in net worth (§5.2). Held as
+      // CASH (issue #101), not a capital-gains investment — the canonical cash goal is
+      // money in savings, so its draw is tax-free and it stays reachable. A cash-like
+      // return matches the account type rather than an equity-market 7%.
       disposition: "retain",
-      annualReturnPct: 7,
+      accountType: "cash",
+      annualReturnPct: 1,
     },
     {
       id: "home",
@@ -64,7 +68,9 @@ export const PLAN_DEFAULTS: Plan = {
       targetCents: dollarsToCents(60000),
       targetDate: 60,
       // Swapped into home equity via HomePurchaseEvent (§4.5) — an asset swap (§5.2).
+      // A near-term down payment saved in a taxable brokerage (issue #101).
       disposition: "convertToEquity",
+      accountType: "brokerage",
       annualReturnPct: 7,
     },
   ],
