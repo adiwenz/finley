@@ -29,9 +29,12 @@ export interface ValueOverride {
  *  - `"cash"`      — a cash/savings buffer: tax-free withdrawal (interest taxed at
  *                    accrual), and liquid, because a cash reserve's whole purpose is
  *                    to be reachable;
- *  - `"brokerage"` — a taxable investment: post-tax in, capital-gains out, illiquid;
- *  - `"taxExempt"` — a Roth-like vehicle: post-tax in, tax-free out, growth untaxed;
- *  - `"preTax"`    — a tax-deferred retirement account: pre-tax in, ordinary-income out.
+ *  - `"brokerage"` — a taxable investment: post-tax in, capital-gains out, and liquid
+ *                    (a taxable brokerage is sellable on demand);
+ *  - `"taxExempt"` — a Roth-like vehicle: post-tax in, tax-free out, growth untaxed,
+ *                    illiquid (locked up by age/penalty rules);
+ *  - `"preTax"`    — a tax-deferred retirement account: pre-tax in, ordinary-income
+ *                    out, illiquid.
  */
 export type GoalAccountType = "cash" | "brokerage" | "taxExempt" | "preTax";
 
@@ -53,8 +56,7 @@ interface GoalPlanBase {
   /**
    * The {@link GoalAccountType} the fund is held in — the fund account's tax profile
    * and liquidity derive from it (issue #101). Optional: a goal that never declared a
-   * type keeps the legacy `"brokerage"` (capital-gains, illiquid) behaviour every goal
-   * fund carried before, so existing plans project identically.
+   * type keeps the `"brokerage"` default (capital-gains, liquid).
    */
   readonly accountType?: GoalAccountType;
 }

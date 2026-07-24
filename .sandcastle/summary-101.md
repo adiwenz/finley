@@ -21,8 +21,9 @@ tax-free (by the goal's name), never as capital-gains investment income.
 
 - **RED** — Added a `createProjectionBase — a goal declares its account type (issue #101)`
   block to `projectionBase.test.ts` asserting: a `cash` goal → `CASH_INTEREST_TAX_PROFILE`
-  + `liquid: true`; `brokerage`/`taxExempt`/`preTax` → their respective profiles, illiquid;
-  an unauthored type stays capital-gains (behaviour-preserving); and a drawn-down cash goal
+  + `liquid: true`; `brokerage` → capital-gains + `liquid: true`; `taxExempt`/`preTax` →
+  their respective profiles, illiquid; an unauthored type falls back to the `brokerage`
+  shape (liquid capital-gains); and a drawn-down cash goal
   never surfaces a `capitalGains` source, only a tax-free draw by name. Ran the file → **4
   failing** (`buildPlanAccounts` ignored the new field and still stamped capital-gains).
 - **GREEN** — Added the `accountType` field and a `GOAL_ACCOUNT_SHAPES` resolver, wired it
@@ -33,20 +34,23 @@ tax-free (by the goal's name), never as capital-gains investment income.
 
 ## Key Decisions & Why
 
-- **`accountType` is optional, defaulting to `"brokerage"` (capital-gains, illiquid).** This
-  is exactly the pre-#101 behaviour, so every existing plan and fixture projects
-  identically without editing dozens of `GoalPlan` literals. Only a goal that *opts in*
-  changes shape.
+- **`accountType` is optional, defaulting to `"brokerage"` (capital-gains, liquid).** This
+  keeps the pre-#101 capital-gains tax treatment for every goal that never opts in, so no
+  `GoalPlan` literal needs editing; the fund is now liquid (a taxable brokerage is sellable
+  on demand), which leaves the shipped default plan and all fixtures unchanged (its emergency
+  fund is `cash` and its down payment converts to home equity).
 - **One seam: `goalAccountShape` / `GOAL_ACCOUNT_SHAPES`.** The user authors the *kind* of
   account; the projection derives `{ taxProfile, liquid }` from it in a single mapping
   rather than scattering per-type branching. Reuses the four existing neutral tax profiles
   in `simAccount.ts` — no new tax semantics invented.
-- **Only `cash` is liquid.** A cash reserve's whole purpose is to be reachable (the issue's
-  explicit point about emergency funds); every investment vehicle stays illiquid (funded
-  through the goal mechanism, not the surplus sweep). `simulate.ts` picks the *first* liquid
-  account as the primary buffer, and goal funds are appended after `savings`, so the cash
-  buffer remains the primary liquid account — a liquid cash goal is an additional reachable
-  balance, not a new sweep target.
+- **Liquidity tracks reachability: `cash` and `brokerage` are liquid, the retirement
+  vehicles are not.** A cash reserve's whole purpose is to be reachable (the issue's
+  explicit point about emergency funds), and a taxable brokerage is genuinely sellable on
+  demand — so both are liquid. `taxExempt` and `preTax` stay illiquid, locked up by
+  age/penalty rules and funded through the goal mechanism rather than reachable as a buffer.
+  `simulate.ts` picks the *first* liquid account as the primary buffer, and goal funds are
+  appended after `savings`, so the savings buffer remains the primary liquid account — a
+  liquid goal fund is an additional reachable balance, not a new sweep target.
 - **The default emergency fund's return follows the account type (7% → 1% cash).** A cash
   account earning an equity-market 7% was the same incoherence the codebase already fixed
   for `savingsReturnPct`. The home down-payment goal is explicitly `brokerage` (a near-term

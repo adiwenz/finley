@@ -81,17 +81,19 @@ export function goalFundAccountId(goal: GoalPlan): string {
  * thing they actually know), and the projection derives the tax treatment and
  * liquidity from it rather than hard-coding capital-gains-and-illiquid.
  *
- * Only `"cash"` is liquid: a cash reserve's whole purpose is to be reachable, and its
- * withdrawal is tax-free precisely because its return is interest taxed at accrual
- * (§#94). Every investment vehicle is illiquid (funded through the goal mechanism, not
- * the surplus sweep) and taxed on withdrawal per its profile. An unauthored type keeps
- * the legacy `"brokerage"` shape, so pre-#101 plans project identically.
+ * A `"cash"` or `"brokerage"` account is liquid: a cash reserve's whole purpose is to
+ * be reachable, and a taxable brokerage is genuinely sellable on demand. The
+ * retirement vehicles (`"taxExempt"`, `"preTax"`) are illiquid — locked up by age and
+ * penalty rules, funded through the goal mechanism rather than reachable as a buffer.
+ * Cash's withdrawal is tax-free precisely because its return is interest taxed at
+ * accrual (§#94); brokerage withdrawal is capital-gains. An unauthored type keeps the
+ * legacy `"brokerage"` shape.
  */
 export const GOAL_ACCOUNT_SHAPES: Readonly<
   Record<GoalAccountType, { readonly taxProfile: SimAccountTaxProfile; readonly liquid: boolean }>
 > = {
   cash: { taxProfile: CASH_INTEREST_TAX_PROFILE, liquid: true },
-  brokerage: { taxProfile: CAPITAL_GAINS_TAX_PROFILE, liquid: false },
+  brokerage: { taxProfile: CAPITAL_GAINS_TAX_PROFILE, liquid: true },
   taxExempt: { taxProfile: TAX_EXEMPT_TAX_PROFILE, liquid: false },
   preTax: { taxProfile: PRE_TAX_TAX_PROFILE, liquid: false },
 };

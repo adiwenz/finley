@@ -226,10 +226,12 @@ describe("createProjectionBase — a goal declares its account type (issue #101)
     expect(fund.liquid).toBe(true);
   });
 
-  it("derives a brokerage goal's fund into the capital-gains profile, illiquid", () => {
+  it("derives a brokerage goal's fund into the capital-gains profile, liquid", () => {
+    // A taxable brokerage is genuinely sellable on demand, so its fund is liquid —
+    // reachable in decumulation, unlike the age/penalty-locked retirement vehicles.
     const fund = goalFund(withEmergencyType("brokerage"));
     expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
-    expect(fund.liquid).toBe(false);
+    expect(fund.liquid).toBe(true);
   });
 
   it("derives a tax-exempt goal's fund into the tax-exempt profile, illiquid", () => {
@@ -244,12 +246,12 @@ describe("createProjectionBase — a goal declares its account type (issue #101)
     expect(fund.liquid).toBe(false);
   });
 
-  it("defaults an unauthored account type to the legacy capital-gains investment", () => {
-    // Behaviour-preserving: a goal that never declared a type keeps the profile every
-    // goal fund carried before this issue, so existing plans project identically.
+  it("defaults an unauthored account type to a liquid capital-gains brokerage", () => {
+    // A goal that never declared a type falls back to the `"brokerage"` shape: a
+    // taxable capital-gains investment, liquid because a brokerage is sellable.
     const fund = goalFund(samplePlan);
     expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
-    expect(fund.liquid).toBe(false);
+    expect(fund.liquid).toBe(true);
   });
 
   it("does not report a cash goal's drawdown as capital-gains investment income", () => {
