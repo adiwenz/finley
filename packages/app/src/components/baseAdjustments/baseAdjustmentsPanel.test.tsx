@@ -415,6 +415,40 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)"
     expect(spin(/Pet care/)).toBeTruthy();
   });
 
+  it("toggling item type keeps name & amount and never mixes expense/contribution fields", () => {
+    // The form's draft is a discriminated union, so only ONE kind's extra field is ever
+    // present: an expense shows Category (no account), a contribution shows Into account
+    // (no category). Switching kind rebuilds that arm while carrying name and amount over.
+    renderPanel(PLAN_DEFAULTS);
+    openAdd();
+    setName("Flex");
+    setAmount(300);
+
+    // Expense arm: category present, account absent.
+    expect(screen.getByLabelText("Category")).toBeTruthy();
+    expect(screen.queryByLabelText("Into account")).toBeNull();
+
+    // → contribution: the fields swap, never coexist.
+    setType("contribution");
+    expect(screen.getByLabelText("Into account")).toBeTruthy();
+    expect(screen.queryByLabelText("Category")).toBeNull();
+
+    // → back to expense: swaps back, and the shared fields survived the round trip.
+    setType("expense");
+    expect(screen.getByLabelText("Category")).toBeTruthy();
+    expect(screen.queryByLabelText("Into account")).toBeNull();
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Flex");
+    expect(
+      Number((screen.getByRole("spinbutton", { name: /Monthly amount/ }) as HTMLInputElement).value),
+    ).toBe(300);
+
+    // Submits as a plain expense: an editable spending SPINBUTTON (a contribution renders a
+    // read-only value instead), and it isn't listed under Savings & contributions.
+    submitAdd();
+    expect(spin(/Flex/)).toBeTruthy();
+    expect(screen.getByText(/No recurring contributions yet/i)).toBeTruthy();
+  });
+
   it("adds a contribution line into an account, shown under Savings & contributions", () => {
     renderPanel(PLAN_DEFAULTS);
     // No contributions to begin with.
