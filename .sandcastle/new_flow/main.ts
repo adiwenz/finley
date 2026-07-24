@@ -21,21 +21,43 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import { vercelProvider } from "./vercelProvider";
 import { z } from "zod";
 import { exec, execSync } from "child_process";
-import { promisify } from "util";
+import { promisify, format } from "util";
 import * as fs from "fs";
 import * as path from "path";
 
 const execPromise = promisify(exec);
 
-// Stream progress live on GitHub Actions. When stdout is a pipe rather than a
-// TTY (i.e. CI), Node writes it asynchronously and batches the writes, so our
-// summary lines don't surface until the process is about to exit — a 20-minute
-// run looks frozen, then dumps everything at the end. Forcing the handles into
-// blocking mode makes each console.log flush immediately. No-op on a dev
-// machine, where stdout is already a blocking TTY.
-for (const stream of [process.stdout, process.stderr] as any[]) {
-  stream?._handle?.setBlocking?.(true);
-}
+// Make every console line hit the CI console immediately and in order.
+//
+// On GitHub Actions stdout is a pipe, not a TTY, so Node writes it
+// ASYNCHRONOUSLY — the bytes are queued and only flushed when the event loop
+// turns. This orchestrator prints its first milestones (Sandbox / Review handoff
+// / Pipeline Iteration) during a synchronous startup burst (module init, docker
+// provider setup, execSync) that runs before the first `await`, so those early
+// lines sit unflushed until the loop frees up — the step looks like it started
+// with no output. The previous fix, `process.stdout._handle.setBlocking(true)`,
+// is a silent no-op here: under `tsx`'s child process on Node 20 the handle
+// doesn't honor it, so nothing changed.
+//
+// Routing console.* through fs.writeSync(fd) is the version-independent cure: it
+// writes straight to the file descriptor synchronously, at call time, bypassing
+// the stream buffer — so a line is on the wire before the next statement runs,
+// regardless of event-loop state. (Only the orchestrator's own milestones go to
+// stdout; each agent's tool-by-tool thought process is streamed by
+// `sandcastle.run()` into per-run .sandcastle/logs/*.log files — tail -f locally.)
+const writeLine = (fd: number, args: unknown[]) => {
+  try {
+    fs.writeSync(fd, format(...(args as [unknown])) + "\n");
+  } catch {
+    // Never let a logging hiccup (e.g. EAGAIN on a momentarily full pipe) crash
+    // a 5-hour run; fall back to the async stream.
+    (fd === 2 ? process.stderr : process.stdout).write(format(...(args as [unknown])) + "\n");
+  }
+};
+console.log = (...args: unknown[]) => writeLine(1, args);
+console.info = (...args: unknown[]) => writeLine(1, args);
+console.warn = (...args: unknown[]) => writeLine(2, args);
+console.error = (...args: unknown[]) => writeLine(2, args);
 
 const planSchema = z.object({
   issues: z.array(
