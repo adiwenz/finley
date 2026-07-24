@@ -38,7 +38,7 @@ export interface DeferralLimitCrossing {
  */
 export function firstDeferralLimitCrossing(budget: Plan): DeferralLimitCrossing | null {
   // The elective limit is per PERSON, across every plan they defer into — so sum the
-  // deferral over ALL of the primary person's jobs, not one "career" job (§11). Each job
+  // deferral over ALL of the primary person's jobs, not one privileged job (§11). Each job
   // defers only in the years it is worked, at its own elected fraction, on its own
   // growing salary; the household can hold several jobs, several possibly open-ended.
   const deferringJobs = primaryJobs(budget).filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);

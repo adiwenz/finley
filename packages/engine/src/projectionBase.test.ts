@@ -144,6 +144,59 @@ describe("createProjectionBase — retirement decumulation liquidates instead of
   });
 });
 
+describe("createProjectionBase — income reported by source + savings drawdown (issue #99)", () => {
+  it("bands working income by its job source, keeping the wages rollup as a convenience view", () => {
+    const series = project(samplePlan, mockJurisdiction());
+    const working = series.months[12]!.flows!;
+    const job = working.incomeSources.find((s) => s.category === "wages");
+    expect(job).toBeDefined();
+    // A real per-source id (a specific job), not the bare tax bucket.
+    expect(job!.sourceId.startsWith("job:")).toBe(true);
+    // The tax-category rollup is retained and agrees with the source figure.
+    expect(working.incomeByCategoryCents["wages"]).toBe(job!.grossCents);
+  });
+
+  it("shows a retirement-gap month funded by savings as a drawdown source, not zero income", () => {
+    // Retires at 60, benefit not modelled here → months 240..323 earn nothing, yet savings
+    // pay every bill. That is the exact bug: it must read as a drawdown band, not $0.
+    const series = project(samplePlan, mockJurisdiction());
+    const gap = series.months.slice((60 - 40) * 12, (67 - 40) * 12);
+    const drawdownMonth = gap.find((m) =>
+      (m.flows?.incomeSources ?? []).some((s) => s.category === "savingsDrawdown"),
+    );
+    expect(drawdownMonth).toBeDefined();
+    const drawdown = drawdownMonth!.flows!.incomeSources.find((s) => s.category === "savingsDrawdown")!;
+    expect(drawdown.grossCents).toBeGreaterThan(0);
+    // The drawdown is spending an asset, not taxable income — it never enters the rollup.
+    expect(drawdownMonth!.flows!.incomeByCategoryCents["savingsDrawdown"]).toBeUndefined();
+  });
+
+  it("names a goal-fund decumulation draw by the goal, not an anonymous capitalGains bucket", () => {
+    // Once savings are spent, the retained 'Emergency fund' goal is the capital-gains asset
+    // the retiree liquidates. Per-source reporting names it; the tax bucket would not.
+    const series = project(samplePlan, mockJurisdiction());
+    const named = series.months.some((m) =>
+      (m.flows?.incomeSources ?? []).some((s) => s.label === "Emergency fund"),
+    );
+    expect(named).toBe(true);
+  });
+});
+
+describe("createProjectionBase — savings account tax profile is never-sold-consistent (issue #99 AC3)", () => {
+  it("does NOT give the never-liquidated cash account a capital-gains profile", () => {
+    // A capital-gains draw counts toward provisional income and pulls the benefit into
+    // tax — wrong for an account that is only ever spent as cash. Its withdrawal is
+    // tax-free precisely because its interest is taxed at accrual.
+    const savings = createProjectionBase(samplePlan, ctx()).initialAccounts!.find(
+      (a) => a.id === "savings",
+    )!;
+    expect(savings.liquid).toBe(true);
+    expect(savings.taxProfile.withdrawalCategory).not.toBe("capitalGains");
+    expect(savings.taxProfile.withdrawalCategory).toBe("taxExempt");
+    expect(savings.taxProfile.returnKind).toBe("interest");
+  });
+});
+
 describe("createProjectionBase — horizon spans to life expectancy (§7)", () => {
   it("projects from now to life expectancy, not a fixed 30 years", () => {
     const horizon = (currentAge: number, lifeExpectancy: number) =>

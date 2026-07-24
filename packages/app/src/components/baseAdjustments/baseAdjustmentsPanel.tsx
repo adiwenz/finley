@@ -286,6 +286,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
         <h4 className={styles.groupHeading}>Monthly income by source</h4>
         <IncomeChart
           data={projected.incomeData}
+          currentAge={plan.currentAge}
           selectedMonth={selectedMonth}
           onSelectMonth={selectMonth}
         />

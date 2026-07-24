@@ -107,13 +107,38 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
     expect(jobCount()).toBe(0);
     expect(screen.getByText(/No jobs yet/i)).toBeTruthy();
   });
+
+  it("names a job — the row is titled by the name, and it round-trips back into the edit form", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Job name/i }), {
+      target: { value: "Software Engineer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // The row header now reads the human title, not the positional "Job 1".
+    const row = screen.getByLabelText("Software Engineer");
+    expect(within(row).getByText("$5,000/mo")).toBeTruthy();
+    // And the name is seeded back when the form re-opens.
+    fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
+    expect((screen.getByRole("textbox", { name: /Job name/i }) as HTMLInputElement).value).toBe(
+      "Software Engineer",
+    );
+  });
+
+  it("leaves a whitespace-named job titled positionally in the row", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Job name/i }), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(screen.getByLabelText("Job 1")).toBeTruthy();
+  });
 });
 
 describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
   // A pay change lands on the job's `payChanges`, not its starting salary — so the job
   // headline stays $5,000/mo while the change is what actually moves pay. (§72 bug: the
   // panel used to show only the starting figure, hiding the change entirely.)
-  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "career", { month: 12, kind: "setTo", cents: 0 });
+  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
     render(<Harness initial={withSetToZero} />);
@@ -139,7 +164,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
   });
 
   it("describes a delta cut with the right verb and sign", () => {
-    const cut = addJobPayChange(PLAN_DEFAULTS, "career", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
+    const cut = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
     render(<Harness initial={cut} />);
     expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
   });
@@ -148,7 +173,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
 describe("JobsPanel — 401(k) elective-limit nudge (§5.4)", () => {
   it("discloses that a deferral over the annual limit is paid as taxable income", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
-    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "career", 0.5)} />);
+    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
     // The row also surfaces the elected rate.
     expect(within(screen.getByLabelText("Job 1")).getByText(/50% to 401\(k\)/i)).toBeTruthy();

@@ -12,7 +12,7 @@
 import type { Cents } from "../money";
 import type { SimAccount } from "../simAccount";
 import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
-import type { SimCashFlowSeries } from "../cashFlowSeries";
+import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type {
@@ -103,10 +103,33 @@ export interface ProjectionMonthFlows {
    * Gross income this month bucketed by {@link TaxCategory} (`wages`,
    * `ordinaryIncome`, `governmentRetirementBenefit`, …) — the authoritative
    * breakdown of every income source the waterfall saw, including the derived
-   * government retirement benefit and RMD draws.
+   * government retirement benefit and RMD draws. Retained as the convenience
+   * tax-category rollup of {@link incomeSources}, exactly as `expensesCents`
+   * coexists with `lineMonthlyCents` (§Q27) — a category is a tax classification,
+   * not a source, so two jobs share one `wages` bucket and every pre-tax draw shares
+   * `ordinaryIncome`.
    */
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
-  /** Σ of `incomeByCategoryCents` — total gross income this month. */
+  /**
+   * This month's income reported BY SOURCE (issue #99) — the finer breakdown the
+   * category rollup above collapses. One entry per distinct source that paid cash
+   * this month (a specific job, a specific account draw, the government benefit),
+   * each naming itself and its provenance {@link ProjectionIncomeSource.category} so
+   * a chart can band by source and name *which* job ended or *which* account is being
+   * drained rather than hedging behind a tax bucket.
+   *
+   * It also carries the **liquid-buffer drawdown** as its own `savingsDrawdown`
+   * source: while cash savings still cover the month's gap the §5.1 cascade charges
+   * spending straight against the account and no taxable withdrawal source is created,
+   * so "living off savings" would otherwise read as zero income. That drawdown is NOT
+   * taxable income and so is deliberately absent from `incomeByCategoryCents` /
+   * `totalIncomeCents` (which stay the taxable-income rollup); it appears only here.
+   *
+   * Zero-gross sources (an accrued-interest booking, whose cash is already in the
+   * balance) are omitted — they carry no cash to band.
+   */
+  readonly incomeSources: readonly ProjectionIncomeSource[];
+  /** Σ of `incomeByCategoryCents` — total gross (taxable) income this month. Excludes the savings drawdown. */
   readonly totalIncomeCents: Cents;
   /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
   readonly governmentRetirementBenefitCents: Cents;
@@ -138,6 +161,30 @@ export interface ProjectionMonthFlows {
    * when the plan authors no budget lines (the scalar path).
    */
   readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
+}
+
+/**
+ * The provenance category of one reported income source (issue #99). For a genuine
+ * income source it is the source's own {@link TaxCategory} — the same value that
+ * buckets it in `incomeByCategoryCents`. The one extra member, `"savingsDrawdown"`,
+ * tags the liquid-buffer drawdown, which is spending down cash rather than taxable
+ * income and therefore has no tax category of its own.
+ */
+export type IncomeSourceCategory = TaxCategory | "savingsDrawdown";
+
+/**
+ * One reported income source for a single month (issue #99) — the per-source unit of
+ * {@link ProjectionMonthFlows.incomeSources}. `sourceId` is a stable machine key (a job's
+ * id, an account's id, `benefit:<person>`, the fixed savings-drawdown id) so a chart can
+ * keep a band's identity across months; `label` is its human name; `category` places it
+ * on the tax-category axis (or marks it a savings drawdown).
+ */
+export interface ProjectionIncomeSource {
+  readonly sourceId: string;
+  readonly label: string;
+  readonly category: IncomeSourceCategory;
+  /** Gross cash this source paid this month. */
+  readonly grossCents: Cents;
 }
 
 export interface ProjectionSeries {
@@ -187,6 +234,13 @@ export interface SimOwnedSeries {
    * reader nothing about which line is which.
    */
   readonly label?: string;
+  /**
+   * Stable machine id for this stream (issue #99), used as the `sourceId` of its
+   * reported income flow so a chart can keep a band's identity across months and name
+   * *which* job a paycheck came from. Diagnostic only — the simulation reads it for
+   * nothing. Absent → the flow view falls back to keying the source by owner.
+   */
+  readonly sourceId?: string;
   /**
    * Retirement-plan descriptor (§5.5) for an income source that funds a
    * person-owned account. Presence makes the source eligible for pre-tax deferral

@@ -212,7 +212,25 @@ function estimateNetIncome(
  * additive draw (the full binding + its dedicated tests stay in #32).
  *
  * Absent tax seam (v1 null jurisdiction) → tax is 0, so every draw nets one-for-one.
+ *
+ * Returns both the taxable withdrawal `sources` (fed to the waterfall) and the
+ * `liquidDrawdownCents` — the slice of the gap the liquid buffer covers before any
+ * investment is sold (issue #99). That drawdown never becomes a waterfall source: the
+ * cash is already in the account and the §5.1 cascade spends it directly, so injecting
+ * it would double-count and mis-tax it. It is returned purely so the flow view can show
+ * "savings are covering this month" rather than a misleading zero-income band.
  */
+export interface WithdrawalPlan {
+  /** Taxable investment-liquidation income sources for the waterfall (may be empty). */
+  readonly sources: IncomeSourceMonth[];
+  /**
+   * The gap covered by drawing the existing liquid buffer this month — cash the
+   * household is living on because income fell short. Reporting-only (issue #99): it is
+   * NOT a waterfall source and is not taxable. 0 when income covered the month.
+   */
+  readonly liquidDrawdownCents: Cents;
+}
+
 export function buildWithdrawalSources(
   state: WithdrawalState,
   jurisdiction: Jurisdiction,
@@ -221,7 +239,7 @@ export function buildWithdrawalSources(
   obligationsCents: Cents,
   ctx: JurisdictionContext,
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
-): IncomeSourceMonth[] {
+): WithdrawalPlan {
   const computeTaxCents = (taxable: TaxableByCategory): Cents =>
     jurisdiction.computeTaxCents(taxable, ctx);
 
@@ -231,7 +249,7 @@ export function buildWithdrawalSources(
   );
 
   const gap = obligationsCents - netIncomeCents;
-  if (gap <= 0) return [];
+  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0 };
 
   // Spend down the existing liquid buffer first (D2): the §5.1 cascade will charge
   // the shortfall the withdrawal leaves uncovered against the liquid account, draining
@@ -240,8 +258,12 @@ export function buildWithdrawalSources(
     state.liquidAccount !== null
       ? Math.max(0, state.assetBalances.get(state.liquidAccount.id) ?? 0)
       : 0;
+  // The buffer covers `min(gap, buffer)` of the gap — the whole gap when the buffer can
+  // absorb it (need ≤ 0, nothing sold), else the whole buffer (the rest is sold below).
+  // This IS the reported savings drawdown (issue #99), the same in both branches.
+  const liquidDrawdownCents = Math.min(gap, liquidBuffer);
   let need = gap - liquidBuffer;
-  if (need <= 0) return [];
+  if (need <= 0) return { sources: [], liquidDrawdownCents };
 
   const rankMap = liquidationRankMap(liquidationOrder);
   const orderedSources = state.accounts
@@ -318,8 +340,13 @@ export function buildWithdrawalSources(
       grossCents: gross,
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
+      // Report the draw by the account it came from (issue #99): the account id keys the
+      // band and its label names it, so an "emergency fund" goal draining reads as that
+      // fund by name rather than as an anonymous `capitalGains` band.
+      sourceId: account.id,
+      label: account.label ?? account.id,
     });
   }
 
-  return sources;
+  return { sources, liquidDrawdownCents };
 }

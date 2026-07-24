@@ -122,6 +122,14 @@ export class SimAccount {
   readonly id: string;
   readonly ownerId: string;
   readonly kind: "asset";
+  /**
+   * Human-facing name of this account ("Cash savings", "Brokerage", a goal's own name).
+   * Diagnostic only — nothing in the simulation reads it; it rides through to the
+   * per-source income flow view (issue #99) so a decumulation draw can be reported as
+   * *which* account is being drained rather than as an anonymous tax bucket. Absent → a
+   * reporting label falls back to the account id.
+   */
+  readonly label?: string;
   /** liquid=true: eligible to receive net cash flow from the allocation waterfall. */
   readonly liquid: boolean;
   /** Neutral tax behavior for withdrawal routing / forced distributions (§5.3 seam 2). */
@@ -134,6 +142,7 @@ export class SimAccount {
   constructor(params: {
     id: string;
     ownerId: string;
+    label?: string;
     liquid: boolean;
     taxProfile: SimAccountTaxProfile;
     openingBalanceCents: Cents;
@@ -142,6 +151,7 @@ export class SimAccount {
     this.id = params.id;
     this.ownerId = params.ownerId;
     this.kind = "asset";
+    this.label = params.label;
     this.liquid = params.liquid;
     this.taxProfile = params.taxProfile;
     this.openingBalanceCents = params.openingBalanceCents;
@@ -194,6 +204,7 @@ export class SimAccount {
     const clone = new SimAccount({
       id: this.id,
       ownerId: this.ownerId,
+      label: this.label,
       liquid: this.liquid,
       taxProfile: this.taxProfile,
       openingBalanceCents: this.openingBalanceCents,

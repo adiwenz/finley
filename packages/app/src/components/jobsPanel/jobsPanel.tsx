@@ -103,7 +103,9 @@ export function JobsPanel({ budget, setBudget }: JobsPanelProps) {
         <ul className={styles.list}>
           {jobs.map((job, i) => {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
-            const label = `Job ${i + 1}`;
+            // The user's title when they gave one, else positional — so an unnamed job
+            // still reads as "Job 1" rather than exposing its raw id.
+            const label = job.name?.trim() || `Job ${i + 1}`;
             const overrideCount = job.incomeOverrides?.length ?? 0;
             // Permanent pay changes, oldest first — listed in full below (not just counted),
             // since a raise/cut moves what the job actually pays and the headline shows only

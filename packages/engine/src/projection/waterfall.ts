@@ -54,6 +54,16 @@ export interface IncomeSourceMonth {
   readonly ownerId: string;
   readonly grossCents: Cents;
   readonly taxCategory: TaxCategory;
+  /**
+   * Reporting provenance (issue #99), consumed ONLY by the diagnostic flow view
+   * ({@link import("./reportFlows").buildFlows}), never by the waterfall's allocation
+   * or tax math. `sourceId` is a stable machine key (a job's id, a draw's account id,
+   * `benefit:<person>`) so per-source reporting can name *which* job or account a flow
+   * came from instead of collapsing it into a tax bucket; `label` is its human name.
+   * Absent → the flow view falls back to keying/naming the source by its tax category.
+   */
+  readonly sourceId?: string;
+  readonly label?: string;
   /** Present → eligible for pre-tax deferral (§5.0 step 1). Absent → post-deferral. */
   readonly planDescriptor?: PlanDescriptor;
   /**

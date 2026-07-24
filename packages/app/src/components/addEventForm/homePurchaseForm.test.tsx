@@ -78,7 +78,7 @@ describe("HomePurchaseForm — §4.5 soft DTI warning (#23)", () => {
   it("stays silent when the purchase sits comfortably within the guideline", () => {
     // The same default $300k / $60k down purchase against a $50,000/mo gross
     // income: ≈$1,516/mo is ~3% front-end, well under 28%.
-    const html = render(setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(50_000)));
+    const html = render(setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(50_000)));
     expect(html).not.toContain("soft-warning");
   });
 });

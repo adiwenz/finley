@@ -6,28 +6,30 @@ import { START_YEAR } from "./config";
 import { defaultBudgetTemplate, toBudgetLines } from "./components/baseAdjustments/budgetTemplate";
 
 const DEFAULT_CURRENT_AGE = 35;
-const DEFAULT_CAREER_START_AGE = 18;
+const DEFAULT_WORK_START_AGE = 18;
 
 /**
- * The default plan's single open-ended "career" {@link Job} (§1/§6, issue #72) — the
- * source of truth for earned income now that the scalar `incomeCents` /
- * `careerStartAge` / `retirementDeferralPct` fields are gone. A real-flat salary
- * (`realGrowthPct: 0`, so it grows at CPI and holds constant in real terms — the exact
- * behaviour the scalar income lever had) anchored at the age the career began, ending
- * at the person's retirement age. Its `startYear` seeds the pre-"now" covered-earnings
- * record (§4.6); a 401(k) deferral, when the user sets one, rides on it (§11).
+ * The default plan's single open-ended {@link Job} (§1/§6, issue #72) — the source of
+ * truth for earned income now that the scalar `incomeCents` / `careerStartAge` /
+ * `retirementDeferralPct` fields are gone. It is not a privileged "career" job — just
+ * the one job a fresh plan opens with; a person may hold any number, none elevated over
+ * the others. A real-flat salary (`realGrowthPct: 0`, so it grows at CPI and holds
+ * constant in real terms — the exact behaviour the scalar income lever had) anchored at
+ * the age the person started working, ending at their retirement age. Its `startYear`
+ * seeds the pre-"now" covered-earnings record (§4.6); a 401(k) deferral, when the user
+ * sets one, rides on it (§11).
  */
-const DEFAULT_CAREER_JOB: Job = {
-  id: "career",
+const DEFAULT_JOB: Job = {
+  id: "job-1",
   ownerId: PRIMARY_PERSON_ID,
-  startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_CAREER_START_AGE,
+  startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
   endYear: null,
   salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
 };
 
 export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
-  jobs: [DEFAULT_CAREER_JOB],
+  jobs: [DEFAULT_JOB],
   // The line-item budget is the source of truth for spending: a non-empty
   // `budgetLines` replaces the scalar `expenseCents` series wholesale (see
   // `projectionBase.ts`), so a fresh plan opens with the prepopulated Base and the

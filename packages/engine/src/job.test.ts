@@ -24,7 +24,7 @@ function project(plan: Plan) {
   return replayLedger(emptyLedger, createProjectionBase(plan, ctx()), nullJurisdiction);
 }
 
-/** The sample plan's single open-ended career job (real-flat salary, deferral on it). */
+/** The sample plan's single open-ended job (real-flat salary, deferral on it). */
 const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
 
 describe("Job/Person standing model — additive compilation (issue #64)", () => {
@@ -208,5 +208,38 @@ describe("Job/Person standing model — permanent pay changes (§6, §10.3)", ()
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000));
     expect(series[7].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // persists, not one month
+  });
+});
+
+describe("Job — human name drives the income band label (display only)", () => {
+  const personWith = (job: Job): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - samplePlan.currentAge,
+    retirementTargetAge: samplePlan.retirementAge,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs: [job],
+  });
+  const labelOf = (job: Job): string | undefined =>
+    compilePersonIncomeSeries(personWith(job), START_YEAR, samplePlan.inflationPct / 100)[0].label;
+
+  it("labels the band by the job's name when set", () => {
+    const named: Job = { ...salariedJob(dollarsToCents(6000)), name: "Software Engineer" };
+    expect(labelOf(named)).toBe("Income · Software Engineer");
+  });
+
+  it("falls back to the stable id when the job has no name (or only whitespace)", () => {
+    expect(labelOf(salariedJob(dollarsToCents(6000)))).toBe("Income · job-main");
+    expect(labelOf({ ...salariedJob(dollarsToCents(6000)), name: "   " })).toBe("Income · job-main");
+  });
+
+  it("never touches identity — the band's sourceId stays keyed by the id, not the name", () => {
+    const named: Job = { ...salariedJob(dollarsToCents(6000)), name: "Software Engineer" };
+    const compiled = compilePersonIncomeSeries(
+      personWith(named),
+      START_YEAR,
+      samplePlan.inflationPct / 100,
+    )[0];
+    expect(compiled.sourceId).toBe("job:job-main");
   });
 });

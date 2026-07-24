@@ -118,15 +118,37 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
   });
 
-  it("graphs income separately from spending, and flags the retirement gap", () => {
+  it("graphs income by source, and flags the retirement gap as a savings drawdown", () => {
     // Income is not a budget line (§6/§17), so it gets its own graph above the budget.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("income-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(Object.values(firstRow).some((v) => v > 0)).toBe(true);
-    // Retires at 65, claims at 67 — so there is a stretch with no income at all.
-    expect(screen.getByTestId("income-summary").textContent).toMatch(/No income from Year/);
+    // Retires at 65, claims at 67 — that stretch is lived off savings, and the graph now
+    // names it a drawdown rather than showing a misleading flat zero (issue #99).
+    expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
+  });
+
+  it("defaults to the Simple income view and reveals every source under Advanced", () => {
+    // Simple (issue #99 follow-up): wages per job, one "Social Security" band, and one
+    // "Living off savings" band that folds in the benefit-gap drawdown and any asset sale.
+    renderPanel(PLAN_DEFAULTS);
+    const bands = (): string[] =>
+      JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
+
+    expect(bands()).toContain("Social Security");
+    expect(bands()).toContain("Living off savings");
+    // The precise engine labels are hidden in Simple — they belong to Advanced.
+    expect(bands()).not.toContain("Government benefit");
+    expect(bands()).not.toContain("Savings drawdown");
+
+    // Flip to Advanced: the collapsed bands split back into their real sources.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Advanced view/i }));
+    expect(bands()).toContain("Government benefit");
+    expect(bands()).toContain("Savings drawdown");
+    expect(bands()).not.toContain("Living off savings");
+    expect(bands()).not.toContain("Social Security");
   });
 
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
@@ -495,7 +517,7 @@ describe("BaseAdjustmentsPanel — long-horizon points (AC5)", () => {
 describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(1_500)),
+    ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
     healthMonthlyCents: 0,
@@ -521,7 +543,7 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
 
   it("reports a comfortable budget as financed throughout", () => {
     const richPlan: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, "career", dollarsToCents(8_000)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
       healthMonthlyCents: 0,

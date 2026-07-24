@@ -83,6 +83,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: SAVINGS_ID,
       ownerId: PRIMARY_PERSON_ID,
+      label: "Cash savings",
       liquid: true,
       // A cash buffer, not an investment: money went in post-tax and comes out
       // untaxed. It carried a capital-gains profile, which was wrong on its face and
@@ -98,6 +99,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: RETIREMENT_ID,
       ownerId: PRIMARY_PERSON_ID,
+      label: "Retirement account",
       liquid: false,
       taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
@@ -106,6 +108,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: BROKERAGE_ID,
       ownerId: PRIMARY_PERSON_ID,
+      label: "Brokerage",
       liquid: false,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
@@ -117,6 +120,9 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
       new SimAccount({
         id: goalFundAccountId(goal),
         ownerId: PRIMARY_PERSON_ID,
+        // Name the fund by its goal (issue #99): a goal fund being drawn down in
+        // decumulation reads as that goal by name, not an anonymous `capitalGains` band.
+        label: goal.name,
         liquid: false,
         taxProfile: CAPITAL_GAINS_TAX_PROFILE,
         openingBalanceCents: 0,

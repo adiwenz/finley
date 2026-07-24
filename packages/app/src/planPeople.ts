@@ -77,6 +77,8 @@ export function jobEndAge(plan: Plan, job: Job): number | null {
  * `endAge: null` is an open-ended job (runs to retirement).
  */
 export interface JobDraft {
+  /** Optional human title; blank leaves the job unnamed (reports fall back to its id). */
+  readonly name: string;
   readonly monthlyCents: number;
   readonly startAge: number;
   readonly endAge: number | null;
@@ -85,14 +87,15 @@ export interface JobDraft {
   readonly deferralPct: number;
 }
 
-/** The draft that seeds a fresh job: real-flat $3,000/mo, starting now, open-ended. */
+/** The draft that seeds a fresh job: unnamed, real-flat $3,000/mo, starting now, open-ended. */
 export function blankJobDraft(plan: Plan): JobDraft {
-  return { monthlyCents: 3000 * 100, startAge: plan.currentAge, endAge: null, realGrowthPct: 0, deferralPct: 0 };
+  return { name: "", monthlyCents: 3000 * 100, startAge: plan.currentAge, endAge: null, realGrowthPct: 0, deferralPct: 0 };
 }
 
 /** Read an existing job back into a {@link JobDraft} to seed the edit form. */
 export function jobToDraft(plan: Plan, job: Job): JobDraft {
   return {
+    name: job.name ?? "",
     monthlyCents: Math.round(job.salary.startingSalaryCents / 12),
     startAge: jobStartAge(plan, job),
     endAge: jobEndAge(plan, job),
@@ -111,8 +114,10 @@ function nextJobId(plan: Plan): string {
 
 /** Build a {@link Job} for the primary person from a draft (ages → years, %→fraction). */
 function jobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
+  const name = draft.name.trim();
   const base: Job = {
     id,
+    ...(name ? { name } : {}),
     ownerId: PRIMARY_PERSON_ID,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,

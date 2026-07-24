@@ -113,6 +113,13 @@ export interface JobDeferral {
  */
 export interface Job {
   readonly id: string;
+  /**
+   * Optional human-facing job title (e.g. "Software Engineer"). Display-only: reports
+   * and the income graph show it in place of the stable `id` when set (see
+   * {@link import("./compilePerson").compilePerson}). Never an identity — the `id` keys
+   * the job and its income band's `sourceId`, so two jobs may share a name or have none.
+   */
+  readonly name?: string;
   readonly ownerId: PersonId;
   readonly startYear: number;
   /** `null` = open-ended (ends at the owner's `retirementTargetAge`); else the exclusive stop year. */
