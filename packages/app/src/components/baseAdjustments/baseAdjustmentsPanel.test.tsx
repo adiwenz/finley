@@ -130,6 +130,27 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
   });
 
+  it("defaults to the Simple income view and reveals every source under Advanced", () => {
+    // Simple (issue #99 follow-up): wages per job, one "Social Security" band, and one
+    // "Living off savings" band that folds in the benefit-gap drawdown and any asset sale.
+    renderPanel(PLAN_DEFAULTS);
+    const bands = (): string[] =>
+      JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
+
+    expect(bands()).toContain("Social Security");
+    expect(bands()).toContain("Living off savings");
+    // The precise engine labels are hidden in Simple — they belong to Advanced.
+    expect(bands()).not.toContain("Government benefit");
+    expect(bands()).not.toContain("Savings drawdown");
+
+    // Flip to Advanced: the collapsed bands split back into their real sources.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Advanced view/i }));
+    expect(bands()).toContain("Government benefit");
+    expect(bands()).toContain("Savings drawdown");
+    expect(bands()).not.toContain("Living off savings");
+    expect(bands()).not.toContain("Social Security");
+  });
+
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
     renderPanel(PLAN_DEFAULTS);
     // Housing is a named line before quickstart…
