@@ -501,6 +501,41 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)"
     expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
   });
 
+  it("keeps one disclosed form at a time, across spending AND contributions", () => {
+    // The two lists are separate components now; the single-form-at-a-time rule spans
+    // them, so it is arbitrated by the panel. Opening one must close the other.
+    const withContribution: Plan = {
+      ...PLAN_DEFAULTS,
+      budgetLines: [
+        ...(PLAN_DEFAULTS.budgetLines ?? []),
+        {
+          id: "save",
+          label: "Savings",
+          target: { kind: "account", accountId: "brokerage", taxTreatment: "postTax" },
+          amountSource: { kind: "literal", monthlyCents: dollarsToCents(400) },
+          category: "savings",
+        },
+      ],
+    };
+    renderPanel(withContribution);
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Housing/i }));
+    expect(screen.getByLabelText("Name")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Edit Savings/i }));
+    // Exactly one form open — the contribution's, not both.
+    expect(screen.getAllByLabelText("Name")).toHaveLength(1);
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Savings");
+  });
+
+  it("renders a plan that authors no budget lines at all", () => {
+    // `budgetLines` is optional on the plan; the panel falls back to a shared empty
+    // list rather than minting one per render.
+    const { budgetLines: _dropped, ...noLines } = PLAN_DEFAULTS;
+    renderPanel(noLines as Plan);
+    expect(screen.getByText(/No recurring contributions yet/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
+  });
+
   it("deletes a line", () => {
     renderPanel(PLAN_DEFAULTS);
     expect(spin(/Subscriptions/)).toBeTruthy();

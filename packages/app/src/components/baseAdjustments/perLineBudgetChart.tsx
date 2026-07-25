@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Area,
   CartesianGrid,
@@ -140,7 +141,14 @@ export function PerLineBudgetChart({
   onSelectMonth,
 }: PerLineBudgetChartProps) {
   const summary = describeInsolvency(data);
-  const rows = data.rows.map((r) => ({ month: r.month, ...r.centsByLine }));
+  // Recharts wants one flat object per point, with a key per band. That is a full pass
+  // over the horizon (660+ months on a default plan) building an object each — worth
+  // holding across the re-renders that only move the selection marker or restage an
+  // edit, since the rows themselves change only when the projection does.
+  const rows = useMemo(
+    () => data.rows.map((r) => ({ month: r.month, ...r.centsByLine })),
+    [data.rows],
+  );
   // The horizon runs to life expectancy (§7). Pin the axis to it: left to itself the
   // domain stretches past the last month to accommodate the selection rule and the
   // open-ended insolvency band, drawing empty years the plan never reaches.
