@@ -49,6 +49,9 @@ export function buildHouseholdSimInput(
         ownerId: s.ownerId,
         label: s.label,
         ...(s.lineId !== undefined ? { lineId: s.lineId } : {}),
+        // …and its spending provenance (§119 follow-up), so the month's cost can be
+        // reported itemized without any consumer re-deriving where each stream came from.
+        ...(s.spendingSource !== undefined ? { spendingSource: s.spendingSource } : {}),
       });
     }
   }

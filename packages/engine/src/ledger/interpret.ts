@@ -9,7 +9,7 @@
  */
 
 import type { Ledger } from "./ledger";
-import type { LifeEvent } from "./eventTypes";
+import type { LifeEvent, SeriesRole } from "./eventTypes";
 import { applyEvent } from "./eventHandlers";
 import { asPersonId, asSeriesId, type AccountId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
@@ -86,15 +86,30 @@ function baseSeries(
     planDescriptor: os.planDescriptor,
     ...(os.sourceId !== undefined ? { sourceId: os.sourceId } : {}),
     ...(os.lineId !== undefined ? { lineId: os.lineId } : {}),
+    ...(os.spendingSource !== undefined ? { spendingSource: os.spendingSource } : {}),
   };
 }
+
+/**
+ * Plain-language name for an expense series a life event created — the label a base
+ * series carries authored, and an event-created one has to be given. Its {@link
+ * SeriesRole} is the only human fact it has.
+ */
+const ROLE_LABEL: Record<SeriesRole, string> = {
+  base: "Expense",
+  primaryIncome: "Income",
+  budgetItem: "Expense",
+  alimony: "Alimony",
+  childSupport: "Child support",
+  childCost: "Child cost",
+};
 
 function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
   const series: HouseholdSeries[] = [
     ...(base.initialIncomeSeries ?? []).map((os, i) => baseSeries(os, "income", i)),
     ...(base.initialExpenseSeries ?? []).map((os, i) => baseSeries(os, "expense", i)),
-    ...[...state.seriesById.values()].map(
-      (def): HouseholdSeries => ({
+    ...[...state.seriesById.values()].map((def): HouseholdSeries => {
+      const common = {
         id: def.id,
         ownerId: def.ownerId,
         seriesType: def.seriesType,
@@ -103,8 +118,22 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
         startMonth: def.startMonth,
         endMonth: def.endMonth,
         series: materializeSeries(def),
-      }),
-    ),
+      };
+      // An event's expense reports as spending like any other, tagged back to the event
+      // series that authored it — edited through that event, never as a budget line.
+      return def.seriesType === "income"
+        ? common
+        : {
+            ...common,
+            label: ROLE_LABEL[def.role],
+            spendingSource: {
+              kind: "event",
+              id: def.id,
+              category: "other",
+              editable: false,
+            },
+          };
+    }),
   ];
 
   const liabilities: HouseholdLiability[] = [...state.liabilitiesById.values()].map(

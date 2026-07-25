@@ -136,6 +136,8 @@ export * from "./projection/simulate";
 export * from "./projection/rmd";
 export * from "./projection/withdrawal";
 export * from "./projection/buildHouseholdInput";
+// The unified spending read model (issue #119 follow-up): what a month costs, itemized.
+export * from "./projection/spendingItems";
 export * from "./projection/report";
 export * from "./projection/assumptions";
 export * from "./projection/snapshot";

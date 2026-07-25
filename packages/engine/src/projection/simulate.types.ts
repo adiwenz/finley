@@ -15,6 +15,7 @@ import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
 import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
+import type { SpendingItem, SpendingSource } from "./spendingItems";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -161,6 +162,24 @@ export interface ProjectionMonthFlows {
    * when the plan authors no budget lines (the scalar path).
    */
   readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
+  /**
+   * **Everything this month cost, itemized** (issue #119 follow-up) — authored budget
+   * lines, the health line, event-created expenses, and each liability's scheduled
+   * payment, each carrying its label, category, provenance, and whether it is editable
+   * as a line. See {@link import("./spendingItems").SpendingItem}.
+   *
+   * This is the read model a consumer should reach for: `lineMonthlyCents` above is the
+   * budget-line slice of it (derived from these very items, so the two cannot drift),
+   * and `expensesCents` / `liabilityPaymentsCents` are its rollups. Assembling the full
+   * picture downstream — from the per-line map plus series objects plus payment records
+   * — is what this replaces; every such reconstruction silently missed something.
+   */
+  readonly spendingItems: readonly SpendingItem[];
+  /**
+   * Σ `spendingItems` — the month's whole obligation, and exactly
+   * `expensesCents + liabilityPaymentsCents` (pinned by an engine invariant test).
+   */
+  readonly totalSpendingCents: Cents;
 }
 
 /**
@@ -259,6 +278,15 @@ export interface SimOwnedSeries {
    * low-priority ones. Ordering lives in `budgetLine.ts` for the authoring view.
    */
   readonly lineId?: string;
+  /**
+   * Provenance for an EXPENSE series' unified spending report (issue #119 follow-up):
+   * which authoring model this stream came from, how to categorize it, and whether it
+   * is editable as a line. Set where the series is compiled — the only place that
+   * knows — and read only by {@link import("./spendingItems").buildSpendingItems},
+   * which turns it into a {@link import("./spendingItems").SpendingItem}. The
+   * simulation itself reads it for nothing. Absent on income series.
+   */
+  readonly spendingSource?: SpendingSource;
 }
 
 /**

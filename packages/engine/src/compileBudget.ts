@@ -87,7 +87,20 @@ function compileExpenseLine(
   // because a tight month is absorbed by savings and credit rather than by starving the
   // low-priority ones. `budgetLinePriority` remains the ordering source of truth for the
   // authoring view (`allocations.ts`); re-add it here when something actually ranks.
-  return { series, ownerId, label: line.label, lineId: line.id };
+  return {
+    series,
+    ownerId,
+    label: line.label,
+    lineId: line.id,
+    // The one spending stream a user edits directly, and the only one that carries an
+    // authored §15 tier — both facts the unified spending report reads off here.
+    spendingSource: {
+      kind: "budgetLine",
+      id: line.id,
+      category: line.category,
+      editable: true,
+    },
+  };
 }
 
 /**

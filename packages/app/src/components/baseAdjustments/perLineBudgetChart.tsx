@@ -13,10 +13,12 @@ import { formatDollars } from "../../format";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Per-line monthly budget chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws
- * each standing budget line's monthly amount as a stacked area — the budget **as
- * authored**, with span, dated overrides, and price growth applied — so the total is
- * the budget and each band is a line.
+ * Monthly spending chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws each of
+ * the engine's spending items as a stacked area — spending **as authored**, with span,
+ * dated overrides, and price growth applied — so each band is one thing the money goes
+ * to and the total is what the month costs. Bands are coloured by kind ({@link
+ * BAND_PALETTE}): the budget the user edits here, other obligations carried, debt
+ * service owed.
  *
  * A tight month does NOT pinch the low-priority bands. The simulator never skips
  * spending: an uncovered obligation is charged against the liquid account and cascades
@@ -33,7 +35,7 @@ import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./pe
  * Selection is a controlled prop so the panel owns the month; the keyboard path to the
  * same state lives beside the editor heading (Recharts clicks are pointer-only).
  *
- * Hovering a month reads out every line *and their total* ({@link BudgetTooltip}) — the
+ * Hovering a month reads out every band *and their total* ({@link BudgetTooltip}) — the
  * stack's height is the question the chart is usually asked ("what does this month
  * cost?"), and a default tooltip leaves the reader to add the bands up by eye.
  *

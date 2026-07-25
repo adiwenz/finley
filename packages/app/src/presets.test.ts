@@ -19,14 +19,12 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import {
-  budgetLineAllocationId,
   projectScenario,
   solveRetirement,
   evaluateFullRetirementAtAge,
 } from "@finley/engine";
 import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
 import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
-import { liabilityLabels, nonLineSpending } from "./ledgerView";
 import { START_YEAR } from "./config";
 
 const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
@@ -122,23 +120,12 @@ describe("default simulations (issue #119)", () => {
 });
 
 describe("the two graphs are one quantity (issue #119 follow-up)", () => {
-  /** The app's own wiring: budget lines + non-line spending + debt payments. */
+  /** The app's own wiring: the graph reads the engine's itemized spending, nothing else. */
   function budgetChart(preset: Preset) {
     const base = createProjectionBase(preset.plan, CTX);
     const household = interpretLedger(buildPresetLedger(base, preset.events), base);
     const series = simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
-    const lines = (preset.plan.budgetLines ?? []).map((l) => ({
-      id: budgetLineAllocationId(l.id),
-      label: l.label,
-    }));
-    return {
-      series,
-      data: buildPerLineBudgetData(series, {
-        lines,
-        otherSpending: nonLineSpending(household.series),
-        debtLabels: liabilityLabels(household.liabilities),
-      }),
-    };
+    return { series, data: buildPerLineBudgetData(series) };
   }
 
   it.each(PRESETS.map((p) => p.id))(

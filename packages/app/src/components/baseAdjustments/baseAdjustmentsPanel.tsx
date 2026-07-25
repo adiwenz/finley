@@ -11,11 +11,11 @@
  *     just this month, or from here forward? {@link routeMonthEdit} sends the result
  *     to the right primitive — line override, ledger transaction, or job/stream
  *     income override (AC4). There is no `Adjustment` entity underneath.
- *   - **Graph** — what each month actually costs: the budget lines as authored, plus
- *     the spending they don't author (health, timeline expenses) and each debt's
- *     payment, so the stack totals the month's whole obligation. Spending is never
- *     rationed away behind the user's back; if the plan stops being financeable the
- *     graph says so outright (AC2).
+ *   - **Graph** — what each month actually costs, straight off the engine's itemized
+ *     spending report: the budget lines as authored, the spending they don't author
+ *     (health, timeline expenses), and each debt's payment, so the stack totals the
+ *     month's whole obligation. Spending is never rationed away behind the user's
+ *     back; if the plan stops being financeable the graph says so outright (AC2).
  *
  * The selected month is labelled with its calendar year *and* the household's age at
  * that point, so a far-future edit reads as the milestone it is ("age 50") rather than
@@ -29,9 +29,10 @@
  * it.
  *
  * The graphs read the app's projected **scenario** (`series`, passed in) — the plan plus
- * the live timeline — never a re-projection of the bare plan. Editing is about the
- * budget; *drawing* is about the whole financial life, so a loan taken on the timeline
- * is part of what income must cover here exactly as it is on the net-worth graph.
+ * the live timeline — never a re-projection of the bare plan, and nothing about them is
+ * reassembled here from the household model. Editing is about the budget; *drawing* is
+ * about the whole financial life, so a loan taken on the timeline is part of what income
+ * must cover here exactly as it is on the net-worth graph.
  *
  * Earned income is NOT edited here. Standing pay lives on the person's jobs, authored in
  * the Jobs panel (§6, issue #72); this panel only *displays* the compiled income total at
@@ -45,7 +46,6 @@ import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import {
   dollarsToCents,
-  budgetLineAllocationId,
   type BudgetLine,
   type Plan,
   type ProjectionSeries,
@@ -77,10 +77,9 @@ import {
   type MonthEditContext,
   type MonthEditRoute,
 } from "./monthEdit";
-import type { SpendingBand } from "../../ledgerView";
 import { buildIncomeChartData } from "./incomeByCategory";
 import { IncomeChart } from "./incomeChart";
-import { buildPerLineBudgetData, type ChartLine } from "./perLineBudget";
+import { buildPerLineBudgetData } from "./perLineBudget";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
 import { buildTaxChartData } from "./taxesByMonth";
 import { TaxChart } from "./taxChart";
@@ -144,26 +143,9 @@ export interface BaseAdjustmentsPanelProps {
    * disagreed with the net-worth graph beside it. One simulation, one scenario.
    */
   readonly series: ProjectionSeries;
-  /**
-   * Plain-language name per liability id, for the graph's debt bands. Debts come from
-   * the timeline, not the budget, so the panel cannot name them from the plan alone.
-   * Omit it for a scenario with no debts.
-   */
-  readonly debtLabels?: Readonly<Record<string, string>>;
-  /**
-   * Spending that authors no budget line — health care and anything the timeline added
-   * — so the graph totals what the month actually costs. Omit for a budget-only plan.
-   */
-  readonly otherSpending?: readonly SpendingBand[];
 }
 
-export function BaseAdjustmentsPanel({
-  plan,
-  setBudget,
-  series,
-  debtLabels,
-  otherSpending,
-}: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = useMemo(() => plan.budgetLines ?? [], [plan.budgetLines]);
   // Every row is shown in the selected month's dollars, so the editor needs the same
@@ -180,22 +162,20 @@ export function BaseAdjustmentsPanel({
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
 
-  // Read all three charts off the one projected scenario: the per-line amounts, the
-  // income bands and what they have to cover, and the income the plan actually pays
-  // each month. Every view here is a different cut of the same simulated months.
-  const projected = useMemo(() => {
-    const chartLines: ChartLine[] = lines.map((l) => ({
-      id: budgetLineAllocationId(l.id),
-      label: l.label,
-    }));
-    return {
-      chartData: buildPerLineBudgetData(series, { lines: chartLines, otherSpending, debtLabels }),
+  // Read all three charts off the one projected scenario: what the household spends
+  // (the engine's itemized spending report), the income bands and what they have to
+  // cover, and the income the plan actually pays each month. Every view here is a
+  // different cut of the same simulated months.
+  const projected = useMemo(
+    () => ({
+      chartData: buildPerLineBudgetData(series),
       incomeData: buildIncomeChartData(series),
       taxData: buildTaxChartData(series),
       /** Gross income the projection pays in each month, indexed by month. */
       incomeByMonth: series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
-    };
-  }, [series, lines, debtLabels, otherSpending]);
+    }),
+    [series],
+  );
   const chartData = projected.chartData;
 
   // ── What the budget resolves to at the selected point ──

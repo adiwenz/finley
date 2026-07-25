@@ -11,7 +11,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
-import { timelineMarkers, liabilityLabels, nonLineSpending } from "./ledgerView";
+import { timelineMarkers } from "./ledgerView";
 import { planHorizonMonths, START_YEAR } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
@@ -88,11 +88,6 @@ export function App() {
   );
 
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
-  // Names for the household's debts, for the budget graph's debt bands, and the
-  // spending streams that author no budget line (health, timeline expenses) — together
-  // they are what the graph needs to total a month's real cost.
-  const debtLabels = useMemo(() => liabilityLabels(household.liabilities), [household]);
-  const otherSpending = useMemo(() => nonLineSpending(household.series), [household]);
   const insolventMonth = firstInsolventMonth(series);
   // The retirement panel reasons about the SAME scenario the graph draws — the plan
   // plus the live ledger of timeline events — so "when can we retire?" reflects every
@@ -214,15 +209,9 @@ export function App() {
       <div className="card">
         {/* The panel charts the SAME series the net-worth graph draws — plan plus the
             live timeline — so its spending need counts loan payments and every other
-            event, not just the standing budget. The labels name the household's debts
-            where the graph draws them paying out. */}
-        <BaseAdjustmentsPanel
-          plan={budget}
-          setBudget={setBudget}
-          series={series}
-          debtLabels={debtLabels}
-          otherSpending={otherSpending}
-        />
+            event, not just the standing budget. Everything it draws rides on that one
+            series (the engine itemizes the spending), so there is nothing else to pass. */}
+        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} series={series} />
       </div>
 
       <div className="card">

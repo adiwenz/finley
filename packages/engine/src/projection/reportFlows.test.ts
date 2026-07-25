@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { buildFlows, SAVINGS_DRAWDOWN_SOURCE_ID } from "./reportFlows";
 import type { IncomeSourceMonth } from "./waterfall";
+import type { SpendingItem } from "./spendingItems";
+
+/** An authored budget line as the sim reports it spending, for the per-line slice. */
+const line = (id: string, amountCents: number): SpendingItem => ({
+  id: `line:${id}`,
+  label: id,
+  amountCents,
+  category: "needs",
+  sourceKind: "budgetLine",
+  sourceId: id,
+  editable: true,
+});
 
 const src = (
   ownerId: string,
@@ -16,7 +28,7 @@ describe("buildFlows", () => {
       0,
       0,
       0,
-      {},
+      [],
     );
     expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00, ordinaryIncome: 1_000_00 });
     expect(flows.totalIncomeCents).toBe(8_000_00);
@@ -28,36 +40,51 @@ describe("buildFlows", () => {
       0,
       0,
       0,
-      {},
+      [],
     );
     expect(flows.governmentRetirementBenefitCents).toBe(2_500_00);
   });
 
   it("reports 0 government retirement benefit when no source carries that category", () => {
-    const flows = buildFlows([src("p1", 4_000_00, "wages")], 0, 0, 0, {});
+    const flows = buildFlows([src("p1", 4_000_00, "wages")], 0, 0, 0, []);
     expect(flows.governmentRetirementBenefitCents).toBe(0);
   });
 
   it("passes tax, expenses and liability payments straight through", () => {
-    const flows = buildFlows([], 900_00, 3_200_00, 1_800_00, {});
+    const flows = buildFlows([], 900_00, 3_200_00, 1_800_00, []);
     expect(flows.taxCents).toBe(900_00);
     expect(flows.expensesCents).toBe(3_200_00);
     expect(flows.liabilityPaymentsCents).toBe(1_800_00);
   });
 
-  it("carries the per-line funded map straight through (§Q27)", () => {
-    const lineFunded = { "line:rent": 2_000_00, "line:fun": 100_00 };
-    const flows = buildFlows([], 0, 3_200_00, 0, lineFunded);
-    expect(flows.lineMonthlyCents).toEqual(lineFunded);
+  it("derives the per-line map from the spending items (§Q27), debts excluded", () => {
+    const debt: SpendingItem = {
+      id: "debt:mortgage-1",
+      label: "Mortgage payment",
+      amountCents: 1_800_00,
+      category: "debtService",
+      sourceKind: "liability",
+      sourceId: "mortgage-1",
+      editable: false,
+    };
+    const items = [line("rent", 2_000_00), line("fun", 100_00), debt];
+    const flows = buildFlows([], 0, 2_100_00, 1_800_00, items);
+    // The per-line view is the budget-line slice of the one itemized list — a debt
+    // payment is real spending but is not a line, and must not leak into it.
+    expect(flows.lineMonthlyCents).toEqual({ "line:rent": 2_000_00, "line:fun": 100_00 });
+    expect(flows.spendingItems).toEqual(items);
+    expect(flows.totalSpendingCents).toBe(3_900_00);
   });
 
   it("yields empty buckets and zero totals for a month with no income", () => {
-    const flows = buildFlows([], 0, 0, 0, {});
+    const flows = buildFlows([], 0, 0, 0, []);
     expect(flows.incomeByCategoryCents).toEqual({});
     expect(flows.totalIncomeCents).toBe(0);
     expect(flows.governmentRetirementBenefitCents).toBe(0);
     expect(flows.taxCents).toBe(0);
     expect(flows.lineMonthlyCents).toEqual({});
+    expect(flows.spendingItems).toEqual([]);
+    expect(flows.totalSpendingCents).toBe(0);
     expect(flows.incomeSources).toEqual([]);
   });
 
@@ -74,7 +101,7 @@ describe("buildFlows", () => {
       0,
       0,
       0,
-      {},
+      [],
     );
     expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00 });
     expect(flows.incomeSources).toEqual([
@@ -93,7 +120,7 @@ describe("buildFlows", () => {
       0,
       0,
       0,
-      {},
+      [],
     );
     expect(flows.incomeSources).toEqual([
       { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", grossCents: 1_500_00 },
@@ -109,7 +136,7 @@ describe("buildFlows", () => {
       0,
       0,
       0,
-      {},
+      [],
     );
     expect(flows.incomeSources).toEqual([]);
     expect(flows.incomeByCategoryCents).toEqual({ ordinaryIncome: 0 });
@@ -121,7 +148,7 @@ describe("buildFlows", () => {
       0,
       3_000_00,
       0,
-      {},
+      [],
       1_000_00, // savings covered the $1,000 gap this month
     );
     // The drawdown is NOT taxable income: absent from the category rollup and the total…
@@ -137,7 +164,7 @@ describe("buildFlows", () => {
   });
 
   it("adds no drawdown band when savings covered nothing", () => {
-    const flows = buildFlows([src("p1", 5_000_00, "wages", { sourceId: "job:a", label: "Job A" })], 0, 0, 0, {}, 0);
+    const flows = buildFlows([src("p1", 5_000_00, "wages", { sourceId: "job:a", label: "Job A" })], 0, 0, 0, [], 0);
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
   });
 });

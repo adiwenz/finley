@@ -9,6 +9,7 @@ import type { Cents } from "../money";
 import type { GrowthMode } from "../cashFlowSeries";
 import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
+import type { SpendingSource } from "../projection/spendingItems";
 import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
@@ -71,6 +72,14 @@ export interface HouseholdSeries {
    * budget-line expense series; absent on scalar/health/event-caused series.
    */
   readonly lineId?: string;
+  /**
+   * Provenance for the unified spending report (issue #119 follow-up): which authoring
+   * model this expense came from. Carried through from the base series, or derived from
+   * an event-created series' {@link SeriesRole}, and passed to the sim so a month's
+   * spending can be reported itemized. See {@link
+   * import("../projection/spendingItems").SpendingSource}.
+   */
+  readonly spendingSource?: SpendingSource;
 }
 
 /** The fields a derived liability carries whatever its kind. */

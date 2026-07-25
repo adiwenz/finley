@@ -15,14 +15,7 @@
  *    to the scrubbed month (§10.8 peripheral hints).
  */
 
-import type {
-  HouseholdLiability,
-  HouseholdSeries,
-  Ledger,
-  LifeEvent,
-  SnapshotSeries,
-} from "@finley/engine";
-import { SYNTHETIC_CARD_ID } from "@finley/engine";
+import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
 // ─── Plain-language event summaries (§10.3 rule 3: one label = one change) ─────
@@ -40,36 +33,6 @@ const KIND_NOUN: Record<string, string> = {
   studentLoan: "student loan",
   creditCard: "credit card",
 };
-
-/**
- * Plain-language name per liability id — what a debt is called wherever it is *shown*
- * spending money (the budget graph's debt bands). A liability's own id is a machine key
- * ("loan-student"), and the kind is the only human fact the model carries, so the label
- * is built from the kind: "Student loan payment". Two debts of the same kind are
- * numbered in ledger order rather than made indistinguishable.
- *
- * The engine's synthetic shortfall card (§5.1) is never in the household's authored
- * liabilities — it is minted by the simulator when spending outruns everything — so it
- * gets its own entry here: the household is genuinely paying it, and a chart that hid it
- * would understate what the month costs.
- */
-export function liabilityLabels(
-  liabilities: readonly HouseholdLiability[],
-): Record<string, string> {
-  const countByKind: Record<string, number> = {};
-  const totalByKind: Record<string, number> = {};
-  for (const l of liabilities) totalByKind[l.kind] = (totalByKind[l.kind] ?? 0) + 1;
-
-  const labels: Record<string, string> = { [SYNTHETIC_CARD_ID]: "Credit card payment" };
-  for (const l of liabilities) {
-    const noun = KIND_NOUN[l.kind] ?? l.kind;
-    const n = (countByKind[l.kind] = (countByKind[l.kind] ?? 0) + 1);
-    const suffix = (totalByKind[l.kind] ?? 0) > 1 ? ` ${n}` : "";
-    // "student loan" → "Student loan payment 2"
-    labels[l.id] = `${noun.charAt(0).toUpperCase()}${noun.slice(1)} payment${suffix}`;
-  }
-  return labels;
-}
 
 export function summarizeEvent(e: LifeEvent): EventSummary {
   switch (e.type) {
@@ -129,36 +92,6 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
     case "budgetItem":
       return s.seriesType === "income" ? "Income" : "Expense";
   }
-}
-
-/**
- * One non-budget-line spending stream as a chart band: what to call it, and what it
- * costs at a given month. A function rather than a precomputed array because the chart
- * asks month by month over whatever horizon it draws.
- */
-export interface SpendingBand {
-  readonly id: string;
-  readonly label: string;
-  readonly monthlyCentsAt: (month: number) => number;
-}
-
-/**
- * Spending that is real but is not a budget line: health care (a standing plan input,
- * §5.4) and anything the timeline added (a child's cost, alimony, an expense event).
- * Each is a compiled series, so its amount at a month is asked of the very object the
- * simulator charged — no re-derivation of growth or spans in the UI.
- *
- * Budget-line series are excluded: the graph already draws those from the engine's
- * per-line report, and drawing them twice would double the household's spending.
- */
-export function nonLineSpending(series: readonly HouseholdSeries[]): SpendingBand[] {
-  return series
-    .filter((s) => s.seriesType === "expense" && s.lineId === undefined)
-    .map((s) => ({
-      id: s.id,
-      label: s.label ?? seriesLabel(s),
-      monthlyCentsAt: (month: number) => s.series.getMonthlyCents(month),
-    }));
 }
 
 // ─── Timeline markers ─────────────────────────────────────────────────────────

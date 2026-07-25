@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, Projection, type Plan } from "@finley/engine";
+import { dollarsToCents, Projection, PRIMARY_PERSON_ID, type Plan } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
@@ -558,6 +558,47 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
     };
     renderPanel(richPlan);
     expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
+  });
+
+  it("bands health care beside the budget lines, with nothing passed in but the series", () => {
+    // The panel takes a plan and a projected series — no label maps, no household
+    // series, no per-line map. Health is real spending the budget does not author, and
+    // it reaches the graph because the ENGINE reports it, not because the panel
+    // reassembled it from somewhere.
+    renderPanel(PLAN_DEFAULTS);
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+  });
+
+  it("bands a liability's payment from the timeline, with no extra props", () => {
+    const projection = Projection.create({ plan: PLAN_DEFAULTS, startYear: START_YEAR });
+    projection.takeLoan({
+      id: "loan-student",
+      month: 0,
+      ownerId: PRIMARY_PERSON_ID,
+      openingBalanceCents: dollarsToCents(45_000),
+      apr: 0.06,
+      kind: "studentLoan",
+      termMonths: 120,
+    });
+    render(
+      <BaseAdjustmentsPanel
+        plan={PLAN_DEFAULTS}
+        setBudget={() => {}}
+        series={projection.run(usJurisdiction).series}
+      />,
+    );
+
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    // Servicing the loan is spending — banded like anything else the month costs, and
+    // the budget lines beside it are untouched by its arrival.
+    expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    expect(firstRow["line:housing"]).toBeGreaterThan(0);
   });
 
   it("adds the stack up for the reader: the hover readout carries the month's total", () => {

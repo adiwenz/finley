@@ -18,6 +18,7 @@
 import type { Cents } from "../money";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
+import { sumSpendingItems, type SpendingItem } from "./spendingItems";
 
 /** The stable source id / label of the reported liquid-buffer drawdown (issue #99). */
 export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
@@ -28,6 +29,11 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * into the diagnostic {@link ProjectionMonthFlows}. Reads the same figures the waterfall
  * consumed or produced (income sources incl. derived benefit/RMD, the tax it charged,
  * expense total, scheduled payments), so the flow view can never drift from the sim.
+ *
+ * Spending arrives already itemized ({@link SpendingItem}, issue #119 follow-up): one
+ * list covering budget lines, health, event expenses, and liability payments. The
+ * per-line map (§Q27) is derived from it here rather than computed separately, so the
+ * itemized view and the per-line view are one computation with two shapes.
  *
  * Produces two income views from one pass over the sources (issue #99): the
  * `incomeByCategoryCents` tax-category rollup (retained, backward-compatible) and the
@@ -45,7 +51,7 @@ export function buildFlows(
   taxCents: Cents,
   expensesCents: Cents,
   liabilityPaymentsCents: Cents,
-  lineMonthlyCents: Readonly<Record<string, Cents>>,
+  spendingItems: readonly SpendingItem[],
   liquidDrawdownCents: Cents = 0,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
@@ -93,6 +99,15 @@ export function buildFlows(
     taxCents,
     expensesCents,
     liabilityPaymentsCents,
-    lineMonthlyCents,
+    // The budget-line slice of the one itemized list, rather than a second pass over
+    // the series: the per-line map and the spending items cannot disagree because the
+    // map IS the items, filtered.
+    lineMonthlyCents: Object.fromEntries(
+      spendingItems
+        .filter((item) => item.sourceKind === "budgetLine")
+        .map((item) => [item.id, item.amountCents]),
+    ),
+    spendingItems,
+    totalSpendingCents: sumSpendingItems(spendingItems),
   };
 }
