@@ -10,30 +10,20 @@
  */
 
 import { BudgetLineForm } from "./budgetLineForm";
-import { contributionTargets, lineToDraft, type BudgetLineDraft } from "./budgetLines";
+import { contributionTargets, lineToDraft } from "./budgetLines";
 import { formatDollars } from "../../format";
 import type { BudgetLine } from "@finley/engine";
-import type { LineAuthoring } from "./budgetLineAuthoring";
+import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
 export interface ContributionsEditorProps {
   /** The account-target lines, in authoring order. */
   readonly lines: readonly BudgetLine[];
   readonly authoring: LineAuthoring | null;
-  readonly onToggleLineForm: (id: string) => void;
-  readonly onSubmitLineForm: (id: string, draft: BudgetLineDraft) => void;
-  readonly onCloseLineForm: () => void;
-  readonly onDeleteLine: (id: string) => void;
+  readonly form: LineFormActions;
 }
 
-export function ContributionsEditor({
-  lines,
-  authoring,
-  onToggleLineForm,
-  onSubmitLineForm,
-  onCloseLineForm,
-  onDeleteLine,
-}: ContributionsEditorProps) {
+export function ContributionsEditor({ lines, authoring, form }: ContributionsEditorProps) {
   return (
     <>
       <h4 className={styles.groupHeading}>Savings &amp; contributions</h4>
@@ -58,14 +48,14 @@ export function ContributionsEditor({
                   <button
                     type="button"
                     aria-label={`Edit ${line.label}`}
-                    onClick={() => onToggleLineForm(line.id)}
+                    onClick={() => form.onToggle(line.id)}
                   >
                     Edit
                   </button>
                   <button
                     type="button"
                     aria-label={`Delete ${line.label}`}
-                    onClick={() => onDeleteLine(line.id)}
+                    onClick={() => form.onDelete(line.id)}
                   >
                     Delete
                   </button>
@@ -75,8 +65,8 @@ export function ContributionsEditor({
                 <BudgetLineForm
                   initial={lineToDraft(line)}
                   submitLabel="Save"
-                  onSubmit={(draft) => onSubmitLineForm(line.id, draft)}
-                  onCancel={onCloseLineForm}
+                  onSubmit={(draft) => form.onSubmit(line.id, draft)}
+                  onCancel={form.onClose}
                 />
               )}
             </div>

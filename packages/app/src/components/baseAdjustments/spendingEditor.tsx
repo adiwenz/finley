@@ -3,20 +3,18 @@
  * at the selected month, the one question an edit asks ("just this month, or from here
  * forward?"), and the echo of where that edit was routed (§20, AC4).
  *
- * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} so the
- * panel holds state and plan mutation while this holds the row gesture. It owns no
- * state of its own — a staged edit belongs to the panel because moving the month drops
- * it, and the disclosed add/edit form is single-at-a-time across both this list and the
- * contributions list, so that too is the panel's to arbitrate.
+ * Stateless: a staged edit belongs to the panel (moving the month drops it), and the
+ * disclosed form is single-at-a-time across this list and the contributions list.
  */
 
+import { useMemo } from "react";
 import { NumInput } from "../numInput/numInput";
 import { BudgetLineForm } from "./budgetLineForm";
-import { lineToDraft, type BudgetLineDraft } from "./budgetLines";
+import { lineToDraft } from "./budgetLines";
 import { formatDollars } from "../../format";
 import type { BudgetLine } from "@finley/engine";
 import type { EditRow, EditScope, MonthEditRoute, ResolvedRow } from "./monthEdit";
-import type { LineAuthoring } from "./budgetLineAuthoring";
+import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
 /** The row the user has typed a new number into, awaiting the how-long question. */
@@ -27,24 +25,30 @@ export interface PendingEdit {
   readonly newAmountCents: number;
 }
 
-const isSameRow = (a: EditRow, b: EditRow): boolean =>
-  a.kind === "income" ? b.kind === "income" : b.kind === "line" && a.lineId === b.lineId;
-
-/**
- * What a row's input shows. A staged (typed but not yet committed) edit is the truth
- * for its own row — the committed budget only catches up once the user answers the
- * how-long question, and a field that snapped back to the stored value on every
- * keystroke would be unusable.
- */
-function displayedCents(row: EditRow, resolvedCents: number, pending: PendingEdit | null): number {
-  return pending !== null && isSameRow(pending.row, row) ? pending.newAmountCents : resolvedCents;
+/** Staging an amount, then answering how long it lasts — the §20 edit gesture. */
+export interface SpendingEditActions {
+  readonly onStage: (row: EditRow, label: string, priorCents: number, dollars: number) => void;
+  readonly onCommit: (scope: EditScope) => void;
+  readonly onCancel: () => void;
 }
 
 /**
- * A short, human summary of where an edit landed — surfaced so the routing is visible.
- * Named with the row's own `label`: the route carries the line's authoring `id`, which
- * is an internal key ("dining") and not what the row directly above this echo says
- * ("Dining & fun").
+ * What a row's input shows: the staged value while an edit awaits its how-long answer,
+ * the resolved amount otherwise. A field that snapped back to the stored value on every
+ * keystroke would be unusable.
+ */
+function getInputCents(
+  lineId: string,
+  resolvedCents: number,
+  pending: PendingEdit | null,
+): number {
+  const staged = pending?.row.kind === "line" && pending.row.lineId === lineId;
+  return staged ? pending.newAmountCents : resolvedCents;
+}
+
+/**
+ * Where an edit landed, in one line. Named with the row's own `label`: the route carries
+ * the line's authoring `id` ("dining"), not what the row above says ("Dining & fun").
  */
 function describeRoute(route: MonthEditRoute, label: string): string {
   switch (route.kind) {
@@ -59,6 +63,58 @@ function describeRoute(route: MonthEditRoute, label: string): string {
   }
 }
 
+interface SpendingRowProps {
+  readonly row: ResolvedRow;
+  /** The authored line behind this row — absent while a row outlives its line. */
+  readonly line: BudgetLine | undefined;
+  readonly pending: PendingEdit | null;
+  readonly formOpen: boolean;
+  readonly edit: SpendingEditActions;
+  readonly form: LineFormActions;
+}
+
+/** One expense line: its amount at this month, its row actions, and its edit form. */
+function SpendingRow({ row, line, pending, formOpen, edit, form }: SpendingRowProps) {
+  const editRow: EditRow = { kind: "line", lineId: row.lineId };
+  return (
+    <div>
+      <div className={styles.lineRow}>
+        <span className={styles.lineLabel}>
+          {row.label} <span className={styles.tier}>{row.category}</span>
+          {row.overridden && (
+            <span className={styles.adjusted} title="Adjusted at or before this month">
+              adjusted
+            </span>
+          )}
+        </span>
+        <NumInput
+          label={row.label}
+          value={Math.round(getInputCents(row.lineId, row.monthlyCents, pending) / 100)}
+          onChange={(v) => edit.onStage(editRow, row.label, row.monthlyCents, v)}
+          prefix="$"
+          step={50}
+        />
+        <span className={styles.rowActions}>
+          <button type="button" aria-label={`Edit ${row.label}`} onClick={() => form.onToggle(row.lineId)}>
+            Edit
+          </button>
+          <button type="button" aria-label={`Delete ${row.label}`} onClick={() => form.onDelete(row.lineId)}>
+            Delete
+          </button>
+        </span>
+      </div>
+      {formOpen && line !== undefined && (
+        <BudgetLineForm
+          initial={lineToDraft(line)}
+          submitLabel="Save"
+          onSubmit={(draft) => form.onSubmit(row.lineId, draft)}
+          onCancel={form.onClose}
+        />
+      )}
+    </div>
+  );
+}
+
 export interface SpendingEditorProps {
   /** Each expense line resolved to the selected month (amount, tier, adjusted flag). */
   readonly rows: readonly ResolvedRow[];
@@ -69,13 +125,8 @@ export interface SpendingEditorProps {
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   readonly lastRoute: { readonly route: MonthEditRoute; readonly label: string } | null;
   readonly authoring: LineAuthoring | null;
-  readonly onStageEdit: (row: EditRow, label: string, priorCents: number, dollars: number) => void;
-  readonly onCommit: (scope: EditScope) => void;
-  readonly onCancelEdit: () => void;
-  readonly onToggleLineForm: (id: string) => void;
-  readonly onSubmitLineForm: (id: string, draft: BudgetLineDraft) => void;
-  readonly onCloseLineForm: () => void;
-  readonly onDeleteLine: (id: string) => void;
+  readonly edit: SpendingEditActions;
+  readonly form: LineFormActions;
 }
 
 export function SpendingEditor({
@@ -85,66 +136,25 @@ export function SpendingEditor({
   pending,
   lastRoute,
   authoring,
-  onStageEdit,
-  onCommit,
-  onCancelEdit,
-  onToggleLineForm,
-  onSubmitLineForm,
-  onCloseLineForm,
-  onDeleteLine,
+  edit,
+  form,
 }: SpendingEditorProps) {
+  // One lookup for the whole list, rather than a scan per row.
+  const linesById = useMemo(() => new Map(lines.map((line) => [line.id, line])), [lines]);
+
   return (
     <>
       <h4 className={styles.groupHeading}>Spending</h4>
       {rows.map((row) => (
-        <div key={row.lineId}>
-          <div className={styles.lineRow}>
-            <span className={styles.lineLabel}>
-              {row.label} <span className={styles.tier}>{row.category}</span>
-              {row.overridden && (
-                <span className={styles.adjusted} title="Adjusted at or before this month">
-                  adjusted
-                </span>
-              )}
-            </span>
-            <NumInput
-              label={row.label}
-              value={Math.round(
-                displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
-                  100,
-              )}
-              onChange={(v) =>
-                onStageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
-              }
-              prefix="$"
-              step={50}
-            />
-            <span className={styles.rowActions}>
-              <button
-                type="button"
-                aria-label={`Edit ${row.label}`}
-                onClick={() => onToggleLineForm(row.lineId)}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                aria-label={`Delete ${row.label}`}
-                onClick={() => onDeleteLine(row.lineId)}
-              >
-                Delete
-              </button>
-            </span>
-          </div>
-          {authoring?.kind === "edit" && authoring.id === row.lineId && (
-            <BudgetLineForm
-              initial={lineToDraft(lines.find((l) => l.id === row.lineId)!)}
-              submitLabel="Save"
-              onSubmit={(draft) => onSubmitLineForm(row.lineId, draft)}
-              onCancel={onCloseLineForm}
-            />
-          )}
-        </div>
+        <SpendingRow
+          key={row.lineId}
+          row={row}
+          line={linesById.get(row.lineId)}
+          pending={pending}
+          formOpen={authoring?.kind === "edit" && authoring.id === row.lineId}
+          edit={edit}
+          form={form}
+        />
       ))}
 
       {/* ── The one question an edit asks: how long does this last? (§20) ── */}
@@ -159,13 +169,17 @@ export function SpendingEditor({
             {pending.label} {formatDollars(pending.priorAmountCents)} →{" "}
             {formatDollars(pending.newAmountCents)} at month {selectedMonth}. How long?
           </p>
-          <button className="btn" onClick={() => onCommit("thisMonthOnly")} type="button">
+          <button className="btn" onClick={() => edit.onCommit("thisMonthOnly")} type="button">
             Just this month
           </button>
-          <button className="btn primary" onClick={() => onCommit("fromHereForward")} type="button">
+          <button
+            className="btn primary"
+            onClick={() => edit.onCommit("fromHereForward")}
+            type="button"
+          >
             From here forward
           </button>
-          <button className="btn ghost" onClick={onCancelEdit} type="button">
+          <button className="btn ghost" onClick={edit.onCancel} type="button">
             Cancel
           </button>
         </div>

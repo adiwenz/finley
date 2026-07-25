@@ -87,9 +87,9 @@ import { buildIncomeChartData } from "./incomeByCategory";
 import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
 import { ProjectionCharts } from "./projectionCharts";
-import { SpendingEditor, type PendingEdit } from "./spendingEditor";
+import { SpendingEditor, type PendingEdit, type SpendingEditActions } from "./spendingEditor";
 import { ContributionsEditor } from "./contributionsEditor";
-import type { LineAuthoring } from "./budgetLineAuthoring";
+import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
 /**
@@ -256,6 +256,19 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
 
   const horizonMonths = spendingChartData.rows.length;
 
+  /** The §20 edit gesture, and what a line list may do to the authored budget. */
+  const editActions: SpendingEditActions = {
+    onStage: stageEdit,
+    onCommit: commit,
+    onCancel: () => setPending(null),
+  };
+  const lineFormActions: LineFormActions = {
+    onToggle: toggleLineForm,
+    onSubmit: editLine,
+    onClose: () => setLineAuthoring(null),
+    onDelete: deleteLine,
+  };
+
   // No `card` class here: `main.tsx` supplies the card wrapper for every panel, as it
   // does for Goals, Retirement, and Debug. Carrying one internally too drew a box in a box.
   return (
@@ -316,13 +329,8 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
           pending={pending}
           lastRoute={lastRoute}
           authoring={lineAuthoring}
-          onStageEdit={stageEdit}
-          onCommit={commit}
-          onCancelEdit={() => setPending(null)}
-          onToggleLineForm={toggleLineForm}
-          onSubmitLineForm={editLine}
-          onCloseLineForm={() => setLineAuthoring(null)}
-          onDeleteLine={deleteLine}
+          edit={editActions}
+          form={lineFormActions}
         />
 
         {/* ── Savings & contributions: money paid into an account each month (§12).
@@ -330,10 +338,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
         <ContributionsEditor
           lines={contributionLines}
           authoring={lineAuthoring}
-          onToggleLineForm={toggleLineForm}
-          onSubmitLineForm={editLine}
-          onCloseLineForm={() => setLineAuthoring(null)}
-          onDeleteLine={deleteLine}
+          form={lineFormActions}
         />
 
         {/* ── Add a new budget item (expense or contribution) ── */}

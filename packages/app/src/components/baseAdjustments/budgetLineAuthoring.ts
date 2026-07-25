@@ -1,9 +1,20 @@
 /**
- * Which budget-line form is disclosed, if any (§12/§15).
+ * Which budget-line form is disclosed, and what a list can do about it (§12/§15).
  *
  * One form at a time across the whole editor — the expense rows and the contributions
- * list both open into the same slot — which is why this lives with the panel that
- * arbitrates it rather than inside either list. Its own tiny module so both child
- * editors can name the type without importing each other.
+ * list open into the same slot — so both the state and the actions live here rather
+ * than inside either list.
  */
+
+import type { BudgetLineDraft } from "./budgetLines";
+
 export type LineAuthoring = { readonly kind: "edit"; readonly id: string } | { readonly kind: "new" };
+
+/** What a line list can do to the authored budget: disclose a form, save it, delete a line. */
+export interface LineFormActions {
+  /** Open this line's edit form, or close it if it is the one already open. */
+  readonly onToggle: (id: string) => void;
+  readonly onSubmit: (id: string, draft: BudgetLineDraft) => void;
+  readonly onClose: () => void;
+  readonly onDelete: (id: string) => void;
+}
