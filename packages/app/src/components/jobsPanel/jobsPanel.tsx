@@ -78,9 +78,14 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
 export function JobsPanel({ budget, setBudget, household, ledger, onUpdateEvent }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household, in join order — the primary person's jobs first, then
-  // each partner's. Every row carries its owner, which is what routes its edits.
+  // each partner's. Every row carries its owner, which is what routes its edits, and its
+  // title, resolved here from the job's position among ITS OWNER's jobs (walking the
+  // owner's list per row while rendering would re-scan it for every row).
   const rows = useMemo(
-    () => owners.flatMap((owner) => owner.jobs.map((job) => ({ owner, job }))),
+    () =>
+      owners.flatMap((owner) =>
+        owner.jobs.map((job, i) => ({ owner, job, title: job.name?.trim() || `Job ${i + 1}` })),
+      ),
     [owners],
   );
   const [authoring, setAuthoring] = useState<Authoring>(null);
@@ -160,14 +165,13 @@ export function JobsPanel({ budget, setBudget, household, ledger, onUpdateEvent 
         <p className="hint">No jobs yet — add one below. With no income, you’re living off savings.</p>
       ) : (
         <ul className={styles.list}>
-          {rows.map(({ owner, job }) => {
+          {rows.map(({ owner, job, title }) => {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
-            // The user's title when they gave one, else positional WITHIN ITS OWNER's jobs
-            // — so an unnamed job still reads as "Job 1" rather than exposing its raw id,
-            // and each earner's first job is their "Job 1". Once the household has a second
-            // earner every row is prefixed with whose job it is; on a single-earner plan
-            // that would be noise, so it stays off.
-            const title = job.name?.trim() || `Job ${owner.jobs.indexOf(job) + 1}`;
+            // `title` is the user's own, else positional within ITS OWNER's jobs — an
+            // unnamed job reads as "Job 1" rather than exposing its raw id, and each
+            // earner's first job is their "Job 1". Once the household has a second earner
+            // every row is prefixed with whose job it is; on a single-earner plan that
+            // would be noise, so it stays off.
             const label = severalOwners ? `${owner.name} · ${title}` : title;
             const overrideCount = job.incomeOverrides?.length ?? 0;
             // Permanent pay changes, oldest first — listed in full below (not just counted),

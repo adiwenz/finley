@@ -57,6 +57,9 @@ interface JobFormDraft {
 /** A sensible finite end age to fall back to when none was ever entered. */
 const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
 
+/** Hoisted so the no-picker case reuses one array instead of minting one per render. */
+const NO_OWNERS: readonly JobFormOwner[] = [];
+
 export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: JobFormProps) {
   const [draft, setDraft] = useState<JobFormDraft>(() => ({
     name: initial.name,
@@ -78,7 +81,7 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
 
   const openEnded = draft.endAge === null;
 
-  const pickableOwners = owners ?? [];
+  const pickableOwners = owners ?? NO_OWNERS;
   /**
    * The name to phrase the age copy in when the job belongs to someone other than the
    * primary person (always first in the list) — "the ages above are Sam's", not "your
