@@ -102,12 +102,93 @@ projection — the two consumers read the same `Household`.
 - `npm run typecheck` → clean.
 - `npm run test` → **732 tests green** (45 todo), 61 files. Engine suite alone: 439 green.
 
+## Review follow-ups (both bugs found in review, both fixed here)
+
+**1. The income-vs-spend graphs ignored the ledger entirely.** Adding a partner with a job
+moved the net-worth chart and the snapshot but not the "Monthly income by source" graph
+below them. Root cause was not partner-specific and predates this issue: the
+**Base + Adjustments** panel ran its *own* `Projection.create({ plan })`, whose ledger is
+empty — so no timeline event of any kind (an expense event, a home purchase, a separation)
+ever reached its income, spending, or tax graphs. The panel now takes the app's ONE
+projection (plan + ledger) as a prop, the same series the net-worth chart and snapshot
+read, and projects nothing itself. Verified in a real browser: the partner's job draws as
+its own wage band and the income row reads $5,000 + $2,000 = $7,000.
+
+**2. A partner's jobs were write-once.** They were authored at the join form and
+unreachable afterwards — the Jobs panel listed `primaryJobs(plan)` only, and the app could
+add/remove ledger events but never revise one. Two changes close it:
+
+- **`updateEvent(ledger, id, next, base)`** (`packages/engine/src/ledger/updateEvent.ts`) —
+  the third ledger write beside `addEvent`/`removeEvent`. Replaces an event in place,
+  keeping its id, type, and sequence number (all three are what dependencies and §6 ordering
+  are built on), and blocks the revision — naming the offender — if the resulting ledger no
+  longer replays cleanly. Surfaced on the app as `useLedger.reviseEvent`.
+- **The Jobs panel now lists every household member's jobs**, each row named by its owner
+  once a second earner exists, with an owner picker on the job form. Adding, editing,
+  deleting, and *reassigning* a job all work for either member. `jobOwnersOf`
+  (`packages/app/src/jobOwners.ts`) is the seam: it hands the panel one uniform owner list
+  and a `writeTarget` saying which plane to write back to — `Plan.jobs` for the primary
+  person, a revision of the `RelationshipEvent` for a partner — so the panel never has to
+  know the difference. Ages everywhere resolve against the **owner's** birth year.
+
+Also exported `MembershipWindow` from the engine barrel: `compilePersonIncomeSeries` is
+public and takes one, so callers could not name the parameter type.
+
+**3. The partner's life-stage ages are now authored, not invented.** Their age (40),
+retirement age (65), and claiming age (67) were all hardcoded — free while a partner had
+no jobs, load-bearing the moment they became an earner. `birthYear` decides when their
+open-ended jobs stop (+ `retirementTargetAge`), when their Social Security starts (+
+`benefitClaimingAge`), their RMDs, and the calendar years their authored job ages resolve
+to, so every partner's benefit landed in the same year whoever they were.
+
+The join form now asks for their **age in the year they join** (`Their age in 2031`,
+re-anchoring as the join month moves) — the age the user has in mind at the moment the
+form describes; the birth year is derived from it. Ages, not a birth year, because that is
+the unit the rest of the app speaks. Their **retirement** and **claiming** ages sit behind
+the `Advanced` disclosure (§10.4) with the same 40–80 / 62–70 bounds the primary earner's
+carry, labelled "Their …" since the primary's own versions are on screen at the same time.
+Deliberately *not* chained to their current age the way the primary's are: a partner who
+has already retired is a real thing to author.
+
+Pinned by three engine tests (`events.test.ts`, stub benefit seam): a partner's benefit
+starts on *their* clock, moves when they claim later, and their open-ended job stops at
+*their* retirement age. Confirmed in the browser with a 62-year-old partner earning
+$4,000/mo, retiring at 64, claiming at 70 — household income reads $9,000/mo while both
+work, $5,305 once their wage stops at 64, and $9,503 once their benefit begins at 70. With
+only a two-year career the benefit is correctly $0: the US rules' 40-credit gate.
+
+**4. Each person's government benefit is now its own band, named.** With two claimants the
+income graph drew one "Social Security" band in Simple (both benefits summed into it) and
+two identically-labelled "Government benefit" bands in Advanced — a legend entry repeated,
+saying nothing. A benefit label names the *kind* of income, never the earner, so:
+
+- `ProjectionIncomeSource` now carries `ownerId` (it was already on the internal source and
+  dropped at the reporting boundary), so a consumer can say whose income a band is.
+- Simple collapses the benefit **per person** rather than outright — it already bands a
+  two-earner household's wages per person, so folding their benefits into one hid exactly
+  what the wage bands show. Each claims on their own record, at their own age, so the two
+  starts differ and that is the thing to read off the chart.
+- Both views name the earner (`Social Security · Sam`) **only when two of them are on the
+  chart** — a single-earner plan reads exactly as before, with no redundant "· Alex".
+- The benefit left the blue family for a two-step teal one. Validated with the dataviz
+  palette checker: the old single steel blue `#6b93b8` sat ΔE 4.0 from the second job's
+  wage band — a benefit was already near-indistinguishable from a paycheck — while the two
+  teal steps separate at ΔE 17.9 normal / 17.8 CVD, past the ≥15 / ≥8 floors.
+
+Worth knowing for later: the validator will not pass this chart's palette as a whole. With
+four wage steps, two benefit steps, and four drawdown steps it carries more categorical
+series than colour can separate (its own worst pair is two wage blues at ΔE 8.5), and the
+prescribed fix is fewer bands or faceting, not another hue.
+
+Still open (cosmetic, deliberately not changed): an **unnamed** partner job bands as
+`Income · p-0-job-1` on the income graph — the fallback label is the job's stable id by
+design (`compilePerson.ts`, pinned by `job.test.ts`), which reads fine for the primary's
+`job-1` but leaks a generated id for a partner.
+
 ## Notes for the next iteration
 
-- **In-place editing of an existing partner's jobs** (post-join, e.g. from the Jobs
-  panel) is deferred. It needs an "update ledger event" capability the app does not yet
-  have (only add/remove). Today a partner's jobs are set when they join; changing them
-  means removing and re-adding the partner. Generalizing the Jobs panel to edit each
-  member's jobs owner-scoped (the issue's other UI option) is the natural follow-up.
+- ~~**In-place editing of an existing partner's jobs** is deferred; it needs an "update
+  ledger event" capability the app does not yet have.~~ **Done** in the review follow-ups
+  above: `updateEvent` on the engine, and the Jobs panel generalized to every member.
 - Partner jobs carry their own `sourceId` (`job:<id>`), so the #99 per-source income
   bands render a partner's jobs as their own bands for free.

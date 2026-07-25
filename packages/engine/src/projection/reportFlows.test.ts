@@ -105,8 +105,8 @@ describe("buildFlows", () => {
     );
     expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00 });
     expect(flows.incomeSources).toEqual([
-      { sourceId: "job:a", label: "Job A", category: "wages", cashInflowCents: 5_000_00, netCashFlowCents: 5_000_00 },
-      { sourceId: "job:b", label: "Job B", category: "wages", cashInflowCents: 2_000_00, netCashFlowCents: 2_000_00 },
+      { sourceId: "job:a", label: "Job A", category: "wages", ownerId: "p1", cashInflowCents: 5_000_00, netCashFlowCents: 5_000_00 },
+      { sourceId: "job:b", label: "Job B", category: "wages", ownerId: "p1", cashInflowCents: 2_000_00, netCashFlowCents: 2_000_00 },
     ]);
   });
 
@@ -122,9 +122,17 @@ describe("buildFlows", () => {
       0,
       [],
     );
+    // Each band also names WHOSE income it is (the owner rides through from the source).
     expect(flows.incomeSources).toEqual([
-      { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", cashInflowCents: 1_500_00, netCashFlowCents: 1_500_00 },
-      { sourceId: "capitalGains", label: "capitalGains", category: "capitalGains", cashInflowCents: 300_00, netCashFlowCents: 300_00 },
+      { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", ownerId: "p1", cashInflowCents: 1_500_00, netCashFlowCents: 1_500_00 },
+      {
+        sourceId: "capitalGains",
+        label: "capitalGains",
+        category: "capitalGains",
+        ownerId: "p2",
+        cashInflowCents: 300_00,
+        netCashFlowCents: 300_00,
+      },
     ]);
   });
 

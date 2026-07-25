@@ -117,9 +117,20 @@ export interface BaseAdjustmentsPanelProps {
    * disagreed with the net-worth graph beside it. One simulation, one scenario.
    */
   readonly series: ProjectionSeries;
+  /**
+   * Household member names by person id — what lets the income graph say *whose*
+   * government benefit a band is (issue #118). Two claimants otherwise draw two legend
+   * entries with the identical label, since the label names the kind of income.
+   */
+  readonly personNames: ReadonlyMap<string, string>;
 }
 
-export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({
+  plan,
+  setBudget,
+  series,
+  personNames,
+}: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = plan.budgetLines ?? NO_BUDGET_LINES;
   // Every row is shown in the selected month's dollars, so the editor needs the same
@@ -298,6 +309,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
         spendingData={spendingChartData}
         taxData={taxChartData}
         currentAge={plan.currentAge}
+        personNames={personNames}
         selectedMonth={selectedMonth}
         onSelectMonth={selectMonth}
         onQuickstart={applyQuickstart}

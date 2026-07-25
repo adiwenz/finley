@@ -98,6 +98,9 @@ export function buildFlows(
         // (e.g. savings interest → "savingsInterest"), else its tax category. This keeps the
         // display/grouping axis distinct from the tax axis without the UI parsing ids.
         category: src.reportCategory ?? src.taxCategory,
+        // Whose income this is — a source id is stable but opaque, and two members'
+        // benefits carry the same label, so the owner is what tells them apart.
+        ownerId: src.ownerId,
       });
     }
   }

@@ -10,15 +10,28 @@
  */
 
 import { useRef, useState } from "react";
+import type { PersonId } from "@finley/engine";
 import type { JobDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import styles from "./jobsPanel.module.css";
+
+/** A household member this job could belong to — the owner picker's options (#118). */
+export interface JobFormOwner {
+  readonly id: PersonId;
+  readonly name: string;
+}
 
 interface JobFormProps {
   /** Seed values (an existing job's draft when editing); a blank draft when adding. */
   initial: JobDraft;
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
+  /**
+   * Who could own this job (issue #118). With a second earner in the household the form
+   * discloses a picker, so a job can be authored for — or reassigned to — either of
+   * them; with only the primary person there is nothing to choose and none is shown.
+   */
+  owners?: readonly JobFormOwner[];
   onSubmit: (draft: JobDraft) => void;
   onCancel: () => void;
 }
@@ -31,6 +44,8 @@ interface JobFormProps {
  */
 interface JobFormDraft {
   readonly name: string;
+  /** Whose job this is — the ages below are this person's ages (issue #118). */
+  readonly ownerId: PersonId;
   readonly monthlyDollars: number;
   readonly startAge: number;
   /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
@@ -42,9 +57,10 @@ interface JobFormDraft {
 /** A sensible finite end age to fall back to when none was ever entered. */
 const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
 
-export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormProps) {
+export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: JobFormProps) {
   const [draft, setDraft] = useState<JobFormDraft>(() => ({
     name: initial.name,
+    ownerId: initial.ownerId,
     monthlyDollars: Math.round(initial.monthlyCents / 100),
     startAge: initial.startAge,
     endAge: initial.endAge,
@@ -62,9 +78,21 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
 
   const openEnded = draft.endAge === null;
 
+  const pickableOwners = owners ?? [];
+  /**
+   * The name to phrase the age copy in when the job belongs to someone other than the
+   * primary person (always first in the list) — "the ages above are Sam's", not "your
+   * Social-Security-covered years". `null` means the job is the user's own.
+   */
+  const otherOwnerName =
+    pickableOwners.length > 1 && draft.ownerId !== pickableOwners[0].id
+      ? (pickableOwners.find((o) => o.id === draft.ownerId)?.name ?? null)
+      : null;
+
   function submit() {
     onSubmit({
       name: draft.name,
+      ownerId: draft.ownerId,
       monthlyCents: Math.round(draft.monthlyDollars * 100),
       startAge: draft.startAge,
       endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
@@ -82,6 +110,21 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
         submit();
       }}
     >
+      {/* Whose job (issue #118). Shown only once the household holds a second earner —
+          with one member there is nothing to pick. Changing it on an existing job
+          reassigns the job to that member. */}
+      {pickableOwners.length > 1 && (
+        <label className="field">
+          <span className="field-label">Whose job</span>
+          <select value={draft.ownerId} onChange={(e) => patch({ ownerId: e.target.value })}>
+            {pickableOwners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {/* Optional human title. Blank leaves the job unnamed — reports fall back to its
           stable id — so it never forces a name on a quick add. */}
       <label className="field">
@@ -135,8 +178,9 @@ export function JobForm({ initial, submitLabel, onSubmit, onCancel }: JobFormPro
         />
       )}
       <p className="hint">
-        The age you began this job seeds your Social-Security-covered years; an open-ended
-        job runs until your retirement age. Estimate, not advice.
+        {otherOwnerName === null
+          ? "The age you began this job seeds your Social-Security-covered years; an open-ended job runs until your retirement age. Estimate, not advice."
+          : `These are ${otherOwnerName}’s ages. The age they began this job seeds their Social-Security-covered years; an open-ended job runs until their retirement age. Estimate, not advice.`}
       </p>
 
       <details className="advanced">

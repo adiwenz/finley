@@ -1,9 +1,10 @@
-/** Event-ledger state: record and remove, both guarded by the §6.1 conflict rules. */
+/** Event-ledger state: record, revise, and remove — all guarded by the §6.1 conflict rules. */
 
 import { useRef, useState } from "react";
 import {
   addEvent,
   removeEvent as removeLedgerEvent,
+  updateEvent as updateLedgerEvent,
   emptyLedger,
   type Ledger,
   type LedgerBaseConfig,
@@ -15,6 +16,13 @@ export interface UseLedger {
   ledger: Ledger;
   conflict: string | null;
   recordEvent: (event: NewLifeEvent) => void;
+  /**
+   * Revise an event already on the timeline, keeping its id and its place in the log —
+   * how a partner's own jobs are edited after they join (issue #118). A revision that
+   * would strand a later event is rejected and surfaces as a conflict, exactly like a
+   * blocked removal.
+   */
+  reviseEvent: (id: string, next: NewLifeEvent) => void;
   removeEvent: (id: string) => void;
   /**
    * Replace the whole ledger wholesale — the seam a preset load uses to swap in a
@@ -46,6 +54,17 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     });
   }
 
+  function reviseEvent(id: string, next: NewLifeEvent) {
+    setLedger((current) => {
+      // Resolve against the latest ledger, like removal, so two revisions in one tick
+      // can't discard each other. A blocked revision keeps the ledger and surfaces the
+      // §6.1 conflict.
+      const result = updateLedgerEvent(current, id, next, baseRef.current);
+      setConflict(result.ok ? null : result.conflict);
+      return result.ok ? result.ledger : current;
+    });
+  }
+
   function removeEvent(id: string) {
     setLedger((current) => {
       // Resolve against the latest ledger (not the render closure) so batched
@@ -62,5 +81,5 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     setConflict(null);
   }
 
-  return { ledger, conflict, recordEvent, removeEvent, resetLedger };
+  return { ledger, conflict, recordEvent, reviseEvent, removeEvent, resetLedger };
 }

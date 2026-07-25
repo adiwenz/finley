@@ -250,6 +250,14 @@ export interface ProjectionIncomeSource {
   readonly label: string;
   readonly category: IncomeSourceCategory;
   /**
+   * The household member this source pays. Carried through so a consumer can say
+   * *whose* income a band is — two people's government benefits are otherwise
+   * indistinguishable, since the label names the kind of income, not the earner.
+   * Absent on a source that belongs to no one in particular (the household-level
+   * savings drawdown).
+   */
+  readonly ownerId?: string;
+  /**
    * **Realized cash this source paid into the household this month** — pre-tax,
    * pre-deferral. Savings-account interest reports its credited interest here: it is real
    * household cash (it lands in the account balance and is spendable), so it belongs in the

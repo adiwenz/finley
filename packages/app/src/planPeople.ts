@@ -60,15 +60,25 @@ export function blendedDeferralFraction(plan: Plan): number {
   return deferredCents / grossCents;
 }
 
-/** The age the owner was in a job's start year (its `startYear` back to an age). */
-export function jobStartAge(plan: Plan, job: Job): number {
-  return job.startYear - primaryBirthYear(plan);
+/**
+ * The age the owner was in a job's start year (its `startYear` back to an age). Every
+ * age in the Jobs form is the OWNER's age, so a partner's job reads against the
+ * partner's birth year, not the primary person's (issue #118).
+ */
+export function jobStartAgeFor(birthYear: number, job: Job): number {
+  return job.startYear - birthYear;
 }
 
 /** The age the owner reaches in a job's (exclusive) end year, or `null` if open-ended. */
-export function jobEndAge(plan: Plan, job: Job): number | null {
-  return job.endYear === null ? null : job.endYear - primaryBirthYear(plan);
+export function jobEndAgeFor(birthYear: number, job: Job): number | null {
+  return job.endYear === null ? null : job.endYear - birthYear;
 }
+
+/** The age the owner reaches in a given simulation month — for "from age N" copy. */
+export function ownerAgeAtMonth(birthYear: number, month: number): number {
+  return yearOfMonth(month) - birthYear;
+}
+
 
 // ── Authoring: add / edit / remove a job from a form draft ──
 
@@ -80,6 +90,12 @@ export function jobEndAge(plan: Plan, job: Job): number | null {
 export interface JobDraft {
   /** Optional human title; blank leaves the job unnamed (reports fall back to its id). */
   readonly name: string;
+  /**
+   * Whose job this is (§8, issue #118). A household member earns each job, and every
+   * age in this draft is THAT person's age — so the owner is part of the draft rather
+   * than something the caller remembers on the side. Changing it reassigns the job.
+   */
+  readonly ownerId: PersonId;
   readonly monthlyCents: number;
   readonly startAge: number;
   readonly endAge: number | null;
@@ -88,47 +104,70 @@ export interface JobDraft {
   readonly deferralPct: number;
 }
 
-/** The draft that seeds a fresh job at a given current age: unnamed, real-flat $3,000/mo, open-ended. */
-export function blankJobDraftForAge(currentAge: number): JobDraft {
-  return { name: "", monthlyCents: 3000 * 100, startAge: currentAge, endAge: null, realGrowthPct: 0, deferralPct: 0 };
+/** The draft that seeds a fresh job for an owner: unnamed, real-flat $3,000/mo, open-ended. */
+export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraft {
+  return {
+    name: "",
+    ownerId,
+    monthlyCents: 3000 * 100,
+    startAge: currentAge,
+    endAge: null,
+    realGrowthPct: 0,
+    deferralPct: 0,
+  };
 }
 
 /** The draft that seeds a fresh job for the primary person (starts at their current age). */
 export function blankJobDraft(plan: Plan): JobDraft {
-  return blankJobDraftForAge(plan.currentAge);
+  return blankJobDraftFor(PRIMARY_PERSON_ID, plan.currentAge);
 }
 
-/** Read an existing job back into a {@link JobDraft} to seed the edit form. */
-export function jobToDraft(plan: Plan, job: Job): JobDraft {
+/**
+ * Read an existing job back into a {@link JobDraft} to seed the edit form. Ages resolve
+ * against the OWNER's birth year — the job already names its owner, so the caller only
+ * has to say when that person was born.
+ */
+export function jobToDraftFor(birthYear: number, job: Job): JobDraft {
   return {
     name: job.name ?? "",
+    ownerId: job.ownerId,
     monthlyCents: Math.round(job.salary.startingSalaryCents / 12),
-    startAge: jobStartAge(plan, job),
-    endAge: jobEndAge(plan, job),
+    startAge: jobStartAgeFor(birthYear, job),
+    endAge: jobEndAgeFor(birthYear, job),
     realGrowthPct: job.salary.realGrowthPct,
     deferralPct: Math.round((job.deferral?.deferralFraction ?? 0) * 100),
   };
 }
 
-/** A stable, collision-free id for a freshly added job. */
-function nextJobId(plan: Plan): string {
-  const ids = new Set(plan.jobs.map((j) => j.id));
-  let n = plan.jobs.length + 1;
-  while (ids.has(`job-${n}`)) n++;
-  return `job-${n}`;
+/** {@link jobToDraftFor} for a job owned by the primary person. */
+export function jobToDraft(plan: Plan, job: Job): JobDraft {
+  return jobToDraftFor(primaryBirthYear(plan), job);
 }
 
 /**
- * Build a {@link Job} for a given owner from a draft (ages → years, %→fraction). Ages
- * resolve against the OWNER's `birthYear`, so the same form authors the primary person's
- * jobs and a partner's jobs (issue #118) — only the owner id and birth year differ.
+ * A stable, collision-free id for a job freshly added to `jobs`, namespaced by owner —
+ * the primary person's stay `job-N` (what every existing plan holds), a partner's are
+ * prefixed with their person id so two members' jobs can never collide.
  */
-export function buildJobFromDraft(id: string, ownerId: PersonId, birthYear: number, draft: JobDraft): Job {
+export function nextJobIdFor(ownerId: PersonId, jobs: readonly Job[]): string {
+  const prefix = ownerId === PRIMARY_PERSON_ID ? "job" : `${ownerId}-job`;
+  const ids = new Set(jobs.map((j) => j.id));
+  let n = jobs.length + 1;
+  while (ids.has(`${prefix}-${n}`)) n++;
+  return `${prefix}-${n}`;
+}
+
+/**
+ * Build a {@link Job} from a draft (ages → years, %→fraction). The draft names its owner
+ * and `birthYear` is that owner's, so one builder serves the primary person's jobs and a
+ * partner's (issue #118).
+ */
+export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
   const name = draft.name.trim();
   const base: Job = {
     id,
     ...(name ? { name } : {}),
-    ownerId,
+    ownerId: draft.ownerId,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: { startingSalaryCents: draft.monthlyCents * 12, realGrowthPct: draft.realGrowthPct },
@@ -138,15 +177,15 @@ export function buildJobFromDraft(id: string, ownerId: PersonId, birthYear: numb
     : base;
 }
 
-/** Build a {@link Job} for the primary person from a draft (ages resolve against their birth year). */
-function jobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
-  return buildJobFromDraft(id, PRIMARY_PERSON_ID, birthYear, draft);
-}
+// ── Authoring against a bare job list ──
+// A person's jobs are a list wherever they live: the primary's on `Plan.jobs`, a
+// partner's on the `Person` inside their RelationshipEvent (issue #118). These operate
+// on the list so both planes get identical behaviour, and the Plan-level helpers below
+// are thin wrappers.
 
-/** Append a new job to the primary person from a form draft. */
-export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
-  const job = jobFromDraft(nextJobId(plan), primaryBirthYear(plan), draft);
-  return { ...plan, jobs: [...plan.jobs, job] };
+/** Append a job built from `draft` to `jobs`, minting an id in the owner's namespace. */
+export function addJobToList(jobs: readonly Job[], birthYear: number, draft: JobDraft): readonly Job[] {
+  return [...jobs, buildJobFromDraft(nextJobIdFor(draft.ownerId, jobs), birthYear, draft)];
 }
 
 /**
@@ -154,29 +193,39 @@ export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
  * edit: any one-month {@link JobIncomeOverride}s, permanent {@link JobPayChange}s, and an
  * employer match on the deferral.
  */
-export function updateJobFromDraft(plan: Plan, id: string, draft: JobDraft): Plan {
-  const birthYear = primaryBirthYear(plan);
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) => {
-      if (j.id !== id) return j;
-      const rebuilt = jobFromDraft(j.id, birthYear, draft);
-      const withMatch =
-        rebuilt.deferral && j.deferral?.employerMatchFraction !== undefined
-          ? { ...rebuilt, deferral: { ...rebuilt.deferral, employerMatchFraction: j.deferral.employerMatchFraction } }
-          : rebuilt;
-      return {
-        ...withMatch,
-        ...(j.incomeOverrides ? { incomeOverrides: j.incomeOverrides } : {}),
-        ...(j.payChanges ? { payChanges: j.payChanges } : {}),
-      };
-    }),
-  };
+export function updateJobInList(
+  jobs: readonly Job[],
+  id: string,
+  birthYear: number,
+  draft: JobDraft,
+): readonly Job[] {
+  return jobs.map((j) => {
+    if (j.id !== id) return j;
+    const rebuilt = buildJobFromDraft(j.id, birthYear, draft);
+    const withMatch =
+      rebuilt.deferral && j.deferral?.employerMatchFraction !== undefined
+        ? { ...rebuilt, deferral: { ...rebuilt.deferral, employerMatchFraction: j.deferral.employerMatchFraction } }
+        : rebuilt;
+    return {
+      ...withMatch,
+      ...(j.incomeOverrides ? { incomeOverrides: j.incomeOverrides } : {}),
+      ...(j.payChanges ? { payChanges: j.payChanges } : {}),
+    };
+  });
 }
 
-/** Drop the job with `id` from the plan. */
-export function removeJob(plan: Plan, id: string): Plan {
-  return { ...plan, jobs: plan.jobs.filter((j) => j.id !== id) };
+/** Drop the job with `id` from `jobs`. */
+export function removeJobFromList(jobs: readonly Job[], id: string): readonly Job[] {
+  return jobs.filter((j) => j.id !== id);
+}
+
+/**
+ * Append a new job to the primary person from a form draft. The Jobs panel writes
+ * through the list helpers above (it authors for whichever member owns the job); this
+ * stays as the plan-level shorthand for fixtures and one-shot plan edits.
+ */
+export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
+  return { ...plan, jobs: [...addJobToList(plan.jobs, primaryBirthYear(plan), draft)] };
 }
 
 /**

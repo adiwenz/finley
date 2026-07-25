@@ -16,7 +16,14 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, Projection, PRIMARY_PERSON_ID, type Plan } from "@finley/engine";
+import {
+  PRIMARY_PERSON_ID,
+  dollarsToCents,
+  emptyLedger,
+  projectScenario,
+  type Ledger,
+  type Plan,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
@@ -45,16 +52,67 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  * The budget now lives on the plan, so the panel is controlled — these tests own the
  * state the app owns in production. Renders through a stateful holder so an edit
  * round-trips exactly as it does in `App`.
+ *
+ * The panel does not project any more: `App` owns the app's ONE projection (plan *and*
+ * ledger, §1) and passes it down, so this harness stands in for `App` and projects
+ * through the identical pipeline. Tests that care only about the budget leave the ledger
+ * empty; a test about timeline-authored income passes one in.
  */
-function Harness({ initial }: { initial: Plan }) {
+function Harness({ initial, ledger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
   const [plan, setPlan] = useState(initial);
-  // The app hands the panel its projected scenario (plan + timeline); these tests
-  // exercise the budget alone, so the scenario here is the plan with an empty ledger.
-  const series = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction).series;
-  return <BaseAdjustmentsPanel plan={plan} setBudget={setPlan} series={series} />;
+  const series = projectScenario(
+    { plan, ledger },
+    { jurisdiction: usJurisdiction, startYear: START_YEAR },
+  );
+  // The household roster App passes down, so income bands can name whose they are.
+  const personNames = new Map<string, string>([
+    [PRIMARY_PERSON_ID, plan.name],
+    ...ledger.events.flatMap((e) =>
+      e.type === "RelationshipEvent" ? ([[e.person.id, e.person.name]] as [string, string][]) : [],
+    ),
+  ]);
+  return (
+    <BaseAdjustmentsPanel
+      plan={plan}
+      setBudget={setPlan}
+      series={series}
+      personNames={personNames}
+    />
+  );
 }
 
-const renderPanel = (plan: Plan) => render(<Harness initial={plan} />);
+const renderPanel = (plan: Plan, ledger?: Ledger) =>
+  render(<Harness initial={plan} ledger={ledger} />);
+
+/** A ledger whose only event is a partner joining at month 0 with one open-ended job (#118). */
+const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
+  events: [
+    {
+      id: "r1",
+      sequenceNumber: 0,
+      type: "RelationshipEvent",
+      month: 0,
+      person: {
+        id: "p-1",
+        name: "Sam",
+        birthYear: START_YEAR - 40,
+        retirementTargetAge: 65,
+        benefitClaimingAge: 67,
+        jobs: [
+          {
+            id: "p-1-job-1",
+            name: "Sam's job",
+            ownerId: "p-1",
+            startYear: START_YEAR,
+            endYear: null,
+            salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+          },
+        ],
+      },
+    },
+  ],
+  nextSequenceNumber: 1,
+});
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -134,6 +192,23 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     // Retires at 65, claims at 67 — that stretch is lived off savings, and the graph now
     // names it a drawdown rather than showing a misleading flat zero (issue #99).
     expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
+  });
+
+  it("counts income authored on the timeline — a partner's own jobs (issue #118)", () => {
+    // The regression: this panel used to run its OWN projection from the plan alone,
+    // whose ledger is empty. A partner joining with a $2,000/mo job moved the net-worth
+    // chart and the snapshot while the income graph directly below them showed only the
+    // primary earner's $5,000. One projection (plan + ledger) now feeds every surface.
+    renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(2000));
+
+    // Month 6: the partner has joined (month 0) and no CPI step has landed yet, so both
+    // salaries still read at their authored rate.
+    selectMonth(6);
+    expect(incomeReadonlyDollars()).toBe(7000); // $5,000 primary + $2,000 partner
+
+    // And the partner's job is its own band, not folded into the primary's wages.
+    const bands = JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
+    expect(bands).toContain("Income · Sam's job");
   });
 
   it("defaults to the Simple income view and reveals every source under Advanced", () => {

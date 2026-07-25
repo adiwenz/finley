@@ -39,7 +39,11 @@ export {
   accountsOf,
   householdNetWorthCents,
 } from "./account";
-export { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
+export {
+  compilePersonIncomeSeries,
+  compilePersonPriorEarnings,
+  type MembershipWindow,
+} from "./compilePerson";
 // The line-item budget authoring model (§12, §15, §18, §19, issue #67, slice 4):
 // a prioritized list of dollar line items (expenses + account contributions) with
 // {literal, fill-to-limit, goal-paced} amount sources, spans + dated overrides.
@@ -154,3 +158,4 @@ export * from "./ledger/eventValidation";
 export * from "./ledger/dependencies";
 export * from "./ledger/removeEvent";
 export * from "./ledger/addEvent";
+export * from "./ledger/updateEvent";

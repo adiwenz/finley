@@ -8,28 +8,100 @@
  * here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { dollarsToCents, type Plan } from "@finley/engine";
+import {
+  createProjectionBase,
+  dollarsToCents,
+  interpretLedger,
+  updateEvent,
+  type Job,
+  type Ledger,
+  type NewLifeEvent,
+  type Plan,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { START_YEAR } from "../../config";
 import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";
 import { JobsPanel } from "./jobsPanel";
 
 afterEach(cleanup);
 
-/** Controlled harness so edits round-trip through real plan state, plus a job count probe. */
-function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
+/**
+ * Controlled harness so edits round-trip through real state, plus probes for each plane
+ * a job can live on: the primary person's jobs on the plan, a partner's on their
+ * `RelationshipEvent` (issue #118). Stands in for `App`, which owns both.
+ */
+function Harness({ initial = PLAN_DEFAULTS, events = [] }: { initial?: Plan; events?: readonly NewLifeEvent[] }) {
   const [budget, setBudget] = useState<Plan>(initial);
+  const [ledger, setLedger] = useState<Ledger>(() => ({
+    events: events.map((e, i) => ({ ...e, sequenceNumber: i })),
+    nextSequenceNumber: events.length,
+  }));
+  const base = useMemo(
+    () => createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
+    [budget],
+  );
+  const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
+  const onUpdateEvent = (id: string, next: NewLifeEvent) =>
+    setLedger((current) => {
+      const result = updateEvent(current, id, next, base);
+      return result.ok ? result.ledger : current;
+    });
+
   return (
     <>
-      <JobsPanel budget={budget} setBudget={setBudget} />
+      <JobsPanel
+        budget={budget}
+        setBudget={setBudget}
+        household={household}
+        ledger={ledger}
+        onUpdateEvent={onUpdateEvent}
+      />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
+      <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
     </>
   );
 }
 
+/** The jobs currently authored on the partner's RelationshipEvent — the ledger plane. */
+function partnerJobsOf(ledger: Ledger): readonly Job[] {
+  for (const e of ledger.events) if (e.type === "RelationshipEvent") return e.person.jobs;
+  return [];
+}
+
+/** A partner joining at month 0 with `jobs` of their own (§8, issue #118). */
+const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
+  id: "r1",
+  type: "RelationshipEvent",
+  month: 0,
+  person: {
+    id: "p-1",
+    name: "Sam",
+    birthYear: START_YEAR - 40,
+    retirementTargetAge: 65,
+    benefitClaimingAge: 67,
+    jobs,
+  },
+});
+
+/** One open-ended partner job paying `monthlyDollars`, started at their age 40 ("now"). */
+const partnerJob = (monthlyDollars: number, name?: string): Job => ({
+  id: "p-1-job-1",
+  ...(name ? { name } : {}),
+  ownerId: "p-1",
+  startYear: START_YEAR,
+  endYear: null,
+  salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+});
+
 const spin = (name: RegExp | string) => screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 const jobCount = () => Number(screen.getByTestId("job-count").textContent);
+const partnerJobs = (): readonly Job[] =>
+  JSON.parse(screen.getByTestId("partner-jobs").textContent || "[]") as Job[];
+const partnerMonthlyDollars = (i = 0): number =>
+  Math.round((partnerJobs()[i]?.salary.startingSalaryCents ?? 0) / 12 / 100);
 
 describe("JobsPanel — listing (§6)", () => {
   it("lists the default job with its salary and open-ended span", () => {
@@ -131,6 +203,75 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
     fireEvent.change(screen.getByRole("textbox", { name: /Job name/i }), { target: { value: "   " } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(screen.getByLabelText("Job 1")).toBeTruthy();
+  });
+});
+
+describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
+  const withPartner = (jobs: readonly Job[] = [partnerJob(2000)]) => [partnerJoining(jobs)];
+
+  it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
+    // A partner's jobs used to be invisible here — authored at the moment they joined
+    // and unreachable afterwards. Now both earners' jobs are one list.
+    render(<Harness events={withPartner()} />);
+    expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
+    const partnerRow = screen.getByLabelText("Sam · Job 1");
+    expect(within(partnerRow).getByText("$2,000/mo")).toBeTruthy();
+    // Spans read in the OWNER's age, not the primary person's: Sam is 40, not 35.
+    expect(within(partnerRow).getByText(/from age 40/)).toBeTruthy();
+  });
+
+  it("edits a partner's job — the revision is written back to their RelationshipEvent", () => {
+    render(<Harness events={withPartner()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "3500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(within(screen.getByLabelText("Sam · Job 1")).getByText("$3,500/mo")).toBeTruthy();
+    expect(partnerMonthlyDollars()).toBe(3500); // the ledger event now carries the new pay
+    expect(jobCount()).toBe(1); // and the primary person's jobs are untouched
+  });
+
+  it("deletes a partner's job without touching the plan", () => {
+    render(<Harness events={withPartner()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Delete Sam · Job 1/i }));
+    expect(partnerJobs()).toHaveLength(0);
+    expect(jobCount()).toBe(1);
+    expect(screen.queryByLabelText("Sam · Job 1")).toBeNull();
+  });
+
+  it("adds a job for the partner from this panel, via the owner picker", () => {
+    render(<Harness events={withPartner([])} />); // partner in the household, no jobs yet
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    expect(partnerJobs()).toHaveLength(1);
+    expect(partnerJobs()[0].ownerId).toBe("p-1");
+    expect(partnerMonthlyDollars()).toBe(2500);
+    expect(jobCount()).toBe(1); // added to the partner, NOT to the primary person
+    expect(within(screen.getByLabelText("Sam · Job 1")).getByText("$2,500/mo")).toBeTruthy();
+  });
+
+  it("reassigns a job from one member to the other, ages following the new owner", () => {
+    render(<Harness events={withPartner([])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    // It left the plan for the partner's event, keeping its pay.
+    expect(jobCount()).toBe(0);
+    expect(partnerJobs()).toHaveLength(1);
+    expect(partnerMonthlyDollars()).toBe(5000);
+    // The start age is unchanged as a NUMBER (18), but now it is Sam's 18.
+    expect(within(screen.getByLabelText("Sam · Job 1")).getByText(/from age 18/)).toBeTruthy();
+    expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
+  });
+
+  it("offers no owner picker in a single-earner household", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
   });
 });
 
