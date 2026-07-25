@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Area,
   CartesianGrid,
@@ -76,9 +77,16 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
   // total band (the fallback). Each row carries either the per-source cents (keyed by
   // source id) or the lone `taxCents`.
   const stacked = data.hasSourceBreakdown && data.sources.length > 0;
-  const colors = colorsForBands(data.sources);
-  const rows = data.rows.map((r) =>
-    stacked ? { month: r.month, ...r.centsBySource } : { month: r.month, taxCents: r.taxCents },
+  // Chart geometry depends only on `data` (stable while scrubbing) — memoize it so moving
+  // the selected month, which re-renders this component via `selectedMonth`, doesn't
+  // rebuild the colour map or remap every month row (§rerender-memo).
+  const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
+  const rows = useMemo(
+    () =>
+      data.rows.map((r) =>
+        stacked ? { month: r.month, ...r.centsBySource } : { month: r.month, taxCents: r.taxCents },
+      ),
+    [data.rows, stacked],
   );
   const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
 

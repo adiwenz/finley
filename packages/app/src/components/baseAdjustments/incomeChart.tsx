@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -100,13 +100,21 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
   const [mode, setMode] = useState<IncomeMode>("simple");
   const [basis, setBasis] = useState<IncomeBasis>("takeHome");
   const summary = describeIncomeGap(data);
-  const view = incomeBandsForMode(data, mode, basis);
-  const colors = colorsForBands(view.sources);
-  const rows = view.rows.map((r) => ({
-    month: r.month,
-    [SPENDING_NEED_KEY]: r.spendingNeedCents,
-    ...r.centsBySource,
-  }));
+  // The banded view, its colour map, and the recharts rows depend only on `data`, `mode`,
+  // and `basis` — not on `selectedMonth`. Memoize them so scrubbing the selected month
+  // (a frequent re-render) doesn't recompute the band collapse or remap every month row
+  // (§rerender-memo).
+  const view = useMemo(() => incomeBandsForMode(data, mode, basis), [data, mode, basis]);
+  const colors = useMemo(() => colorsForBands(view.sources), [view]);
+  const rows = useMemo(
+    () =>
+      view.rows.map((r) => ({
+        month: r.month,
+        [SPENDING_NEED_KEY]: r.spendingNeedCents,
+        ...r.centsBySource,
+      })),
+    [view],
+  );
   const lastMonth = view.rows[view.rows.length - 1]?.month ?? 0;
   const brokeMonth = data.firstInsolventMonth;
 
