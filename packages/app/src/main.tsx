@@ -27,6 +27,7 @@ import { retirementView } from "./retirementView";
 import { useLedger } from "./hooks/useLedger";
 import type { Plan } from "@finley/engine";
 import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
+import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
@@ -41,11 +42,26 @@ const PROJECTION_CTX: ProjectionContext = {
 };
 
 export function App() {
+  const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [budget, setBudget] = useState<Plan>(PLAN_DEFAULTS);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
-  const { ledger, conflict, recordEvent, removeEvent } = useLedger(base);
+  const { ledger, conflict, recordEvent, removeEvent, resetLedger } = useLedger(base);
+
+  // Load a starter simulation wholesale (issue #119): swap in its plan AND its
+  // seed timeline together. The new ledger is built against the *incoming* plan's
+  // base (computed here, not the memoized one, which still reflects the old plan
+  // this render), so a preset's events are replayed against the numbers they were
+  // authored for. The scrub cursor snaps back to "now" so the fresh scenario reads
+  // from its opening month.
+  function loadPreset(preset: Preset) {
+    const nextBase = createProjectionBase(preset.plan, PROJECTION_CTX);
+    setPresetId(preset.id);
+    setBudget(preset.plan);
+    resetLedger(buildPresetLedger(nextBase, preset.events));
+    setScrubMonth(DEFAULT_SCRUB_MONTH);
+  }
 
   // One replay-derived household feeds both the projection and the snapshot,
   // so the two can never disagree about the ledger's meaning.
@@ -90,6 +106,21 @@ export function App() {
         {budget.name || "You"} · outlook to age {budget.lifeExpectancy} · jurisdiction:{" "}
         {usJurisdiction.id}
       </p>
+
+      <label className="field preset-picker">
+        <span className="field-label">Start from a scenario</span>
+        <select
+          value={presetId}
+          onChange={(e) => loadPreset(presetById(e.target.value))}
+        >
+          {PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+        <span className="preset-desc">{presetById(presetId).description}</span>
+      </label>
 
       <div className="layout">
         <div className="main-col">
@@ -176,7 +207,11 @@ export function App() {
       </div>
 
       <div className="card">
-        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} />
+        {/* The panel charts the SAME series the net-worth graph draws — plan plus the
+            live timeline — so its spending need counts loan payments and every other
+            event, not just the standing budget. Everything it draws rides on that one
+            series (the engine itemizes the spending), so there is nothing else to pass. */}
+        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} series={series} />
       </div>
 
       <div className="card">

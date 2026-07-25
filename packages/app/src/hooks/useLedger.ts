@@ -16,6 +16,13 @@ export interface UseLedger {
   conflict: string | null;
   recordEvent: (event: NewLifeEvent) => void;
   removeEvent: (id: string) => void;
+  /**
+   * Replace the whole ledger wholesale — the seam a preset load uses to swap in a
+   * scenario's pre-replayed timeline (issue #119). The caller owns the new ledger's
+   * validity (a preset builds it against the matching base via `buildPresetLedger`);
+   * this just installs it and clears any stale conflict.
+   */
+  resetLedger: (ledger: Ledger) => void;
 }
 
 export function useLedger(base: LedgerBaseConfig): UseLedger {
@@ -50,5 +57,10 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     });
   }
 
-  return { ledger, conflict, recordEvent, removeEvent };
+  function resetLedger(next: Ledger) {
+    setLedger(next);
+    setConflict(null);
+  }
+
+  return { ledger, conflict, recordEvent, removeEvent, resetLedger };
 }

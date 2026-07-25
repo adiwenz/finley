@@ -296,7 +296,21 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
       ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID, inflationRate)
-      : [{ series: expenseSeries, ownerId: PRIMARY_PERSON_ID, label: "Expenses" }];
+      : [
+          {
+            series: expenseSeries,
+            ownerId: PRIMARY_PERSON_ID,
+            label: "Expenses",
+            // The scalar lever, not a line: it reports as one item, and it is not
+            // editable *as an item* (it is edited on the plan, not in the line editor).
+            spendingSource: {
+              kind: "planExpense",
+              id: "plan-expenses",
+              category: "other",
+              editable: false,
+            },
+          },
+        ];
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
@@ -326,7 +340,19 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     initialIncomeSeries,
     initialExpenseSeries: [
       ...generalExpenseSeries,
-      { series: healthSeries, ownerId: PRIMARY_PERSON_ID, label: "Healthcare" },
+      {
+        series: healthSeries,
+        ownerId: PRIMARY_PERSON_ID,
+        label: "Healthcare",
+        // Real spending the household cannot opt out of, authored as a plan input
+        // (§5.4) rather than a budget line — so it reports, but not as editable here.
+        spendingSource: {
+          kind: "healthcare",
+          id: "health",
+          category: "healthcare",
+          editable: false,
+        },
+      },
     ],
     goals: buildPlanGoals(budget),
     contributionLines,

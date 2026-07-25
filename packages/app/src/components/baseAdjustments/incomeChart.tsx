@@ -136,6 +136,11 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
       <output data-testid="income-bands" hidden>
         {JSON.stringify(view.sources.map((s) => s.label))}
       </output>
+      {/* What that income has to cover in the first flowed month — expenses plus
+          scheduled liability payments (the loan on the timeline is part of the need). */}
+      <output data-testid="income-first-spending-need" hidden>
+        {view.rows[0]?.spendingNeedCents ?? 0}
+      </output>
 
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart

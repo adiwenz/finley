@@ -16,10 +16,13 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, type Plan } from "@finley/engine";
+import { dollarsToCents, Projection, PRIMARY_PERSON_ID, type Plan } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { START_YEAR } from "../../config";
 import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
+import { BudgetTooltip } from "./perLineBudgetChart";
 
 afterEach(cleanup);
 
@@ -45,7 +48,10 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  */
 function Harness({ initial }: { initial: Plan }) {
   const [plan, setPlan] = useState(initial);
-  return <BaseAdjustmentsPanel plan={plan} setBudget={setPlan} />;
+  // The app hands the panel its projected scenario (plan + timeline); these tests
+  // exercise the budget alone, so the scenario here is the plan with an empty ledger.
+  const series = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction).series;
+  return <BaseAdjustmentsPanel plan={plan} setBudget={setPlan} series={series} />;
 }
 
 const renderPanel = (plan: Plan) => render(<Harness initial={plan} />);
@@ -495,6 +501,41 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)"
     expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
   });
 
+  it("keeps one disclosed form at a time, across spending AND contributions", () => {
+    // The two lists are separate components now; the single-form-at-a-time rule spans
+    // them, so it is arbitrated by the panel. Opening one must close the other.
+    const withContribution: Plan = {
+      ...PLAN_DEFAULTS,
+      budgetLines: [
+        ...(PLAN_DEFAULTS.budgetLines ?? []),
+        {
+          id: "save",
+          label: "Savings",
+          target: { kind: "account", accountId: "brokerage", taxTreatment: "postTax" },
+          amountSource: { kind: "literal", monthlyCents: dollarsToCents(400) },
+          category: "savings",
+        },
+      ],
+    };
+    renderPanel(withContribution);
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Housing/i }));
+    expect(screen.getByLabelText("Name")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Edit Savings/i }));
+    // Exactly one form open — the contribution's, not both.
+    expect(screen.getAllByLabelText("Name")).toHaveLength(1);
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Savings");
+  });
+
+  it("renders a plan that authors no budget lines at all", () => {
+    // `budgetLines` is optional on the plan; the panel falls back to a shared empty
+    // list rather than minting one per render.
+    const { budgetLines: _dropped, ...noLines } = PLAN_DEFAULTS;
+    renderPanel(noLines as Plan);
+    expect(screen.getByText(/No recurring contributions yet/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
+  });
+
   it("deletes a line", () => {
     renderPanel(PLAN_DEFAULTS);
     expect(spin(/Subscriptions/)).toBeTruthy();
@@ -552,5 +593,89 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
     };
     renderPanel(richPlan);
     expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
+  });
+
+  it("bands health care beside the budget lines, with nothing passed in but the series", () => {
+    // The panel takes a plan and a projected series — no label maps, no household
+    // series, no per-line map. Health is real spending the budget does not author, and
+    // it reaches the graph because the ENGINE reports it, not because the panel
+    // reassembled it from somewhere.
+    renderPanel(PLAN_DEFAULTS);
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+  });
+
+  it("bands a liability's payment from the timeline, with no extra props", () => {
+    const projection = Projection.create({ plan: PLAN_DEFAULTS, startYear: START_YEAR });
+    projection.takeLoan({
+      id: "loan-student",
+      month: 0,
+      ownerId: PRIMARY_PERSON_ID,
+      openingBalanceCents: dollarsToCents(45_000),
+      apr: 0.06,
+      kind: "studentLoan",
+      termMonths: 120,
+    });
+    render(
+      <BaseAdjustmentsPanel
+        plan={PLAN_DEFAULTS}
+        setBudget={() => {}}
+        series={projection.run(usJurisdiction).series}
+      />,
+    );
+
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    // Servicing the loan is spending — banded like anything else the month costs, and
+    // the budget lines beside it are untouched by its arrival.
+    expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+  });
+
+  it("redraws when the budget changes — the memoized graphs must not go stale", () => {
+    // The graphs skip re-rendering while only the staged edit moves (they do not depend
+    // on it). A committed edit changes the projection, and they must follow it.
+    renderPanel(PLAN_DEFAULTS);
+    const housingBand = () =>
+      (
+        JSON.parse(screen.getByTestId("perline-first-row").textContent || "{}") as Record<
+          string,
+          number
+        >
+      )["line:housing"];
+    const before = housingBand();
+
+    editRow(/Housing/, 2_400);
+    // Staging alone changes nothing about the projection…
+    expect(housingBand()).toBe(before);
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
+    // …but committing does, and the graph shows it.
+    expect(housingBand()).toBeGreaterThan(before);
+  });
+
+  it("adds the stack up for the reader: the hover readout carries the month's total", () => {
+    // Recharts owns the hover itself (and needs a layout jsdom lacks), so the readout is
+    // driven directly with the payload Recharts hands it.
+    render(
+      <BudgetTooltip
+        active
+        label={12}
+        payload={[
+          { name: "Housing", value: dollarsToCents(1_600), color: "#000" },
+          { name: "Groceries", value: dollarsToCents(700), color: "#000" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Housing : \$1,600/)).toBeTruthy();
+    expect(screen.getByText(/Total : \$2,300/)).toBeTruthy();
+  });
+
+  it("draws no hover readout when nothing is hovered", () => {
+    const { container } = render(<BudgetTooltip payload={[]} />);
+    expect(container.firstChild).toBeNull();
   });
 });

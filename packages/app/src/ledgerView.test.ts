@@ -145,3 +145,4 @@ describe("seriesLabel — engine series role → snapshot-panel text", () => {
     expect(seriesLabel(series({ role: "budgetItem", seriesType: "income" }))).toBe("Income");
   });
 });
+

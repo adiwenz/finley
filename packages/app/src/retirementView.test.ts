@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   dollarsToCents,
   projectScenario,
-  realNetWorthSurvives,
+  planSurvives,
   solveRetirement,
   scenarioOf,
   createProjectionBase,
@@ -37,7 +37,7 @@ function viewOf(plan: Plan) {
 
 /** Does the plan survive when retiring at exactly `age`? Runs the real projection. */
 function survivesAt(budget: Plan, age: number): boolean {
-  return realNetWorthSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
+  return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
 
 describe("retirementView — headline age driven off the real projection (#37)", () => {

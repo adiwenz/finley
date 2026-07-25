@@ -78,7 +78,7 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
 
 // ─── Series labels (engine role → snapshot-panel text) ────────────────────────
 
-export function seriesLabel(s: SnapshotSeries): string {
+export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): string {
   switch (s.role) {
     case "primaryIncome":
       return "Job income";

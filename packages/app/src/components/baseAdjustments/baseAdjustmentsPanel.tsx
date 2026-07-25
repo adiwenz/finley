@@ -11,9 +11,11 @@
  *     just this month, or from here forward? {@link routeMonthEdit} sends the result
  *     to the right primitive — line override, ledger transaction, or job/stream
  *     income override (AC4). There is no `Adjustment` entity underneath.
- *   - **Graph** — the per-line monthly budget as authored, each line at what it really
- *     costs that month. Spending is never rationed away behind the user's back; if the
- *     plan stops being financeable the graph says so outright (AC2).
+ *   - **Graph** — what each month actually costs, straight off the engine's itemized
+ *     spending report: the budget lines as authored, the spending they don't author
+ *     (health, timeline expenses), and each debt's payment, so the stack totals the
+ *     month's whole obligation. Spending is never rationed away behind the user's
+ *     back; if the plan stops being financeable the graph says so outright (AC2).
  *
  * The selected month is labelled with its calendar year *and* the household's age at
  * that point, so a far-future edit reads as the milestone it is ("age 50") rather than
@@ -26,6 +28,20 @@
  * why the old scalar monthly-expenses control is gone: one budget, one place to edit
  * it.
  *
+ * The graphs read the app's projected **scenario** (`series`, passed in) — the plan plus
+ * the live timeline — never a re-projection of the bare plan, and nothing about them is
+ * reassembled here from the household model. Editing is about the budget; *drawing* is
+ * about the whole financial life, so a loan taken on the timeline is part of what income
+ * must cover here exactly as it is on the net-worth graph.
+ *
+ * The panel is the composition point, not the whole surface: the graphs
+ * ({@link ProjectionCharts}), the spending rows ({@link SpendingEditor}), and the
+ * contributions list ({@link ContributionsEditor}) are children that own no state. What
+ * stays here is what genuinely spans them — the selected month (the chart click and the
+ * editor below are the same cursor), the staged edit awaiting its how-long answer, which
+ * line form is disclosed (one at a time across both lists), and every mutation of the
+ * plan.
+ *
  * Earned income is NOT edited here. Standing pay lives on the person's jobs, authored in
  * the Jobs panel (§6, issue #72); this panel only *displays* the compiled income total at
  * the selected month (read-only). The one exception is a **one-off, single-month** change
@@ -35,15 +51,13 @@
  */
 
 import type { Dispatch, SetStateAction } from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  Projection,
   dollarsToCents,
-  budgetLineAllocationId,
   type BudgetLine,
   type Plan,
+  type ProjectionSeries,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
@@ -54,9 +68,7 @@ import {
   addLineFromDraft,
   blankLineDraft,
   contributionLinesOf,
-  contributionTargets,
   expenseLinesOf,
-  lineToDraft,
   removeLine,
   updateLineFromDraft,
   type BudgetLineDraft,
@@ -72,12 +84,20 @@ import {
   type MonthEditRoute,
 } from "./monthEdit";
 import { buildIncomeChartData } from "./incomeByCategory";
-import { IncomeChart } from "./incomeChart";
-import { buildPerLineBudgetData, type ChartLine } from "./perLineBudget";
-import { PerLineBudgetChart } from "./perLineBudgetChart";
+import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
-import { TaxChart } from "./taxChart";
+import { ProjectionCharts } from "./projectionCharts";
+import { SpendingEditor, type PendingEdit, type SpendingEditActions } from "./spendingEditor";
+import { ContributionsEditor } from "./contributionsEditor";
+import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
+
+/**
+ * The empty budget. A module-level constant rather than a `?? []` fallback: a fresh
+ * literal each render is a new identity, so every memo and child keyed on the line list
+ * would recompute (and re-render) for a plan that authors no lines at all.
+ */
+const NO_BUDGET_LINES: readonly BudgetLine[] = [];
 
 /** "month 180 · 2041 · age 50" — the point on the budget, in the terms a user thinks in. */
 function describeMonth(month: number, currentAge: number): string {
@@ -86,85 +106,51 @@ function describeMonth(month: number, currentAge: number): string {
   return `month ${month} · ${year} · age ${age}`;
 }
 
-/**
- * A short, human summary of where an edit landed — surfaced so the routing is visible.
- * Named with the row's own `label`: the route carries the line's authoring `id`, which
- * is an internal key ("dining") and not what the row directly above this echo says
- * ("Dining & fun").
- */
-function describeRoute(route: MonthEditRoute, label: string): string {
-  switch (route.kind) {
-    case "lineOverride":
-      return route.override.scope === "thisMonthOnly"
-        ? `→ one-month override on "${label}" at month ${route.override.month} (${formatDollars(route.override.monthlyCents)})`
-        : `→ dated override on "${label}" from month ${route.override.month} forward (${formatDollars(route.override.monthlyCents)})`;
-    case "ledgerTransaction":
-      return `→ one-time ledger transaction at month ${route.month} (${formatDollars(route.amountCents)})`;
-    case "incomeOverride":
-      return `→ job/stream income override from month ${route.month} forward (${formatDollars(route.monthlyCents)})`;
-  }
-}
-
-/** The row the user has typed a new number into, awaiting the how-long question. */
-interface PendingEdit {
-  readonly row: EditRow;
-  readonly label: string;
-  readonly priorAmountCents: number;
-  readonly newAmountCents: number;
-}
-
-const isSameRow = (a: EditRow, b: EditRow): boolean =>
-  a.kind === "income" ? b.kind === "income" : b.kind === "line" && a.lineId === b.lineId;
-
-/**
- * What a row's input shows. A staged (typed but not yet committed) edit is the truth
- * for its own row — the committed budget only catches up once the user answers the
- * how-long question, and a field that snapped back to the stored value on every
- * keystroke would be unusable.
- */
-function displayedCents(row: EditRow, resolvedCents: number, pending: PendingEdit | null): number {
-  return pending !== null && isSameRow(pending.row, row) ? pending.newAmountCents : resolvedCents;
-}
-
 export interface BaseAdjustmentsPanelProps {
   readonly plan: Plan;
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * The projected **scenario** — the plan AND the timeline replayed on top of it — as
+   * the rest of the app draws it. Passed in rather than re-projected here on purpose:
+   * projecting the bare plan silently dropped every life event, so a household paying a
+   * student loan saw a spending need that omitted the payment and a chart that
+   * disagreed with the net-worth graph beside it. One simulation, one scenario.
+   */
+  readonly series: ProjectionSeries;
 }
 
-export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
-  const lines = useMemo(() => plan.budgetLines ?? [], [plan.budgetLines]);
+  const lines = plan.budgetLines ?? NO_BUDGET_LINES;
   // Every row is shown in the selected month's dollars, so the editor needs the same
   // price growth the projection uses to get there and back.
   const editCtx: MonthEditContext = useMemo(
     () => ({ annualInflationRate: plan.inflationPct / 100 }),
     [plan.inflationPct],
   );
-  const setLines = (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
-    setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? [])] }));
+  const setLines = useCallback(
+    (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
+      setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? NO_BUDGET_LINES)] })),
+    [setBudget],
+  );
 
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
 
-  // Project the plan (whose budgetLines these are) once: the chart reads the per-line
-  // amounts off it, and the income row reads the income it actually pays each month.
-  const projected = useMemo(() => {
-    const result = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction);
-    const chartLines: ChartLine[] = lines.map((l) => ({
-      id: budgetLineAllocationId(l.id),
-      label: l.label,
-    }));
-    return {
-      chartData: buildPerLineBudgetData(result.series, chartLines),
-      incomeData: buildIncomeChartData(result.series),
-      taxData: buildTaxChartData(result.series),
-      /** Gross income the projection pays in each month, indexed by month. */
-      incomeByMonth: result.series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
-    };
-  }, [plan, lines]);
-  const chartData = projected.chartData;
+  // Four cuts of the one projected scenario, each derived on its own so a reader (and
+  // React) can see which view depends on what: what the household spends (the engine's
+  // itemized spending report), the income bands, the tax paid, and the income the plan
+  // actually pays each month.
+  const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
+  const incomeChartData = useMemo(() => buildIncomeChartData(series), [series]);
+  const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
+  /** Gross income the projection pays in each month, indexed by month. */
+  const incomeByMonth = useMemo(
+    () => series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
+    [series],
+  );
 
   // ── What the budget resolves to at the selected point ──
   // Only EXPENSE lines get month-resolved amounts (the inline stage/commit override
@@ -179,9 +165,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
 
   // Add / edit / delete of budget lines (structural — distinct from the inline amount
   // override above). One disclosed form at a time, like the Jobs and Goals panels.
-  const [lineAuthoring, setLineAuthoring] = useState<
-    { kind: "edit"; id: string } | { kind: "new" } | null
-  >(null);
+  const [lineAuthoring, setLineAuthoring] = useState<LineAuthoring | null>(null);
 
   function addLine(draft: BudgetLineDraft): void {
     setLines((prev) => addLineFromDraft(prev, draft));
@@ -190,6 +174,14 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   function editLine(id: string, draft: BudgetLineDraft): void {
     setLines((prev) => updateLineFromDraft(prev, id, draft));
     setLineAuthoring(null);
+  }
+  /**
+   * Disclose (or close) the edit form for a line. One form at a time across the whole
+   * editor — the expense rows and the contributions list open into the same slot — so
+   * the toggle is arbitrated here rather than inside either list.
+   */
+  function toggleLineForm(id: string): void {
+    setLineAuthoring((a) => (a?.kind === "edit" && a.id === id ? null : { kind: "edit", id }));
   }
   function deleteLine(id: string): void {
     setLines((prev) => removeLine(prev, id));
@@ -214,7 +206,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
    * figure also shows income stopping at retirement and the benefit picking up at the
    * claiming age, rather than a salary compounding forever.
    */
-  const incomeAtMonth = projected.incomeByMonth[incomeMonth] ?? 0;
+  const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
 
   // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
   // The form and its transient state live in {@link PayChangeEditor}; the panel keeps
@@ -225,11 +217,14 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
    * it was framed against the old month's numbers ("Housing $1,600 → $2,400 at month
    * 14"), so carrying it to a new month would commit a change the user never read.
+   *
+   * Stable, like {@link applyQuickstart}: both are props of the memoized graphs, which
+   * a fresh identity each render would re-render for nothing.
    */
-  function selectMonth(month: number): void {
+  const selectMonth = useCallback((month: number): void => {
     setSelectedMonth(month);
     setPending(null);
-  }
+  }, []);
 
   function stageEdit(row: EditRow, label: string, priorCents: number, dollars: number): void {
     const newAmountCents = dollarsToCents(dollars);
@@ -259,13 +254,26 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   /** Month the household retires — where the savings line stops (see the quickstart). */
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
-  function applyQuickstart(): void {
+  const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
     setLines((prev) => redistributeToTiers(prev, totalMonthlyIncomeCents(plan), retirementMonth));
     setPending(null);
-  }
+  }, [plan, retirementMonth, setLines]);
 
-  const horizonMonths = chartData.rows.length;
+  const horizonMonths = spendingChartData.rows.length;
+
+  /** The §20 edit gesture, and what a line list may do to the authored budget. */
+  const editActions: SpendingEditActions = {
+    onStage: stageEdit,
+    onCommit: commit,
+    onCancel: () => setPending(null),
+  };
+  const lineFormActions: LineFormActions = {
+    onToggle: toggleLineForm,
+    onSubmit: editLine,
+    onClose: () => setLineAuthoring(null),
+    onDelete: deleteLine,
+  };
 
   // No `card` class here: `main.tsx` supplies the card wrapper for every panel, as it
   // does for Goals, Retirement, and Debug. Carrying one internally too drew a box in a box.
@@ -274,37 +282,15 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
       <h2>Base + Adjustments</h2>
 
       {/* ── Graph: click a point to move the editor there (AC2 + the edit gesture) ── */}
-      <div>
-        <div className="row-between">
-          <h3>Income &amp; spending over time</h3>
-          <button className="btn" onClick={applyQuickstart} type="button">
-            Quickstart from income (50/30/20)
-          </button>
-        </div>
-        <p className="hint">Click either graph to edit at any point in time.</p>
-
-        <h4 className={styles.groupHeading}>Monthly income by source</h4>
-        <IncomeChart
-          data={projected.incomeData}
-          currentAge={plan.currentAge}
-          selectedMonth={selectedMonth}
-          onSelectMonth={selectMonth}
-        />
-
-        <h4 className={styles.groupHeading}>Monthly spending by line</h4>
-        <PerLineBudgetChart
-          data={chartData}
-          selectedMonth={selectedMonth}
-          onSelectMonth={selectMonth}
-        />
-
-        <h4 className={styles.groupHeading}>Monthly tax paid</h4>
-        <TaxChart
-          data={projected.taxData}
-          selectedMonth={selectedMonth}
-          onSelectMonth={selectMonth}
-        />
-      </div>
+      <ProjectionCharts
+        incomeData={incomeChartData}
+        spendingData={spendingChartData}
+        taxData={taxChartData}
+        currentAge={plan.currentAge}
+        selectedMonth={selectedMonth}
+        onSelectMonth={selectMonth}
+        onQuickstart={applyQuickstart}
+      />
 
       {/* ── The point on the budget being edited ── */}
       <div>
@@ -342,133 +328,24 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
           onApplyPayChange={(jobId, payChange) => setBudget((p) => addJobPayChange(p, jobId, payChange))}
         />
 
-        <h4 className={styles.groupHeading}>Spending</h4>
-        {rows.map((row) => (
-          <div key={row.lineId}>
-            <div className={styles.lineRow}>
-              <span className={styles.lineLabel}>
-                {row.label} <span className={styles.tier}>{row.category}</span>
-                {row.overridden && (
-                  <span className={styles.adjusted} title="Adjusted at or before this month">
-                    adjusted
-                  </span>
-                )}
-              </span>
-              <NumInput
-                label={row.label}
-                value={Math.round(
-                  displayedCents({ kind: "line", lineId: row.lineId }, row.monthlyCents, pending) /
-                    100,
-                )}
-                onChange={(v) =>
-                  stageEdit({ kind: "line", lineId: row.lineId }, row.label, row.monthlyCents, v)
-                }
-                prefix="$"
-                step={50}
-              />
-              <span className={styles.rowActions}>
-                <button
-                  type="button"
-                  aria-label={`Edit ${row.label}`}
-                  onClick={() =>
-                    setLineAuthoring((a) =>
-                      a?.kind === "edit" && a.id === row.lineId ? null : { kind: "edit", id: row.lineId },
-                    )
-                  }
-                >
-                  Edit
-                </button>
-                <button type="button" aria-label={`Delete ${row.label}`} onClick={() => deleteLine(row.lineId)}>
-                  Delete
-                </button>
-              </span>
-            </div>
-            {lineAuthoring?.kind === "edit" && lineAuthoring.id === row.lineId && (
-              <BudgetLineForm
-                initial={lineToDraft(lines.find((l) => l.id === row.lineId)!)}
-                submitLabel="Save"
-                onSubmit={(draft) => editLine(row.lineId, draft)}
-                onCancel={() => setLineAuthoring(null)}
-              />
-            )}
-          </div>
-        ))}
-
-        {/* ── The one question an edit asks: how long does this last? (§20) ── */}
-        {pending !== null && (
-          <div className={styles.scopePrompt} data-testid="scope-prompt" role="group"
-            aria-label="How long should this change last?">
-            <p className={styles.scopeQuestion}>
-              {pending.label} {formatDollars(pending.priorAmountCents)} →{" "}
-              {formatDollars(pending.newAmountCents)} at month {selectedMonth}. How long?
-            </p>
-            <button className="btn" onClick={() => commit("thisMonthOnly")} type="button">
-              Just this month
-            </button>
-            <button className="btn primary" onClick={() => commit("fromHereForward")} type="button">
-              From here forward
-            </button>
-            <button className="btn ghost" onClick={() => setPending(null)} type="button">
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {lastRoute && (
-          <p className={styles.routeEcho} data-testid="adjustment-route">
-            {describeRoute(lastRoute.route, lastRoute.label)}
-          </p>
-        )}
+        <SpendingEditor
+          rows={rows}
+          lines={lines}
+          selectedMonth={selectedMonth}
+          pending={pending}
+          lastRoute={lastRoute}
+          authoring={lineAuthoring}
+          edit={editActions}
+          form={lineFormActions}
+        />
 
         {/* ── Savings & contributions: money paid into an account each month (§12).
             Unlike spending, these accumulate in net worth — funded by the sim. ── */}
-        <h4 className={styles.groupHeading}>Savings &amp; contributions</h4>
-        {contributionLines.length === 0 ? (
-          <p className="hint">
-            No recurring contributions yet. Add one to pay into a brokerage or savings
-            account each month — it accumulates in your net worth.
-          </p>
-        ) : (
-          contributionLines.map((line) => {
-            const monthly = line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
-            const accountId = line.target.kind === "account" ? line.target.accountId : "";
-            const dest = contributionTargets.find((t) => t.accountId === accountId)?.label ?? accountId;
-            return (
-              <div key={line.id}>
-                <div className={styles.lineRow}>
-                  <span className={styles.lineLabel}>
-                    {line.label} <span className={styles.target}>→ {dest}</span>
-                  </span>
-                  <span className={styles.readonlyValue}>{formatDollars(monthly)}/mo</span>
-                  <span className={styles.rowActions}>
-                    <button
-                      type="button"
-                      aria-label={`Edit ${line.label}`}
-                      onClick={() =>
-                        setLineAuthoring((a) =>
-                          a?.kind === "edit" && a.id === line.id ? null : { kind: "edit", id: line.id },
-                        )
-                      }
-                    >
-                      Edit
-                    </button>
-                    <button type="button" aria-label={`Delete ${line.label}`} onClick={() => deleteLine(line.id)}>
-                      Delete
-                    </button>
-                  </span>
-                </div>
-                {lineAuthoring?.kind === "edit" && lineAuthoring.id === line.id && (
-                  <BudgetLineForm
-                    initial={lineToDraft(line)}
-                    submitLabel="Save"
-                    onSubmit={(draft) => editLine(line.id, draft)}
-                    onCancel={() => setLineAuthoring(null)}
-                  />
-                )}
-              </div>
-            );
-          })
-        )}
+        <ContributionsEditor
+          lines={contributionLines}
+          authoring={lineAuthoring}
+          form={lineFormActions}
+        />
 
         {/* ── Add a new budget item (expense or contribution) ── */}
         {lineAuthoring?.kind === "new" ? (

@@ -13,7 +13,6 @@ import {
 } from "../liability";
 import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { TaxCategory } from "../cashFlowSeries";
-import { budgetLineAllocationId } from "../allocations";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents, type BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import {
@@ -26,6 +25,7 @@ import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentB
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
+import { buildSpendingItems } from "./spendingItems";
 import type {
   HouseholdSimInput,
   LiabilityPaymentRecord,
@@ -479,36 +479,6 @@ function unwindUnfundedContributions(
 }
 
 /**
- * The per-line monthly map for this month (§Q27), keyed by each budget line's
- * `allocations()` id (`line:<id>`). Reads the tagged expense series (the only budget
- * lines the simulator runs today — contribution lines land in the #72 rewire) for their
- * amount for that month — the budget exactly **as authored**, span and dated overrides
- * applied.
- *
- * The simulator deliberately does NOT reallocate a squeezed month across the §15
- * priority order. It never actually skips spending: an uncovered obligation is posted
- * against the liquid account and cascades onto credit, so a line reported below its
- * amount would describe money the household did in fact spend. And when even credit
- * runs out, that is insolvency — already reported as `isInsolvent` and a null net
- * worth — not a budget the plan quietly rewrote. Which spending to cut when a plan
- * stops working is the user's call to make, not the engine's to assume.
- *
- * Untagged series (scalar/health expense) are ignored — the map is empty when the plan
- * authors no budget lines.
- */
-function computeLineMonthlyCents(
-  expenseSeries: readonly SimOwnedSeries[],
-  month: number,
-): Record<string, Cents> {
-  const byLine: Record<string, Cents> = {};
-  for (const s of expenseSeries) {
-    if (s.lineId === undefined) continue;
-    byLine[budgetLineAllocationId(s.lineId)] = s.series.getMonthlyCents(month);
-  }
-  return byLine;
-}
-
-/**
  * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
  * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
  * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
@@ -523,8 +493,9 @@ function computeLineMonthlyCents(
  * household still spent every dollar it budgeted. Only when there is nothing left to
  * absorb it with has the plan actually failed, and that is what this reports: the §5.1
  * terminal condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line
- * is derived from it (see {@link computeLineMonthlyCents} for why the budget is reported
- * as authored rather than rationed).
+ * is derived from it (see {@link
+ * import("./spendingItems").buildSpendingItems} for why spending is reported as
+ * authored rather than rationed).
  */
 function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -936,13 +907,16 @@ export function simulateHousehold(
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
-      const lineMonthlyCents = computeLineMonthlyCents(input.expenseSeries, month);
+      // One itemized view of everything the month cost — every expense series at what
+      // it charged, plus each liability's payment (§119 follow-up). The per-line map
+      // and the spending total are both derived from it inside buildFlows.
+      const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
       flows = buildFlows(
         incomeSources,
         taxCents,
         expenseCents,
         totalPaymentsCents,
-        lineMonthlyCents,
+        spendingItems,
         // The liquid-buffer drawdown the withdrawal channel measured — reported as a
         // `savingsDrawdown` source so a month lived on savings isn't a zero-income band (#99).
         withdrawal.liquidDrawdownCents,
