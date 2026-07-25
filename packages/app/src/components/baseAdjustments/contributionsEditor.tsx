@@ -16,6 +16,9 @@ import type { BudgetLine } from "@finley/engine";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
+/** Account label by id — built once, rather than scanned per row. */
+const TARGET_LABEL = new Map(contributionTargets.map((t) => [t.accountId, t.label]));
+
 export interface ContributionsEditorProps {
   /** The account-target lines, in authoring order. */
   readonly lines: readonly BudgetLine[];
@@ -36,7 +39,7 @@ export function ContributionsEditor({ lines, authoring, form }: ContributionsEdi
         lines.map((line) => {
           const monthly = line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
           const accountId = line.target.kind === "account" ? line.target.accountId : "";
-          const dest = contributionTargets.find((t) => t.accountId === accountId)?.label ?? accountId;
+          const dest = TARGET_LABEL.get(accountId) ?? accountId;
           return (
             <div key={line.id}>
               <div className={styles.lineRow}>

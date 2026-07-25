@@ -98,11 +98,11 @@ export function buildPerLineBudgetData(series: ProjectionSeries): PerLineBudgetD
   for (const m of series.months) {
     if (m.isInsolvent && insolventFromMonth === null) insolventFromMonth = m.month;
 
-    const items = m.flows?.spendingItems;
-    if (items === undefined) continue; // month 0 / any flow-free snapshot
+    const flows = m.flows;
+    if (flows === undefined) continue; // month 0 / any flow-free snapshot
 
     const centsByLine: Record<string, number> = {};
-    for (const item of items) {
+    for (const item of flows.spendingItems) {
       centsByLine[item.id] = item.amountCents;
       if (item.amountCents > 0) carriesMoney.add(item.id);
       if (!bands.has(item.id)) {
@@ -114,7 +114,7 @@ export function buildPerLineBudgetData(series: ProjectionSeries): PerLineBudgetD
         });
       }
     }
-    rows.push({ month: m.month, centsByLine, totalCents: m.flows!.totalSpendingCents });
+    rows.push({ month: m.month, centsByLine, totalCents: flows.totalSpendingCents });
   }
 
   const lines = [...bands.values()].filter((band) => carriesMoney.has(band.id));

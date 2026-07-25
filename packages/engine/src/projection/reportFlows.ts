@@ -91,6 +91,13 @@ export function buildFlows(
       grossCents: liquidDrawdownCents,
     });
   }
+  // The budget-line slice of the one itemized list, in a single pass: this runs once
+  // per simulated month, i.e. 660+ times per projection.
+  const lineMonthlyCents: Record<string, Cents> = {};
+  for (const item of spendingItems) {
+    if (item.sourceKind === "budgetLine") lineMonthlyCents[item.id] = item.amountCents;
+  }
+
   return {
     incomeByCategoryCents,
     incomeSources: sources,
@@ -99,14 +106,9 @@ export function buildFlows(
     taxCents,
     expensesCents,
     liabilityPaymentsCents,
-    // The budget-line slice of the one itemized list, rather than a second pass over
-    // the series: the per-line map and the spending items cannot disagree because the
-    // map IS the items, filtered.
-    lineMonthlyCents: Object.fromEntries(
-      spendingItems
-        .filter((item) => item.sourceKind === "budgetLine")
-        .map((item) => [item.id, item.amountCents]),
-    ),
+    // Not a second pass over the series: the per-line map and the spending items
+    // cannot disagree, because the map IS the items, filtered.
+    lineMonthlyCents,
     spendingItems,
     totalSpendingCents: sumSpendingItems(spendingItems),
   };

@@ -7,8 +7,15 @@
  * panel reads as what it is (state + plan mutation) and the graphs as what they are
  * (presentation). It owns no state: the selected month is the panel's, because the
  * editor below is pointed at the same month — that shared cursor is the whole gesture.
+ *
+ * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points
+ * on a default plan, one area per band) are by far the most expensive thing this panel
+ * draws, and the panel re-renders on every keystroke in a spending row. Nothing here
+ * depends on that staging state, so with the projected data memoized upstream and the
+ * two callbacks stable, typing now skips the graphs entirely.
  */
 
+import { memo } from "react";
 import { IncomeChart } from "./incomeChart";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
 import { TaxChart } from "./taxChart";
@@ -29,7 +36,7 @@ export interface ProjectionChartsProps {
   readonly onQuickstart: () => void;
 }
 
-export function ProjectionCharts({
+export const ProjectionCharts = memo(function ProjectionCharts({
   incomeData,
   spendingData,
   taxData,
@@ -67,4 +74,4 @@ export function ProjectionCharts({
       <TaxChart data={taxData} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
     </div>
   );
-}
+});

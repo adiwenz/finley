@@ -636,6 +636,27 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
     expect(firstRow["line:housing"]).toBeGreaterThan(0);
   });
 
+  it("redraws when the budget changes — the memoized graphs must not go stale", () => {
+    // The graphs skip re-rendering while only the staged edit moves (they do not depend
+    // on it). A committed edit changes the projection, and they must follow it.
+    renderPanel(PLAN_DEFAULTS);
+    const housingBand = () =>
+      (
+        JSON.parse(screen.getByTestId("perline-first-row").textContent || "{}") as Record<
+          string,
+          number
+        >
+      )["line:housing"];
+    const before = housingBand();
+
+    editRow(/Housing/, 2_400);
+    // Staging alone changes nothing about the projection…
+    expect(housingBand()).toBe(before);
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
+    // …but committing does, and the graph shows it.
+    expect(housingBand()).toBeGreaterThan(before);
+  });
+
   it("adds the stack up for the reader: the hover readout carries the month's total", () => {
     // Recharts owns the hover itself (and needs a layout jsdom lacks), so the readout is
     // driven directly with the payload Recharts hands it.

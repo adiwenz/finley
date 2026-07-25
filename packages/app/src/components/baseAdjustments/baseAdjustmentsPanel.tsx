@@ -51,7 +51,7 @@
  */
 
 import type { Dispatch, SetStateAction } from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
   type BudgetLine,
@@ -128,8 +128,11 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
     () => ({ annualInflationRate: plan.inflationPct / 100 }),
     [plan.inflationPct],
   );
-  const setLines = (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
-    setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? [])] }));
+  const setLines = useCallback(
+    (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
+      setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? NO_BUDGET_LINES)] })),
+    [setBudget],
+  );
 
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
@@ -214,11 +217,14 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
    * it was framed against the old month's numbers ("Housing $1,600 → $2,400 at month
    * 14"), so carrying it to a new month would commit a change the user never read.
+   *
+   * Stable, like {@link applyQuickstart}: both are props of the memoized graphs, which
+   * a fresh identity each render would re-render for nothing.
    */
-  function selectMonth(month: number): void {
+  const selectMonth = useCallback((month: number): void => {
     setSelectedMonth(month);
     setPending(null);
-  }
+  }, []);
 
   function stageEdit(row: EditRow, label: string, priorCents: number, dollars: number): void {
     const newAmountCents = dollarsToCents(dollars);
@@ -248,11 +254,11 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
   /** Month the household retires — where the savings line stops (see the quickstart). */
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
-  function applyQuickstart(): void {
+  const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
     setLines((prev) => redistributeToTiers(prev, totalMonthlyIncomeCents(plan), retirementMonth));
     setPending(null);
-  }
+  }, [plan, retirementMonth, setLines]);
 
   const horizonMonths = spendingChartData.rows.length;
 

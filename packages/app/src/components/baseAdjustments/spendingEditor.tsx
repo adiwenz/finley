@@ -185,11 +185,11 @@ export function SpendingEditor({
         </div>
       )}
 
-      {lastRoute && (
+      {lastRoute !== null ? (
         <p className={styles.routeEcho} data-testid="adjustment-route">
           {describeRoute(lastRoute.route, lastRoute.label)}
         </p>
-      )}
+      ) : null}
     </>
   );
 }
