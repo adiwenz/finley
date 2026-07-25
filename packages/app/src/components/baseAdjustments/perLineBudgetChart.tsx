@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars } from "../../format";
-import { describeInsolvency, type PerLineBudgetData } from "./perLineBudget";
+import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
  * Per-line monthly budget chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws
@@ -33,6 +33,10 @@ import { describeInsolvency, type PerLineBudgetData } from "./perLineBudget";
  * Selection is a controlled prop so the panel owns the month; the keyboard path to the
  * same state lives beside the editor heading (Recharts clicks are pointer-only).
  *
+ * Hovering a month reads out every line *and their total* ({@link BudgetTooltip}) — the
+ * stack's height is the question the chart is usually asked ("what does this month
+ * cost?"), and a default tooltip leaves the reader to add the bands up by eye.
+ *
  * The summary and a hidden per-line data mirror are rendered independently of Recharts
  * so the behaviour is assertable without depending on SVG layout (Recharts needs a
  * real width, absent in jsdom).
@@ -40,10 +44,85 @@ import { describeInsolvency, type PerLineBudgetData } from "./perLineBudget";
 
 // Category-tiered palette (needs → wants → savings), on the ledger ink/amber system.
 const TIER_COLORS = ["#1f3a2e", "#3f7d5f", "#b5761f", "#c99a3f", "#8a8570"];
+// Spending the budget doesn't author (health, a child's cost, an expense event) — a
+// muted slate family: carried, not chosen line by line.
+const OTHER_COLORS = ["#5c6b73", "#7d8f96", "#95a3a8"];
+// Debt service — a rust family set apart from the budget's greens and ambers: money
+// owed, not money chosen. Matches the income graph's spending-need line.
+const DEBT_COLORS = ["#9c5b39", "#b23a2e", "#7d4a30"];
+const BAND_PALETTE: Record<ChartBand["kind"], readonly string[]> = {
+  line: TIER_COLORS,
+  other: OTHER_COLORS,
+  debt: DEBT_COLORS,
+};
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const INSOLVENT = "#b5761f";
 const MARKER = "#1f3a2e";
+
+/**
+ * A band's colour, from its kind's family ({@link BAND_PALETTE}). Each family is
+ * indexed within itself, so a new debt never re-colours the budget beneath it.
+ */
+function colorOf(band: ChartBand, index: number, bands: readonly ChartBand[]): string {
+  const nth = bands.slice(0, index).filter((b) => b.kind === band.kind).length;
+  const palette = BAND_PALETTE[band.kind];
+  return palette[nth % palette.length]!;
+}
+
+/** One series' entry in a Recharts tooltip payload — the slice of it this chart reads. */
+export interface BudgetTooltipEntry {
+  readonly name?: string | number;
+  readonly value?: string | number;
+  readonly color?: string;
+}
+
+export interface BudgetTooltipProps {
+  readonly active?: boolean;
+  readonly payload?: readonly BudgetTooltipEntry[];
+  readonly label?: string | number;
+}
+
+/**
+ * The hover readout for a stacked month: every line's amount, then their **total**.
+ * The stack's height is the number the reader is actually after — "what does this month
+ * cost?" — but a default tooltip lists the bands and leaves them to add five numbers up
+ * by eye. Summing the payload (rather than re-deriving from the data) keeps the total
+ * exactly the height drawn, whatever bands the tooltip is showing.
+ */
+export function BudgetTooltip({ active, payload, label }: BudgetTooltipProps) {
+  if (active !== true || payload === undefined || payload.length === 0) return null;
+  const total = payload.reduce((sum, entry) => sum + Number(entry.value ?? 0), 0);
+  return (
+    <div
+      style={{
+        background: "#fffdf7",
+        border: `1px solid ${GRID}`,
+        padding: "8px 10px",
+        fontSize: 12,
+        lineHeight: 1.6,
+      }}
+    >
+      <p style={{ margin: 0, fontWeight: 600 }}>Month {label}</p>
+      {payload.map((entry, i) => (
+        <p key={`${entry.name}-${i}`} style={{ margin: 0, color: entry.color }}>
+          {entry.name} : {formatDollars(Number(entry.value ?? 0))}
+        </p>
+      ))}
+      <p
+        style={{
+          margin: "4px 0 0",
+          paddingTop: 4,
+          borderTop: `1px solid ${GRID}`,
+          fontWeight: 600,
+          color: MARKER,
+        }}
+      >
+        Total : {formatDollars(total)}
+      </p>
+    </div>
+  );
+}
 
 export interface PerLineBudgetChartProps {
   readonly data: PerLineBudgetData;
@@ -108,11 +187,7 @@ export function PerLineBudgetChart({
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
-          <Tooltip
-            formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => `Month ${label}`}
-            contentStyle={{ fontSize: 12 }}
-          />
+          <Tooltip content={<BudgetTooltip />} />
           {data.insolventFromMonth !== null && (
             <ReferenceArea
               x1={data.insolventFromMonth}
@@ -128,19 +203,22 @@ export function PerLineBudgetChart({
             />
           )}
           <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
-          {data.lines.map((line, i) => (
-            <Area
-              key={line.id}
-              type="monotone"
-              dataKey={line.id}
-              name={line.label}
-              stackId="budget"
-              stroke={TIER_COLORS[i % TIER_COLORS.length]}
-              fill={TIER_COLORS[i % TIER_COLORS.length]}
-              fillOpacity={0.6}
-              isAnimationActive={false}
-            />
-          ))}
+          {data.lines.map((band, i) => {
+            const color = colorOf(band, i, data.lines);
+            return (
+              <Area
+                key={band.id}
+                type="monotone"
+                dataKey={band.id}
+                name={band.label}
+                stackId="budget"
+                stroke={color}
+                fill={color}
+                fillOpacity={0.6}
+                isAnimationActive={false}
+              />
+            );
+          })}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

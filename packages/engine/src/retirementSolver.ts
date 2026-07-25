@@ -50,22 +50,38 @@ export function projectScenario(scenario: Scenario, ctx: ProjectionContext): Pro
 }
 
 /**
- * Does a single month survive (§0.5, §5.1)? True only when its real net worth is a
- * known, non-negative figure AND the month is not insolvent. Net worth is null once
- * insolvent and `null >= 0` is true in JS, so the null guard is load-bearing — else a
- * post-insolvency month would wrongly count as surviving. This is the authoritative
- * per-month failure signal every mode reads; the whole-series survival check and the
- * on-track fraction both compose it, so they can never disagree on what "failure" means.
+ * Does a single month survive (§0.5, §5.1)? The signal is **insolvency** — the §5.1
+ * terminal state where savings AND credit are both exhausted and spending genuinely
+ * cannot be funded — not the sign of net worth.
+ *
+ * Being underwater is not running out of money. A new graduate with a student loan, or
+ * any household inside the first years of a mortgage, owes more than it owns and pays
+ * every bill on time; that is the "negative but improving" case §5.1 says the model must
+ * be able to show. Judging survival on `netWorthRealCents >= 0` failed those plans at
+ * month 0 and reported "no retirement age is feasible" for a plan the graph beside it
+ * drew comfortably reaching life expectancy — the exact panel/graph disagreement #37
+ * exists to prevent. It also matches how on-track magnitude is already measured (#78:
+ * read the failure signal, not the net-worth sign).
+ *
+ * The null guard stays load-bearing: net worth is null for every month after the first
+ * insolvent one (§5.1) and `null >= 0` is true in JS, so a post-insolvency month must be
+ * rejected on the null rather than trusted to still carry the insolvency flag.
+ *
+ * This is the authoritative per-month failure signal every mode reads; the whole-series
+ * survival check and the on-track fraction both compose it, so they can never disagree
+ * on what "failure" means.
  */
 function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
-  return m.netWorthRealCents !== null && m.netWorthRealCents >= 0 && !m.isInsolvent;
+  return m.netWorthRealCents !== null && !m.isInsolvent;
 }
 
 /**
- * Does the plan's real net worth stay ≥ 0 through life expectancy with no insolvent
- * month (§0.5, §5.1)? The single signal every mode reads — and what the graph plots.
+ * Does the plan fund itself all the way through life expectancy — no insolvent month,
+ * no post-insolvency fiction (§0.5, §5.1)? The single signal every mode reads, and the
+ * same one the net-worth graph shades and the app's "plan becomes unfinanceable" alert
+ * fires on.
  */
-export function realNetWorthSurvives(series: ProjectionSeries): boolean {
+export function planSurvives(series: ProjectionSeries): boolean {
   return series.months.every(monthSurvives);
 }
 
@@ -78,8 +94,7 @@ function retirementMonth(budget: Plan, age: number): number {
  * On-track fraction (§7.1) for a plan that does NOT survive (#78).
  *
  * The magnitude is read from the authoritative failure signal — WHEN the plan first
- * fails ({@link monthSurvives}: insolvency or a negative real net worth) — NOT from how
- * far net worth dipped. Inferring the shortfall from the most-negative net worth was the
+ * fails ({@link monthSurvives}: insolvency) — NOT from how far net worth dipped. Inferring the shortfall from the most-negative net worth was the
  * bug: insolvency nulls the curve rather than driving it negative (§5.1) and phantom
  * illiquid equity (#76) keeps solvent months positive, so the deepest value the old
  * formula ever saw was a positive number → shortfall 0 → a flat, meaningless 1.0 for a
@@ -131,7 +146,7 @@ export function evaluateAtAge(
   ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
   const series = projectScenario(withPlan(scenario, { ...scenario.plan, retirementAge: age }), ctx);
-  const feasible = realNetWorthSurvives(series);
+  const feasible = planSurvives(series);
   return {
     retirementAge: age,
     feasible,
@@ -230,7 +245,7 @@ export function evaluateFullRetirementAtAge(
   ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
   const series = projectFullRetirement(scenario, age, ctx);
-  const feasible = realNetWorthSurvives(series);
+  const feasible = planSurvives(series);
   return {
     retirementAge: age,
     feasible,

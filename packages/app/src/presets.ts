@@ -17,7 +17,9 @@
  * compounding synthetic-card liability, and the student-loan plan opens underwater and
  * then digs out. Health lines are trimmed below the default's so the working-years
  * trajectory reflects the income/expense gap the scenario is about, not an outsized
- * medical line.
+ * medical line. Each scenario's spend is carried as line items — the default Base
+ * budget rescaled to its total — so loading a preset lands on a budget the user can
+ * read and edit rather than an empty spending chart.
  */
 
 import {
@@ -27,6 +29,7 @@ import {
   PRIMARY_PERSON_ID,
   type Plan,
   type Job,
+  type BudgetLine,
   type Ledger,
   type LedgerBaseConfig,
   type NewLifeEvent,
@@ -34,6 +37,11 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { PLAN_DEFAULTS } from "./planDefaults";
+import {
+  defaultBudgetTemplate,
+  toBudgetLines,
+  DEFAULT_TEMPLATE_TOTAL_CENTS,
+} from "./components/baseAdjustments/budgetTemplate";
 
 /**
  * A named starting point the user can load: the standing {@link Plan} paired with the
@@ -70,19 +78,63 @@ function salariedJob(monthlyCents: number): Job {
 }
 
 /**
- * Shared knobs for the three teaching scenarios: they drive spending through the scalar
- * {@link Plan.expenseCents} series (an empty `budgetLines` yields to it) so the
- * income/expense gap is the single, legible lever, and trim the health lines below the
- * default's ~$700 so that gap — not an outsized medical line — sets the trajectory.
+ * The default Base budget, rescaled to a scenario's monthly spend. A preset is authored
+ * as a single legible number — what this household spends each month — but a plan whose
+ * `budgetLines` are empty opens the Base + Adjustments editor onto an empty spending
+ * chart, with nothing to click or edit. So every scenario gets the same starter line
+ * items a fresh plan has (housing, groceries, transport, dining, subscriptions),
+ * proportionally scaled to its own spend: the mix stays recognisable while the total
+ * stays exactly the number each scenario was tuned to. Rounding residue settles on the
+ * largest line so the lines sum to `monthlyCents` to the cent — the budget is the source
+ * of truth for spending (it replaces the scalar series wholesale), so a few cents of
+ * drift here would be a few cents of drift in the projection.
  */
-function teachingPlan(over: Partial<Plan>): Plan {
+function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
+  const scale = monthlyCents / DEFAULT_TEMPLATE_TOTAL_CENTS;
+  const lines = toBudgetLines(defaultBudgetTemplate()).map((line) =>
+    line.amountSource.kind === "literal"
+      ? {
+          ...line,
+          amountSource: {
+            kind: "literal" as const,
+            monthlyCents: Math.round(line.amountSource.monthlyCents * scale),
+          },
+        }
+      : line,
+  );
+
+  const amountOf = (line: BudgetLine) =>
+    line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
+  const residual = monthlyCents - lines.reduce((sum, line) => sum + amountOf(line), 0);
+  if (residual === 0) return lines;
+  const largest = lines.reduce((a, b) => (amountOf(b) > amountOf(a) ? b : a));
+  return lines.map((line) =>
+    line === largest
+      ? {
+          ...line,
+          amountSource: { kind: "literal" as const, monthlyCents: amountOf(line) + residual },
+        }
+      : line,
+  );
+}
+
+/**
+ * Shared knobs for the three teaching scenarios: each is authored as one legible
+ * income/expense gap — the single lever the scenario is about — and trims the health
+ * lines below the default's ~$700 so that gap, not an outsized medical line, sets the
+ * trajectory. The authored `expenseCents` is spread across the default budget's line
+ * items ({@link scaledBudgetLines}) so the spending chart and the Base editor have real
+ * lines to show and edit; the scalar stays set as the engine-native fallback, inert
+ * while lines exist.
+ */
+function teachingPlan(over: Partial<Plan> & { readonly expenseCents: number }): Plan {
   return {
     ...PLAN_DEFAULTS,
-    budgetLines: [],
     goals: [],
     healthMonthlyCents: dollarsToCents(450),
     postCoverageHealthMonthlyCents: dollarsToCents(350),
     ...over,
+    budgetLines: scaledBudgetLines(over.expenseCents),
   };
 }
 

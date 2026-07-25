@@ -10,8 +10,16 @@ import {
   type NewLifeEvent,
   type SnapshotSeries,
   type Person,
+  type HouseholdLiability,
+  SYNTHETIC_CARD_ID,
 } from "@finley/engine";
-import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
+import {
+  summarizeEvent,
+  timelineMarkers,
+  splitMarkers,
+  seriesLabel,
+  liabilityLabels,
+} from "./ledgerView";
 
 const personLit = (id: string, name: string): Person => ({
   id,
@@ -143,5 +151,36 @@ describe("seriesLabel — engine series role → snapshot-panel text", () => {
     expect(seriesLabel(series({ role: "childSupport" }))).toBe("Child support");
     expect(seriesLabel(series({ role: "budgetItem" }))).toBe("Expense");
     expect(seriesLabel(series({ role: "budgetItem", seriesType: "income" }))).toBe("Income");
+  });
+});
+
+describe("liabilityLabels — naming a debt where the graph shows it paying out", () => {
+  const loan = (id: string, kind: HouseholdLiability["kind"]) =>
+    ({
+      id,
+      kind,
+      ownerId: asPersonId("p1"),
+      causedByEventId: "e1",
+      startMonth: 0,
+      openingBalanceCents: dollarsToCents(45_000),
+      apr: 0.06,
+      transfers: [],
+      termMonths: 120,
+    }) as unknown as HouseholdLiability;
+
+  it("names a debt by its kind, in the words the timeline already uses", () => {
+    const labels = liabilityLabels([loan("loan-student", "studentLoan")]);
+    expect(labels["loan-student"]).toBe("Student loan payment");
+  });
+
+  it("numbers debts of the same kind so two mortgages are not one indistinguishable band", () => {
+    const labels = liabilityLabels([loan("m1", "mortgage"), loan("m2", "mortgage")]);
+    expect(labels["m1"]).toBe("Mortgage payment 1");
+    expect(labels["m2"]).toBe("Mortgage payment 2");
+  });
+
+  it("names the simulator's synthetic shortfall card, which no event authored", () => {
+    // Spending that outran savings lands on it (§5.1); the household really pays it.
+    expect(liabilityLabels([])[SYNTHETIC_CARD_ID]).toBe("Credit card payment");
   });
 });

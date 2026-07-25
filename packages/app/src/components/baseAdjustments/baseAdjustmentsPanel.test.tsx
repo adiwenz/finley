@@ -16,10 +16,13 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, type Plan } from "@finley/engine";
+import { dollarsToCents, Projection, type Plan } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { START_YEAR } from "../../config";
 import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
+import { BudgetTooltip } from "./perLineBudgetChart";
 
 afterEach(cleanup);
 
@@ -45,7 +48,10 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  */
 function Harness({ initial }: { initial: Plan }) {
   const [plan, setPlan] = useState(initial);
-  return <BaseAdjustmentsPanel plan={plan} setBudget={setPlan} />;
+  // The app hands the panel its projected scenario (plan + timeline); these tests
+  // exercise the budget alone, so the scenario here is the plan with an empty ledger.
+  const series = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction).series;
+  return <BaseAdjustmentsPanel plan={plan} setBudget={setPlan} series={series} />;
 }
 
 const renderPanel = (plan: Plan) => render(<Harness initial={plan} />);
@@ -552,5 +558,27 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
     };
     renderPanel(richPlan);
     expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
+  });
+
+  it("adds the stack up for the reader: the hover readout carries the month's total", () => {
+    // Recharts owns the hover itself (and needs a layout jsdom lacks), so the readout is
+    // driven directly with the payload Recharts hands it.
+    render(
+      <BudgetTooltip
+        active
+        label={12}
+        payload={[
+          { name: "Housing", value: dollarsToCents(1_600), color: "#000" },
+          { name: "Groceries", value: dollarsToCents(700), color: "#000" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Housing : \$1,600/)).toBeTruthy();
+    expect(screen.getByText(/Total : \$2,300/)).toBeTruthy();
+  });
+
+  it("draws no hover readout when nothing is hovered", () => {
+    const { container } = render(<BudgetTooltip payload={[]} />);
+    expect(container.firstChild).toBeNull();
   });
 });

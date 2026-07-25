@@ -9,15 +9,18 @@
 import { describe, it, expect } from "vitest";
 import {
   projectScenario,
-  realNetWorthSurvives,
+  planSurvives,
   earliestPartialRetirementAge,
   earliestFullRetirementAge,
   evaluateAtAge,
   evaluateFullRetirementAtAge,
   solveRetirement,
 } from "./retirementSolver";
-import { scenarioOf } from "./scenario";
+import { scenarioOf, withLedger } from "./scenario";
+import { addEvent } from "./ledger/addEvent";
+import { emptyLedger } from "./ledger/ledger";
 import { dollarsToCents } from "./cashFlowSeries";
+import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, baristaPlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
@@ -27,7 +30,7 @@ const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
 
 function survivesAt(budget: Plan, age: number): boolean {
-  return realNetWorthSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
+  return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
 
 describe("retirementSolver — survival off the real projection (#37)", () => {
@@ -55,6 +58,35 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
     expect(earliestPartialRetirementAge(scenarioOf(broke), CTX)).toBeNull();
   });
 
+  it("counts a solvent household that is merely underwater as surviving (#119)", () => {
+    // A student loan (or a new mortgage) puts a household's net worth below zero for
+    // years while every bill is paid on time — §5.1's "negative but improving" case.
+    // Judging survival on the net-worth SIGN failed such a plan at month 0 and told the
+    // user no retirement age was feasible, while the graph beside it drew the plan
+    // sailing to life expectancy. Survival is insolvency, not the sign.
+    // Working to life expectancy — a plan that is unambiguously funded, so the ONLY
+    // thing under test is the loan pushing net worth below zero.
+    const funded: Plan = { ...samplePlan, retirementAge: samplePlan.lifeExpectancy };
+    const withLoan = addEvent(emptyLedger, createProjectionBase(funded, CTX), {
+      id: "loan-1",
+      type: "LoanEvent",
+      month: 0,
+      liabilityId: "loan-student",
+      ownerId: "p1",
+      openingBalanceCents: dollarsToCents(40_000),
+      apr: 0.06,
+      kind: "studentLoan",
+      termMonths: 120,
+    });
+    if (!withLoan.ok) throw new Error(`fixture rejected: ${withLoan.conflict}`);
+    const scenario = withLedger(scenarioOf(funded), withLoan.ledger);
+    const series = projectScenario(scenario, CTX);
+    // Precondition: really underwater early, and never insolvent.
+    expect(series.months[0]!.netWorthRealCents).toBeLessThan(0);
+    expect(series.months.some((m) => m.isInsolvent)).toBe(false);
+    expect(planSurvives(series)).toBe(true);
+  });
+
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
     // Once insolvent, net worth is null (§5.1). `null >= 0` is `true` in JS, so a
     // naive survival check would wrongly pass those months — this pins the guard.
@@ -62,7 +94,7 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
     const series = projectScenario(scenarioOf(broke), CTX);
     // Precondition: the plan really does produce null net-worth months.
     expect(series.months.some((m) => m.netWorthRealCents === null)).toBe(true);
-    expect(realNetWorthSurvives(series)).toBe(false);
+    expect(planSurvives(series)).toBe(false);
   });
 });
 
@@ -116,7 +148,7 @@ describe("retirementSolver — target mode (§7.1)", () => {
     const series = projectScenario(scenario, CTX);
     // Preconditions: infeasible via insolvency, yet every solvent (non-null) month's real
     // net worth stays ≥ 0 — the case the old net-worth-sign formula pinned to 1.0.
-    expect(realNetWorthSurvives(series)).toBe(false);
+    expect(planSurvives(series)).toBe(false);
     expect(series.months.some((m) => m.isInsolvent)).toBe(true);
     expect(
       series.months

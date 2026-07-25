@@ -116,7 +116,7 @@ export * from "./projectionBase";
 // assessment at the user's pinned age). The redundant per-mode search entry points
 // (partial-retirement/full-retirement/latest-authored-work-stop) stay module-internal — reachable by the
 // solver's own white-box tests, not by consumers — since `solveRetirement` returns them
-// all. `projectScenario` + `realNetWorthSurvives` remain public: they are the projection
+// all. `projectScenario` + `planSurvives` remain public: they are the projection
 // substrate + survival predicate the net-worth graph reads and the app's #37 acceptance
 // tests use as an INDEPENDENT survival oracle (panel age == first surviving projection age).
 export {
@@ -124,7 +124,7 @@ export {
   evaluateAtAge,
   evaluateFullRetirementAtAge,
   projectScenario,
-  realNetWorthSurvives,
+  planSurvives,
 } from "./retirementSolver";
 export * from "./retirementTypes";
 export * from "./earlyRetireeHealthCheck";

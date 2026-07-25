@@ -18,7 +18,15 @@ import {
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import {
+  budgetLineAllocationId,
+  projectScenario,
+  solveRetirement,
+  evaluateFullRetirementAtAge,
+} from "@finley/engine";
 import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
+import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
+import { liabilityLabels, nonLineSpending } from "./ledgerView";
 import { START_YEAR } from "./config";
 
 const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
@@ -49,6 +57,22 @@ describe("default simulations (issue #119)", () => {
     }
     // The first preset is the current fresh-plan default, unchanged.
     expect(PRESETS[0].plan).toEqual(presetById("default").plan);
+  });
+
+  it("every preset opens on an editable line-item budget totalling its authored spend", () => {
+    for (const preset of PRESETS) {
+      const lines = preset.plan.budgetLines ?? [];
+      // A preset with no lines opens the Base + Adjustments editor onto an empty
+      // spending chart — nothing to read, nothing to click.
+      expect(lines.length).toBeGreaterThan(0);
+      const total = lines.reduce(
+        (sum, line) => sum + (line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0),
+        0,
+      );
+      // Itemizing the spend must not move it: the lines replace the scalar series
+      // wholesale, so their total is what the scenario was tuned against.
+      expect(total).toBe(preset.plan.expenseCents);
+    }
   });
 
   it("default: builds real wealth across the working years and stays solvent", () => {
@@ -94,5 +118,73 @@ describe("default simulations (issue #119)", () => {
     expect(series.months[0]?.liabilityBalancesCents).toHaveProperty("loan-student");
     // A solid income services it: net worth climbs back above water within a decade.
     expect(realNetWorthAt(series, 120)!).toBeGreaterThan(0);
+  });
+});
+
+describe("the two graphs are one quantity (issue #119 follow-up)", () => {
+  /** The app's own wiring: budget lines + non-line spending + debt payments. */
+  function budgetChart(preset: Preset) {
+    const base = createProjectionBase(preset.plan, CTX);
+    const household = interpretLedger(buildPresetLedger(base, preset.events), base);
+    const series = simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
+    const lines = (preset.plan.budgetLines ?? []).map((l) => ({
+      id: budgetLineAllocationId(l.id),
+      label: l.label,
+    }));
+    return {
+      series,
+      data: buildPerLineBudgetData(series, {
+        lines,
+        otherSpending: nonLineSpending(household.series),
+        debtLabels: liabilityLabels(household.liabilities),
+      }),
+    };
+  }
+
+  it.each(PRESETS.map((p) => p.id))(
+    "%s: every month's spending stack totals exactly the income graph's spending need",
+    (id) => {
+      const { series, data } = budgetChart(presetById(id));
+      // The spending graph splits the obligation by where the money goes; the income
+      // graph's dashed line is the same obligation, as one number. If the two ever
+      // disagree, some real spending is being drawn nowhere.
+      for (const row of data.rows) {
+        const flows = series.months[row.month]?.flows;
+        const need = (flows?.expensesCents ?? 0) + (flows?.liabilityPaymentsCents ?? 0);
+        expect({ month: row.month, cents: row.totalCents }).toEqual({
+          month: row.month,
+          cents: need,
+        });
+      }
+    },
+  );
+});
+
+describe("the panel and the graph agree (#37)", () => {
+  it.each(PRESETS.map((p) => p.id))(
+    "%s: retirement is called infeasible only when the projection actually runs out",
+    (id) => {
+      const preset = presetById(id);
+      const base = createProjectionBase(preset.plan, CTX);
+      const ledger = buildPresetLedger(base, preset.events);
+      const scenario = { plan: preset.plan, ledger };
+      const graphSurvives =
+        firstInsolventMonth(projectScenario(scenario, CTX)) === null;
+      // Being underwater is not running out of money: the student-loan scenario opens
+      // with negative net worth and pays every bill, and the panel must not answer "no
+      // retirement age is feasible" for a plan the graph draws reaching age 90.
+      const pinnedWorks = evaluateFullRetirementAtAge(scenario, preset.plan.retirementAge, CTX)
+        .feasible;
+      if (graphSurvives) expect(pinnedWorks).toBe(true);
+    },
+  );
+
+  it("student-loan: an underwater opening still has a feasible retirement age", () => {
+    const preset = presetById("student-loan");
+    const base = createProjectionBase(preset.plan, CTX);
+    const scenario = { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) };
+    const series = projectScenario(scenario, CTX);
+    expect(series.months[0]!.netWorthRealCents).toBeLessThan(0);
+    expect(solveRetirement(scenario, CTX).fullRetirementAge).not.toBeNull();
   });
 });

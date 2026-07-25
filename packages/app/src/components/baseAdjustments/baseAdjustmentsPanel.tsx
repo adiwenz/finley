@@ -11,9 +11,11 @@
  *     just this month, or from here forward? {@link routeMonthEdit} sends the result
  *     to the right primitive — line override, ledger transaction, or job/stream
  *     income override (AC4). There is no `Adjustment` entity underneath.
- *   - **Graph** — the per-line monthly budget as authored, each line at what it really
- *     costs that month. Spending is never rationed away behind the user's back; if the
- *     plan stops being financeable the graph says so outright (AC2).
+ *   - **Graph** — what each month actually costs: the budget lines as authored, plus
+ *     the spending they don't author (health, timeline expenses) and each debt's
+ *     payment, so the stack totals the month's whole obligation. Spending is never
+ *     rationed away behind the user's back; if the plan stops being financeable the
+ *     graph says so outright (AC2).
  *
  * The selected month is labelled with its calendar year *and* the household's age at
  * that point, so a far-future edit reads as the milestone it is ("age 50") rather than
@@ -26,6 +28,11 @@
  * why the old scalar monthly-expenses control is gone: one budget, one place to edit
  * it.
  *
+ * The graphs read the app's projected **scenario** (`series`, passed in) — the plan plus
+ * the live timeline — never a re-projection of the bare plan. Editing is about the
+ * budget; *drawing* is about the whole financial life, so a loan taken on the timeline
+ * is part of what income must cover here exactly as it is on the net-worth graph.
+ *
  * Earned income is NOT edited here. Standing pay lives on the person's jobs, authored in
  * the Jobs panel (§6, issue #72); this panel only *displays* the compiled income total at
  * the selected month (read-only). The one exception is a **one-off, single-month** change
@@ -37,13 +44,12 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import {
-  Projection,
   dollarsToCents,
   budgetLineAllocationId,
   type BudgetLine,
   type Plan,
+  type ProjectionSeries,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
@@ -71,6 +77,7 @@ import {
   type MonthEditContext,
   type MonthEditRoute,
 } from "./monthEdit";
+import type { SpendingBand } from "../../ledgerView";
 import { buildIncomeChartData } from "./incomeByCategory";
 import { IncomeChart } from "./incomeChart";
 import { buildPerLineBudgetData, type ChartLine } from "./perLineBudget";
@@ -129,9 +136,34 @@ function displayedCents(row: EditRow, resolvedCents: number, pending: PendingEdi
 export interface BaseAdjustmentsPanelProps {
   readonly plan: Plan;
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * The projected **scenario** — the plan AND the timeline replayed on top of it — as
+   * the rest of the app draws it. Passed in rather than re-projected here on purpose:
+   * projecting the bare plan silently dropped every life event, so a household paying a
+   * student loan saw a spending need that omitted the payment and a chart that
+   * disagreed with the net-worth graph beside it. One simulation, one scenario.
+   */
+  readonly series: ProjectionSeries;
+  /**
+   * Plain-language name per liability id, for the graph's debt bands. Debts come from
+   * the timeline, not the budget, so the panel cannot name them from the plan alone.
+   * Omit it for a scenario with no debts.
+   */
+  readonly debtLabels?: Readonly<Record<string, string>>;
+  /**
+   * Spending that authors no budget line — health care and anything the timeline added
+   * — so the graph totals what the month actually costs. Omit for a budget-only plan.
+   */
+  readonly otherSpending?: readonly SpendingBand[];
 }
 
-export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({
+  plan,
+  setBudget,
+  series,
+  debtLabels,
+  otherSpending,
+}: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = useMemo(() => plan.budgetLines ?? [], [plan.budgetLines]);
   // Every row is shown in the selected month's dollars, so the editor needs the same
@@ -148,22 +180,22 @@ export function BaseAdjustmentsPanel({ plan, setBudget }: BaseAdjustmentsPanelPr
   /** The last routed edit, with the row label it was made on (the route only has the id). */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
 
-  // Project the plan (whose budgetLines these are) once: the chart reads the per-line
-  // amounts off it, and the income row reads the income it actually pays each month.
+  // Read all three charts off the one projected scenario: the per-line amounts, the
+  // income bands and what they have to cover, and the income the plan actually pays
+  // each month. Every view here is a different cut of the same simulated months.
   const projected = useMemo(() => {
-    const result = Projection.create({ plan, startYear: START_YEAR }).run(usJurisdiction);
     const chartLines: ChartLine[] = lines.map((l) => ({
       id: budgetLineAllocationId(l.id),
       label: l.label,
     }));
     return {
-      chartData: buildPerLineBudgetData(result.series, chartLines),
-      incomeData: buildIncomeChartData(result.series),
-      taxData: buildTaxChartData(result.series),
+      chartData: buildPerLineBudgetData(series, { lines: chartLines, otherSpending, debtLabels }),
+      incomeData: buildIncomeChartData(series),
+      taxData: buildTaxChartData(series),
       /** Gross income the projection pays in each month, indexed by month. */
-      incomeByMonth: result.series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
+      incomeByMonth: series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
     };
-  }, [plan, lines]);
+  }, [series, lines, debtLabels, otherSpending]);
   const chartData = projected.chartData;
 
   // ── What the budget resolves to at the selected point ──

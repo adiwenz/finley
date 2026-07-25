@@ -10,6 +10,8 @@ import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
 import { App } from "./main";
 import * as engine from "@finley/engine";
+import { dollarsToCents } from "@finley/engine";
+import { presetById } from "./presets";
 
 beforeAll(() => {
   // Recharts' ResponsiveContainer measures via ResizeObserver, absent in jsdom.
@@ -164,6 +166,41 @@ describe("App — starter simulations (issue #119)", () => {
     // The $45k student loan arrived as a real timeline event (one Remove control).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
+  });
+
+  it("counts a scenario's loan payment in the spending need the income chart draws", () => {
+    render(<App />);
+    const spendingNeed = () =>
+      Number(screen.getByTestId("income-first-spending-need").textContent);
+    const withoutLoan = spendingNeed();
+
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "student-loan" },
+    });
+
+    // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment: the Base
+    // panel charts the whole scenario, not the bare plan, so servicing the loan is part
+    // of what income has to cover. ~$500/mo on $45k at 6% over 10 years.
+    const riley = presetById("student-loan").plan;
+    const budgetAndHealth = riley.expenseCents + riley.healthMonthlyCents;
+    expect(spendingNeed()).toBeGreaterThan(budgetAndHealth + dollarsToCents(400));
+    expect(spendingNeed()).not.toBe(withoutLoan);
+  });
+
+  it("draws the loan payment as its own band on the spending graph", () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "student-loan" },
+    });
+
+    // Servicing the loan is spending: it belongs in the graph of what the month costs,
+    // beside the budget lines it is not one of.
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    // And the budget lines are still there, unchanged by its arrival.
+    expect(firstRow["line:housing"]).toBeGreaterThan(0);
   });
 
   it("swaps back to a plan-only scenario, clearing the prior seed timeline", () => {
