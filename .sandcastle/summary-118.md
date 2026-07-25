@@ -180,10 +180,14 @@ four wage steps, two benefit steps, and four drawdown steps it carries more cate
 series than colour can separate (its own worst pair is two wage blues at ΔE 8.5), and the
 prescribed fix is fewer bands or faceting, not another hue.
 
-Still open (cosmetic, deliberately not changed): an **unnamed** partner job bands as
-`Income · p-0-job-1` on the income graph — the fallback label is the job's stable id by
-design (`compilePerson.ts`, pinned by `job.test.ts`), which reads fine for the primary's
-`job-1` but leaks a generated id for a partner.
+**5. An untitled job is named after its owner, not its id.** The band label fell back to
+the job's id, which reads tolerably for the primary earner (`Income · job-1`) and not at
+all for a partner, whose ids are generated from their person id (`Income · p-0-job-1`).
+It now falls back to the owner (`Income · Sam's job`). Ordinals appear only where they
+must — a person holding several untitled jobs gets "Sam's job 1" / "Sam's job 2", since
+one name for two bands identifies neither; a lone untitled job stays unnumbered, so its
+label cannot shift as other jobs come and go. A band's identity is its `sourceId`
+throughout; this is display text, and the debug report gets the same fix.
 
 ## Notes for the next iteration
 

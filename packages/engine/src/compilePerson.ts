@@ -97,6 +97,7 @@ function compileJobIncome(
   owner: Person,
   nowYear: number,
   inflationRate: number,
+  displayName: string,
   membership?: MembershipWindow,
 ): SimOwnedSeries | null {
   const endYearExclusive = jobEndYearExclusive(job, owner);
@@ -165,9 +166,10 @@ function compileJobIncome(
     series,
     ownerId: owner.id,
     // A household can hold several jobs, so name each by its human title when the user
-    // set one, else its stable id — never a positional fallback that shifts as jobs are
-    // added or removed.
-    label: `Income · ${job.name?.trim() || job.id}`,
+    // set one, else by its owner ({@link jobDisplayName}) — a legend entry is read by a
+    // person, and "p-0-job-1" tells them nothing. The band's stable identity is its
+    // `sourceId` below; this is display text.
+    label: `Income · ${displayName}`,
     // Per-source income reporting (issue #99) keys each job's band by this stable id, so
     // two jobs read apart on the income graph and one ending is legible as that job.
     sourceId: `job:${job.id}`,
@@ -209,10 +211,40 @@ export function compilePersonIncomeSeries(
   inflationRate: number,
   membership?: MembershipWindow,
 ): SimOwnedSeries[] {
+  const names = jobDisplayNames(person);
   const series: SimOwnedSeries[] = [];
   for (const job of person.jobs) {
-    const compiled = compileJobIncome(job, person, nowYear, inflationRate, membership);
+    const compiled = compileJobIncome(job, person, nowYear, inflationRate, names.get(job.id)!, membership);
     if (compiled) series.push(compiled);
   }
   return series;
+}
+
+/**
+ * What to call each of a person's jobs in a report or a chart legend, by job id.
+ *
+ * A job the user titled is called that. An untitled one is called after its **owner**
+ * ("Sam's job") rather than after its id: ids are minted, not written — the primary
+ * earner's read tolerably (`job-1`) but a partner's are generated from their person id
+ * (`p-0-job-1`), which is meaningless to the person reading the legend (issue #118).
+ *
+ * Ordinals appear only where they must: a person holding SEVERAL untitled jobs gets
+ * "Sam's job 1", "Sam's job 2", since one name for two bands identifies neither. With a
+ * single untitled job there is nothing to disambiguate, so it stays unnumbered and the
+ * label cannot shift as other jobs come and go. A band's stable identity is its
+ * `sourceId` throughout; these are display names.
+ */
+function jobDisplayNames(person: Person): Map<string, string> {
+  const titleOf = (job: Job): string | undefined => job.name?.trim() || undefined;
+  const untitled = person.jobs.filter((j) => titleOf(j) === undefined).length;
+  const names = new Map<string, string>();
+  let n = 0;
+  for (const job of person.jobs) {
+    const title = titleOf(job);
+    names.set(
+      job.id,
+      title ?? (untitled > 1 ? `${person.name}'s job ${++n}` : `${person.name}'s job`),
+    );
+  }
+  return names;
 }
