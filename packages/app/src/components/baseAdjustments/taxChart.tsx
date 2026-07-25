@@ -29,26 +29,37 @@ import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByM
  * jsdom).
  */
 
-// The single-band fallback colour, and a rust family (one tone per provenance category)
-// for the stacked view — all read as "tax / money leaving", set apart from the income
-// bands. Sources in the same category share a tone; the fallback rotates for anything else.
+// The single-band fallback colour, plus a rust "money leaving" family set apart from the
+// income bands. Like the income chart, sibling sources in the SAME category STEP through
+// their family's shades (one per job, one per draw) so two jobs read as distinct bands
+// rather than one indistinguishable block. The government benefit is a single steady tone.
 const TAX_COLOR = "#8c3b3b";
-const TAX_CATEGORY_COLORS: Readonly<Record<string, string>> = {
-  wages: "#8c3b3b",
-  governmentRetirementBenefit: "#a85a4a",
-  ordinaryIncome: "#7a4a3a",
-  capitalGains: "#b8794f",
-  taxExempt: "#6f5a4a",
-  savingsDrawdown: "#9c6b4a",
-};
-const TAX_FALLBACK_COLORS = ["#8c3b3b", "#a85a4a", "#b8794f", "#7a4a3a", "#6f5a4a"];
+// Wages: one step per job, dark → light. Benefit: a single warm tone. Draws
+// (capital-gains / ordinary / tax-exempt / any drawdown): a second, earthier family.
+const WAGE_TONES = ["#8c3b3b", "#a85a4a", "#c17a5f", "#d5a084"];
+const BENEFIT_TONE = "#9c6b4a";
+const DRAW_TONES = ["#7a4a3a", "#b8794f", "#9c8459", "#c6a878"];
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
 
-/** A colour per tax band: the category's rust tone, or a rotating fallback. */
-function colorForSource(band: TaxSourceBand, index: number): string {
-  return TAX_CATEGORY_COLORS[band.category] ?? TAX_FALLBACK_COLORS[index % TAX_FALLBACK_COLORS.length]!;
+/**
+ * A colour per tax band, stepping shades within a category so sibling jobs (and sibling
+ * draws) are visually distinct — the analog of the income chart's `colorsForBands`. Wages
+ * walk the rust family, the benefit is a single tone, everything else walks the earth
+ * family; the order matches the bands' stacking order so shades progress cleanly up the
+ * stack.
+ */
+function colorsForBands(sources: readonly TaxSourceBand[]): Map<string, string> {
+  const colors = new Map<string, string>();
+  let wage = 0;
+  let draw = 0;
+  for (const s of sources) {
+    if (s.category === "wages") colors.set(s.id, WAGE_TONES[wage++ % WAGE_TONES.length]!);
+    else if (s.category === "governmentRetirementBenefit") colors.set(s.id, BENEFIT_TONE);
+    else colors.set(s.id, DRAW_TONES[draw++ % DRAW_TONES.length]!);
+  }
+  return colors;
 }
 
 export interface TaxChartProps {
@@ -65,6 +76,7 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
   // total band (the fallback). Each row carries either the per-source cents (keyed by
   // source id) or the lone `taxCents`.
   const stacked = data.hasSourceBreakdown && data.sources.length > 0;
+  const colors = colorsForBands(data.sources);
   const rows = data.rows.map((r) =>
     stacked ? { month: r.month, ...r.centsBySource } : { month: r.month, taxCents: r.taxCents },
   );
@@ -125,15 +137,15 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
           {stacked ? (
-            data.sources.map((band, i) => (
+            data.sources.map((band) => (
               <Area
                 key={band.id}
                 type="monotone"
                 dataKey={band.id}
                 name={band.label}
                 stackId="tax"
-                stroke={colorForSource(band, i)}
-                fill={colorForSource(band, i)}
+                stroke={colors.get(band.id)}
+                fill={colors.get(band.id)}
                 fillOpacity={0.6}
                 isAnimationActive={false}
               />

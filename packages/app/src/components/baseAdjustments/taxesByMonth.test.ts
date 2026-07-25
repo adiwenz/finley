@@ -153,6 +153,26 @@ describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () 
     expect(data.sources).toEqual([{ id: "wages", label: "Wages", category: "wages" }]);
   });
 
+  it("labels a compound tax-only key (accrued savings interest) by its trailing category", () => {
+    // Accrued interest pays no cash, so it never appears on the income chart to lend a
+    // label — the engine keys it `interest:<owner>:<category>`. The chart reads the category
+    // off the trailing segment instead of showing the raw id, and colours/orders it there.
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          taxCents: dollarsToCents(50),
+          taxBySourceCents: { "interest:p1:ordinaryIncome": dollarsToCents(50) },
+        },
+      },
+    ];
+    const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
+    expect(data.sources).toEqual([
+      { id: "interest:p1:ordinaryIncome", label: "Ordinary income", category: "ordinaryIncome" },
+    ]);
+  });
+
   it("still totals and peaks correctly off the breakdown months", () => {
     const data = buildTaxChartData(
       seriesWithBreakdown(

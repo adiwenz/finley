@@ -102,6 +102,22 @@ function categoryRank(category: string): number {
 }
 
 /**
+ * Name a tax source that has no income band to borrow a label from — an untitled stream
+ * the engine keyed by its tax category, or a compound engine key like
+ * `interest:p1:ordinaryIncome` (a savings account's taxable accrued interest, which pays
+ * no cash so it never appears on the income chart). Read the tax category off the key's
+ * trailing segment (the engine's `:`-delimited convention) so the band still reads in
+ * English and sorts/colours with its category, rather than showing the raw id. Anything
+ * unrecognised keeps its id as the label and sorts last.
+ */
+function bandForTaxOnlyKey(id: string): TaxSourceBand {
+  const trailing = id.split(":").pop() ?? id;
+  const category = TAX_CATEGORY_LABELS[trailing] ? trailing : TAX_CATEGORY_LABELS[id] ? id : undefined;
+  if (category !== undefined) return { id, label: TAX_CATEGORY_LABELS[category]!, category };
+  return { id, label: id, category: id };
+}
+
+/**
  * Build the tax chart data from a projection series. One row per *flowed* month (month 0
  * is the flow-free opening snapshot, §4.6, so it is skipped), mirroring the income chart
  * exactly so the two line up point-for-point on the shared axis.
@@ -159,8 +175,8 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
       const known = registry.get(id);
       if (known !== undefined) return { id, label: known.label, category: known.category };
       // A tax-only key (no income band) — an untitled source keyed by its category, or a
-      // zero-cash booking. Name it from the category table, or the raw key as a last resort.
-      return { id, label: TAX_CATEGORY_LABELS[id] ?? id, category: id };
+      // zero-cash booking like accrued interest. Name it from its tax category.
+      return bandForTaxOnlyKey(id);
     })
     // Sort by category order, ties broken by first-appearance (the Map's insertion order).
     .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
