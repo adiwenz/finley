@@ -90,6 +90,7 @@ const TAX_CATEGORY_LABELS: Readonly<Record<string, string>> = {
 const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
   "governmentRetirementBenefit",
+  "savingsInterest",
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
@@ -102,32 +103,18 @@ function categoryRank(category: string): number {
 }
 
 /**
- * Human labels for the engine's tax-only source KINDS — sources that bear tax but pay no
- * cash, so they never draw an income band the tax chart could borrow a name from. Keyed by
- * the leading segment of the engine's `<kind>:<owner>:<category>` id. Naming the band by
- * what it *is* ("Savings interest") beats naming it by its tax bucket ("Ordinary income"),
- * which tells the reader nothing about where the tax came from.
- */
-const TAX_ONLY_SOURCE_LABELS: Readonly<Record<string, string>> = {
-  interest: "Savings interest", // accrued interest on cash/savings accounts (see simulate.ts)
-};
-
-/**
- * Name a tax source that has no income band to borrow a label from — a source that pays no
- * cash (e.g. a savings account's taxable accrued interest, keyed `interest:p1:ordinaryIncome`),
- * or an untitled stream the engine keyed by its bare tax category. Prefer a label for the
- * source KIND (so it reads as what it came from, e.g. "Savings interest"); otherwise read
- * the tax category off the key's trailing segment so it at least reads in English and
- * sorts/colours with its category. The category (for colour/order) always comes from the
- * trailing segment. Anything unrecognised keeps its id as the label and sorts last.
+ * Name a tax source that has no income band to borrow a label from — an untitled stream the
+ * engine keyed by its bare tax category (a source with real provenance, e.g. a job or savings
+ * interest, always appears on the income side and lends its own label and category via the
+ * registry). Read the tax category off the key so the anonymous bucket at least reads in
+ * English and sorts/colours with its category. This is a display fallback only — it assigns
+ * NO business meaning (it does not, for instance, decide what counts as "savings interest";
+ * that is the engine's explicit provenance). Anything unrecognised keeps its id and sorts last.
  */
 function bandForTaxOnlyKey(id: string): TaxSourceBand {
-  const segments = id.split(":");
-  const trailing = segments[segments.length - 1] ?? id;
-  const category = TAX_CATEGORY_LABELS[trailing] ? trailing : TAX_CATEGORY_LABELS[id] ? id : undefined;
-  const kindLabel = segments.length > 1 ? TAX_ONLY_SOURCE_LABELS[segments[0]!] : undefined;
-  if (kindLabel !== undefined) return { id, label: kindLabel, category: category ?? id };
-  if (category !== undefined) return { id, label: TAX_CATEGORY_LABELS[category]!, category };
+  const trailing = id.split(":").pop() ?? id;
+  if (TAX_CATEGORY_LABELS[trailing]) return { id, label: TAX_CATEGORY_LABELS[trailing]!, category: trailing };
+  if (TAX_CATEGORY_LABELS[id]) return { id, label: TAX_CATEGORY_LABELS[id]!, category: id };
   return { id, label: id, category: id };
 }
 

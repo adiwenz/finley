@@ -223,13 +223,21 @@ export interface ProjectionMonthFlows {
 }
 
 /**
- * The provenance category of one reported income source (issue #99). For a genuine
- * income source it is the source's own {@link TaxCategory} — the same value that
- * buckets it in `incomeByCategoryCents`. The one extra member, `"savingsDrawdown"`,
- * tags the liquid-buffer drawdown, which is spending down cash rather than taxable
- * income and therefore has no tax category of its own.
+ * The provenance category of one reported income source (issue #99) — the display/grouping
+ * axis, NOT the tax axis. For a genuine income source it is usually the source's own {@link
+ * TaxCategory} (the same value that buckets it in `incomeByCategoryCents`), but two members
+ * carry explicit provenance the tax category can't express:
+ *   - `"savingsDrawdown"` — the liquid-buffer drawdown: spending down cash, not taxable
+ *     income, so it has no tax category of its own.
+ *   - `"savingsInterest"` — interest credited by a cash / savings account. It IS taxable
+ *     (its tax category is `ordinaryIncome`, and it still buckets there in
+ *     `incomeByCategoryCents`), but it is reported under this distinct provenance so the UI
+ *     can group it as "Savings interest" WITHOUT parsing source ids. This is deliberately
+ *     specific to savings-account interest: when Finley later models other interest kinds
+ *     (brokerage, bond, money-market), each gets its own provenance rather than being folded
+ *     in here.
  */
-export type IncomeSourceCategory = TaxCategory | "savingsDrawdown";
+export type IncomeSourceCategory = TaxCategory | "savingsDrawdown" | "savingsInterest";
 
 /**
  * One reported income source for a single month (issue #99) — the per-source unit of

@@ -375,7 +375,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     // A $3k forced RMD is already booked as income; the $5k obligation only needs a
     // $2k elective top-up from the brokerage (RMD counted first, no double-draw).
     const rmd: IncomeSourceMonth[] = [
-      { ownerId: "p1", grossCents: dollarsToCents(3_000), taxCategory: "ordinaryIncome" },
+      { ownerId: "p1", waterfallInflowCents: dollarsToCents(3_000), taxCategory: "ordinaryIncome" },
     ];
     const { sources } = buildWithdrawalSources(
       st,
@@ -386,7 +386,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
       ctx,
     );
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(8_000)); // only $2k elective
-    const electiveTotal = sources.reduce((s, x) => s + x.grossCents, 0);
+    const electiveTotal = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(electiveTotal).toBe(dollarsToCents(2_000));
   });
 
@@ -429,9 +429,9 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const byOwner = new Map<string, Record<string, number>>();
     let gross = 0;
     for (const s of sources) {
-      gross += s.grossCents;
+      gross += s.waterfallInflowCents;
       const map = byOwner.get(s.ownerId) ?? {};
-      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + s.grossCents;
+      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + s.waterfallInflowCents;
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
@@ -469,7 +469,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // come from the brokerage. On its own the draw AND the benefit each tax at 0%, so a
     // naive one-for-one draw under-delivers by exactly the tax it induces on the benefit.
     const benefit: IncomeSourceMonth[] = [
-      { ownerId: "p1", grossCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
+      { ownerId: "p1", waterfallInflowCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
     ];
     const { sources } = buildWithdrawalSources(
       st,
@@ -483,7 +483,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const net = householdNetCents([...benefit, ...sources], provisionalTrap);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(3_000));
     // The draw was grossed up above the bare $1k need to absorb the induced tax.
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBeGreaterThan(dollarsToCents(1_000));
   });
 
@@ -500,7 +500,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const net = householdNetCents(sources, flatGains);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(2_000));
     // Gross ≈ 2000 / (1 − 0.20) = $2,500 leaves the brokerage.
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
     expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_501));
   });
@@ -525,8 +525,8 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // A $100k benefit plus $29.5k of gains sits just under the cliff, so the base tax
     // is 0. Funding $1k more tips the household over it.
     const booked: IncomeSourceMonth[] = [
-      { ownerId: "p1", grossCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
-      { ownerId: "p1", grossCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
+      { ownerId: "p1", waterfallInflowCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
+      { ownerId: "p1", waterfallInflowCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
     ];
     const { sources } = buildWithdrawalSources(
       st,
@@ -540,7 +540,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const net = householdNetCents([...booked, ...sources], cliff);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(130_500));
     // ...and it costs need + lump ($51k), NOT the clamp's 100 × need ($100k).
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(51_000));
   });
 
@@ -588,7 +588,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     const { sources } = buildWithdrawalSources(st, twoCliffs, 1, [], dollarsToCents(1_000), ctx);
     const net = householdNetCents(sources, twoCliffs);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(1_000));
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(3_000));
   });
 });
@@ -625,9 +625,9 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const byOwner = new Map<string, Record<string, number>>();
     let gross = 0;
     for (const s of sources) {
-      gross += s.grossCents;
+      gross += s.waterfallInflowCents;
       const map = byOwner.get(s.ownerId) ?? {};
-      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + (s.taxableCents ?? s.grossCents);
+      map[s.taxCategory] = (map[s.taxCategory] ?? 0) + (s.taxableCents ?? s.waterfallInflowCents);
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
@@ -665,7 +665,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 100_000 });
     const { sources } = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(2_000), ctx);
     // No gain → no tax → the draw is exactly the need, not grossed up.
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
     expect(sources[0].taxableCents).toBe(0);
     // And basis fell by the principal returned: $100k − $2k = $98k.
@@ -678,8 +678,8 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 60_000 });
     const { sources } = buildWithdrawalSources(st, flatGains20, 1, [], dollarsToCents(6_000), ctx);
     // gross g nets g − 0.2·(0.4·g) = 0.92·g = $6k → g ≈ $6,521.74, gain ≈ 40% of it.
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
-    const gain = sources.reduce((s, x) => s + (x.taxableCents ?? x.grossCents), 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
+    const gain = sources.reduce((s, x) => s + (x.taxableCents ?? x.waterfallInflowCents), 0);
     expect(gain).toBe(Math.round(drawn * 0.4));
     expect(householdNetCentsGain(sources, flatGains20)).toBeGreaterThanOrEqual(dollarsToCents(6_000));
     // Basis fell only by the principal fraction (60%) of the draw.
@@ -696,7 +696,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     // No basis entry → basis 0 → the whole draw is the gain, taxed in full.
     const st = state(accounts, { pretax: 100_000 });
     const { sources } = buildWithdrawalSources(st, flatOrdinary20, 1, [], dollarsToCents(2_000), ctx);
-    const drawn = sources.reduce((s, x) => s + x.grossCents, 0);
+    const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     // Grossed up ~2000/(1−0.2) = $2,500 — the full-gross-taxable behavior is preserved.
     expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_499));
     expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_501));
@@ -768,7 +768,7 @@ describe("Liquid-buffer drawdown reporting (issue #99)", () => {
     );
     expect(liquidDrawdownCents).toBe(dollarsToCents(2_000));
     expect(sources).toHaveLength(1);
-    expect(sources[0].grossCents).toBe(dollarsToCents(3_000)); // no tax seam → one-for-one
+    expect(sources[0].waterfallInflowCents).toBe(dollarsToCents(3_000)); // no tax seam → one-for-one
   });
 
   it("reports no drawdown when income already covers the month", () => {
@@ -777,7 +777,7 @@ describe("Liquid-buffer drawdown reporting (issue #99)", () => {
       st,
       nullJurisdiction,
       1,
-      [{ ownerId: "p1", grossCents: dollarsToCents(4_000), taxCategory: "wages" }],
+      [{ ownerId: "p1", waterfallInflowCents: dollarsToCents(4_000), taxCategory: "wages" }],
       dollarsToCents(3_000), // obligations below the $4k income
       ctx,
     );

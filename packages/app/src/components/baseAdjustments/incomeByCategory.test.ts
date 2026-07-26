@@ -188,12 +188,13 @@ describe("incomeBandsForMode", () => {
   });
 
   it("keeps savings interest its own band in both views — not folded into living off savings", () => {
-    // Savings interest is income the savings EARN (its engine id starts `interest:`), so it
-    // stacks as its own band above the drawdowns rather than reading as spending down savings.
+    // Savings interest is income the savings EARN (the engine tags it with the explicit
+    // `savingsInterest` provenance), so it stacks as its own band above the drawdowns rather
+    // than reading as spending down savings — and the app never parses the id to decide that.
     const data = buildIncomeChartData(
       seriesOf([
         source("job:a", dollarsToCents(5_000), "wages", "Job A"),
-        source("interest:p1:ordinaryIncome", dollarsToCents(50), "ordinaryIncome", "Savings interest"),
+        source("interest:p1:ordinaryIncome", dollarsToCents(50), "savingsInterest", "Savings interest"),
         source("brokerage", dollarsToCents(1_500), "capitalGains", "Brokerage draw"),
         source("savings-drawdown", dollarsToCents(1_000), "savingsDrawdown", "Savings drawdown"),
       ]),
@@ -214,12 +215,12 @@ describe("incomeBandsForMode", () => {
   });
 
   it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
-    // Two cash accounts (or two owners) each book interest under their own `interest:` id;
-    // Simple folds them into a single band, like it does for Social Security.
+    // Two cash accounts (or two owners) each book interest, tagged `savingsInterest`; Simple
+    // folds them into a single band, like it does for Social Security.
     const data = buildIncomeChartData(
       seriesOf([
-        source("interest:p1:ordinaryIncome", dollarsToCents(30), "ordinaryIncome", "Savings interest"),
-        source("interest:p2:ordinaryIncome", dollarsToCents(20), "ordinaryIncome", "Savings interest"),
+        source("interest:p1:ordinaryIncome", dollarsToCents(30), "savingsInterest", "Savings interest"),
+        source("interest:p2:ordinaryIncome", dollarsToCents(20), "savingsInterest", "Savings interest"),
       ]),
     );
     const simple = incomeBandsForMode(data, "simple");

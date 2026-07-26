@@ -24,9 +24,9 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
   };
 }
 
-const wageSource = (ownerId: string, grossCents: number): IncomeSourceMonth => ({
+const wageSource = (ownerId: string, waterfallInflowCents: number): IncomeSourceMonth => ({
   ownerId,
-  grossCents,
+  waterfallInflowCents,
   taxCategory: "wages",
 });
 
@@ -47,7 +47,7 @@ describe("runWaterfall — pre-tax deferrals (§5.0 step 1, §5.5)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(5000),
+            waterfallInflowCents: dollarsToCents(5000),
             taxCategory: "wages",
             planDescriptor: { deferralFraction: 0.1, fundAccountId: "401k" },
           },
@@ -66,7 +66,7 @@ describe("runWaterfall — pre-tax deferrals (§5.0 step 1, §5.5)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(5000),
+            waterfallInflowCents: dollarsToCents(5000),
             taxCategory: "wages",
             planDescriptor: {
               deferralFraction: 0.1,
@@ -91,7 +91,7 @@ describe("runWaterfall — pre-tax deferrals (§5.0 step 1, §5.5)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(5000),
+            waterfallInflowCents: dollarsToCents(5000),
             taxCategory: "wages",
             planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k" }, // wants all $5000
           },
@@ -111,13 +111,13 @@ describe("runWaterfall — pre-tax deferrals (§5.0 step 1, §5.5)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(4000),
+            waterfallInflowCents: dollarsToCents(4000),
             taxCategory: "wages",
             planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k-a" },
           },
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(4000),
+            waterfallInflowCents: dollarsToCents(4000),
             taxCategory: "wages",
             planDescriptor: { deferralFraction: 1.0, fundAccountId: "401k-b" },
           },
@@ -140,7 +140,7 @@ describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(5000),
+            waterfallInflowCents: dollarsToCents(5000),
             taxCategory: "wages",
             planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000 deferred
           },
@@ -163,7 +163,7 @@ describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [
-          { ownerId: "p1", grossCents: dollarsToCents(2000), taxCategory: "governmentRetirementBenefit" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(2000), taxCategory: "governmentRetirementBenefit" },
         ],
         computeTaxCents: (byCat) => {
           seen.push(byCat);
@@ -183,7 +183,7 @@ describe("runWaterfall — tax seam (§5.3 seam 1)", () => {
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(2000),
+            waterfallInflowCents: dollarsToCents(2000),
             taxCategory: "governmentRetirementBenefit",
           },
         ],
@@ -540,9 +540,9 @@ describe("runWaterfall — account contributions (§12/§15)", () => {
 });
 
 describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", () => {
-  const wageJob = (ownerId: string, sourceId: string, grossCents: number): IncomeSourceMonth => ({
+  const wageJob = (ownerId: string, sourceId: string, waterfallInflowCents: number): IncomeSourceMonth => ({
     ownerId,
-    grossCents,
+    waterfallInflowCents,
     taxCategory: "wages",
     sourceId,
   });
@@ -605,7 +605,7 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
         incomeSources: [
           {
             ownerId: "p1",
-            grossCents: dollarsToCents(5000),
+            waterfallInflowCents: dollarsToCents(5000),
             taxCategory: "wages",
             sourceId: "job-a",
             planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000
@@ -625,7 +625,7 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
   it("falls back to the tax-category key for a wage source with no sourceId", () => {
     const r = runWaterfall(
       makeInput({
-        incomeSources: [{ ownerId: "p1", grossCents: dollarsToCents(3000), taxCategory: "wages" }],
+        incomeSources: [{ ownerId: "p1", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages" }],
         ...flatWageTax,
       }),
     );

@@ -32,6 +32,7 @@
 
 import { splitEven, apportionByWeight, type Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
+import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal";
 import { requiredContributionCents } from "../requiredContribution";
 
@@ -52,7 +53,15 @@ export interface PlanDescriptor {
 /** One income source's contribution to a single month (resolved from a series). */
 export interface IncomeSourceMonth {
   readonly ownerId: string;
-  readonly grossCents: Cents;
+  /**
+   * The cash this source injects INTO the allocation waterfall this month — what still
+   * needs placing (covering obligations, funding goals, idling as surplus). For wages,
+   * benefit, RMD, and account draws this is the whole payment; for an accrued-interest
+   * booking it is 0, because the cash is already sitting in the account balance and
+   * re-placing it would double-credit the account. Distinct from the household's realized
+   * cash for reporting — see {@link cashInflowCents}.
+   */
+  readonly waterfallInflowCents: Cents;
   readonly taxCategory: TaxCategory;
   /**
    * Reporting provenance (issue #99), consumed ONLY by the diagnostic flow view
@@ -72,7 +81,7 @@ export interface IncomeSourceMonth {
    *  - a returned-basis fund withdrawal books only its **gain** here (< gross) — the
    *    whole gross is still paid out as take-home, only the taxable base shrinks;
    *  - an accrued-interest booking (savings, Commit 2) books its interest here with
-   *    `grossCents` 0 — the interest is taxed without re-injecting cash the balance
+   *    `waterfallInflowCents` 0 — the interest is taxed without re-injecting cash the balance
    *    already holds (so the waterfall allocates nothing for it), yet it still reports
    *    as real household cash via {@link cashInflowCents}.
    * Absent → the full gross is taxable (wages, benefit, RMD, pre-tax draws).
@@ -80,14 +89,23 @@ export interface IncomeSourceMonth {
   readonly taxableCents?: Cents;
   /**
    * The **realized cash this source pays into the household**, for the cash-flow report
-   * ({@link import("./reportFlows").buildFlows}) — distinct from `grossCents`, which is the
+   * ({@link import("./reportFlows").buildFlows}) — distinct from `waterfallInflowCents`, which is the
    * cash the ALLOCATION waterfall must place. They differ only for an accrued-interest
-   * booking: its `grossCents` is 0 (the balance already holds the cash — allocating it
+   * booking: its `waterfallInflowCents` is 0 (the balance already holds the cash — allocating it
    * again would double-credit the account) while its `cashInflowCents` is the interest,
-   * because it genuinely is money the household received. Absent → defaults to `grossCents`
+   * because it genuinely is money the household received. Absent → defaults to `waterfallInflowCents`
    * (wages, benefit, RMD, and returned-basis draws all pay their whole gross as cash).
    */
   readonly cashInflowCents?: Cents;
+  /**
+   * Explicit reporting provenance that OVERRIDES the tax-category axis for display/grouping
+   * ({@link import("./simulate.types").ProjectionIncomeSource.category}), when the two
+   * differ. Savings-account interest sets this to `"savingsInterest"` so the UI can group it
+   * as "Savings interest" without parsing source ids, even though it is taxed as
+   * `ordinaryIncome` (which is where it still buckets in the taxable rollup). Absent → the
+   * source reports under its {@link taxCategory}.
+   */
+  readonly reportCategory?: IncomeSourceCategory;
 }
 
 /** Lever 2: how much each person contributes to shared obligations (§5.0 step 3). */
@@ -263,12 +281,12 @@ function applyDeferrals(
     return m;
   };
   for (const src of input.incomeSources) {
-    grossByPerson.set(src.ownerId, (grossByPerson.get(src.ownerId) ?? 0) + src.grossCents);
+    grossByPerson.set(src.ownerId, (grossByPerson.get(src.ownerId) ?? 0) + src.waterfallInflowCents);
     const sourceKey = src.sourceId ?? src.taxCategory;
 
     let deferred = 0;
-    if (src.planDescriptor && src.grossCents > 0) {
-      const desired = Math.round(src.grossCents * src.planDescriptor.deferralFraction);
+    if (src.planDescriptor && src.waterfallInflowCents > 0) {
+      const desired = Math.round(src.waterfallInflowCents * src.planDescriptor.deferralFraction);
       const room = roomRemaining.get(src.ownerId) ?? Infinity;
       deferred = Math.max(0, Math.min(desired, room));
       if (deferred > 0) {
@@ -286,7 +304,7 @@ function applyDeferrals(
     // less any pre-tax deferral (which reduces taxable income from that same source).
     // The jurisdiction's tax seam applies each category's inclusion % — the whole
     // gross is still paid out as take-home below.
-    const sourceTaxable = Math.max(0, (src.taxableCents ?? src.grossCents) - deferred);
+    const sourceTaxable = Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferred);
     addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
     // Record this source's taxable weight so its share of the category's tax can be
     // attributed back to it below (§5.3, #110). The weight is exactly the amount added

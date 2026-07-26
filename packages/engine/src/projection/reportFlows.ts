@@ -73,12 +73,12 @@ export function buildFlows(
   // Aggregate genuine income by source, preserving first-seen order. A source is keyed
   // by its `sourceId` (or its tax category as a fallback); repeated keys sum. We band on
   // `cashInflowCents` — the realized cash the source paid — which for accrued interest is
-  // its interest (grossCents 0, but real household cash) and for everything else is its
+  // its interest (waterfallInflowCents 0, but real household cash) and for everything else is its
   // gross. So interest now appears in the cash-flow view instead of being dropped.
   const bySource = new Map<string, { cashInflowCents: Cents; label: string; category: string }>();
   const order: string[] = [];
   for (const src of incomeSources) {
-    const cashInflow = src.cashInflowCents ?? src.grossCents;
+    const cashInflow = src.cashInflowCents ?? src.waterfallInflowCents;
     incomeByCategoryCents[src.taxCategory] =
       (incomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
     totalIncomeCents += cashInflow;
@@ -93,7 +93,10 @@ export function buildFlows(
       bySource.set(sourceId, {
         cashInflowCents: cashInflow,
         label: src.label ?? src.taxCategory,
-        category: src.taxCategory,
+        // The reported provenance is the source's explicit `reportCategory` when it sets one
+        // (e.g. savings interest → "savingsInterest"), else its tax category. This keeps the
+        // display/grouping axis distinct from the tax axis without the UI parsing ids.
+        category: src.reportCategory ?? src.taxCategory,
       });
     }
   }

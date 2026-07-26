@@ -145,7 +145,7 @@ function estimateNetIncome(
   let grossTotal = 0;
   const taxableByOwner = new Map<string, TaxableByCategory>();
   for (const src of sources) {
-    grossTotal += src.grossCents;
+    grossTotal += src.waterfallInflowCents;
     // Booked under its provenance category — the jurisdiction owns the inclusion %,
     // so the engine never pre-applies a fraction (§5.4). A source may book less than
     // its gross as taxable (a returned-basis fund draw, an accrued-interest booking
@@ -156,7 +156,7 @@ function estimateNetIncome(
       map = {};
       taxableByOwner.set(src.ownerId, map);
     }
-    addCategory(map, src.taxCategory, src.taxableCents ?? src.grossCents);
+    addCategory(map, src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
   }
   let taxTotal = 0;
   for (const taxable of taxableByOwner.values()) taxTotal += computeTaxCents(taxable);
@@ -337,7 +337,7 @@ export function buildWithdrawalSources(
     need -= netDelivered;
     sources.push({
       ownerId: account.ownerId,
-      grossCents: gross,
+      waterfallInflowCents: gross,
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
       // Report the draw by the account it came from (issue #99): the account id keys the

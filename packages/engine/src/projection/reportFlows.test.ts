@@ -16,10 +16,10 @@ const line = (id: string, amountCents: number): SpendingItem => ({
 
 const src = (
   ownerId: string,
-  grossCents: number,
+  waterfallInflowCents: number,
   taxCategory: IncomeSourceMonth["taxCategory"],
   extra?: Partial<IncomeSourceMonth>,
-): IncomeSourceMonth => ({ ownerId, grossCents, taxCategory, ...extra });
+): IncomeSourceMonth => ({ ownerId, waterfallInflowCents, taxCategory, ...extra });
 
 describe("buildFlows", () => {
   it("buckets gross income by tax category and sums the total", () => {
@@ -128,8 +128,8 @@ describe("buildFlows", () => {
     ]);
   });
 
-  it("bands accrued interest by its cash inflow (grossCents 0, but real household cash)", () => {
-    // An interest booking places nothing in the ALLOCATION waterfall (grossCents 0 — the cash
+  it("bands accrued interest by its cash inflow (waterfallInflowCents 0, but real household cash)", () => {
+    // An interest booking places nothing in the ALLOCATION waterfall (waterfallInflowCents 0 — the cash
     // is already in the balance), yet it IS real cash: it reports its interest as a cash inflow
     // so the cash-flow view shows it instead of dropping it.
     const flows = buildFlows(

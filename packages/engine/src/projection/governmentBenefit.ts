@@ -158,7 +158,7 @@ export function buildGovernmentBenefitSources(
     const paid = jurisdiction.colaAdjustedBenefitCents?.(base, ctx) ?? base;
     sources.push({
       ownerId: person.id,
-      grossCents: paid,
+      waterfallInflowCents: paid,
       taxCategory: "governmentRetirementBenefit",
       // Reported per person (issue #99), so a two-earner household shows each benefit.
       sourceId: `benefit:${person.id}`,

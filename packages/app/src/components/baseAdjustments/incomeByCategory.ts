@@ -98,18 +98,20 @@ export type IncomeMode = "simple" | "advanced";
 export type IncomeBasis = "takeHome" | "gross";
 
 /**
- * Stable stacking order by provenance category (bottom of the stack → top). The two
- * genuine income kinds sit at the base — earned **wages**, then the **government
- * benefit** — and the whole "living off savings" family stacks *above* them as one
- * contiguous group: every account draw (by tax friction) and the cash `savingsDrawdown`
- * last. Grouping all the drawdown categories after the benefit is what keeps Simple and
- * Advanced consistent: Simple's single "Living off savings" band and Advanced's several
- * draw bands both read as a cap above Social Security, rather than some draws below it and
- * the cash drawdown above. Anything unrecognised sorts to the very end.
+ * Stable stacking order by provenance category (bottom of the stack → top). The genuine
+ * income kinds sit at the base — earned **wages**, the **government benefit**, then
+ * **savings interest** (money the savings earn, still income) — and the whole "living off
+ * savings" family stacks *above* them as one contiguous group: every account draw (by tax
+ * friction) and the cash `savingsDrawdown` last. Grouping all the drawdown categories after
+ * the income is what keeps Simple and Advanced consistent: Simple's single "Living off
+ * savings" band and Advanced's several draw bands both read as a cap above the income,
+ * rather than some draws below it and the cash drawdown above. Anything unrecognised sorts
+ * to the very end.
  */
 const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
   "governmentRetirementBenefit",
+  "savingsInterest",
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
@@ -191,15 +193,16 @@ const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
  * savings" band. The Advanced view keeps every source separate, and issue #122 will later
  * split that drawdown into gain vs. returned principal.
  *
- * Savings-interest sources are recognised by their engine `interest:` id prefix, not their
- * tax category: interest is classified `ordinaryIncome`, which it shares with pre-tax
- * account draws, so the category alone can't tell them apart. This is the same `interest:`
- * prefix the tax chart keys on to label its band.
+ * Savings interest is recognised by the engine's explicit `"savingsInterest"` provenance
+ * category, NOT by parsing its id: interest is *taxed* as `ordinaryIncome` (which it shares
+ * with pre-tax account draws), but the engine reports it under this distinct provenance so
+ * the app groups only genuine savings-account interest here — future interest kinds
+ * (brokerage/bond/money-market) will carry their own provenance and won't fold in.
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
-  if (band.id.startsWith("interest:")) {
-    return { id: SIMPLE_SAVINGS_INTEREST_ID, label: "Savings interest", category: "ordinaryIncome" };
+  if (band.category === "savingsInterest") {
+    return { id: SIMPLE_SAVINGS_INTEREST_ID, label: "Savings interest", category: "savingsInterest" };
   }
   if (band.category === "governmentRetirementBenefit") {
     return { id: SIMPLE_SOCIAL_SECURITY_ID, label: "Social Security", category: "governmentRetirementBenefit" };

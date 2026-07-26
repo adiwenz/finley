@@ -154,11 +154,10 @@ describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () 
     expect(data.sources).toEqual([{ id: "wages", label: "Wages", category: "wages" }]);
   });
 
-  it("names a compound tax-only key (accrued savings interest) by what it came from", () => {
-    // Accrued interest pays no cash, so it never appears on the income chart to lend a
-    // label — the engine keys it `interest:<owner>:<category>`. The chart names the band for
-    // the source KIND ("Savings interest"), not its tax bucket, and still colours/orders it
-    // by the trailing category.
+  it("labels the savings-interest tax band from its income source's explicit provenance", () => {
+    // Savings interest now appears on the income side too, so the tax band borrows its label
+    // and its explicit `savingsInterest` provenance from the registry — the chart never parses
+    // the `interest:` id to decide what the band is.
     const months = [
       { month: 0 },
       {
@@ -166,12 +165,21 @@ describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () 
         flows: {
           taxCents: dollarsToCents(50),
           taxBySourceCents: { "interest:p1:ordinaryIncome": dollarsToCents(50) },
+          incomeSources: [
+            {
+              sourceId: "interest:p1:ordinaryIncome",
+              label: "Savings interest",
+              category: "savingsInterest",
+              cashInflowCents: dollarsToCents(500),
+              netCashFlowCents: dollarsToCents(450),
+            },
+          ],
         },
       },
     ];
     const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
     expect(data.sources).toEqual([
-      { id: "interest:p1:ordinaryIncome", label: "Savings interest", category: "ordinaryIncome" },
+      { id: "interest:p1:ordinaryIncome", label: "Savings interest", category: "savingsInterest" },
     ]);
   });
 

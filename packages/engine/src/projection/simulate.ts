@@ -329,11 +329,11 @@ function buildIncomeSources(
 ): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
   for (const s of incomeSeries) {
-    const grossCents = s.series.getMonthlyCents(month);
-    if (grossCents === 0 && s.planDescriptor === undefined) continue;
+    const waterfallInflowCents = s.series.getMonthlyCents(month);
+    if (waterfallInflowCents === 0 && s.planDescriptor === undefined) continue;
     sources.push({
       ownerId: s.ownerId,
-      grossCents,
+      waterfallInflowCents,
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       planDescriptor: s.planDescriptor,
       // Report each income series as its own source (issue #99), so two jobs read apart
@@ -597,7 +597,7 @@ function compoundAssets(
 /**
  * Last month's credited interest as this month's taxable income (§#94 Commit 2). The
  * cash was already credited to each buffer's balance by `compoundAssets`, so these carry
- * `grossCents` 0 — the ALLOCATION waterfall places nothing (re-injecting it would
+ * `waterfallInflowCents` 0 — the ALLOCATION waterfall places nothing (re-injecting it would
  * double-credit the account), and the interest is taxed through the §5.3 seam via
  * `taxableCents`. But it IS real household cash, so it also reports its interest as
  * {@link IncomeSourceMonth.cashInflowCents}: the cash-flow view then shows $500 of
@@ -634,12 +634,17 @@ function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
     // Zero allocation-gross (the cash is already in the balance, so the waterfall places
     // nothing) but a real cash inflow for the flow view: the interest is genuine household
     // cash, reported under a stable id so the cash-flow chart bands it and deducts its tax.
+    // `reportCategory: "savingsInterest"` marks it as savings-account interest explicitly, so
+    // the UI groups it without parsing the id — while `taxCategory` keeps it taxed (and
+    // rolled up) as the ordinary income it is. Other interest kinds (brokerage/bond) will
+    // later carry their own provenance rather than folding in here.
     sources.push({
       ownerId,
-      grossCents: 0,
+      waterfallInflowCents: 0,
       cashInflowCents: cents,
       taxCategory: category,
       taxableCents: cents,
+      reportCategory: "savingsInterest",
       sourceId: `interest:${ownerId}:${category}`,
       label: "Savings interest",
     });
