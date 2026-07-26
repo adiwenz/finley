@@ -1,4 +1,4 @@
-import type { Cents, RmdContext } from "@finley/engine";
+import type { Cents, RmdContext, ModelAssumption } from "@finley/engine";
 
 /**
  * US Required Minimum Distributions — the age-triggered forced withdrawal from
@@ -27,6 +27,27 @@ import type { Cents, RmdContext } from "@finley/engine";
 function rmdStartAge(birthYear: number): number {
   return birthYear >= 1960 ? 75 : 73;
 }
+
+/**
+ * User-facing disclosure for the RMD start-age rule this module applies — the `rules` side
+ * of the engine's {@link import("@finley/engine").Jurisdiction.modelAssumptions} seam,
+ * co-located by `id` with the code it describes ({@link rmdStartAge}), exactly as
+ * `federalTax.ts` co-locates its own. `usJurisdiction` concatenates these onto its
+ * federal-tax disclosures so the "assumptions & simplifications" surface explains when the
+ * forced retirement-account withdrawals begin. ⚠ Estimates, not advice.
+ */
+export const RMD_ASSUMPTIONS: readonly ModelAssumption[] = [
+  {
+    id: "rmdStartAge",
+    text:
+      "Required minimum distributions — the withdrawals the IRS forces from pre-tax " +
+      "retirement accounts each year once you reach a set age — are assumed to begin at " +
+      "age 73 for anyone born 1951–1959, and age 75 for anyone born in 1960 or later (the " +
+      "SECURE 2.0 schedule). People born before 1951 are outside this projection's scope, " +
+      "since their required withdrawals would already have started. The start ages are set " +
+      "by law and will change with future legislation.",
+  },
+];
 
 /**
  * IRS Uniform Lifetime Table (2022+), the distribution period (divisor) by age

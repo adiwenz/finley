@@ -22,6 +22,7 @@ describe("usJurisdiction (US-2026)", () => {
     expect(ids).toContain("taxThresholdForwardIndexing");
     expect(ids).toContain("socialSecurityThresholdsUnindexed");
     expect(ids).toContain("taxAttributionProportional");
+    expect(ids).toContain("rmdStartAge");
     for (const a of usJurisdiction.modelAssumptions ?? []) {
       expect(a.text.length).toBeGreaterThan(0);
     }

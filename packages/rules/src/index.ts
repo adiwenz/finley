@@ -14,6 +14,7 @@ import {
   FEDERAL_TAX_ASSUMPTIONS,
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
+import { RMD_ASSUMPTIONS } from "./rmd";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -21,7 +22,7 @@ export {
   isCoveredEarnings,
   DEFAULT_BENEFIT_CLAIMING_AGE,
 } from "./socialSecurity";
-export { requiredMinimumDistributionCents } from "./rmd";
+export { requiredMinimumDistributionCents, RMD_ASSUMPTIONS } from "./rmd";
 export {
   contributionLimits,
   retirementDeferralLimitCents,
@@ -81,5 +82,5 @@ export const usJurisdiction: Jurisdiction = {
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
   healthCostBenchmarkMonthlyCents,
-  modelAssumptions: FEDERAL_TAX_ASSUMPTIONS,
+  modelAssumptions: [...FEDERAL_TAX_ASSUMPTIONS, ...RMD_ASSUMPTIONS],
 };
