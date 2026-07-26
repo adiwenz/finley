@@ -40,10 +40,13 @@ function seriesWith(
 
 const source = (
   sourceId: string,
-  grossCents: number,
+  cashInflowCents: number,
   category: ProjectionIncomeSource["category"],
   label = sourceId,
-): ProjectionIncomeSource => ({ sourceId, label, category, grossCents });
+  // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full cash
+  // inflow — the no-haircut case — so a test only names it when it wants a take-home < gross.
+  netCashFlowCents = cashInflowCents,
+): ProjectionIncomeSource => ({ sourceId, label, category, cashInflowCents, netCashFlowCents });
 
 describe("buildIncomeChartData", () => {
   it("emits one row per flowed month with income keyed by source", () => {
@@ -197,16 +200,19 @@ describe("incomeBandsForMode", () => {
 });
 
 describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)", () => {
-  /** A month whose flows carry per-source gross, tax, and deferral. */
-  function seriesWithTax(gross: number, tax: number, deferral: number): ProjectionSeries {
+  /**
+   * A month whose one source carries a cash inflow and the engine's already-netted take-home
+   * ({@link ProjectionIncomeSource.netCashFlowCents}) — the app reads that net straight
+   * through rather than re-deriving gross − tax − deferral itself (that arithmetic now lives
+   * in the engine's `buildFlows`, and is covered there).
+   */
+  function seriesWithNet(cashInflow: number, net: number): ProjectionSeries {
     const months = [
       { month: 0 },
       {
         month: 1,
         flows: {
-          incomeSources: [source("job:a", gross, "wages", "Day job")],
-          taxBySourceCents: { "job:a": tax },
-          deferralBySourceCents: { "job:a": deferral },
+          incomeSources: [source("job:a", cashInflow, "wages", "Day job", net)],
           expensesCents: 0,
           liabilityPaymentsCents: 0,
         },
@@ -215,12 +221,11 @@ describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)
     return { months } as unknown as ProjectionSeries;
   }
 
-  it("take-home (the default) draws gross minus the source's tax and deferral", () => {
-    const data = buildIncomeChartData(
-      seriesWithTax(dollarsToCents(5_000), dollarsToCents(800), dollarsToCents(1_000)),
-    );
-    // The row keeps both bases; take-home = 5000 − 800 tax − 1000 deferral = 3200.
-    expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000)); // gross retained
+  it("take-home (the default) draws the engine's per-source net cash flow", () => {
+    // Engine net = 5000 gross − 800 tax − 1000 deferral = 3200; the app displays it as-is.
+    const data = buildIncomeChartData(seriesWithNet(dollarsToCents(5_000), dollarsToCents(3_200)));
+    // The row keeps both bases: cash inflow retained, take-home is the engine's net.
+    expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000)); // cash inflow retained
     expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(3_200));
     expect(data.rows[0]!.takeHomeCents).toBe(dollarsToCents(3_200));
     // The default basis the chart draws is take-home.
@@ -228,43 +233,40 @@ describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)
     expect(takeHome.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(3_200));
   });
 
-  it("gross basis draws the pre-tax paycheck", () => {
-    const data = buildIncomeChartData(
-      seriesWithTax(dollarsToCents(5_000), dollarsToCents(800), dollarsToCents(1_000)),
-    );
+  it("gross basis draws the pre-tax paycheck (the source's cash inflow)", () => {
+    const data = buildIncomeChartData(seriesWithNet(dollarsToCents(5_000), dollarsToCents(3_200)));
     const gross = incomeBandsForMode(data, "advanced", "gross");
     expect(gross.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000));
   });
 
-  it("take-home equals gross when no tax or deferral is reported (flows without the maps)", () => {
+  it("take-home equals cash inflow when the engine reports no haircut (net == inflow)", () => {
     const data = buildIncomeChartData(
       seriesOf([source("job:a", dollarsToCents(5_000), "wages", "Day job")]),
     );
     expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(5_000));
   });
 
-  it("subtracts the benefit's tax from the Social Security band when SS IS taxed", () => {
-    // Guards the `benefit:<person>` keying end-to-end: when the engine attributes tax to a
-    // government-benefit source, the SS band's take-home must drop by exactly that tax. (In
-    // the default plan SS is below the taxable threshold, so gross == take-home there — this
-    // proves the pipeline still handles a taxed benefit, it isn't silently dropped.)
+  it("draws the Social Security band's take-home from the engine's net when SS IS taxed", () => {
+    // Guards the `benefit:<person>` band end-to-end: the engine already netted the benefit's
+    // tax off, and the app draws that net (6000 inflow → 5100 take-home). (In the default plan
+    // SS is below the taxable threshold, so net == inflow — this proves the pipeline still
+    // handles a taxed benefit, it isn't silently dropped.)
     const months = [
       { month: 0 },
       {
         month: 1,
         flows: {
           incomeSources: [
-            { sourceId: "benefit:p1", label: "Government benefit", category: "governmentRetirementBenefit", grossCents: dollarsToCents(6_000) },
+            source("benefit:p1", dollarsToCents(6_000), "governmentRetirementBenefit", "Government benefit", dollarsToCents(5_100)),
           ],
-          taxBySourceCents: { "benefit:p1": dollarsToCents(900) },
           expensesCents: 0,
           liabilityPaymentsCents: 0,
         },
       },
     ];
     const data = buildIncomeChartData({ months } as unknown as ProjectionSeries);
-    expect(data.rows[0]!.centsBySource["benefit:p1"]).toBe(dollarsToCents(6_000)); // gross
-    expect(data.rows[0]!.netCentsBySource["benefit:p1"]).toBe(dollarsToCents(5_100)); // 6000 − 900 tax
+    expect(data.rows[0]!.centsBySource["benefit:p1"]).toBe(dollarsToCents(6_000)); // cash inflow
+    expect(data.rows[0]!.netCentsBySource["benefit:p1"]).toBe(dollarsToCents(5_100)); // engine net
   });
 });
 

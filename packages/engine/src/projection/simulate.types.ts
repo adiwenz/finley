@@ -126,11 +126,17 @@ export interface ProjectionMonthFlows {
    * taxable income and so is deliberately absent from `incomeByCategoryCents` /
    * `totalIncomeCents` (which stay the taxable-income rollup); it appears only here.
    *
-   * Zero-gross sources (an accrued-interest booking, whose cash is already in the
-   * balance) are omitted — they carry no cash to band.
+   * A savings-interest booking DOES appear here (and in the rollups): its allocation gross
+   * is 0 — the cash is already in the account balance, so the waterfall re-injects nothing —
+   * but it is real, taxable household cash, reported by its {@link
+   * ProjectionIncomeSource.cashInflowCents}. So the cash-flow view shows the interest and
+   * nets its tax off, rather than dropping it.
    */
   readonly incomeSources: readonly ProjectionIncomeSource[];
-  /** Σ of `incomeByCategoryCents` — total gross (taxable) income this month. Excludes the savings drawdown. */
+  /**
+   * Σ of `incomeByCategoryCents` — total realized (taxable) cash income this month,
+   * including savings interest. Excludes the savings drawdown (an asset draw, not income).
+   */
   readonly totalIncomeCents: Cents;
   /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
   readonly governmentRetirementBenefitCents: Cents;
@@ -168,10 +174,11 @@ export interface ProjectionMonthFlows {
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /**
    * This month's pre-tax deferral broken out BY SOURCE (issue #110 follow-up), keyed like
-   * {@link taxBySourceCents}. A source that deferred nothing is absent. With `grossCents`
-   * (from {@link incomeSources}) and `taxBySourceCents`, a consumer can show a source's
-   * take-home (gross − deferral − tax) — e.g. an income chart comparing spendable income
-   * against the month's obligations rather than gross. Absent when no source deferred.
+   * {@link taxBySourceCents}. A source that deferred nothing is absent. The engine already
+   * folds this and `taxBySourceCents` into each source's {@link
+   * ProjectionIncomeSource.netCashFlowCents}, so a consumer reads take-home directly; this
+   * map remains for a per-source deferral view (e.g. the tax chart). Absent when no source
+   * deferred.
    */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /** Non-liability expenses this month (general + health + any authored lines). */
@@ -235,8 +242,24 @@ export interface ProjectionIncomeSource {
   readonly sourceId: string;
   readonly label: string;
   readonly category: IncomeSourceCategory;
-  /** Gross cash this source paid this month. */
-  readonly grossCents: Cents;
+  /**
+   * **Realized cash this source paid into the household this month** — pre-tax,
+   * pre-deferral. Savings-account interest reports its credited interest here: it is real
+   * household cash (it lands in the account balance and is spendable), so it belongs in the
+   * cash-flow view even though the allocation waterfall never re-injects it (the balance
+   * already holds it). Unrealized investment appreciation is NOT cash — it books no source
+   * at all, i.e. `cashInflowCents` 0 — so a brokerage's paper gain never inflates cash flow.
+   */
+  readonly cashInflowCents: Cents;
+  /**
+   * **Engine-produced net cash flow for this source** — `cashInflowCents` minus the pre-tax
+   * deferral it made and the tax it bore, clamped at 0. This is the single source of truth
+   * for take-home: the app displays it directly and never re-derives gross − tax − deferral
+   * itself (which silently drifted from the sim — e.g. it dropped a zero-gross interest
+   * booking's tax). A source with no deferral or tax (a cash drawdown) equals its
+   * `cashInflowCents`. Σ across the month's sources is the household's net cash flow.
+   */
+  readonly netCashFlowCents: Cents;
 }
 
 export interface ProjectionSeries {

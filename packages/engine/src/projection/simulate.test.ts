@@ -13,7 +13,7 @@ import {
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability";
-import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
+import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate, type TaxCategory } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 
 function makePerson(id = "p1", name = "Alice"): SimPerson {
@@ -1147,6 +1147,15 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "flat-ordinary-10",
       computeTaxCents: (byCat) =>
         Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
+      // The per-category breakdown seam (§5.3, #110) — 10% of each taxable category. Supplying
+      // it lets the waterfall attribute tax per source, so a source's net cash flow is defined.
+      computeTaxByCategoryCents: (byCat) => {
+        const out: Partial<Record<TaxCategory, number>> = {};
+        for (const [cat, cents] of Object.entries(byCat)) {
+          if (cents) out[cat as TaxCategory] = Math.round(cents * 0.1);
+        }
+        return out;
+      },
       // Interest is taxed at accrual as ordinary income; capital appreciation is deferred
       // to withdrawal — the same split the US jurisdiction makes. Keyed on the account's
       // `returnKind` (the brokerage now declares "appreciation" explicitly, so the deferral
@@ -1251,6 +1260,106 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       // The gap is ~10% of the reserve's ~$1.1k first-month interest on $120k — the
       // reserve's interest is genuinely booked, not silently dropped or overwritten.
       expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(100));
+    });
+
+    // ── Savings interest is real household cash: the cash-flow reconciliation (#94 follow-up)
+    //
+    // Interest must reconcile four ways at once — it credits the account, enters the
+    // waterfall (once, for tax), shows on the cash-flow view as real cash, and has its tax
+    // netted off — WITHOUT being double-counted against the balance. The desired shape, for
+    // $500 of interest taxed $100: cash inflow $500, tax $100, net cash flow $400, and the
+    // account still credited the full $500 (the tax is paid from other cash, not the balance).
+
+    it("reports credited interest as a cash inflow and nets its tax off (cash flow ≠ zero)", () => {
+      const series = run(0.12);
+      // Month 2 carries last month's credited interest as a source (month 1 hasn't compounded
+      // yet). It is banded — not dropped as it was when it reported grossCents 0. Found by its
+      // stable `interest:` id (the wage series here also defaults to the ordinaryIncome category).
+      const interest = series.months[2].flows?.incomeSources.find((s) =>
+        s.sourceId.startsWith("interest:"),
+      );
+      expect(interest).toBeDefined();
+      expect(interest!.label).toBe("Savings interest");
+      expect(interest!.cashInflowCents).toBeGreaterThan(0);
+      // Its tax is 10% of the interest (flatOrdinary10), attributed back to the interest
+      // source, and the engine's net cash flow is exactly cash inflow − that tax.
+      const tax = series.months[2].flows?.taxBySourceCents?.[interest!.sourceId] ?? 0;
+      // ~10% of the interest (±1¢ from the largest-remainder apportionment of the category tax).
+      expect(Math.abs(tax - Math.round(interest!.cashInflowCents * 0.1))).toBeLessThanOrEqual(1);
+      expect(tax).toBeGreaterThan(0);
+      expect(interest!.netCashFlowCents).toBe(interest!.cashInflowCents - tax);
+      expect(interest!.netCashFlowCents).toBeLessThan(interest!.cashInflowCents); // tax deducted
+      // …and it counts toward the household's taxable-income total (wages + interest).
+      expect(series.months[2].flows?.totalIncomeCents).toBe(
+        dollarsToCents(3_000) + interest!.cashInflowCents,
+      );
+    });
+
+    it("credits the account exactly once — the interest cash is never re-deposited", () => {
+      // No income, no expenses: nothing enters the allocation waterfall, so the ONLY thing
+      // moving the savings balance is compounding. If the interest booking's cash were
+      // (wrongly) re-injected, month 2 would jump by roughly a second interest payment;
+      // instead the balance follows pure month-over-month compounding.
+      const series = simulateHousehold(
+        {
+          horizonMonths: 4,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          accounts: [savings(120_000, 0.12)],
+          incomeSeries: [],
+          expenseSeries: [],
+        },
+        flatOrdinary10,
+      );
+      const opening = dollarsToCents(120_000);
+      const r = preciseMonthlyRate(0.12);
+      const b1 = series.months[1].accountBalancesCents["savings"];
+      const b2 = series.months[2].accountBalancesCents["savings"];
+      // Each month is exactly the prior balance grown once — no extra interest deposit.
+      expect(b1).toBe(Math.round(opening * (1 + r)));
+      expect(b2).toBe(Math.round(b1 * (1 + r)));
+      // Even though month 2 DID report the interest as a cash inflow, the balance did not
+      // double-count it: month 2's growth is ~one interest payment, not two.
+      const grewBy = b2 - b1;
+      const interest = series.months[2].flows?.incomeSources.find((s) =>
+        s.sourceId.startsWith("interest:"),
+      );
+      expect(interest?.cashInflowCents).toBeGreaterThan(0);
+      expect(grewBy).toBeLessThan(interest!.cashInflowCents * 1.5); // one payment, not two
+    });
+
+    it("keeps flat brokerage ROI as non-cash growth — no interest cash inflow, no accrual tax", () => {
+      // A brokerage's return is unrealized appreciation (deferred), not cash: it must never
+      // book a cash-inflow source, so paper gains can't inflate the cash-flow view.
+      const brokerage = new SimAccount({
+        id: "brokerage",
+        ownerId: "p1",
+        liquid: false,
+        taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+        openingBalanceCents: dollarsToCents(120_000),
+        initialAnnualRate: 0.12,
+      });
+      const series = simulateHousehold(
+        {
+          horizonMonths: 4,
+          annualInflationRate: 0,
+          persons: [makePerson()],
+          // A liquid cash sink for surplus, plus the brokerage under test. The cash sink
+          // earns 0% so the ONLY candidate for an ordinaryIncome cash inflow is the brokerage.
+          accounts: [savings(0, 0, "cash"), brokerage],
+          incomeSeries: [{ series: monthlyIncome(dollarsToCents(3_000)), ownerId: "p1" }],
+          expenseSeries: [],
+        },
+        flatOrdinary10,
+      );
+      for (const m of [1, 2, 3, 4]) {
+        const sources = series.months[m].flows?.incomeSources ?? [];
+        // The brokerage's growth is deferred — it appears as no cash-inflow source at all.
+        expect(sources.some((s) => s.sourceId.startsWith("interest:"))).toBe(false);
+        // And its balance still grows untaxed at accrual (wage-only tax every month).
+        expect(series.months[m].flows?.taxCents).toBe(dollarsToCents(300));
+      }
+      expect(series.months[4].accountBalancesCents["brokerage"]).toBeGreaterThan(dollarsToCents(120_000));
     });
   });
 });

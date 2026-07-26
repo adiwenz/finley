@@ -71,38 +71,61 @@ export function buildFlows(
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Aggregate genuine income by source, preserving first-seen order. A source is keyed
-  // by its `sourceId` (or its tax category as a fallback); repeated keys sum.
-  const bySource = new Map<string, ProjectionIncomeSource>();
+  // by its `sourceId` (or its tax category as a fallback); repeated keys sum. We band on
+  // `cashInflowCents` — the realized cash the source paid — which for accrued interest is
+  // its interest (grossCents 0, but real household cash) and for everything else is its
+  // gross. So interest now appears in the cash-flow view instead of being dropped.
+  const bySource = new Map<string, { cashInflowCents: Cents; label: string; category: string }>();
   const order: string[] = [];
   for (const src of incomeSources) {
+    const cashInflow = src.cashInflowCents ?? src.grossCents;
     incomeByCategoryCents[src.taxCategory] =
-      (incomeByCategoryCents[src.taxCategory] ?? 0) + src.grossCents;
-    totalIncomeCents += src.grossCents;
-    // A zero-gross booking (accrued interest, whose cash is already in the balance)
-    // carries no cash to band — it belongs to the category rollup above, not here.
-    if (src.grossCents === 0) continue;
+      (incomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
+    totalIncomeCents += cashInflow;
+    // No realized cash → nothing to band (a placeholder booking, or unrealized growth).
+    if (cashInflow === 0) continue;
     const sourceId = src.sourceId ?? src.taxCategory;
     const existing = bySource.get(sourceId);
     if (existing !== undefined) {
-      bySource.set(sourceId, { ...existing, grossCents: existing.grossCents + src.grossCents });
+      existing.cashInflowCents += cashInflow;
     } else {
       order.push(sourceId);
       bySource.set(sourceId, {
-        sourceId,
+        cashInflowCents: cashInflow,
         label: src.label ?? src.taxCategory,
         category: src.taxCategory,
-        grossCents: src.grossCents,
       });
     }
   }
-  const sources: ProjectionIncomeSource[] = order.map((id) => bySource.get(id)!);
-  // The liquid-buffer drawdown: its own reporting-only source, never a tax bucket.
+  // Finish each banded source with its engine-produced net cash flow (§5.3, #110
+  // follow-up): cash inflow minus the pre-tax deferral it made and the tax it bore, keyed
+  // by the SAME id the waterfall attributed those on. Clamped at 0 defensively. This is
+  // the take-home the app now displays directly instead of re-deriving (and re-deriving
+  // dropped interest's tax, understating the household's net). Absent breakdown maps → no
+  // haircut, so net equals cash inflow (a null jurisdiction's single-band fallback).
+  const netCashFlow = (sourceId: string, cashInflowCents: Cents): Cents => {
+    const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents?.[sourceId] ?? 0);
+    return Math.max(0, cashInflowCents - haircut);
+  };
+  const sources: ProjectionIncomeSource[] = order.map((id) => {
+    const s = bySource.get(id)!;
+    return {
+      sourceId: id,
+      label: s.label,
+      category: s.category as ProjectionIncomeSource["category"],
+      cashInflowCents: s.cashInflowCents,
+      netCashFlowCents: netCashFlow(id, s.cashInflowCents),
+    };
+  });
+  // The liquid-buffer drawdown: its own reporting-only source, never a tax bucket. It bears
+  // no tax or deferral (spending an asset, not income), so its net equals its cash.
   if (liquidDrawdownCents > 0) {
     sources.push({
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
       label: SAVINGS_DRAWDOWN_LABEL,
       category: "savingsDrawdown",
-      grossCents: liquidDrawdownCents,
+      cashInflowCents: liquidDrawdownCents,
+      netCashFlowCents: liquidDrawdownCents,
     });
   }
   // The budget-line slice of the one itemized list, in a single pass: this runs once

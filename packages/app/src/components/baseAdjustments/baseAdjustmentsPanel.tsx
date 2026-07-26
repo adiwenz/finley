@@ -146,9 +146,20 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
   const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
   const incomeChartData = useMemo(() => buildIncomeChartData(series), [series]);
   const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
-  /** Gross income the projection pays in each month, indexed by month. */
+  /**
+   * The EARNED + BENEFIT income the projection pays in each month, indexed by month — the
+   * pay-editing readonly's figure. It is deliberately wages + government benefit, NOT the
+   * full taxable rollup (`totalIncomeCents`): passive savings interest and asset drawdowns
+   * are real cash flow the income chart shows, but they are not "the income the projection
+   * pays you" that this pay editor is about, so they are excluded here.
+   */
   const incomeByMonth = useMemo(
-    () => series.months.map((m) => m.flows?.totalIncomeCents ?? 0),
+    () =>
+      series.months.map((m) => {
+        const byCategory = m.flows?.incomeByCategoryCents;
+        if (byCategory === undefined) return 0;
+        return (byCategory.wages ?? 0) + (byCategory.governmentRetirementBenefit ?? 0);
+      }),
     [series],
   );
 

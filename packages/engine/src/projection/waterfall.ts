@@ -73,10 +73,21 @@ export interface IncomeSourceMonth {
    *    whole gross is still paid out as take-home, only the taxable base shrinks;
    *  - an accrued-interest booking (savings, Commit 2) books its interest here with
    *    `grossCents` 0 — the interest is taxed without re-injecting cash the balance
-   *    already holds.
+   *    already holds (so the waterfall allocates nothing for it), yet it still reports
+   *    as real household cash via {@link cashInflowCents}.
    * Absent → the full gross is taxable (wages, benefit, RMD, pre-tax draws).
    */
   readonly taxableCents?: Cents;
+  /**
+   * The **realized cash this source pays into the household**, for the cash-flow report
+   * ({@link import("./reportFlows").buildFlows}) — distinct from `grossCents`, which is the
+   * cash the ALLOCATION waterfall must place. They differ only for an accrued-interest
+   * booking: its `grossCents` is 0 (the balance already holds the cash — allocating it
+   * again would double-credit the account) while its `cashInflowCents` is the interest,
+   * because it genuinely is money the household received. Absent → defaults to `grossCents`
+   * (wages, benefit, RMD, and returned-basis draws all pay their whole gross as cash).
+   */
+  readonly cashInflowCents?: Cents;
 }
 
 /** Lever 2: how much each person contributes to shared obligations (§5.0 step 3). */

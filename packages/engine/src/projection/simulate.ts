@@ -596,15 +596,19 @@ function compoundAssets(
 
 /**
  * Last month's credited interest as this month's taxable income (§#94 Commit 2). The
- * cash was already credited to each buffer's balance by `compoundAssets`, so these are
- * ZERO-gross sources — `grossCents` 0, only `taxableCents` booked — taxed through the
- * §5.3 seam without re-injecting cash the balance already holds. One source per
- * (owner, tax category): two cash accounts one person holds, each keyed independently
- * in the accrual map, combine into a single booking of their shared category so the
- * seam sees the owner's whole interest at once. Empty in month 1 (nothing has
- * compounded yet) and whenever every buffer's return was zero. Interest is ordinary
- * income, so it lands in the §5.4 provisional-income formula and can pull a government
- * benefit into taxability.
+ * cash was already credited to each buffer's balance by `compoundAssets`, so these carry
+ * `grossCents` 0 — the ALLOCATION waterfall places nothing (re-injecting it would
+ * double-credit the account), and the interest is taxed through the §5.3 seam via
+ * `taxableCents`. But it IS real household cash, so it also reports its interest as
+ * {@link IncomeSourceMonth.cashInflowCents}: the cash-flow view then shows $500 of
+ * interest and its tax, netting to $400, while the balance still shows the full $500 —
+ * the money is counted once as a balance credit and once as a cash flow, never twice as
+ * a balance. One source per (owner, tax category): two cash accounts one person holds,
+ * each keyed independently in the accrual map, combine into a single booking of their
+ * shared category so the seam sees the owner's whole interest at once. Empty in month 1
+ * (nothing has compounded yet) and whenever every buffer's return was zero. Interest is
+ * ordinary income, so it lands in the §5.4 provisional-income formula and can pull a
+ * government benefit into taxability.
  */
 function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
@@ -627,15 +631,17 @@ function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   }
   const sources: IncomeSourceMonth[] = [];
   for (const { ownerId, category, cents } of byOwnerCategory.values()) {
-    // Zero-gross (the cash is already in the balance) — reported under a stable id so
-    // the flow view can key it, though it carries no cash to band (issue #99).
+    // Zero allocation-gross (the cash is already in the balance, so the waterfall places
+    // nothing) but a real cash inflow for the flow view: the interest is genuine household
+    // cash, reported under a stable id so the cash-flow chart bands it and deducts its tax.
     sources.push({
       ownerId,
       grossCents: 0,
+      cashInflowCents: cents,
       taxCategory: category,
       taxableCents: cents,
       sourceId: `interest:${ownerId}:${category}`,
-      label: "Interest",
+      label: "Savings interest",
     });
   }
   return sources;

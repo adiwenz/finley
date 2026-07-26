@@ -38,14 +38,17 @@ export interface IncomeSourceBand {
 /** One month's income row for the chart. */
 export interface IncomeMonthRow {
   readonly month: number;
-  /** Gross cash this month, keyed by source id (pre-tax, pre-deferral). */
+  /** Cash inflow this month, keyed by source id (realized cash, pre-tax, pre-deferral). */
   readonly centsBySource: Readonly<Record<string, number>>;
   /**
-   * Take-home cash this month, keyed by source id: each source's gross minus the pre-tax
-   * deferral it made and the tax it bore (issue #110 follow-up), so it never exceeds
-   * `centsBySource`. This is the money actually available to cover the month's spending —
-   * the honest quantity to read against `spendingNeedCents`. A source with no deferral or
-   * tax (a cash drawdown) has the same value as its gross.
+   * Take-home cash this month, keyed by source id — the engine's per-source
+   * {@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents} (cash inflow
+   * minus the pre-tax deferral it made and the tax it bore), read straight through so it
+   * never exceeds `centsBySource`. This is the money actually available to cover the
+   * month's spending — the honest quantity to read against `spendingNeedCents`. The engine
+   * owns this arithmetic (issue #110 follow-up): the app no longer re-derives gross − tax −
+   * deferral, which had silently dropped savings-interest's tax. A source with no deferral
+   * or tax (a cash drawdown) has the same value as its cash inflow.
    */
   readonly netCentsBySource: Readonly<Record<string, number>>;
   readonly totalCents: number;
@@ -137,25 +140,18 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     const sources = m.flows?.incomeSources;
     if (sources === undefined) continue; // month 0 / any flow-free snapshot
 
-    // The per-source tax and deferral the engine attributed this month (issue #110
-    // follow-up), keyed the same way as `incomeSources`. Absent → 0 (no take-home haircut).
-    const taxBySource = m.flows?.taxBySourceCents ?? {};
-    const deferralBySource = m.flows?.deferralBySourceCents ?? {};
-
     const centsBySource: Record<string, number> = {};
     const netCentsBySource: Record<string, number> = {};
     let totalCents = 0;
     let takeHomeCents = 0;
     for (const s of sources) {
-      if (s.grossCents === 0) continue;
-      centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.grossCents;
-      totalCents += s.grossCents;
-      // Take-home = gross − this source's pre-tax deferral − the tax it bore. Clamped at 0
-      // defensively (a source's tax never exceeds its taxable base, so this rarely bites).
-      const haircut = (taxBySource[s.sourceId] ?? 0) + (deferralBySource[s.sourceId] ?? 0);
-      const net = Math.max(0, s.grossCents - haircut);
-      netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + net;
-      takeHomeCents += net;
+      if (s.cashInflowCents === 0) continue;
+      centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.cashInflowCents;
+      totalCents += s.cashInflowCents;
+      // Take-home is the engine's per-source net cash flow (cash inflow − deferral − tax),
+      // read straight through — the engine owns this arithmetic so the two can't drift.
+      netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + s.netCashFlowCents;
+      takeHomeCents += s.netCashFlowCents;
       if (!seen.has(s.sourceId)) {
         seen.set(s.sourceId, { id: s.sourceId, label: s.label, category: s.category });
         order.push(s.sourceId);

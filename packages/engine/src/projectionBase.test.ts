@@ -157,7 +157,7 @@ describe("createProjectionBase — income reported by source + savings drawdown 
     // A real per-source id (a specific job), not the bare tax bucket.
     expect(job!.sourceId.startsWith("job:")).toBe(true);
     // The tax-category rollup is retained and agrees with the source figure.
-    expect(working.incomeByCategoryCents["wages"]).toBe(job!.grossCents);
+    expect(working.incomeByCategoryCents["wages"]).toBe(job!.cashInflowCents);
   });
 
   it("shows a retirement-gap month funded by savings as a drawdown source, not zero income", () => {
@@ -170,7 +170,7 @@ describe("createProjectionBase — income reported by source + savings drawdown 
     );
     expect(drawdownMonth).toBeDefined();
     const drawdown = drawdownMonth!.flows!.incomeSources.find((s) => s.category === "savingsDrawdown")!;
-    expect(drawdown.grossCents).toBeGreaterThan(0);
+    expect(drawdown.cashInflowCents).toBeGreaterThan(0);
     // The drawdown is spending an asset, not taxable income — it never enters the rollup.
     expect(drawdownMonth!.flows!.incomeByCategoryCents["savingsDrawdown"]).toBeUndefined();
   });

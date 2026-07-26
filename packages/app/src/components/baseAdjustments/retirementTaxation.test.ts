@@ -42,9 +42,11 @@ it("taxes Social Security when 401(k) withdrawals accompany it, keyed to the ben
   const bySrc = m.flows!.taxBySourceCents as Record<string, number>;
   const benefit = m.flows!.incomeSources!.find((s) => s.category === "governmentRetirementBenefit")!;
 
-  // The SS category tax is attributed to the benefit SOURCE key (not lost), so the income
-  // chart's SS band take-home = gross − that tax. The keys line up (`benefit:<person>`).
+  // The SS category tax is attributed to the benefit SOURCE key (not lost), so the engine's
+  // per-source net cash flow drops below the benefit's cash inflow by that tax. Keys line up
+  // (`benefit:<person>`).
   expect(bySrc[benefit.sourceId]).toBe(byCat.governmentRetirementBenefit);
   expect(bySrc[benefit.sourceId]).toBeGreaterThan(0);
-  expect(benefit.grossCents - bySrc[benefit.sourceId]!).toBeLessThan(benefit.grossCents); // take-home < gross
+  expect(benefit.netCashFlowCents).toBe(benefit.cashInflowCents - bySrc[benefit.sourceId]!);
+  expect(benefit.netCashFlowCents).toBeLessThan(benefit.cashInflowCents); // take-home < gross
 });
