@@ -646,3 +646,53 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
     expect(r.taxCents).toBe(dollarsToCents(500));
   });
 });
+
+describe("runWaterfall — unfunded deductions (deductions beyond the waterfall's cash → shortfall)", () => {
+  // An accrued-interest booking: $0 of waterfallInflow (the balance already holds the cash)
+  // but a real taxable base — so its tax is a deduction the waterfall has no cash in hand to
+  // fund. `taxableCents` carries the base with `waterfallInflowCents` 0.
+  const interestBooking = (taxableDollars: number): IncomeSourceMonth => ({
+    ownerId: "p1",
+    waterfallInflowCents: 0,
+    taxCategory: "ordinaryIncome",
+    taxableCents: dollarsToCents(taxableDollars),
+  });
+  const tax20 = (byCat: Partial<Record<string, number>>): number =>
+    Math.round(((byCat.wages ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.2);
+
+  it("turns a deduction larger than the cash reaching the waterfall into a shortfall", () => {
+    // $500 interest taxed 20% → $100, and no cash reached the waterfall to pay it: the $100 is
+    // the whole shortfall (funded downstream by the §5.1 cascade), not silently clamped to 0.
+    const r = runWaterfall(makeInput({ incomeSources: [interestBooking(500)], computeTaxCents: tax20 }));
+    expect(r.taxCents).toBe(dollarsToCents(100));
+    expect(r.shortfallCents).toBe(dollarsToCents(100));
+    expect(r.accountDepositsCents.size).toBe(0); // no positive cash to place
+  });
+
+  it("counts the unfunded deduction exactly once, on top of an unmet obligation", () => {
+    // $400 obligation with no cash + the $100 unfunded interest tax → shortfall $500, each part
+    // counted once.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [interestBooking(500)],
+        sharedObligationCents: dollarsToCents(400),
+        computeTaxCents: tax20,
+      }),
+    );
+    expect(r.shortfallCents).toBe(dollarsToCents(500));
+  });
+
+  it("raises no shortfall when other cash covers the deduction (take-home stays positive)", () => {
+    // Wages $5,000 alongside the $500 interest: tax = 20% × $5,500 = $1,100, take-home =
+    // 5,000 − 1,100 = 3,900 (positive). The interest tax is absorbed — no unfunded deduction,
+    // no shortfall — and the $3,900 idles in the liquid account.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000)), interestBooking(500)],
+        computeTaxCents: tax20,
+      }),
+    );
+    expect(r.shortfallCents).toBe(0);
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3900));
+  });
+});

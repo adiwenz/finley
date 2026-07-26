@@ -416,15 +416,17 @@ function attributeTaxToSources(
  * silently absorbed by the other partner. Returns each person's leftover, the
  * combined discretionary pool, and the shortfall.
  *
- * A NEGATIVE take-home is a real cash need, not nothing: it means this person's tax
- * exceeded the cash they took in this month — which happens when taxable income brings no
- * cash into the waterfall (an accrued-interest booking taxes $X while contributing $0 of
- * `waterfallInflowCents`, since the balance already holds the interest). That deficit is the
- * tax owed on that income; it is added to the household shortfall so the §5.1 cascade funds
- * it (drain savings → credit → insolvency), exactly like an unmet obligation. Clamping it to
- * 0 instead — the old behaviour — silently dropped the tax: with no other income the interest
- * tax was reported but never drawn from the balance, so the ending balance overstated wealth
- * by the tax (and a genuinely unpayable tax bill never surfaced as insolvency).
+ * A NEGATIVE take-home is a real cash need, not nothing: it means this person's DEDUCTIONS
+ * (`deferralCents + taxCents`) exceeded the cash that actually reached the allocation
+ * waterfall (`waterfallInflowCents`). The usual cause today is tax on cash credited OUTSIDE
+ * the waterfall — an accrued-interest booking taxes $X while contributing $0 of
+ * `waterfallInflowCents`, since the balance already holds the interest — but the treatment is
+ * deliberately cause-agnostic: whatever the unfunded deduction, it is added to the household
+ * shortfall so the §5.1 cascade funds it (drain savings → credit → insolvency), exactly like
+ * an unmet obligation. Clamping it to 0 instead — the old behaviour — silently dropped it:
+ * with no other cash reaching the waterfall the deduction was reported but never drawn from
+ * the balance, so the ending balance overstated wealth by that amount (and a genuinely
+ * unpayable bill never surfaced as insolvency).
  */
 function splitSharedObligation(
   input: WaterfallInput,
@@ -432,14 +434,16 @@ function splitSharedObligation(
 ): { leftoverByPerson: Map<string, Cents>; totalDiscretionary: Cents; shortfallCents: Cents } {
   const positiveTakeHome = new Map<string, Cents>();
   let totalPositive: Cents = 0;
-  // Tax owed beyond a person's cash inflow (their take-home gone negative), summed across the
-  // household — a cash need the §5.1 cascade must fund, folded into the shortfall below.
-  let taxDeficitCents: Cents = 0;
+  // Deductions (deferral + tax) that exceeded the cash reaching the waterfall this month — a
+  // person's take-home gone negative — summed across the household. Cause-agnostic (today
+  // usually tax on out-of-waterfall cash like savings interest); a real cash need the §5.1
+  // cascade must fund, folded into the shortfall below.
+  let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
-    const raw = takeHomeByPerson.get(pid) ?? 0;
-    positiveTakeHome.set(pid, Math.max(0, raw));
-    totalPositive += Math.max(0, raw);
-    if (raw < 0) taxDeficitCents += -raw;
+    const rawTakeHomeCents = takeHomeByPerson.get(pid) ?? 0;
+    positiveTakeHome.set(pid, Math.max(0, rawTakeHomeCents));
+    totalPositive += Math.max(0, rawTakeHomeCents);
+    unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
   const shareByPerson = new Map<string, Cents>();
@@ -484,9 +488,9 @@ function splitSharedObligation(
   // so this term is 0 and the shortfall is purely the sum of uncovered shares.
   const assignedShare = [...shareByPerson.values()].reduce((s, v) => s + v, 0);
   shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
-  // Tax owed beyond any cash the household took in (see the deficit note above) is funded by
-  // the §5.1 cascade too — so accrued-interest tax is drawn from the balance, not dropped.
-  shortfallCents += taxDeficitCents;
+  // Deductions that exceeded the cash the household took in (see the note above) are funded by
+  // the §5.1 cascade too — so e.g. accrued-interest tax is drawn from the balance, not dropped.
+  shortfallCents += unfundedDeductionsCents;
 
   return { leftoverByPerson, totalDiscretionary, shortfallCents };
 }
