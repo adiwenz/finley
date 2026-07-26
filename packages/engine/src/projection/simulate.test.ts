@@ -15,29 +15,12 @@ import {
 } from "../liability";
 import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate, type TaxCategory } from "../cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-
-function makePerson(id = "p1", name = "Alice"): SimPerson {
-  return { id, name };
-}
-
-function makeInvestmentAccount(openingCents: number, annualRate: number): SimAccount {
-  return new SimAccount({
-    id: "investment",
-    ownerId: "p1",
-    liquid: true,
-    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
-    initialAnnualRate: annualRate,
-  });
-}
-
-function monthlyIncome(monthlyCents: number): SimCashFlowSeries {
-  return new SimCashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
-}
-
-function monthlyExpense(monthlyCents: number): SimCashFlowSeries {
-  return new SimCashFlowSeries(0, monthlyCents, { type: "fixed" }, { baselineUnit: "monthly" });
-}
+import {
+  makePerson,
+  makeInvestmentAccount,
+  monthlyIncome,
+  monthlyExpense,
+} from "./simulate.testSupport";
 
 describe("simulateHousehold", () => {
   it("month 0 is the opening balance, unchanged", () => {
