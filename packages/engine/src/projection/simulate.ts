@@ -23,6 +23,7 @@ import type {
   ProjectionSeries,
 } from "./simulate.types";
 import { initSimState, type SimState } from "./runState";
+import { snapshotMonth } from "./monthSnapshot";
 
 // Re-exported so existing importers (and the engine barrel in index.ts) keep resolving
 // the simulator's public types through ./simulate. `SimPerson` is deliberately OMITTED:
@@ -42,15 +43,6 @@ export type {
 } from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
-
-function toRealCents(
-  nominalCents: Cents,
-  annualInflationRate: number,
-  month: number,
-): Cents {
-  const years = month / 12;
-  return Math.round(nominalCents / Math.pow(1 + annualInflationRate, years));
-}
 
 // ---------------------------------------------------------------------------
 // Household simulator — real income/expense series + compounding accounts
@@ -558,60 +550,6 @@ function fireGoalDispositions(state: SimState, month: number): void {
     fired.add(goal.id);
   }
   if (fired.size > 0) state.goals = state.goals.filter((g) => !fired.has(g.id));
-}
-
-/**
- * Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal
- * / (1+infl)^yrs (§0.4). When `netWorthTerminated` (a PRIOR month already went
- * insolvent, §5.1) both net-worth figures are reported as `null` — the model can no
- * longer say what net worth is once unfunded spending has been dropped. The balances
- * themselves are still emitted (diagnostic), only the aggregate net worth is nulled.
- */
-function snapshotMonth(
-  state: SimState,
-  month: number,
-  annualInflationRate: number,
-  isInsolvent: boolean,
-  netWorthTerminated: boolean,
-  liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>,
-  flows: ProjectionMonthFlows | undefined,
-): ProjectionMonth {
-  let nominalNetWorth: Cents = 0;
-
-  const accountBalancesCents: Record<string, Cents> = {};
-  for (const acc of state.accounts) {
-    const bal = state.assetBalances.get(acc.id) ?? 0;
-    accountBalancesCents[acc.id] = bal;
-    nominalNetWorth += bal;
-  }
-
-  const liabilityBalancesCents: Record<string, Cents> = {};
-  for (const liab of state.liabilities) {
-    const bal = state.liabilityBalances.get(liab.id) ?? 0;
-    liabilityBalancesCents[liab.id] = bal;
-    nominalNetWorth -= bal;
-  }
-
-  const propertyValuesCents: Record<string, Cents> = {};
-  for (const p of state.properties) {
-    const value = state.propertyValues.get(p.id) ?? 0;
-    propertyValuesCents[p.id] = value;
-    nominalNetWorth += value;
-  }
-
-  return {
-    month,
-    netWorthNominalCents: netWorthTerminated ? null : nominalNetWorth,
-    netWorthRealCents: netWorthTerminated
-      ? null
-      : toRealCents(nominalNetWorth, annualInflationRate, month),
-    accountBalancesCents,
-    liabilityBalancesCents,
-    liabilityPaymentRecords,
-    propertyValuesCents,
-    isInsolvent,
-    ...(flows !== undefined ? { flows } : {}),
-  };
 }
 
 /**
