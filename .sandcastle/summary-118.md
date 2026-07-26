@@ -189,6 +189,33 @@ one name for two bands identifies neither; a lone untitled job stays unnumbered,
 label cannot shift as other jobs come and go. A band's identity is its `sourceId`
 throughout; this is display text, and the debug report gets the same fix.
 
+**6. Editing a job is one operation — fields and owner together.** Reassignment was two
+unrelated writes: the job was removed from one member's list and a *new* one minted on the
+other from the form draft alone. The draft is a projection of a job, not the whole of one,
+so the job came back with a fresh id and without its one-month overrides, its permanent pay
+changes, or its employer match — and if the ledger half of the move was refused (§6.1) after
+the plan half had been written, the job was lost outright.
+
+- **`applyJobDraft(job, birthYear, draft)`** (`planPeople.ts`) applies the form's fields onto
+  the **existing full `Job`**, carrying everything else — id, overrides, pay changes, the
+  deferral's account and match, and any field added to `Job` later — untouched. `updateJobInList`
+  is now one line over it, and its hand-written graft-back of the same fields is gone.
+- **`editJob(owners, sourceOwnerId, jobId, draft)`** (`packages/app/src/jobEditing.ts`) is the
+  single domain operation: it resolves the job and the target owner, applies the draft **once**
+  against the *target's* birth year (an authored age follows the job to its new owner), and
+  returns the complete set of list rewrites — one for an in-place edit, two for a transfer. Every
+  check runs before any write is produced, so a refused edit yields no writes at all.
+- **The commit is atomic across the two planes.** `useLedger.reviseEvents` replays a batch onto
+  one ledger value and reports whether it committed; the Jobs panel writes the ledger side first
+  and the plan side only if it was accepted. A job can no longer be removed from one member and
+  missing from the other.
+
+Pinned by 11 tests in `jobEditing.test.ts` (in-place edit, owner + salary + dates in one
+submission, id/overrides/pay-changes/match preserved across a transfer, ages re-read against the
+target owner, and each unresolvable edit writing nothing) plus two panel tests: the whole job
+surviving a real plan → ledger reassignment, and a refused ledger revision leaving both planes
+untouched.
+
 ## Notes for the next iteration
 
 - ~~**In-place editing of an existing partner's jobs** is deferred; it needs an "update

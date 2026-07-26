@@ -12,17 +12,29 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 
+/** One event to replace, by id — the unit {@link UseLedger.reviseEvents} commits. */
+export interface EventRevision {
+  readonly id: string;
+  readonly next: NewLifeEvent;
+}
+
 export interface UseLedger {
   ledger: Ledger;
   conflict: string | null;
   recordEvent: (event: NewLifeEvent) => void;
   /**
-   * Revise an event already on the timeline, keeping its id and its place in the log —
-   * how a partner's own jobs are edited after they join (issue #118). A revision that
-   * would strand a later event is rejected and surfaces as a conflict, exactly like a
-   * blocked removal.
+   * Revise events already on the timeline, keeping each one's id and its place in the log —
+   * how a partner's own jobs are edited after they join (issue #118). A revision that would
+   * strand a later event is rejected and surfaces as a conflict, exactly like a blocked
+   * removal.
+   *
+   * **All or nothing**, and it reports back: the revisions are replayed onto one ledger
+   * value and committed only if every one is accepted. Returning `false` for a rejected
+   * batch is what lets a caller spanning both authoring planes stay atomic — the Jobs panel
+   * moves a job between members by revising an event *and* editing the plan, and must not
+   * write the plan side if the ledger side was refused (issue #118).
    */
-  reviseEvent: (id: string, next: NewLifeEvent) => void;
+  reviseEvents: (revisions: readonly EventRevision[]) => boolean;
   removeEvent: (id: string) => void;
   /**
    * Replace the whole ledger wholesale — the seam a preset load uses to swap in a
@@ -41,6 +53,12 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
   // see the latest base without being re-created on every budget edit.
   const baseRef = useRef(base);
   baseRef.current = base;
+  // The latest ledger, readable *synchronously*. `reviseEvents` has to answer whether it
+  // was accepted before its caller writes the other plane, which a functional updater
+  // (whose result arrives a render later) cannot do. Mirrored on every render and again on
+  // each accepted revision, so two revisions in one tick still see each other.
+  const ledgerRef = useRef(ledger);
+  ledgerRef.current = ledger;
 
   function recordEvent(event: NewLifeEvent) {
     setLedger((current) => {
@@ -54,15 +72,23 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     });
   }
 
-  function reviseEvent(id: string, next: NewLifeEvent) {
-    setLedger((current) => {
-      // Resolve against the latest ledger, like removal, so two revisions in one tick
-      // can't discard each other. A blocked revision keeps the ledger and surfaces the
-      // §6.1 conflict.
-      const result = updateLedgerEvent(current, id, next, baseRef.current);
-      setConflict(result.ok ? null : result.conflict);
-      return result.ok ? result.ledger : current;
-    });
+  function reviseEvents(revisions: readonly EventRevision[]): boolean {
+    // Replayed onto ONE ledger value and committed only once every revision is accepted:
+    // a batch that fails part-way leaves the ledger exactly as it was, and the §6.1
+    // conflict names the revision that blocked it.
+    let next = ledgerRef.current;
+    for (const revision of revisions) {
+      const result = updateLedgerEvent(next, revision.id, revision.next, baseRef.current);
+      if (!result.ok) {
+        setConflict(result.conflict);
+        return false;
+      }
+      next = result.ledger;
+    }
+    setConflict(null);
+    ledgerRef.current = next;
+    setLedger(next);
+    return true;
   }
 
   function removeEvent(id: string) {
@@ -81,5 +107,5 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
     setConflict(null);
   }
 
-  return { ledger, conflict, recordEvent, reviseEvent, removeEvent, resetLedger };
+  return { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger };
 }

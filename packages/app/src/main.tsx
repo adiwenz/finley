@@ -47,7 +47,7 @@ export function App() {
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
-  const { ledger, conflict, recordEvent, reviseEvent, removeEvent, resetLedger } = useLedger(base);
+  const { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger } = useLedger(base);
 
   // Load a starter simulation wholesale (issue #119): swap in its plan AND its
   // seed timeline together. The new ledger is built against the *incoming* plan's
@@ -214,7 +214,7 @@ export function App() {
           setBudget={setBudget}
           household={household}
           ledger={ledger}
-          onUpdateEvent={reviseEvent}
+          onReviseEvents={reviseEvents}
         />
       </div>
 

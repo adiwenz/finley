@@ -158,9 +158,55 @@ export function nextJobIdFor(ownerId: PersonId, jobs: readonly Job[]): string {
 }
 
 /**
+ * Apply a form draft to an **existing** job, in place: the fields the form edits are
+ * overwritten and everything else is carried through untouched — the job's `id`, its
+ * one-month {@link JobIncomeOverride}s, its permanent {@link JobPayChange}s, the deferral's
+ * `fundAccountId` and employer match, and any field added to {@link Job} later. Ages resolve
+ * against `birthYear`, which is the **owner named by the draft** (issue #118): reassigning a
+ * job re-reads its start/end ages against the new owner's clock, so "started at 30" keeps
+ * meaning what it says.
+ *
+ * The counterpart to {@link buildJobFromDraft}, which *mints* a job and so can only carry
+ * what a draft holds. An edit must never round-trip through minting: the draft is a
+ * projection of a job (§10.3), not the whole of one, and a rebuild silently drops the rest.
+ */
+export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job {
+  const name = draft.name.trim();
+  // `name` and `deferral` are pulled out of the carried-through remainder because a blank
+  // name and a 0% deferral must *remove* them, not leave the old value standing.
+  const { name: _priorName, deferral: prior, ...carried } = job;
+  return {
+    ...carried,
+    ...(name ? { name } : {}),
+    ownerId: draft.ownerId,
+    startYear: birthYear + draft.startAge,
+    endYear: draft.endAge === null ? null : birthYear + draft.endAge,
+    salary: {
+      ...job.salary,
+      startingSalaryCents: draft.monthlyCents * 12,
+      realGrowthPct: draft.realGrowthPct,
+    },
+    ...(draft.deferralPct > 0
+      ? {
+          deferral: {
+            deferralFraction: draft.deferralPct / 100,
+            // The account it funds and the employer match are properties of the
+            // employment, not of the form — kept as authored.
+            fundAccountId: prior?.fundAccountId ?? RETIREMENT_ID,
+            ...(prior?.employerMatchFraction !== undefined
+              ? { employerMatchFraction: prior.employerMatchFraction }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Build a {@link Job} from a draft (ages → years, %→fraction). The draft names its owner
  * and `birthYear` is that owner's, so one builder serves the primary person's jobs and a
- * partner's (issue #118).
+ * partner's (issue #118). For an *existing* job use {@link applyJobDraft} — this mints a
+ * new one and carries only what a draft holds.
  */
 export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
   const name = draft.name.trim();
@@ -189,9 +235,8 @@ export function addJobToList(jobs: readonly Job[], birthYear: number, draft: Job
 }
 
 /**
- * Rewrite the job with `id` from a form draft, preserving the parts the form doesn't
- * edit: any one-month {@link JobIncomeOverride}s, permanent {@link JobPayChange}s, and an
- * employer match on the deferral.
+ * Rewrite the job with `id` from a form draft, in place — {@link applyJobDraft} on the one
+ * job, so everything the form doesn't edit rides along untouched.
  */
 export function updateJobInList(
   jobs: readonly Job[],
@@ -199,19 +244,7 @@ export function updateJobInList(
   birthYear: number,
   draft: JobDraft,
 ): readonly Job[] {
-  return jobs.map((j) => {
-    if (j.id !== id) return j;
-    const rebuilt = buildJobFromDraft(j.id, birthYear, draft);
-    const withMatch =
-      rebuilt.deferral && j.deferral?.employerMatchFraction !== undefined
-        ? { ...rebuilt, deferral: { ...rebuilt.deferral, employerMatchFraction: j.deferral.employerMatchFraction } }
-        : rebuilt;
-    return {
-      ...withMatch,
-      ...(j.incomeOverrides ? { incomeOverrides: j.incomeOverrides } : {}),
-      ...(j.payChanges ? { payChanges: j.payChanges } : {}),
-    };
-  });
+  return jobs.map((j) => (j.id === id ? applyJobDraft(j, birthYear, draft) : j));
 }
 
 /** Drop the job with `id` from `jobs`. */

@@ -25,10 +25,9 @@
 
 import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { Job, Household, Ledger, NewLifeEvent, Plan } from "@finley/engine";
+import type { Job, Household, Ledger, Plan } from "@finley/engine";
 import {
   addJobToList,
-  updateJobInList,
   removeJobFromList,
   removeJobPayChange,
   blankJobDraftFor,
@@ -39,6 +38,8 @@ import {
   type JobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
+import { editJob, type JobListWrite } from "../../jobEditing";
+import type { EventRevision } from "../../hooks/useLedger";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
@@ -51,8 +52,12 @@ interface JobsPanelProps {
   household: Household;
   /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
-  /** Revise a ledger event in place — how a partner's jobs are written back (#118). */
-  onUpdateEvent: (id: string, next: NewLifeEvent) => void;
+  /**
+   * Revise ledger events in one all-or-nothing write — how a partner's jobs are written
+   * back (#118). Returns `false` if the revision was rejected (§6.1), in which case the
+   * ledger is untouched and the panel writes nothing else either.
+   */
+  onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
 }
 
 /** Which authoring form, if any, is disclosed: a job id (edit), "new" (add), or none. */
@@ -75,7 +80,7 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
   return `Pay ${verb} ${formatDollars(Math.abs(change.cents))}/mo ${at}`;
 }
 
-export function JobsPanel({ budget, setBudget, household, ledger, onUpdateEvent }: JobsPanelProps) {
+export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household, in join order — the primary person's jobs first, then
   // each partner's. Every row carries its owner, which is what routes its edits, and its
@@ -96,51 +101,65 @@ export function JobsPanel({ budget, setBudget, household, ledger, onUpdateEvent 
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
   /**
-   * Apply `revise` to a member's job list on whichever plane it is authored on: the
-   * standing plan for the primary person, or a revision of the partner's
-   * `RelationshipEvent`. The one place the two planes are distinguished — and the plan
-   * side revises the LATEST plan (a functional update), so two edits in one tick compose
-   * instead of discarding each other.
+   * Commit job-list rewrites, each to whichever plane its owner is authored on: the
+   * standing plan for the primary person, a revision of their `RelationshipEvent` for a
+   * partner. The one place the two planes are distinguished.
+   *
+   * **The ledger goes first, in one batch, and the plan only if it was accepted.** An edit
+   * that moves a job between members rewrites two lists, and those lists can sit on
+   * different planes; a §6.1 conflict rejecting the ledger half after the plan half had
+   * already been written would leave the job removed from one member and missing from the
+   * other. Both ledger writes and plan writes are all-or-nothing, so a rejected commit
+   * changes nothing at all. Returns whether it was committed.
+   *
+   * Plan writes revise the LATEST plan (a functional update), so two edits in one tick
+   * compose instead of discarding each other.
    */
-  function writeJobs(owner: JobOwner, revise: (jobs: readonly Job[]) => readonly Job[]): void {
-    if (owner.writeTarget.kind === "plan") {
-      setBudget((current) => ({ ...current, jobs: [...revise(current.jobs)] }));
-      return;
+  function commit(writes: readonly JobListWrite[]): boolean {
+    const revisions: EventRevision[] = [];
+    for (const { owner, revise } of writes) {
+      if (owner.writeTarget.kind !== "event") continue;
+      const event = owner.writeTarget.event;
+      revisions.push({
+        id: event.id,
+        next: { ...event, person: { ...event.person, jobs: [...revise(event.person.jobs)] } },
+      });
     }
-    const event = owner.writeTarget.event;
-    onUpdateEvent(event.id, {
-      ...event,
-      person: { ...event.person, jobs: [...revise(event.person.jobs)] },
-    });
+    if (revisions.length > 0 && !onReviseEvents(revisions)) return false;
+    for (const { owner, revise } of writes) {
+      if (owner.writeTarget.kind === "plan") {
+        setBudget((current) => ({ ...current, jobs: [...revise(current.jobs)] }));
+      }
+    }
+    return true;
   }
 
-  /** The owner a draft names — where an added or reassigned job is written. */
-  const ownerOf = (id: string): JobOwner | undefined => owners.find((o) => o.id === id);
+  /** Rewrite one member's job list — the single-owner shorthand for {@link commit}. */
+  function write(owner: JobOwner, revise: (jobs: readonly Job[]) => readonly Job[]): boolean {
+    return commit([{ owner, revise }]);
+  }
 
   function add(draft: JobDraft) {
-    const target = ownerOf(draft.ownerId);
-    if (target) writeJobs(target, (jobs) => addJobToList(jobs, target.birthYear, draft));
+    const target = owners.find((o) => o.id === draft.ownerId);
+    if (target) write(target, (jobs) => addJobToList(jobs, target.birthYear, draft));
     setAuthoring(null);
   }
 
   /**
-   * Save an edit. Picking a different owner *moves* the job: it is dropped from the
-   * previous owner's list and rebuilt on the new one's, whose birth year the draft's ages
-   * now resolve against (an age means the same thing to whoever holds the job).
+   * Save an edit — fields and owner together, as one operation ({@link editJob}). Picking a
+   * different owner *moves* the job: the same job, keeping its id, its one-month overrides,
+   * its pay changes and its employer match, leaves one member's list and joins the other's,
+   * its ages now read against the new owner's birth year (an age means the same thing to
+   * whoever holds the job). Nothing is written unless the whole edit resolves.
    */
   function edit(owner: JobOwner, id: string, draft: JobDraft) {
-    const target = ownerOf(draft.ownerId) ?? owner;
-    if (target.id === owner.id) {
-      writeJobs(owner, (jobs) => updateJobInList(jobs, id, owner.birthYear, draft));
-    } else {
-      writeJobs(owner, (jobs) => removeJobFromList(jobs, id));
-      writeJobs(target, (jobs) => addJobToList(jobs, target.birthYear, draft));
-    }
+    const result = editJob(owners, owner.id, id, draft);
+    if (result.ok) commit(result.writes);
     setAuthoring(null);
   }
 
   function remove(owner: JobOwner, id: string) {
-    writeJobs(owner, (jobs) => removeJobFromList(jobs, id));
+    write(owner, (jobs) => removeJobFromList(jobs, id));
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
 

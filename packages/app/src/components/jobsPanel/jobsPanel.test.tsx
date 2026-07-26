@@ -8,7 +8,7 @@
  * here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
   createProjectionBase,
@@ -21,6 +21,7 @@ import {
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import type { EventRevision } from "../../hooks/useLedger";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";
@@ -33,7 +34,16 @@ afterEach(cleanup);
  * a job can live on: the primary person's jobs on the plan, a partner's on their
  * `RelationshipEvent` (issue #118). Stands in for `App`, which owns both.
  */
-function Harness({ initial = PLAN_DEFAULTS, events = [] }: { initial?: Plan; events?: readonly NewLifeEvent[] }) {
+function Harness({
+  initial = PLAN_DEFAULTS,
+  events = [],
+  rejectRevisions = false,
+}: {
+  initial?: Plan;
+  events?: readonly NewLifeEvent[];
+  /** Stands in for a §6.1 conflict: every ledger revision is refused, as `App` would. */
+  rejectRevisions?: boolean;
+}) {
   const [budget, setBudget] = useState<Plan>(initial);
   const [ledger, setLedger] = useState<Ledger>(() => ({
     events: events.map((e, i) => ({ ...e, sequenceNumber: i })),
@@ -44,11 +54,22 @@ function Harness({ initial = PLAN_DEFAULTS, events = [] }: { initial?: Plan; eve
     [budget],
   );
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  const onUpdateEvent = (id: string, next: NewLifeEvent) =>
-    setLedger((current) => {
-      const result = updateEvent(current, id, next, base);
-      return result.ok ? result.ledger : current;
-    });
+  // The ledger, readable synchronously — `onReviseEvents` answers whether it committed
+  // before the panel writes the plan side, exactly as `useLedger` does.
+  const ledgerRef = useRef(ledger);
+  ledgerRef.current = ledger;
+  const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
+    if (rejectRevisions) return false;
+    let next = ledgerRef.current;
+    for (const revision of revisions) {
+      const result = updateEvent(next, revision.id, revision.next, base);
+      if (!result.ok) return false;
+      next = result.ledger;
+    }
+    ledgerRef.current = next;
+    setLedger(next);
+    return true;
+  };
 
   return (
     <>
@@ -57,7 +78,7 @@ function Harness({ initial = PLAN_DEFAULTS, events = [] }: { initial?: Plan; eve
         setBudget={setBudget}
         household={household}
         ledger={ledger}
-        onUpdateEvent={onUpdateEvent}
+        onReviseEvents={onReviseEvents}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -266,6 +287,56 @@ describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
     // The start age is unchanged as a NUMBER (18), but now it is Sam's 18.
     expect(within(screen.getByLabelText("Sam · Job 1")).getByText(/from age 18/)).toBeTruthy();
     expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
+  });
+
+  it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
+    // Reassignment used to remove the job and MINT a new one from the form draft, which
+    // holds none of this: the job arrived with a fresh id, no bonus, no raise, no match.
+    // Fields and owner are one edit applied to the existing job, so all of it rides along.
+    const rich = addJobPayChange(
+      setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.1),
+      "job-1",
+      { month: 24, kind: "changeBy", cents: -dollarsToCents(500) },
+    );
+    const withMatch: Plan = {
+      ...rich,
+      jobs: rich.jobs.map((j) => ({
+        ...j,
+        deferral: { ...j.deferral!, employerMatchFraction: 0.5 },
+        incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      })),
+    };
+
+    render(<Harness initial={withMatch} events={withPartner([])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "6000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const [moved] = partnerJobs();
+    expect(moved.id).toBe("job-1"); // the same job, not a new one minted on the partner
+    expect(moved.ownerId).toBe("p-1");
+    expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(6000 * 12)); // edited in the same submit
+    expect(moved.payChanges).toEqual([{ month: 24, kind: "changeBy", cents: -dollarsToCents(500) }]);
+    expect(moved.incomeOverrides).toEqual([{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }]);
+    expect(moved.deferral?.employerMatchFraction).toBe(0.5);
+    expect(jobCount()).toBe(0); // and it left the plan
+  });
+
+  it("writes neither plane when the ledger refuses the revision", () => {
+    // The two halves of a transfer sit on different planes. A conflict rejecting the
+    // ledger half after the plan half had been written would lose the job outright — so
+    // the ledger goes first and the plan only follows if it was accepted.
+    render(<Harness events={withPartner([])} rejectRevisions />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "9000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(partnerJobs()).toHaveLength(0); // never landed on the partner
+    expect(jobCount()).toBe(1); // and never left the plan
+    // Untouched, not half-edited: the refused salary did not stick either.
+    expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
   });
 
   it("offers no owner picker in a single-earner household", () => {
