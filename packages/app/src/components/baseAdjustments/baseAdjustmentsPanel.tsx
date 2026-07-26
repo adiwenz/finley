@@ -55,6 +55,9 @@ import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
   type BudgetLine,
+  type Household,
+  type Job,
+  type Ledger,
   type Plan,
   type ProjectionSeries,
 } from "@finley/engine";
@@ -73,7 +76,11 @@ import {
   updateLineFromDraft,
   type BudgetLineDraft,
 } from "./budgetLines";
-import { addIncomeOverride, addJobPayChange, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
+import { withIncomeOverride, withPayChange } from "../../planPeople";
+import { jobOwnersOf } from "../../jobOwners";
+import { ownedJobsOf, reviseJob } from "../../jobEditing";
+import { commitJobWrites } from "../../jobWrites";
+import type { EventRevision } from "../../hooks/useLedger";
 import {
   applyLineOverride,
   resolveRowsAtMonth,
@@ -117,9 +124,33 @@ export interface BaseAdjustmentsPanelProps {
    * disagreed with the net-worth graph beside it. One simulation, one scenario.
    */
   readonly series: ProjectionSeries;
+  /**
+   * Household member names by person id — what lets the income graph say *whose*
+   * government benefit a band is (issue #118). Two claimants otherwise draw two legend
+   * entries with the identical label, since the label names the kind of income.
+   */
+  readonly personNames: ReadonlyMap<string, string>;
+  /**
+   * The interpreted household and the ledger — who holds which jobs, and where those jobs
+   * are authored (issue #118). A pay change made here used to reach straight into
+   * `Plan.jobs`, which is only the *primary* person's; a partner's jobs were unreachable, so
+   * their bonus or raise silently went nowhere.
+   */
+  readonly household: Household;
+  readonly ledger: Ledger;
+  /** Revise ledger events in one all-or-nothing write — the partner plane's setter. */
+  readonly onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
 }
 
-export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustmentsPanelProps) {
+export function BaseAdjustmentsPanel({
+  plan,
+  setBudget,
+  series,
+  personNames,
+  household,
+  ledger,
+  onReviseEvents,
+}: BaseAdjustmentsPanelProps) {
   // The budget is the plan's, not the panel's — editing here moves the whole app.
   const lines = plan.budgetLines ?? NO_BUDGET_LINES;
   // Every row is shown in the selected month's dollars, so the editor needs the same
@@ -220,9 +251,28 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
   const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
 
   // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
-  // The form and its transient state live in {@link PayChangeEditor}; the panel keeps
-  // only plan mutation, so the child never touches `Plan` or `setBudget`.
-  const jobs = primaryJobs(plan);
+  // The form and its transient state live in {@link PayChangeEditor}; the panel keeps only
+  // the mutation, so the child never touches `Plan`, the ledger, or their setters.
+  //
+  // EVERY earner's jobs, not just the primary person's (issue #118): a partner's bonus,
+  // missed paycheck, raise or cut is the same adjustment on the same `Job` model, and the
+  // picker names whose job each one is.
+  const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
+  const jobOptions = useMemo(
+    () => ownedJobsOf(owners).map(({ job, label }) => ({ id: job.id, label })),
+    [owners],
+  );
+
+  /**
+   * Rewrite the selected job wherever it lives — `revise` is handed the whole existing job,
+   * so its other overrides, its pay changes and every unrelated field ride through. The
+   * routing (plan vs. the partner's `RelationshipEvent`) and the all-or-nothing commit are
+   * {@link commitJobWrites}'s, not this panel's.
+   */
+  function adjustJob(jobId: string, revise: (job: Job) => Job): void {
+    const result = reviseJob(owners, jobId, revise);
+    if (result.ok) commitJobWrites(result.writes, { setBudget, onReviseEvents });
+  }
 
   /**
    * Move the editor to a different point. Any staged-but-uncommitted edit is dropped:
@@ -267,7 +317,15 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
 
   const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
-    setLines((prev) => redistributeToTiers(prev, totalMonthlyIncomeCents(plan), retirementMonth));
+    // Off the WHOLE household's standing pay: the budget it splits is the household's, so
+    // reading one earner's jobs would size a two-earner household's spending to half its
+    // income (issue #118). Identical on a single-earner plan.
+    const monthlyIncomeCents = owners.reduce(
+      (sum, o) =>
+        sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
+      0,
+    );
+    setLines((prev) => redistributeToTiers(prev, monthlyIncomeCents, retirementMonth));
     setPending(null);
   }, [plan, retirementMonth, setLines]);
 
@@ -298,6 +356,7 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
         spendingData={spendingChartData}
         taxData={taxChartData}
         currentAge={plan.currentAge}
+        personNames={personNames}
         selectedMonth={selectedMonth}
         onSelectMonth={selectMonth}
         onQuickstart={applyQuickstart}
@@ -333,10 +392,10 @@ export function BaseAdjustmentsPanel({ plan, setBudget, series }: BaseAdjustment
             as wages through the job's series (§6/§10.3/§20). The form owns its own transient
             state; the panel keeps only plan mutation. */}
         <PayChangeEditor
-          jobs={jobs}
+          jobs={jobOptions}
           incomeMonth={incomeMonth}
-          onApplyOverride={(jobId, override) => setBudget((p) => addIncomeOverride(p, jobId, override))}
-          onApplyPayChange={(jobId, payChange) => setBudget((p) => addJobPayChange(p, jobId, payChange))}
+          onApplyOverride={(jobId, override) => adjustJob(jobId, (j) => withIncomeOverride(j, override))}
+          onApplyPayChange={(jobId, payChange) => adjustJob(jobId, (j) => withPayChange(j, payChange))}
         />
 
         <SpendingEditor

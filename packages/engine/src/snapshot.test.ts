@@ -112,6 +112,41 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     expect(snap.children[0].ageMonths).toBe(24);
   });
 
+  it("a partner's own job income appears in the snapshot while they are a member (issue #118)", () => {
+    // The snapshot and the projection read the SAME household, so a partner's job income
+    // must surface in the cross-section exactly as it drives net worth.
+    const base: LedgerBaseConfig = {
+      horizonMonths: 360,
+      annualInflationRate: 0,
+      startYear: 2020,
+      initialPersons: primary,
+    };
+    const partner: Person = {
+      ...personLit("p2", "Sam"),
+      jobs: [
+        {
+          id: "pj1",
+          ownerId: "p2",
+          startYear: 2020,
+          endYear: null,
+          salary: { startingSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
+        },
+      ],
+    };
+    const ledger = add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 36, person: partner });
+    // Build the snapshot from the SAME household the projection reads (the app's path:
+    // interpretLedger + buildSnapshot), so the calendar "now" (startYear) is honoured.
+    const household = interpretLedger(ledger, base);
+    const incomeAt = (m: number) =>
+      buildSnapshot(household, m).income.filter((s) => s.ownerId === "p2");
+    // Before the partner joins (month 35): no partner income in the snapshot.
+    expect(incomeAt(35)).toHaveLength(0);
+    // While a member (month 48): the partner's $60k/yr job shows as $5,000/mo income.
+    const partnerIncome = incomeAt(48);
+    expect(partnerIncome).toHaveLength(1);
+    expect(partnerIncome[0].monthlyCents).toBe(dollarsToCents(5_000));
+  });
+
   it("income is active from its start and ends when replaced", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {

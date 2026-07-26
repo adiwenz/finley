@@ -20,10 +20,22 @@
  */
 
 import { useState } from "react";
-import { dollarsToCents, type Job, type JobIncomeOverride, type JobPayChange } from "@finley/engine";
+import { dollarsToCents, type JobIncomeOverride, type JobPayChange } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import styles from "./baseAdjustments.module.css";
+
+/**
+ * A job this control can act on — its stable id and the name to show for it. Deliberately
+ * not a {@link import("@finley/engine").Job}: this form neither reads a job's fields nor
+ * knows which household member holds it (issue #118). The parent supplies the label already
+ * qualified by owner where the household needs it ("Sam · Job 1"), so two members' jobs are
+ * told apart here even when they carry the same title.
+ */
+export interface PayChangeJobOption {
+  readonly id: string;
+  readonly label: string;
+}
 
 /**
  * A pay change made against the selected month — all flavours share one form. The first two
@@ -54,7 +66,8 @@ interface PayChangeDraft {
 const freshDraft = (): PayChangeDraft => ({ kind: "addBonus", dollars: 0, jobId: null });
 
 export interface PayChangeEditorProps {
-  readonly jobs: readonly Job[];
+  /** Every job in the household this can act on, in join order (issue #118). */
+  readonly jobs: readonly PayChangeJobOption[];
   /** The month the change is applied at (the panel's selected month, floored to a paying month). */
   readonly incomeMonth: number;
   /** Apply a one-month perturbation to a job. Plan mutation lives in the parent. */
@@ -87,7 +100,9 @@ export function PayChangeEditor({
   function apply(): void {
     if (draft === null || targetJobId === null) return;
     const cents = dollarsToCents(draft.dollars);
-    const jobLabel = `Job ${Math.max(0, jobs.findIndex((j) => j.id === targetJobId)) + 1}`;
+    // The note names the job exactly as the picker does — owner and all, so a change
+    // landing on a partner's job says so.
+    const jobLabel = jobs.find((j) => j.id === targetJobId)?.label ?? targetJobId;
 
     if (isPermanentChange(draft.kind)) {
       const kind = draft.kind === "setOngoing" ? "setTo" : "changeBy";
@@ -142,9 +157,9 @@ export function PayChangeEditor({
               value={targetJobId ?? ""}
               onChange={(e) => setDraft((d) => d && { ...d, jobId: e.target.value })}
             >
-              {jobs.map((j, i) => (
+              {jobs.map((j) => (
                 <option key={j.id} value={j.id}>
-                  Job {i + 1}
+                  {j.label}
                 </option>
               ))}
             </select>

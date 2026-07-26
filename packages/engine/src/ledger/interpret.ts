@@ -11,10 +11,17 @@
 import type { Ledger } from "./ledger";
 import type { LifeEvent, SeriesRole } from "./eventTypes";
 import { applyEvent } from "./eventHandlers";
-import { asPersonId, asSeriesId, type AccountId } from "../ids";
+import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
-import { freshState, type InterpretContext, type InterpretState, type SeriesDef } from "./interpretState";
+import { compilePersonIncomeSeries } from "../compilePerson";
+import {
+  freshState,
+  type InterpretContext,
+  type InterpretState,
+  type PersonMembership,
+  type SeriesDef,
+} from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import type {
   Household,
@@ -68,13 +75,10 @@ export function interpretToState(ledger: Ledger, base: LedgerBaseConfig): Interp
   return state;
 }
 
-function baseSeries(
-  os: SimOwnedSeries,
-  seriesType: "income" | "expense",
-  index: number,
-): HouseholdSeries {
+/** Wrap a pre-built {@link SimOwnedSeries} as a value-plane (`base` role) household series. */
+function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "expense"): HouseholdSeries {
   return {
-    id: asSeriesId(`base-${seriesType}-${index}`),
+    id,
     ownerId: asPersonId(os.ownerId),
     seriesType,
     role: "base",
@@ -104,10 +108,44 @@ const ROLE_LABEL: Record<SeriesRole, string> = {
   childCost: "Child cost",
 };
 
+function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index: number): HouseholdSeries {
+  return ownedSeries(os, asSeriesId(`base-${seriesType}-${index}`), seriesType);
+}
+
+/**
+ * A partner's own jobs (issue #118) compiled into forward income series, clipped to the
+ * membership window (join → separation). The primary earner's jobs are already compiled
+ * into `base.initialIncomeSeries`; a partner joins via a RelationshipEvent, so their
+ * jobs live on the membership and are compiled here — into `household.series`, so the
+ * projection AND the snapshot read the identical income (§1, the single-interpreter
+ * invariant). These series are derived from the membership, so removing the
+ * RelationshipEvent drops the membership and the income with it — hence `causedByEventId:
+ * null` (recomputed each interpretation), exactly like the base series.
+ */
+function partnerJobSeries(
+  membership: PersonMembership,
+  nowYear: number,
+  inflationRate: number,
+): HouseholdSeries[] {
+  const compiled = compilePersonIncomeSeries(membership.person, nowYear, inflationRate, {
+    startMonth: membership.startMonth,
+    endMonthExclusive: membership.endMonth ?? Number.POSITIVE_INFINITY,
+  });
+  return compiled.map((os, i) =>
+    ownedSeries(os, asSeriesId(`partner-${membership.person.id}-income-${i}`), "income"),
+  );
+}
+
 function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
+  const nowYear = base.startYear ?? 0;
   const series: HouseholdSeries[] = [
     ...(base.initialIncomeSeries ?? []).map((os, i) => baseSeries(os, "income", i)),
     ...(base.initialExpenseSeries ?? []).map((os, i) => baseSeries(os, "expense", i)),
+    // Event-added members only (the base primary joins at `-Infinity` and is already
+    // compiled into `base.initialIncomeSeries`), so a partner's jobs never double-count.
+    ...[...state.personsById.values()]
+      .filter((m) => Number.isFinite(m.startMonth))
+      .flatMap((m) => partnerJobSeries(m, nowYear, base.annualInflationRate)),
     ...[...state.seriesById.values()].map((def): HouseholdSeries => {
       const common = {
         id: def.id,

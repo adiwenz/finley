@@ -33,6 +33,12 @@ export interface IncomeSourceBand {
   readonly label: string;
   /** Provenance category, driving band colour and display order. */
   readonly category: IncomeSourceCategory;
+  /**
+   * The household member this band pays, when it pays one (the savings drawdown pays
+   * the household). Two people's government benefits carry the *same* label — the kind
+   * of income, not the earner — so the owner is what tells the bands apart.
+   */
+  readonly ownerId?: string;
 }
 
 /** One month's income row for the chart. */
@@ -156,7 +162,12 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
       netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + s.netCashFlowCents;
       takeHomeCents += s.netCashFlowCents;
       if (!seen.has(s.sourceId)) {
-        seen.set(s.sourceId, { id: s.sourceId, label: s.label, category: s.category });
+        seen.set(s.sourceId, {
+          id: s.sourceId,
+          label: s.label,
+          category: s.category,
+          ...(s.ownerId !== undefined ? { ownerId: s.ownerId } : {}),
+        });
         order.push(s.sourceId);
       }
       if (s.category === "savingsDrawdown" && firstSavingsDrawdownMonth === null) {
@@ -189,7 +200,9 @@ const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
  * its own band — "which job pays" is what a person recognises); **savings interest keeps its
  * own "Savings interest" band** — it is income the savings EARN, not principal being spent,
  * so it must not read as "living off savings"; the government benefit collapses to one
- * "Social Security" band; and EVERY drawdown — the liquid-buffer `savingsDrawdown` and every
+ * "Social Security" band **per person**, since two members claim on their own records at
+ * their own ages and a household reading this needs to see whose benefit starts when; and
+ * EVERY drawdown — the liquid-buffer `savingsDrawdown` and every
  * asset-sale draw (capital-gains / ordinary / tax-exempt) — folds into a single "Living off
  * savings" band. The Advanced view keeps every source separate, and issue #122 will later
  * split that drawdown into gain vs. returned principal.
@@ -199,6 +212,10 @@ const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
  * with pre-tax account draws), but the engine reports it under this distinct provenance so
  * the app groups only genuine savings-account interest here — future interest kinds
  * (brokerage/bond/money-market) will carry their own provenance and won't fold in.
+ *
+ * Collapsing the benefit per person rather than outright is what keeps Simple consistent
+ * with itself: it already bands a two-earner household's *wages* per person, so folding
+ * their two benefits into one would have hidden exactly what the wage bands show.
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
@@ -206,7 +223,12 @@ function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
     return { id: SIMPLE_SAVINGS_INTEREST_ID, label: "Savings interest", category: "savingsInterest" };
   }
   if (band.category === "governmentRetirementBenefit") {
-    return { id: SIMPLE_SOCIAL_SECURITY_ID, label: "Social Security", category: "governmentRetirementBenefit" };
+    return {
+      id: band.ownerId === undefined ? SIMPLE_SOCIAL_SECURITY_ID : `${SIMPLE_SOCIAL_SECURITY_ID}:${band.ownerId}`,
+      label: "Social Security",
+      category: "governmentRetirementBenefit",
+      ...(band.ownerId !== undefined ? { ownerId: band.ownerId } : {}),
+    };
   }
   return { id: SIMPLE_LIVING_OFF_SAVINGS_ID, label: "Living off savings", category: "savingsDrawdown" };
 }
@@ -217,20 +239,53 @@ function rowCentsFor(row: IncomeMonthRow, basis: IncomeBasis): Readonly<Record<s
 }
 
 /**
+ * Name the earner on bands that would otherwise be indistinguishable — the government
+ * benefit, whose label says what kind of income it is and never whose ("Government
+ * benefit", "Social Security" — one legend entry per person, identical). Applied only
+ * when two or more of them are actually on the chart, so a single-earner plan reads
+ * exactly as before rather than gaining a redundant "· Alex" everywhere.
+ *
+ * Wage bands are left alone: each job is already its own band and its label carries the
+ * job's own name.
+ */
+function withEarnerNames(
+  sources: readonly IncomeSourceBand[],
+  personNames: ReadonlyMap<string, string>,
+): readonly IncomeSourceBand[] {
+  const owners = new Set(
+    sources
+      .filter((s) => s.category === "governmentRetirementBenefit")
+      .map((s) => s.ownerId)
+      .filter((id): id is string => id !== undefined),
+  );
+  if (owners.size < 2) return sources;
+  return sources.map((s) => {
+    if (s.category !== "governmentRetirementBenefit" || s.ownerId === undefined) return s;
+    const name = personNames.get(s.ownerId);
+    return name === undefined ? s : { ...s, label: `${s.label} · ${name}` };
+  });
+}
+
+/**
  * The bands and per-month rows to draw for a given {@link IncomeMode} and {@link
  * IncomeBasis}. `advanced` keeps every source its own band (every job, every account draw,
- * the benefit, the drawdown); `simple` collapses via {@link simpleBandOf} so "most people"
- * see three ideas (wages, Social Security, living off savings) instead of seven. The
- * `basis` selects each row's dollar figures — `takeHome` (default) draws the cash left
- * after tax and deferral, the honest read against the spending-need line; `gross` draws the
- * pre-tax paycheck. The returned rows' `centsBySource` carries whichever basis was chosen,
- * so the chart renders it without knowing which. Pure: the spending-need line rides through
- * untouched, and `totalCents` is recomputed for the chosen basis.
+ * the benefit, the drawdown); `simple` collapses via {@link simpleBandOf} — re-keying each
+ * row's cash onto the collapsed band ids and summing — so "most people" see three ideas
+ * (wages, Social Security, living off savings) instead of seven. The `basis` selects each
+ * row's dollar figures — `takeHome` (default) draws the cash left after tax and deferral,
+ * the honest read against the spending-need line; `gross` draws the pre-tax paycheck. The
+ * returned rows' `centsBySource` carries whichever basis was chosen, so the chart renders
+ * it without knowing which. Pure: the spending-need line rides through untouched, and
+ * `totalCents` is recomputed for the chosen basis.
+ *
+ * Bands naming a KIND of income rather than an earner are qualified by whose they are
+ * ({@link withEarnerNames}), so two people's benefits are not one legend entry repeated.
  */
 export function incomeBandsForMode(
   data: IncomeChartData,
   mode: IncomeMode,
   basis: IncomeBasis = "takeHome",
+  personNames: ReadonlyMap<string, string> = new Map(),
 ): { readonly sources: readonly IncomeSourceBand[]; readonly rows: readonly IncomeMonthRow[] } {
   if (mode === "advanced") {
     const rows = data.rows.map((r) => {
@@ -238,7 +293,7 @@ export function incomeBandsForMode(
       const totalCents = Object.values(centsBySource).reduce((s, c) => s + c, 0);
       return { ...r, centsBySource, totalCents };
     });
-    return { sources: data.sources, rows };
+    return { sources: withEarnerNames(data.sources, personNames), rows };
   }
 
   const bandForSource = new Map<string, IncomeSourceBand>();
@@ -252,9 +307,10 @@ export function incomeBandsForMode(
       order.push(band.id);
     }
   }
-  const sources = order
-    .map((id) => collapsed.get(id)!)
-    .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
+  const sources = withEarnerNames(
+    order.map((id) => collapsed.get(id)!).sort((a, b) => categoryRank(a.category) - categoryRank(b.category)),
+    personNames,
+  );
 
   const rows = data.rows.map((r) => {
     const centsBySource: Record<string, number> = {};

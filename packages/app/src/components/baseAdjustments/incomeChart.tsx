@@ -52,8 +52,14 @@ import {
 // Wages: a cool blue family, one step per job. Cooler than the budget's earth tones, so
 // the two charts read as different quantities.
 const WAGE_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd"];
-// The government benefit — a single steady steel blue, distinct from the wage steps.
-const SOCIAL_SECURITY_COLOR = "#6b93b8";
+// The government benefit: a teal family, one step per CLAIMANT — two people claim on
+// their own records at their own ages, so "whose benefit starts when" is the thing to
+// read off the chart. It left the blue family deliberately: the old single steel blue
+// (#6b93b8) sat ΔE 4.0 from the second job's wage band (validated with the dataviz
+// palette checker), so a benefit was already near-indistinguishable from a paycheck.
+// The two steps separate at ΔE 17.9 normal / 17.8 CVD — comfortably past the ≥15 / ≥8
+// floors — while staying inside the chart's muted register.
+const BENEFIT_COLORS = ["#2f6b66", "#5aa39a"];
 // Living off savings is NOT income — a muted earth family (tan first), one step per draw,
 // set apart from the cool income bands above it (issue #99).
 const DRAW_COLORS = ["#c6b784", "#b08968", "#9c8459", "#d8c79a"];
@@ -80,15 +86,22 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
   return out;
 }
 
-/** A colour per band id: wages step through the blue family, draws through the earth family. */
+/**
+ * A colour per band id: wages step through the blue family, benefits through the teal
+ * family (one step per claimant), draws through the earth family. Each family is walked
+ * in the band order, which is stable across the Simple/Advanced toggle — so a person's
+ * benefit keeps its colour when the view changes.
+ */
 function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
   let wage = 0;
+  let benefit = 0;
   let draw = 0;
   for (const s of sources) {
     if (s.category === "wages") colors.set(s.id, WAGE_COLORS[wage++ % WAGE_COLORS.length]!);
-    else if (s.category === "governmentRetirementBenefit") colors.set(s.id, SOCIAL_SECURITY_COLOR);
-    else colors.set(s.id, DRAW_COLORS[draw++ % DRAW_COLORS.length]!);
+    else if (s.category === "governmentRetirementBenefit") {
+      colors.set(s.id, BENEFIT_COLORS[benefit++ % BENEFIT_COLORS.length]!);
+    } else colors.set(s.id, DRAW_COLORS[draw++ % DRAW_COLORS.length]!);
   }
   return colors;
 }
@@ -108,19 +121,34 @@ export interface IncomeChartProps {
   readonly currentAge: number;
   /** The month the editor is pointed at — marked with a vertical rule. */
   readonly selectedMonth: number;
+  /**
+   * Household member names by person id, for bands whose label names a kind of income
+   * rather than an earner — two people's government benefits are otherwise one legend
+   * entry repeated. Only consulted when two of them are actually on the chart.
+   */
+  readonly personNames: ReadonlyMap<string, string>;
   /** Called with the clicked month, so the panel can move the editor there. */
   readonly onSelectMonth: (month: number) => void;
 }
 
-export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: IncomeChartProps) {
+export function IncomeChart({
+  data,
+  currentAge,
+  selectedMonth,
+  personNames,
+  onSelectMonth,
+}: IncomeChartProps) {
   const [mode, setMode] = useState<IncomeMode>("simple");
   const [basis, setBasis] = useState<IncomeBasis>("takeHome");
   const summary = describeIncomeGap(data);
   // The banded view, its colour map, and the recharts rows depend only on `data`, `mode`,
-  // and `basis` — not on `selectedMonth`. Memoize them so scrubbing the selected month
-  // (a frequent re-render) doesn't recompute the band collapse or remap every month row
-  // (§rerender-memo).
-  const view = useMemo(() => incomeBandsForMode(data, mode, basis), [data, mode, basis]);
+  // `basis` and the roster — not on `selectedMonth`. Memoize them so scrubbing the selected
+  // month (a frequent re-render) doesn't recompute the band collapse or remap every month
+  // row (§rerender-memo).
+  const view = useMemo(
+    () => incomeBandsForMode(data, mode, basis, personNames),
+    [data, mode, basis, personNames],
+  );
   const colors = useMemo(() => colorsForBands(view.sources), [view]);
   const rows = useMemo(
     () =>
@@ -242,6 +270,10 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
               dataKey={source.id}
               name={source.label}
               stackId="income"
+              // The band's own colour, NOT a surface-coloured separator hairline: Recharts
+              // keys the legend swatch and the tooltip entry to `stroke`, so a surface
+              // stroke erases both. The full-opacity stroke over the 0.6 fill is what
+              // gives each band its darker edge.
               stroke={colors.get(source.id)}
               fill={colors.get(source.id)}
               fillOpacity={0.6}

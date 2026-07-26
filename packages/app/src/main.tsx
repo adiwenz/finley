@@ -47,7 +47,7 @@ export function App() {
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
 
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
-  const { ledger, conflict, recordEvent, removeEvent, resetLedger } = useLedger(base);
+  const { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger } = useLedger(base);
 
   // Load a starter simulation wholesale (issue #119): swap in its plan AND its
   // seed timeline together. The new ledger is built against the *incoming* plan's
@@ -87,6 +87,12 @@ export function App() {
     [simInput, series, budget],
   );
 
+  // Who's in the household, by id — so a chart can name whose income a band is when the
+  // label alone can't (two members' government benefits, issue #118).
+  const personNames = useMemo(
+    () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
+    [household],
+  );
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
   // The retirement panel reasons about the SAME scenario the graph draws — the plan
@@ -203,7 +209,13 @@ export function App() {
       </div>
 
       <div className="card">
-        <JobsPanel budget={budget} setBudget={setBudget} />
+        <JobsPanel
+          budget={budget}
+          setBudget={setBudget}
+          household={household}
+          ledger={ledger}
+          onReviseEvents={reviseEvents}
+        />
       </div>
 
       <div className="card">
@@ -211,7 +223,15 @@ export function App() {
             live timeline — so its spending need counts loan payments and every other
             event, not just the standing budget. Everything it draws rides on that one
             series (the engine itemizes the spending), so there is nothing else to pass. */}
-        <BaseAdjustmentsPanel plan={budget} setBudget={setBudget} series={series} />
+        <BaseAdjustmentsPanel
+          plan={budget}
+          setBudget={setBudget}
+          series={series}
+          personNames={personNames}
+          household={household}
+          ledger={ledger}
+          onReviseEvents={reviseEvents}
+        />
       </div>
 
       <div className="card">

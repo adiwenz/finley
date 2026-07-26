@@ -46,7 +46,16 @@ const source = (
   // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full cash
   // inflow — the no-haircut case — so a test only names it when it wants a take-home < gross.
   netCashFlowCents = cashInflowCents,
-): ProjectionIncomeSource => ({ sourceId, label, category, cashInflowCents, netCashFlowCents });
+  // Whose income it is (issue #118) — only the tests about two claimants name it.
+  ownerId?: string,
+): ProjectionIncomeSource => ({
+  sourceId,
+  label,
+  category,
+  cashInflowCents,
+  netCashFlowCents,
+  ...(ownerId !== undefined ? { ownerId } : {}),
+});
 
 describe("buildIncomeChartData", () => {
   it("emits one row per flowed month with income keyed by source", () => {
@@ -226,6 +235,50 @@ describe("incomeBandsForMode", () => {
     const simple = incomeBandsForMode(data, "simple");
     expect(simple.sources.map((s) => s.label)).toEqual(["Savings interest"]);
     expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+  });
+
+  // ── Two claimants (issue #118): a benefit band names its kind, never its earner ──
+
+  const twoClaimants = () =>
+    buildIncomeChartData(
+      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Income · Engineer", undefined, "p1"),
+        source("benefit:p1", dollarsToCents(2_000), "governmentRetirementBenefit", "Government benefit", undefined, "p1"),
+        source("benefit:p-1", dollarsToCents(1_400), "governmentRetirementBenefit", "Government benefit", undefined, "p-1"),
+      ]),
+    );
+  const names = new Map([
+    ["p1", "Alex"],
+    ["p-1", "Sam"],
+  ]);
+
+  it("simple keeps a Social Security band per person, named — two people claim separately", () => {
+    // Folding both into one band hid exactly what a two-earner household needs to see:
+    // each claims on their own record, at their own age, so the two starts differ.
+    const { sources, rows } = incomeBandsForMode(twoClaimants(), "simple", "gross", names);
+    expect(sources.map((s) => s.label)).toEqual([
+      "Income · Engineer",
+      "Social Security · Alex",
+      "Social Security · Sam",
+    ]);
+    // Each person's benefit keeps its own cash rather than being summed into one band.
+    expect(rows[0]!.centsBySource["social-security:p1"]).toBe(dollarsToCents(2_000));
+    expect(rows[0]!.centsBySource["social-security:p-1"]).toBe(dollarsToCents(1_400));
+  });
+
+  it("advanced names the two benefits too — one legend entry repeated says nothing", () => {
+    const { sources } = incomeBandsForMode(twoClaimants(), "advanced", "gross", names);
+    expect(sources.map((s) => s.label)).toEqual([
+      "Income · Engineer",
+      "Government benefit · Alex",
+      "Government benefit · Sam",
+    ]);
+  });
+
+  it("leaves a lone claimant's band unnamed — nothing to tell apart", () => {
+    // A single-earner plan reads exactly as before, with no redundant "· Alex".
+    const { sources } = incomeBandsForMode(withEverySource(), "simple", "gross", names);
+    expect(sources.map((s) => s.label)).toContain("Social Security");
   });
 
   it("simple sums the asset draw and the cash drawdown into the one Living off savings band", () => {

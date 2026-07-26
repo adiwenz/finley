@@ -6,6 +6,7 @@ import {
   interpretLedger,
   buildProjection,
   removeEvent,
+  updateEvent,
   computeDependents,
   snapshotAt,
   validateLedgerStructure,
@@ -17,7 +18,7 @@ import {
 } from "./index";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
-import { nullJurisdiction } from "./jurisdiction";
+import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -86,6 +87,290 @@ describe("RelationshipEvent", () => {
     // projection but needed for subsequent events).
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
     expect(series.months.length).toBe(13);
+  });
+});
+
+// ─── RelationshipEvent — a partner's own jobs (issue #118) ────────────────────
+
+describe("RelationshipEvent — partner jobs", () => {
+  // A base anchored to a real calendar "now" so the partner's jobs (authored in
+  // calendar years) compile into forward income relative to it.
+  const jobsCfg: LedgerBaseConfig = {
+    horizonMonths: 12,
+    annualInflationRate: 0,
+    startYear: 2020,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [makeLiquidAccount()],
+  };
+
+  /** A partner carrying one open-ended $2,000/mo job that starts at "now". */
+  const partnerWith2kJob = (): Person => ({
+    ...personLit("p2", "Bob"),
+    jobs: [
+      {
+        id: "pj1",
+        ownerId: "p2",
+        startYear: 2020,
+        endYear: null,
+        salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+      },
+    ],
+  });
+
+  it("a partner's job drives forward earned income in the projection", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith2kJob(),
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    // $2,000/mo earned by the partner across months 1–12 → $24,000.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(24_000));
+  });
+
+  it("a separated partner's job income ends at separation", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith2kJob(),
+    });
+    ledger = add(ledger, {
+      id: "sep1",
+      type: "SeparationEvent",
+      month: 6,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    // Months 1–5 pay ($2,000 × 5 = $10,000); the job stops at separation.
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
+  });
+
+  it("a partner with no jobs adds no income (single-earner plans unchanged)", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: personLit("p2", "Bob"),
+    });
+    const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
+    expect(series.months[12].netWorthNominalCents).toBe(0);
+  });
+});
+
+// ─── RelationshipEvent — a partner's own life-stage ages (issue #118) ─────────
+
+describe("RelationshipEvent — partner retirement & claiming ages", () => {
+  const cfg: LedgerBaseConfig = {
+    horizonMonths: 120,
+    annualInflationRate: 0,
+    startYear: 2020,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [makeLiquidAccount()],
+  };
+
+  /** A jurisdiction paying a flat $1,000/mo benefit once claimed — the record is stubbed. */
+  const flatBenefit: Jurisdiction = {
+    ...nullJurisdiction,
+    governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+  };
+
+  /** A partner born in 1958 (62 as of the 2020 "now") who claims at `claimingAge`. */
+  const partnerClaimingAt = (claimingAge: number): Person => ({
+    ...personLit("p2", "Bob"),
+    birthYear: 1958,
+    benefitClaimingAge: claimingAge,
+  });
+
+  const incomeAt = (claimingAge: number, month: number): number => {
+    const ledger = add(emptyLedger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerClaimingAt(claimingAge),
+    });
+    return replayLedger(ledger, cfg, flatBenefit).months[month]?.flows?.totalIncomeCents ?? 0;
+  };
+
+  it("starts a partner's benefit on THEIR clock — the claiming age they were authored with", () => {
+    // Claiming at 65 → 2023, three years past the 2020 "now" → month 36.
+    expect(incomeAt(65, 35)).toBe(0);
+    expect(incomeAt(65, 36)).toBe(dollarsToCents(1_000));
+  });
+
+  it("moves that start when the partner claims later — the age is load-bearing, not decoration", () => {
+    // The same partner claiming at 67 is still paid nothing at month 36; their benefit
+    // begins two years later, at month 60. A partner whose ages were hardcoded put every
+    // partner's benefit in the same calendar month whoever they were.
+    expect(incomeAt(67, 36)).toBe(0);
+    expect(incomeAt(67, 59)).toBe(0);
+    expect(incomeAt(67, 60)).toBe(dollarsToCents(1_000));
+  });
+
+  it("stops a partner's open-ended job at THEIR retirement age", () => {
+    // Born 1958, retiring at 65 → the job's last paid year is 2022, so month 36 (2023)
+    // pays nothing while month 35 still does.
+    const working: Person = {
+      ...partnerClaimingAt(70), // claim late, so the benefit can't mask the wage stopping
+      retirementTargetAge: 65,
+      jobs: [
+        {
+          id: "pj1",
+          ownerId: "p2",
+          startYear: 2020,
+          endYear: null,
+          salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+        },
+      ],
+    };
+    const ledger = add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 0, person: working });
+    const series = replayLedger(ledger, cfg, flatBenefit);
+    expect(series.months[35]?.flows?.totalIncomeCents).toBe(dollarsToCents(2_000));
+    expect(series.months[36]?.flows?.totalIncomeCents).toBe(0);
+  });
+});
+
+// ─── updateEvent — revising an event already in the ledger (§6.1) ─────────────
+
+describe("updateEvent", () => {
+  const cfg: LedgerBaseConfig = {
+    horizonMonths: 12,
+    annualInflationRate: 0,
+    startYear: 2020,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [makeLiquidAccount()],
+  };
+
+  /** A partner carrying one open-ended job paying `monthlyDollars`, starting at "now". */
+  const partnerEarning = (monthlyDollars: number): Person => ({
+    ...personLit("p2", "Bob"),
+    jobs: [
+      {
+        id: "pj1",
+        ownerId: "p2",
+        startYear: 2020,
+        endYear: null,
+        salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+      },
+    ],
+  });
+
+  const partnered = (): Ledger =>
+    add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 0, person: partnerEarning(2000) });
+
+  it("revises a partner's jobs in place — the pay change drives the projection", () => {
+    // The write that was missing: a partner's jobs live on their RelationshipEvent, so
+    // without this the only way to change their salary was to remove the partner
+    // entirely (taking every dependent event with them).
+    const result = updateEvent(
+      partnered(),
+      "r1",
+      { id: "r1", type: "RelationshipEvent", month: 0, person: partnerEarning(3000) },
+      cfg,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const series = replayLedger(result.ledger, cfg, nullJurisdiction);
+    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(36_000));
+  });
+
+  it("keeps the event's place in the ledger — same sequence number, no number minted", () => {
+    const ledger = partnered();
+    const result = updateEvent(
+      ledger,
+      "r1",
+      { id: "r1", type: "RelationshipEvent", month: 0, person: partnerEarning(3000) },
+      cfg,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ledger.events).toHaveLength(1);
+    expect(result.ledger.events[0].sequenceNumber).toBe(ledger.events[0].sequenceNumber);
+    expect(result.ledger.nextSequenceNumber).toBe(ledger.nextSequenceNumber);
+    expect(validateLedgerStructure(result.ledger).ok).toBe(true);
+  });
+
+  it("blocks a revision that strands a dependent event, naming it", () => {
+    let ledger = partnered();
+    ledger = add(ledger, {
+      id: "sep1",
+      type: "SeparationEvent",
+      month: 6,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+    // Moving the partnership to month 9 would put the separation before it.
+    const result = updateEvent(
+      ledger,
+      "r1",
+      { id: "r1", type: "RelationshipEvent", month: 9, person: partnerEarning(2000) },
+      cfg,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Replay runs in (month, sequence) order, so the separation would now come first —
+    // and the conflict names the event the revision stranded, not just "invalid".
+    expect(result.conflict).toMatch(/sep1/);
+    expect(result.conflict).toMatch(/cannot separate/);
+  });
+
+  it("refuses to change an event's id or type, and to update one that isn't there", () => {
+    const ledger = partnered();
+    const renamed = updateEvent(
+      ledger,
+      "r1",
+      { id: "r2", type: "RelationshipEvent", month: 0, person: partnerEarning(2000) },
+      cfg,
+    );
+    expect(renamed.ok).toBe(false);
+    if (!renamed.ok) expect(renamed.conflict).toMatch(/different id/);
+
+    const retyped = updateEvent(
+      ledger,
+      "r1",
+      {
+        id: "r1",
+        type: "SeparationEvent",
+        month: 0,
+        partnerPersonId: "p2",
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      },
+      cfg,
+    );
+    expect(retyped.ok).toBe(false);
+    if (!retyped.ok) expect(retyped.conflict).toMatch(/type is fixed/);
+
+    const missing = updateEvent(
+      ledger,
+      "nope",
+      { id: "nope", type: "RelationshipEvent", month: 0, person: partnerEarning(2000) },
+      cfg,
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.conflict).toMatch(/No event with id/);
+  });
+
+  it("blocks a revision whose own fields are structurally invalid", () => {
+    // The same field-level gate `addEvent` runs — a revision is not a way around it.
+    const result = updateEvent(
+      partnered(),
+      "r1",
+      { id: "r1", type: "RelationshipEvent", month: 1.5, person: partnerEarning(2000) },
+      cfg,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/month must be an integer/);
   });
 });
 

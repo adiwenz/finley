@@ -123,6 +123,58 @@ describe("App — event ledger", () => {
     expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();
   });
 
+  it("carries a partner's own job through every surface, and edits it from the Jobs panel (#118)", () => {
+    // End to end for issue #118: author a partner WITH a job on the timeline, and it must
+    // (a) show up in the household's job list, (b) count as income on the income-vs-spend
+    // graph below it — which used to project the plan alone, so no timeline event reached
+    // it — and (c) be editable in place afterwards, revising the event it rides on.
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
+
+    // The partner's job is authored in the join form (both this and the Jobs panel offer
+    // an "Add a job" button, so scope to the form's own Jobs section).
+    const partnerJobsField = screen.getByText("Jobs (optional)").closest(".field") as HTMLElement;
+    fireEvent.click(within(partnerJobsField).getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
+      target: { value: "2000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    fireEvent.click(screen.getByText("Add event"));
+
+    // (a) The Jobs panel lists it, owned by the partner and alongside the primary's.
+    const row = screen.getByLabelText("Partner · Job 1");
+    expect(within(row).getByText("$2,000/mo")).toBeTruthy();
+    expect(screen.getByLabelText("Alex · Job 1")).toBeTruthy();
+
+    // (b) The income-vs-spend surface counts it: $5,000 + $2,000 at a month before the
+    // first CPI step.
+    const selectBudgetMonth = (month: number) =>
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Month" }), {
+        target: { value: String(month) },
+      });
+    const incomeDollars = () =>
+      Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
+    selectBudgetMonth(6);
+    expect(incomeDollars()).toBe(7000);
+
+    // (c) Editing the partner's pay here revises the RelationshipEvent — the timeline
+    // keeps its single event, and the projection moves with it.
+    fireEvent.click(screen.getByRole("button", { name: /Edit Partner · Job 1/i }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
+      target: { value: "3000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(within(screen.getByLabelText("Partner · Job 1")).getByText("$3,000/mo")).toBeTruthy();
+    // Still ONE timeline marker — the event was revised in place, not removed and re-added.
+    // (Named exactly "Remove"; the join form's own job list has a "Remove job 1" button.)
+    expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
+    expect(incomeDollars()).toBe(8000);
+  });
+
   it("blocks a removal whose dependent would fail, and surfaces the conflict", () => {
     render(<App />);
 

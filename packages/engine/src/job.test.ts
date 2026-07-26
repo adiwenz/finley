@@ -228,9 +228,33 @@ describe("Job — human name drives the income band label (display only)", () =>
     expect(labelOf(named)).toBe("Income · Software Engineer");
   });
 
-  it("falls back to the stable id when the job has no name (or only whitespace)", () => {
-    expect(labelOf(salariedJob(dollarsToCents(6000)))).toBe("Income · job-main");
-    expect(labelOf({ ...salariedJob(dollarsToCents(6000)), name: "   " })).toBe("Income · job-main");
+  it("falls back to the owner's name when the job has none (or only whitespace)", () => {
+    // Not the id: ids are minted, not written — a partner's are generated from their
+    // person id ("p-0-job-1"), which says nothing to whoever reads the legend (#118).
+    expect(labelOf(salariedJob(dollarsToCents(6000)))).toBe("Income · P's job");
+    expect(labelOf({ ...salariedJob(dollarsToCents(6000)), name: "   " })).toBe("Income · P's job");
+  });
+
+  it("numbers a person's untitled jobs only when they hold more than one", () => {
+    // One name for two bands identifies neither; a lone untitled job needs no ordinal,
+    // so its label can't shift as other jobs come and go.
+    const two = compilePersonIncomeSeries(
+      {
+        ...personWith(salariedJob(dollarsToCents(6000))),
+        jobs: [
+          { ...salariedJob(dollarsToCents(6000)), id: "job-a" },
+          { ...salariedJob(dollarsToCents(2000)), id: "job-b" },
+          { ...salariedJob(dollarsToCents(1000)), id: "job-c", name: "Weekends" },
+        ],
+      },
+      START_YEAR,
+      samplePlan.inflationPct / 100,
+    );
+    expect(two.map((s) => s.label)).toEqual([
+      "Income · P's job 1",
+      "Income · P's job 2",
+      "Income · Weekends",
+    ]);
   });
 
   it("never touches identity — the band's sourceId stays keyed by the id, not the name", () => {
