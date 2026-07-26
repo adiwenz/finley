@@ -1,6 +1,6 @@
 /**
- * The graphs at the top of Base + Adjustments: income by source, spending by line, and
- * tax paid — three views of one projected scenario, sharing an x-axis, a selection
+ * The graphs at the top of Base + Adjustments: cash flows vs. spending, spending by line,
+ * and tax paid — three views of one projected scenario, sharing an x-axis, a selection
  * marker, and the click-to-select gesture.
  *
  * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} so the
@@ -48,14 +48,14 @@ export const ProjectionCharts = memo(function ProjectionCharts({
   return (
     <div>
       <div className="row-between">
-        <h3>Income &amp; spending over time</h3>
+        <h3>Cash flow &amp; spending over time</h3>
         <button className="btn" onClick={onQuickstart} type="button">
           Quickstart from income (50/30/20)
         </button>
       </div>
       <p className="hint">Click either graph to edit at any point in time.</p>
 
-      <h4 className={styles.groupHeading}>Monthly income by source</h4>
+      <h4 className={styles.groupHeading}>Monthly cash flows vs. spending</h4>
       <IncomeChart
         data={incomeData}
         currentAge={currentAge}

@@ -3,7 +3,7 @@
  * take-home reflects it — once there's enough *other* taxable income in retirement to push
  * the benefit over the standard deduction. In the default plan SS sits below that threshold
  * (retirement is funded by non-taxable savings drawdowns), so SS take-home == gross and the
- * "Pre-tax (gross)" toggle leaves the SS band still; this scenario is the counter-example
+ * "Show gross cash flows" toggle leaves the SS band still; this scenario is the counter-example
  * that proves the pipeline handles a taxed benefit end-to-end.
  */
 import { it, expect } from "vitest";

@@ -275,7 +275,7 @@ function yearOf(month: number): number {
 }
 
 /**
- * A one-line summary for the a11y label / status line, or `null` when income runs
+ * A one-line summary for the a11y label / status line, or `null` when cash flow runs
  * continuously with no savings drawdown. Names the retirement gap for what it actually
  * is — a stretch lived off savings, drawn as its own band — rather than the old,
  * misleading "no income" framing (issue #99).
@@ -289,7 +289,7 @@ export function describeIncomeGap(data: IncomeChartData): string | null {
   }
   if (data.firstMonthWithNoIncome !== null) {
     return (
-      `No income and no savings left from Year ${yearOf(data.firstMonthWithNoIncome)} — ` +
+      `No cash coming in and no savings left from Year ${yearOf(data.firstMonthWithNoIncome)} — ` +
       `nothing is covering spending here.`
     );
   }

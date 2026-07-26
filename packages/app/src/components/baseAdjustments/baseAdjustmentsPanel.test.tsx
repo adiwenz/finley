@@ -124,7 +124,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
   });
 
-  it("graphs income by source, and flags the retirement gap as a savings drawdown", () => {
+  it("graphs cash flows by source, and flags the retirement gap as a savings drawdown", () => {
     // Income is not a budget line (§6/§17), so it gets its own graph above the budget.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
@@ -157,18 +157,18 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(bands()).not.toContain("Social Security");
   });
 
-  it("draws income take-home by default and switches to gross on the toggle (issue #110 follow-up)", () => {
+  it("draws take-home cash flows by default and switches to gross on the toggle (issue #110 follow-up)", () => {
     // Take-home is the honest read against the spending-need line: the bands are cash after
-    // tax and deferral. Flipping "Pre-tax (gross)" raises them by exactly the tax the wages
-    // bore, so gross > take-home while the household is earning and taxed.
+    // tax and deferral. Flipping "Show gross cash flows" raises them by exactly the tax the
+    // wages bore, so gross > take-home while the household is earning and taxed.
     renderPanel(PLAN_DEFAULTS);
-    const incomeTotal = () =>
+    const cashFlowTotal = () =>
       Object.values(
         JSON.parse(screen.getByTestId("income-first-row").textContent || "{}") as Record<string, number>,
       ).reduce((s, v) => s + v, 0);
-    const takeHome = incomeTotal();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Pre-tax \(gross\)/i }));
-    const gross = incomeTotal();
+    const takeHome = cashFlowTotal();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show gross cash flows/i }));
+    const gross = cashFlowTotal();
     expect(gross).toBeGreaterThan(takeHome); // gross adds back the wage tax
   });
 

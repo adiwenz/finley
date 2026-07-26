@@ -22,25 +22,27 @@ import {
 } from "./incomeByCategory";
 
 /**
- * Monthly income chart — the income-side companion to the per-line budget chart
- * (issue #71). Income is not a budget line (§6/§17), so it gets its own graph stacked
- * directly above the budget, sharing the same x-axis, the same click-to-select gesture,
- * and the same selection marker: two views of one timeline.
+ * Monthly cash-flows-vs.-spending chart — the cash-flow companion to the per-line budget
+ * chart (issue #71). It stacks every cash source the household actually sees — earned income,
+ * the government benefit, savings interest, and savings/asset withdrawals — against the
+ * spending it has to cover, so it is deliberately broader than "income" alone. It gets its
+ * own graph stacked directly above the budget, sharing the same x-axis, the same
+ * click-to-select gesture, and the same selection marker: two views of one timeline.
  *
- * Two views of the income itself (issue #99 follow-up), switched by the Advanced toggle:
+ * Two views of those cash flows (issue #99 follow-up), switched by the Advanced toggle:
  *   - **Simple** (default) — three ideas: wages (per job), Social Security, and one
  *     "Living off savings" band that folds in every asset-sale draw and the cash
  *     drawdown. A dashed spending-need line says whether it's enough, and a "broke"
  *     marker names the month the plan runs out.
  *   - **Advanced** — every source as its own band (which job, which account draining,
- *     the benefit, the cash drawdown), for the reader who wants the full breakdown.
- *     The gain-vs-principal split of the drawdown lands later via issue #122.
+ *     the benefit, savings interest, the cash drawdown), for the reader who wants the full
+ *     breakdown. The gain-vs-principal split of the drawdown lands later via issue #122.
  *
  * Bands are drawn on a **take-home** basis by default (issue #110 follow-up): each source's
  * cash after its own tax and pre-tax deferral — the money actually available to meet the
- * spending-need line. Gross would draw the paycheck *above* the tax and 401(k) money that
+ * spending-need line. Gross would draw the cash flow *above* the tax and 401(k) money that
  * never reach the checking account, overstating the headroom against spending. The
- * "Pre-tax (gross)" toggle switches the bands back to gross for reading raw earning power.
+ * "Show gross cash flows" toggle switches the bands back to gross for reading raw earning power.
  *
  * As with the budget chart, the summary and hidden data mirrors render independently of
  * Recharts so the behaviour is assertable without SVG layout (Recharts needs a real
@@ -139,26 +141,26 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
       role="img"
       aria-label={
         summary
-          ? `Monthly income by source. ${summary}`
-          : "Monthly income by source — income continues across the whole horizon."
+          ? `Monthly cash flows vs. spending. ${summary}`
+          : "Monthly cash flows vs. spending — cash flow continues across the whole horizon."
       }
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         {/* Informational, not a warning: a retirement income gap is expected, and the
             plan-is-broken case is the broke marker + the budget chart's amber band below. */}
         <p className="hint" data-testid="income-summary">
-          {summary ?? "Income continues across the whole horizon."}
+          {summary ?? "Cash flow continues across the whole horizon."}
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
-          {/* Take-home is the default (bands = cash after tax + deferral); this toggle
-              switches to gross for reading raw earning power (issue #110 follow-up). */}
+          {/* Take-home cash flows are the default (bands = cash after tax + deferral); this
+              toggle switches to gross cash flows for reading raw earning power (issue #110). */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"
               checked={basis === "gross"}
               onChange={(e) => setBasis(e.target.checked ? "gross" : "takeHome")}
             />
-            Pre-tax (gross)
+            Show gross cash flows
           </label>
           {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
