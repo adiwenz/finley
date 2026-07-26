@@ -102,17 +102,31 @@ function categoryRank(category: string): number {
 }
 
 /**
- * Name a tax source that has no income band to borrow a label from — an untitled stream
- * the engine keyed by its tax category, or a compound engine key like
- * `interest:p1:ordinaryIncome` (a savings account's taxable accrued interest, which pays
- * no cash so it never appears on the income chart). Read the tax category off the key's
- * trailing segment (the engine's `:`-delimited convention) so the band still reads in
- * English and sorts/colours with its category, rather than showing the raw id. Anything
- * unrecognised keeps its id as the label and sorts last.
+ * Human labels for the engine's tax-only source KINDS — sources that bear tax but pay no
+ * cash, so they never draw an income band the tax chart could borrow a name from. Keyed by
+ * the leading segment of the engine's `<kind>:<owner>:<category>` id. Naming the band by
+ * what it *is* ("Savings interest") beats naming it by its tax bucket ("Ordinary income"),
+ * which tells the reader nothing about where the tax came from.
+ */
+const TAX_ONLY_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  interest: "Savings interest", // accrued interest on cash/savings accounts (see simulate.ts)
+};
+
+/**
+ * Name a tax source that has no income band to borrow a label from — a source that pays no
+ * cash (e.g. a savings account's taxable accrued interest, keyed `interest:p1:ordinaryIncome`),
+ * or an untitled stream the engine keyed by its bare tax category. Prefer a label for the
+ * source KIND (so it reads as what it came from, e.g. "Savings interest"); otherwise read
+ * the tax category off the key's trailing segment so it at least reads in English and
+ * sorts/colours with its category. The category (for colour/order) always comes from the
+ * trailing segment. Anything unrecognised keeps its id as the label and sorts last.
  */
 function bandForTaxOnlyKey(id: string): TaxSourceBand {
-  const trailing = id.split(":").pop() ?? id;
+  const segments = id.split(":");
+  const trailing = segments[segments.length - 1] ?? id;
   const category = TAX_CATEGORY_LABELS[trailing] ? trailing : TAX_CATEGORY_LABELS[id] ? id : undefined;
+  const kindLabel = segments.length > 1 ? TAX_ONLY_SOURCE_LABELS[segments[0]!] : undefined;
+  if (kindLabel !== undefined) return { id, label: kindLabel, category: category ?? id };
   if (category !== undefined) return { id, label: TAX_CATEGORY_LABELS[category]!, category };
   return { id, label: id, category: id };
 }
