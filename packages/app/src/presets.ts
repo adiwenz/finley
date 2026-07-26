@@ -27,6 +27,7 @@ import {
   emptyLedger,
   addEvent,
   PRIMARY_PERSON_ID,
+  RETIREMENT_ID,
   type Plan,
   type Job,
   type BudgetLine,
@@ -175,6 +176,33 @@ const STUDENT_LOAN: Plan = teachingPlan({
   openingBalanceCents: dollarsToCents(4000),
 });
 
+/**
+ * Taxed in retirement: a strong saver who funnels 12% of a healthy salary into a 401(k),
+ * so a pre-tax balance builds over the working years and then funds retirement through
+ * taxable withdrawals on top of Social Security. That other taxable income lifts the
+ * benefit over the standard deduction, so — unlike the default plan, where Social Security
+ * sits under it and is never taxed — tax does NOT stop at the last paycheck: it continues
+ * into retirement, with a Government-benefit band on the tax chart (issue #110 follow-up).
+ *
+ * A shorter horizon (life expectancy 72) is deliberate: it keeps retirement funded by
+ * smooth monthly pre-tax withdrawals, before required minimum distributions (age 73+) turn
+ * the tax chart into lumpy once-a-year spikes — so the scenario reads as a clean,
+ * continuous "you're still taxed in retirement" curve rather than RMD noise. Solvent to
+ * the end of the horizon.
+ */
+const TAXED_IN_RETIREMENT: Plan = {
+  ...PLAN_DEFAULTS,
+  name: "Morgan",
+  jobs: [
+    {
+      ...salariedJob(dollarsToCents(8000)),
+      deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
+    },
+  ],
+  retirementReturnPct: 4,
+  lifeExpectancy: 72,
+};
+
 /** The $45k amortizing student loan {@link STUDENT_LOAN} opens with, taken at "now". */
 const STUDENT_LOAN_EVENT: NewLifeEvent = {
   id: "e0",
@@ -220,6 +248,13 @@ export const PRESETS: readonly Preset[] = [
     description: "A new graduate underwater on a student loan, digging back to zero.",
     plan: STUDENT_LOAN,
     events: [STUDENT_LOAN_EVENT],
+  },
+  {
+    id: "taxed-in-retirement",
+    label: "Taxed in retirement",
+    description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
+    plan: TAXED_IN_RETIREMENT,
+    events: [],
   },
 ];
 

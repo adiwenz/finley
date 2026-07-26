@@ -41,12 +41,13 @@ const realNetWorthAt = (series: ProjectionSeries, month: number): number | null 
   series.months[month]?.netWorthRealCents ?? null;
 
 describe("default simulations (issue #119)", () => {
-  it("offers the healthy default plus the three teaching scenarios", () => {
+  it("offers the healthy default plus the teaching scenarios", () => {
     expect(PRESETS.map((p) => p.id)).toEqual([
       "default",
       "paycheck-to-paycheck",
       "living-on-credit",
       "student-loan",
+      "taxed-in-retirement",
     ]);
     // Each preset carries a distinct, non-empty human label and description.
     for (const preset of PRESETS) {
@@ -106,6 +107,24 @@ describe("default simulations (issue #119)", () => {
     expect(later).toBeGreaterThan(early);
     // The debt is unfinanceable long-term: the plan runs out of credit.
     expect(firstInsolventMonth(series)).not.toBeNull();
+  });
+
+  it("taxed-in-retirement: taxes Social Security in retirement, unlike the default plan", () => {
+    // The scenario's whole point: enough taxable 401(k) income in retirement to push the
+    // benefit over the standard deduction, so the government-benefit category bears tax in
+    // a run of retirement months — where the default saver's SS stays untaxed.
+    const series = project(presetById("taxed-in-retirement"));
+    const ssTaxedMonths = series.months.filter((m) => {
+      const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
+      return (byCat.governmentRetirementBenefit ?? 0) > 0;
+    }).length;
+    expect(ssTaxedMonths).toBeGreaterThan(24); // taxed across years of retirement, not a blip
+    // Contrast: the default plan never taxes the benefit.
+    const defaultSSTaxed = project(presetById("default")).months.some((m) => {
+      const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
+      return (byCat.governmentRetirementBenefit ?? 0) > 0;
+    });
+    expect(defaultSSTaxed).toBe(false);
   });
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {
