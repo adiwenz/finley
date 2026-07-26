@@ -242,6 +242,30 @@ describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)
     );
     expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(5_000));
   });
+
+  it("subtracts the benefit's tax from the Social Security band when SS IS taxed", () => {
+    // Guards the `benefit:<person>` keying end-to-end: when the engine attributes tax to a
+    // government-benefit source, the SS band's take-home must drop by exactly that tax. (In
+    // the default plan SS is below the taxable threshold, so gross == take-home there — this
+    // proves the pipeline still handles a taxed benefit, it isn't silently dropped.)
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [
+            { sourceId: "benefit:p1", label: "Government benefit", category: "governmentRetirementBenefit", grossCents: dollarsToCents(6_000) },
+          ],
+          taxBySourceCents: { "benefit:p1": dollarsToCents(900) },
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+        },
+      },
+    ];
+    const data = buildIncomeChartData({ months } as unknown as ProjectionSeries);
+    expect(data.rows[0]!.centsBySource["benefit:p1"]).toBe(dollarsToCents(6_000)); // gross
+    expect(data.rows[0]!.netCentsBySource["benefit:p1"]).toBe(dollarsToCents(5_100)); // 6000 − 900 tax
+  });
 });
 
 describe("describeIncomeGap", () => {
