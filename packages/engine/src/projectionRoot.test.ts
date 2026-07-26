@@ -238,7 +238,15 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 
     const untaxed = p.run(nullJurisdiction);
     // A flat monthly tax bleeds net worth, so the taxed run must diverge from the null one.
-    const taxed = p.run(mockJurisdiction({ id: "flat-tax", computeTaxCents: () => dollarsToCents(1500) }));
+    const taxed = p.run(
+      mockJurisdiction({
+        id: "flat-tax",
+        computeTaxCents: () => dollarsToCents(1500),
+        // §5.3 attribution contract: the flat tax must reconcile per source. Attribute it to
+        // the wage income the job produces (the fallback keys it there if no wage source exists).
+        computeTaxByCategoryCents: () => ({ wages: dollarsToCents(1500) }),
+      }),
+    );
 
     expect(taxed.jurisdictionId).toBe("flat-tax");
     const lastUntaxed = untaxed.series.months.at(-1)?.netWorthNominalCents;

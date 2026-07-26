@@ -626,6 +626,44 @@ function fundGoalsAndContributions(
 }
 
 /**
+ * §5.3 tax-attribution contract (issue #110 follow-up). When any tax is charged, the
+ * per-source breakdown MUST be present and reconcile to the scalar `taxCents` — a jurisdiction
+ * may not silently decline it or attribute only part. This is what keeps the take-home
+ * cash-flow chart honest: it derives each source's net as `cashInflow − deferral − attributed
+ * tax`, so a missing or partial `taxBySourceCents` would leave tax un-subtracted and overstate
+ * take-home. An incomplete jurisdiction implementation is a bug we fail loudly on, not a
+ * misleading chart we render.
+ *
+ * `tolerance` is a small per-household rounding allowance (the breakdown may round each
+ * category independently); a real gap is dollars, not cents. `usJurisdiction`'s breakdown is
+ * built from the same figures as its scalar, so it reconciles exactly (see
+ * `federalTaxParts`). A jurisdiction that charges NO tax (`taxCents` 0, e.g. the null
+ * jurisdiction) is exempt — there is nothing to attribute, and the app draws no tax band.
+ */
+export function assertTaxAttributionReconciles(
+  taxCents: Cents,
+  taxBySourceCents: Readonly<Record<string, Cents>> | undefined,
+  personCount: number,
+): void {
+  if (taxCents <= 0) return;
+  if (taxBySourceCents === undefined) {
+    throw new Error(
+      `Tax attribution contract violated: taxCents=${taxCents} but no per-source breakdown was ` +
+        `produced. A jurisdiction that charges tax must implement computeTaxByCategoryCents so ` +
+        `the tax reconciles per source (else the take-home cash-flow chart overstates net).`,
+    );
+  }
+  const attributed = Object.values(taxBySourceCents).reduce((s, v) => s + v, 0);
+  const tolerance = Math.max(1, personCount); // ≤ ~1¢ per person of benign category rounding
+  if (Math.abs(attributed - taxCents) > tolerance) {
+    throw new Error(
+      `Tax attribution does not reconcile: Σ taxBySourceCents=${attributed} ≠ taxCents=${taxCents} ` +
+        `(tolerance ${tolerance}¢). The per-source breakdown must sum to the tax charged.`,
+    );
+  }
+}
+
+/**
  * Run the §5.0 waterfall for a single month, as the four sequential phases named
  * in the module doc. Pure at the boundary: the shared `deposits` map is the only
  * mutable state, threaded through the phases that add to it.
@@ -655,6 +693,10 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     totalDiscretionary,
     deposits,
   );
+
+  // Contract: tax charged must be fully attributed to sources (or the cash-flow chart
+  // silently overstates take-home). Fail loudly on an incomplete jurisdiction, never fall back.
+  assertTaxAttributionReconciles(taxCents, taxBySourceCents, input.personIds.length);
 
   return {
     taxCents,

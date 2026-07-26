@@ -137,8 +137,20 @@ describe("buildSimulationReport", () => {
 
     // A flat 10% jurisdiction: $3,000 of wages → $300 of tax on the report row, and
     // the household is $300 poorer for it (income 3000 − expenses 2000 − tax 300).
-    const flatTax = { ...nullJurisdiction, computeTaxCents: (byCategory: Record<string, number>) =>
-      Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1) };
+    const flatTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) =>
+        Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
+      // Matching per-source breakdown (§5.3 attribution contract): each category taxed 10%.
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const out: Record<string, number> = {};
+        for (const [cat, cents] of Object.entries(byCategory)) {
+          const t = Math.round((cents ?? 0) * 0.1);
+          if (t) out[cat] = t;
+        }
+        return out;
+      },
+    };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
     expect(report.months[1].taxCents).toBe(dollarsToCents(300));
     expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free (§4.6)

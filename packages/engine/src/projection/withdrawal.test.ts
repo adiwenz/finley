@@ -283,6 +283,11 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
+      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      computeTaxByCategoryCents: (byCat) => {
+        const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.25);
+        return t > 0 ? { ordinaryIncome: t } : {};
+      },
     };
     const series = simulateHousehold(
       baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 100_000)], {
@@ -305,6 +310,11 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
+      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      computeTaxByCategoryCents: (byCat) => {
+        const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.25);
+        return t > 0 ? { ordinaryIncome: t } : {};
+      },
     };
     const series = simulateHousehold(
       baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 100_000)], {
