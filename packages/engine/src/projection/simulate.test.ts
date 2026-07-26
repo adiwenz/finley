@@ -1147,9 +1147,14 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       id: "flat-ordinary-10",
       computeTaxCents: (byCat) =>
         Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
-      // Interest is taxed at accrual as ordinary income (the policy now lives on the
-      // jurisdiction, not the account) — so an interest-bearing account accrues here.
-      returnTaxTreatment: () => ({ taxAtAccrual: true, category: "ordinaryIncome" }),
+      // Interest is taxed at accrual as ordinary income; capital appreciation is deferred
+      // to withdrawal — the same split the US jurisdiction makes. Keyed on the account's
+      // `returnKind` (the brokerage now declares "appreciation" explicitly, so the deferral
+      // is this jurisdiction's decision, not an engine default-by-omission).
+      returnTaxTreatment: (kind) =>
+        kind === "interest"
+          ? { taxAtAccrual: true, category: "ordinaryIncome" }
+          : { taxAtAccrual: false, category: "capitalGains" },
     };
 
     /** A liquid cash buffer (savings) — post-tax in, tax-free withdrawal, taxable interest. */
