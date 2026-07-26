@@ -11,14 +11,18 @@ import { describe, it, expect, afterEach } from "vitest";
 import { useMemo, useRef, useState } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
+  PRIMARY_PERSON_ID,
+  RETIREMENT_ID,
   createProjectionBase,
   dollarsToCents,
   interpretLedger,
+  projectScenario,
   updateEvent,
   type Job,
   type Ledger,
   type NewLifeEvent,
   type Plan,
+  type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import type { EventRevision } from "../../hooks/useLedger";
@@ -82,6 +86,10 @@ function Harness({
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
+      {/* Both planes as the panel actually left them, so a test can project the real
+          pair (plan + ledger) rather than a hand-built stand-in for it. */}
+      <output data-testid="plan">{JSON.stringify(budget)}</output>
+      <output data-testid="ledger">{JSON.stringify(ledger)}</output>
     </>
   );
 }
@@ -123,6 +131,11 @@ const partnerJobs = (): readonly Job[] =>
   JSON.parse(screen.getByTestId("partner-jobs").textContent || "[]") as Job[];
 const partnerMonthlyDollars = (i = 0): number =>
   Math.round((partnerJobs()[i]?.salary.startingSalaryCents ?? 0) / 12 / 100);
+/** The plan and the ledger as the panel left them — what the app itself would project. */
+const authored = (): { plan: Plan; ledger: Ledger } => ({
+  plan: JSON.parse(screen.getByTestId("plan").textContent || "{}") as Plan,
+  ledger: JSON.parse(screen.getByTestId("ledger").textContent || "{}") as Ledger,
+});
 
 describe("JobsPanel — listing (§6)", () => {
   it("lists the default job with its salary and open-ended span", () => {
@@ -361,6 +374,137 @@ describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+});
+
+describe("JobsPanel — handing a whole job to a partner, end to end (§8, issue #118)", () => {
+  // The regression this guards: reassignment used to be two unrelated writes — the job
+  // dropped from `Plan.jobs` and a NEW one minted on the partner from the form draft, which
+  // carries none of a job's other state. It came back with a fresh id, no employer match, no
+  // pay change, no bonus, and its ages re-read against the WRONG person's birth year.
+  //
+  // Driven entirely through the panel, and asserted on the real pair of planes plus the
+  // projection compiled from them — no helper is called directly here, so the seam between
+  // `Plan.jobs`, the `RelationshipEvent`, and `compilePersonIncomeSeries` is under test too.
+  const PRIMARY_BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now
+  const PARTNER_BIRTH_YEAR = START_YEAR - 40; // Sam, 40 now, retiring at 65
+  const JOIN_MONTH = 60; // Sam arrives five years in
+  const PARTNER_RETIREMENT_MONTH = (65 - 40) * 12; // their open-ended jobs stop here
+  const NEW_START_AGE = 32; // Sam's 32 — a year they reached BEFORE the plan's "now"
+
+  const PAY_CHANGE = { month: 120, kind: "changeBy", cents: dollarsToCents(500) } as const;
+  const BONUS = { month: 72, kind: "addBonus", cents: dollarsToCents(2_000) } as const;
+
+  /** The primary person's job, carrying everything the edit form never shows. */
+  const richJob: Job = {
+    id: "job-1",
+    name: "Software Engineer",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: PRIMARY_BIRTH_YEAR + 30, // Alex started it at 30
+    endYear: null,
+    salary: { startingSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
+    deferral: { deferralFraction: 0.06, fundAccountId: RETIREMENT_ID, employerMatchFraction: 0.5 },
+    payChanges: [PAY_CHANGE],
+    incomeOverrides: [BONUS],
+  };
+  const planWithRichJob: Plan = { ...PLAN_DEFAULTS, jobs: [richJob] };
+  const samJoinsAt = (month: number): NewLifeEvent => ({ ...partnerJoining([]), month });
+
+  /** Every wage source the projection pays `ownerId` in `month`, as cents. */
+  function wagesFor(series: ProjectionSeries, ownerId: string, month: number): number {
+    const sources = series.months.find((m) => m.month === month)?.flows?.incomeSources ?? [];
+    return sources
+      .filter((s) => s.category === "wages" && s.ownerId === ownerId)
+      .reduce((sum, s) => sum + s.cashInflowCents, 0);
+  }
+
+  it("moves the job itself — id, match, pay change and bonus — and the projection follows", () => {
+    render(<Harness initial={planWithRichJob} events={[samJoinsAt(JOIN_MONTH)]} />);
+
+    // ── One submission: a different owner AND a different salary and start age ──
+    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Software Engineer/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "6000" } });
+    fireEvent.change(spin(/Start age/i), { target: { value: String(NEW_START_AGE) } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const { plan, ledger } = authored();
+
+    // ── It left the plan, and landed on the partner exactly once ──
+    expect(plan.jobs).toEqual([]);
+    expect(jobCount()).toBe(0);
+    const moved = partnerJobs();
+    expect(moved).toHaveLength(1);
+    // Nothing partially transferred: one job with this id in the whole household.
+    expect([...plan.jobs, ...moved].filter((j) => j.id === "job-1")).toHaveLength(1);
+    expect(screen.queryByLabelText("Alex · Software Engineer")).toBeNull();
+    expect(screen.getByLabelText("Sam · Software Engineer")).toBeTruthy();
+
+    // ── The same job, edited — not a new one built from the draft ──
+    const job = moved[0];
+    expect(job.id).toBe("job-1"); // a minted id would read "p-1-job-2"
+    expect(job.ownerId).toBe("p-1");
+    expect(job.name).toBe("Software Engineer");
+    expect(job.salary.startingSalaryCents).toBe(dollarsToCents(72_000)); // $6,000/mo, edited
+    expect(job.endYear).toBeNull();
+    // Ages resolve against the TARGET owner: Sam's 32, five years earlier than Alex's would be.
+    expect(job.startYear).toBe(PARTNER_BIRTH_YEAR + NEW_START_AGE);
+    expect(job.startYear).not.toBe(PRIMARY_BIRTH_YEAR + NEW_START_AGE);
+    // Everything the form never shows rode along untouched.
+    expect(job.deferral).toEqual({
+      deferralFraction: 0.06,
+      fundAccountId: RETIREMENT_ID,
+      employerMatchFraction: 0.5,
+    });
+    expect(job.payChanges).toEqual([PAY_CHANGE]);
+    expect(job.incomeOverrides).toEqual([BONUS]);
+
+    // ── The projection compiled from that pair of planes ──
+    const series = projectScenario(
+      { plan, ledger },
+      { jurisdiction: usJurisdiction, startYear: START_YEAR },
+    );
+    // The income is the PARTNER's now — the primary person has no job left to pay them.
+    expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
+    expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
+    // And none of it lands before Sam is in the household — the job started in 2018, but a
+    // member's jobs are only paid from the month they join (the membership window).
+    expect(wagesFor(series, "p-1", 1)).toBe(0);
+    expect(wagesFor(series, "p-1", JOIN_MONTH - 1)).toBe(0);
+    // It stops at the boundary its OWNER carries: open-ended, so Sam's retirement age.
+    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBeGreaterThan(0);
+    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH)).toBe(0);
+  });
+
+  it("stops the moved job's income at a separation, not at the partner's retirement", () => {
+    // The other boundary: leaving the household ends the income the same way, since the
+    // window that clips it is the MEMBERSHIP's, not the job's.
+    const separation: NewLifeEvent = {
+      id: "s1",
+      type: "SeparationEvent",
+      month: 180,
+      partnerPersonId: "p-1",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    };
+    render(<Harness initial={planWithRichJob} events={[samJoinsAt(JOIN_MONTH), separation]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Software Engineer/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const { plan, ledger } = authored();
+    expect(plan.jobs).toEqual([]);
+    expect(partnerJobs()).toHaveLength(1);
+
+    const series = projectScenario(
+      { plan, ledger },
+      { jurisdiction: usJurisdiction, startYear: START_YEAR },
+    );
+    expect(wagesFor(series, "p-1", 179)).toBeGreaterThan(0); // last month as a member
+    expect(wagesFor(series, "p-1", 180)).toBe(0); // gone with the separation
+    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBe(0); // long since stopped
   });
 });
 
