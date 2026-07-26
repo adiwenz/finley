@@ -356,6 +356,9 @@ function computeTakeHome(
     const tax = input.computeTaxCents(taxable);
     taxCents += tax;
     const perCategory = breakdownSeam(taxable);
+    // Per-person invariant FIRST — before aggregating — so an offsetting pair of per-person
+    // errors can't cancel in the household total and slip past the household check below.
+    assertPersonTaxBreakdownReconciles(pid, tax, perCategory);
     for (const [category, cents] of Object.entries(perCategory)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
     }
@@ -618,35 +621,49 @@ function fundGoalsAndContributions(
 }
 
 /**
- * §5.3 tax-attribution contract (issue #110 follow-up). When any tax is charged, the
- * per-source breakdown MUST be present and reconcile to the scalar `taxCents` — a jurisdiction
- * may not silently decline it or attribute only part. This is what keeps the take-home
- * cash-flow chart honest: it derives each source's net as `cashInflow − deferral − attributed
- * tax`, so a missing or partial `taxBySourceCents` would leave tax un-subtracted and overstate
- * take-home. An incomplete jurisdiction implementation is a bug we fail loudly on, not a
- * misleading chart we render.
+ * §5.3 PER-PERSON attribution invariant (issue #110 follow-up), checked as each person is
+ * taxed and BEFORE anything is aggregated. The jurisdiction's contract is that the Σ of its
+ * per-category breakdown equals its own scalar `computeTaxCents` for the SAME taxable input —
+ * so we assert it per person. Checking here, not only on the household total, catches
+ * OFFSETTING errors: one person over-attributed and another under by the same amount would
+ * reconcile at the household level yet each be wrong. Exact to the cent (integer cents; a
+ * zero-tax person trivially passes with a `{}` breakdown).
+ */
+export function assertPersonTaxBreakdownReconciles(
+  personId: string,
+  scalarTaxCents: Cents,
+  breakdown: Partial<Record<TaxCategory, Cents>>,
+): void {
+  const summed = Object.values(breakdown).reduce((s, v) => s + (v ?? 0), 0);
+  if (summed !== scalarTaxCents) {
+    throw new Error(
+      `Tax attribution does not reconcile for person ${personId}: ` +
+        `Σ computeTaxByCategoryCents=${summed} ≠ computeTaxCents=${scalarTaxCents}. ` +
+        `The category breakdown must sum to the scalar tax for each person (integer cents).`,
+    );
+  }
+}
+
+/**
+ * §5.3 HOUSEHOLD attribution invariant (issue #110 follow-up) — the second check. When any
+ * tax is charged, the per-source breakdown MUST reconcile to the scalar `taxCents`. This is
+ * what keeps the take-home cash-flow chart honest: it derives each source's net as `cashInflow
+ * − deferral − attributed tax`, so a partial `taxBySourceCents` would leave tax un-subtracted
+ * and overstate take-home. An incomplete jurisdiction implementation is a bug we fail loudly
+ * on, not a misleading chart we render.
  *
  * Reconciliation is EXACT to the cent — no tolerance. Everything here is integer cents:
  * `attributeTaxToSources` splits each category's tax with {@link apportionByWeight}
- * (largest-remainder, Σ shares === the category tax exactly), and the jurisdiction's contract
- * is that Σ of its per-category breakdown equals its scalar `computeTaxCents` per person
- * (`usJurisdiction` derives both from the same `federalTaxParts` figures). So the household Σ
- * equals `taxCents` on the nose; any deviation is a jurisdiction bug, not benign rounding. A
- * jurisdiction that charges NO tax (`taxCents` 0, e.g. the null jurisdiction) is exempt — there
- * is nothing to attribute.
+ * (largest-remainder, Σ shares === the category tax exactly), and the {@link
+ * assertPersonTaxBreakdownReconciles} per-person invariant has already pinned each person's
+ * breakdown to their scalar. So the household Σ equals `taxCents` on the nose; any deviation
+ * is a bug, not benign rounding. A jurisdiction that charges NO tax (`taxCents` 0) is exempt.
  */
 export function assertTaxAttributionReconciles(
   taxCents: Cents,
-  taxBySourceCents: Readonly<Record<string, Cents>> | undefined,
+  taxBySourceCents: Readonly<Record<string, Cents>>,
 ): void {
   if (taxCents <= 0) return;
-  if (taxBySourceCents === undefined) {
-    throw new Error(
-      `Tax attribution contract violated: taxCents=${taxCents} but no per-source breakdown was ` +
-        `produced. A jurisdiction that charges tax must implement computeTaxByCategoryCents so ` +
-        `the tax reconciles per source (else the take-home cash-flow chart overstates net).`,
-    );
-  }
   const attributed = Object.values(taxBySourceCents).reduce((s, v) => s + v, 0);
   if (attributed !== taxCents) {
     throw new Error(

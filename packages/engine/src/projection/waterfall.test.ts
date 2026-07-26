@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   runWaterfall,
   assertTaxAttributionReconciles,
+  assertPersonTaxBreakdownReconciles,
   type WaterfallInput,
   type IncomeSourceMonth,
 } from "./waterfall";
@@ -706,15 +707,41 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
     expect(r.taxBySourceCents).toEqual({});
     expect(r.taxByCategoryCents).toEqual({});
   });
+
+  it("REJECTS offsetting per-person mismatches that would cancel in the household total", () => {
+    // A jurisdiction whose per-category breakdown is off by 1¢ per person in OPPOSITE
+    // directions: it over-attributes a wages person and under-attributes an ordinary-income
+    // person. The two errors cancel, so the household Σ still equals taxCents — the household
+    // check alone would pass. The per-person invariant catches each one before aggregation.
+    const skewed = {
+      computeTaxCents: (byCat: Partial<Record<string, number>>) =>
+        Math.round(((byCat.wages ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.1),
+      computeTaxByCategoryCents: (byCat: Partial<Record<string, number>>) => {
+        const out: Partial<Record<string, number>> = {};
+        if (byCat.wages) out.wages = Math.round(byCat.wages * 0.1) + 1; // over by 1¢
+        if (byCat.ordinaryIncome) out.ordinaryIncome = Math.round(byCat.ordinaryIncome * 0.1) - 1; // under by 1¢
+        return out;
+      },
+    };
+    // Proof the household check is blind to this: the offsetting totals reconcile exactly.
+    expect(() => assertTaxAttributionReconciles(200_00, { A: 100_01, B: 99_99 })).not.toThrow();
+    // …but running the waterfall throws on the per-person mismatch.
+    expect(() =>
+      runWaterfall(
+        makeInput({
+          personIds: ["A", "B"],
+          incomeSources: [
+            { ownerId: "A", waterfallInflowCents: dollarsToCents(1000), taxCategory: "wages" },
+            { ownerId: "B", waterfallInflowCents: dollarsToCents(1000), taxCategory: "ordinaryIncome" },
+          ],
+          ...skewed,
+        }),
+      ),
+    ).toThrow(/does not reconcile for person/i);
+  });
 });
 
 describe("assertTaxAttributionReconciles (§5.3 attribution contract)", () => {
-  it("throws when tax is charged but no per-source breakdown was produced", () => {
-    expect(() => assertTaxAttributionReconciles(100_00, undefined)).toThrow(
-      /no per-source breakdown/i,
-    );
-  });
-
   it("throws when the attributed tax does not sum to taxCents", () => {
     expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 60_00 })).toThrow(
       /does not reconcile/i,
@@ -740,7 +767,28 @@ describe("assertTaxAttributionReconciles (§5.3 attribution contract)", () => {
   });
 
   it("is a no-op when no tax is charged (nothing to attribute)", () => {
-    expect(() => assertTaxAttributionReconciles(0, undefined)).not.toThrow();
+    expect(() => assertTaxAttributionReconciles(0, {})).not.toThrow();
+  });
+});
+
+describe("assertPersonTaxBreakdownReconciles (§5.3 per-person invariant)", () => {
+  it("passes when the person's breakdown sums to their scalar tax", () => {
+    expect(() =>
+      assertPersonTaxBreakdownReconciles("p1", 100_00, { wages: 70_00, capitalGains: 30_00 }),
+    ).not.toThrow();
+  });
+
+  it("throws when the person's breakdown over- or under-attributes, down to a cent", () => {
+    expect(() => assertPersonTaxBreakdownReconciles("p1", 100_00, { wages: 100_01 })).toThrow(
+      /person p1/i,
+    );
+    expect(() => assertPersonTaxBreakdownReconciles("p1", 100_00, { wages: 99_99 })).toThrow(
+      /does not reconcile/i,
+    );
+  });
+
+  it("is satisfied by an empty breakdown for a zero-tax person", () => {
+    expect(() => assertPersonTaxBreakdownReconciles("p1", 0, {})).not.toThrow();
   });
 });
 
