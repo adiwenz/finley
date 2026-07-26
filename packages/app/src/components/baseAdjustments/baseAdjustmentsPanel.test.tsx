@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
+  Projection,
   createProjectionBase,
   dollarsToCents,
   emptyLedger,
@@ -437,7 +438,8 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     // total.
     renderPanel(PLAN_DEFAULTS);
     const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
-    expect(bands).toContain("Income · job-1");
+    // Named after its owner, not its minted id: an untitled job reads "Alex's job" (#118).
+    expect(bands).toContain("Income · Alex's job");
     const firstRow = JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}");
     const banded = Object.entries(firstRow.centsBySource as Record<string, number>).reduce(
       (s, [, c]) => s + c,
@@ -908,11 +910,21 @@ describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
       kind: "studentLoan",
       termMonths: 120,
     });
+    // Rendered bare, without the Harness: the panel's job-owner props are the household
+    // roster it authors pay changes against, and this test authors none.
+    const base = createProjectionBase(PLAN_DEFAULTS, {
+      jurisdiction: usJurisdiction,
+      startYear: START_YEAR,
+    });
     render(
       <BaseAdjustmentsPanel
         plan={PLAN_DEFAULTS}
         setBudget={() => {}}
         series={projection.run(usJurisdiction).series}
+        personNames={new Map()}
+        household={interpretLedger(emptyLedger, base)}
+        ledger={emptyLedger}
+        onReviseEvents={() => true}
       />,
     );
 

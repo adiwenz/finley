@@ -148,7 +148,7 @@ describe("buildFlows", () => {
       [],
     );
     expect(flows.incomeSources).toEqual([
-      { sourceId: "interest:p1", label: "Savings interest", category: "ordinaryIncome", cashInflowCents: 40_00, netCashFlowCents: 40_00 },
+      { sourceId: "interest:p1", label: "Savings interest", category: "ordinaryIncome", ownerId: "p1", cashInflowCents: 40_00, netCashFlowCents: 40_00 },
     ]);
     expect(flows.incomeByCategoryCents).toEqual({ ordinaryIncome: 40_00 });
     expect(flows.totalIncomeCents).toBe(40_00);
@@ -173,6 +173,7 @@ describe("buildFlows", () => {
         sourceId: "interest:p1:ordinaryIncome",
         label: "Savings interest",
         category: "ordinaryIncome",
+        ownerId: "p1",
         cashInflowCents: 500_00,
         netCashFlowCents: 400_00,
       },

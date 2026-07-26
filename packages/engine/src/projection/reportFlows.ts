@@ -76,7 +76,10 @@ export function buildFlows(
   // `cashInflowCents` — the realized cash the source paid — which for accrued interest is
   // its interest (waterfallInflowCents 0, but real household cash) and for everything else is its
   // gross. So interest now appears in the cash-flow view instead of being dropped.
-  const bySource = new Map<string, { cashInflowCents: Cents; label: string; category: string }>();
+  const bySource = new Map<
+    string,
+    { cashInflowCents: Cents; label: string; category: string; ownerId?: string }
+  >();
   const order: string[] = [];
   for (const src of incomeSources) {
     const cashInflow = src.cashInflowCents ?? src.waterfallInflowCents;
@@ -123,6 +126,9 @@ export function buildFlows(
       sourceId: id,
       label: s.label,
       category: s.category as ProjectionIncomeSource["category"],
+      // Whose income this is — a source id is stable but opaque, and two members'
+      // benefits carry the same label, so the owner is what tells them apart.
+      ...(s.ownerId !== undefined ? { ownerId: s.ownerId } : {}),
       cashInflowCents: s.cashInflowCents,
       netCashFlowCents: netCashFlow(id, s.cashInflowCents),
     };
