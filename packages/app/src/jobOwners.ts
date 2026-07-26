@@ -29,6 +29,12 @@ export interface JobOwner {
   readonly name: string;
   /** The owner's birth year — every age in the Jobs form is measured against it. */
   readonly birthYear: number;
+  /**
+   * The age their open-ended jobs stop at — *their* retirement, not the household's. It
+   * bounds how many years they can defer into a 401(k), and the elective limit is per
+   * person, so the deferral scan needs each earner's own working span (§5.4, §11).
+   */
+  readonly retirementTargetAge: number;
   readonly jobs: readonly Job[];
   /** The month they joined the household; `-Infinity` for the primary person. */
   readonly startMonth: number;
@@ -59,6 +65,7 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       id: m.person.id,
       name: m.person.name,
       birthYear: m.person.birthYear,
+      retirementTargetAge: m.person.retirementTargetAge,
       jobs: m.person.jobs,
       startMonth: m.startMonth,
       endMonth: m.endMonth,

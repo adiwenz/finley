@@ -25,11 +25,11 @@
 
 import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { Job, Household, Ledger, Plan } from "@finley/engine";
+import { PRIMARY_PERSON_ID, type Job, type Household, type Ledger, type Plan } from "@finley/engine";
 import {
   addJobToList,
   removeJobFromList,
-  removeJobPayChange,
+  withoutPayChange,
   blankJobDraftFor,
   jobToDraftFor,
   jobStartAgeFor,
@@ -38,7 +38,8 @@ import {
   type JobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
-import { editJob, type JobListWrite } from "../../jobEditing";
+import { editJob, ownedJobsOf, reviseJob, type JobListWrite } from "../../jobEditing";
+import { commitJobWrites } from "../../jobWrites";
 import type { EventRevision } from "../../hooks/useLedger";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
@@ -83,56 +84,23 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
 export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household, in join order — the primary person's jobs first, then
-  // each partner's. Every row carries its owner, which is what routes its edits, and its
-  // title, resolved here from the job's position among ITS OWNER's jobs (walking the
-  // owner's list per row while rendering would re-scan it for every row).
-  const rows = useMemo(
-    () =>
-      owners.flatMap((owner) =>
-        owner.jobs.map((job, i) => ({ owner, job, title: job.name?.trim() || `Job ${i + 1}` })),
-      ),
-    [owners],
-  );
+  // each partner's. Every row carries its owner, which is what routes its edits, and the
+  // label the whole app names that job by (owner-qualified once a second earner exists).
+  const rows = useMemo(() => ownedJobsOf(owners), [owners]);
   const [authoring, setAuthoring] = useState<Authoring>(null);
-  const deferralCrossing = firstDeferralLimitCrossing(budget);
-  /** More than one member can earn, so rows name their owner and the form offers a picker. */
+  // Per PERSON, not per household: the elective limit belongs to the earner (§5.4).
+  const deferralCrossing = useMemo(
+    () => firstDeferralLimitCrossing(owners, budget.inflationPct),
+    [owners, budget.inflationPct],
+  );
+  /** More than one member can earn, so the form offers an owner picker. */
   const severalOwners = owners.length > 1;
   /** The picker's options — the form needs only who they are, not where their jobs live. */
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
-  /**
-   * Commit job-list rewrites, each to whichever plane its owner is authored on: the
-   * standing plan for the primary person, a revision of their `RelationshipEvent` for a
-   * partner. The one place the two planes are distinguished.
-   *
-   * **The ledger goes first, in one batch, and the plan only if it was accepted.** An edit
-   * that moves a job between members rewrites two lists, and those lists can sit on
-   * different planes; a §6.1 conflict rejecting the ledger half after the plan half had
-   * already been written would leave the job removed from one member and missing from the
-   * other. Both ledger writes and plan writes are all-or-nothing, so a rejected commit
-   * changes nothing at all. Returns whether it was committed.
-   *
-   * Plan writes revise the LATEST plan (a functional update), so two edits in one tick
-   * compose instead of discarding each other.
-   */
-  function commit(writes: readonly JobListWrite[]): boolean {
-    const revisions: EventRevision[] = [];
-    for (const { owner, revise } of writes) {
-      if (owner.writeTarget.kind !== "event") continue;
-      const event = owner.writeTarget.event;
-      revisions.push({
-        id: event.id,
-        next: { ...event, person: { ...event.person, jobs: [...revise(event.person.jobs)] } },
-      });
-    }
-    if (revisions.length > 0 && !onReviseEvents(revisions)) return false;
-    for (const { owner, revise } of writes) {
-      if (owner.writeTarget.kind === "plan") {
-        setBudget((current) => ({ ...current, jobs: [...revise(current.jobs)] }));
-      }
-    }
-    return true;
-  }
+  /** Route every rewrite to its owner's plane, atomically ({@link commitJobWrites}). */
+  const commit = (writes: readonly JobListWrite[]): boolean =>
+    commitJobWrites(writes, { setBudget, onReviseEvents });
 
   /** Rewrite one member's job list — the single-owner shorthand for {@link commit}. */
   function write(owner: JobOwner, revise: (jobs: readonly Job[]) => readonly Job[]): boolean {
@@ -163,12 +131,11 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
 
-  function removePayChange(owner: JobOwner, id: string, month: number) {
-    // Pay changes are authored against the primary earner's jobs (the Base + Adjustments
-    // income row), so this stays a plan edit; a partner's job carries none to remove.
-    if (owner.writeTarget.kind === "plan") {
-      setBudget((current) => removeJobPayChange(current, id, month));
-    }
+  function removePayChange(id: string, month: number) {
+    // Any member's job can carry one now that the Base + Adjustments pay-change control
+    // reaches every earner (#118), so this routes by owner like every other job write.
+    const result = reviseJob(owners, id, (job) => withoutPayChange(job, month));
+    if (result.ok) commit(result.writes);
   }
 
   return (
@@ -184,14 +151,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
         <p className="hint">No jobs yet — add one below. With no income, you’re living off savings.</p>
       ) : (
         <ul className={styles.list}>
-          {rows.map(({ owner, job, title }) => {
+          {rows.map(({ owner, job, label }) => {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
-            // `title` is the user's own, else positional within ITS OWNER's jobs — an
-            // unnamed job reads as "Job 1" rather than exposing its raw id, and each
-            // earner's first job is their "Job 1". Once the household has a second earner
-            // every row is prefixed with whose job it is; on a single-earner plan that
-            // would be noise, so it stays off.
-            const label = severalOwners ? `${owner.name} · ${title}` : title;
             const overrideCount = job.incomeOverrides?.length ?? 0;
             // Permanent pay changes, oldest first — listed in full below (not just counted),
             // since a raise/cut moves what the job actually pays and the headline shows only
@@ -225,7 +186,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
                         <button
                           type="button"
                           aria-label={`Remove pay change at age ${ownerAgeAtMonth(owner.birthYear, change.month)} on ${label}`}
-                          onClick={() => removePayChange(owner, job.id, change.month)}
+                          onClick={() => removePayChange(job.id, change.month)}
                         >
                           Remove
                         </button>
@@ -266,10 +227,15 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
       {deferralCrossing && (
         <p className="hint">
-          Across your jobs, your yearly 401(k) contribution tops the elective limit
+          {/* Whose limit it is, once the household has a second earner: the limit is per
+              person, so "your jobs" would misattribute a partner's crossing to the user —
+              and imply the two are pooled, which they are not (§5.4). */}
+          {deferralCrossing.personId === PRIMARY_PERSON_ID
+            ? `Across your jobs, your yearly 401(k) contribution tops the elective limit`
+            : `Across ${deferralCrossing.personName}’s jobs, their yearly 401(k) contribution tops the elective limit`}{" "}
           ({formatDollars(deferralCrossing.limitCents)} in {deferralCrossing.year}). Past
-          the limit, contributions stop and the rest is paid as taxable income. Estimate,
-          not advice.
+          the limit, contributions stop and the rest is paid as taxable income. The limit is
+          per person, so each earner is counted on their own. Estimate, not advice.
         </p>
       )}
 

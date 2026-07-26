@@ -9,65 +9,108 @@
  * banded catch-ups (up at 50, higher at 60–63, back down at 64). So a plan under the
  * cap today can cross it later — or a catch-up can lift the person back under — and
  * only walking each working year catches the first crossing honestly.
+ *
+ * And it must be **per person** (issue #118). The elective limit belongs to the earner, not
+ * the household: two people each deferring $20k are both inside a $24,500 limit, while one
+ * person deferring $20k across two jobs is over it. So each member's own jobs are summed
+ * against their own age-indexed limit, over their own working years, and the crossing names
+ * whose it is. Summing the household would have invented a crossing for a couple who has
+ * none — and folding a partner's jobs in at the primary earner's age would read the wrong
+ * catch-up band.
  */
 
 import { retirementDeferralLimitCents } from "@finley/rules";
 import { START_YEAR } from "./config";
-import type { Plan } from "@finley/engine";
-import { primaryBirthYear, primaryJobs } from "./planPeople";
+import type { PersonId } from "@finley/engine";
+import type { JobOwner } from "./jobOwners";
+import { yearOfMonth } from "./planPeople";
 
 export interface DeferralLimitCrossing {
+  /** Whose limit it is — the elective limit is individual (§5.4). */
+  readonly personId: PersonId;
+  readonly personName: string;
   /** Calendar year of the first crossing. */
   readonly year: number;
   /** The person's age that year. */
   readonly age: number;
-  /** Projected annual pre-tax deferral that year (nominal). */
+  /** Projected annual pre-tax deferral that year (nominal), across ALL of their jobs. */
   readonly annualDeferralCents: number;
   /** That year's IRS elective limit (nominal), which the deferral exceeds. */
   readonly limitCents: number;
 }
 
+/** The calendar years a member is in the household: `[first, lastExclusive)`. */
+function membershipYears(owner: JobOwner): { first: number; lastExclusive: number } {
+  return {
+    // The primary person joins with the base household (`-Infinity`) — they are here from
+    // the frozen "now"; a partner only from the month they joined.
+    first: Number.isFinite(owner.startMonth) ? yearOfMonth(owner.startMonth) : START_YEAR,
+    // `endMonth` is the separation month, whose last paid month is the one before it.
+    lastExclusive:
+      owner.endMonth === null ? Infinity : yearOfMonth(Math.max(0, owner.endMonth - 1)) + 1,
+  };
+}
+
 /**
- * The first working year in which the plan's pre-tax 401(k) deferral would exceed
- * that year's elective limit, or null if it stays within the limit for the whole
- * career. Scans each year the person is still working (age &lt; retirement), growing
- * income at CPI and reading the age-indexed limit from the `rules` seam.
+ * The first working year in which **any** household member's pre-tax 401(k) deferral would
+ * exceed that year's elective limit, or null if everyone stays within their own limit for
+ * their whole career. Each earner is scanned separately over the years they are both in the
+ * household and still working (age &lt; their retirement age), their deferral summed across
+ * every job they hold that year, and compared with the limit read at *their* age from the
+ * `rules` seam. The earliest crossing wins; ties go to the earlier member in join order.
  *
  * Nominal, annual granularity — a close match to the sim's inflation-linked income
  * and nominal indexed limit, not the exact month-by-month cap the engine applies.
  */
-export function firstDeferralLimitCrossing(budget: Plan): DeferralLimitCrossing | null {
-  // The elective limit is per PERSON, across every plan they defer into — so sum the
-  // deferral over ALL of the primary person's jobs, not one privileged job (§11). Each job
-  // defers only in the years it is worked, at its own elected fraction, on its own
-  // growing salary; the household can hold several jobs, several possibly open-ended.
-  const deferringJobs = primaryJobs(budget).filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
-  if (deferringJobs.length === 0) return null;
+export function firstDeferralLimitCrossing(
+  owners: readonly JobOwner[],
+  inflationPct: number,
+): DeferralLimitCrossing | null {
+  const inflation = inflationPct / 100;
+  let earliest: DeferralLimitCrossing | null = null;
 
-  const inflation = budget.inflationPct / 100;
-  const birthYear = primaryBirthYear(budget);
+  for (const owner of owners) {
+    // The limit is per PERSON, across every plan they defer into — so sum over ALL of
+    // THEIR jobs, not one privileged job (§11). Each job defers only in the years it is
+    // worked, at its own elected fraction, on its own growing salary.
+    const deferringJobs = owner.jobs.filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
+    if (deferringJobs.length === 0) continue;
 
-  for (let k = 0; budget.currentAge + k < budget.retirementAge; k++) {
-    const year = START_YEAR + k;
-    const age = budget.currentAge + k;
+    const years = membershipYears(owner);
+    const retirementYear = owner.birthYear + owner.retirementTargetAge;
 
-    let annualDeferralCents = 0;
-    for (const j of deferringJobs) {
-      const endYearExclusive = j.endYear ?? birthYear + budget.retirementAge;
-      if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
-      // Nominal salary this year: today's-dollars salary grown by its real slope from the
-      // job's start, then CPI-indexed to nominal — the same seam the engine compiles.
-      const realCents =
-        j.salary.startingSalaryCents * Math.pow(1 + j.salary.realGrowthPct / 100, year - j.startYear);
-      const nominalCents = realCents * Math.pow(1 + inflation, year - START_YEAR);
-      annualDeferralCents += nominalCents * j.deferral!.deferralFraction;
-    }
-    annualDeferralCents = Math.round(annualDeferralCents);
+    for (let year = years.first; year < retirementYear && year < years.lastExclusive; year++) {
+      // A crossing later than one already found can't be the first one.
+      if (earliest !== null && year >= earliest.year) break;
+      const age = year - owner.birthYear;
 
-    const limitCents = retirementDeferralLimitCents({ year, age });
-    if (annualDeferralCents > limitCents) {
-      return { year, age, annualDeferralCents, limitCents };
+      let annualDeferralCents = 0;
+      for (const j of deferringJobs) {
+        const endYearExclusive = j.endYear ?? retirementYear;
+        if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
+        // Nominal salary this year: today's-dollars salary grown by its real slope from the
+        // job's start, then CPI-indexed to nominal — the same seam the engine compiles.
+        const realCents =
+          j.salary.startingSalaryCents *
+          Math.pow(1 + j.salary.realGrowthPct / 100, year - j.startYear);
+        const nominalCents = realCents * Math.pow(1 + inflation, year - START_YEAR);
+        annualDeferralCents += nominalCents * j.deferral!.deferralFraction;
+      }
+      annualDeferralCents = Math.round(annualDeferralCents);
+
+      const limitCents = retirementDeferralLimitCents({ year, age });
+      if (annualDeferralCents > limitCents) {
+        earliest = {
+          personId: owner.id,
+          personName: owner.name,
+          year,
+          age,
+          annualDeferralCents,
+          limitCents,
+        };
+        break;
+      }
     }
   }
-  return null;
+  return earliest;
 }

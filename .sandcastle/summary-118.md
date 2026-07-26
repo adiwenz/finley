@@ -216,6 +216,38 @@ target owner, and each unresolvable edit writing nothing) plus two panel tests: 
 surviving a real plan → ledger reassignment, and a refused ledger revision leaving both planes
 untouched.
 
+**7. Adjustments and the 401(k) nudge now see every earner.** Two surfaces still read
+`primaryJobs(plan)` — which is *only* the primary person's jobs, since a partner's ride
+their `RelationshipEvent`:
+
+- **The Base + Adjustments pay-change control.** Its job picker listed only the plan's jobs,
+  so a partner's bonus, missed paycheck, one-month correction, raise or cut had nowhere to
+  land. It now lists every member's jobs, owner-qualified (`Sam · Job 1`) so two jobs with
+  the same title are told apart, and each adjustment routes to its job's own plane. The
+  routing is not written here: `ownedJobsOf`/`reviseJob` (`jobEditing.ts`) find the job and
+  hand back a write, and `commitJobWrites` (`jobWrites.ts` — extracted from the Jobs panel,
+  now shared by both) commits it, ledger side first and all-or-nothing. `reviseJob` is handed
+  the whole existing `Job`, so overrides, pay changes and every unrelated field survive. The
+  Jobs panel's "remove pay change" button routes the same way; it was plan-only, and would
+  have silently done nothing on a partner's job.
+- **The elective-deferral limit is per PERSON** (§5.4), so `firstDeferralLimitCrossing` now
+  scans the household roster rather than the plan: each earner's jobs summed against *their*
+  age-indexed limit over *their* working years, never pooled, and the crossing names whose it
+  is. Pooling would have invented a warning for a couple who has none ($20k + $20k is two
+  people inside a $24,500 limit), and reading a partner's deferral at the primary earner's
+  age would read the wrong catch-up band.
+
+The quickstart's 50/30/20 split reads household income for the same reason — budgeting a
+two-earner household off one earner's pay sized its spending to half its income. Identical on
+a single-earner plan.
+
+Pinned by 12 tests in `deferralLimit.test.ts` (unchanged single-earner behaviour, one person's
+jobs aggregated, a partner's crossing found and read at their age, two earners not pooled, the
+earliest crossing winning, a partner scanned against their own retirement age) and 8 in the
+panel suites: a partner's raise, cut, bonus, missed paycheck and one-month correction — each
+landing on the ledger plane with the rest of the job intact and the projection moving — plus
+the picker naming both members' jobs and the nudge naming whose limit was topped.
+
 ## Notes for the next iteration
 
 - ~~**In-place editing of an existing partner's jobs** is deferred; it needs an "update

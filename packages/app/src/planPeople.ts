@@ -261,66 +261,78 @@ export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
   return { ...plan, jobs: [...addJobToList(plan.jobs, primaryBirthYear(plan), draft)] };
 }
 
+// ── Adjustments on ONE job ──
+// Every household member's jobs get these, wherever they are authored: the primary
+// person's on `Plan.jobs`, a partner's on their `RelationshipEvent` (issue #118). They
+// take and return a single {@link Job}, so the plan-level wrappers below and the
+// owner-aware routing in `jobEditing` share one implementation rather than each
+// re-deriving "replace the entry at this month".
+
 /**
  * Attach a one-month income perturbation (§10.3, §20) — a bonus, a missed paycheck, or a
- * one-month salary correction — to a specific job. At most one override per (job, month):
- * a new one replaces any existing at that month, so re-editing the same month is idempotent.
+ * one-month salary correction — to a job. At most one override per (job, month): a new one
+ * replaces any existing at that month, so re-editing the same month is idempotent.
  */
+export function withIncomeOverride(job: Job, override: JobIncomeOverride): Job {
+  return {
+    ...job,
+    incomeOverrides: [
+      ...(job.incomeOverrides ?? []).filter((o) => o.month !== override.month),
+      override,
+    ],
+  };
+}
+
+/**
+ * Attach a permanent pay change (a raise OR a cut) to a job (§6, §10.3) — a step change
+ * that holds from `payChange.month` forward, distinct from the one-month
+ * {@link withIncomeOverride}. At most one pay change per (job, month), so re-editing the
+ * same month is idempotent.
+ */
+export function withPayChange(job: Job, payChange: JobPayChange): Job {
+  return {
+    ...job,
+    payChanges: [
+      ...(job.payChanges ?? []).filter((c) => c.month !== payChange.month),
+      payChange,
+    ],
+  };
+}
+
+/** Drop the permanent pay change at `month` from a job (undo a raise/cut). */
+export function withoutPayChange(job: Job, month: number): Job {
+  if (job.payChanges === undefined) return job;
+  const kept = job.payChanges.filter((c) => c.month !== month);
+  if (kept.length === job.payChanges.length) return job;
+  // Drop the array entirely when empty, so a job with no pay changes stays clean.
+  if (kept.length === 0) {
+    const { payChanges: _drop, ...rest } = job;
+    return rest;
+  }
+  return { ...job, payChanges: kept };
+}
+
+/** {@link withIncomeOverride} on one of the plan's jobs. */
 export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncomeOverride): Plan {
   return {
     ...plan,
-    jobs: plan.jobs.map((j) =>
-      j.id === jobId
-        ? {
-            ...j,
-            incomeOverrides: [
-              ...(j.incomeOverrides ?? []).filter((o) => o.month !== override.month),
-              override,
-            ],
-          }
-        : j,
-    ),
+    jobs: plan.jobs.map((j) => (j.id === jobId ? withIncomeOverride(j, override) : j)),
   };
 }
 
-/**
- * Attach a permanent pay change (a raise OR a cut) to a specific job (§6, §10.3) — a step
- * change that holds from `payChange.month` forward, distinct from the one-month
- * {@link addIncomeOverride}. At most one pay change per (job, month): a new one replaces any
- * existing at that month, so re-editing the same month is idempotent.
- */
+/** {@link withPayChange} on one of the plan's jobs. */
 export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
   return {
     ...plan,
-    jobs: plan.jobs.map((j) =>
-      j.id === jobId
-        ? {
-            ...j,
-            payChanges: [
-              ...(j.payChanges ?? []).filter((c) => c.month !== payChange.month),
-              payChange,
-            ],
-          }
-        : j,
-    ),
+    jobs: plan.jobs.map((j) => (j.id === jobId ? withPayChange(j, payChange) : j)),
   };
 }
 
-/** Drop the permanent pay change at `month` from a specific job (undo a raise/cut). */
+/** {@link withoutPayChange} on one of the plan's jobs. */
 export function removeJobPayChange(plan: Plan, jobId: string, month: number): Plan {
   return {
     ...plan,
-    jobs: plan.jobs.map((j) => {
-      if (j.id !== jobId || j.payChanges === undefined) return j;
-      const kept = j.payChanges.filter((c) => c.month !== month);
-      if (kept.length === j.payChanges.length) return j;
-      // Drop the array entirely when empty, so a job with no pay changes stays clean.
-      if (kept.length === 0) {
-        const { payChanges: _drop, ...rest } = j;
-        return rest;
-      }
-      return { ...j, payChanges: kept };
-    }),
+    jobs: plan.jobs.map((j) => (j.id === jobId ? withoutPayChange(j, month) : j)),
   };
 }
 

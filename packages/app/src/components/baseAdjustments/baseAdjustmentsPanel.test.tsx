@@ -13,18 +13,23 @@
  * for selecting the month; these tests drive the equivalent keyboard input, since
  * Recharts needs a real layout width that jsdom does not provide.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
+  createProjectionBase,
   dollarsToCents,
   emptyLedger,
+  interpretLedger,
   projectScenario,
+  updateEvent,
+  type Job,
   type Ledger,
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import type { EventRevision } from "../../hooks/useLedger";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
@@ -58,12 +63,15 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  * through the identical pipeline. Tests that care only about the budget leave the ledger
  * empty; a test about timeline-authored income passes one in.
  */
-function Harness({ initial, ledger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
+function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
   const [plan, setPlan] = useState(initial);
-  const series = projectScenario(
-    { plan, ledger },
-    { jurisdiction: usJurisdiction, startYear: START_YEAR },
-  );
+  // The ledger is state too, now that a pay change can land on a partner's job — it rides
+  // the RelationshipEvent they joined with, so applying one revises that event (#118).
+  const [ledger, setLedger] = useState(initialLedger);
+  const ctx = { jurisdiction: usJurisdiction, startYear: START_YEAR };
+  const base = createProjectionBase(plan, ctx);
+  const household = interpretLedger(ledger, base);
+  const series = projectScenario({ plan, ledger }, ctx);
   // The household roster App passes down, so income bands can name whose they are.
   const personNames = new Map<string, string>([
     [PRIMARY_PERSON_ID, plan.name],
@@ -71,18 +79,49 @@ function Harness({ initial, ledger = emptyLedger }: { initial: Plan; ledger?: Le
       e.type === "RelationshipEvent" ? ([[e.person.id, e.person.name]] as [string, string][]) : [],
     ),
   ]);
+  // Stands in for `useLedger.reviseEvents`: all-or-nothing, and it answers synchronously.
+  const ledgerRef = useRef(ledger);
+  ledgerRef.current = ledger;
+  const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
+    let next = ledgerRef.current;
+    for (const revision of revisions) {
+      const result = updateEvent(next, revision.id, revision.next, base);
+      if (!result.ok) return false;
+      next = result.ledger;
+    }
+    ledgerRef.current = next;
+    setLedger(next);
+    return true;
+  };
   return (
-    <BaseAdjustmentsPanel
-      plan={plan}
-      setBudget={setPlan}
-      series={series}
-      personNames={personNames}
-    />
+    <>
+      <BaseAdjustmentsPanel
+        plan={plan}
+        setBudget={setPlan}
+        series={series}
+        personNames={personNames}
+        household={household}
+        ledger={ledger}
+        onReviseEvents={onReviseEvents}
+      />
+      <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
+      <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
+    </>
   );
 }
 
 const renderPanel = (plan: Plan, ledger?: Ledger) =>
   render(<Harness initial={plan} ledger={ledger} />);
+
+/** The jobs currently authored on the partner's RelationshipEvent — the ledger plane. */
+function partnerJobsOf(ledger: Ledger): readonly Job[] {
+  for (const e of ledger.events) if (e.type === "RelationshipEvent") return e.person.jobs;
+  return [];
+}
+
+/** What each plane holds after an adjustment — the assertion surface for the routing. */
+const jobsOn = (testId: "primary-jobs" | "partner-jobs"): readonly Job[] =>
+  JSON.parse(screen.getByTestId(testId).textContent || "[]") as Job[];
 
 /** A ledger whose only event is a partner joining at month 0 with one open-ended job (#118). */
 const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
@@ -470,6 +509,150 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(incomeReadonlyDollars()).toBe(6500); // 5,000 + 1,500, ongoing
     selectMonth(12);
     expect(incomeReadonlyDollars()).toBe(6500);
+  });
+});
+
+describe("PayChangeEditor — every earner's jobs, not just the primary person's (#118)", () => {
+  // A partner's jobs ride the RelationshipEvent they joined with, not `Plan.jobs`. The
+  // control used to list only the plan's jobs, so a partner's bonus, missed paycheck,
+  // raise or cut had nowhere to land — the picker did not even offer their job.
+  const pickJob = (id: string) =>
+    fireEvent.change(screen.getByLabelText("Job"), { target: { value: id } });
+
+  /** Alex ($5,000/mo on the plan) and Sam ($3,000/mo on their own event). */
+  const withPartner = () => renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(3000));
+
+  it("offers both members' jobs, each named by its owner", () => {
+    withPartner();
+    openOneOff();
+    const options = Array.from(
+      (screen.getByLabelText("Job") as HTMLSelectElement).options,
+      (o) => o.text,
+    );
+    // Owner-qualified, so two jobs carrying the same title are still told apart.
+    expect(options).toEqual(["Alex · Job 1", "Sam · Sam's job"]);
+  });
+
+  it("gives a partner's job a permanent raise, written back to their event", () => {
+    withPartner();
+    selectMonth(6);
+    expect(incomeReadonlyDollars()).toBe(8000); // 5,000 + 3,000 while both work
+
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffKind("setOngoing");
+    setOneOffAmount(4500);
+    applyOneOff();
+
+    // It landed on the partner's job — on the LEDGER plane, not the plan.
+    expect(jobsOn("partner-jobs")[0].payChanges).toEqual([
+      { month: 6, kind: "setTo", cents: dollarsToCents(4500) },
+    ]);
+    expect(jobsOn("primary-jobs")[0].payChanges).toBeUndefined();
+    // And the projection moves: the raise holds from month 6 forward.
+    expect(incomeReadonlyDollars()).toBe(9500); // 5,000 + 4,500
+    selectMonth(7);
+    expect(incomeReadonlyDollars()).toBe(9500); // PERSISTS — month 12 would also carry CPI
+    selectMonth(5);
+    expect(incomeReadonlyDollars()).toBe(8000); // before the raise, old pay
+    // The note names whose job it was.
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Sam/);
+  });
+
+  it("gives a partner's job a one-month bonus, then a missed paycheck", () => {
+    withPartner();
+    selectMonth(6);
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffAmount(2000); // default kind: bonus on top
+    applyOneOff();
+    expect(incomeReadonlyDollars()).toBe(10_000); // 5,000 + 3,000 + 2,000, that month only
+    selectMonth(7);
+    expect(incomeReadonlyDollars()).toBe(8000); // and only that month
+
+    // A missed paycheck on the partner's job zeroes THEIR wages, leaving the primary's.
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffKind("setTo");
+    setOneOffAmount(0);
+    applyOneOff();
+    expect(incomeReadonlyDollars()).toBe(5000);
+
+    // Both overrides are on the partner's job, and the earlier one survived the later.
+    expect(jobsOn("partner-jobs")[0].incomeOverrides).toEqual([
+      { month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
+      { month: 7, kind: "setTo", cents: 0 },
+    ]);
+  });
+
+  it("cuts a partner's ongoing pay, and corrects a single month of it", () => {
+    // The remaining two kinds, on a partner's job: a permanent CUT (a pay change can go
+    // down — that is why it is a "pay change", not a "raise") and a one-month correction
+    // to an absolute figure that is not $0.
+    withPartner();
+    selectMonth(6);
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffKind("changeOngoing");
+    setOneOffAmount(-800);
+    applyOneOff();
+    expect(incomeReadonlyDollars()).toBe(7200); // 5,000 + (3,000 − 800), ongoing
+
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffKind("setTo");
+    setOneOffAmount(1000); // this month they were paid $1,000, cut and all
+    applyOneOff();
+    expect(incomeReadonlyDollars()).toBe(6000); // 5,000 + 1,000, this month only
+    selectMonth(7);
+    expect(incomeReadonlyDollars()).toBe(7200); // the cut still stands; the correction does not
+
+    const job = jobsOn("partner-jobs")[0];
+    expect(job.payChanges).toEqual([{ month: 6, kind: "changeBy", cents: -dollarsToCents(800) }]);
+    expect(job.incomeOverrides).toEqual([{ month: 6, kind: "setTo", cents: dollarsToCents(1000) }]);
+  });
+
+  it("changes only the job it was applied to, and nothing else about it", () => {
+    withPartner();
+    const partnerBefore = jobsOn("partner-jobs")[0];
+    selectMonth(6);
+    openOneOff();
+    setOneOffKind("changeOngoing"); // defaults to the FIRST job — the primary person's
+    setOneOffAmount(1000);
+    applyOneOff();
+
+    // The primary's job took the change; the partner's is untouched, byte for byte.
+    expect(jobsOn("primary-jobs")[0].payChanges).toEqual([
+      { month: 6, kind: "changeBy", cents: dollarsToCents(1000) },
+    ]);
+    expect(jobsOn("partner-jobs")[0]).toEqual(partnerBefore);
+  });
+
+  it("preserves the rest of a partner's job — name, span, salary, deferral, other adjustments", () => {
+    withPartner();
+    selectMonth(3);
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffAmount(500);
+    applyOneOff();
+
+    selectMonth(9);
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffKind("setOngoing");
+    setOneOffAmount(3500);
+    applyOneOff();
+
+    const job = jobsOn("partner-jobs")[0];
+    expect(job.id).toBe("p-1-job-1");
+    expect(job.name).toBe("Sam's job");
+    expect(job.ownerId).toBe("p-1");
+    expect(job.startYear).toBe(START_YEAR);
+    expect(job.endYear).toBeNull();
+    expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
+    // The bonus from the first adjustment survived the second, which is a different kind.
+    expect(job.incomeOverrides).toEqual([{ month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
+    expect(job.payChanges).toEqual([{ month: 9, kind: "setTo", cents: dollarsToCents(3500) }]);
   });
 });
 

@@ -339,6 +339,24 @@ describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
     expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
   });
 
+  it("removes a pay change from a partner's job, on their own plane", () => {
+    // A partner's job can carry one now that Base + Adjustments reaches every earner, so
+    // the Remove button has to route by owner — it used to be a plan-only edit and did
+    // nothing at all here.
+    const raised: Job = {
+      ...partnerJob(2000),
+      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
+    };
+    render(<Harness events={withPartner([raised])} />);
+    expect(screen.getByText(/Pay set to \$3,000\/mo from age 41/)).toBeTruthy(); // Sam is 40 now
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove pay change at age 41 on Sam · Job 1/i }),
+    );
+    expect(partnerJobs()[0].payChanges).toBeUndefined();
+    expect(screen.queryByText(/Pay set to \$3,000\/mo/)).toBeNull();
+  });
+
   it("offers no owner picker in a single-earner household", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
@@ -383,16 +401,47 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
 });
 
 describe("JobsPanel — 401(k) elective-limit nudge (§5.4)", () => {
+  /** A partner joining with one job that defers `pct` of `monthlyDollars`. */
+  const partnerDeferring = (monthlyDollars: number, pct: number): NewLifeEvent =>
+    partnerJoining([
+      {
+        ...partnerJob(monthlyDollars),
+        deferral: { deferralFraction: pct / 100, fundAccountId: "retirement" },
+      },
+    ]);
+
   it("discloses that a deferral over the annual limit is paid as taxable income", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
     render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
+    // Phrased as the user's own on a single-earner plan — no name, as before.
+    expect(screen.getByText(/Across your jobs/i)).toBeTruthy();
     // The row also surfaces the elected rate.
     expect(within(screen.getByLabelText("Job 1")).getByText(/50% to 401\(k\)/i)).toBeTruthy();
   });
 
   it("shows no such disclosure when nothing is deferred", () => {
     render(<Harness />); // default 0% deferral
+    expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
+  });
+
+  it("names the PARTNER when the crossing is theirs (#118)", () => {
+    // The limit is individual: the primary person defers nothing, Sam defers $30k of a
+    // $60k job. Scanning only `Plan.jobs` missed this entirely.
+    render(<Harness events={[partnerDeferring(5000, 50)]} />);
+    expect(screen.getByText(/Across Sam’s jobs/i)).toBeTruthy();
+    expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
+  });
+
+  it("does not pool two earners into one limit", () => {
+    // $20k + $20k across the household tops a single $24,500 limit, but neither person is
+    // over their own — so there is nothing to disclose.
+    render(
+      <Harness
+        initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.3334)}
+        events={[partnerDeferring(5000, 33.34)]}
+      />,
+    );
     expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
   });
 });

@@ -228,6 +228,9 @@ export function App() {
           setBudget={setBudget}
           series={series}
           personNames={personNames}
+          household={household}
+          ledger={ledger}
+          onReviseEvents={reviseEvents}
         />
       </div>
 
