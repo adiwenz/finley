@@ -15,6 +15,15 @@ Before writing any code, load the full issue with `gh issue view {{TASK_ID}}` (a
 
 ---
 
+### 🛠️ Required Skills
+
+Two skills are mounted into this sandbox and you are expected to use them — do not work from memory when a skill covers the task.
+
+* **`/tdd`** — invoke this **before** you start the Red-Green-Refactor loop below. It defines how tests are written and sequenced in this repo; the RGR steps that follow assume you are working inside it.
+* **`/vercel-react-best-practices`** — invoke this whenever your change touches React or TSX (anything under `packages/app/src/`), and re-check against it during REFACTOR. Skip it for pure engine or rules work.
+
+---
+
 ### 🧪 Execution Workflow: Red-Green-Refactor (RGR)
 You must follow a strict Red-Green-Refactor approach to implement your changes:
 

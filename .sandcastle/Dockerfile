@@ -31,6 +31,15 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Add Claude to PATH
 ENV PATH="/home/agent/.local/bin:$PATH"
 
+# Pre-accept Claude Code's first-run onboarding. Without this the interactive TUI
+# runs the theme picker and an OAuth login flow on every fresh container — that
+# flow does not consult CLAUDE_CODE_OAUTH_TOKEN, unlike --print mode. The trust
+# dialog and the bypass-permissions warning are separate gates with separate keys
+# (the latter lives in settings.json, and IS_SANDBOX=1 does not suppress it).
+RUN node -e 'const fs=require("fs"),p="/home/agent/.claude.json";const j=fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};j.hasCompletedOnboarding=true;j.theme="dark";j.projects=Object.assign({},j.projects,{"/home/agent/workspace":{hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true}});fs.writeFileSync(p,JSON.stringify(j,null,2));' \
+ && mkdir -p /home/agent/.claude \
+ && printf '{\n  "skipDangerousModePermissionPrompt": true\n}\n' > /home/agent/.claude/settings.json
+
 WORKDIR /home/agent
 
 # In worktree sandbox mode, Sandcastle bind-mounts the git worktree at /home/agent/workspace
