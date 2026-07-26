@@ -172,9 +172,9 @@ export interface Jurisdiction {
    * `incomeByCategoryCents`) so a consumer can STACK the monthly-tax chart by category,
    * exactly as the income chart stacks. CONTRACT: Σ of the returned map MUST equal
    * {@link computeTaxCents} for the same input — the breakdown re-describes the total,
-   * it never restates it. The engine enforces this at runtime (per source, within a small
-   * rounding tolerance): a jurisdiction that charges tax but fails to attribute it fully is
-   * a loud error, not a misleading chart (see `assertTaxAttributionReconciles`).
+   * it never restates it. The engine enforces this at runtime EXACTLY, to the cent (all
+   * values are integer cents): a jurisdiction that charges tax but fails to attribute it
+   * fully is a loud error, not a misleading chart (see `assertTaxAttributionReconciles`).
    *
    * REQUIRED. Attribution is the jurisdiction's call, so every jurisdiction owns it — there
    * is no engine/app fallback that synthesizes it. A jurisdiction that charges NO tax returns

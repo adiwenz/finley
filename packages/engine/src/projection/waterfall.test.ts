@@ -710,36 +710,37 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
 
 describe("assertTaxAttributionReconciles (§5.3 attribution contract)", () => {
   it("throws when tax is charged but no per-source breakdown was produced", () => {
-    expect(() => assertTaxAttributionReconciles(100_00, undefined, 1)).toThrow(
+    expect(() => assertTaxAttributionReconciles(100_00, undefined)).toThrow(
       /no per-source breakdown/i,
     );
   });
 
-  it("throws when the attributed tax does not sum to taxCents (beyond tolerance)", () => {
-    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 60_00 }, 1)).toThrow(
+  it("throws when the attributed tax does not sum to taxCents", () => {
+    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 60_00 })).toThrow(
       /does not reconcile/i,
     );
   });
 
   it("passes when the attribution sums to taxCents exactly", () => {
     expect(() =>
-      assertTaxAttributionReconciles(100_00, { "job:a": 70_00, "job:b": 30_00 }, 1),
+      assertTaxAttributionReconciles(100_00, { "job:a": 70_00, "job:b": 30_00 }),
     ).not.toThrow();
   });
 
-  it("tolerates benign per-person rounding within the tolerance", () => {
-    // Σ off by 2¢ with a 2-person household (tolerance = 2¢) — allowed.
-    expect(() =>
-      assertTaxAttributionReconciles(100_00, { "job:a": 100_02 }, 2),
-    ).not.toThrow();
-    // Off by 3¢ with the same tolerance — rejected.
-    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 100_03 }, 2)).toThrow(
+  it("throws on any mismatch, down to a single cent (exact reconciliation, no tolerance)", () => {
+    // Integer cents + exact apportionment ⇒ the sum must land on `taxCents` on the nose; a 1¢
+    // gap either way is a jurisdiction bug, not benign rounding.
+    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 100_01 })).toThrow(
       /does not reconcile/i,
     );
+    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 99_99 })).toThrow(
+      /does not reconcile/i,
+    );
+    expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 100_00 })).not.toThrow();
   });
 
   it("is a no-op when no tax is charged (nothing to attribute)", () => {
-    expect(() => assertTaxAttributionReconciles(0, undefined, 1)).not.toThrow();
+    expect(() => assertTaxAttributionReconciles(0, undefined)).not.toThrow();
   });
 });
 
