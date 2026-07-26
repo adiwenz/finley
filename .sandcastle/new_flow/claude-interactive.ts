@@ -18,21 +18,9 @@ async function main() {
     // Sandcastle passes --dangerously-skip-permissions automatically whenever the
     // agent runs in a sandbox; pass `permissionMode` here to override that.
     agent: claudeCode("claude-opus-4-8"),
-    sandbox: docker({
-      // Personal skills live on the host under ~/.claude/skills; the container has
-      // its own ~/.claude from the image, so without this mount none of them load.
-      // Mount just `skills` rather than all of ~/.claude — the parent also holds
-      // session history, credentials, and the settings.json the image relies on to
-      // suppress the bypass-permissions dialog. Read-only: skills are content, and
-      // nothing in the sandbox should be able to edit the host copies.
-      mounts: [
-        {
-          hostPath: "~/.claude/skills",
-          sandboxPath: "~/.claude/skills",
-          readonly: true,
-        },
-      ],
-    }),
+    // No skills mount: skills come from `.claude/skills` in the repo, which is
+    // already bind-mounted as the workspace.
+    sandbox: docker(),
   });
 }
 

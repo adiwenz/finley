@@ -18,7 +18,11 @@ coverage/
 .sandcastle/worktrees/
 
 # Claude Code (local worktrees + personal settings) — but track shared commands
+# and skills. Skills are tracked because .sandcastle/new_flow/implement-prompt.md
+# requires them: agents load them from the checked-out repo, which is the only
+# source that reaches a CI runner and a cloud sandbox as well as your laptop.
 .claude/*
 !.claude/commands/
+!.claude/skills/
 .vercel
 .env*
