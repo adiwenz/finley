@@ -27,6 +27,7 @@ import {
   emptyLedger,
   addEvent,
   PRIMARY_PERSON_ID,
+  RETIREMENT_ID,
   type Plan,
   type Job,
   type BudgetLine,
@@ -175,6 +176,37 @@ const STUDENT_LOAN: Plan = teachingPlan({
   openingBalanceCents: dollarsToCents(4000),
 });
 
+/**
+ * Taxed in retirement: a diligent 401(k) saver (12% of an $8k salary) who then lives off
+ * that pre-tax balance in retirement. Because the household spends enough that its cash
+ * doesn't pile into a tax-free buffer, retirement is funded by taxable 401(k) withdrawals
+ * (~$9k/mo) rather than a savings drawdown — and that ordinary income, stacked on top of
+ * Social Security, lifts the benefit over the standard deduction. So — unlike the default
+ * plan, where Social Security sits under it and is never taxed — tax does NOT stop at the
+ * last paycheck: it continues at roughly the working-years level right through retirement,
+ * with both an ordinary-income (the withdrawals) and a Government-benefit band on the tax
+ * chart (issue #110 follow-up; ~$946/mo of the retirement tax is on the benefit itself).
+ *
+ * Tuned deliberately: the $5.5k monthly spend forces the 401(k) to actually fund
+ * retirement (a lower spend lets cash accumulate and cover it tax-free, leaving SS barely
+ * taxed), and a life expectancy of 72 keeps the draw smooth and the plan solvent, before
+ * age-73 required minimum distributions would turn the tax chart into lumpy annual spikes.
+ */
+const TAXED_IN_RETIREMENT: Plan = {
+  ...PLAN_DEFAULTS,
+  name: "Morgan",
+  jobs: [
+    {
+      ...salariedJob(dollarsToCents(8000)),
+      deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
+    },
+  ],
+  expenseCents: dollarsToCents(5500),
+  budgetLines: scaledBudgetLines(dollarsToCents(5500)),
+  retirementReturnPct: 4,
+  lifeExpectancy: 72,
+};
+
 /** The $45k amortizing student loan {@link STUDENT_LOAN} opens with, taken at "now". */
 const STUDENT_LOAN_EVENT: NewLifeEvent = {
   id: "e0",
@@ -220,6 +252,13 @@ export const PRESETS: readonly Preset[] = [
     description: "A new graduate underwater on a student loan, digging back to zero.",
     plan: STUDENT_LOAN,
     events: [STUDENT_LOAN_EVENT],
+  },
+  {
+    id: "taxed-in-retirement",
+    label: "Taxed in retirement",
+    description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
+    plan: TAXED_IN_RETIREMENT,
+    events: [],
   },
 ];
 

@@ -187,6 +187,17 @@ export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
       "adjusted for inflation. As other income grows, this means more of your benefit " +
       "becomes taxable over time.",
   },
+  {
+    id: "taxAttributionProportional",
+    text:
+      "When the tax bill is broken out — by income type, or by individual job — each " +
+      "slice is assigned in proportion to how much taxable income it contributed, not by " +
+      "tracing which specific dollars fell in which bracket. Because the brackets are " +
+      "progressive, an added source of income (a second job, say) is really taxed at a " +
+      "higher rate than your average, so this breakdown shows each source's average share " +
+      "of the tax rather than the extra tax that source alone caused. The whole bill is " +
+      "exact; only the split between sources is an estimate.",
+  },
 ];
 
 /**
@@ -270,16 +281,43 @@ function capitalGainsTaxCents(
 }
 
 /**
- * The pure ANNUAL single-filer federal income tax for a map of per-category taxable
- * amounts (annual cents). Orchestrates the four pieces: government-benefit
- * inclusion → ordinary brackets (after the standard deduction) → capital-gains
- * preference (deduction remainder stacked down onto gains, gains stacked up onto
- * ordinary). The monthly engine seam is {@link computeFederalTaxCents}.
+ * The two rate-regime pieces of a single-filer annual tax computation plus the
+ * per-category weights the attribution ({@link federalAnnualTaxByCategoryCents})
+ * splits each piece across. Kept as ONE internal so {@link federalAnnualTaxCents}
+ * (scalar) and the by-category attribution can never drift: the scalar is exactly
+ * `round(ordinaryTaxCents + gainsTaxCents)` and the attribution reuses the same
+ * intermediate figures, so the split provably sums back to the scalar.
  */
-export function federalAnnualTaxCents(
+interface FederalTaxParts {
+  /** Progressive ordinary tax on wages + other ordinary income + the included benefit slice (float). */
+  readonly ordinaryTaxCents: number;
+  /** Preferential capital-gains tax on the taxable gains slice, stacked on ordinary (float). */
+  readonly gainsTaxCents: number;
+  /** Rounded scalar total — identical to what {@link federalAnnualTaxCents} returns. */
+  readonly totalCents: Cents;
+  /**
+   * The ordinary-taxable weight each ordinary category contributed, BEFORE the
+   * standard deduction (which reduces every contributor's share proportionally):
+   * `wages`, `ordinaryIncome`, and the taxable portion of the government benefit.
+   * These weight how {@link ordinaryTaxCents} is divided among the three.
+   */
+  readonly ordinaryWeights: {
+    readonly wages: number;
+    readonly ordinaryIncome: number;
+    readonly governmentRetirementBenefit: number;
+  };
+}
+
+/**
+ * The shared core both the scalar seam and the per-category attribution read. Runs
+ * the four pieces once — government-benefit inclusion → ordinary brackets (after the
+ * standard deduction) → capital-gains preference — and returns the two rate-regime
+ * tax figures, their rounded sum, and the ordinary-taxable weights.
+ */
+function federalTaxParts(
   annualByCategory: Partial<Record<TaxCategory, Cents>>,
   year: number,
-): Cents {
+): FederalTaxParts {
   const tables = federalTaxTables(year);
   const wages = Math.max(0, annualByCategory.wages ?? 0);
   const ordinaryOther = Math.max(0, annualByCategory.ordinaryIncome ?? 0);
@@ -311,7 +349,116 @@ export function federalAnnualTaxCents(
     tables.capitalGainsFifteenTopCents,
   );
 
-  return Math.round(ordinaryTax + gainsTax);
+  return {
+    ordinaryTaxCents: ordinaryTax,
+    gainsTaxCents: gainsTax,
+    totalCents: Math.round(ordinaryTax + gainsTax),
+    // The included benefit slice — not the whole benefit — is what actually enters
+    // the ordinary base, so it (not the gross benefit) is the attribution weight.
+    ordinaryWeights: { wages, ordinaryIncome: ordinaryOther, governmentRetirementBenefit: taxableBenefit },
+  };
+}
+
+/**
+ * The pure ANNUAL single-filer federal income tax for a map of per-category taxable
+ * amounts (annual cents). Orchestrates the four pieces: government-benefit
+ * inclusion → ordinary brackets (after the standard deduction) → capital-gains
+ * preference (deduction remainder stacked down onto gains, gains stacked up onto
+ * ordinary). The monthly engine seam is {@link computeFederalTaxCents}.
+ */
+export function federalAnnualTaxCents(
+  annualByCategory: Partial<Record<TaxCategory, Cents>>,
+  year: number,
+): Cents {
+  return federalTaxParts(annualByCategory, year).totalCents;
+}
+
+/**
+ * Distribute an integer-cents `totalCents` across `entries` (each a `[category,
+ * weight]` pair) IN PROPORTION to the weights, with every share an integer cent and
+ * Σ shares === `totalCents` exactly (largest-remainder apportionment: floor each
+ * share, then hand the leftover cents to the largest fractional remainders). Zero-
+ * weight and zero-share categories are omitted, so the map carries only bands worth
+ * drawing. The exact-sum guarantee is what lets the attribution honour the AC
+ * "total still equals `computeTaxCents`".
+ */
+function apportionByWeight(
+  totalCents: Cents,
+  entries: readonly (readonly [TaxCategory, number])[],
+): Partial<Record<TaxCategory, Cents>> {
+  const weightSum = entries.reduce((s, [, w]) => s + w, 0);
+  if (totalCents <= 0 || weightSum <= 0) return {};
+
+  const shares: { category: TaxCategory; whole: Cents; remainder: number }[] = [];
+  let allocated = 0;
+  for (const [category, weight] of entries) {
+    const exact = (totalCents * weight) / weightSum;
+    const whole = Math.floor(exact);
+    allocated += whole;
+    shares.push({ category, whole, remainder: exact - whole });
+  }
+  // Hand out the leftover cents, biggest fractional remainder first.
+  let leftover = totalCents - allocated;
+  shares.sort((a, b) => b.remainder - a.remainder);
+  for (let i = 0; leftover > 0; i = (i + 1) % shares.length, leftover--) shares[i]!.whole += 1;
+
+  const out: Partial<Record<TaxCategory, Cents>> = {};
+  for (const { category, whole } of shares) if (whole > 0) out[category] = whole;
+  return out;
+}
+
+/**
+ * Split a `totalCents` federal-tax figure across the {@link TaxCategory} buckets that
+ * bore it, given the computed {@link FederalTaxParts}. ATTRIBUTION METHOD (§5.3, issue
+ * #110) — regime-aware proportional-to-taxable:
+ *
+ *   • The preferential **capital-gains** tax rides the `capitalGains` bucket alone, so
+ *     the split respects that gains are taxed at their own 0/15/20% rates rather than
+ *     an averaged blend (the interaction #100 turned on).
+ *   • The progressive **ordinary** tax is divided among `wages`, `ordinaryIncome`, and
+ *     `governmentRetirementBenefit` in proportion to each one's ordinary-taxable weight
+ *     (the benefit weighted by its INCLUDED portion only), so the standard deduction
+ *     and the bracket climb are shared pro-rata across the ordinary contributors.
+ *   • `taxExempt` never bears tax (it is never taxed, only counted for the benefit test).
+ *
+ * ⚠ LIMITATION (documented, mirrors the withdrawal-seam monotonicity caveat): this is an
+ * average-rate attribution WITHIN the ordinary regime — it cannot perfectly capture that
+ * the LAST dollar of one category sits in a higher bracket than the first, nor the
+ * notch/inclusion effects (a marginal dollar of ordinary income can raise the taxable
+ * benefit or push gains out of the 0% band). The split is exact in TOTAL, defensible
+ * per bucket, and honest about not being a marginal-incidence decomposition.
+ */
+function attributeFederalTax(
+  totalCents: Cents,
+  parts: FederalTaxParts,
+): Partial<Record<TaxCategory, Cents>> {
+  const w = parts.ordinaryWeights;
+  const ordinaryWeightSum = w.wages + w.ordinaryIncome + w.governmentRetirementBenefit;
+  const entries: [TaxCategory, number][] = [];
+  // Weight each category by the TAX it bore: the ordinary tax split pro-rata by
+  // ordinary-taxable weight, the gains tax attributed whole to capital gains.
+  if (ordinaryWeightSum > 0) {
+    for (const category of ["wages", "ordinaryIncome", "governmentRetirementBenefit"] as const) {
+      const taxBorne = (parts.ordinaryTaxCents * w[category]) / ordinaryWeightSum;
+      if (taxBorne > 0) entries.push([category, taxBorne]);
+    }
+  }
+  if (parts.gainsTaxCents > 0) entries.push(["capitalGains", parts.gainsTaxCents]);
+  return apportionByWeight(totalCents, entries);
+}
+
+/**
+ * The ANNUAL single-filer federal income tax broken out per {@link TaxCategory}, the
+ * per-category analog of {@link federalAnnualTaxCents}. Σ of the returned map equals
+ * {@link federalAnnualTaxCents} exactly. See {@link attributeFederalTax} for the
+ * attribution method and its limitation. Empty map when no tax is owed.
+ */
+export function federalAnnualTaxByCategoryCents(
+  annualByCategory: Partial<Record<TaxCategory, Cents>>,
+  year: number,
+): Partial<Record<TaxCategory, Cents>> {
+  const parts = federalTaxParts(annualByCategory, year);
+  return attributeFederalTax(parts.totalCents, parts);
 }
 
 /**
@@ -325,9 +472,37 @@ export function computeFederalTaxCents(
   monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
   year: number,
 ): Cents {
+  return Math.round(federalAnnualTaxCents(annualizeByCategory(monthlyByCategory), year) / 12);
+}
+
+/** Annualize a monthly per-category slice (×12) — the input the annual math expects. */
+function annualizeByCategory(
+  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
+): Partial<Record<TaxCategory, Cents>> {
   const annualByCategory: Partial<Record<TaxCategory, Cents>> = {};
   for (const [category, cents] of Object.entries(monthlyByCategory)) {
     annualByCategory[category as TaxCategory] = (cents ?? 0) * 12;
   }
-  return Math.round(federalAnnualTaxCents(annualByCategory, year) / 12);
+  return annualByCategory;
+}
+
+/**
+ * The engine's §5.3 per-category tax seam for the US single filer (issue #110): MONTHLY
+ * per-category taxable amounts in → this month's tax split per {@link TaxCategory} out,
+ * the per-category analog of {@link computeFederalTaxCents}. Σ of the returned map equals
+ * {@link computeFederalTaxCents} for the same slice EXACTLY — the monthly scalar total is
+ * apportioned by the annual per-regime weights (the ratios are identical monthly vs.
+ * annual), so the breakdown can never disagree with the total the take-home already used.
+ * See {@link attributeFederalTax} for the attribution method and its documented limitation.
+ * This is the only per-category entry point `index.ts` wires into {@link usJurisdiction}.
+ */
+export function computeFederalTaxByCategoryCents(
+  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
+  year: number,
+): Partial<Record<TaxCategory, Cents>> {
+  const parts = federalTaxParts(annualizeByCategory(monthlyByCategory), year);
+  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights, so
+  // Σ(breakdown) === the scalar the waterfall charged, not a separately-rounded figure.
+  const monthlyTotal = Math.round(parts.totalCents / 12);
+  return attributeFederalTax(monthlyTotal, parts);
 }

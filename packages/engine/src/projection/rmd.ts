@@ -84,7 +84,7 @@ export function buildRmdSources(
 
     sources.push({
       ownerId: person.id,
-      grossCents: required,
+      waterfallInflowCents: required,
       taxCategory: "ordinaryIncome",
       // Reported as its own source (issue #99) — a forced distribution reads apart from
       // an elective pre-tax draw even though both are `ordinaryIncome`.

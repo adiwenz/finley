@@ -145,18 +145,19 @@ function estimateNetIncome(
   let grossTotal = 0;
   const taxableByOwner = new Map<string, TaxableByCategory>();
   for (const src of sources) {
-    grossTotal += src.grossCents;
+    grossTotal += src.waterfallInflowCents;
     // Booked under its provenance category — the jurisdiction owns the inclusion %,
-    // so the engine never pre-applies a fraction (§5.4). A source may book less than
-    // its gross as taxable (a returned-basis fund draw, an accrued-interest booking
-    // with gross 0) — honor its explicit taxable amount so the gross-up baseline sees
-    // the same taxable base the tax seam will (#94).
+    // so the engine never pre-applies a fraction (§5.4). A source's taxable base can differ
+    // from the cash it puts through the waterfall: a returned-basis fund draw books only its
+    // gain; a savings-interest booking has positive taxableCents but 0 waterfallInflowCents
+    // (the account was already credited). Honor its explicit taxable amount so the gross-up
+    // baseline sees the same taxable base the tax seam will (#94).
     let map = taxableByOwner.get(src.ownerId);
     if (map === undefined) {
       map = {};
       taxableByOwner.set(src.ownerId, map);
     }
-    addCategory(map, src.taxCategory, src.taxableCents ?? src.grossCents);
+    addCategory(map, src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
   }
   let taxTotal = 0;
   for (const taxable of taxableByOwner.values()) taxTotal += computeTaxCents(taxable);
@@ -337,7 +338,7 @@ export function buildWithdrawalSources(
     need -= netDelivered;
     sources.push({
       ownerId: account.ownerId,
-      grossCents: gross,
+      waterfallInflowCents: gross,
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
       // Report the draw by the account it came from (issue #99): the account id keys the

@@ -158,6 +158,37 @@ export interface Jurisdiction {
   ): Cents;
 
   /**
+   * §5.3 seam (disclosure, issue #110): the SAME tax total as {@link computeTaxCents},
+   * but broken out per {@link TaxCategory} — how much of the person-month's tax each
+   * income category bore. This exists because US tax is NOT linearly separable by
+   * category (progressive brackets, the standard deduction stacking down onto gains,
+   * the preferential cap-gains rate stacked on top of ordinary income, and government-
+   * benefit provisional-income inclusion all mean a dollar's tax depends on the whole
+   * return), so attributing tax to a category is the JURISDICTION's call — it owns and
+   * documents the attribution method (e.g. proportional-to-taxable) — not the engine's
+   * nor the app's to synthesize.
+   *
+   * The engine carries the result as `taxByCategoryCents` (the tax analog of
+   * `incomeByCategoryCents`) so a consumer can STACK the monthly-tax chart by category,
+   * exactly as the income chart stacks. CONTRACT: Σ of the returned map MUST equal
+   * {@link computeTaxCents} for the same input — the breakdown re-describes the total,
+   * it never restates it. The engine enforces this at runtime EXACTLY, to the cent (all
+   * values are integer cents): a jurisdiction that charges tax but fails to attribute it
+   * fully is a loud error, not a misleading chart (see `assertTaxAttributionReconciles`).
+   *
+   * REQUIRED. Attribution is the jurisdiction's call, so every jurisdiction owns it — there
+   * is no engine/app fallback that synthesizes it. A jurisdiction that charges NO tax returns
+   * `{}` (the null jurisdiction does), since there is nothing to attribute; a jurisdiction
+   * that charges tax must return a map that reconciles. Called at most once per person-month,
+   * only for reporting — the scalar {@link computeTaxCents} remains the marginal-tax probe the
+   * withdrawal gross-up loop depends on.
+   */
+  computeTaxByCategoryCents(
+    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
    * §5.4 seam (disclosure): model simplifications SPECIFIC to this jurisdiction's
    * rules, surfaced so a consumer can show them alongside the engine's own neutral
    * {@link import("./projection/assumptions").MODEL_ASSUMPTIONS}. The report
@@ -303,4 +334,6 @@ export interface Jurisdiction {
 export const nullJurisdiction: Jurisdiction = {
   id: "null",
   computeTaxCents: () => 0,
+  // Charges no tax, so there is nothing to attribute — the required breakdown is empty.
+  computeTaxByCategoryCents: () => ({}),
 };

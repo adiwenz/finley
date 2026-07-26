@@ -40,10 +40,13 @@ function seriesWith(
 
 const source = (
   sourceId: string,
-  grossCents: number,
+  cashInflowCents: number,
   category: ProjectionIncomeSource["category"],
   label = sourceId,
-): ProjectionIncomeSource => ({ sourceId, label, category, grossCents });
+  // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full cash
+  // inflow — the no-haircut case — so a test only names it when it wants a take-home < gross.
+  netCashFlowCents = cashInflowCents,
+): ProjectionIncomeSource => ({ sourceId, label, category, cashInflowCents, netCashFlowCents });
 
 describe("buildIncomeChartData", () => {
   it("emits one row per flowed month with income keyed by source", () => {
@@ -184,6 +187,47 @@ describe("incomeBandsForMode", () => {
     ]);
   });
 
+  it("keeps savings interest its own band in both views — not folded into living off savings", () => {
+    // Savings interest is income the savings EARN (the engine tags it with the explicit
+    // `savingsInterest` provenance), so it stacks as its own band above the drawdowns rather
+    // than reading as spending down savings — and the app never parses the id to decide that.
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
+        source("interest:p1:ordinaryIncome", dollarsToCents(50), "savingsInterest", "Savings interest"),
+        source("brokerage", dollarsToCents(1_500), "capitalGains", "Brokerage draw"),
+        source("savings-drawdown", dollarsToCents(1_000), "savingsDrawdown", "Savings drawdown"),
+      ]),
+    );
+    // Advanced: every source distinct, interest sitting above wages and below the draws.
+    expect(incomeBandsForMode(data, "advanced").sources.map((s) => s.label)).toEqual([
+      "Job A",
+      "Savings interest",
+      "Brokerage draw",
+      "Savings drawdown",
+    ]);
+    // Simple: interest keeps its own band; the two draws still collapse into one.
+    const simple = incomeBandsForMode(data, "simple");
+    expect(simple.sources.map((s) => s.label)).toEqual(["Job A", "Savings interest", "Living off savings"]);
+    // Its cash rides through under the dedicated band, NOT the living-off-savings band.
+    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+    expect(simple.rows[0]!.centsBySource["living-off-savings"]).toBe(dollarsToCents(2_500));
+  });
+
+  it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
+    // Two cash accounts (or two owners) each book interest, tagged `savingsInterest`; Simple
+    // folds them into a single band, like it does for Social Security.
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("interest:p1:ordinaryIncome", dollarsToCents(30), "savingsInterest", "Savings interest"),
+        source("interest:p2:ordinaryIncome", dollarsToCents(20), "savingsInterest", "Savings interest"),
+      ]),
+    );
+    const simple = incomeBandsForMode(data, "simple");
+    expect(simple.sources.map((s) => s.label)).toEqual(["Savings interest"]);
+    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+  });
+
   it("simple sums the asset draw and the cash drawdown into the one Living off savings band", () => {
     const { rows } = incomeBandsForMode(withEverySource(), "simple");
     // Brokerage draw ($1,500) + savings drawdown ($1,000) collapse onto one band's cash.
@@ -193,6 +237,77 @@ describe("incomeBandsForMode", () => {
     expect(rows[0]!.centsBySource["job:b"]).toBe(dollarsToCents(2_000));
     // The spending-need line rides through untouched.
     expect(rows[0]!.spendingNeedCents).toBe(0);
+  });
+});
+
+describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)", () => {
+  /**
+   * A month whose one source carries a cash inflow and the engine's already-netted take-home
+   * ({@link ProjectionIncomeSource.netCashFlowCents}) — the app reads that net straight
+   * through rather than re-deriving gross − tax − deferral itself (that arithmetic now lives
+   * in the engine's `buildFlows`, and is covered there).
+   */
+  function seriesWithNet(cashInflow: number, net: number): ProjectionSeries {
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [source("job:a", cashInflow, "wages", "Day job", net)],
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+        },
+      },
+    ];
+    return { months } as unknown as ProjectionSeries;
+  }
+
+  it("take-home (the default) draws the engine's per-source net cash flow", () => {
+    // Engine net = 5000 gross − 800 tax − 1000 deferral = 3200; the app displays it as-is.
+    const data = buildIncomeChartData(seriesWithNet(dollarsToCents(5_000), dollarsToCents(3_200)));
+    // The row keeps both bases: cash inflow retained, take-home is the engine's net.
+    expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000)); // cash inflow retained
+    expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(3_200));
+    expect(data.rows[0]!.takeHomeCents).toBe(dollarsToCents(3_200));
+    // The default basis the chart draws is take-home.
+    const takeHome = incomeBandsForMode(data, "advanced");
+    expect(takeHome.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(3_200));
+  });
+
+  it("gross basis draws the pre-tax paycheck (the source's cash inflow)", () => {
+    const data = buildIncomeChartData(seriesWithNet(dollarsToCents(5_000), dollarsToCents(3_200)));
+    const gross = incomeBandsForMode(data, "advanced", "gross");
+    expect(gross.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000));
+  });
+
+  it("take-home equals cash inflow when the engine reports no haircut (net == inflow)", () => {
+    const data = buildIncomeChartData(
+      seriesOf([source("job:a", dollarsToCents(5_000), "wages", "Day job")]),
+    );
+    expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(5_000));
+  });
+
+  it("draws the Social Security band's take-home from the engine's net when SS IS taxed", () => {
+    // Guards the `benefit:<person>` band end-to-end: the engine already netted the benefit's
+    // tax off, and the app draws that net (6000 inflow → 5100 take-home). (In the default plan
+    // SS is below the taxable threshold, so net == inflow — this proves the pipeline still
+    // handles a taxed benefit, it isn't silently dropped.)
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [
+            source("benefit:p1", dollarsToCents(6_000), "governmentRetirementBenefit", "Government benefit", dollarsToCents(5_100)),
+          ],
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+        },
+      },
+    ];
+    const data = buildIncomeChartData({ months } as unknown as ProjectionSeries);
+    expect(data.rows[0]!.centsBySource["benefit:p1"]).toBe(dollarsToCents(6_000)); // cash inflow
+    expect(data.rows[0]!.netCentsBySource["benefit:p1"]).toBe(dollarsToCents(5_100)); // engine net
   });
 });
 

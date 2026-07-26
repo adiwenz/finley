@@ -124,7 +124,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
   });
 
-  it("graphs income by source, and flags the retirement gap as a savings drawdown", () => {
+  it("graphs cash flows by source, and flags the retirement gap as a savings drawdown", () => {
     // Income is not a budget line (§6/§17), so it gets its own graph above the budget.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
@@ -155,6 +155,21 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(bands()).toContain("Savings drawdown");
     expect(bands()).not.toContain("Living off savings");
     expect(bands()).not.toContain("Social Security");
+  });
+
+  it("draws take-home cash flows by default and switches to gross on the toggle (issue #110 follow-up)", () => {
+    // Take-home is the honest read against the spending-need line: the bands are cash after
+    // tax and deferral. Flipping "Show gross cash flows" raises them by exactly the tax the
+    // wages bore, so gross > take-home while the household is earning and taxed.
+    renderPanel(PLAN_DEFAULTS);
+    const cashFlowTotal = () =>
+      Object.values(
+        JSON.parse(screen.getByTestId("income-first-row").textContent || "{}") as Record<string, number>,
+      ).reduce((s, v) => s + v, 0);
+    const takeHome = cashFlowTotal();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show gross cash flows/i }));
+    const gross = cashFlowTotal();
+    expect(gross).toBeGreaterThan(takeHome); // gross adds back the wage tax
   });
 
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
@@ -299,6 +314,22 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     applyOneOff();
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/bonus of \$2,000/i);
     expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
+  });
+
+  it("stacks the monthly-tax chart by job, matching the income chart (issue #110 follow-up)", () => {
+    // The US jurisdiction reports tax per category and the engine splits it down to the
+    // job that bore it, so the tax chart bands by source: the default plan's one job draws
+    // its own wage-tax band (named like its income band), and the split's Σ equals the row
+    // total.
+    renderPanel(PLAN_DEFAULTS);
+    const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
+    expect(bands).toContain("Income · job-1");
+    const firstRow = JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}");
+    const banded = Object.entries(firstRow.centsBySource as Record<string, number>).reduce(
+      (s, [, c]) => s + c,
+      0,
+    );
+    expect(banded).toBe(firstRow.taxCents as number);
   });
 
   it("sets pay to $0 for one month (a missed paycheck), taxed on $0 wages that month", () => {

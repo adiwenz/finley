@@ -16,10 +16,10 @@ const line = (id: string, amountCents: number): SpendingItem => ({
 
 const src = (
   ownerId: string,
-  grossCents: number,
+  waterfallInflowCents: number,
   taxCategory: IncomeSourceMonth["taxCategory"],
   extra?: Partial<IncomeSourceMonth>,
-): IncomeSourceMonth => ({ ownerId, grossCents, taxCategory, ...extra });
+): IncomeSourceMonth => ({ ownerId, waterfallInflowCents, taxCategory, ...extra });
 
 describe("buildFlows", () => {
   it("buckets gross income by tax category and sums the total", () => {
@@ -105,8 +105,8 @@ describe("buildFlows", () => {
     );
     expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00 });
     expect(flows.incomeSources).toEqual([
-      { sourceId: "job:a", label: "Job A", category: "wages", grossCents: 5_000_00 },
-      { sourceId: "job:b", label: "Job B", category: "wages", grossCents: 2_000_00 },
+      { sourceId: "job:a", label: "Job A", category: "wages", cashInflowCents: 5_000_00, netCashFlowCents: 5_000_00 },
+      { sourceId: "job:b", label: "Job B", category: "wages", cashInflowCents: 2_000_00, netCashFlowCents: 2_000_00 },
     ]);
   });
 
@@ -123,23 +123,53 @@ describe("buildFlows", () => {
       [],
     );
     expect(flows.incomeSources).toEqual([
-      { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", grossCents: 1_500_00 },
-      { sourceId: "capitalGains", label: "capitalGains", category: "capitalGains", grossCents: 300_00 },
+      { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", cashInflowCents: 1_500_00, netCashFlowCents: 1_500_00 },
+      { sourceId: "capitalGains", label: "capitalGains", category: "capitalGains", cashInflowCents: 300_00, netCashFlowCents: 300_00 },
     ]);
   });
 
-  it("omits a zero-gross source (accrued interest) from the bands but keeps it in the rollup", () => {
-    // An interest booking carries only a taxable base (cash already in the balance) — it
-    // taxes, but there is no cash to draw a band for.
+  it("bands accrued interest by its cash inflow (waterfallInflowCents 0, but real household cash)", () => {
+    // An interest booking places nothing in the ALLOCATION waterfall (waterfallInflowCents 0 — the cash
+    // is already in the balance), yet it IS real cash: it reports its interest as a cash inflow
+    // so the cash-flow view shows it instead of dropping it.
     const flows = buildFlows(
-      [src("p1", 0, "ordinaryIncome", { taxableCents: 40_00, sourceId: "interest:p1", label: "Interest" })],
+      [src("p1", 0, "ordinaryIncome", { cashInflowCents: 40_00, taxableCents: 40_00, sourceId: "interest:p1", label: "Savings interest" })],
       0,
       0,
       0,
       [],
     );
-    expect(flows.incomeSources).toEqual([]);
-    expect(flows.incomeByCategoryCents).toEqual({ ordinaryIncome: 0 });
+    expect(flows.incomeSources).toEqual([
+      { sourceId: "interest:p1", label: "Savings interest", category: "ordinaryIncome", cashInflowCents: 40_00, netCashFlowCents: 40_00 },
+    ]);
+    expect(flows.incomeByCategoryCents).toEqual({ ordinaryIncome: 40_00 });
+    expect(flows.totalIncomeCents).toBe(40_00);
+  });
+
+  it("nets savings interest's tax off its cash inflow (the $500/$100/$400 reconciliation)", () => {
+    // $500 of interest, $100 of attributed tax: cash inflow $500, net cash flow $400. The
+    // engine is the source of truth for net (cashInflow − deferral − tax); the balance credit
+    // ($500, from compounding) is a separate fact this booking never re-injects.
+    const flows = buildFlows(
+      [src("p1", 0, "ordinaryIncome", { cashInflowCents: 500_00, taxableCents: 500_00, sourceId: "interest:p1:ordinaryIncome", label: "Savings interest" })],
+      100_00, // household tax
+      0,
+      0,
+      [],
+      0,
+      { ordinaryIncome: 100_00 }, // taxByCategoryCents
+      { "interest:p1:ordinaryIncome": 100_00 }, // taxBySourceCents — the interest bore all of it
+    );
+    expect(flows.incomeSources).toEqual([
+      {
+        sourceId: "interest:p1:ordinaryIncome",
+        label: "Savings interest",
+        category: "ordinaryIncome",
+        cashInflowCents: 500_00,
+        netCashFlowCents: 400_00,
+      },
+    ]);
+    expect(flows.totalIncomeCents).toBe(500_00);
   });
 
   it("surfaces a liquid-buffer drawdown as its own savingsDrawdown source, out of the taxable rollup", () => {
@@ -159,7 +189,8 @@ describe("buildFlows", () => {
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
       label: "Savings drawdown",
       category: "savingsDrawdown",
-      grossCents: 1_000_00,
+      cashInflowCents: 1_000_00,
+      netCashFlowCents: 1_000_00,
     });
   });
 

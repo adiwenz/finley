@@ -137,8 +137,20 @@ describe("buildSimulationReport", () => {
 
     // A flat 10% jurisdiction: $3,000 of wages → $300 of tax on the report row, and
     // the household is $300 poorer for it (income 3000 − expenses 2000 − tax 300).
-    const flatTax = { ...nullJurisdiction, computeTaxCents: (byCategory: Record<string, number>) =>
-      Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1) };
+    const flatTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) =>
+        Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
+      // Matching per-source breakdown (§5.3 attribution contract): each category taxed 10%.
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const out: Record<string, number> = {};
+        for (const [cat, cents] of Object.entries(byCategory)) {
+          const t = Math.round((cents ?? 0) * 0.1);
+          if (t) out[cat] = t;
+        }
+        return out;
+      },
+    };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
     expect(report.months[1].taxCents).toBe(dollarsToCents(300));
     expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free (§4.6)
@@ -150,6 +162,80 @@ describe("buildSimulationReport", () => {
     expect(report.columns.accountIds).toContain("savings");
     expect(report.columns.personIds).toEqual(["p1"]);
     expect(report.columns.incomeCategories).toContain("ordinaryIncome");
+  });
+
+  it("carries the jurisdiction's per-category tax breakdown, summing to taxCents (issue #110)", () => {
+    // A jurisdiction that both taxes AND splits: a flat 10% total, attributed half to
+    // wages and half to ordinaryIncome. The report must carry the split, and its Σ must
+    // equal the scalar `taxCents` the take-home already used — the AC invariant.
+    const splittingTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) =>
+        Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const total = Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1);
+        const half = Math.round(total / 2);
+        return { wages: half, ordinaryIncome: total - half };
+      },
+    };
+    const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
+    const m1 = report.months[1];
+    expect(m1.taxCents).toBe(dollarsToCents(300));
+    expect(m1.taxByCategoryCents).toBeDefined();
+    const split = m1.taxByCategoryCents!;
+    const sum = Object.values(split).reduce((s: number, c) => s + (c ?? 0), 0);
+    expect(sum).toBe(m1.taxCents);
+    // The union of categories is exposed for the stacked-chart column layout.
+    expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
+  });
+
+  it("splits the tax by income SOURCE, naming each job and summing to taxCents (issue #110 follow-up)", () => {
+    // Two jobs for one person; a wages-taxing jurisdiction that reports the per-category
+    // breakdown. The engine attributes the wages tax down to each job by taxable weight.
+    const mkJob = (cents: number) =>
+      new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
+    const wagesTax = {
+      ...nullJurisdiction,
+      computeTaxCents: (byCategory: Record<string, number>) => Math.round((byCategory.wages ?? 0) * 0.1),
+      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
+        const t = Math.round((byCategory.wages ?? 0) * 0.1);
+        return t > 0 ? { wages: t } : {};
+      },
+    };
+    const report = buildSimulationReport(
+      baseInput({
+        incomeSeries: [
+          { series: mkJob(dollarsToCents(4000)), ownerId: "p1", sourceId: "job-a" },
+          { series: mkJob(dollarsToCents(2000)), ownerId: "p1", sourceId: "job-b" },
+        ],
+      }),
+      wagesTax as typeof nullJurisdiction,
+    );
+    const m1 = report.months[1];
+    // $6000 taxable wages → $600 tax, split 4000:2000 → $400 / $200.
+    expect(m1.taxBySourceCents).toEqual({ "job-a": dollarsToCents(400), "job-b": dollarsToCents(200) });
+    const sum = Object.values(m1.taxBySourceCents!).reduce((s: number, c) => s + (c ?? 0), 0);
+    expect(sum).toBe(m1.taxCents);
+    // The union of tax-bearing sources is exposed for the per-job chart's columns.
+    expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
+  });
+
+  it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute) (issue #110)", () => {
+    // The null jurisdiction charges no tax, so its required breakdown is `{}` on every flowed
+    // month (empty, not absent — absent belongs only to the flow-free month 0), and the column
+    // unions are empty.
+    const report = buildSimulationReport(baseInput(), nullJurisdiction);
+    for (const m of report.months) {
+      const flowed = m.taxByCategoryCents !== undefined; // month 0 carries no flows at all
+      if (flowed) {
+        expect(m.taxByCategoryCents).toEqual({});
+        expect(m.taxBySourceCents).toEqual({});
+      } else {
+        expect(m.taxBySourceCents).toBeUndefined();
+      }
+    }
+    expect(report.columns.taxCategories).toEqual([]);
+    expect(report.columns.taxSources).toEqual([]);
   });
 
   it("summarizeSimulation matches a report built from the same run", () => {

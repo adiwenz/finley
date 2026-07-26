@@ -45,6 +45,18 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * withdrawal channel) is appended as its own `savingsDrawdown` source so "living off
  * savings" is visible — but is kept OUT of the category rollup and the total, which stay
  * the taxable-income view (a drawdown is spending an asset, not income).
+ *
+ * `taxByCategoryCents` (issue #110) is the per-category split of `taxCents` the waterfall
+ * obtained from the jurisdiction's breakdown seam; it rides straight through (`{}` in a
+ * zero-tax month, otherwise reconciling to `taxCents`). It is passed pre-computed rather
+ * than re-derived here because attribution is the jurisdiction's call, not the report
+ * layer's — this module only buckets what the sim already resolved.
+ *
+ * The finer `taxBySourceCents` (issue #110 follow-up) and `deferralBySourceCents` ride
+ * through the same way, keyed by the SAME `sourceId ?? taxCategory` this function bands
+ * the income side on — so a consumer can line each income band up with the tax it bore
+ * and the deferral it made, and draw a per-job tax chart or a take-home income view. The
+ * tax maps default to `{}` (a zero-tax month), so they are always present downstream.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -53,42 +65,74 @@ export function buildFlows(
   liabilityPaymentsCents: Cents,
   spendingItems: readonly SpendingItem[],
   liquidDrawdownCents: Cents = 0,
+  taxByCategoryCents: Readonly<Record<string, Cents>> = {},
+  taxBySourceCents: Readonly<Record<string, Cents>> = {},
+  deferralBySourceCents?: Readonly<Record<string, Cents>>,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Aggregate genuine income by source, preserving first-seen order. A source is keyed
-  // by its `sourceId` (or its tax category as a fallback); repeated keys sum.
-  const bySource = new Map<string, ProjectionIncomeSource>();
+  // by its `sourceId` (or its tax category as a fallback); repeated keys sum. We band on
+  // `cashInflowCents` — the realized cash the source paid — which for accrued interest is
+  // its interest (waterfallInflowCents 0, but real household cash) and for everything else is its
+  // gross. So interest now appears in the cash-flow view instead of being dropped.
+  const bySource = new Map<string, { cashInflowCents: Cents; label: string; category: string }>();
   const order: string[] = [];
   for (const src of incomeSources) {
+    const cashInflow = src.cashInflowCents ?? src.waterfallInflowCents;
     incomeByCategoryCents[src.taxCategory] =
-      (incomeByCategoryCents[src.taxCategory] ?? 0) + src.grossCents;
-    totalIncomeCents += src.grossCents;
-    // A zero-gross booking (accrued interest, whose cash is already in the balance)
-    // carries no cash to band — it belongs to the category rollup above, not here.
-    if (src.grossCents === 0) continue;
+      (incomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
+    totalIncomeCents += cashInflow;
+    // No realized cash → nothing to band (a placeholder booking, or unrealized growth).
+    if (cashInflow === 0) continue;
     const sourceId = src.sourceId ?? src.taxCategory;
     const existing = bySource.get(sourceId);
     if (existing !== undefined) {
-      bySource.set(sourceId, { ...existing, grossCents: existing.grossCents + src.grossCents });
+      existing.cashInflowCents += cashInflow;
     } else {
       order.push(sourceId);
       bySource.set(sourceId, {
-        sourceId,
+        cashInflowCents: cashInflow,
         label: src.label ?? src.taxCategory,
-        category: src.taxCategory,
-        grossCents: src.grossCents,
+        // The reported provenance is the source's explicit `reportCategory` when it sets one
+        // (e.g. savings interest → "savingsInterest"), else its tax category. This keeps the
+        // display/grouping axis distinct from the tax axis without the UI parsing ids.
+        category: src.reportCategory ?? src.taxCategory,
       });
     }
   }
-  const sources: ProjectionIncomeSource[] = order.map((id) => bySource.get(id)!);
-  // The liquid-buffer drawdown: its own reporting-only source, never a tax bucket.
+  // Finish each banded source with its engine-produced net cash flow (§5.3, #110
+  // follow-up): cash inflow minus the pre-tax deferral it made and the tax it bore, keyed
+  // by the SAME id the waterfall attributed those on. This is the take-home the app displays
+  // directly instead of re-deriving (and re-deriving dropped interest's tax, understating the
+  // household's net). It is SIGNED and deliberately NOT clamped: a source whose deductions
+  // exceed its cash inflow (e.g. a booking taxed on more than it paid in cash) has a genuinely
+  // negative net, and the engine reports that honestly — a consumer that needs a nonnegative
+  // stacked band clamps at render, not here. Absent breakdown maps → no haircut, so net equals
+  // cash inflow (a null jurisdiction's single-band fallback).
+  const netCashFlow = (sourceId: string, cashInflowCents: Cents): Cents => {
+    const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents[sourceId] ?? 0);
+    return cashInflowCents - haircut;
+  };
+  const sources: ProjectionIncomeSource[] = order.map((id) => {
+    const s = bySource.get(id)!;
+    return {
+      sourceId: id,
+      label: s.label,
+      category: s.category as ProjectionIncomeSource["category"],
+      cashInflowCents: s.cashInflowCents,
+      netCashFlowCents: netCashFlow(id, s.cashInflowCents),
+    };
+  });
+  // The liquid-buffer drawdown: its own reporting-only source, never a tax bucket. It bears
+  // no tax or deferral (spending an asset, not income), so its net equals its cash.
   if (liquidDrawdownCents > 0) {
     sources.push({
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
       label: SAVINGS_DRAWDOWN_LABEL,
       category: "savingsDrawdown",
-      grossCents: liquidDrawdownCents,
+      cashInflowCents: liquidDrawdownCents,
+      netCashFlowCents: liquidDrawdownCents,
     });
   }
   // The budget-line slice of the one itemized list, in a single pass: this runs once
@@ -104,6 +148,13 @@ export function buildFlows(
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
+    // The per-category tax breakdown (§5.3, #110) — the tax analog of `incomeByCategoryCents`.
+    // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
+    taxByCategoryCents,
+    // The finer per-source tax split (issue #110 follow-up), keyed like `incomeSources`, and
+    // the per-source deferral. The tax split is always present (`{}` when no tax).
+    taxBySourceCents,
+    deferralBySourceCents,
     expensesCents,
     liabilityPaymentsCents,
     // Not a second pass over the series: the per-line map and the spending items

@@ -69,6 +69,11 @@ export const CAPITAL_GAINS_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "capitalGains",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
+  // Its return is capital appreciation — stated explicitly rather than left absent so the
+  // deferral is the JURISDICTION's call through `returnTaxTreatment` (§5.0), not an engine
+  // default-by-omission. US defers it to withdrawal; a mark-to-market regime could tax it
+  // at accrual. Behaviour is unchanged from omitting it under the US jurisdiction.
+  returnKind: "appreciation",
 };
 
 export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {

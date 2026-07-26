@@ -161,6 +161,22 @@ export interface ReportMonth {
   readonly governmentRetirementBenefitCents: Cents;
   /** Tax charged this month through the §5.3 jurisdiction seam, all persons summed. */
   readonly taxCents: Cents;
+  /**
+   * This month's tax broken out by {@link TaxCategory} (issue #110) — the tax analog of
+   * `incomeByCategoryCents`. Present for every flowed month (`{}` when no tax, otherwise Σ
+   * === `taxCents`); absent only for the flow-free opening month (month 0), which carries
+   * no flows at all.
+   */
+  readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
+  /**
+   * This month's tax broken out by income SOURCE (issue #110 follow-up) — the finer
+   * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
+   * tax is named rather than collapsed into `wages`. Present for every flowed month (`{}`
+   * when no tax, otherwise Σ === `taxCents`); absent only for the flow-free month 0.
+   */
+  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  /** This month's pre-tax deferral by income source (issue #110 follow-up); absent when none deferred. */
+  readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -178,6 +194,18 @@ export interface ReportColumns {
   readonly liabilityIds: readonly string[];
   readonly propertyIds: readonly string[];
   readonly incomeCategories: readonly string[];
+  /**
+   * The union of tax categories that appear across the run (issue #110), so a consumer
+   * can lay out the stacked tax chart's bands. Empty when the jurisdiction reports no
+   * per-category breakdown anywhere (a single-band tax chart).
+   */
+  readonly taxCategories: readonly string[];
+  /**
+   * The union of income-source ids that ever bore tax across the run (issue #110
+   * follow-up), so a consumer can lay out a per-source (per-job) stacked tax chart. Empty
+   * when the jurisdiction reports no per-source breakdown anywhere.
+   */
+  readonly taxSources: readonly string[];
 }
 
 export interface SimulationReport {
@@ -352,6 +380,9 @@ export function summarizeSimulation(
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       taxCents: flows?.taxCents ?? 0,
+      taxByCategoryCents: flows?.taxByCategoryCents,
+      taxBySourceCents: flows?.taxBySourceCents,
+      deferralBySourceCents: flows?.deferralBySourceCents,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,
@@ -365,6 +396,8 @@ export function summarizeSimulation(
     liabilityIds: unionKeys(months, (m) => m.liabilityBalancesCents),
     propertyIds: unionKeys(months, (m) => m.propertyValuesCents),
     incomeCategories: unionKeys(months, (m) => m.incomeByCategoryCents),
+    taxCategories: unionKeys(months, (m) => m.taxByCategoryCents ?? {}),
+    taxSources: unionKeys(months, (m) => m.taxBySourceCents ?? {}),
   };
 
   return {

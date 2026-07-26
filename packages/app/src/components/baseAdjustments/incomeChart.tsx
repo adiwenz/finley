@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -15,25 +15,34 @@ import { formatDollars } from "../../format";
 import {
   describeIncomeGap,
   incomeBandsForMode,
+  type IncomeBasis,
   type IncomeChartData,
   type IncomeMode,
   type IncomeSourceBand,
 } from "./incomeByCategory";
 
 /**
- * Monthly income chart — the income-side companion to the per-line budget chart
- * (issue #71). Income is not a budget line (§6/§17), so it gets its own graph stacked
- * directly above the budget, sharing the same x-axis, the same click-to-select gesture,
- * and the same selection marker: two views of one timeline.
+ * Monthly cash-flows-vs.-spending chart — the cash-flow companion to the per-line budget
+ * chart (issue #71). It stacks every cash source the household actually sees — earned income,
+ * the government benefit, savings interest, and savings/asset withdrawals — against the
+ * spending it has to cover, so it is deliberately broader than "income" alone. It gets its
+ * own graph stacked directly above the budget, sharing the same x-axis, the same
+ * click-to-select gesture, and the same selection marker: two views of one timeline.
  *
- * Two views of the income itself (issue #99 follow-up), switched by the Advanced toggle:
+ * Two views of those cash flows (issue #99 follow-up), switched by the Advanced toggle:
  *   - **Simple** (default) — three ideas: wages (per job), Social Security, and one
  *     "Living off savings" band that folds in every asset-sale draw and the cash
  *     drawdown. A dashed spending-need line says whether it's enough, and a "broke"
  *     marker names the month the plan runs out.
  *   - **Advanced** — every source as its own band (which job, which account draining,
- *     the benefit, the cash drawdown), for the reader who wants the full breakdown.
- *     The gain-vs-principal split of the drawdown lands later via issue #122.
+ *     the benefit, savings interest, the cash drawdown), for the reader who wants the full
+ *     breakdown. The gain-vs-principal split of the drawdown lands later via issue #122.
+ *
+ * Bands are drawn on a **take-home** basis by default (issue #110 follow-up): each source's
+ * cash after its own tax and pre-tax deferral — the money actually available to meet the
+ * spending-need line. Gross would draw the cash flow *above* the tax and 401(k) money that
+ * never reach the checking account, overstating the headroom against spending. The
+ * "Show gross cash flows" toggle switches the bands back to gross for reading raw earning power.
  *
  * As with the budget chart, the summary and hidden data mirrors render independently of
  * Recharts so the behaviour is assertable without SVG layout (Recharts needs a real
@@ -56,6 +65,20 @@ const MARKER = "#1f3a2e"; // the selected-month rule
 
 /** The recharts dataKey of the spending-need line — namespaced so it can't clash with a source id. */
 const SPENDING_NEED_KEY = "__spendingNeed";
+
+/**
+ * Clamp each band's value to ≥ 0 for the STACKED area chart. The engine reports a signed
+ * per-source net cash flow ({@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents}) —
+ * a source whose tax + deferral exceed its cash inflow is honestly negative — but recharts
+ * stacks these areas, and a negative segment would render below the axis and distort the
+ * stack. This is the ONLY place the clamp lives: the engine and the chart's data model keep
+ * the honest signed figures. On the gross basis the values are already ≥ 0, so this is a no-op.
+ */
+function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, cents] of Object.entries(centsBySource)) out[id] = Math.max(0, cents);
+  return out;
+}
 
 /** A colour per band id: wages step through the blue family, draws through the earth family. */
 function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, string> {
@@ -91,14 +114,25 @@ export interface IncomeChartProps {
 
 export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: IncomeChartProps) {
   const [mode, setMode] = useState<IncomeMode>("simple");
+  const [basis, setBasis] = useState<IncomeBasis>("takeHome");
   const summary = describeIncomeGap(data);
-  const view = incomeBandsForMode(data, mode);
-  const colors = colorsForBands(view.sources);
-  const rows = view.rows.map((r) => ({
-    month: r.month,
-    [SPENDING_NEED_KEY]: r.spendingNeedCents,
-    ...r.centsBySource,
-  }));
+  // The banded view, its colour map, and the recharts rows depend only on `data`, `mode`,
+  // and `basis` — not on `selectedMonth`. Memoize them so scrubbing the selected month
+  // (a frequent re-render) doesn't recompute the band collapse or remap every month row
+  // (§rerender-memo).
+  const view = useMemo(() => incomeBandsForMode(data, mode, basis), [data, mode, basis]);
+  const colors = useMemo(() => colorsForBands(view.sources), [view]);
+  const rows = useMemo(
+    () =>
+      view.rows.map((r) => ({
+        month: r.month,
+        [SPENDING_NEED_KEY]: r.spendingNeedCents,
+        // Clamp band values ≥ 0 for the stack — the engine's signed net is honest, but a
+        // stacked area can't render a negative segment (see clampBandsForStack).
+        ...clampBandsForStack(r.centsBySource),
+      })),
+    [view],
+  );
   const lastMonth = view.rows[view.rows.length - 1]?.month ?? 0;
   const brokeMonth = data.firstInsolventMonth;
 
@@ -107,25 +141,37 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
       role="img"
       aria-label={
         summary
-          ? `Monthly income by source. ${summary}`
-          : "Monthly income by source — income continues across the whole horizon."
+          ? `Monthly cash flows vs. spending. ${summary}`
+          : "Monthly cash flows vs. spending — cash flow continues across the whole horizon."
       }
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         {/* Informational, not a warning: a retirement income gap is expected, and the
             plan-is-broken case is the broke marker + the budget chart's amber band below. */}
         <p className="hint" data-testid="income-summary">
-          {summary ?? "Income continues across the whole horizon."}
+          {summary ?? "Cash flow continues across the whole horizon."}
         </p>
-        {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
-          <input
-            type="checkbox"
-            checked={mode === "advanced"}
-            onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
-          />
-          Advanced view
-        </label>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
+          {/* Take-home cash flows are the default (bands = cash after tax + deferral); this
+              toggle switches to gross cash flows for reading raw earning power (issue #110). */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={basis === "gross"}
+              onChange={(e) => setBasis(e.target.checked ? "gross" : "takeHome")}
+            />
+            Show gross cash flows
+          </label>
+          {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={mode === "advanced"}
+              onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
+            />
+            Advanced view
+          </label>
+        </div>
       </div>
 
       {/* Hidden data mirrors for tests / screen readers: the active view's first-row

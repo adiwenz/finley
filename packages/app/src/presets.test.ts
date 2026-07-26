@@ -14,6 +14,7 @@ import {
   simulateHousehold,
   createProjectionBase,
   firstInsolventMonth,
+  dollarsToCents,
   type ProjectionContext,
   type ProjectionSeries,
 } from "@finley/engine";
@@ -41,12 +42,13 @@ const realNetWorthAt = (series: ProjectionSeries, month: number): number | null 
   series.months[month]?.netWorthRealCents ?? null;
 
 describe("default simulations (issue #119)", () => {
-  it("offers the healthy default plus the three teaching scenarios", () => {
+  it("offers the healthy default plus the teaching scenarios", () => {
     expect(PRESETS.map((p) => p.id)).toEqual([
       "default",
       "paycheck-to-paycheck",
       "living-on-credit",
       "student-loan",
+      "taxed-in-retirement",
     ]);
     // Each preset carries a distinct, non-empty human label and description.
     for (const preset of PRESETS) {
@@ -106,6 +108,29 @@ describe("default simulations (issue #119)", () => {
     expect(later).toBeGreaterThan(early);
     // The debt is unfinanceable long-term: the plan runs out of credit.
     expect(firstInsolventMonth(series)).not.toBeNull();
+  });
+
+  it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {
+    // The scenario's whole point: taxable 401(k) withdrawals fund retirement (the spend is
+    // tuned high enough that cash doesn't pile up and cover it tax-free), so that ordinary
+    // income lifts the benefit over the standard deduction and the government-benefit
+    // category bears real tax across a run of retirement months.
+    const series = project(presetById("taxed-in-retirement"));
+    const ssTax = series.months.map((m) => {
+      const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
+      return byCat.governmentRetirementBenefit ?? 0;
+    });
+    expect(ssTax.filter((c) => c > 0).length).toBeGreaterThan(24); // taxed across years, not a blip
+    // And meaningfully, not a rounding-scale $25/mo: it must clear a few hundred a month in
+    // some retirement month — the guard against regressing to a cash-funded retirement where
+    // SS is barely taxed.
+    expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
+    // Contrast: the default plan never taxes the benefit at all.
+    const defaultSSTaxed = project(presetById("default")).months.some((m) => {
+      const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
+      return (byCat.governmentRetirementBenefit ?? 0) > 0;
+    });
+    expect(defaultSSTaxed).toBe(false);
   });
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {

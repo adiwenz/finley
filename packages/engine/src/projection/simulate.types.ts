@@ -126,11 +126,17 @@ export interface ProjectionMonthFlows {
    * taxable income and so is deliberately absent from `incomeByCategoryCents` /
    * `totalIncomeCents` (which stay the taxable-income rollup); it appears only here.
    *
-   * Zero-gross sources (an accrued-interest booking, whose cash is already in the
-   * balance) are omitted — they carry no cash to band.
+   * A savings-interest booking DOES appear here (and in the rollups): its allocation gross
+   * is 0 — the cash is already in the account balance, so the waterfall re-injects nothing —
+   * but it is real, taxable household cash, reported by its {@link
+   * ProjectionIncomeSource.cashInflowCents}. So the cash-flow view shows the interest and
+   * nets its tax off, rather than dropping it.
    */
   readonly incomeSources: readonly ProjectionIncomeSource[];
-  /** Σ of `incomeByCategoryCents` — total gross (taxable) income this month. Excludes the savings drawdown. */
+  /**
+   * Σ of `incomeByCategoryCents` — total realized (taxable) cash income this month,
+   * including savings interest. Excludes the savings drawdown (an asset draw, not income).
+   */
   readonly totalIncomeCents: Cents;
   /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
   readonly governmentRetirementBenefitCents: Cents;
@@ -141,6 +147,39 @@ export interface ProjectionMonthFlows {
    * taxCents` is the household's after-tax gross.
    */
   readonly taxCents: Cents;
+  /**
+   * This month's tax broken out BY {@link TaxCategory} (issue #110) — the tax analog of
+   * `incomeByCategoryCents`, summed across every person. The jurisdiction owns the
+   * attribution method (US tax is not linearly separable by category — progressive
+   * brackets, the standard deduction, the capital-gains preference, and benefit
+   * inclusion), so the engine carries whatever split the jurisdiction reports without
+   * synthesizing one itself.
+   *
+   * Always present (the breakdown seam is required of every jurisdiction): `{}` in a
+   * zero-tax month, otherwise a map whose Σ equals `taxCents`.
+   */
+  readonly taxByCategoryCents: Readonly<Record<string, Cents>>;
+  /**
+   * This month's tax broken out BY SOURCE (issue #110 follow-up) — the finer sibling of
+   * `taxByCategoryCents`, keyed by each source's reporting id (the same `sourceId` used in
+   * {@link incomeSources}, falling back to its tax category). Two jobs no longer collapse
+   * into one `wages` band: each carries the tax it bore, apportioned per person by taxable
+   * weight so two earners in different brackets never cross-subsidise. Lets a chart stack
+   * tax by job. Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents` (a
+   * runtime-enforced contract) and Σ within a category === that category's
+   * `taxByCategoryCents`. Attribution is proportional/average-rate, not marginal (disclosed
+   * as `taxAttributionProportional`).
+   */
+  readonly taxBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * This month's pre-tax deferral broken out BY SOURCE (issue #110 follow-up), keyed like
+   * {@link taxBySourceCents}. A source that deferred nothing is absent. The engine already
+   * folds this and `taxBySourceCents` into each source's {@link
+   * ProjectionIncomeSource.netCashFlowCents}, so a consumer reads take-home directly; this
+   * map remains for a per-source deferral view (e.g. the tax chart). Absent when no source
+   * deferred.
+   */
+  readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
@@ -183,13 +222,21 @@ export interface ProjectionMonthFlows {
 }
 
 /**
- * The provenance category of one reported income source (issue #99). For a genuine
- * income source it is the source's own {@link TaxCategory} — the same value that
- * buckets it in `incomeByCategoryCents`. The one extra member, `"savingsDrawdown"`,
- * tags the liquid-buffer drawdown, which is spending down cash rather than taxable
- * income and therefore has no tax category of its own.
+ * The provenance category of one reported income source (issue #99) — the display/grouping
+ * axis, NOT the tax axis. For a genuine income source it is usually the source's own {@link
+ * TaxCategory} (the same value that buckets it in `incomeByCategoryCents`), but two members
+ * carry explicit provenance the tax category can't express:
+ *   - `"savingsDrawdown"` — the liquid-buffer drawdown: spending down cash, not taxable
+ *     income, so it has no tax category of its own.
+ *   - `"savingsInterest"` — interest credited by a cash / savings account. It IS taxable
+ *     (its tax category is `ordinaryIncome`, and it still buckets there in
+ *     `incomeByCategoryCents`), but it is reported under this distinct provenance so the UI
+ *     can group it as "Savings interest" WITHOUT parsing source ids. This is deliberately
+ *     specific to savings-account interest: when Finley later models other interest kinds
+ *     (brokerage, bond, money-market), each gets its own provenance rather than being folded
+ *     in here.
  */
-export type IncomeSourceCategory = TaxCategory | "savingsDrawdown";
+export type IncomeSourceCategory = TaxCategory | "savingsDrawdown" | "savingsInterest";
 
 /**
  * One reported income source for a single month (issue #99) — the per-source unit of
@@ -202,8 +249,27 @@ export interface ProjectionIncomeSource {
   readonly sourceId: string;
   readonly label: string;
   readonly category: IncomeSourceCategory;
-  /** Gross cash this source paid this month. */
-  readonly grossCents: Cents;
+  /**
+   * **Realized cash this source paid into the household this month** — pre-tax,
+   * pre-deferral. Savings-account interest reports its credited interest here: it is real
+   * household cash (it lands in the account balance and is spendable), so it belongs in the
+   * cash-flow view even though the allocation waterfall never re-injects it (the balance
+   * already holds it). Unrealized investment appreciation is NOT cash — it books no source
+   * at all, i.e. `cashInflowCents` 0 — so a brokerage's paper gain never inflates cash flow.
+   */
+  readonly cashInflowCents: Cents;
+  /**
+   * **Engine-produced net cash flow for this source** — `cashInflowCents` minus the pre-tax
+   * deferral it made and the tax it bore. This is the single source of truth for take-home:
+   * the app displays it directly and never re-derives cash-inflow − tax − deferral itself
+   * (which silently drifted from the sim — e.g. it dropped a savings-interest booking's tax,
+   * a booking whose cash was credited outside the waterfall). It is SIGNED and NOT clamped: a
+   * source whose deductions exceed its cash inflow reports a genuinely negative net, honestly;
+   * a consumer that needs a nonnegative stacked band clamps at render. A source with no
+   * deferral or tax (a cash drawdown) equals its `cashInflowCents`. Σ across the month's
+   * sources is the household's net cash flow.
+   */
+  readonly netCashFlowCents: Cents;
 }
 
 export interface ProjectionSeries {

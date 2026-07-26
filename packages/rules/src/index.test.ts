@@ -21,9 +21,27 @@ describe("usJurisdiction (US-2026)", () => {
     const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
     expect(ids).toContain("taxThresholdForwardIndexing");
     expect(ids).toContain("socialSecurityThresholdsUnindexed");
+    expect(ids).toContain("taxAttributionProportional");
+    expect(ids).toContain("rmdStartAge");
     for (const a of usJurisdiction.modelAssumptions ?? []) {
       expect(a.text.length).toBeGreaterThan(0);
     }
+  });
+
+  it("reports tax per category, summing to the scalar total (issue #110)", () => {
+    // A mixed month: wages + capital gains. The per-category seam must split the tax
+    // and its Σ must equal the scalar `computeTaxCents` for the same slice.
+    const slice = {
+      wages: Math.round(dollarsToCents(60_000) / 12),
+      capitalGains: Math.round(dollarsToCents(20_000) / 12),
+    };
+    const total = usJurisdiction.computeTaxCents(slice, { year: 2026 });
+    const byCategory = usJurisdiction.computeTaxByCategoryCents!(slice, { year: 2026 });
+    const sum = Object.values(byCategory).reduce((s: number, c) => s + (c ?? 0), 0);
+    expect(sum).toBe(total);
+    // Gains bear their own preferential-rate tax on their own band, not a blend.
+    expect(byCategory.capitalGains).toBeGreaterThan(0);
+    expect(byCategory.wages).toBeGreaterThan(0);
   });
 
   it("runs real single-filer federal tax through the seam (#53)", () => {

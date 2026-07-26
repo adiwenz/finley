@@ -329,11 +329,11 @@ function buildIncomeSources(
 ): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
   for (const s of incomeSeries) {
-    const grossCents = s.series.getMonthlyCents(month);
-    if (grossCents === 0 && s.planDescriptor === undefined) continue;
+    const waterfallInflowCents = s.series.getMonthlyCents(month);
+    if (waterfallInflowCents === 0 && s.planDescriptor === undefined) continue;
     sources.push({
       ownerId: s.ownerId,
-      grossCents,
+      waterfallInflowCents,
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       planDescriptor: s.planDescriptor,
       // Report each income series as its own source (issue #99), so two jobs read apart
@@ -368,7 +368,13 @@ function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): { taxCents: Cents; contributions: readonly { accountId: string; monthlyCents: Cents }[] } {
+): {
+  taxCents: Cents;
+  taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
+  taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
+  deferralBySourceCents: Readonly<Record<string, Cents>>;
+  contributions: readonly { accountId: string; monthlyCents: Cents }[];
+} {
   // The deferral cap is per person, not per household: the annual limit (with any
   // age-banded catch-up, §5.4) depends on the individual's age this year. Resolve
   // it lazily inside the room callback so each person's birth year drives their
@@ -409,6 +415,11 @@ function allocateMonth(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
+    // Per-category breakdown (§5.3, #110) — required of every jurisdiction (a zero-tax one
+    // returns `{}`), so it is always wired; `runWaterfall` enforces that a tax-charging month
+    // reconciles per source.
+    computeTaxByCategoryCents: (taxableByCategory) =>
+      jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
       const birthYear = state.personsById.get(pid)?.birthYear;
@@ -443,7 +454,13 @@ function allocateMonth(
 
   // Return the resolved contributions so the caller can unwind any unfundable slice once
   // the §5.1 cascade has decided how much of the month's shortfall genuinely couldn't be met.
-  return { taxCents: result.taxCents, contributions };
+  return {
+    taxCents: result.taxCents,
+    taxByCategoryCents: result.taxByCategoryCents,
+    taxBySourceCents: result.taxBySourceCents,
+    deferralBySourceCents: result.deferralBySourceCents,
+    contributions,
+  };
 }
 
 /**
@@ -579,15 +596,19 @@ function compoundAssets(
 
 /**
  * Last month's credited interest as this month's taxable income (§#94 Commit 2). The
- * cash was already credited to each buffer's balance by `compoundAssets`, so these are
- * ZERO-gross sources — `grossCents` 0, only `taxableCents` booked — taxed through the
- * §5.3 seam without re-injecting cash the balance already holds. One source per
- * (owner, tax category): two cash accounts one person holds, each keyed independently
- * in the accrual map, combine into a single booking of their shared category so the
- * seam sees the owner's whole interest at once. Empty in month 1 (nothing has
- * compounded yet) and whenever every buffer's return was zero. Interest is ordinary
- * income, so it lands in the §5.4 provisional-income formula and can pull a government
- * benefit into taxability.
+ * cash was already credited to each buffer's balance by `compoundAssets`, so these carry
+ * `waterfallInflowCents` 0 — the ALLOCATION waterfall places nothing (re-injecting it would
+ * double-credit the account), and the interest is taxed through the §5.3 seam via
+ * `taxableCents`. But it IS real household cash, so it also reports its interest as
+ * {@link IncomeSourceMonth.cashInflowCents}: the cash-flow view then shows $500 of
+ * interest and its tax, netting to $400, while the balance still shows the full $500 —
+ * the money is counted once as a balance credit and once as a cash flow, never twice as
+ * a balance. One source per (owner, tax category): two cash accounts one person holds,
+ * each keyed independently in the accrual map, combine into a single booking of their
+ * shared category so the seam sees the owner's whole interest at once. Empty in month 1
+ * (nothing has compounded yet) and whenever every buffer's return was zero. Interest is
+ * ordinary income, so it lands in the §5.4 provisional-income formula and can pull a
+ * government benefit into taxability.
  */
 function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
@@ -610,15 +631,22 @@ function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   }
   const sources: IncomeSourceMonth[] = [];
   for (const { ownerId, category, cents } of byOwnerCategory.values()) {
-    // Zero-gross (the cash is already in the balance) — reported under a stable id so
-    // the flow view can key it, though it carries no cash to band (issue #99).
+    // Zero allocation-gross (the cash is already in the balance, so the waterfall places
+    // nothing) but a real cash inflow for the flow view: the interest is genuine household
+    // cash, reported under a stable id so the cash-flow chart bands it and deducts its tax.
+    // `reportCategory: "savingsInterest"` marks it as savings-account interest explicitly, so
+    // the UI groups it without parsing the id — while `taxCategory` keeps it taxed (and
+    // rolled up) as the ordinary income it is. Other interest kinds (brokerage/bond) will
+    // later carry their own provenance rather than folding in here.
     sources.push({
       ownerId,
-      grossCents: 0,
+      waterfallInflowCents: 0,
+      cashInflowCents: cents,
       taxCategory: category,
       taxableCents: cents,
+      reportCategory: "savingsInterest",
       sourceId: `interest:${ownerId}:${category}`,
-      label: "Interest",
+      label: "Savings interest",
     });
   }
   return sources;
@@ -886,14 +914,15 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
-      const { taxCents, contributions } = allocateMonth(
-        state,
-        incomeSources,
-        ctx,
-        jurisdiction,
-        expenseCents + totalPaymentsCents,
-        month,
-      );
+      const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
+        allocateMonth(
+          state,
+          incomeSources,
+          ctx,
+          jurisdiction,
+          expenseCents + totalPaymentsCents,
+          month,
+        );
       // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
       const uncoveredCents = applyShortfallCascade(state, month);
       isInsolvent = uncoveredCents > 0;
@@ -920,6 +949,13 @@ export function simulateHousehold(
         // The liquid-buffer drawdown the withdrawal channel measured — reported as a
         // `savingsDrawdown` source so a month lived on savings isn't a zero-income band (#99).
         withdrawal.liquidDrawdownCents,
+        // The per-category tax breakdown (§5.3, #110), undefined when the jurisdiction
+        // declines it — the app then draws one band, as before.
+        taxByCategoryCents,
+        // The finer per-SOURCE tax split and per-source deferral (issue #110 follow-up),
+        // so a chart can band tax by job and show take-home per source.
+        taxBySourceCents,
+        deferralBySourceCents,
       );
     }
 

@@ -331,9 +331,9 @@ describe("every draw nets its need under the real jurisdiction (#100)", () => {
     // Re-file the draws as a tax return and check what the household actually keeps.
     const byCategory: Record<string, number> = {};
     for (const s of sources) {
-      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.grossCents;
+      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.waterfallInflowCents;
     }
-    const gross = sources.reduce((sum, s) => sum + s.grossCents, 0);
+    const gross = sources.reduce((sum, s) => sum + s.waterfallInflowCents, 0);
     const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
     expect(net).toBeGreaterThanOrEqual(need);
     // Exactly the need, not merely enough: a fixed point satisfies `gross − tax = need`,
