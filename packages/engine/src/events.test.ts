@@ -20,46 +20,7 @@ import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const personLit = (id: string, name: string): Person => ({
-  id,
-  name,
-  birthYear: 1990,
-  retirementTargetAge: 65,
-  benefitClaimingAge: 67,
-  jobs: [],
-});
-
-function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
-  return new SimAccount({
-    id,
-    ownerId: "p1",
-    liquid: true,
-    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
-    initialAnnualRate: 0,
-  });
-}
-
-const baseConfig: LedgerBaseConfig = {
-  horizonMonths: 12,
-  annualInflationRate: 0,
-  initialPersons: [personLit("p1", "Alice")],
-};
-
-// Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff
-// fixtures (which require an account to draw from) pass. Used only to validate
-// fixture events; each test still replays against its own base.
-const addBase: LedgerBaseConfig = { ...baseConfig, initialAccounts: [makeLiquidAccount()] };
-
-/** Append a fixture event, asserting it passes validation. */
-function add(ledger: Ledger, event: NewLifeEvent): Ledger {
-  const result = addEvent(ledger, addBase, event);
-  if (!result.ok) throw new Error(`fixture event rejected: ${result.conflict}`);
-  return result.ledger;
-}
+import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
 // ─── Replay basics ────────────────────────────────────────────────────────────
 
