@@ -177,18 +177,20 @@ const STUDENT_LOAN: Plan = teachingPlan({
 });
 
 /**
- * Taxed in retirement: a strong saver who funnels 12% of a healthy salary into a 401(k),
- * so a pre-tax balance builds over the working years and then funds retirement through
- * taxable withdrawals on top of Social Security. That other taxable income lifts the
- * benefit over the standard deduction, so — unlike the default plan, where Social Security
- * sits under it and is never taxed — tax does NOT stop at the last paycheck: it continues
- * into retirement, with a Government-benefit band on the tax chart (issue #110 follow-up).
+ * Taxed in retirement: a diligent 401(k) saver (12% of an $8k salary) who then lives off
+ * that pre-tax balance in retirement. Because the household spends enough that its cash
+ * doesn't pile into a tax-free buffer, retirement is funded by taxable 401(k) withdrawals
+ * (~$9k/mo) rather than a savings drawdown — and that ordinary income, stacked on top of
+ * Social Security, lifts the benefit over the standard deduction. So — unlike the default
+ * plan, where Social Security sits under it and is never taxed — tax does NOT stop at the
+ * last paycheck: it continues at roughly the working-years level right through retirement,
+ * with both an ordinary-income (the withdrawals) and a Government-benefit band on the tax
+ * chart (issue #110 follow-up; ~$946/mo of the retirement tax is on the benefit itself).
  *
- * A shorter horizon (life expectancy 72) is deliberate: it keeps retirement funded by
- * smooth monthly pre-tax withdrawals, before required minimum distributions (age 73+) turn
- * the tax chart into lumpy once-a-year spikes — so the scenario reads as a clean,
- * continuous "you're still taxed in retirement" curve rather than RMD noise. Solvent to
- * the end of the horizon.
+ * Tuned deliberately: the $5.5k monthly spend forces the 401(k) to actually fund
+ * retirement (a lower spend lets cash accumulate and cover it tax-free, leaving SS barely
+ * taxed), and a life expectancy of 72 keeps the draw smooth and the plan solvent, before
+ * age-73 required minimum distributions would turn the tax chart into lumpy annual spikes.
  */
 const TAXED_IN_RETIREMENT: Plan = {
   ...PLAN_DEFAULTS,
@@ -199,6 +201,8 @@ const TAXED_IN_RETIREMENT: Plan = {
       deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
     },
   ],
+  expenseCents: dollarsToCents(5500),
+  budgetLines: scaledBudgetLines(dollarsToCents(5500)),
   retirementReturnPct: 4,
   lifeExpectancy: 72,
 };

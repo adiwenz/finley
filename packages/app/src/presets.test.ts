@@ -14,6 +14,7 @@ import {
   simulateHousehold,
   createProjectionBase,
   firstInsolventMonth,
+  dollarsToCents,
   type ProjectionContext,
   type ProjectionSeries,
 } from "@finley/engine";
@@ -109,17 +110,22 @@ describe("default simulations (issue #119)", () => {
     expect(firstInsolventMonth(series)).not.toBeNull();
   });
 
-  it("taxed-in-retirement: taxes Social Security in retirement, unlike the default plan", () => {
-    // The scenario's whole point: enough taxable 401(k) income in retirement to push the
-    // benefit over the standard deduction, so the government-benefit category bears tax in
-    // a run of retirement months — where the default saver's SS stays untaxed.
+  it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {
+    // The scenario's whole point: taxable 401(k) withdrawals fund retirement (the spend is
+    // tuned high enough that cash doesn't pile up and cover it tax-free), so that ordinary
+    // income lifts the benefit over the standard deduction and the government-benefit
+    // category bears real tax across a run of retirement months.
     const series = project(presetById("taxed-in-retirement"));
-    const ssTaxedMonths = series.months.filter((m) => {
+    const ssTax = series.months.map((m) => {
       const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
-      return (byCat.governmentRetirementBenefit ?? 0) > 0;
-    }).length;
-    expect(ssTaxedMonths).toBeGreaterThan(24); // taxed across years of retirement, not a blip
-    // Contrast: the default plan never taxes the benefit.
+      return byCat.governmentRetirementBenefit ?? 0;
+    });
+    expect(ssTax.filter((c) => c > 0).length).toBeGreaterThan(24); // taxed across years, not a blip
+    // And meaningfully, not a rounding-scale $25/mo: it must clear a few hundred a month in
+    // some retirement month — the guard against regressing to a cash-funded retirement where
+    // SS is barely taxed.
+    expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
+    // Contrast: the default plan never taxes the benefit at all.
     const defaultSSTaxed = project(presetById("default")).months.some((m) => {
       const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
       return (byCat.governmentRetirementBenefit ?? 0) > 0;
