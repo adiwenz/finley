@@ -132,19 +132,11 @@ function githubRepoSlug(remoteUrl: string): string | undefined {
 function makeSandbox(kind: SandboxKind) {
   if (kind === "docker") {
     console.log("🧱 Sandbox: docker (local bind-mount).");
-    // Personal skills live on the host under ~/.claude/skills; the container has
-    // its own ~/.claude from the image, so without this mount agents run without
-    // any of them. Mount just `skills` — the parent also holds session history,
-    // credentials, and the settings.json the image relies on to suppress the
-    // bypass-permissions dialog. Read-only: nothing here should edit host copies.
-    // Cloud sandboxes can't bind-mount the host, so `--sandbox cloud` runs
-    // without these until they're baked into vercel.Dockerfile.
-    // Keep in sync with the same mount in claude-interactive.ts.
-    return docker({
-      mounts: [
-        { hostPath: "~/.claude/skills", sandboxPath: "~/.claude/skills", readonly: true },
-      ],
-    });
+    // No skills mount: agents load skills from `.claude/skills` in the checked-out
+    // repo, which rides along in the workspace bind-mount. That is the only source
+    // that also reaches a CI runner and a cloud sandbox, neither of which has a
+    // host ~/.claude to mount.
+    return docker();
   }
   const url = originRemoteUrl();
 
