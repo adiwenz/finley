@@ -178,18 +178,29 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
 
 /** The stable band ids the Simple view collapses onto (asymmetric — wages stay per job). */
 const SIMPLE_SOCIAL_SECURITY_ID = "social-security";
+const SIMPLE_SAVINGS_INTEREST_ID = "savings-interest";
 const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
 
 /**
  * The Simple-view band a source folds into. Wages keep their own identity (each job is
- * its own band — "which job pays" is what a person recognises); the government benefit
- * collapses to one "Social Security" band; and EVERY drawdown — the liquid-buffer
- * `savingsDrawdown` and every asset-sale draw (capital-gains / ordinary / tax-exempt) —
- * folds into a single "Living off savings" band. The Advanced view keeps them separate,
- * and issue #122 will later split that drawdown into gain vs. returned principal.
+ * its own band — "which job pays" is what a person recognises); **savings interest keeps its
+ * own "Savings interest" band** — it is income the savings EARN, not principal being spent,
+ * so it must not read as "living off savings"; the government benefit collapses to one
+ * "Social Security" band; and EVERY drawdown — the liquid-buffer `savingsDrawdown` and every
+ * asset-sale draw (capital-gains / ordinary / tax-exempt) — folds into a single "Living off
+ * savings" band. The Advanced view keeps every source separate, and issue #122 will later
+ * split that drawdown into gain vs. returned principal.
+ *
+ * Savings-interest sources are recognised by their engine `interest:` id prefix, not their
+ * tax category: interest is classified `ordinaryIncome`, which it shares with pre-tax
+ * account draws, so the category alone can't tell them apart. This is the same `interest:`
+ * prefix the tax chart keys on to label its band.
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
+  if (band.id.startsWith("interest:")) {
+    return { id: SIMPLE_SAVINGS_INTEREST_ID, label: "Savings interest", category: "ordinaryIncome" };
+  }
   if (band.category === "governmentRetirementBenefit") {
     return { id: SIMPLE_SOCIAL_SECURITY_ID, label: "Social Security", category: "governmentRetirementBenefit" };
   }

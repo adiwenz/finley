@@ -187,6 +187,46 @@ describe("incomeBandsForMode", () => {
     ]);
   });
 
+  it("keeps savings interest its own band in both views — not folded into living off savings", () => {
+    // Savings interest is income the savings EARN (its engine id starts `interest:`), so it
+    // stacks as its own band above the drawdowns rather than reading as spending down savings.
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
+        source("interest:p1:ordinaryIncome", dollarsToCents(50), "ordinaryIncome", "Savings interest"),
+        source("brokerage", dollarsToCents(1_500), "capitalGains", "Brokerage draw"),
+        source("savings-drawdown", dollarsToCents(1_000), "savingsDrawdown", "Savings drawdown"),
+      ]),
+    );
+    // Advanced: every source distinct, interest sitting above wages and below the draws.
+    expect(incomeBandsForMode(data, "advanced").sources.map((s) => s.label)).toEqual([
+      "Job A",
+      "Savings interest",
+      "Brokerage draw",
+      "Savings drawdown",
+    ]);
+    // Simple: interest keeps its own band; the two draws still collapse into one.
+    const simple = incomeBandsForMode(data, "simple");
+    expect(simple.sources.map((s) => s.label)).toEqual(["Job A", "Savings interest", "Living off savings"]);
+    // Its cash rides through under the dedicated band, NOT the living-off-savings band.
+    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+    expect(simple.rows[0]!.centsBySource["living-off-savings"]).toBe(dollarsToCents(2_500));
+  });
+
+  it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
+    // Two cash accounts (or two owners) each book interest under their own `interest:` id;
+    // Simple folds them into a single band, like it does for Social Security.
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("interest:p1:ordinaryIncome", dollarsToCents(30), "ordinaryIncome", "Savings interest"),
+        source("interest:p2:ordinaryIncome", dollarsToCents(20), "ordinaryIncome", "Savings interest"),
+      ]),
+    );
+    const simple = incomeBandsForMode(data, "simple");
+    expect(simple.sources.map((s) => s.label)).toEqual(["Savings interest"]);
+    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+  });
+
   it("simple sums the asset draw and the cash drawdown into the one Living off savings band", () => {
     const { rows } = incomeBandsForMode(withEverySource(), "simple");
     // Brokerage draw ($1,500) + savings drawdown ($1,000) collapse onto one band's cash.
