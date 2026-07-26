@@ -1295,10 +1295,10 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     });
 
     it("credits the account exactly once — the interest cash is never re-deposited", () => {
-      // No income, no expenses: nothing enters the allocation waterfall, so the ONLY thing
-      // moving the savings balance is compounding. If the interest booking's cash were
-      // (wrongly) re-injected, month 2 would jump by roughly a second interest payment;
-      // instead the balance follows pure month-over-month compounding.
+      // No income, no expenses: the only things moving the balance are compounding and the
+      // tax on the interest (now drawn from the balance via the §5.1 cascade — see below). If
+      // the interest booking's cash were (wrongly) re-injected, month 2 would jump by roughly a
+      // second interest payment; instead it only grows by the net interest.
       const series = simulateHousehold(
         {
           horizonMonths: 4,
@@ -1314,15 +1314,20 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       const r = preciseMonthlyRate(0.12);
       const b1 = series.months[1].accountBalancesCents["savings"];
       const b2 = series.months[2].accountBalancesCents["savings"];
-      // Each month is exactly the prior balance grown once — no extra interest deposit.
+      // Month 1 has no interest source yet (nothing accrued) → pure compounding.
       expect(b1).toBe(Math.round(opening * (1 + r)));
-      expect(b2).toBe(Math.round(b1 * (1 + r)));
-      // Even though month 2 DID report the interest as a cash inflow, the balance did not
-      // double-count it: month 2's growth is ~one interest payment, not two.
+      // Month 2 taxes month 1's interest; with no other income that tax is a deficit funded
+      // from the balance, so month 2 is (prior balance − that tax) compounded once — NOT a
+      // second interest credit on top.
+      const tax = series.months[2].flows?.taxCents ?? 0;
+      expect(tax).toBeGreaterThan(0);
+      expect(b2).toBe(Math.round((b1 - tax) * (1 + r)));
+      // No double-count: month 2's growth is at most one interest payment (net of tax it is
+      // less), never the two a re-deposit would add.
       const grewBy = b2 - b1;
       const interest = series.months[2].flows?.incomeSources.find((s) => s.category === "savingsInterest");
       expect(interest?.cashInflowCents).toBeGreaterThan(0);
-      expect(grewBy).toBeLessThan(interest!.cashInflowCents * 1.5); // one payment, not two
+      expect(grewBy).toBeLessThan(interest!.cashInflowCents); // net of tax → below one gross payment
     });
 
     it("keeps flat brokerage ROI as non-cash growth — no interest cash inflow, no accrual tax", () => {
@@ -1434,7 +1439,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       expect(m2.isInsolvent).toBe(false);
     });
 
-    it("credits the interest exactly once and reconciles the ending balance (no phantom deposit)", () => {
+    it("credits the interest exactly once and reconciles fully: beginning + interest − spend − tax", () => {
       const series = runReconciliation();
       const begin = dollarsToCents(10_000);
       const b1 = series.months[1].accountBalancesCents["savings"];
@@ -1442,17 +1447,11 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       // The interest hits the balance exactly ONCE: month 1 is beginning + $500, full stop —
       // not beginning + $500 + a second re-deposited $500.
       expect(b1).toBe(begin + dollarsToCents(500));
-      // Month 2 draws the $400 spend out of that balance; it never RISES by a phantom second
-      // interest credit. Ending reconciles as beginning + interest − spending = $10,100.
-      expect(b2).toBe(begin + dollarsToCents(500) - dollarsToCents(400));
-      expect(b2).toBe(dollarsToCents(10_100));
-      // NB: the $100 interest tax is reported (and netted out of the source's net cash flow)
-      // but is NOT drawn from the balance here — with $0 other income there is no positive
-      // take-home to charge it against, so the take-home clamp swallows it (the ending would be
-      // $10,000 if it were collected). That clamp is a pre-existing, separate wrinkle
-      // (uncollected tax under zero cash flow); it is NOT double-counting — the interest still
-      // credits once and funds the spend once. Kept explicit here so a future clamp fix trips
-      // this assertion instead of passing silently.
+      // Month 2 draws the $400 spend AND the $100 interest tax out of that balance — the tax,
+      // owed on income that brought no cash into the waterfall, is funded by the §5.1 cascade
+      // rather than dropped. Ending reconciles fully: $10,000 + $500 − $400 − $100 = $10,000.
+      expect(b2).toBe(begin + dollarsToCents(500) - dollarsToCents(400) - dollarsToCents(100));
+      expect(b2).toBe(dollarsToCents(10_000));
     });
   });
 });
