@@ -261,11 +261,14 @@ export interface ProjectionIncomeSource {
   readonly cashInflowCents: Cents;
   /**
    * **Engine-produced net cash flow for this source** — `cashInflowCents` minus the pre-tax
-   * deferral it made and the tax it bore, clamped at 0. This is the single source of truth
-   * for take-home: the app displays it directly and never re-derives gross − tax − deferral
-   * itself (which silently drifted from the sim — e.g. it dropped a zero-gross interest
-   * booking's tax). A source with no deferral or tax (a cash drawdown) equals its
-   * `cashInflowCents`. Σ across the month's sources is the household's net cash flow.
+   * deferral it made and the tax it bore. This is the single source of truth for take-home:
+   * the app displays it directly and never re-derives cash-inflow − tax − deferral itself
+   * (which silently drifted from the sim — e.g. it dropped a savings-interest booking's tax,
+   * a booking whose cash was credited outside the waterfall). It is SIGNED and NOT clamped: a
+   * source whose deductions exceed its cash inflow reports a genuinely negative net, honestly;
+   * a consumer that needs a nonnegative stacked band clamps at render. A source with no
+   * deferral or tax (a cash drawdown) equals its `cashInflowCents`. Σ across the month's
+   * sources is the household's net cash flow.
    */
   readonly netCashFlowCents: Cents;
 }

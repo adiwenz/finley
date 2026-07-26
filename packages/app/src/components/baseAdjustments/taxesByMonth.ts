@@ -135,8 +135,9 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   let peakMonthlyCents = 0;
   let peakMonth = 0;
   let hasSourceBreakdown = false;
-  // Label/category per source id, learned from the income-source flows (the income side
-  // names each job); tax-only keys fall back to a category label below.
+  // Label/category per source id, learned from the income-source flows (the income side names
+  // each job, and savings interest as its own "Savings interest" band); a source with no
+  // income band falls back to a category label below.
   const registry = new Map<string, { label: string; category: string }>();
   // Which sources ever carried a positive tax — drives the (dropped-if-empty) bands, in
   // first-appearance order (a Map preserves insertion order).
@@ -175,8 +176,9 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
     .map((id) => {
       const known = registry.get(id);
       if (known !== undefined) return { id, label: known.label, category: known.category };
-      // A tax-only key (no income band) — an untitled source keyed by its category, or a
-      // zero-cash booking like accrued interest. Name it from its tax category.
+      // No income band to borrow a name from — an untitled stream the engine keyed by its
+      // bare tax category. (Savings interest is NOT this case: it has an income band and is
+      // named there.) Name it from its tax category.
       return bandForTaxOnlyKey(id);
     })
     // Sort by category order, ties broken by first-appearance (the Map's insertion order).

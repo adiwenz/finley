@@ -648,12 +648,13 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
 });
 
 describe("runWaterfall — unfunded deductions (deductions beyond the waterfall's cash → shortfall)", () => {
-  // An accrued-interest booking: $0 of waterfallInflow (the balance already holds the cash)
-  // but a real taxable base — so its tax is a deduction the waterfall has no cash in hand to
-  // fund. `taxableCents` carries the base with `waterfallInflowCents` 0.
-  const interestBooking = (taxableDollars: number): IncomeSourceMonth => ({
-    ownerId: "p1",
+  // A savings-interest booking: positive cashInflowCents and positive taxableCents, but $0 of
+  // waterfallInflowCents because the account was ALREADY CREDITED (the balance holds the
+  // interest). So its tax is a deduction the waterfall has no cash in hand to fund.
+  const interestBooking = (taxableDollars: number, ownerId = "p1"): IncomeSourceMonth => ({
+    ownerId,
     waterfallInflowCents: 0,
+    cashInflowCents: dollarsToCents(taxableDollars),
     taxCategory: "ordinaryIncome",
     taxableCents: dollarsToCents(taxableDollars),
   });
@@ -694,5 +695,32 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
     );
     expect(r.shortfallCents).toBe(0);
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3900));
+  });
+
+  it("two-person: one partner's surplus covers the other's interest-tax deficit before any asset", () => {
+    // Household policy under test: shared available cash covers the household's TOTAL
+    // obligations — including tax owed on cash credited outside the waterfall — before savings,
+    // credit, or insolvency are touched.
+    //   Person A: $500 savings interest (waterfallInflow 0), taxed 20% → $100 deficit (no cash
+    //             of A's own reached the waterfall to pay it).
+    //   Person B: $3,000 wages, taxed 20% → $600, take-home $2,400.
+    //   Shared obligation: $2,000.
+    // The household has $2,400 of cash for $2,000 obligations + A's $100 tax = $2,100 < $2,400,
+    // so it is fully financeable from cash alone — NO shortfall, no §5.1 cascade.
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["A", "B"],
+        incomeSources: [interestBooking(500, "A"), wageSource("B", dollarsToCents(3000))],
+        sharedObligationCents: dollarsToCents(2000),
+        computeTaxCents: tax20,
+      }),
+    );
+    // Nothing falls to savings/credit/insolvency: the partner's surplus paid A's tax.
+    expect(r.shortfallCents).toBe(0);
+    // No tax dropped or double-counted: A's $100 + B's $600, each once.
+    expect(r.taxCents).toBe(dollarsToCents(700));
+    // Surplus = household cash − obligations − A's interest tax = 2,400 − 2,000 − 100 = 300.
+    // (Would be $400 if A's tax were dropped, $200 if double-counted — $300 pins "exactly once".)
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(300));
   });
 });

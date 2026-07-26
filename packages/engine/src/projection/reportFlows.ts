@@ -102,13 +102,16 @@ export function buildFlows(
   }
   // Finish each banded source with its engine-produced net cash flow (§5.3, #110
   // follow-up): cash inflow minus the pre-tax deferral it made and the tax it bore, keyed
-  // by the SAME id the waterfall attributed those on. Clamped at 0 defensively. This is
-  // the take-home the app now displays directly instead of re-deriving (and re-deriving
-  // dropped interest's tax, understating the household's net). Absent breakdown maps → no
-  // haircut, so net equals cash inflow (a null jurisdiction's single-band fallback).
+  // by the SAME id the waterfall attributed those on. This is the take-home the app displays
+  // directly instead of re-deriving (and re-deriving dropped interest's tax, understating the
+  // household's net). It is SIGNED and deliberately NOT clamped: a source whose deductions
+  // exceed its cash inflow (e.g. a booking taxed on more than it paid in cash) has a genuinely
+  // negative net, and the engine reports that honestly — a consumer that needs a nonnegative
+  // stacked band clamps at render, not here. Absent breakdown maps → no haircut, so net equals
+  // cash inflow (a null jurisdiction's single-band fallback).
   const netCashFlow = (sourceId: string, cashInflowCents: Cents): Cents => {
     const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents?.[sourceId] ?? 0);
-    return Math.max(0, cashInflowCents - haircut);
+    return cashInflowCents - haircut;
   };
   const sources: ProjectionIncomeSource[] = order.map((id) => {
     const s = bySource.get(id)!;

@@ -64,6 +64,20 @@ const MARKER = "#1f3a2e"; // the selected-month rule
 /** The recharts dataKey of the spending-need line — namespaced so it can't clash with a source id. */
 const SPENDING_NEED_KEY = "__spendingNeed";
 
+/**
+ * Clamp each band's value to ≥ 0 for the STACKED area chart. The engine reports a signed
+ * per-source net cash flow ({@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents}) —
+ * a source whose tax + deferral exceed its cash inflow is honestly negative — but recharts
+ * stacks these areas, and a negative segment would render below the axis and distort the
+ * stack. This is the ONLY place the clamp lives: the engine and the chart's data model keep
+ * the honest signed figures. On the gross basis the values are already ≥ 0, so this is a no-op.
+ */
+function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, cents] of Object.entries(centsBySource)) out[id] = Math.max(0, cents);
+  return out;
+}
+
 /** A colour per band id: wages step through the blue family, draws through the earth family. */
 function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
@@ -111,7 +125,9 @@ export function IncomeChart({ data, currentAge, selectedMonth, onSelectMonth }: 
       view.rows.map((r) => ({
         month: r.month,
         [SPENDING_NEED_KEY]: r.spendingNeedCents,
-        ...r.centsBySource,
+        // Clamp band values ≥ 0 for the stack — the engine's signed net is honest, but a
+        // stacked area can't render a negative segment (see clampBandsForStack).
+        ...clampBandsForStack(r.centsBySource),
       })),
     [view],
   );

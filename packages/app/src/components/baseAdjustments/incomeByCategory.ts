@@ -43,12 +43,13 @@ export interface IncomeMonthRow {
   /**
    * Take-home cash this month, keyed by source id — the engine's per-source
    * {@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents} (cash inflow
-   * minus the pre-tax deferral it made and the tax it bore), read straight through so it
-   * never exceeds `centsBySource`. This is the money actually available to cover the
-   * month's spending — the honest quantity to read against `spendingNeedCents`. The engine
-   * owns this arithmetic (issue #110 follow-up): the app no longer re-derives gross − tax −
-   * deferral, which had silently dropped savings-interest's tax. A source with no deferral
-   * or tax (a cash drawdown) has the same value as its cash inflow.
+   * minus the pre-tax deferral it made and the tax it bore), read straight through. This is
+   * the money actually available to cover the month's spending — the honest quantity to read
+   * against `spendingNeedCents`. The engine owns this arithmetic (issue #110 follow-up): the
+   * app no longer re-derives cash-inflow − tax − deferral, which had silently dropped
+   * savings-interest's tax. It is SIGNED — a source whose deductions exceed its cash inflow is
+   * genuinely negative; the chart clamps at 0 only for the stacked band (see `incomeChart`),
+   * never here. A source with no deferral or tax (a cash drawdown) equals its cash inflow.
    */
   readonly netCentsBySource: Readonly<Record<string, number>>;
   readonly totalCents: number;

@@ -419,14 +419,15 @@ function attributeTaxToSources(
  * A NEGATIVE take-home is a real cash need, not nothing: it means this person's DEDUCTIONS
  * (`deferralCents + taxCents`) exceeded the cash that actually reached the allocation
  * waterfall (`waterfallInflowCents`). The usual cause today is tax on cash credited OUTSIDE
- * the waterfall — an accrued-interest booking taxes $X while contributing $0 of
- * `waterfallInflowCents`, since the balance already holds the interest — but the treatment is
- * deliberately cause-agnostic: whatever the unfunded deduction, it is added to the household
- * shortfall so the §5.1 cascade funds it (drain savings → credit → insolvency), exactly like
- * an unmet obligation. Clamping it to 0 instead — the old behaviour — silently dropped it:
- * with no other cash reaching the waterfall the deduction was reported but never drawn from
- * the balance, so the ending balance overstated wealth by that amount (and a genuinely
- * unpayable bill never surfaced as insolvency).
+ * the waterfall — a savings-interest booking taxes $X while contributing $0 of
+ * `waterfallInflowCents`, since the account was already credited — but the treatment is
+ * deliberately cause-agnostic. It is the HOUSEHOLD's to pay, so it is first covered from the
+ * combined discretionary pool (a partner's surplus pays it before any asset is touched); only
+ * the part no household cash can cover falls to the §5.1 cascade (drain savings → credit →
+ * insolvency), like an unmet obligation. Clamping it to 0 instead — the old behaviour —
+ * silently dropped it: with no other cash reaching the waterfall the deduction was reported
+ * but never drawn from the balance, so the ending balance overstated wealth by that amount
+ * (and a genuinely unpayable bill never surfaced as insolvency).
  */
 function splitSharedObligation(
   input: WaterfallInput,
@@ -488,9 +489,15 @@ function splitSharedObligation(
   // so this term is 0 and the shortfall is purely the sum of uncovered shares.
   const assignedShare = [...shareByPerson.values()].reduce((s, v) => s + v, 0);
   shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
-  // Deductions that exceeded the cash the household took in (see the note above) are funded by
-  // the §5.1 cascade too — so e.g. accrued-interest tax is drawn from the balance, not dropped.
-  shortfallCents += unfundedDeductionsCents;
+  // Unfunded deductions (a person whose tax/deferral exceeded the cash that reached the
+  // waterfall — see the note above) are the HOUSEHOLD's to pay. Cover them from the combined
+  // discretionary pool FIRST — a partner's surplus pays the tax on cash credited outside the
+  // waterfall — and only the part no household cash can cover falls to the §5.1 cascade. So
+  // shared available cash covers the household's obligations before savings, credit, or
+  // insolvency are touched; the balance is drawn only when the household genuinely can't pay.
+  const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
+  totalDiscretionary -= coveredByDiscretionary;
+  shortfallCents += unfundedDeductionsCents - coveredByDiscretionary;
 
   return { leftoverByPerson, totalDiscretionary, shortfallCents };
 }
