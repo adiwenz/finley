@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import { dollarsToCents, type ProjectionSeries } from "@finley/engine";
 import { buildTaxChartData, describeTaxes } from "./taxesByMonth";
 
-/** A minimal series fixture: month 0 has no flows; later months carry a tax figure. */
+/**
+ * A minimal series fixture: month 0 has no flows; later months carry a tax figure and the
+ * (now always-present) per-source breakdown, empty here since these fixtures test only the
+ * total-tax aggregation.
+ */
 function seriesOf(...taxCents: number[]): ProjectionSeries {
   const months = [
     { month: 0 },
-    ...taxCents.map((tax, i) => ({ month: i + 1, flows: { taxCents: tax } })),
+    ...taxCents.map((tax, i) => ({ month: i + 1, flows: { taxCents: tax, taxBySourceCents: {} } })),
   ];
   return { months } as unknown as ProjectionSeries;
 }
@@ -80,7 +84,7 @@ describe("buildTaxChartData", () => {
 });
 
 describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () => {
-  it("has no source breakdown when the engine reports only a total (single band)", () => {
+  it("reports no per-source bands when no tax is attributed to any source (empty breakdown)", () => {
     const data = buildTaxChartData(seriesOf(dollarsToCents(300), dollarsToCents(420)));
     expect(data.hasSourceBreakdown).toBe(false);
     expect(data.sources).toEqual([]);

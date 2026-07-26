@@ -235,6 +235,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     // never required + desired.
     const rmdJurisdiction = (requiredDollars: number): Jurisdiction => ({
       id: "rmd-test",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: () => 0, // no tax → net == gross, isolates the drawdown arithmetic
       requiredMinimumDistributionCents: (preTaxBalanceCents, ctx) =>
         ctx.age >= 73 ? Math.min(preTaxBalanceCents, dollarsToCents(requiredDollars)) : 0,
@@ -458,6 +459,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
    */
   const provisionalTrap: Jurisdiction = {
     id: "provisional-trap",
+    computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
     computeTaxCents: (byCat) => {
       const benefit = byCat.governmentRetirementBenefit ?? 0;
       if (benefit === 0) return 0;
@@ -502,6 +504,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // here, but the point is the same: the sized draw must net the need, not the gross.
     const flatGains: Jurisdiction = {
       id: "flat-gains-20",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.2),
     };
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
@@ -523,6 +526,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // clamped to 99%) would draw 100 × the need; the fixed point lands on need + lump.
     const cliff: Jurisdiction = {
       id: "cliff-50",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: (byCat) => {
         const benefit = byCat.governmentRetirementBenefit ?? 0;
         const other =
@@ -560,6 +564,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // REMAINING need (not the original) grosses up against the pre-tax account behind it.
     const flat20: Jurisdiction = {
       id: "flat-20",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: (byCat) =>
         Math.round(((byCat.capitalGains ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.2),
     };
@@ -586,6 +591,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     // liquidate 15x more than the household needs.
     const twoCliffs: Jurisdiction = {
       id: "two-cliffs",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: (byCat) => {
         const draw = byCat.capitalGains ?? 0;
         if (draw > dollarsToCents(4_000)) return dollarsToCents(44_000);
@@ -659,12 +665,14 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
   const proRataNoTax: Jurisdiction = {
     id: "prorata-no-tax",
     computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
     taxableWithdrawalCents: proRata,
   };
 
   /** A flat tax on the capitalGains category only — makes the taxable base observable. */
   const flatGains20: Jurisdiction = {
     id: "flat-gains-20",
+    computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
     computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.2),
     taxableWithdrawalCents: proRata,
   };
@@ -701,6 +709,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     const accounts = [account("pretax", PRE_TAX_TAX_PROFILE, 0)];
     const flatOrdinary20: Jurisdiction = {
       id: "flat-ord-20",
+      computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.2),
     };
     // No basis entry → basis 0 → the whole draw is the gain, taxed in full.

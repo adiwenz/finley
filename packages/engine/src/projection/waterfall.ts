@@ -157,14 +157,14 @@ export interface WaterfallInput {
   readonly computeTaxCents: (taxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
   /**
    * §5.3 seam (issue #110): the per-{@link TaxCategory} breakdown of the SAME tax
-   * `computeTaxCents` returns. Optional — when the jurisdiction declines the breakdown
-   * (null jurisdiction, or none wired) this is absent and the waterfall reports no
-   * `taxByCategoryCents`, so the app falls back to a single tax band. When present it is
-   * called once per person and the per-person maps are summed into one household map; its
-   * Σ per person equals that person's `computeTaxCents`, so the household breakdown sums
-   * to the household `taxCents`. Additive only — take-home still uses the scalar total.
+   * `computeTaxCents` returns. REQUIRED — every jurisdiction owns its attribution; a
+   * zero-tax jurisdiction returns `{}`, a tax-charging one returns a map whose Σ per person
+   * equals that person's `computeTaxCents`. Called once per person and the per-person maps
+   * are summed into one household map, so the household breakdown sums to the household
+   * `taxCents` (enforced at runtime — see {@link assertTaxAttributionReconciles}). Additive
+   * only: take-home still uses the scalar total.
    */
-  readonly computeTaxByCategoryCents?: (
+  readonly computeTaxByCategoryCents: (
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
@@ -178,11 +178,10 @@ export interface WaterfallResult {
   readonly taxCents: Cents;
   /**
    * §5.3 (issue #110): this month's household tax broken out per {@link TaxCategory} —
-   * the tax analog of `incomeByCategoryCents`, summed across every person. Present only
-   * when the jurisdiction supplies {@link WaterfallInput.computeTaxByCategoryCents};
-   * `undefined` when it declines (the app then draws one band). Σ === `taxCents`.
+   * the tax analog of `incomeByCategoryCents`, summed across every person. Always present
+   * (the breakdown seam is required); `{}` in a zero-tax month, otherwise Σ === `taxCents`.
    */
-  readonly taxByCategoryCents?: Partial<Record<TaxCategory, Cents>>;
+  readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
   /**
    * §5.3 (issue #110 follow-up): this month's tax broken out per income SOURCE — the
    * finer sibling of {@link taxByCategoryCents}, keyed by each source's reporting id
@@ -190,12 +189,12 @@ export interface WaterfallResult {
    * the tax instead of collapsing every paycheck into one `wages` band. Each category's
    * tax is apportioned across the sources in that category by their taxable weight, PER
    * PERSON (so two earners in different brackets never cross-subsidise), then summed to
-   * the household. Present only with {@link WaterfallInput.computeTaxByCategoryCents};
-   * `undefined` when the jurisdiction declines. Σ === `taxCents`; Σ within a category ===
+   * the household. Always present; `{}` in a zero-tax month, otherwise Σ === `taxCents`
+   * (enforced — see {@link assertTaxAttributionReconciles}) and Σ within a category ===
    * that category's `taxByCategoryCents`. Attribution is proportional (average-rate), not
    * marginal — the caveat disclosed as `taxAttributionProportional`.
    */
-  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
    * This month's pre-tax deferral broken out per income SOURCE (same keying as
    * {@link taxBySourceCents}), summed across the household. Lets a consumer compute a
@@ -338,16 +337,15 @@ function computeTakeHome(
 ): {
   taxCents: Cents;
   takeHomeByPerson: Map<string, Cents>;
-  taxByCategoryCents: TaxableByCategory | undefined;
-  taxBySourceCents: Record<string, Cents> | undefined;
+  taxByCategoryCents: TaxableByCategory;
+  taxBySourceCents: Record<string, Cents>;
 } {
   const breakdownSeam = input.computeTaxByCategoryCents;
   let taxCents: Cents = 0;
-  // Only accumulate a household breakdown when the jurisdiction supplies the seam;
-  // otherwise it stays undefined and the result carries no `taxByCategoryCents` (§5.3,
-  // #110) — the app draws a single band, exactly as before.
-  const taxByCategoryCents: TaxableByCategory | undefined = breakdownSeam ? {} : undefined;
-  const taxBySourceCents: Record<string, Cents> | undefined = breakdownSeam ? {} : undefined;
+  // The breakdown seam is required (a zero-tax jurisdiction returns `{}`), so the household
+  // breakdown is always accumulated — empty in a zero-tax month, reconciling otherwise.
+  const taxByCategoryCents: TaxableByCategory = {};
+  const taxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
@@ -357,17 +355,11 @@ function computeTakeHome(
     // reporting re-description whose Σ equals this same figure (the seam's contract).
     const tax = input.computeTaxCents(taxable);
     taxCents += tax;
-    if (breakdownSeam && taxByCategoryCents && taxBySourceCents) {
-      const perCategory = breakdownSeam(taxable);
-      for (const [category, cents] of Object.entries(perCategory)) {
-        if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
-      }
-      attributeTaxToSources(
-        perCategory,
-        sourceTaxableByPerson.get(pid) ?? [],
-        taxBySourceCents,
-      );
+    const perCategory = breakdownSeam(taxable);
+    for (const [category, cents] of Object.entries(perCategory)) {
+      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
     }
+    attributeTaxToSources(perCategory, sourceTaxableByPerson.get(pid) ?? [], taxBySourceCents);
     takeHomeByPerson.set(pid, gross - deferral - tax);
   }
   return { taxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents };

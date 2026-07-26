@@ -17,9 +17,9 @@
  * category's tax across the sources in it by taxable weight. So a two-earner household sees
  * *which job* is taxed, not a single lumped `wages` band. Bands are coloured and ordered by
  * each source's provenance category (wages first, then the benefit, then the drawdown-side
- * categories) so the tax chart reads consistently with the income chart. When the
- * jurisdiction declines the breakdown (a null jurisdiction, or one that does not implement
- * the seam) the chart falls back to a single band on the `taxCents` total, as before.
+ * categories) so the tax chart reads consistently with the income chart. Attribution is
+ * required of every jurisdiction and enforced to reconcile, so a plan that pays tax always
+ * stacks per source; a zero-tax plan simply has no bands.
  *
  * ⚠ The per-source split is proportional (average-rate), not marginal — the caveat the
  * report discloses as `taxAttributionProportional`. Adding a second job really costs more
@@ -43,7 +43,7 @@ export interface TaxSourceBand {
 /** One month's tax row for the chart. */
 export interface TaxMonthRow {
   readonly month: number;
-  /** Total tax this month — the sum of the bands, and the single-band value in fallback. */
+  /** Total tax this month — the sum of the per-source bands (and the value drawn for a zero-tax month). */
   readonly taxCents: number;
   /** This month's tax keyed by source id; empty when no per-source breakdown is reported. */
   readonly centsBySource: Readonly<Record<string, number>>;
@@ -53,12 +53,12 @@ export interface TaxChartData {
   readonly rows: readonly TaxMonthRow[];
   /**
    * The income sources that carry tax somewhere, in stable stacking order (issue #110
-   * follow-up). Empty when the engine reports no per-source breakdown — the chart then
-   * draws a single total band. Sources that are zero across the whole horizon are dropped,
-   * so there is no empty legend entry.
+   * follow-up). Empty only when the plan pays no tax at all (a zero-tax plan attributes
+   * nothing). Sources that are zero across the whole horizon are dropped, so there is no
+   * empty legend entry.
    */
   readonly sources: readonly TaxSourceBand[];
-  /** True when at least one month carried a per-source breakdown (else a single band). */
+  /** True when any tax was attributed to a source (i.e. the plan pays tax); false for a zero-tax plan. */
   readonly hasSourceBreakdown: boolean;
   /** Total nominal tax paid across the whole horizon (the sum of every month). */
   readonly totalCents: number;
@@ -123,11 +123,10 @@ function bandForTaxOnlyKey(id: string): TaxSourceBand {
  * is the flow-free opening snapshot, §4.6, so it is skipped), mirroring the income chart
  * exactly so the two line up point-for-point on the shared axis.
  *
- * When a month carries `taxBySourceCents` the row keeps the per-source split (whose Σ
- * equals `taxCents`, by the seam's contract); the union of sources that ever carry tax
- * becomes the stacked bands, named from the month's `incomeSources` where available. When
- * NO month carries a breakdown, `sources` is empty and the row's `taxCents` is the
- * single-band value — the pre-breakdown behaviour, preserved.
+ * Each row keeps the per-source split from the required `taxBySourceCents` (whose Σ equals
+ * `taxCents`, by the seam's enforced contract); the union of sources that ever carry tax
+ * becomes the stacked bands, named from the month's `incomeSources` where available. A
+ * zero-tax plan attributes nothing, so `sources` is empty and each row's `taxCents` is 0.
  */
 export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   const rows: TaxMonthRow[] = [];
@@ -158,16 +157,15 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
       peakMonth = m.month;
     }
 
+    // The per-source breakdown is always present (the §5.3 seam is required; `{}` in a
+    // zero-tax month). A source appears here only for the tax it actually bore.
     const centsBySource: Record<string, number> = {};
-    const breakdown = flows.taxBySourceCents;
-    if (breakdown !== undefined) {
+    for (const [sourceId, cents] of Object.entries(flows.taxBySourceCents ?? {})) {
+      const value = Math.max(0, cents ?? 0);
+      if (value === 0) continue;
       hasSourceBreakdown = true;
-      for (const [sourceId, cents] of Object.entries(breakdown)) {
-        const value = Math.max(0, cents ?? 0);
-        if (value === 0) continue;
-        centsBySource[sourceId] = (centsBySource[sourceId] ?? 0) + value;
-        sourceTotals.set(sourceId, (sourceTotals.get(sourceId) ?? 0) + value);
-      }
+      centsBySource[sourceId] = (centsBySource[sourceId] ?? 0) + value;
+      sourceTotals.set(sourceId, (sourceTotals.get(sourceId) ?? 0) + value);
     }
     rows.push({ month: m.month, taxCents, centsBySource });
   }

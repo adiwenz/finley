@@ -415,11 +415,11 @@ function allocateMonth(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
-    // Optional per-category breakdown (§5.3, #110): only wired when the jurisdiction
-    // supplies it, so a jurisdiction that declines yields no breakdown (single band).
-    computeTaxByCategoryCents: jurisdiction.computeTaxByCategoryCents
-      ? (taxableByCategory) => jurisdiction.computeTaxByCategoryCents!(taxableByCategory, ctx)
-      : undefined,
+    // Per-category breakdown (§5.3, #110) — required of every jurisdiction (a zero-tax one
+    // returns `{}`), so it is always wired; `runWaterfall` enforces that a tax-charging month
+    // reconciles per source.
+    computeTaxByCategoryCents: (taxableByCategory) =>
+      jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
       const birthYear = state.personsById.get(pid)?.birthYear;

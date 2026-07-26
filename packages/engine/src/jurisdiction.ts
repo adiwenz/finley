@@ -172,15 +172,18 @@ export interface Jurisdiction {
    * `incomeByCategoryCents`) so a consumer can STACK the monthly-tax chart by category,
    * exactly as the income chart stacks. CONTRACT: Σ of the returned map MUST equal
    * {@link computeTaxCents} for the same input — the breakdown re-describes the total,
-   * it never restates it.
+   * it never restates it. The engine enforces this at runtime (per source, within a small
+   * rounding tolerance): a jurisdiction that charges tax but fails to attribute it fully is
+   * a loud error, not a misleading chart (see `assertTaxAttributionReconciles`).
    *
-   * Additive and OPTIONAL by design: the scalar {@link computeTaxCents} stays the sole
-   * contract the withdrawal gross-up loop depends on (it needs one number, many times,
-   * as a marginal-tax probe). A jurisdiction that declines this — absent, or the null
-   * jurisdiction — yields no breakdown, and the app falls back to a single tax band, as
-   * before. Called at most once per person-month, only for reporting.
+   * REQUIRED. Attribution is the jurisdiction's call, so every jurisdiction owns it — there
+   * is no engine/app fallback that synthesizes it. A jurisdiction that charges NO tax returns
+   * `{}` (the null jurisdiction does), since there is nothing to attribute; a jurisdiction
+   * that charges tax must return a map that reconciles. Called at most once per person-month,
+   * only for reporting — the scalar {@link computeTaxCents} remains the marginal-tax probe the
+   * withdrawal gross-up loop depends on.
    */
-  computeTaxByCategoryCents?(
+  computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Partial<Record<TaxCategory, Cents>>;
@@ -331,4 +334,6 @@ export interface Jurisdiction {
 export const nullJurisdiction: Jurisdiction = {
   id: "null",
   computeTaxCents: () => 0,
+  // Charges no tax, so there is nothing to attribute — the required breakdown is empty.
+  computeTaxByCategoryCents: () => ({}),
 };

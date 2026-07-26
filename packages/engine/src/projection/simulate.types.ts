@@ -153,25 +153,24 @@ export interface ProjectionMonthFlows {
    * attribution method (US tax is not linearly separable by category — progressive
    * brackets, the standard deduction, the capital-gains preference, and benefit
    * inclusion), so the engine carries whatever split the jurisdiction reports without
-   * synthesizing one itself. Σ of the map equals `taxCents` when present.
+   * synthesizing one itself.
    *
-   * OPTIONAL: absent when the jurisdiction declines the breakdown (the null jurisdiction,
-   * or any that does not implement the seam), in which case a consumer falls back to the
-   * single `taxCents` band, exactly as before this issue.
+   * Always present (the breakdown seam is required of every jurisdiction): `{}` in a
+   * zero-tax month, otherwise a map whose Σ equals `taxCents`.
    */
-  readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
+  readonly taxByCategoryCents: Readonly<Record<string, Cents>>;
   /**
    * This month's tax broken out BY SOURCE (issue #110 follow-up) — the finer sibling of
    * `taxByCategoryCents`, keyed by each source's reporting id (the same `sourceId` used in
    * {@link incomeSources}, falling back to its tax category). Two jobs no longer collapse
    * into one `wages` band: each carries the tax it bore, apportioned per person by taxable
    * weight so two earners in different brackets never cross-subsidise. Lets a chart stack
-   * tax by job. Σ === `taxCents`, and Σ within a category === that category's
-   * `taxByCategoryCents`. Absent whenever `taxByCategoryCents` is (the jurisdiction declined
-   * the breakdown). Attribution is proportional/average-rate, not marginal (disclosed as
-   * `taxAttributionProportional`).
+   * tax by job. Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents` (a
+   * runtime-enforced contract) and Σ within a category === that category's
+   * `taxByCategoryCents`. Attribution is proportional/average-rate, not marginal (disclosed
+   * as `taxAttributionProportional`).
    */
-  readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
    * This month's pre-tax deferral broken out BY SOURCE (issue #110 follow-up), keyed like
    * {@link taxBySourceCents}. A source that deferred nothing is absent. The engine already

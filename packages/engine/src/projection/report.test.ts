@@ -220,13 +220,19 @@ describe("buildSimulationReport", () => {
     expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 
-  it("omits the breakdown when the jurisdiction declines it — single band, as before (issue #110)", () => {
-    // The null jurisdiction implements no `computeTaxByCategoryCents`: every row's
-    // breakdown is absent, and the column unions are empty (a single-band tax chart).
+  it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute) (issue #110)", () => {
+    // The null jurisdiction charges no tax, so its required breakdown is `{}` on every flowed
+    // month (empty, not absent — absent belongs only to the flow-free month 0), and the column
+    // unions are empty.
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     for (const m of report.months) {
-      expect(m.taxByCategoryCents).toBeUndefined();
-      expect(m.taxBySourceCents).toBeUndefined();
+      const flowed = m.taxByCategoryCents !== undefined; // month 0 carries no flows at all
+      if (flowed) {
+        expect(m.taxByCategoryCents).toEqual({});
+        expect(m.taxBySourceCents).toEqual({});
+      } else {
+        expect(m.taxBySourceCents).toBeUndefined();
+      }
     }
     expect(report.columns.taxCategories).toEqual([]);
     expect(report.columns.taxSources).toEqual([]);

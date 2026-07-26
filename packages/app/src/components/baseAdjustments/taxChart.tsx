@@ -23,8 +23,9 @@ import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByM
  * splits the tax down to the job / account draw that bore it, so each band names its source
  * and is coloured by that source's provenance category — a "money leaving" rust family,
  * distinct from the income blues and the budget greens, with one tone per category so a
- * household's jobs read as sibling shades. When the jurisdiction declines the breakdown (a
- * null jurisdiction) the chart falls back to a single total band, as before. As with the
+ * household's jobs read as sibling shades. Attribution is required of every jurisdiction and
+ * enforced to reconcile, so a plan that pays tax always stacks per source; a zero-tax plan
+ * has no bands (a flat-zero line). As with the
  * sibling charts, the summary and a hidden data mirror render independently of Recharts so
  * the behaviour is assertable without SVG layout (Recharts needs a real width, absent in
  * jsdom).
@@ -73,9 +74,8 @@ export interface TaxChartProps {
 
 export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) {
   const summary = describeTaxes(data);
-  // Stacked view when the jurisdiction reported a per-source breakdown; otherwise a single
-  // total band (the fallback). Each row carries either the per-source cents (keyed by
-  // source id) or the lone `taxCents`.
+  // Stacked per-source view whenever the plan pays tax (attribution is always reported); a
+  // zero-tax plan has no sources, so the row carries the lone `taxCents` (a flat zero line).
   const stacked = data.hasSourceBreakdown && data.sources.length > 0;
   // Chart geometry depends only on `data` (stable while scrubbing) — memoize it so moving
   // the selected month, which re-renders this component via `selectedMonth`, doesn't

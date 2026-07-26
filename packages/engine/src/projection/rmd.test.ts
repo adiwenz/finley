@@ -45,6 +45,7 @@ function baseInput(
 const rmdStub: Jurisdiction = {
   id: "rmd-stub",
   computeTaxCents: () => 0,
+  computeTaxByCategoryCents: () => ({}),
   requiredMinimumDistributionCents: (balance, ctx) =>
     ctx.age >= 73 ? Math.round(balance / 10) : 0,
 };

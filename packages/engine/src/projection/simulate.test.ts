@@ -778,6 +778,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     const cappingJurisdiction = {
       id: "cap-test",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       retirementDeferralLimitCents: () => dollarsToCents(12000),
     };
     const checking = makeInvestmentAccount(0, 0);
@@ -812,6 +813,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     const catchUpJurisdiction = {
       id: "catchup-test",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       retirementDeferralLimitCents: (ctx: { year: number; age?: number }) =>
         dollarsToCents(12000) + (ctx.age !== undefined && ctx.age >= 50 ? dollarsToCents(3000) : 0),
     };

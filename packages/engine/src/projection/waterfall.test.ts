@@ -20,6 +20,7 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     accountBalanceCents: () => 0,
     liquidAccountId: "checking",
     computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}), // zero tax → empty breakdown (required seam)
     remainingDeferralRoomCents: () => Infinity,
     ...over,
   };
@@ -664,19 +665,19 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
     expect(r.taxBySourceCents).toEqual({ wages: dollarsToCents(300) });
   });
 
-  it("REJECTS a jurisdiction that charges tax but declines the per-source breakdown (§5.3 contract)", () => {
-    // A jurisdiction that charges tax MUST attribute it per source — otherwise the take-home
-    // cash-flow chart would silently overstate net (it subtracts per-source tax that isn't
-    // reported). So an incomplete implementation fails loudly here, never falls back to a
-    // single band.
+  it("REJECTS a jurisdiction that charges tax but returns an empty breakdown (§5.3 contract)", () => {
+    // The breakdown seam is required, so a jurisdiction can't omit it — but one that charges
+    // tax while attributing nothing (`{}`) is the same failure: the take-home cash-flow chart
+    // would overstate net by the un-subtracted tax, so it fails loudly, never falls back.
     expect(() =>
       runWaterfall(
         makeInput({
           incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
-          computeTaxCents: (byCat) => Math.round((byCat.wages ?? 0) * 0.1), // $500, no breakdown
+          computeTaxCents: (byCat) => Math.round((byCat.wages ?? 0) * 0.1), // $500…
+          computeTaxByCategoryCents: () => ({}), // …but attributes nothing
         }),
       ),
-    ).toThrow(/no per-source breakdown/i);
+    ).toThrow(/does not reconcile/i);
   });
 
   it("REJECTS a breakdown that does not reconcile to taxCents (partial attribution)", () => {
@@ -693,8 +694,8 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
     ).toThrow(/does not reconcile/i);
   });
 
-  it("still charges no tax (and needs no breakdown) under a jurisdiction that taxes nothing", () => {
-    // The exemption: taxCents 0 has nothing to attribute, so the null/simple jurisdiction is fine.
+  it("carries an empty breakdown under a jurisdiction that taxes nothing", () => {
+    // The exemption: taxCents 0 has nothing to attribute, so the breakdown is `{}` (not absent).
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
@@ -702,7 +703,8 @@ describe("runWaterfall — per-source tax attribution (§5.3, #110 follow-up)", 
       }),
     );
     expect(r.taxCents).toBe(0);
-    expect(r.taxBySourceCents).toBeUndefined();
+    expect(r.taxBySourceCents).toEqual({});
+    expect(r.taxByCategoryCents).toEqual({});
   });
 });
 

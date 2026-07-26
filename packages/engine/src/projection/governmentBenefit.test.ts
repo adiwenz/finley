@@ -60,6 +60,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: (claim) => {
         let total = 0;
         for (const cents of claim.record.annualWagesCents.values()) total += cents;
@@ -82,6 +83,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
@@ -104,6 +106,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: (claim) => {
         if (seenTotal === undefined) {
           seenTotal = 0;
@@ -145,6 +148,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       isCoveredEarnings: (cat) => cat === "wages",
       governmentBenefitBaseMonthlyCents: (claim) => {
         if (seenTotal === undefined) {
@@ -188,6 +192,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: (claim) => {
         for (const cents of claim.record.annualWagesCents.values()) seenTotal += cents;
         return 0;
@@ -248,6 +253,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
       colaAdjustedBenefitCents: colaFrom62,
     };
@@ -275,6 +281,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
       colaAdjustedBenefitCents: colaFrom62,
     };
@@ -297,6 +304,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
     };
     const person: SimPerson = {
@@ -339,6 +347,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
       colaAdjustedBenefitCents: colaFrom62,
     };
@@ -363,6 +372,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
       colaAdjustedBenefitCents: colaFrom62,
     };
@@ -394,6 +404,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       isCoveredEarnings: (cat) => cat === "wages",
       governmentBenefitBaseMonthlyCents: (claim) => {
         let total = 0;
@@ -440,6 +451,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
       isCoveredEarnings: (cat) => cat === "wages",
       governmentBenefitBaseMonthlyCents: (claim) => {
         let total = 0;

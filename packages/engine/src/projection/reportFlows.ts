@@ -46,16 +46,17 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * savings" is visible — but is kept OUT of the category rollup and the total, which stay
  * the taxable-income view (a drawdown is spending an asset, not income).
  *
- * The optional `taxByCategoryCents` (issue #110) is the per-category split of `taxCents`
- * the waterfall obtained from the jurisdiction's breakdown seam; it rides straight
- * through (absent → the consumer draws a single tax band). It is passed pre-computed
- * rather than re-derived here because attribution is the jurisdiction's call, not the
- * report layer's — this module only buckets what the sim already resolved.
+ * `taxByCategoryCents` (issue #110) is the per-category split of `taxCents` the waterfall
+ * obtained from the jurisdiction's breakdown seam; it rides straight through (`{}` in a
+ * zero-tax month, otherwise reconciling to `taxCents`). It is passed pre-computed rather
+ * than re-derived here because attribution is the jurisdiction's call, not the report
+ * layer's — this module only buckets what the sim already resolved.
  *
  * The finer `taxBySourceCents` (issue #110 follow-up) and `deferralBySourceCents` ride
  * through the same way, keyed by the SAME `sourceId ?? taxCategory` this function bands
  * the income side on — so a consumer can line each income band up with the tax it bore
- * and the deferral it made, and draw a per-job tax chart or a take-home income view.
+ * and the deferral it made, and draw a per-job tax chart or a take-home income view. The
+ * tax maps default to `{}` (a zero-tax month), so they are always present downstream.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -64,8 +65,8 @@ export function buildFlows(
   liabilityPaymentsCents: Cents,
   spendingItems: readonly SpendingItem[],
   liquidDrawdownCents: Cents = 0,
-  taxByCategoryCents?: Readonly<Record<string, Cents>>,
-  taxBySourceCents?: Readonly<Record<string, Cents>>,
+  taxByCategoryCents: Readonly<Record<string, Cents>> = {},
+  taxBySourceCents: Readonly<Record<string, Cents>> = {},
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
@@ -110,7 +111,7 @@ export function buildFlows(
   // stacked band clamps at render, not here. Absent breakdown maps → no haircut, so net equals
   // cash inflow (a null jurisdiction's single-band fallback).
   const netCashFlow = (sourceId: string, cashInflowCents: Cents): Cents => {
-    const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents?.[sourceId] ?? 0);
+    const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents[sourceId] ?? 0);
     return cashInflowCents - haircut;
   };
   const sources: ProjectionIncomeSource[] = order.map((id) => {
@@ -147,12 +148,11 @@ export function buildFlows(
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
-    // The per-category tax breakdown (§5.3, #110) — the tax analog of
-    // `incomeByCategoryCents`. Absent when the jurisdiction declines the breakdown, so a
-    // consumer falls back to the single `taxCents` band. Σ === `taxCents` when present.
+    // The per-category tax breakdown (§5.3, #110) — the tax analog of `incomeByCategoryCents`.
+    // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
-    // The finer per-source tax split and per-source deferral (issue #110 follow-up),
-    // keyed like `incomeSources`. Absent when the jurisdiction declines the breakdown.
+    // The finer per-source tax split (issue #110 follow-up), keyed like `incomeSources`, and
+    // the per-source deferral. The tax split is always present (`{}` when no tax).
     taxBySourceCents,
     deferralBySourceCents,
     expensesCents,

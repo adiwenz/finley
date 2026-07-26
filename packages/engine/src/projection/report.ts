@@ -163,15 +163,16 @@ export interface ReportMonth {
   readonly taxCents: Cents;
   /**
    * This month's tax broken out by {@link TaxCategory} (issue #110) — the tax analog of
-   * `incomeByCategoryCents`. Absent when the jurisdiction declines the breakdown (a
-   * consumer then draws the single `taxCents` band). Σ === `taxCents` when present.
+   * `incomeByCategoryCents`. Present for every flowed month (`{}` when no tax, otherwise Σ
+   * === `taxCents`); absent only for the flow-free opening month (month 0), which carries
+   * no flows at all.
    */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
    * This month's tax broken out by income SOURCE (issue #110 follow-up) — the finer
    * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
-   * tax is named rather than collapsed into `wages`. Absent when the jurisdiction declines
-   * the breakdown. Σ === `taxCents` when present.
+   * tax is named rather than collapsed into `wages`. Present for every flowed month (`{}`
+   * when no tax, otherwise Σ === `taxCents`); absent only for the flow-free month 0.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source (issue #110 follow-up); absent when none deferred. */
