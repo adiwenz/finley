@@ -253,6 +253,24 @@ describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
     expect(result.ok).toBe(false);
   });
+
+  it("states a total that equals the sum of the buckets it lists", () => {
+    // The stated "$Y of liquid funds" is derived from the same buckets the message
+    // itemises, so the two can never disagree. $30k savings + $15k emergency = $45k,
+    // and the message names each bucket at exactly the amounts that sum to $45k.
+    const base = baseWithGoalFund(3_000_000, {
+      label: "Emergency fund",
+      cents: 1_500_000,
+      liquid: true,
+    });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("$45,000"); // the stated total
+      expect(result.conflict).toContain("savings ($30,000)");
+      expect(result.conflict).toContain("Emergency fund ($15,000)");
+    }
+  });
 });
 
 describe("removeEvent — HomePurchaseEvent", () => {

@@ -29,6 +29,15 @@ import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
  * projection. Credit is a liability, never an asset here, so it can never fund a down
  * payment. A liquid goal fund (a cash emergency reserve) IS counted — its whole
  * purpose is to be reachable. The month is clamped into the projection horizon.
+ *
+ * `balanceAt` is defined as the SUM of exactly the buckets `bucketsAt` names, so the
+ * total the block states and the list it prints can never disagree. That is faithful
+ * to the full liquid position because a snapshot balance is never negative: the
+ * shortfall cascade (`applyShortfallCascade`) floors the liquid sink to zero and
+ * routes any deficit onto credit *before* the month is snapshotted, and every other
+ * account is drawn down only through `Math.max(0, …)` guards. Summing the positive
+ * buckets therefore equals summing all liquid accounts — with no hidden negative to
+ * reconcile — while guaranteeing the message is internally consistent by construction.
  */
 function liquidLookups(
   ledger: Ledger,
@@ -46,27 +55,22 @@ function liquidLookups(
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
   const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
+  const bucketsAt = (month: number): readonly LiquidBucket[] => {
+    const m = monthAt(month);
+    if (!m) return [];
+    const buckets: LiquidBucket[] = [];
+    for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
+      const label = labelById.get(id);
+      if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
+    }
+    // Largest first: the biggest sources read first in the conflict message.
+    return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
+  };
   return {
-    balanceAt: (month) => {
-      const m = monthAt(month);
-      if (!m) return 0;
-      let sum = 0;
-      for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
-        if (labelById.has(id)) sum += balance;
-      }
-      return sum;
-    },
-    bucketsAt: (month) => {
-      const m = monthAt(month);
-      if (!m) return [];
-      const buckets: LiquidBucket[] = [];
-      for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
-        const label = labelById.get(id);
-        if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
-      }
-      // Largest first: the biggest sources read first in the conflict message.
-      return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
-    },
+    // The sourced-funds total is the sum of the very buckets the block names — one
+    // source of truth, so "$Y of liquid funds" and the itemised list stay in lockstep.
+    balanceAt: (month) => bucketsAt(month).reduce((sum, b) => sum + b.balanceCents, 0),
+    bucketsAt,
   };
 }
 
