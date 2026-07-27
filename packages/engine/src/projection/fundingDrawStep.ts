@@ -231,11 +231,16 @@ export function resolveOrderedFundingDraw(
  *   chokepoint, so the gain is actually taxed. Folded into `incomeSources` BEFORE
  *   `allocateMonth`; each carries `waterfallInflowCents` equal to the tax it induces and
  *   `cashInflowCents` 0, so it charges exactly its tax, nets zero, and never shows as income.
+ * - `taxableByOwnerAfter` — the per-owner taxable base with THIS MONTH'S DRAWS STACKED IN:
+ *   what a further draw appended at this month would be taxed on top of. The authoring gate
+ *   reads it (via `flows`) so a second money-out event in the same month is priced over its
+ *   sibling's realized gain, exactly as the simulator prices it.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
   readonly principalDrawdownCents: Cents;
   readonly taxSources: readonly IncomeSourceMonth[];
+  readonly taxableByOwnerAfter: TaxableByOwner;
 }
 
 /**
@@ -248,7 +253,8 @@ export interface FundingDrawReport {
  *
  * `taxableByOwner` is the month's already-resolved (non-funding) taxable base — the marginal
  * context the gain's tax is differenced over. It is NOT mutated (a working copy is threaded
- * across draws internally), so the caller may reuse it (e.g. expose it to the flow view).
+ * across draws internally, stacking each draw's gain onto the next); that copy comes back as
+ * `taxableByOwnerAfter`, which is what a LATER draw at this month must be priced over.
  */
 export function resolveFundingDraws(
   state: SimState,
@@ -333,5 +339,5 @@ export function resolveFundingDraws(
     }
   }
 
-  return { gainSources, principalDrawdownCents, taxSources };
+  return { gainSources, principalDrawdownCents, taxSources, taxableByOwnerAfter: working };
 }

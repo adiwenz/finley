@@ -656,3 +656,56 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
     if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
   });
 });
+
+// ─── §4.5 gate — a SIBLING draw in the same month ────────────────────────────
+// Two money-out events in one month, same owner, both from taxable sources: the simulator
+// stacks the first draw's realized gain under the second (one working base threaded across
+// the month's draws), so the second owes tax the first did not. The gate must price the
+// candidate over that same stacked base — reading the pre-funding base instead would accept
+// a purchase the simulation then cannot fund.
+
+describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same month", () => {
+  // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, carrying a ~$10,021
+  // embedded gain. Alone that gain sits under the $15k threshold and is untaxed, so the
+  // account exactly covers the $60,000 down payment.
+  const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+  const twoBrokerages = () =>
+    baseWithAccounts([
+      liquidAcct("brokerage-a", 5_000_000, 0.1),
+      liquidAcct("brokerage-b", 5_000_000, 0.1),
+    ]);
+  const secondPurchase = purchase({
+    id: "buy2",
+    month: 24,
+    propertyId: "house2",
+    mortgageLiabilityId: "mtg2",
+    downPaymentSourceIds: ["brokerage-b"],
+  });
+
+  it("blocks the second purchase, whose gain the first purchase pushes over the threshold", () => {
+    const jur = jurisdiction();
+    const base = twoBrokerages();
+    const first = addEvent(
+      emptyLedger,
+      base,
+      purchase({ month: 24, downPaymentSourceIds: ["brokerage-a"] }),
+      jur,
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    // Standalone, this second purchase looks exactly like the first. But the sim will resolve
+    // it AFTER its sibling, stacking that ~$10k gain underneath — pushing this gain across the
+    // threshold, taxing it, and leaving the brokerage short of the $60,000.
+    const second = addEvent(first.ledger, base, secondPurchase, jur);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.conflict).toMatch(/tax/i);
+  });
+
+  it("accepts that same second purchase when it has no sibling (the block IS the stacking)", () => {
+    // The control: identical account, identical purchase, identical jurisdiction — only the
+    // same-month sibling is gone. Affordable. So the block above is caused by the sibling's
+    // realized gain, not by the account being too small.
+    expect(addEvent(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).ok).toBe(true);
+  });
+});

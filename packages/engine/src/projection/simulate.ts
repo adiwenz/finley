@@ -212,10 +212,12 @@ export function simulateHousehold(
         taxBySourceCents,
         deferralBySourceCents,
       );
-      // Expose the pre-funding taxable base so the authoring affordability gate differences
-      // a down-payment sale's tax marginally, the same way this month just did. `fundingBase`
-      // is untouched by resolveFundingDraws (it threads a private copy), so it is pristine here.
-      flows = { ...flows, taxableByOwnerCents: toTaxableRecord(fundingBase) };
+      // Expose the taxable base WITH this month's funding gains already stacked in, so the
+      // authoring gate prices a would-be draw exactly where the simulator would put it — on
+      // top of any sibling draw already at this month, not just the non-funding income. A
+      // newly appended event's draw is last in ledger order, hence last in this month's
+      // resolution, so this post-draw base is precisely its marginal context.
+      flows = { ...flows, taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter) };
     }
 
     months.push(

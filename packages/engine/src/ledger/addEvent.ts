@@ -62,8 +62,9 @@ export interface FundingLookup {
  * SELECTED sources (in drain order), the amount wanted, and the month, it runs the SAME
  * ordered gross-up the simulator uses ({@link resolveOrderedFundingDraw}) against the
  * projected month state — draining each source, grossed up over the capital-gains tax the
- * sale induces (differenced marginally over the owner's projected other income that month,
- * from `flows.taxableByOwnerCents`) — and reports whether the net covers the amount. Because
+ * sale induces (differenced marginally over the owner's projected other income that month
+ * PLUS any draw already authored at that month, from `flows.taxableByOwnerAfterFundingCents`)
+ * — and reports whether the net covers the amount. Because
  * it is the SAME resolution the sim runs, a gate built on it blocks exactly when the sim
  * would fall short, under any tax regime.
  *
@@ -120,10 +121,12 @@ export function fundingLookup(
   ): FundingAvailability => {
     const m = monthAt(month);
     const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
-    // The owner's projected NON-funding taxable base for this month, the marginal context the
-    // sale's tax is differenced over — the very map the sim exposed from this same projection.
+    // The owner's projected taxable base for this month WITH any already-authored draw at
+    // this month stacked in — the marginal context the sale's tax is differenced over, and
+    // the very map the sim exposed from this same projection. A candidate appended now is
+    // last in ledger order, so the sim will resolve it against exactly this base.
     const taxableByOwner: TaxableByOwner = new Map();
-    const baseRecord = m?.flows?.taxableByOwnerCents ?? {};
+    const baseRecord = m?.flows?.taxableByOwnerAfterFundingCents ?? {};
     for (const [ownerId, byCategory] of Object.entries(baseRecord)) {
       taxableByOwner.set(ownerId, { ...(byCategory as TaxableByCategory) });
     }
