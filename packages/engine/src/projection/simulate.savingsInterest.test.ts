@@ -43,6 +43,9 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     return new SimAccount({
       id,
       ownerId: "p1",
+      // A human label so its interest band reads under the account's own name (interest is
+      // reported per account now — see below); label-less accounts fall back to the id.
+      label: id === "savings" ? "Cash savings" : id,
       liquid: id === "savings",
       taxProfile: CASH_INTEREST_TAX_PROFILE,
       openingBalanceCents: dollarsToCents(openingDollars),
@@ -134,6 +137,33 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(100));
   });
 
+  it("bands each cash account's interest separately, under its own name", () => {
+    // Two cash buffers earning interest → two distinct savings-interest bands, each keyed
+    // by its own account (stable `interest:<accountId>`) and labelled by the account's name.
+    // The old behaviour merged both into one `interest:<owner>:<category>` line, which made a
+    // drained buffer look like it was still earning its neighbour's interest. The app's Simple
+    // view re-collapses these into one; the engine reports them per account.
+    const reserve = savings(120_000, 0.12, "reserve");
+    const series = simulateHousehold(
+      {
+        horizonMonths: 4,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [savings(120_000, 0.12), reserve],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(3_000)), ownerId: "p1" }],
+        expenseSeries: [],
+      },
+      flatOrdinary10,
+    );
+    const interest = (series.months[2].flows?.incomeSources ?? []).filter(
+      (s) => s.category === "savingsInterest",
+    );
+    expect(interest.map((s) => s.sourceId).sort()).toEqual(["interest:reserve", "interest:savings"]);
+    expect(interest.find((s) => s.sourceId === "interest:savings")!.label).toBe("Cash savings");
+    expect(interest.find((s) => s.sourceId === "interest:reserve")!.label).toBe("reserve");
+    for (const s of interest) expect(s.cashInflowCents).toBeGreaterThan(0);
+  });
+
   // ── Savings interest is real household cash: the cash-flow reconciliation
   //
   // Interest must reconcile four ways at once — it credits the account, enters the
@@ -150,7 +180,9 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     // ordinaryIncome), which is how it is identified — never by parsing its id.
     const interest = series.months[2].flows?.incomeSources.find((s) => s.category === "savingsInterest");
     expect(interest).toBeDefined();
-    expect(interest!.label).toBe("Savings interest");
+    // Per-account provenance: the band carries the account's own name and a per-account id.
+    expect(interest!.label).toBe("Cash savings");
+    expect(interest!.sourceId).toBe("interest:savings");
     expect(interest!.cashInflowCents).toBeGreaterThan(0);
     // Its tax is 10% of the interest (flatOrdinary10), attributed back to the interest
     // source, and the engine's net cash flow is exactly cash inflow − that tax.

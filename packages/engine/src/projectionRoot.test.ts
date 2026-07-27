@@ -213,7 +213,7 @@ describe("Projection root — id counter round-trips through serialization", () 
       name: "Trip",
       targetCents: dollarsToCents(5000),
       targetDate: 12,
-      disposition: "spend",
+      disposition: "retain",
       annualReturnPct: 2,
     })).toBe("goal-3");
     // Standing data survived too.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeGoalProgress, isEarmarkedForDisposition, type SimGoal, type GoalDisposal } from "./goal";
+import { computeGoalProgress, type SimGoal } from "./goal";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { simulateHousehold } from "./projection/simulate";
 import type { SimPerson } from "./projection/simulate.types";
@@ -22,48 +22,6 @@ function account(id: string, annualRate: number, liquid = true): SimAccount {
 function monthly(cents: number): SimCashFlowSeries {
   return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
-
-describe("isEarmarkedForDisposition — retirement-portfolio inclusion", () => {
-  it("earmarks a future-dated convertToEquity / spend fund out of the drawable portfolio", () => {
-    expect(isEarmarkedForDisposition({ disposition: "convertToEquity", targetDate: 24 }, 1)).toBe(true);
-    expect(isEarmarkedForDisposition({ disposition: "spend", targetDate: 24 }, 1)).toBe(true);
-  });
-
-  it("never earmarks a retain (liquid reserve) or drawDown (the nest egg) fund", () => {
-    // These count toward the nest egg even before their target date.
-    expect(isEarmarkedForDisposition({ disposition: "retain", targetDate: 24 }, 1)).toBe(false);
-    expect(isEarmarkedForDisposition({ disposition: "drawDown", targetDate: 24 }, 1)).toBe(false);
-    expect(isEarmarkedForDisposition({ disposition: "retain", targetDate: "asap" }, 1)).toBe(false);
-  });
-
-  it("keeps the fund earmarked THROUGH its target month, so decumulation never taps it before it fires", () => {
-    // The disposition fires at the end of the target month (fireGoalDispositions),
-    // consuming / converting the fund; until then the money must stay reserved, so the
-    // earmark includes the target month itself (>=, not strictly before). Once fired,
-    // the goal is dropped from the funding set, so no later month asks about it.
-    expect(isEarmarkedForDisposition({ disposition: "convertToEquity", targetDate: 24 }, 24)).toBe(true);
-    expect(isEarmarkedForDisposition({ disposition: "spend", targetDate: 24 }, 24)).toBe(true);
-    // A month strictly past the target date (a goal that somehow never fired) is not
-    // held back — it falls through as ordinary drawable money rather than trapped.
-    expect(isEarmarkedForDisposition({ disposition: "convertToEquity", targetDate: 24 }, 36)).toBe(false);
-  });
-
-  it("cannot express an 'asap' firing disposition — the phantom-fund hole is unbuildable", () => {
-    // A dateless STANDING disposition is legal, and drawable: an emergency fund has no
-    // purchase date, so "as fast as you can" is the honest input, not an invented one.
-    expect(isEarmarkedForDisposition({ disposition: "retain", targetDate: "asap" }, 1)).toBe(false);
-
-    // A dateless FIRING disposition is a type error. Were it representable it would never
-    // fire (`fireGoalDispositions` matches on `targetDate !== month`) and never earmark
-    // (the rule above needs a number), so its fund would compound forever as drawable
-    // money — the exact phantom-fund defect the disposition pairing exists to correct. This is a
-    // type-level guard: if the pairing is ever loosened, the line below starts compiling,
-    // the `@ts-expect-error` goes unused, and `npm run typecheck` fails.
-    // @ts-expect-error — "asap" is not a legal targetDate for `spend` / `convertToEquity`.
-    const unbuildable: GoalDisposal = { disposition: "spend", targetDate: "asap" };
-    expect(unbuildable.disposition).toBe("spend");
-  });
-});
 
 describe("computeGoalProgress — projection-based on-track %", () => {
   it("on-track fraction is projected fund at target date ÷ target, not saved-so-far ÷ target", () => {
@@ -89,7 +47,7 @@ describe("computeGoalProgress — projection-based on-track %", () => {
       targetDate: 24,
       fundAccountId: "fund",
       priority: 1,
-      disposition: "spend",
+      disposition: "retain",
       scope: "shared",
     };
     const progress = computeGoalProgress(goal, projection, [fund]);
@@ -118,7 +76,7 @@ describe("computeGoalProgress — projection-based on-track %", () => {
       targetDate: 24,
       fundAccountId: "fund",
       priority: 1,
-      disposition: "spend",
+      disposition: "retain",
       scope: "shared",
     };
     // Only $12,000 accumulated by month 24 → 50% on track.
@@ -181,15 +139,15 @@ describe("computeGoalProgress — verdict routing & risk flag", () => {
     );
   });
 
-  it("a firing (spend) goal ALWAYS uses the projection path, even when near-term", () => {
+  it("a near-term goal with an 'asap' date uses the projection path (no concrete date to grade against)", () => {
     const goal: SimGoal = {
       id: "g",
-      name: "near-onetime",
+      name: "asap",
       targetCents: dollarsToCents(1000),
-      targetDate: 3,
+      targetDate: "asap",
       fundAccountId: "fund",
       priority: 1,
-      disposition: "spend",
+      disposition: "retain",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [account("fund", 0)]).verdictPath).toBe(
@@ -197,7 +155,7 @@ describe("computeGoalProgress — verdict routing & risk flag", () => {
     );
   });
 
-  it("a standing (drawDown) goal ≥ 12 months out uses the projection path", () => {
+  it("a goal ≥ 12 months out uses the projection path", () => {
     const goal: SimGoal = {
       id: "g",
       name: "far",
@@ -222,7 +180,7 @@ describe("computeGoalProgress — verdict routing & risk flag", () => {
       targetDate: 12,
       fundAccountId: "fund",
       priority: 1,
-      disposition: "spend",
+      disposition: "retain",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [risky]).shortHorizonRiskFlag).toBe(true);
@@ -237,7 +195,7 @@ describe("computeGoalProgress — verdict routing & risk flag", () => {
       targetDate: 12,
       fundAccountId: "fund",
       priority: 1,
-      disposition: "spend",
+      disposition: "retain",
       scope: "shared",
     };
     expect(computeGoalProgress(goal, trivialProjection, [safe]).shortHorizonRiskFlag).toBe(false);

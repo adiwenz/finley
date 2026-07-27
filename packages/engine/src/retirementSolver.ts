@@ -95,8 +95,8 @@ function retirementMonth(budget: Plan, age: number): number {
  *
  * The magnitude is read from the authoritative failure signal — WHEN the plan first
  * fails ({@link monthSurvives}: insolvency) — NOT from how far net worth dipped. Inferring the shortfall from the most-negative net worth was the
- * bug: insolvency nulls the curve rather than driving it negative and phantom
- * illiquid equity keeps solvent months positive, so the deepest value the old
+ * bug: insolvency nulls the curve rather than driving it negative, and an illiquid
+ * holding (a property) keeps solvent months positive, so the deepest value the old
  * formula ever saw was a positive number → shortfall 0 → a flat, meaningless 1.0 for a
  * plan that has plainly run out of money. And a *magnitude* off the post-insolvency curve
  * would be fiction anyway (borrowing at 22% past an exhausted credit limit → a nonsense

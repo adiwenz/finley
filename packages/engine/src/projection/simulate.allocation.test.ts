@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { SimPerson } from "./simulate.types";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
-import { dollarsToCents, preciseMonthlyRate } from "../cashFlowSeries";
+import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
 import {
   makePerson,
@@ -200,12 +200,13 @@ describe("simulateHousehold — allocation waterfall", () => {
     });
   }
 
-  describe("goal disposition firing at maturity", () => {
+  describe("a matured goal never fires — the fund simply stays put (#150)", () => {
     // $2000/mo income, no expenses; the goal is funded $2000/mo and reaches its
-    // $4000 target exactly at month 2 (its target date). Firing happens at the END
-    // of the target month, so the month-2 snapshot still shows the fund AT target
-    // (the goal reads as achieved) and the disposition takes effect from month 3.
-    const goalScenario = (disposition: "spend" | "convertToEquity" | "retain") => ({
+    // $4000 target exactly at month 2 (its target date). A goal never moves its own
+    // money out — only a timeline event does — so nothing happens at maturity: the
+    // fund stays in the account and in net worth, drawable like any other, whatever
+    // its (purely descriptive) disposition.
+    const goalScenario = (disposition: "retain" | "drawDown") => ({
       horizonMonths: 4,
       annualInflationRate: 0,
       persons: [makePerson()],
@@ -226,93 +227,21 @@ describe("simulateHousehold — allocation waterfall", () => {
       ],
     });
 
-    it("`spend` consumes the fund at maturity — it leaves net worth and is not re-funded", () => {
-      const series = simulateHousehold(goalScenario("spend"), nullJurisdiction);
-      // Month 2 (target): the fund is shown AT target — the goal reads as achieved.
-      expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
-      expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
-      // Month 3: the $4000 has been spent — gone from the fund and from net worth,
-      // and NOT re-accumulated (this month's $2000 income idles in the liquid account).
-      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
-      expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
-      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(2000));
-    });
-
-    it("`convertToEquity` swaps the fund into an illiquid equity holding — net worth is conserved", () => {
-      const series = simulateHousehold(goalScenario("convertToEquity"), nullJurisdiction);
-      // Month 2 (target): the fund is shown AT target.
-      expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
-      expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
-      // Month 3: the fund is emptied but the $4000 reappears as illiquid home equity —
-      // net worth is unchanged by the swap (the $6000 = $4000 equity + $2000 new savings).
-      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
-      expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBe(dollarsToCents(4000));
-      expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
-      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
-    });
-
-    it("`retain` fires nothing — the fund stays in the account past its target date", () => {
-      const series = simulateHousehold(goalScenario("retain"), nullJurisdiction);
-      // The reserve is held as-is: still in the fund at month 3, still counted in net
-      // worth, and no equity holding was synthesized.
-      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
-      expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
-      expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
-    });
-
-    it("`convertToEquity` synthesizes equity that appreciates at the FUND's own rate", () => {
-      // A pre-funded goal whose fund earns 6%/yr, no contributions. The equity that
-      // replaces it at maturity must keep compounding at that same 6% — this pins the
-      // rate wiring (fundAccount.getRateAt), which every other firing test, using
-      // rate-0 funds, cannot catch: a regression to a hardcoded 0 rate would leave the
-      // equity flat and slip past them.
-      const fundRate = 0.06;
-      const monthly = 1 + preciseMonthlyRate(fundRate);
-      const series = simulateHousehold(
-        {
-          horizonMonths: 5,
-          annualInflationRate: 0,
-          persons: [makePerson()],
-          accounts: [
-            makeInvestmentAccount(0, 0),
-            new SimAccount({
-              id: "goal-x",
-              ownerId: "p1",
-              liquid: false,
-              taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-              openingBalanceCents: dollarsToCents(4000),
-              initialAnnualRate: fundRate,
-            }),
-          ],
-          incomeSeries: [],
-          expenseSeries: [],
-          goals: [
-            {
-              id: "x",
-              name: "Goal X",
-              targetCents: dollarsToCents(4000),
-              targetDate: 2,
-              fundAccountId: "goal-x",
-              priority: 0,
-              disposition: "convertToEquity" as const,
-              scope: "shared" as const,
-            },
-          ],
-        },
-        nullJurisdiction,
-      );
-      // Fires at end of month 2; the equity opens at month 3 at the matured balance,
-      // then appreciates once per month at exactly the fund's 6% (via advanceProperties).
-      const opened = series.months[3].propertyValuesCents["goal-equity-x"];
-      expect(opened).toBeGreaterThan(0);
-      expect(series.months[3].accountBalancesCents["goal-x"]).toBe(0);
-      expect(series.months[4].propertyValuesCents["goal-equity-x"]).toBe(
-        Math.round(opened! * monthly),
-      );
-      expect(series.months[5].propertyValuesCents["goal-equity-x"]).toBe(
-        Math.round(series.months[4].propertyValuesCents["goal-equity-x"]! * monthly),
-      );
-    });
+    it.each(["retain", "drawDown"] as const)(
+      "a `%s` goal's fund stays in the account and in net worth past its target date",
+      (disposition) => {
+        const series = simulateHousehold(goalScenario(disposition), nullJurisdiction);
+        // Month 2 (target): the fund is shown AT target — the goal reads as achieved.
+        expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+        expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
+        // Month 3: the fund is unchanged (nothing fired, no equity synthesized), plus
+        // this month's $2000 income idling in the liquid account. Net worth = $6000.
+        expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+        expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
+        expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
+        expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
+      },
+    );
   });
 
   it("a shared goal is funded ahead of idle surplus, up to its target", () => {
@@ -366,7 +295,7 @@ describe("simulateHousehold — allocation waterfall", () => {
       targetDate: 6,
       fundAccountId: "near-fund",
       priority,
-      disposition: "spend" as const,
+      disposition: "retain" as const,
       scope: "shared" as const,
     });
     const far = (priority: number) => ({
@@ -410,7 +339,7 @@ describe("simulateHousehold — allocation waterfall", () => {
     it("both affordable goals reach 100% regardless of priority order", () => {
       const forward = simulateHousehold(scenario(1, 2), nullJurisdiction);
       const reversed = simulateHousehold(scenario(2, 1), nullJurisdiction);
-      // The near goal fires (spend) at month 6, so read its balance AT its deadline.
+      // The near goal is fully funded by its month-6 deadline; read its balance there.
       for (const s of [forward, reversed]) {
         expect(s.months[6].accountBalancesCents["near-fund"]).toBe(dollarsToCents(6000));
         expect(s.months[12].accountBalancesCents["far-fund"]).toBe(dollarsToCents(12000));

@@ -81,40 +81,6 @@ describe("retirementView — headline age driven off the real projection", () =>
     expect(view.headlineAge).toBeNull();
     expect(view.headlineMonth).toBeNull();
   });
-
-  // Regression guard for the concrete harm: the $60k home down-payment goal
-  // (disposition `convertToEquity`, target month 60) must NOT compound as a phantom
-  // drawable fund and overstate how early the household can retire. The panel/graph
-  // agreement tests above only check INTERNAL consistency — they would still pass at
-  // an inflated age if the fund leaked back into the nest egg. This pins the absolute
-  // correction and shows the disposition is what drives it.
-  it("the convertToEquity down-payment fund drops out of the nest egg (no phantom-fund overstatement)", () => {
-    // Real single-filer federal tax trims the default $5k plan's surplus enough
-    // that both dispositions bottom out at the Social-Security floor (67), where the
-    // disposition difference is masked. Give the plan a bit more income so a feasible
-    // age exists BELOW that floor and the phantom-fund effect is visible again — the
-    // point under test is the disposition delta, not the absolute age.
-    const higherIncome: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
-    // With the fund correctly swapped to illiquid equity at maturity, the earliest
-    // feasible (partial retirement) age is 64. (Absolute ages here track
-    // PLAN_DEFAULTS; they moved again when the default emergency fund became a
-    // cash-realistic 1% cash account. The DELTA below is the point.)
-    expect(solveRetirement(scenarioOf(higherIncome), CTX).partialRetirementAge).toBe(64);
-
-    // Counterfactual: had the same fund been `drawDown` (drawable — the earlier
-    // behavior where a matured one-time fund kept compounding in the portfolio), the
-    // phantom balance would let the household retire strictly EARLIER. That the two
-    // ages differ is the whole point: disposition governs retirement-portfolio inclusion.
-    const asDrawableFund: Plan = {
-      ...higherIncome,
-      goals: higherIncome.goals.map((g) =>
-        g.id === "home" ? { ...g, disposition: "drawDown" as const } : g,
-      ),
-    };
-    const phantomAge = solveRetirement(scenarioOf(asDrawableFund), CTX).partialRetirementAge;
-    expect(phantomAge).not.toBeNull();
-    expect(phantomAge as number).toBeLessThan(64);
-  });
 });
 
 describe("retirementView — target mode against the pinned age", () => {
@@ -150,7 +116,7 @@ describe("retirementView — target mode against the pinned age", () => {
   });
 
   // The default plan pinned at its authored age 65 is INFEASIBLE (feasible floor is
-  // 75) yet holds a `convertToEquity` home goal that keeps net worth positive throughout —
+  // above 65) yet holds a `retain` home reserve that keeps net worth positive throughout —
   // exactly the shape that pinned the metric to a contradictory "100% of the way there".
   // The panel must never render 100% for an infeasible plan, and the % is rounded DOWN to
   // one decimal so a barely-short plan can't round UP to a reassuring 100.
@@ -285,11 +251,12 @@ describe("retirementView — the timeline events count toward retirement", () =>
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
-    // The bare-plan baseline retires at 64; the scenario carrying the childcare expense
-    // must retire strictly later. If the panel still projected an empty ledger, the two
-    // would be equal — this is the regression guard for that.
-    expect(baselineAge).toBe(64);
-    expect(withChildAge as number).toBeGreaterThan(64);
+    // The bare-plan baseline retires at 60 (the home goal is now a drawable `retain`
+    // reserve, so the down-payment fund counts toward the nest egg); the scenario
+    // carrying the childcare expense must retire strictly later. If the panel still
+    // projected an empty ledger, the two would be equal — the regression guard for that.
+    expect(baselineAge).toBe(60);
+    expect(withChildAge as number).toBeGreaterThan(60);
   });
 });
 
@@ -322,11 +289,10 @@ describe("every draw nets its need under the real jurisdiction", () => {
       // this test proves (the cost-basis path has its own tests).
       basisByAccount: new Map(),
       liquidAccount: null,
-      goals: [],
     };
     const need = dollarsToCents(needDollars);
     const ctx: JurisdictionContext = { year: START_YEAR };
-    const { sources } = buildWithdrawalSources(state, usJurisdiction, 1, [], need, ctx);
+    const { sources } = buildWithdrawalSources(state, usJurisdiction, [], need, ctx);
 
     // Re-file the draws as a tax return and check what the household actually keeps.
     const byCategory: Record<string, number> = {};

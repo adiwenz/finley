@@ -2,7 +2,6 @@ import type { Cents } from "../money";
 import type { SimAccount } from "../simAccount";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import { isEarmarkedForDisposition, type SimGoal } from "../goal";
 import type { IncomeSourceMonth } from "./waterfall";
 
 /** A per-owner map of taxable amount by {@link TaxCategory} (mirrors the waterfall). */
@@ -34,8 +33,6 @@ export interface WithdrawalState {
    * only funds the shortfall the liquid buffer can't, so the cascade drains cash first.
    */
   readonly liquidAccount: SimAccount | null;
-  /** Funding goals — a `convertToEquity`/`spend` goal through its target month earmarks its fund. */
-  readonly goals: readonly SimGoal[];
 }
 
 /**
@@ -99,27 +96,13 @@ function liquidationRank(
  * "Liquidatable in decumulation" is deliberately distinct from the `liquid` flag:
  * `liquid` means "eligible to *receive* deposits" (the deposit direction); a
  * drawdown is the opposite direction, so every investment account is a valid
- * *source* regardless of `liquid`. The two exclusions:
- *  - the liquid cash account itself — it is spent down first via the shortfall
- *    charge, so it is not a withdrawal source here (it would double-count);
- *  - a goal fund earmarked by its **disposition**: a `convertToEquity` or
- *    `spend` goal up to and including its target month is committed to that purchase /
- *    expense, so it drops out of the nest egg. A `retain` (liquid reserve) or
- *    `drawDown` (the nest egg itself) goal always counts. Past its target month the
- *    goal has already FIRED (the simulator's `fireGoalDispositions` zeroed the fund or
- *    swapped it to an illiquid property and dropped the goal), so there is no stale
- *    earmarked balance here to reason about.
+ * *source* regardless of `liquid`. The one exclusion is the liquid cash account
+ * itself — it is spent down first via the shortfall charge, so it is not a withdrawal
+ * source here (it would double-count). Goal funds carry no disposition earmark: a goal
+ * never moves its own money out (#150), so every goal fund is fully drawable.
  */
-function isLiquidatable(
-  account: SimAccount,
-  state: WithdrawalState,
-  month: number,
-): boolean {
+function isLiquidatable(account: SimAccount, state: WithdrawalState): boolean {
   if (state.liquidAccount !== null && account.id === state.liquidAccount.id) return false;
-  for (const goal of state.goals) {
-    if (goal.fundAccountId !== account.id) continue;
-    if (isEarmarkedForDisposition(goal, month)) return false;
-  }
   return true;
 }
 
@@ -235,7 +218,6 @@ export interface WithdrawalPlan {
 export function buildWithdrawalSources(
   state: WithdrawalState,
   jurisdiction: Jurisdiction,
-  month: number,
   nonWithdrawalSources: readonly IncomeSourceMonth[],
   obligationsCents: Cents,
   ctx: JurisdictionContext,
@@ -268,7 +250,7 @@ export function buildWithdrawalSources(
 
   const rankMap = liquidationRankMap(liquidationOrder);
   const orderedSources = state.accounts
-    .filter((a) => isLiquidatable(a, state, month))
+    .filter((a) => isLiquidatable(a, state))
     .sort((a, b) => liquidationRank(a, rankMap) - liquidationRank(b, rankMap));
 
   const sources: IncomeSourceMonth[] = [];

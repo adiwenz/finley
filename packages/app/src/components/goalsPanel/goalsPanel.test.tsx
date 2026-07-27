@@ -47,9 +47,8 @@ describe("GoalsPanel", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
-    // Emergency fund → retain; Home down payment → convertToEquity (planDefaults).
+    // Both default goals are `retain` savings reserves (planDefaults, #150).
     expect(html).toContain("Kept as a reserve");
-    expect(html).toContain("Becomes home equity");
   });
 
   it("shows the short-horizon-in-risky-account honesty flag", () => {
@@ -62,7 +61,7 @@ describe("GoalsPanel", () => {
           name: "Trip",
           targetCents: dollarsToCents(5000),
           targetDate: 12,
-          disposition: "spend",
+          disposition: "retain",
           annualReturnPct: 7,
         },
       ],

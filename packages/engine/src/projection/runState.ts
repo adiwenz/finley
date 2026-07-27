@@ -20,7 +20,7 @@ import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types
  * are the only things that mutate as the months advance.
  *
  * Engine-INTERNAL: exported so the per-month step modules (liabilitySteps,
- * assetSteps, allocationStep, goalSteps, monthSnapshot) can share the exact
+ * assetSteps, allocationStep, monthSnapshot) can share the exact
  * shape, but deliberately kept OFF the public engine barrel (index.ts) — exactly
  * like `SimPerson`, this is a compiled internal shape.
  */
@@ -65,22 +65,17 @@ export interface SimState {
    * static schedule.
    */
   readonly liabilityBalances: Map<string, Cents>;
-  /**
-   * Mutable so a `convertToEquity` goal can synthesize its home-equity holding when
-   * it matures (fireGoalDispositions) — the down-payment fund leaves the accounts and
-   * reappears here as an illiquid property.
-   */
-  properties: SimProperty[];
+  /** Owned properties, seeded from the resolved input; only their values move each month. */
+  readonly properties: readonly SimProperty[];
   /** Authoritative, mutable current value of each property — updated by advanceProperties. */
   readonly propertyValues: Map<string, Cents>;
   /** Every person who appears as an income owner or roster member — waterfall pools. */
   readonly personIds: readonly string[];
   /**
-   * The funding goals. Mutable: a goal is dropped once its disposition has fired at
-   * maturity (fireGoalDispositions), so a spent / converted fund is never re-funded,
-   * re-earmarked, or drawn thereafter.
+   * The funding goals. A goal never moves its own money out (#150): its fund
+   * accumulates and stays drawable, so the set is fixed for the whole run.
    */
-  goals: SimGoal[];
+  readonly goals: readonly SimGoal[];
   /** Standing account-contribution budget lines — resolved & funded each month. */
   readonly contributionLines: readonly BudgetLine[];
   readonly sharedScheme: SharedContributionScheme;

@@ -23,7 +23,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 
 const START_YEAR = SAMPLE_START_YEAR;
@@ -116,52 +116,6 @@ describe("retirementSolver — target mode", () => {
     expect(evaluation.onTrackFraction).toBeLessThan(1);
   });
 
-  // An infeasible plan whose net worth NEVER dips negative — insolvency nulls the
-  // curve and a phantom `convertToEquity` holding keeps every solvent month
-  // positive — must NOT read as 100%. The old metric inferred the shortfall from the
-  // most-negative real net worth; with nothing negative to see it reported exactly 1.0
-  // for a plan that runs out of money. On-track must read the failure signal
-  // (insolvency), not the net-worth sign, so an infeasible plan is strictly < 1.
-  it("is < 1 for an infeasible plan whose net worth stays positive to insolvency", () => {
-    // Big early surplus fills a home-equity fund that converts to an illiquid property;
-    // after retiring the liquid runs dry and the plan goes insolvent while the (undrawable)
-    // equity keeps net worth positive the whole way — the exact repro shape.
-    const insolventWithEquity: Plan = {
-      ...samplePlan,
-      jobs: [salariedJob(dollarsToCents(11000))],
-      expenseCents: dollarsToCents(5000),
-      openingBalanceCents: dollarsToCents(30000),
-      retirementAge: 56,
-      lifeExpectancy: 85,
-      goals: [
-        {
-          id: "home",
-          name: "Home down payment",
-          targetCents: dollarsToCents(200000),
-          targetDate: 60,
-          disposition: "convertToEquity",
-          annualReturnPct: 6,
-        },
-      ],
-    };
-    const scenario = scenarioOf(insolventWithEquity);
-    const series = projectScenario(scenario, CTX);
-    // Preconditions: infeasible via insolvency, yet every solvent (non-null) month's real
-    // net worth stays ≥ 0 — the case the old net-worth-sign formula pinned to 1.0.
-    expect(planSurvives(series)).toBe(false);
-    expect(series.months.some((m) => m.isInsolvent)).toBe(true);
-    expect(
-      series.months
-        .map((m) => m.netWorthRealCents)
-        .filter((c): c is number => c !== null)
-        .every((c) => c >= 0),
-    ).toBe(true);
-
-    const evaluation = evaluateAtAge(scenario, insolventWithEquity.retirementAge, CTX);
-    expect(evaluation.feasible).toBe(false);
-    expect(evaluation.onTrackFraction).toBeGreaterThan(0);
-    expect(evaluation.onTrackFraction).toBeLessThan(1);
-  });
 });
 
 describe("retirementSolver — partial vs full retirement", () => {

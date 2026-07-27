@@ -180,9 +180,8 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
  */
 export function buildPlanGoals(budget: Plan): SimGoal[] {
   return budget.goals.map((goal, i) => {
-    // The disposition/targetDate pair travels as ONE value: naming the fields
-    // separately here would let a `spend`/`convertToEquity` goal pick up an "asap"
-    // date that the plan type forbids ({@link GoalDisposal}).
+    // The disposition/targetDate pair travels as ONE value ({@link GoalDisposal}) so a
+    // goal's descriptive fate and its date stay correlated across the plan→sim mapping.
     const disposal: GoalDisposal = goal;
     return {
       id: goal.id,
