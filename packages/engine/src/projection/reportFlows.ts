@@ -1,5 +1,5 @@
 /**
- * Diagnostic cash-flow capture for a single simulated month (§10). The simulator
+ * Diagnostic cash-flow capture for a single simulated month. The simulator
  * calls {@link buildFlows} inside its per-month loop and attaches the result to the
  * month's snapshot as {@link ProjectionMonthFlows}; the report/debug layer then reads
  * those flows back out (see `report.ts`).
@@ -20,7 +20,7 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import { sumSpendingItems, type SpendingItem } from "./spendingItems";
 
-/** The stable source id / label of the reported liquid-buffer drawdown (issue #99). */
+/** The stable source id / label of the reported liquid-buffer drawdown. */
 export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
 
@@ -30,12 +30,12 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * consumed or produced (income sources incl. derived benefit/RMD, the tax it charged,
  * expense total, scheduled payments), so the flow view can never drift from the sim.
  *
- * Spending arrives already itemized ({@link SpendingItem}, issue #119 follow-up): one
+ * Spending arrives already itemized ({@link SpendingItem}): one
  * list covering budget lines, health, event expenses, and liability payments. The
- * per-line map (§Q27) is derived from it here rather than computed separately, so the
+ * per-line map is derived from it here rather than computed separately, so the
  * itemized view and the per-line view are one computation with two shapes.
  *
- * Produces two income views from one pass over the sources (issue #99): the
+ * Produces two income views from one pass over the sources: the
  * `incomeByCategoryCents` tax-category rollup (retained, backward-compatible) and the
  * finer `incomeSources` list that keeps each source distinct — so two jobs, or two
  * pre-tax accounts, no longer collapse into one bucket. A source's `sourceId`/`label`
@@ -46,13 +46,13 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * savings" is visible — but is kept OUT of the category rollup and the total, which stay
  * the taxable-income view (a drawdown is spending an asset, not income).
  *
- * `taxByCategoryCents` (issue #110) is the per-category split of `taxCents` the waterfall
+ * `taxByCategoryCents` is the per-category split of `taxCents` the waterfall
  * obtained from the jurisdiction's breakdown seam; it rides straight through (`{}` in a
  * zero-tax month, otherwise reconciling to `taxCents`). It is passed pre-computed rather
  * than re-derived here because attribution is the jurisdiction's call, not the report
  * layer's — this module only buckets what the sim already resolved.
  *
- * The finer `taxBySourceCents` (issue #110 follow-up) and `deferralBySourceCents` ride
+ * The finer `taxBySourceCents` and `deferralBySourceCents` ride
  * through the same way, keyed by the SAME `sourceId ?? taxCategory` this function bands
  * the income side on — so a consumer can line each income band up with the tax it bore
  * and the deferral it made, and draw a per-job tax chart or a take-home income view. The
@@ -107,8 +107,8 @@ export function buildFlows(
       });
     }
   }
-  // Finish each banded source with its engine-produced net cash flow (§5.3, #110
-  // follow-up): cash inflow minus the pre-tax deferral it made and the tax it bore, keyed
+  // Finish each banded source with its engine-produced net cash flow: cash inflow
+  // minus the pre-tax deferral it made and the tax it bore, keyed
   // by the SAME id the waterfall attributed those on. This is the take-home the app displays
   // directly instead of re-deriving (and re-deriving dropped interest's tax, understating the
   // household's net). It is SIGNED and deliberately NOT clamped: a source whose deductions
@@ -157,10 +157,10 @@ export function buildFlows(
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
-    // The per-category tax breakdown (§5.3, #110) — the tax analog of `incomeByCategoryCents`.
+    // The per-category tax breakdown — the tax analog of `incomeByCategoryCents`.
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
-    // The finer per-source tax split (issue #110 follow-up), keyed like `incomeSources`, and
+    // The finer per-source tax split, keyed like `incomeSources`, and
     // the per-source deferral. The tax split is always present (`{}` when no tax).
     taxBySourceCents,
     deferralBySourceCents,

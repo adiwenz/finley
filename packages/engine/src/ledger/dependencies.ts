@@ -1,5 +1,5 @@
 /**
- * Dependent-event resolution for undo (§6.2, §8).
+ * Dependent-event resolution for undo.
  *
  * A dependent points at its producer through `causedByEventId`. Removing a
  * producer removes the *transitive closure* of everything it caused — a

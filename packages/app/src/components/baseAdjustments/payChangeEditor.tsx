@@ -1,5 +1,5 @@
 /**
- * The **pay change at this month** control (§6/§10.3/§20 of JOBS_HOUSEHOLD_REDESIGN).
+ * The **pay change at this month** control.
  * Extracted from {@link BaseAdjustmentsPanel} so the panel no longer carries the form's
  * transient state: this component owns the whole disclosed form — whether it is open, its
  * live contents, and the confirmation note after a change is applied.
@@ -28,7 +28,7 @@ import styles from "./baseAdjustments.module.css";
 /**
  * A job this control can act on — its stable id and the name to show for it. Deliberately
  * not a {@link import("@finley/engine").Job}: this form neither reads a job's fields nor
- * knows which household member holds it (issue #118). The parent supplies the label already
+ * knows which household member holds it. The parent supplies the label already
  * qualified by owner where the household needs it ("Sam · Job 1"), so two members' jobs are
  * told apart here even when they carry the same title.
  */
@@ -66,7 +66,7 @@ interface PayChangeDraft {
 const freshDraft = (): PayChangeDraft => ({ kind: "addBonus", dollars: 0, jobId: null });
 
 export interface PayChangeEditorProps {
-  /** Every job in the household this can act on, in join order (issue #118). */
+  /** Every job in the household this can act on, in join order. */
   readonly jobs: readonly PayChangeJobOption[];
   /** The month the change is applied at (the panel's selected month, floored to a paying month). */
   readonly incomeMonth: number;

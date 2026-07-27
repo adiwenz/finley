@@ -10,7 +10,7 @@ import { JobForm } from "../jobsPanel/jobForm";
 /** A generic-adult starting point for the partner's age, until the user says otherwise. */
 const PARTNER_DEFAULT_AGE = 40;
 
-/** The form's live state — one draft, not a hook per field. Carries the partner's own jobs (§8, issue #118). */
+/** The form's live state — one draft, not a hook per field. Carries the partner's own jobs. */
 interface RelationshipDraft {
   readonly month: number;
   readonly name: string;
@@ -21,9 +21,9 @@ interface RelationshipDraft {
    * retirement age, a job's start age) is an age too.
    */
   readonly age: number;
-  /** The age their open-ended jobs stop (§5) — their own, not the household's. */
+  /** The age their open-ended jobs stop — their own, not the household's. */
   readonly retirementAge: number;
-  /** The age their government benefit begins (§5.4), 62–70. */
+  /** The age their government benefit begins, 62–70. */
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
   readonly jobs: readonly JobDraft[];
@@ -68,10 +68,10 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
       id: `e${nextId}`,
       type: "RelationshipEvent",
       month: draft.month,
-      // Authoring Person (§8): the partner joins with the name and any jobs the user
+      // Authoring the Person: the partner joins with the name and any jobs the user
       // authored. Their jobs — scoped to the partner as owner — drive their earned
       // income, 401(k) deferral, and Social-Security-covered earnings exactly as the
-      // primary earner's do (issue #118). With no jobs the partner joins as before.
+      // primary earner's do. With no jobs the partner joins as before.
       person: {
         id: partnerId,
         name: draft.name || "Partner",
@@ -110,7 +110,7 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         step={1}
       />
 
-      {/* The partner's own jobs (issue #118) — the same job model and form the primary
+      {/* The partner's own jobs — the same job model and form the primary
           earner uses, scoped to the partner. Authored up front; a partner with none
           joins exactly as before. */}
       <div className="field">
@@ -142,7 +142,7 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
           <JobForm
             // Scoped to the partner: no picker here (they are the only owner in this
             // form), and the ages are theirs. Once they have joined, the Jobs panel
-            // lists these alongside everyone else's and can reassign them (#118).
+            // lists these alongside everyone else's and can reassign them.
             // Seeded at the age they join, so a fresh job starts the year they arrive.
             initial={blankJobDraftFor(partnerId, draft.age)}
             submitLabel="Add"
@@ -156,7 +156,7 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         )}
       </div>
 
-      {/* §10.4: their two life-stage ages sit behind a disclosure — both have sensible
+      {/* Their two life-stage ages sit behind a disclosure — both have sensible
           defaults, and a partner who retires and claims like anyone else needs neither.
           Labelled "Their …" because the primary earner's own versions of both are on
           screen at the same time, in the Budget editor. */}
@@ -174,7 +174,7 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
           max={80}
           step={1}
         />
-        {/* §5.4: the pinned claiming age (62–70), theirs to set — their benefit rides
+        {/* The pinned claiming age (62–70), theirs to set — their benefit rides
             their own covered earnings, so it begins on their clock, not the household's. */}
         <NumInput
           label="Their Social Security claiming age"

@@ -1,5 +1,5 @@
 /**
- * Debug panel (§10) — a raw inspector over the engine's {@link SimulationReport}.
+ * Debug panel — a raw inspector over the engine's {@link SimulationReport}.
  * It lists every configuration knob, renders the accumulation table (ages, balances,
  * and cash flows incl. Social Security, per period), and downloads the whole run as
  * JSON. Pure consumer of the engine output: it derives nothing about the simulation

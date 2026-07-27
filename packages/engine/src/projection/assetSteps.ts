@@ -2,7 +2,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import { preciseMonthlyRate } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 
-/** Step 8: one-time transfers to asset accounts (§3.2). Fixed + proportional; neither grows. */
+/** Step 8: one-time transfers to asset accounts. Fixed + proportional; neither grows. */
 export function applyAssetTransfers(state: SimState, month: number): void {
   for (const acc of state.accounts) {
     for (const t of acc.getTransfersAt(month)) {
@@ -10,7 +10,7 @@ export function applyAssetTransfers(state: SimState, month: number): void {
       const fixed = t.amountCents ?? 0;
       const proportional = Math.round(prev * (t.proportionalFraction ?? 0));
       state.assetBalances.set(acc.id, prev + fixed + proportional);
-      // Keep cost basis coherent through transfers (§#94): a proportional move (a
+      // Keep cost basis coherent through transfers: a proportional move (a
       // crash, say) scales basis with the balance; a fixed OUTFLOW returns basis
       // pro-rata like a draw; a fixed post-tax INFLUX adds basis. Pre-tax accounts
       // stay at basis 0 — an influx there is untaxed-in, fully taxable-out.
@@ -27,7 +27,7 @@ export function applyAssetTransfers(state: SimState, month: number): void {
   }
 }
 
-/** Step 9: compound every asset account exactly once at preciseMonthlyRate(rateAt(m)) (§0.2). */
+/** Step 9: compound every asset account exactly once at preciseMonthlyRate(rateAt(m)). */
 export function compoundAssets(
   state: SimState,
   month: number,
@@ -38,12 +38,12 @@ export function compoundAssets(
     const bal = state.assetBalances.get(acc.id) ?? 0;
     const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
     state.assetBalances.set(acc.id, grown);
-    // Interest accrual (§#94 Commit 2): the engine owns the compounding and the accrual
+    // Interest accrual: the engine owns the compounding and the accrual
     // bookkeeping; the JURISDICTION owns whether this account's return is taxed at
     // accrual and under which category (`returnTaxTreatment`). Only an account that
     // declares a neutral `returnKind` is considered — and the jurisdiction may still
     // defer it. Record the credited growth with the jurisdiction-chosen category; the
-    // next month's waterfall taxes it through the single §5.3 seam (this step runs after
+    // next month's waterfall taxes it through the single seam (this step runs after
     // that seam, so it can only be taxed one month on). Refresh every considered account
     // each month — clearing it when the return is deferred — so no figure carries stale.
     if (acc.taxProfile.returnKind !== undefined) {

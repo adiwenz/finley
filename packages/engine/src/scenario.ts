@@ -18,7 +18,7 @@ import { emptyLedger } from "./ledger/ledger";
 export interface Scenario {
   /** The standing steady-state numbers (income, expenses, returns, ages, jobs, goals). */
   readonly plan: Plan;
-  /** The timeline events replayed on top of the plan (§6). */
+  /** The timeline events replayed on top of the plan. */
   readonly ledger: Ledger;
 }
 

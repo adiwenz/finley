@@ -16,7 +16,7 @@ describe("usJurisdiction (US-2026)", () => {
 
   it("exposes its federal-tax simplifications through the modelAssumptions seam", () => {
     // The US tax-threshold indexing / frozen-SS-threshold disclosures ride the
-    // jurisdiction (§5.0), so the report surfaces them without the engine holding a
+    // jurisdiction, so the report surfaces them without the engine holding a
     // US fact. Stable ids let a consumer key/style each.
     const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
     expect(ids).toContain("taxThresholdForwardIndexing");
@@ -28,7 +28,7 @@ describe("usJurisdiction (US-2026)", () => {
     }
   });
 
-  it("reports tax per category, summing to the scalar total (issue #110)", () => {
+  it("reports tax per category, summing to the scalar total", () => {
     // A mixed month: wages + capital gains. The per-category seam must split the tax
     // and its Σ must equal the scalar `computeTaxCents` for the same slice.
     const slice = {
@@ -44,7 +44,7 @@ describe("usJurisdiction (US-2026)", () => {
     expect(byCategory.wages).toBeGreaterThan(0);
   });
 
-  it("runs real single-filer federal tax through the seam (#53)", () => {
+  it("runs real single-filer federal tax through the seam", () => {
     // $100k/yr of wages = $100k/12 per month → annual tax $13,170 → the month's
     // 1/12 share (brackets + standard deduction, single filer).
     const monthly = usJurisdiction.computeTaxCents(

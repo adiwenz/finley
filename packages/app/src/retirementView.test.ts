@@ -23,11 +23,11 @@ import { setJobMonthlyIncome } from "./planPeople";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
-/** The real-jurisdiction projection environment these #37 acceptance tests run against. */
+/** The real-jurisdiction projection environment these acceptance tests run against. */
 const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
 
 /**
- * The retirement view for a plan with no timeline events — the #37 baseline. These
+ * The retirement view for a plan with no timeline events — the baseline. These
  * acceptance tests pin the panel against the bare authored plan; the event-aware path
  * (a ledger that moves the age) is covered by its own test below.
  */
@@ -40,7 +40,7 @@ function survivesAt(budget: Plan, age: number): boolean {
   return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
 
-describe("retirementView — headline age driven off the real projection (#37)", () => {
+describe("retirementView — headline age driven off the real projection", () => {
   it("reports a feasible headline age that actually survives in the projection", () => {
     const view = viewOf(PLAN_DEFAULTS);
     expect(view.headlineAge).not.toBeNull();
@@ -57,7 +57,7 @@ describe("retirementView — headline age driven off the real projection (#37)",
     expect(view.headlineMonth).toBe((age - PLAN_DEFAULTS.currentAge) * 12);
   });
 
-  it("panel age == the first projection age that survives (panel and graph agree, #37)", () => {
+  it("panel age == the first projection age that survives (panel and graph agree)", () => {
     // Sweep every age from now to life expectancy and take the first that survives on
     // the same projection the net-worth graph draws; the panel must report exactly it.
     let firstSurviving: number | null = null;
@@ -82,14 +82,14 @@ describe("retirementView — headline age driven off the real projection (#37)",
     expect(view.headlineMonth).toBeNull();
   });
 
-  // Regression guard for the concrete harm in #28: the $60k home down-payment goal
+  // Regression guard for the concrete harm: the $60k home down-payment goal
   // (disposition `convertToEquity`, target month 60) must NOT compound as a phantom
   // drawable fund and overstate how early the household can retire. The panel/graph
   // agreement tests above only check INTERNAL consistency — they would still pass at
   // an inflated age if the fund leaked back into the nest egg. This pins the absolute
   // correction and shows the disposition is what drives it.
-  it("the convertToEquity down-payment fund drops out of the nest egg (no phantom-fund overstatement, #28)", () => {
-    // Real single-filer federal tax (#53) trims the default $5k plan's surplus enough
+  it("the convertToEquity down-payment fund drops out of the nest egg (no phantom-fund overstatement)", () => {
+    // Real single-filer federal tax trims the default $5k plan's surplus enough
     // that both dispositions bottom out at the Social-Security floor (67), where the
     // disposition difference is masked. Give the plan a bit more income so a feasible
     // age exists BELOW that floor and the phantom-fund effect is visible again — the
@@ -98,10 +98,10 @@ describe("retirementView — headline age driven off the real projection (#37)",
     // With the fund correctly swapped to illiquid equity at maturity, the earliest
     // feasible (partial retirement) age is 64. (Absolute ages here track
     // PLAN_DEFAULTS; they moved again when the default emergency fund became a
-    // cash-realistic 1% cash account (issue #101). The DELTA below is the point.)
+    // cash-realistic 1% cash account. The DELTA below is the point.)
     expect(solveRetirement(scenarioOf(higherIncome), CTX).partialRetirementAge).toBe(64);
 
-    // Counterfactual: had the same fund been `drawDown` (drawable — the pre-#28
+    // Counterfactual: had the same fund been `drawDown` (drawable — the earlier
     // behavior where a matured one-time fund kept compounding in the portfolio), the
     // phantom balance would let the household retire strictly EARLIER. That the two
     // ages differ is the whole point: disposition governs retirement-portfolio inclusion.
@@ -117,10 +117,10 @@ describe("retirementView — headline age driven off the real projection (#37)",
   });
 });
 
-describe("retirementView — target mode against the pinned age (§7.1)", () => {
+describe("retirementView — target mode against the pinned age", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
-    // Real single-filer federal tax (#53) plus a cash-realistic 1% emergency-fund return
-    // (issue #101) lift the default plan's feasible floor to 75, so pin the target there —
+    // Real single-filer federal tax plus a cash-realistic 1% emergency-fund return
+    // lift the default plan's feasible floor to 75, so pin the target there —
     // at/above the floor — to exercise the "pinned age survives → 100%" branch.
     const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 75 };
     const view = viewOf(pinnedAtFloor);
@@ -149,12 +149,12 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
     expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
   });
 
-  // #78: the default plan pinned at its authored age 65 is INFEASIBLE (feasible floor is
+  // The default plan pinned at its authored age 65 is INFEASIBLE (feasible floor is
   // 75) yet holds a `convertToEquity` home goal that keeps net worth positive throughout —
   // exactly the shape that pinned the metric to a contradictory "100% of the way there".
   // The panel must never render 100% for an infeasible plan, and the % is rounded DOWN to
   // one decimal so a barely-short plan can't round UP to a reassuring 100.
-  it("never reads 100% for an infeasible plan and rounds the % DOWN to 0.1% (#78)", () => {
+  it("never reads 100% for an infeasible plan and rounds the % DOWN to 0.1%", () => {
     const view = viewOf(PLAN_DEFAULTS);
     expect(view.target.feasible).toBe(false);
     // Not the self-contradicting 100%.
@@ -165,7 +165,7 @@ describe("retirementView — target mode against the pinned age (§7.1)", () => 
   });
 });
 
-describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medicare)", () => {
+describe("retirementView — early-retiree health-cost honesty flag (Medicare)", () => {
   it("does NOT flag a plan that retires at the Medicare age (no self-funded gap)", () => {
     const view = viewOf({ ...PLAN_DEFAULTS, retirementAge: 65 });
     expect(view.earlyRetireeHealth.flagged).toBe(false);
@@ -195,7 +195,7 @@ describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medi
     expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBe(0);
   });
 
-  it("prices the benchmark in today's dollars — independent of how far off retirement is (§0.5)", () => {
+  it("prices the benchmark in today's dollars — independent of how far off retirement is", () => {
     const near = viewOf({
       ...PLAN_DEFAULTS,
       currentAge: 60,
@@ -216,7 +216,7 @@ describe("retirementView — early-retiree health-cost honesty flag (§5.4, Medi
   });
 });
 
-describe("retirementView — attributed Medicare residual step (§5.4, visible at 65)", () => {
+describe("retirementView — attributed Medicare residual step (visible at 65)", () => {
   it("surfaces the ~$500/mo residual step in today's dollars", () => {
     const view = viewOf({ ...PLAN_DEFAULTS, currentAge: 65 });
     expect(view.residualHealthMonthlyCents).toBe(dollarsToCents(500));
@@ -229,7 +229,7 @@ describe("retirementView — attributed Medicare residual step (§5.4, visible a
     expect(late.residualHealthMonthlyCents).toBeGreaterThan(0);
   });
 
-  it("prices the residual in today's dollars — independent of when the person reaches 65 (§0.5)", () => {
+  it("prices the residual in today's dollars — independent of when the person reaches 65", () => {
     const soon = viewOf({ ...PLAN_DEFAULTS, currentAge: 60 });
     const later = viewOf({ ...PLAN_DEFAULTS, currentAge: 35 });
     expect(later.residualHealthMonthlyCents).toBe(soon.residualHealthMonthlyCents);
@@ -250,14 +250,14 @@ describe("retirementView — attributed Medicare residual step (§5.4, visible a
   });
 });
 
-describe("retirementView — the timeline events count toward retirement (issue #66)", () => {
+describe("retirementView — the timeline events count toward retirement", () => {
   // The whole point of coupling the plan with its ledger: "when can we retire?" must
   // reason about the plan PLUS the events on the user's timeline, exactly as the graph
   // does — not the bare plan. Add a costly recurring expense to the ledger (e.g. the
   // cost of a new child) and the headline retirement age has to move LATER. If the panel
   // still projected an empty ledger, the age would not budge.
   it("a recurring expense added to the ledger pushes the headline age later", () => {
-    // Real single-filer federal tax (#53) pins the default $5k plan right at the
+    // Real single-filer federal tax pins the default $5k plan right at the
     // Social-Security floor (67), where an added expense flips it infeasible rather
     // than merely later. Use a plan with headroom below the floor so "the age moves
     // strictly LATER" is the observable — the coupling under test, not the constant.
@@ -293,13 +293,13 @@ describe("retirementView — the timeline events count toward retirement (issue 
   });
 });
 
-// The surplus-sweep-vs-idle comparison that lived here is retired with the #72 hinge:
+// The surplus-sweep-vs-idle comparison that lived here is retired with the rewire:
 // `surplusSwept` is gone and leftover cash always idles (a household that wants surplus
-// invested authors a brokerage contribution line). The #100 whole-return gross-up the
+// invested authors a brokerage contribution line). The whole-return gross-up the
 // old test exercised end-to-end is still pinned directly below against the real seam.
 
-describe("every draw nets its need under the real jurisdiction (#100)", () => {
-  // The engine's own #100 tests model the tax seam with synthetic jurisdictions, since
+describe("every draw nets its need under the real jurisdiction", () => {
+  // The engine's own tests model the tax seam with synthetic jurisdictions, since
   // the engine cannot import the rules package. This is the proof against the seam that
   // actually ships. It is a REAL shortfall guard, not a hypothetical: sizing the draw by
   // inverting an implied rate (`need / (1 − rate)`) under-delivered by $500.61 on a $50k
@@ -319,7 +319,7 @@ describe("every draw nets its need under the real jurisdiction (#100)", () => {
       accounts: [brokerage],
       assetBalances: new Map([["brokerage", opening]]),
       // Basis absent → 0 → the whole draw is taxable, isolating the gross-up arithmetic
-      // this test proves (the cost-basis path has its own tests, #94).
+      // this test proves (the cost-basis path has its own tests).
       basisByAccount: new Map(),
       liquidAccount: null,
       goals: [],

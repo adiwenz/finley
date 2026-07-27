@@ -108,12 +108,12 @@ describe("buildSimulationReport", () => {
     expect(report.meta).toEqual(meta);
   });
 
-  it("carries the model's disclosed assumptions & simplifications (#94)", () => {
+  it("carries the model's disclosed assumptions & simplifications", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     const ids = report.assumptions.map((a) => a.id);
     // The engine's neutral simplifications must reach the consumer so the app can disclose
-    // them: the two post-tax basis ones (#94), plus how a committed account contribution is
-    // funded (§12). Each carries plain-language text.
+    // them: the two post-tax basis ones, plus how a committed account contribution is
+    // funded. Each carries plain-language text.
     expect(ids).toContain("postTaxOpeningBasis");
     expect(ids).toContain("convertedEquityNoBasis");
     expect(ids).toContain("contributionsNotAssetFunded");
@@ -131,7 +131,7 @@ describe("buildSimulationReport", () => {
     expect(m1.governmentRetirementBenefitCents).toBe(0);
   });
 
-  it("reports the tax the §5.3 seam charged, so it is inspectable and not just folded into take-home", () => {
+  it("reports the tax the jurisdiction seam charged, so it is inspectable and not just folded into take-home", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[1].taxCents).toBe(0);
 
@@ -141,7 +141,7 @@ describe("buildSimulationReport", () => {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
         Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
-      // Matching per-source breakdown (§5.3 attribution contract): each category taxed 10%.
+      // Matching per-source breakdown (attribution contract): each category taxed 10%.
       computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
         const out: Record<string, number> = {};
         for (const [cat, cents] of Object.entries(byCategory)) {
@@ -153,7 +153,7 @@ describe("buildSimulationReport", () => {
     };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
     expect(report.months[1].taxCents).toBe(dollarsToCents(300));
-    expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free (§4.6)
+    expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free
     expect(report.months[1].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 700));
   });
 
@@ -164,10 +164,10 @@ describe("buildSimulationReport", () => {
     expect(report.columns.incomeCategories).toContain("ordinaryIncome");
   });
 
-  it("carries the jurisdiction's per-category tax breakdown, summing to taxCents (issue #110)", () => {
+  it("carries the jurisdiction's per-category tax breakdown, summing to taxCents", () => {
     // A jurisdiction that both taxes AND splits: a flat 10% total, attributed half to
     // wages and half to ordinaryIncome. The report must carry the split, and its Σ must
-    // equal the scalar `taxCents` the take-home already used — the AC invariant.
+    // equal the scalar `taxCents` the take-home already used — the invariant.
     const splittingTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -189,7 +189,7 @@ describe("buildSimulationReport", () => {
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
-  it("splits the tax by income SOURCE, naming each job and summing to taxCents (issue #110 follow-up)", () => {
+  it("splits the tax by income SOURCE, naming each job and summing to taxCents", () => {
     // Two jobs for one person; a wages-taxing jurisdiction that reports the per-category
     // breakdown. The engine attributes the wages tax down to each job by taxable weight.
     const mkJob = (cents: number) =>
@@ -220,7 +220,7 @@ describe("buildSimulationReport", () => {
     expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 
-  it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute) (issue #110)", () => {
+  it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute)", () => {
     // The null jurisdiction charges no tax, so its required breakdown is `{}` on every flowed
     // month (empty, not absent — absent belongs only to the flow-free month 0), and the column
     // unions are empty.
@@ -256,7 +256,7 @@ describe("buildSimulationReport", () => {
   it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {
     // A jurisdiction that declares its own simplifications gets them merged onto the
     // report — engine's neutral assumptions first, the jurisdiction's after — so a US
-    // tax caveat rides `rules`, never the neutral engine (§5.0).
+    // tax caveat rides `rules`, never the neutral engine.
     const jurisdictionAssumption = { id: "j-specific", text: "A jurisdiction-specific caveat." };
     const withAssumptions = {
       ...nullJurisdiction,

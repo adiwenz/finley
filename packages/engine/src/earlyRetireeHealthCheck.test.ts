@@ -12,7 +12,7 @@ function check(overrides: Partial<Parameters<typeof assessEarlyRetireeHealthCost
   });
 }
 
-describe("assessEarlyRetireeHealthCost — pre-65 health-cost honesty flag (§5.4)", () => {
+describe("assessEarlyRetireeHealthCost — pre-65 health-cost honesty flag", () => {
   it("flags an early retiree with no elevated health cost", () => {
     const flag = check({ retirementAge: 55, authoredHealthMonthlyCents: 0 });
     expect(flag.flagged).toBe(true);

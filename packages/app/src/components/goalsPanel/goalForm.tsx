@@ -1,11 +1,11 @@
 /**
- * Goal authoring form (§5.2, Slice 5b) — the disclosed add/edit surface for a goal
- * on the value-editing plane (§4.2 / §10.3): a direct override, NO timeline event.
+ * Goal authoring form — the disclosed add/edit surface for a goal
+ * on the value-editing plane: a direct override, NO timeline event.
  * Holds the disposition and target date as separate controls and folds them back
  * into a legal {@link GoalDisposal} via {@link goalDisposal} on submit, so a firing
  * disposition can never be authored without a month to fire at.
  *
- * Progressive disclosure (§10.4): this is rendered on demand by the panel, not
+ * Progressive disclosure: this is rendered on demand by the panel, not
  * always open. The same form backs both add and edit — `initial` seeds it.
  */
 
@@ -45,7 +45,7 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
     typeof initial?.targetDate === "number" ? initial.targetDate : 12,
   );
   const [annualReturnPct, setAnnualReturnPct] = useState(initial?.annualReturnPct ?? 0);
-  // The account type the fund is held in (issue #101) — the thing a person actually
+  // The account type the fund is held in — the thing a person actually
   // knows. A fresh goal defaults to cash/savings, the most familiar kind.
   const [accountType, setAccountType] = useState<GoalAccountType>(
     initial?.accountType ?? "cash",

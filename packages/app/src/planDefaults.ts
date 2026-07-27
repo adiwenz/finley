@@ -9,15 +9,15 @@ const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
 
 /**
- * The default plan's single open-ended {@link Job} (§1/§6, issue #72) — the source of
+ * The default plan's single open-ended {@link Job} — the source of
  * truth for earned income now that the scalar `incomeCents` / `careerStartAge` /
  * `retirementDeferralPct` fields are gone. It is not a privileged "career" job — just
  * the one job a fresh plan opens with; a person may hold any number, none elevated over
  * the others. A real-flat salary (`realGrowthPct: 0`, so it grows at CPI and holds
  * constant in real terms — the exact behaviour the scalar income lever had) anchored at
  * the age the person started working, ending at their retirement age. Its `startYear`
- * seeds the pre-"now" covered-earnings record (§4.6); a 401(k) deferral, when the user
- * sets one, rides on it (§11).
+ * seeds the pre-"now" covered-earnings record; a 401(k) deferral, when the user
+ * sets one, rides on it.
  */
 const DEFAULT_JOB: Job = {
   id: "job-1",
@@ -47,15 +47,15 @@ export const PLAN_DEFAULTS: Plan = {
   retirementReturnPct: 7,
   brokerageReturnPct: 7,
   sharedScheme: "proportional",
-  // Two goals that outrun the surplus, so the priority tradeoff is visible (§5.2).
+  // Two goals that outrun the surplus, so the priority tradeoff is visible.
   goals: [
     {
       id: "emergency",
       name: "Emergency fund",
       targetCents: dollarsToCents(15000),
       targetDate: 24,
-      // A liquid reserve: built to target, then retained in net worth (§5.2). Held as
-      // CASH (issue #101), not a capital-gains investment — the canonical cash goal is
+      // A liquid reserve: built to target, then retained in net worth. Held as
+      // CASH, not a capital-gains investment — the canonical cash goal is
       // money in savings, so its draw is tax-free and it stays reachable. A cash-like
       // return matches the account type rather than an equity-market 7%.
       disposition: "retain",
@@ -67,15 +67,15 @@ export const PLAN_DEFAULTS: Plan = {
       name: "Home down payment",
       targetCents: dollarsToCents(60000),
       targetDate: 60,
-      // Swapped into home equity via HomePurchaseEvent (§4.5) — an asset swap (§5.2).
-      // A near-term down payment saved in a taxable brokerage (issue #101).
+      // Swapped into home equity via HomePurchaseEvent — an asset swap.
+      // A near-term down payment saved in a taxable brokerage.
       disposition: "convertToEquity",
       accountType: "brokerage",
       annualReturnPct: 7,
     },
   ],
   // A realistic pre-65 self-funded line, but still below the ~$1,200 benchmark —
-  // so pulling the retirement age below 65 makes the honesty nudge fire (§5.4).
+  // so pulling the retirement age below 65 makes the honesty nudge fire.
   healthMonthlyCents: dollarsToCents(700),
   // The Medicare residual from 65 — lower than the pre-65 line, so health steps down.
   postCoverageHealthMonthlyCents: dollarsToCents(500),

@@ -1,13 +1,13 @@
 /**
- * App-side add / rename / delete for line-item budget {@link BudgetLine}s (§12/§15,
- * issue #72) — the structural editing the Base + Adjustments panel lacked (it could only
+ * App-side add / rename / delete for line-item budget {@link BudgetLine}s — the
+ * structural editing the Base + Adjustments panel lacked (it could only
  * override amounts). A line is either an **expense** (a cash outflow) or a **contribution**
  * into a named account (recurring saving/investment, now funded by the sim). These pure
  * list transforms mirror `goalsView`/`planPeople`: the panel calls them through `setLines`.
  *
  * Contribution targets are limited to the engine's post-tax {@link CONTRIBUTION_TARGETS}
  * (brokerage, cash savings) — a post-tax contribution into a pre-tax account would skip
- * the deduction; pre-tax saving is the job's 401(k) deferral, authored on the job (§11).
+ * the deduction; pre-tax saving is the job's 401(k) deferral, authored on the job.
  */
 
 import {

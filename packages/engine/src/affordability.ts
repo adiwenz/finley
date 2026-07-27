@@ -1,7 +1,7 @@
 /**
- * Affordability — the §4.5 soft-warning arithmetic (debt-to-income).
+ * Affordability — the soft-warning arithmetic (debt-to-income).
  *
- * Two constraints govern a home purchase (§4.5): a HARD BLOCK on down-payment
+ * Two constraints govern a home purchase: a HARD BLOCK on down-payment
  * coverage (enforced in the event handler against liquid funds) and this SOFT
  * WARNING on ongoing affordability. DTI never blocks — it flags, and the app
  * pairs the flag with the projected downstream consequence. These are pure
@@ -11,9 +11,9 @@
 import type { Cents } from "./money";
 import { computeAmortizingPaymentCents } from "./liability";
 
-/** Front-end (housing ÷ gross) DTI guideline — lenders typically cap here (§4.5). */
+/** Front-end (housing ÷ gross) DTI guideline — lenders typically cap here. */
 export const DTI_FRONT_END_THRESHOLD = 0.28;
-/** Back-end (total debt ÷ gross) DTI guideline (§4.5). */
+/** Back-end (total debt ÷ gross) DTI guideline. */
 export const DTI_BACK_END_THRESHOLD = 0.36;
 
 export interface DtiAssessment {

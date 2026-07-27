@@ -1,10 +1,10 @@
 /**
  * Monthly income graph data — the income-side companion to {@link
- * import("./perLineBudget")} ("Base + Adjustments", issue #71), reporting income
- * **by source** (issue #99).
+ * import("./perLineBudget")} ("Base + Adjustments"), reporting income
+ * **by source**.
  *
  * Income is deliberately NOT a budget line: spending is authored as `Plan.budgetLines`,
- * while income rides jobs and passive streams (§6/§17). So it gets its own graph rather
+ * while income rides jobs and passive streams. So it gets its own graph rather
  * than a band on the budget chart — and that graph is what makes the shape of a
  * retirement legible: earnings stop at the last paycheck, there is a gap until the
  * claiming age, and the government benefit picks up from there.
@@ -14,7 +14,7 @@
  * account a decumulation draw drains. The previous version banded by {@link
  * import("@finley/engine").ProjectionMonthFlows.incomeByCategoryCents} — a tax
  * classification — which forced hedged labels ("Pre-tax withdrawals" covered every
- * pre-tax account) and collapsed two jobs into one band; issue #99 replaced that.
+ * pre-tax account) and collapsed two jobs into one band; banding by source replaced that.
  *
  * It also surfaces the **savings drawdown**: while cash savings cover the retirement
  * gap the engine reports a `savingsDrawdown` source rather than nothing, so "living off
@@ -51,7 +51,7 @@ export interface IncomeMonthRow {
    * {@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents} (cash inflow
    * minus the pre-tax deferral it made and the tax it bore), read straight through. This is
    * the money actually available to cover the month's spending — the honest quantity to read
-   * against `spendingNeedCents`. The engine owns this arithmetic (issue #110 follow-up): the
+   * against `spendingNeedCents`. The engine owns this arithmetic: the
    * app no longer re-derives cash-inflow − tax − deferral, which had silently dropped
    * savings-interest's tax. It is SIGNED — a source whose deductions exceed its cash inflow is
    * genuinely negative; the chart clamps at 0 only for the stacked band (see `incomeChart`),
@@ -64,7 +64,7 @@ export interface IncomeMonthRow {
   /**
    * The month's spending need — the obligations the income (and any drawdown) has to
    * cover: non-liability expenses + scheduled liability payments (the exact
-   * `sharedObligationCents` the §5.0 waterfall and the decumulation gap use). Drawn as a
+   * `sharedObligationCents` the waterfall and the decumulation gap use). Drawn as a
    * reference line so the chart reads "is what's coming in enough". 0 when flows are
    * absent (month 0).
    */
@@ -83,18 +83,18 @@ export interface IncomeChartData {
   /** First month funded by drawing down cash savings, or `null` if that never happens. */
   readonly firstSavingsDrawdownMonth: number | null;
   /**
-   * First month the §5.1 shortfall cascade ran out of credit and the plan stopped being
+   * First month the shortfall cascade ran out of credit and the plan stopped being
    * financeable ({@link import("@finley/engine").ProjectionMonth.isInsolvent}) — the
    * "broke" marker. `null` if the plan stays solvent across the whole horizon.
    */
   readonly firstInsolventMonth: number | null;
 }
 
-/** Which view of the income chart is showing (issue #99 follow-up). */
+/** Which view of the income chart is showing. */
 export type IncomeMode = "simple" | "advanced";
 
 /**
- * Which dollar basis the income bands are drawn on (issue #110 follow-up):
+ * Which dollar basis the income bands are drawn on:
  *   - `takeHome` (the honest default) — each source's cash after its own tax and pre-tax
  *     deferral, i.e. what's actually available to cover the month's spending. Read this
  *     against the spending-need line: gross would overstate the headroom by the tax and
@@ -132,7 +132,7 @@ function categoryRank(category: string): number {
 
 /**
  * Build the income chart data from a projection series. One row per *flowed* month
- * (month 0 is the flow-free opening snapshot, §4.6, so it is skipped). Sources that
+ * (month 0 is the flow-free opening snapshot, so it is skipped). Sources that
  * carry nothing across the whole horizon are dropped, so a plan with no benefit or no
  * drawdown does not carry an empty band and an unexplained legend entry.
  */
@@ -204,7 +204,7 @@ const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
  * their own ages and a household reading this needs to see whose benefit starts when; and
  * EVERY drawdown — the liquid-buffer `savingsDrawdown` and every
  * asset-sale draw (capital-gains / ordinary / tax-exempt) — folds into a single "Living off
- * savings" band. The Advanced view keeps every source separate, and issue #122 will later
+ * savings" band. The Advanced view keeps every source separate, and a later change will
  * split that drawdown into gain vs. returned principal.
  *
  * Savings interest is recognised by the engine's explicit `"savingsInterest"` provenance
@@ -334,7 +334,7 @@ function yearOf(month: number): number {
  * A one-line summary for the a11y label / status line, or `null` when cash flow runs
  * continuously with no savings drawdown. Names the retirement gap for what it actually
  * is — a stretch lived off savings, drawn as its own band — rather than the old,
- * misleading "no income" framing (issue #99).
+ * misleading "no income" framing.
  */
 export function describeIncomeGap(data: IncomeChartData): string | null {
   if (data.firstSavingsDrawdownMonth !== null) {

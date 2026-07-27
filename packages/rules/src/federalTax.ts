@@ -30,7 +30,7 @@ export {
 } from "./federalTaxAttribution";
 
 /**
- * US federal income tax for a SINGLE FILER (§5.3 seam 1) — the real policy behind
+ * US federal income tax for a SINGLE FILER (seam 1) — the real policy behind
  * the engine's {@link import("@finley/engine").Jurisdiction.computeTaxCents} seam.
  *
  * This is the `rules`-side plug the engine calls once per person to turn a map of
@@ -56,12 +56,12 @@ export {
  * {@link federalAnnualTaxCents}; the monthly seam is the only thing `index.ts`
  * wires into the jurisdiction.
  *
- * NEUTRALITY (§5.0, from #50): every US constant — brackets, deduction, cap-gains
+ * NEUTRALITY: every US constant — brackets, deduction, cap-gains
  * tops, inclusion thresholds — lives HERE, never in `packages/engine/src`. The
  * engine only states neutral per-category gross; this module owns the consequence.
  *
- * Filing status is fixed to SINGLE here (#53). The tax-unit grouping and the
- * MFJ/MFS/HoH tables are #52, which builds a status parameter on top of this.
+ * Filing status is fixed to SINGLE here. The tax-unit grouping and the
+ * MFJ/MFS/HoH tables are future work that would build a status parameter on top of this.
  *
  * ⚠ Estimates, not advice. The FORMULA is modelled faithfully so the cent-pinned
  * base-year anchors hold, but the forward-indexed figures (and the law itself)
@@ -198,7 +198,7 @@ export function federalTaxParts(
 
   // 1. Government-benefit inclusion. Provisional income is all other income that
   //    reaches AGI (ordinary + capital gains) plus tax-exempt interest — the last
-  //    is never taxed itself but still counts toward the benefit test (§5.4).
+  //    is never taxed itself but still counts toward the benefit test.
   const taxableBenefit = taxableSocialSecurityCents(benefit, ordinaryNonBenefit + gains + taxExempt);
 
   // 2. Standard deduction: off ordinary income first, remainder off capital gains.
@@ -243,7 +243,7 @@ export function federalAnnualTaxCents(
 }
 
 /**
- * The engine's §5.3 tax seam for the US single filer: MONTHLY per-category taxable
+ * The engine's tax seam for the US single filer: MONTHLY per-category taxable
  * amounts in → this month's tax in cents out. Brackets are annual, so the monthly
  * slice is annualized (×12), taxed, and the month's 1/12 share returned — the
  * steady-state withholding approximation the projection runs each month. This is

@@ -1,6 +1,6 @@
 /**
  * Turns a {@link Plan} (the authored financial values — NOT life events) into the
- * engine's `LedgerBaseConfig` for replay, including the §5.0 waterfall config
+ * engine's `LedgerBaseConfig` for replay, including the waterfall config
  * (goals and the four levers). The account/goal derivation is exported so a goals
  * surface can score the same goals against the projection without duplicating the map.
  *
@@ -48,16 +48,16 @@ export interface ProjectionContext {
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
 const SAVINGS_ID = "savings";
-/** The pre-tax retirement account a {@link Job}'s 401(k) deferral funds (§11). */
+/** The pre-tax retirement account a {@link Job}'s 401(k) deferral funds. */
 export const RETIREMENT_ID = "retirement";
 const BROKERAGE_ID = "brokerage";
 
 /**
- * The standing accounts a budget **contribution** line (§12) may pay into, with their
+ * The standing accounts a budget **contribution** line may pay into, with their
  * portable {@link TaxTreatment}. Only **post-tax** targets: a contribution is funded out
  * of already-taxed take-home, so paying it into a pre-tax account (retirement) would
- * skip the deduction and overstate tax — pre-tax saving is the job's 401(k) deferral
- * (§11), authored on the job, not here. The app builds its target picker from this list,
+ * skip the deduction and overstate tax — pre-tax saving is the job's 401(k) deferral,
+ * authored on the job, not here. The app builds its target picker from this list,
  * so account ids are never hardcoded in the UI.
  */
 export const CONTRIBUTION_TARGETS: readonly {
@@ -77,7 +77,7 @@ export function goalFundAccountId(goal: GoalPlan): string {
 /**
  * The account-shape a {@link GoalAccountType} resolves to on the goal's fund account:
  * the neutral tax behaviour and whether the balance is liquid. This is the single
- * seam issue #101 adds — the user authors what KIND of account holds the goal (the
+ * seam this adds — the user authors what KIND of account holds the goal (the
  * thing they actually know), and the projection derives the tax treatment and
  * liquidity from it rather than hard-coding capital-gains-and-illiquid.
  *
@@ -86,7 +86,7 @@ export function goalFundAccountId(goal: GoalPlan): string {
  * retirement vehicles (`"taxExempt"`, `"preTax"`) are illiquid — locked up by age and
  * penalty rules, funded through the goal mechanism rather than reachable as a buffer.
  * Cash's withdrawal is tax-free precisely because its return is interest taxed at
- * accrual (§#94); brokerage withdrawal is capital-gains. An unauthored type keeps the
+ * accrual; brokerage withdrawal is capital-gains. An unauthored type keeps the
  * legacy `"brokerage"` shape.
  */
 export const GOAL_ACCOUNT_SHAPES: Readonly<
@@ -98,7 +98,7 @@ export const GOAL_ACCOUNT_SHAPES: Readonly<
   preTax: { taxProfile: PRE_TAX_TAX_PROFILE, liquid: false },
 };
 
-/** The default account type for a goal that never declared one — the pre-#101 behaviour. */
+/** The default account type for a goal that never declared one. */
 const DEFAULT_GOAL_ACCOUNT_TYPE: GoalAccountType = "brokerage";
 
 /** Resolve a goal's fund-account tax profile + liquidity from its authored account type. */
@@ -113,7 +113,7 @@ export function goalAccountShape(goal: GoalPlan): {
  * Every account implied by the plan: the liquid savings account, the pre-tax
  * retirement account (funded by the deferral lever), the sweep-target brokerage,
  * and one fund account per goal. All non-liquid accounts carry the plan's return
- * rate, which is what makes near-term goals in them trip the §5.2 risk flag.
+ * rate, which is what makes near-term goals in them trip the risk flag.
  */
 export function buildPlanAccounts(budget: Plan): SimAccount[] {
   const accounts: SimAccount[] = [
@@ -127,7 +127,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
       // dangerous the moment anything treats savings as sellable — a capital-gains
       // draw counts toward provisional income and pulls the government benefit into
       // tax (see federalTax's provisional-income note). Its withdrawal is tax-free
-      // BECAUSE its interest is taxed as ordinary income at accrual (§#94), which the
+      // BECAUSE its interest is taxed as ordinary income at accrual, which the
       // cash profile — not the genuinely tax-exempt one — declares.
       taxProfile: CASH_INTEREST_TAX_PROFILE,
       openingBalanceCents: budget.openingBalanceCents,
@@ -154,14 +154,14 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
   ];
   for (const goal of budget.goals) {
     // The account TYPE the user authored (cash/brokerage/tax-exempt/pre-tax) is the
-    // source of truth; the fund's tax profile and liquidity derive from it (issue #101)
+    // source of truth; the fund's tax profile and liquidity derive from it
     // rather than every goal being a hard-coded capital-gains investment.
     const { taxProfile, liquid } = goalAccountShape(goal);
     accounts.push(
       new SimAccount({
         id: goalFundAccountId(goal),
         ownerId: PRIMARY_PERSON_ID,
-        // Name the fund by its goal (issue #99): a goal fund being drawn down in
+        // Name the fund by its goal: a goal fund being drawn down in
         // decumulation reads as that goal by name, not an anonymous tax-bucket band.
         label: goal.name,
         liquid,
@@ -182,7 +182,7 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
   return budget.goals.map((goal, i) => {
     // The disposition/targetDate pair travels as ONE value: naming the fields
     // separately here would let a `spend`/`convertToEquity` goal pick up an "asap"
-    // date that the plan type forbids (§5.2, {@link GoalDisposal}).
+    // date that the plan type forbids ({@link GoalDisposal}).
     const disposal: GoalDisposal = goal;
     return {
       id: goal.id,
@@ -197,7 +197,7 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
 }
 
 /**
- * The health expense line (§5.4), additive to the general expense and growing at
+ * The health expense line, additive to the general expense and growing at
  * its own configurable rate (`healthInflationPct`) — so a plan can model medical
  * costs rising faster than general inflation, but need not; it carries whatever
  * `customRate` the user sets rather than being pinned to CPI. When the plan enrols
@@ -248,11 +248,11 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const inflationRate = budget.inflationPct / 100;
   const birthYear = startYear - budget.currentAge;
 
-  // §1 (issue #64, #72 hinge): the standing Job model is the sole source of truth for
+  // The standing Job model is the sole source of truth for
   // earned income. Assemble the primary member as an authoring {@link Person} —
   // identity, the retirement/benefit inputs, and the authored jobs — and compile it
   // for the sim: the pre-"now" covered-earnings record and forward income series both
-  // fall directly out of the jobs' spans and salaries (§4.6/§6), never a scalar lever.
+  // fall directly out of the jobs' spans and salaries, never a scalar lever.
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
@@ -269,12 +269,12 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     { type: "inflationLinked", annualRate: inflationRate },
     { baselineUnit: "monthly" },
   );
-  // Value edits are overrides on the artifact — never life events (§10.3 rule 1).
+  // Value edits are overrides on the artifact — never life events (rule 1).
   for (const o of budget.expenseOverrides) {
     expenseSeries.addOverride(o.month, o.monthlyCents, o.scope);
   }
 
-  // Additive branch (§12, issue #67): a non-empty line-item budget is the new
+  // Additive branch: a non-empty line-item budget is the new
   // source of truth for spending — compile its EXPENSE lines (spans + dated
   // overrides ride into each series) and use them in place of the scalar
   // `expenseCents` series. Contribution lines (account targets) are carried through
@@ -282,17 +282,16 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   // When absent/empty, the scalar expense series above is used.
   const budgetLines = budget.budgetLines;
   // Account-target lines fund the waterfall's contribution step; expense lines compile
-  // to spending series above. Split them once here (§12).
+  // to spending series above. Split them once here.
   const contributionLines: readonly BudgetLine[] = (budgetLines ?? []).filter(
     (l) => l.target.kind === "account",
   );
   // Every expense line is owned by the primary person, but that owner is inert
   // today: the simulator sums all expense series into one household obligation
   // and splits it by `sharedScheme`, never reading an expense's ownerId. So every
-  // expense is effectively shared. Issue #84 will make an expense line optionally
+  // expense is effectively shared. A future change will make an expense line optionally
   // *personal* to its owner (charged against that person's take-home first), at
-  // which point this owner tag starts doing work instead of being a placeholder. 
-  // See issue 84.
+  // which point this owner tag starts doing work instead of being a placeholder.
   const generalExpenseSeries: readonly SimOwnedSeries[] =
     budgetLines != null && budgetLines.length > 0
       ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID, inflationRate)
@@ -315,8 +314,8 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
   // Each job compiles into its own forward income {@link SimOwnedSeries}, running from
-  // "now" (or the job's later start) to its end (§6). Pre-tax 401(k) deferral and any
-  // employer match ride on the job (§11), compiled into the source's plan descriptor.
+  // "now" (or the job's later start) to its end. Pre-tax 401(k) deferral and any
+  // employer match ride on the job, compiled into the source's plan descriptor.
   const initialIncomeSeries: readonly SimOwnedSeries[] = compilePersonIncomeSeries(
     standingPerson,
     startYear,
@@ -324,8 +323,8 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   );
 
   // Leftover cash idles in the liquid account by default; a household that wants it
-  // invested authors a contribution budget line to the brokerage (§12/§15). The
-  // scalar "sweep everything" lever is gone with the #72 hinge.
+  // invested authors a contribution budget line to the brokerage. The
+  // scalar "sweep everything" lever is gone.
   const surplusDestination: SurplusDestination = { kind: "idle" };
 
   return {
@@ -333,7 +332,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,
-    // The roster holds authoring Persons (§8); the sim's SimPerson is derived at the
+    // The roster holds authoring Persons; the sim's SimPerson is derived at the
     // sim boundary (buildHouseholdSimInput → compilePerson), never here.
     initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),
@@ -345,7 +344,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
         ownerId: PRIMARY_PERSON_ID,
         label: "Healthcare",
         // Real spending the household cannot opt out of, authored as a plan input
-        // (§5.4) rather than a budget line — so it reports, but not as editable here.
+        // rather than a budget line — so it reports, but not as editable here.
         spendingSource: {
           kind: "healthcare",
           id: "health",

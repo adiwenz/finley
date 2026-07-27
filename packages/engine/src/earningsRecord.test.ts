@@ -12,7 +12,7 @@ describe("EarningsRecord accumulator", () => {
     expect(toEarningsRecord(seedEarnings()).annualWagesCents.size).toBe(0);
   });
 
-  it("seeds from a pre-now earnings summary (§4.6), dropping non-positive years", () => {
+  it("seeds from a pre-now earnings summary, dropping non-positive years", () => {
     const acc = seedEarnings({ 2020: 5_000_00, 2021: 6_000_00, 2022: 0 });
     const record = toEarningsRecord(acc);
     expect(record.annualWagesCents.get(2020)).toBe(5_000_00);

@@ -1,5 +1,5 @@
 /**
- * Liability — amortizing loan or revolving credit account (§3).
+ * Liability — amortizing loan or revolving credit account.
  *
  * Amortizing liabilities (mortgage, auto, studentLoan): the monthly payment
  * is COMPUTED from current balance/rate/term, not entered as an expense line.
@@ -7,7 +7,7 @@
  *
  * Credit cards: revolving balance, APR, credit limit, minimum payment
  * (greater of 2% of balance or $25). If no credit card is entered, the
- * simulator uses a synthetic 22% APR card as the shortfall sink (§5.1).
+ * simulator uses a synthetic 22% APR card as the shortfall sink.
  */
 
 import type { Cents } from "./money";
@@ -129,14 +129,14 @@ export function minCreditCardPaymentCents(balanceCents: Cents): Cents {
   return Math.max(Math.round(balanceCents * 0.02), 2500);
 }
 
-/** APR of the synthetic credit card used when no real card is entered (§5.1). */
+/** APR of the synthetic credit card used when no real card is entered. */
 export const SYNTHETIC_CREDIT_CARD_APR = 0.22;
 
 /**
- * Default credit limit of the synthetic shortfall card (§5.1: "~22% APR, optional
+ * Default credit limit of the synthetic shortfall card ("~22% APR, optional
  * default limit"). Finite by design: an unlimited card can never be exhausted, so
- * the §5.1 terminal HARD-INFEASIBILITY flag (`isInsolvent`) would never fire and a
- * plan financing itself on unbounded revolving debt would read as solvent (#36).
+ * the terminal HARD-INFEASIBILITY flag (`isInsolvent`) would never fire and a
+ * plan financing itself on unbounded revolving debt would read as solvent.
  * $50,000 is a plausible aggregate unsecured revolving limit — enough to absorb a
  * genuine month-to-month cash crunch, low enough that a plan borrowing to stay
  * afloat indefinitely runs out of credit and is flagged, which is the point.
@@ -165,7 +165,7 @@ abstract class SimLiabilityBase {
   /** Amount owed when the loan originates (positive = owed). */
   readonly openingBalanceCents: Cents;
   /**
-   * Absolute simulation month the loan originates (§4.3). Before it the balance
+   * Absolute simulation month the loan originates. Before it the balance
    * is 0; at it the balance is the opening balance; after it the loan amortizes.
    * Defaults to 0 (present from simulation start).
    */
@@ -175,9 +175,9 @@ abstract class SimLiabilityBase {
 
   /**
    * One-time principal adjustments against this liability — the future
-   * DebtPayoffEvent (§4.3) lands here as a lump-sum payment. Applied by the
+   * DebtPayoffEvent lands here as a lump-sum payment. Applied by the
    * projection in step 10, before that month's interest accrues. Mirrors
-   * Account's one-time-transfer primitive (§3.2). See addTransfer for the sign
+   * Account's one-time-transfer primitive. See addTransfer for the sign
    * convention. v1-seam: the paired cash outflow (this is money leaving a liquid
    * account) is the caller's responsibility — the engine only moves the owed
    * balance, so net-worth conservation requires attaching an Account outflow too.
@@ -235,7 +235,7 @@ abstract class SimLiabilityBase {
  * fixed term. The exact per-month schedule is computed once at origination
  * (amortizationScheduleCents); the monthly payment is a lookup into it, capped
  * at the actual payoff so a lump-sum paydown that drops the balance below the
- * schedule's trajectory retires the loan early rather than over-charging (§4.3).
+ * schedule's trajectory retires the loan early rather than over-charging.
  */
 export class AmortizingLoan extends SimLiabilityBase {
   readonly kind: Exclude<LiabilityKind, "creditCard">;
@@ -276,7 +276,7 @@ export class AmortizingLoan extends SimLiabilityBase {
  * APR, and a credit limit (null = unbounded). The monthly payment is the
  * balance-driven minimum (minCreditCardPaymentCents), capped at the payoff so a
  * near-zero balance is retired rather than over-charged. The synthetic shortfall
- * card (§5.1) is one of these, constructed with a finite default limit.
+ * card is one of these, constructed with a finite default limit.
  */
 export class RevolvingCard extends SimLiabilityBase {
   readonly kind = "creditCard";

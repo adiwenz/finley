@@ -1,4 +1,4 @@
-/** Timeline track: markers on the shared time axis (§10.2). */
+/** Timeline track: markers on the shared time axis. */
 
 import { monthLabel } from "../../format";
 import type { TimelineMarker } from "../../ledgerView";
@@ -17,7 +17,7 @@ export function Timeline({
 }: {
   markers: readonly TimelineMarker[];
   scrubMonth: number;
-  /** Full span of the axis (§7) — matches the net-worth chart so the two align. */
+  /** Full span of the axis — matches the net-worth chart so the two align. */
   horizonMonths: number;
   onScrub: (month: number) => void;
   onRemove: (id: string) => void;

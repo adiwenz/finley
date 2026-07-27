@@ -30,8 +30,8 @@ const SAMPLE_START_AGE = 18;
  * lever exactly: a real-flat salary (`realGrowthPct: 0` → grows at CPI nominally, holding
  * constant in real terms) anchored in the past so it pays from "now", ending at the
  * owner's `retirementTargetAge`. `startAge` sets the job's `startYear` (which seeds the
- * pre-"now" covered-earnings record, §4.6), and an optional deferral rides on the job
- * (§11). This is the fixture equivalent of the deleted `incomeCents` / `careerStartAge` /
+ * pre-"now" covered-earnings record), and an optional deferral rides on the job.
+ * This is the fixture equivalent of the deleted `incomeCents` / `careerStartAge` /
  * `retirementDeferralPct` scalar fields — but it is just one job, in no way privileged;
  * a fixture can hold several (see {@link baristaPlan}).
  */
@@ -94,9 +94,9 @@ const BARISTA_CURRENT_AGE = 45;
 const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
 
 /**
- * A "barista retirement" fixture (§5): a high-earning **open-ended** job (the `null`-end
+ * A "barista retirement" fixture: a high-earning **open-ended** job (the `null`-end
  * job, ending at `retirementTargetAge`) plus a low-earning **fixed-term** ("barista") job
- * that keeps paying long past the open-ended job's end. It exists to pin the two §5 solver
+ * that keeps paying long past the open-ended job's end. It exists to pin the two solver
  * outputs *distinctly*: the partial retirement age (drop the open-ended job, keep the
  * barista + government benefit + assets) lands earlier than the full retirement age (cease ALL
  * jobs, incl. the barista, and survive on government benefit + assets alone). Uses jobs, not

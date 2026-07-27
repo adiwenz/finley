@@ -104,7 +104,7 @@ function rateFor(mode: GrowthMode): number {
 /**
  * The annual growth rate a {@link GrowthMode} implies — 0 for `fixed`, the
  * carried `annualRate` otherwise. Exposed so growth-bearing stocks that aren't
- * cash-flow series (a property's appreciating value, §4.1) can compound at the
+ * cash-flow series (a property's appreciating value) can compound at the
  * same rate the series machinery uses, without duplicating the switch.
  */
 export function growthAnnualRate(mode: GrowthMode): number {

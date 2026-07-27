@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  *
- * Coverage for the Budget/Accounts editor's Social Security claiming-age control
- * (§5.4). The claiming age is a pinned retirement input the solver reads (benefits
+ * Coverage for the Budget/Accounts editor's Social Security claiming-age control.
+ * The claiming age is a pinned retirement input the solver reads (benefits
  * begin at that age); this pins the app-side lever that edits it, its 62–70 bound,
- * and the estimates-not-advice disclaimer the issue requires alongside it.
+ * and the estimates-not-advice disclaimer shown alongside it.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { useState } from "react";
@@ -29,7 +29,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
   );
 }
 
-describe("BudgetEditor — Social Security claiming age (§5.4)", () => {
+describe("BudgetEditor — Social Security claiming age", () => {
   it("shows the claiming-age control seeded from the plan (default 67)", () => {
     render(<Harness />);
     const input = screen.getByLabelText(/Social Security claiming age/i) as HTMLInputElement;
@@ -75,7 +75,7 @@ describe("BudgetEditor — Social Security claiming age (§5.4)", () => {
   });
 });
 
-describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => {
+describe("BudgetEditor — health cost + its own inflation rate", () => {
   it("shows the health-inflation control seeded from the plan", () => {
     render(<Harness />);
     const input = screen.getByLabelText(/Health cost increase/i) as HTMLInputElement;
@@ -108,7 +108,7 @@ describe("BudgetEditor — health cost + its own inflation rate (§5.4)", () => 
   });
 });
 
-describe("BudgetEditor — retirement age (§7)", () => {
+describe("BudgetEditor — retirement age", () => {
   it("shows a retirement-age control seeded from the plan", () => {
     render(<Harness />);
     const input = screen.getByLabelText(/Retirement age/i) as HTMLInputElement;

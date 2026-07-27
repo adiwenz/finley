@@ -1,4 +1,4 @@
-/** Snapshot panel (§10.8) — the household cross-section at the scrubbed month. */
+/** Snapshot panel — the household cross-section at the scrubbed month. */
 
 import {
   buildSnapshot,

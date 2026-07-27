@@ -4,12 +4,12 @@
  * charts, sharing their x-axis and month-selection gesture.
  *
  * Tax is the household's least visible outflow: it never appears as a budget line and it
- * is netted out of every drawdown at the §5.3 chokepoint, so the two charts above it show
+ * is netted out of every drawdown at the chokepoint, so the two charts above it show
  * gross income and gross spending while the tax that sits between them stays implicit.
  * This graph makes it explicit — how much tax the plan pays each month, and how that
  * shape moves as earned income gives way to withdrawals and the government benefit.
  *
- * It STACKS BY INCOME SOURCE (issue #110 follow-up), mirroring the income chart exactly:
+ * It STACKS BY INCOME SOURCE, mirroring the income chart exactly:
  * the engine now reports the tax broken out per source (`ProjectionMonthFlows
  * .taxBySourceCents`) — which JOB, which account draw bore it — because the JURISDICTION
  * owns the category attribution (US tax is not linearly separable — progressive brackets,
@@ -52,8 +52,8 @@ export interface TaxMonthRow {
 export interface TaxChartData {
   readonly rows: readonly TaxMonthRow[];
   /**
-   * The income sources that carry tax somewhere, in stable stacking order (issue #110
-   * follow-up). Empty only when the plan pays no tax at all (a zero-tax plan attributes
+   * The income sources that carry tax somewhere, in stable stacking order.
+   * Empty only when the plan pays no tax at all (a zero-tax plan attributes
    * nothing). Sources that are zero across the whole horizon are dropped, so there is no
    * empty legend entry.
    */
@@ -120,7 +120,7 @@ function bandForTaxOnlyKey(id: string): TaxSourceBand {
 
 /**
  * Build the tax chart data from a projection series. One row per *flowed* month (month 0
- * is the flow-free opening snapshot, §4.6, so it is skipped), mirroring the income chart
+ * is the flow-free opening snapshot, so it is skipped), mirroring the income chart
  * exactly so the two line up point-for-point on the shared axis.
  *
  * Each row keeps the per-source split from the required `taxBySourceCents` (whose Σ equals
@@ -157,7 +157,7 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
       peakMonth = m.month;
     }
 
-    // The per-source breakdown is always present (the §5.3 seam is required; `{}` in a
+    // The per-source breakdown is always present (the seam is required; `{}` in a
     // zero-tax month). A source appears here only for the tax it actually bore.
     const centsBySource: Record<string, number> = {};
     for (const [sourceId, cents] of Object.entries(flows.taxBySourceCents ?? {})) {

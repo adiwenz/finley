@@ -10,7 +10,7 @@ export const INFLATION = 0.03;
 export const START_YEAR = 2026;
 
 /**
- * The plan's projection horizon: from "now" to life expectancy (§7), in months.
+ * The plan's projection horizon: from "now" to life expectancy, in months.
  * Drives the net-worth chart, the timeline axis, and the event year picker so all
  * three span the whole life the retirement panel reasons about — not a fixed 30
  * years. Clamped at 0 for a degenerate age ordering (life expectancy ≤ current age).

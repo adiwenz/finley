@@ -80,9 +80,9 @@ export interface ReportIncomeSource {
   /** Human-facing name of the stream ("Income", "Income · job-1"); null when unnamed. */
   readonly label: string | null;
   readonly taxCategory: string;
-  /** Pre-tax deferral fraction if this source carries a retirement plan (§5.5), else null. */
+  /** Pre-tax deferral fraction if this source carries a retirement plan, else null. */
   readonly deferralFraction: number | null;
-  /** Employer match as a fraction of the deferral (§5.5); null without a plan. */
+  /** Employer match as a fraction of the deferral; null without a plan. */
   readonly employerMatchFraction: number | null;
   readonly fundAccountId: string | null;
   readonly monthlyCentsAtStart: Cents;
@@ -121,7 +121,7 @@ export interface ReportInputs {
   /** General CPI: the rate that drives inflation-linked series and the real/nominal split. */
   readonly annualInflationRate: number;
   /**
-   * The COLA rate actually applied to the government retirement benefit (§5.4) —
+   * The COLA rate actually applied to the government retirement benefit —
    * the plan's `benefitColaRate` when set, else general CPI. RESOLVED, so a reader
    * never has to re-apply the fallback; `benefitColaRateIsExplicit` says which it was.
    */
@@ -149,7 +149,7 @@ export interface ReportMonth {
   readonly year: number;
   /** Integer age this calendar year (year − birthYear), per person with a birth year. */
   readonly ageByPerson: Readonly<Record<string, number>>;
-  /** Null once the plan is insolvent (§5.1) — see {@link ProjectionMonth}. */
+  /** Null once the plan is insolvent — see {@link ProjectionMonth}. */
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
@@ -159,23 +159,23 @@ export interface ReportMonth {
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   readonly totalIncomeCents: Cents;
   readonly governmentRetirementBenefitCents: Cents;
-  /** Tax charged this month through the §5.3 jurisdiction seam, all persons summed. */
+  /** Tax charged this month through the jurisdiction seam, all persons summed. */
   readonly taxCents: Cents;
   /**
-   * This month's tax broken out by {@link TaxCategory} (issue #110) — the tax analog of
+   * This month's tax broken out by {@link TaxCategory} — the tax analog of
    * `incomeByCategoryCents`. Present for every flowed month (`{}` when no tax, otherwise Σ
    * === `taxCents`); absent only for the flow-free opening month (month 0), which carries
    * no flows at all.
    */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
-   * This month's tax broken out by income SOURCE (issue #110 follow-up) — the finer
+   * This month's tax broken out by income SOURCE — the finer
    * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
    * tax is named rather than collapsed into `wages`. Present for every flowed month (`{}`
    * when no tax, otherwise Σ === `taxCents`); absent only for the flow-free month 0.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
-  /** This month's pre-tax deferral by income source (issue #110 follow-up); absent when none deferred. */
+  /** This month's pre-tax deferral by income source; absent when none deferred. */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
@@ -195,14 +195,14 @@ export interface ReportColumns {
   readonly propertyIds: readonly string[];
   readonly incomeCategories: readonly string[];
   /**
-   * The union of tax categories that appear across the run (issue #110), so a consumer
+   * The union of tax categories that appear across the run, so a consumer
    * can lay out the stacked tax chart's bands. Empty when the jurisdiction reports no
    * per-category breakdown anywhere (a single-band tax chart).
    */
   readonly taxCategories: readonly string[];
   /**
-   * The union of income-source ids that ever bore tax across the run (issue #110
-   * follow-up), so a consumer can lay out a per-source (per-job) stacked tax chart. Empty
+   * The union of income-source ids that ever bore tax across the run, so a consumer
+   * can lay out a per-source (per-job) stacked tax chart. Empty
    * when the jurisdiction reports no per-source breakdown anywhere.
    */
   readonly taxSources: readonly string[];
@@ -213,7 +213,7 @@ export interface SimulationReport {
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
   /**
-   * Model simplifications worth disclosing to the end user (§#94) — the engine's own
+   * Model simplifications worth disclosing to the end user — the engine's own
    * neutral ones ({@link MODEL_ASSUMPTIONS}) followed by the jurisdiction's own
    * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}, e.g. US tax-
    * threshold forward indexing), so a consumer can render an "assumptions &
@@ -404,7 +404,7 @@ export function summarizeSimulation(
     inputs: echoInputs(input),
     columns,
     months,
-    // Engine's neutral simplifications first, then the jurisdiction's own (§5.0): the
+    // Engine's neutral simplifications first, then the jurisdiction's own: the
     // US-specific caveats (e.g. tax-threshold forward indexing) ride the jurisdiction.
     assumptions: [...MODEL_ASSUMPTIONS, ...(jurisdiction?.modelAssumptions ?? [])],
     ...(meta !== undefined ? { meta } : {}),

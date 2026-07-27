@@ -14,12 +14,12 @@ import { formatDollars } from "../../format";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
- * Monthly tax-paid chart — stacked below the income and per-line budget charts (issue
- * #71 lineage), sharing the same x-axis, the same click-to-select gesture, and the same
+ * Monthly tax-paid chart — stacked below the income and per-line budget charts,
+ * sharing the same x-axis, the same click-to-select gesture, and the same
  * selection marker. Read together with the two above it, it shows the wedge between gross
  * income and gross spending that the tax seam takes out each month.
  *
- * It STACKS BY INCOME SOURCE (issue #110 follow-up), matching the income chart: the engine
+ * It STACKS BY INCOME SOURCE, matching the income chart: the engine
  * splits the tax down to the job / account draw that bore it, so each band names its source
  * and is coloured by that source's provenance category — a "money leaving" rust family,
  * distinct from the income blues and the budget greens, with one tone per category so a
@@ -79,7 +79,7 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
   const stacked = data.hasSourceBreakdown && data.sources.length > 0;
   // Chart geometry depends only on `data` (stable while scrubbing) — memoize it so moving
   // the selected month, which re-renders this component via `selectedMonth`, doesn't
-  // rebuild the colour map or remap every month row (§rerender-memo).
+  // rebuild the colour map or remap every month row.
   const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
   const rows = useMemo(
     () =>

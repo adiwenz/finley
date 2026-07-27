@@ -1,7 +1,7 @@
 /**
  * Public type contract of the household simulator (see `./simulate`). These are
  * the shapes callers hand in (`HouseholdSimInput` and its parts) and get back
- * (`ProjectionSeries` and its per-month rows) — the chart's data contract (§10.6)
+ * (`ProjectionSeries` and its per-month rows) — the chart's data contract
  * and the engine's public API. The mutable per-run `SimState` is deliberately NOT
  * here: it stays private to `./simulate` alongside the code that builds it.
  *
@@ -40,14 +40,14 @@ export interface LiabilityPaymentRecord {
 
 /**
  * The projection series — the engine's public output and the chart's data
- * contract (§10.6). One entry per simulated month, starting at the "now"
- * marker (month 0); there is no pre-"now" financial curve (§4.6).
+ * contract. One entry per simulated month, starting at the "now"
+ * marker (month 0); there is no pre-"now" financial curve.
  *
- * Simulate in nominal dollars, report in real dollars (§0.4): every point
+ * Simulate in nominal dollars, report in real dollars: every point
  * carries both `netWorthNominalCents` and `netWorthRealCents`, so the chart can
  * draw the real and nominal curves without recomputing the conversion.
  *
- * Net worth is `null` for every month AFTER the first insolvent one (§5.1). Once
+ * Net worth is `null` for every month AFTER the first insolvent one. Once
  * the shortfall cascade drops unfundable spending, the model has no fidelity past
  * that point — every later balance is fiction — so it reports "unknown" rather than
  * a misleadingly flat number. The first insolvent month keeps its real (negative)
@@ -65,18 +65,18 @@ export interface ProjectionMonth {
    * Per-liability payment record for this month, keyed by liability id — the
    * partial-payment / forbearance seam. Only liabilities with a payment due this
    * month appear (see LiabilityPaymentRecord). Empty at month 0 (no month is
-   * processed before "now", §4.6).
+   * processed before "now").
    */
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
   /**
    * Value of each owned property at this month (positive = asset), keyed by
    * property id. A property appears from its purchase month and drops out once
    * sold; its value contributes to net worth, and equity = value − the associated
-   * mortgage balance in `liabilityBalancesCents` (§4.1).
+   * mortgage balance in `liabilityBalancesCents`.
    */
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;
   /**
-   * True in any month where the §5.1 shortfall cascade exhausted all available
+   * True in any month where the shortfall cascade exhausted all available
    * credit and could not cover the deficit. Once true, the plan is unfinanceable
    * from this month forward without structural changes.
    */
@@ -93,11 +93,11 @@ export interface ProjectionMonth {
  * Per-month cash *flows* (rates), the diagnostic companion to the stock balances
  * on {@link ProjectionMonth}. Not needed to draw the net-worth curve — the balances
  * already encode it — so it is optional and exists for inspection surfaces (the
- * debug panel, §10) that want to see the income/expense movements the month applied,
+ * debug panel) that want to see the income/expense movements the month applied,
  * not just the resulting balances. Populated straight from the same income sources
  * and obligations the waterfall consumed, so it can never disagree with the sim.
  *
- * Absent on month 0 (the flow-free opening snapshot, §4.6).
+ * Absent on month 0 (the flow-free opening snapshot).
  */
 export interface ProjectionMonthFlows {
   /**
@@ -106,13 +106,13 @@ export interface ProjectionMonthFlows {
    * breakdown of every income source the waterfall saw, including the derived
    * government retirement benefit and RMD draws. Retained as the convenience
    * tax-category rollup of {@link incomeSources}, exactly as `expensesCents`
-   * coexists with `lineMonthlyCents` (§Q27) — a category is a tax classification,
+   * coexists with `lineMonthlyCents` — a category is a tax classification,
    * not a source, so two jobs share one `wages` bucket and every pre-tax draw shares
    * `ordinaryIncome`.
    */
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's income reported BY SOURCE (issue #99) — the finer breakdown the
+   * This month's income reported BY SOURCE — the finer breakdown the
    * category rollup above collapses. One entry per distinct source that paid cash
    * this month (a specific job, a specific account draw, the government benefit),
    * each naming itself and its provenance {@link ProjectionIncomeSource.category} so
@@ -120,7 +120,7 @@ export interface ProjectionMonthFlows {
    * drained rather than hedging behind a tax bucket.
    *
    * It also carries the **liquid-buffer drawdown** as its own `savingsDrawdown`
-   * source: while cash savings still cover the month's gap the §5.1 cascade charges
+   * source: while cash savings still cover the month's gap the shortfall cascade charges
    * spending straight against the account and no taxable withdrawal source is created,
    * so "living off savings" would otherwise read as zero income. That drawdown is NOT
    * taxable income and so is deliberately absent from `incomeByCategoryCents` /
@@ -141,14 +141,14 @@ export interface ProjectionMonthFlows {
   /** The government-retirement-benefit slice of income this month (0 before any claim). Convenience view. */
   readonly governmentRetirementBenefitCents: Cents;
   /**
-   * Tax charged this month through the §5.3 jurisdiction seam, summed across every
+   * Tax charged this month through the jurisdiction seam, summed across every
    * person. Already deducted from take-home by the waterfall — this is the reporting
    * view of a figure the sim otherwise consumes silently, so `totalIncomeCents −
    * taxCents` is the household's after-tax gross.
    */
   readonly taxCents: Cents;
   /**
-   * This month's tax broken out BY {@link TaxCategory} (issue #110) — the tax analog of
+   * This month's tax broken out BY {@link TaxCategory} — the tax analog of
    * `incomeByCategoryCents`, summed across every person. The jurisdiction owns the
    * attribution method (US tax is not linearly separable by category — progressive
    * brackets, the standard deduction, the capital-gains preference, and benefit
@@ -160,7 +160,7 @@ export interface ProjectionMonthFlows {
    */
   readonly taxByCategoryCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's tax broken out BY SOURCE (issue #110 follow-up) — the finer sibling of
+   * This month's tax broken out BY SOURCE — the finer sibling of
    * `taxByCategoryCents`, keyed by each source's reporting id (the same `sourceId` used in
    * {@link incomeSources}, falling back to its tax category). Two jobs no longer collapse
    * into one `wages` band: each carries the tax it bore, apportioned per person by taxable
@@ -172,7 +172,7 @@ export interface ProjectionMonthFlows {
    */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's pre-tax deferral broken out BY SOURCE (issue #110 follow-up), keyed like
+   * This month's pre-tax deferral broken out BY SOURCE, keyed like
    * {@link taxBySourceCents}. A source that deferred nothing is absent. The engine already
    * folds this and `taxBySourceCents` into each source's {@link
    * ProjectionIncomeSource.netCashFlowCents}, so a consumer reads take-home directly; this
@@ -186,10 +186,10 @@ export interface ProjectionMonthFlows {
   readonly liabilityPaymentsCents: Cents;
   /**
    * Per-budget-line monthly amount this month, keyed by the line's `allocations()` id
-   * (`line:<id>`, so author line ↔ resolved line ↔ reported line — §Q27). This is the
+   * (`line:<id>`, so author line ↔ resolved line ↔ reported line). This is the
    * budget as authored: span and dated overrides applied, price growth accrued.
    *
-   * It is deliberately NOT rationed by the §15 waterfall in a tight month. The
+   * It is deliberately NOT rationed by the waterfall in a tight month. The
    * simulator never skips spending — an uncovered obligation cascades onto credit — so
    * a line reported below its amount would describe money that was in fact spent; and
    * once credit is gone the plan is insolvent (see {@link ProjectionMonth.isInsolvent}),
@@ -202,7 +202,7 @@ export interface ProjectionMonthFlows {
    */
   readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
   /**
-   * **Everything this month cost, itemized** (issue #119 follow-up) — authored budget
+   * **Everything this month cost, itemized** — authored budget
    * lines, the health line, event-created expenses, and each liability's scheduled
    * payment, each carrying its label, category, provenance, and whether it is editable
    * as a line. See {@link import("./spendingItems").SpendingItem}.
@@ -222,7 +222,7 @@ export interface ProjectionMonthFlows {
 }
 
 /**
- * The provenance category of one reported income source (issue #99) — the display/grouping
+ * The provenance category of one reported income source — the display/grouping
  * axis, NOT the tax axis. For a genuine income source it is usually the source's own {@link
  * TaxCategory} (the same value that buckets it in `incomeByCategoryCents`), but two members
  * carry explicit provenance the tax category can't express:
@@ -239,7 +239,7 @@ export interface ProjectionMonthFlows {
 export type IncomeSourceCategory = TaxCategory | "savingsDrawdown" | "savingsInterest";
 
 /**
- * One reported income source for a single month (issue #99) — the per-source unit of
+ * One reported income source for a single month — the per-source unit of
  * {@link ProjectionMonthFlows.incomeSources}. `sourceId` is a stable machine key (a job's
  * id, an account's id, `benefit:<person>`, the fixed savings-drawdown id) so a chart can
  * keep a band's identity across months; `label` is its human name; `category` places it
@@ -295,7 +295,7 @@ export interface SimPerson {
   readonly id: string;
   readonly name: string;
   /**
-   * Birth year (§5.4). Present → the simulator accumulates this person's
+   * Birth year. Present → the simulator accumulates this person's
    * lifetime {@link EarningsRecord} and, at their {@link benefitClaimingAge}, begins a
    * derived government retirement benefit income stream via the jurisdiction seam.
    * Absent → no benefit is modelled for them (the record is only useful with an age
@@ -303,13 +303,13 @@ export interface SimPerson {
    */
   readonly birthYear?: number;
   /**
-   * Pinned government-benefit claiming age (62–70, §5.4). A decision variable, never
+   * Pinned government-benefit claiming age (62–70). A decision variable, never
    * searched by the retirement solver. Defaults to 67 (full retirement age) when
    * {@link birthYear} is set. Ignored without a birth year.
    */
   readonly benefitClaimingAge?: number;
   /**
-   * Pre-"now" covered-earnings summary (§4.6), keyed by calendar year — the one
+   * Pre-"now" covered-earnings summary, keyed by calendar year — the one
    * historical financial input. Seeds the {@link EarningsRecord} so a mid-career
    * person has a benefit basis before the projection's own earnings accumulate.
    */
@@ -328,32 +328,32 @@ export interface SimOwnedSeries {
    */
   readonly label?: string;
   /**
-   * Stable machine id for this stream (issue #99), used as the `sourceId` of its
+   * Stable machine id for this stream, used as the `sourceId` of its
    * reported income flow so a chart can keep a band's identity across months and name
    * *which* job a paycheck came from. Diagnostic only — the simulation reads it for
    * nothing. Absent → the flow view falls back to keying the source by owner.
    */
   readonly sourceId?: string;
   /**
-   * Retirement-plan descriptor (§5.5) for an income source that funds a
+   * Retirement-plan descriptor for an income source that funds a
    * person-owned account. Presence makes the source eligible for pre-tax deferral
-   * in the §5.0 waterfall (step 1); absence means it enters post-deferral. Only
+   * in the waterfall (step 1); absence means it enters post-deferral. Only
    * meaningful on income series.
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * Provenance tag for an EXPENSE series compiled from a standing budget line (§12,
-   * §Q27): the source line's authoring id. Only set when the series was compiled from a
+   * Provenance tag for an EXPENSE series compiled from a standing budget line:
+   * the source line's authoring id. Only set when the series was compiled from a
    * {@link import("../budgetLine").BudgetLine}; a scalar/health expense series carries
    * none. It keys the per-line map on {@link ProjectionMonthFlows.lineMonthlyCents} —
    * author line ↔ resolved series ↔ reported line — and the simulator reads it for
-   * nothing else. Notably it carries no §15 priority: nothing here ranks lines, because
+   * nothing else. Notably it carries no priority: nothing here ranks lines, because
    * a tight month is absorbed by savings and credit rather than by starving the
    * low-priority ones. Ordering lives in `budgetLine.ts` for the authoring view.
    */
   readonly lineId?: string;
   /**
-   * Provenance for an EXPENSE series' unified spending report (issue #119 follow-up):
+   * Provenance for an EXPENSE series' unified spending report:
    * which authoring model this stream came from, how to categorize it, and whether it
    * is editable as a line. Set where the series is compiled — the only place that
    * knows — and read only by {@link import("./spendingItems").buildSpendingItems},
@@ -364,7 +364,7 @@ export interface SimOwnedSeries {
 }
 
 /**
- * A property as the simulator consumes it: an appreciating asset stock (§4.1).
+ * A property as the simulator consumes it: an appreciating asset stock.
  * Value opens at `openingValueCents` at `startMonth`, then compounds monthly at
  * `preciseMonthlyRate(appreciationAnnualRate)` (0 for a flat/`fixed` property).
  * It contributes to net worth through `endMonth` inclusive (a sale month), then
@@ -383,7 +383,7 @@ export interface HouseholdSimInput {
   readonly horizonMonths: number;
   readonly annualInflationRate: number;
   /**
-   * The cost-of-living rate applied to government retirement benefits (§5.4). When
+   * The cost-of-living rate applied to government retirement benefits. When
    * unset the benefit COLA is COUPLED to {@link annualInflationRate} (general CPI);
    * setting it DECOUPLES the two (e.g. a benefit indexed below general inflation).
    * Optional so no existing input needs editing.
@@ -392,7 +392,7 @@ export interface HouseholdSimInput {
   readonly startYear?: number;
   readonly persons: readonly SimPerson[];
   /**
-   * Asset accounts. Net cash flow is routed through the §5.0 waterfall; leftover
+   * Asset accounts. Net cash flow is routed through the waterfall; leftover
    * surplus idles in the first liquid account by default (see `surplusDestination`).
    * Every account a goal or the surplus destination targets must be one of these —
    * a deposit to an unknown account id would not be counted toward net worth.
@@ -402,24 +402,24 @@ export interface HouseholdSimInput {
   readonly expenseSeries: readonly SimOwnedSeries[];
   /**
    * Liabilities (mortgages, auto loans, student loans, credit cards).
-   * Amortizing payments are computed from opening balance/rate/term (§3);
+   * Amortizing payments are computed from opening balance/rate/term;
    * credit card minimum payments are computed each month from the current balance.
-   * If no credit cards are provided, a synthetic 22% APR card absorbs shortfalls (§5.1).
+   * If no credit cards are provided, a synthetic 22% APR card absorbs shortfalls.
    */
   readonly liabilities?: readonly SimLiability[];
   /**
-   * Owned properties (§4.1). Each is an appreciating asset stock whose value
+   * Owned properties. Each is an appreciating asset stock whose value
    * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
    */
   readonly properties?: readonly SimProperty[];
   /**
-   * Funding goals — prioritized destinations in the §5.0 waterfall (§5.2). Shared
+   * Funding goals — prioritized destinations in the waterfall. Shared
    * goals draw from the household pool; personal goals from their owner's leftover.
    * Retirement is just the highest-priority horizon goal. Defaults to none.
    */
   readonly goals?: readonly SimGoal[];
   /**
-   * Standing account-contribution budget lines (§12/§15): "put $X into this account"
+   * Standing account-contribution budget lines: "put $X into this account"
    * each month. Resolved per-month and funded from discretionary alongside goals, so a
    * recurring saving/investment contribution accumulates in its account instead of
    * idling. Expense lines are NOT here — they arrive precompiled in `expenseSeries`.
@@ -427,13 +427,13 @@ export interface HouseholdSimInput {
    */
   readonly contributionLines?: readonly BudgetLine[];
   /**
-   * Lever 2 (§5.0): how partners split shared obligations. Defaults to
+   * Lever 2: how partners split shared obligations. Defaults to
    * `"proportional"` (to take-home) — the robust default that degrades gracefully
    * under unequal or zero incomes.
    */
   readonly sharedScheme?: SharedContributionScheme;
   /**
-   * Lever 4 (§5.0): where leftover cash lands once every goal is funded. Defaults
+   * Lever 4: where leftover cash lands once every goal is funded. Defaults
    * to `{ kind: "idle" }` — surplus idles in the first liquid account.
    */
   readonly surplusDestination?: SurplusDestination;

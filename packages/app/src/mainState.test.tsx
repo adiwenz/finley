@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Behavioral coverage for App's plan state (the value-editing surface §10.2 and
+ * Behavioral coverage for App's plan state (the value-editing surface and
  * the event ledger). These pin the wiring that replaced the old usePlanState
  * hook: budget edits churn the projection base, scrub/ledger edits do not, and
  * removal resolves against the latest ledger.
@@ -123,8 +123,8 @@ describe("App — event ledger", () => {
     expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();
   });
 
-  it("carries a partner's own job through every surface, and edits it from the Jobs panel (#118)", () => {
-    // End to end for issue #118: author a partner WITH a job on the timeline, and it must
+  it("carries a partner's own job through every surface, and edits it from the Jobs panel", () => {
+    // End to end: author a partner WITH a job on the timeline, and it must
     // (a) show up in the household's job list, (b) count as income on the income-vs-spend
     // graph below it — which used to project the plan alone, so no timeline event reached
     // it — and (c) be editable in place afterwards, revising the event it rides on.
@@ -201,7 +201,7 @@ describe("App — event ledger", () => {
   });
 });
 
-describe("App — starter simulations (issue #119)", () => {
+describe("App — starter simulations", () => {
   it("loads a scenario's plan and its seed timeline together", () => {
     render(<App />);
     // Opens on the healthy default with an empty timeline.
@@ -284,7 +284,7 @@ describe("App — budget edits", () => {
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
     // A budget edit rebuilds it — once for the net-worth graph, plus the sweep the
-    // projection-driven retirement panel runs to find the feasible age (#37), so the
+    // projection-driven retirement panel runs to find the feasible age, so the
     // count jumps by more than one. What matters is that an edit *does* rebuild.
     fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },

@@ -3,10 +3,10 @@
  *
  * These are nominal `string` subtypes: a `PersonId` is a string at runtime, but
  * the compiler refuses to mix it up with a `SeriesId` or a raw `string`. They
- * exist to make the replay layer's indexed maps (§9) type-safe — keying
+ * exist to make the replay layer's indexed maps type-safe — keying
  * `Map<PersonId, …>` by an accidental `LiabilityId` becomes a compile error.
  *
- * Scope (per §10): brands live at the ledger/interpret boundary and the derived
+ * Scope: brands live at the ledger/interpret boundary and the derived
  * model. Public event objects keep plain `string` id fields so authoring an
  * event stays ergonomic (`{ id: "e1", … }`); the replay boundary brands them
  * with the smart constructors below. Branded ids are assignable *to* `string`,

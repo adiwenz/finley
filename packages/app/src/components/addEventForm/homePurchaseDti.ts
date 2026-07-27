@@ -1,9 +1,9 @@
 /**
- * The §4.5 soft debt-to-income assessment for a *prospective* home purchase —
+ * The soft debt-to-income assessment for a *prospective* home purchase —
  * the app-side glue that feeds the engine's pure affordability arithmetic
  * (`assessDti`, `mortgagePaymentForPurchaseCents`) the household's real numbers.
  *
- * Slice 4 (#23): the arithmetic already lived in the engine but had zero call
+ * The arithmetic already lived in the engine but had zero call
  * sites. This derives the three inputs it needs from the live household at the
  * purchase month — gross monthly income, the mortgage the purchase would imply,
  * and the debt already being serviced — and returns the classification plus the
@@ -54,7 +54,7 @@ function monthlyGrossCents(
 /**
  * Debt already serviced at `month`, before this purchase — scheduled liability
  * payments (mortgages, loans, card minimums) from the projected month's flows.
- * Month 0 carries no flows (§4.6), and an empty ledger none at all, so this is 0
+ * Month 0 carries no flows, and an empty ledger none at all, so this is 0
  * when nothing is owed.
  */
 function existingMonthlyDebtCents(series: ProjectionSeries, month: number): Cents {

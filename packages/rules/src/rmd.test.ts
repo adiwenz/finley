@@ -9,7 +9,7 @@ function ctx(birthYear: number, age: number): RmdContext {
 
 const ONE_MILLION: Cents = 1_000_000_00;
 
-describe("requiredMinimumDistributionCents — US RMD schedule (§5.4)", () => {
+describe("requiredMinimumDistributionCents — US RMD schedule", () => {
   it("cent-pinned anchor: $1,000,000 at age 75 uses the 24.6 divisor", () => {
     // Uniform Lifetime Table divisor at 75 is 24.6:
     //   $1,000,000 / 24.6 = $40,650.4065… → round to the cent → $40,650.41

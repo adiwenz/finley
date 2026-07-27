@@ -1,5 +1,5 @@
 /**
- * Interpret — the one place event meaning becomes household state (§1).
+ * Interpret — the one place event meaning becomes household state.
  *
  * `interpretLedger` folds the ledger over the handler registry and returns an
  * immutable {@link Household}. Both projection and snapshot consume
@@ -41,7 +41,7 @@ function materializeSeries(def: SeriesDef): SimCashFlowSeries {
   });
 }
 
-/** Interpretation order: (month ASC, sequenceNumber ASC) — producer-before-consumer (§5, §6). */
+/** Interpretation order: (month ASC, sequenceNumber ASC) — producer-before-consumer. */
 export function sortedEvents(events: readonly LifeEvent[]): LifeEvent[] {
   return [...events].sort(
     (a, b) => a.month - b.month || a.sequenceNumber - b.sequenceNumber,
@@ -113,11 +113,11 @@ function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index:
 }
 
 /**
- * A partner's own jobs (issue #118) compiled into forward income series, clipped to the
+ * A partner's own jobs compiled into forward income series, clipped to the
  * membership window (join → separation). The primary earner's jobs are already compiled
  * into `base.initialIncomeSeries`; a partner joins via a RelationshipEvent, so their
  * jobs live on the membership and are compiled here — into `household.series`, so the
- * projection AND the snapshot read the identical income (§1, the single-interpreter
+ * projection AND the snapshot read the identical income (the single-interpreter
  * invariant). These series are derived from the membership, so removing the
  * RelationshipEvent drops the membership and the income with it — hence `causedByEventId:
  * null` (recomputed each interpretation), exactly like the base series.
@@ -217,7 +217,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
   };
 }
 
-/** The single derive-from-ledger entry point (§1). */
+/** The single derive-from-ledger entry point. */
 export function interpretLedger(ledger: Ledger, base: LedgerBaseConfig): Household {
   return toHousehold(interpretToState(ledger, base), base);
 }

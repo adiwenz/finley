@@ -42,7 +42,7 @@ const baseBudget: Plan = {
   sharedScheme: "proportional",
   goals: [],
   // No health line here: these tests pin the $1,500/mo surplus ($5,000 − $3,500)
-  // that goal funding draws from, and health is a separate additive expense (§5.4).
+  // that goal funding draws from, and health is a separate additive expense.
   healthMonthlyCents: 0,
   postCoverageHealthMonthlyCents: 0,
   enrollsInPublicHealthCoverage: true,
@@ -80,7 +80,7 @@ function project(budget: Plan) {
   );
 }
 
-describe("goalRows — projection-based on-track % (§5.2)", () => {
+describe("goalRows — projection-based on-track %", () => {
   it("scores each goal by projected fund at target ÷ target, not saved-so-far", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
     const rows = goalRows(budget, project(budget));
@@ -90,7 +90,7 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
     expect(rows[1]).toMatchObject({ id: "b", priority: 1, onTrackPct: 0 });
   });
 
-  it("reprioritizing visibly moves the OTHER goal's number (§5.2 tradeoff)", () => {
+  it("reprioritizing visibly moves the OTHER goal's number (tradeoff)", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
     const reordered = { ...budget, goals: reorderGoal(budget.goals, "b", "up") };
     const rows = goalRows(reordered, project(reordered));
@@ -116,7 +116,7 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
     expect(rows[0].onTrackPct).toBe(100);
   });
 
-  it("flags a near-term goal accumulating in an equity-like account (§5.2)", () => {
+  it("flags a near-term goal accumulating in an equity-like account", () => {
     // A 7% return account + a 12-month horizon is exactly the risk v1 can't model.
     const budget = { ...baseBudget, goals: [{ ...goalA, annualReturnPct: 7 }] };
     const rows = goalRows(budget, project(budget));
@@ -130,9 +130,9 @@ describe("goalRows — projection-based on-track % (§5.2)", () => {
   });
 });
 
-describe("goalRows — surfaces each goal's disposition (§5.2)", () => {
+describe("goalRows — surfaces each goal's disposition", () => {
   it("carries the disposition and a plain-language label so the fate of the money is visible", () => {
-    // Issue #28's whole point: make explicit what BECOMES of a goal's money at target.
+    // The whole point: make explicit what BECOMES of a goal's money at target.
     const equityGoal: GoalPlan = { ...goalA, id: "home", disposition: "convertToEquity" };
     const budget = { ...baseBudget, goals: [equityGoal] };
     const rows = goalRows(budget, project(budget));
@@ -142,7 +142,7 @@ describe("goalRows — surfaces each goal's disposition (§5.2)", () => {
 });
 
 describe("dispositionLabel", () => {
-  it("maps each disposition to a plain-language fate (§5.2)", () => {
+  it("maps each disposition to a plain-language fate", () => {
     expect(dispositionLabel("retain")).toBe("Kept as a reserve");
     expect(dispositionLabel("convertToEquity")).toBe("Becomes home equity");
     expect(dispositionLabel("spend")).toBe("Spent at target");
@@ -150,7 +150,7 @@ describe("dispositionLabel", () => {
   });
 });
 
-describe("goalDisposal — legal disposition/date pairing (§5.2)", () => {
+describe("goalDisposal — legal disposition/date pairing", () => {
   it("keeps a standing disposition's date, including 'asap'", () => {
     expect(goalDisposal("retain", "asap")).toEqual({ disposition: "retain", targetDate: "asap" });
     expect(goalDisposal("drawDown", 24)).toEqual({ disposition: "drawDown", targetDate: 24 });
@@ -201,7 +201,7 @@ describe("addGoal", () => {
     expect(goals).toEqual([goalA]); // original untouched (immutability)
   });
 
-  it("makes the new goal scorable — its derived fund account is projected (§5.2)", () => {
+  it("makes the new goal scorable — its derived fund account is projected", () => {
     const budget = { ...baseBudget, goals: addGoal([goalA], {
       name: "Goal C",
       targetCents: dollarsToCents(6000),
@@ -238,7 +238,7 @@ describe("updateGoal", () => {
     expect(goals[0]).toBe(goalA); // original element untouched
   });
 
-  it("re-runs live: editing the target moves the on-track % (§5.2 feedback loop)", () => {
+  it("re-runs live: editing the target moves the on-track % (feedback loop)", () => {
     const before = { ...baseBudget, goals: [goalA] };
     // goalA: $30k by month 12, $1,500/mo surplus → $18k → 60%.
     expect(goalRows(before, project(before))[0].onTrackPct).toBe(60);
@@ -278,7 +278,7 @@ describe("removeGoal", () => {
     expect(goals).toHaveLength(2); // original untouched
   });
 
-  it("removes the goal's derived fund account from the projection (§5.2)", () => {
+  it("removes the goal's derived fund account from the projection", () => {
     const before = { ...baseBudget, goals: [goalA, goalB] };
     const beforeSeries = project(before);
     expect(beforeSeries.months[0].accountBalancesCents).toHaveProperty(

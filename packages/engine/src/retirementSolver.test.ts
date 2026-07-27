@@ -1,8 +1,8 @@
 /**
- * Engine-native property tests for the retirement solver (§7), run off the same real
- * projection the net-worth graph draws (#37). Driven by the purpose-built
+ * Engine-native property tests for the retirement solver, run off the same real
+ * projection the net-worth graph draws. Driven by the purpose-built
  * {@link samplePlan} fixture and {@link mockJurisdiction} so they run standalone
- * against the engine with no rules package. The app keeps the #37 real-jurisdiction
+ * against the engine with no rules package. The app keeps the real-jurisdiction
  * acceptance tests (panel age == first surviving projection age on the default plan
  * under `usJurisdiction`); these pin the solver's behaviour itself.
  */
@@ -33,7 +33,7 @@ function survivesAt(budget: Plan, age: number): boolean {
   return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
 
-describe("retirementSolver — survival off the real projection (#37)", () => {
+describe("retirementSolver — survival off the real projection", () => {
   it("survival is monotonic in the retirement age (later never hurts)", () => {
     // Once an age survives, every later age must too — the property the binary search
     // relies on. Walk the whole range and assert survival never flips true→false.
@@ -58,9 +58,9 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
     expect(earliestPartialRetirementAge(scenarioOf(broke), CTX)).toBeNull();
   });
 
-  it("counts a solvent household that is merely underwater as surviving (#119)", () => {
+  it("counts a solvent household that is merely underwater as surviving", () => {
     // A student loan (or a new mortgage) puts a household's net worth below zero for
-    // years while every bill is paid on time — §5.1's "negative but improving" case.
+    // years while every bill is paid on time — the "negative but improving" case.
     // Judging survival on the net-worth SIGN failed such a plan at month 0 and told the
     // user no retirement age was feasible, while the graph beside it drew the plan
     // sailing to life expectancy. Survival is insolvency, not the sign.
@@ -88,7 +88,7 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
   });
 
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
-    // Once insolvent, net worth is null (§5.1). `null >= 0` is `true` in JS, so a
+    // Once insolvent, net worth is null. `null >= 0` is `true` in JS, so a
     // naive survival check would wrongly pass those months — this pins the guard.
     const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
     const series = projectScenario(scenarioOf(broke), CTX);
@@ -98,7 +98,7 @@ describe("retirementSolver — survival off the real projection (#37)", () => {
   });
 });
 
-describe("retirementSolver — target mode (§7.1)", () => {
+describe("retirementSolver — target mode", () => {
   // evaluateAtAge reports only the at-that-age facts (feasible + on-track);
   // nearestFeasibleAge is composed by retirementView from the headline (covered there).
   it("is 100% and feasible at a comfortably-fundable pinned age", () => {
@@ -116,16 +116,16 @@ describe("retirementSolver — target mode (§7.1)", () => {
     expect(evaluation.onTrackFraction).toBeLessThan(1);
   });
 
-  // #78: an infeasible plan whose net worth NEVER dips negative — insolvency nulls the
-  // curve (§5.1) and a phantom `convertToEquity` holding (#76) keeps every solvent month
+  // An infeasible plan whose net worth NEVER dips negative — insolvency nulls the
+  // curve and a phantom `convertToEquity` holding keeps every solvent month
   // positive — must NOT read as 100%. The old metric inferred the shortfall from the
   // most-negative real net worth; with nothing negative to see it reported exactly 1.0
   // for a plan that runs out of money. On-track must read the failure signal
   // (insolvency), not the net-worth sign, so an infeasible plan is strictly < 1.
-  it("is < 1 for an infeasible plan whose net worth stays positive to insolvency (#78)", () => {
+  it("is < 1 for an infeasible plan whose net worth stays positive to insolvency", () => {
     // Big early surplus fills a home-equity fund that converts to an illiquid property;
     // after retiring the liquid runs dry and the plan goes insolvent while the (undrawable)
-    // equity keeps net worth positive the whole way — the issue's exact repro shape.
+    // equity keeps net worth positive the whole way — the exact repro shape.
     const insolventWithEquity: Plan = {
       ...samplePlan,
       jobs: [salariedJob(dollarsToCents(11000))],
@@ -164,7 +164,7 @@ describe("retirementSolver — target mode (§7.1)", () => {
   });
 });
 
-describe("retirementSolver — partial vs full retirement (§5, issue #66)", () => {
+describe("retirementSolver — partial vs full retirement", () => {
   // The partial retirement solver varies the open-ended (null-end) jobs' ends and keeps
   // the authored fixed-term + passive income; full retirement ceases every job.
   it("full-retirement survival is monotonic in the cease-all-work age (later never hurts)", () => {
@@ -185,7 +185,7 @@ describe("retirementSolver — partial vs full retirement (§5, issue #66)", () 
     expect(evaluateFullRetirementAtAge(scenario, (age as number) - 1, CTX).feasible).toBe(false);
   });
 
-  // The acceptance heart (§5, AC5): a barista plan — the open-ended job ends at target,
+  // The acceptance heart: a barista plan — the open-ended job ends at target,
   // the fixed-term job keeps paying — solves the two ages DISTINCTLY. Full retirement
   // (drop the barista too) is strictly later than partial retirement (keep the barista).
   it("a barista-retirement plan solves both ages distinctly (partial < full)", () => {
@@ -195,7 +195,7 @@ describe("retirementSolver — partial vs full retirement (§5, issue #66)", () 
     expect(solution.partialRetirementAge).toBeLessThan(solution.fullRetirementAge as number);
   });
 
-  it("reports the latest-authored-work-stop age as the latest authored job end (§5)", () => {
+  it("reports the latest-authored-work-stop age as the latest authored job end", () => {
     // max job endYear is the barista's (birthYear + 75) → age 75.
     const solution = solveRetirement(scenarioOf(baristaPlan), CTX);
     expect(solution.latestAuthoredWorkStopAge).toBe(75);

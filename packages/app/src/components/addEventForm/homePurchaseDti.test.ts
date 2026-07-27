@@ -1,5 +1,5 @@
 /**
- * The §4.5 soft-DTI glue (#23): derives gross income + existing debt from the
+ * The soft-DTI glue: derives gross income + existing debt from the
  * live household and classifies a prospective purchase. The threshold arithmetic
  * itself is the engine's; these pin the *derivation* — that a big mortgage on a
  * modest income trips the guideline, a small one stays quiet, and zero gross
@@ -36,7 +36,7 @@ const purchase = {
   termMonths: 360,
 };
 
-describe("assessHomePurchaseDti (§4.5, #23)", () => {
+describe("assessHomePurchaseDti", () => {
   it("flags a purchase that pushes housing past the 28% front-end guideline", () => {
     const { household, series } = build(PLAN_DEFAULTS); // $5,000/mo gross
     const dti = assessHomePurchaseDti(household, series, purchase);

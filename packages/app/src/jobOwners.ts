@@ -1,10 +1,9 @@
 /**
- * Who in the household can own a job, and where that person's jobs are authored
- * (§8, issue #118).
+ * Who in the household can own a job, and where that person's jobs are authored.
  *
  * Earned income is per-person: every household member holds their own `jobs` array. But
  * the two members' arrays live on different planes. The primary person's jobs are
- * standing plan data (`Plan.jobs`, the value-editing plane, §10.2); a partner's ride the
+ * standing plan data (`Plan.jobs`, the value-editing plane); a partner's ride the
  * `RelationshipEvent` that brought them into the household (the ledger). The Jobs panel
  * shouldn't have to know that: it asks for the household's job owners and gets one
  * uniform list — name, birth year, jobs, and a `writeTarget` saying which plane to write
@@ -32,7 +31,7 @@ export interface JobOwner {
   /**
    * The age their open-ended jobs stop at — *their* retirement, not the household's. It
    * bounds how many years they can defer into a 401(k), and the elective limit is per
-   * person, so the deferral scan needs each earner's own working span (§5.4, §11).
+   * person, so the deferral scan needs each earner's own working span.
    */
   readonly retirementTargetAge: number;
   readonly jobs: readonly Job[];

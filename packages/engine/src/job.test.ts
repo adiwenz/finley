@@ -1,7 +1,7 @@
 /**
- * Issue #64/#72: the first-class Job/Person standing model — the sole source of
+ * The first-class Job/Person standing model — the sole source of
  * truth for earned income now that the scalar `incomeCents` path is deleted. These
- * pin the §5/§66 open-ended-job semantics and that the pre-"now" covered-earnings
+ * pin the open-ended-job semantics and that the pre-"now" covered-earnings
  * record falls directly out of the jobs.
  */
 import { describe, it, expect } from "vitest";
@@ -27,8 +27,8 @@ function project(plan: Plan) {
 /** The sample plan's single open-ended job (real-flat salary, deferral on it). */
 const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
 
-describe("Job/Person standing model — additive compilation (issue #64)", () => {
-  it("allows any number of open-ended (null-end) jobs — no elevated career job (§5, issue #66)", () => {
+describe("Job/Person standing model — additive compilation", () => {
+  it("allows any number of open-ended (null-end) jobs — no elevated career job", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
     // Two open-ended jobs is legal now: neither is elevated over the other, and both
     // compile to forward income ending at the owner's retirementTargetAge.
@@ -46,7 +46,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
     expect(series.every((s) => s.series.endMonth === retireEndMonth)).toBe(true);
   });
 
-  it("retirementTargetAge is the per-person input that sets an open-ended job's end (§5, issue #66)", () => {
+  it("retirementTargetAge is the per-person input that sets an open-ended job's end", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
     const base: Person = {
       id: PRIMARY_PERSON_ID,
@@ -69,7 +69,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
     expect(openEndedEndMonth(65)).toBeGreaterThan(openEndedEndMonth(60) as number);
   });
 
-  it("computes pre-'now' earnings directly from the jobs (§4.6)", () => {
+  it("computes pre-'now' earnings directly from the jobs", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
     // The roster holds authoring Persons; the pre-"now" covered-earnings record is
     // derived from their jobs (the sim boundary does the same via compilePerson).
@@ -80,7 +80,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
     );
     // The record covers exactly the pre-"now" working years [careerStart … now).
     expect(Object.keys(prior).length).toBeGreaterThan(0);
-    // Sim still starts at "now" — no pre-"now" months are simulated (§4.6).
+    // Sim still starts at "now" — no pre-"now" months are simulated.
     expect(project({ ...samplePlan, jobs: [openEndedJob] }).months[0].month).toBe(0);
   });
 
@@ -91,7 +91,7 @@ describe("Job/Person standing model — additive compilation (issue #64)", () =>
   });
 });
 
-describe("Job/Person standing model — one-month income overrides (§10.3, §20)", () => {
+describe("Job/Person standing model — one-month income overrides", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
@@ -143,7 +143,7 @@ describe("Job/Person standing model — one-month income overrides (§10.3, §20
   });
 });
 
-describe("Job/Person standing model — permanent pay changes (§6, §10.3)", () => {
+describe("Job/Person standing model — permanent pay changes", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
@@ -230,7 +230,7 @@ describe("Job — human name drives the income band label (display only)", () =>
 
   it("falls back to the owner's name when the job has none (or only whitespace)", () => {
     // Not the id: ids are minted, not written — a partner's are generated from their
-    // person id ("p-0-job-1"), which says nothing to whoever reads the legend (#118).
+    // person id ("p-0-job-1"), which says nothing to whoever reads the legend.
     expect(labelOf(salariedJob(dollarsToCents(6000)))).toBe("Income · P's job");
     expect(labelOf({ ...salariedJob(dollarsToCents(6000)), name: "   " })).toBe("Income · P's job");
   });

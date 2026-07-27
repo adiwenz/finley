@@ -1,12 +1,12 @@
 /**
- * Issue #72 rewire: a budget CONTRIBUTION line (`target: account`) is funded in the
+ * Contribution rewire: a budget CONTRIBUTION line (`target: account`) is funded in the
  * waterfall and accumulates in its account, instead of being dropped (the pre-rewire
  * behaviour) or — worse — modelled as an expense that leaves net worth. These pin the
  * end-to-end fact through the real projection: a "$500/mo into brokerage" line moves
  * money account→account (net worth is not reduced) and the brokerage balance climbs.
  *
  * A contribution is also a COMMITTED outflow: the full amount always lands in the account,
- * and the part discretionary can't cover is borrowed (a §5.1 shortfall), so an unaffordable
+ * and the part discretionary can't cover is borrowed (a shortfall), so an unaffordable
  * auto-invest makes the plan unfinanceable rather than silently shrinking to fit.
  */
 import { describe, it, expect } from "vitest";
@@ -42,7 +42,7 @@ const invest: BudgetLine = {
 const withoutContribution: Plan = { ...samplePlan, budgetLines: [rent], goals: [] };
 const withContribution: Plan = { ...samplePlan, budgetLines: [rent, invest], goals: [] };
 
-describe("budget contribution lines fund their account (#72 rewire)", () => {
+describe("budget contribution lines fund their account", () => {
   it("accumulates the contribution in the target account month over month", () => {
     const months = project(withContribution).months;
     const at = (m: number) => months[m].accountBalancesCents["brokerage"] ?? 0;
@@ -77,7 +77,7 @@ describe("budget contribution lines fund their account (#72 rewire)", () => {
 
   it("makes the plan unfinanceable when the contribution is far beyond your means", () => {
     // $1,000,000/mo into brokerage on an ~$7.2k take-home: it can't be borrowed for long, so
-    // the §5.1 cascade exhausts savings and credit within the first year and the plan is insolvent.
+    // the shortfall cascade exhausts savings and credit within the first year and the plan is insolvent.
     const absurd: Plan = {
       ...samplePlan,
       goals: [],

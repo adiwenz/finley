@@ -1,9 +1,8 @@
 /**
- * The deadline-paced sinking-fund pace (§14/§19 of JOBS_HOUSEHOLD_REDESIGN, #26) —
- * the single pure primitive behind the `goalPaced` amount source and the waterfall's
- * fund-to-pace goal loop.
+ * The deadline-paced sinking-fund pace — the single pure primitive behind the
+ * `goalPaced` amount source and the waterfall's fund-to-pace goal loop.
  *
- * Separating pace from triage is the whole point of #26: the deadline sets the
+ * Separating pace from triage is the whole point: the deadline sets the
  * *pace* (how fast a goal must accumulate to hit its target by its date), and
  * priority becomes *scarcity triage* (who falls behind when the paces don't all
  * fit in one month's cash). This module owns the pace half.
@@ -23,7 +22,7 @@ import type { Cents } from "./money";
 /**
  * The contribution a goal must make THIS month to still reach `targetCents` by its
  * deadline, given `balanceCents` already saved, `monthsRemaining` months of runway,
- * and the fund account's `monthlyRate` (§14/§19, #26). Always ≥ 0 — a fund already
+ * and the fund account's `monthlyRate`. Always ≥ 0 — a fund already
  * at or past its target (with or without projected growth) requires nothing.
  *
  * Two edge cases degrade off the general annuity formula (both are its limits, not

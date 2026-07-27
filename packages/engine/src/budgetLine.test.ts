@@ -103,7 +103,7 @@ describe("resolveBudgetLineMonthlyCents — goal-paced amount source", () => {
     ).toBe(0);
   });
 
-  it("is growth-aware: a fund's own monthly rate lowers the required pace (#26)", () => {
+  it("is growth-aware: a fund's own monthly rate lowers the required pace", () => {
     // Same $24k/24-month goal, but the fund earns 1%/mo — leaning on that growth
     // requires strictly less each month than the flat $1,000 spread.
     const flat = resolveBudgetLineMonthlyCents(pacedLine, ctxAt({ month: 0 }));
@@ -154,7 +154,7 @@ describe("resolveBudgetLineMonthlyCents — dated value overrides", () => {
   });
 
   it("models the age-50 catch-up as an explicit dated dollar bump on a literal line", () => {
-    // §19: catch-up is EITHER fill-to-limit (automatic) OR a dated override (explicit).
+    // Catch-up is EITHER fill-to-limit (automatic) OR a dated override (explicit).
     const line: BudgetLine = {
       id: "ira",
       label: "IRA contribution",
@@ -168,7 +168,7 @@ describe("resolveBudgetLineMonthlyCents — dated value overrides", () => {
   });
 });
 
-describe("taxTreatmentForLine — pre/post-tax read off the target (AC5)", () => {
+describe("taxTreatmentForLine — pre/post-tax read off the target", () => {
   it("carries a pre-tax account target's treatment through", () => {
     expect(
       taxTreatmentForLine(
@@ -190,7 +190,7 @@ describe("taxTreatmentForLine — pre/post-tax read off the target (AC5)", () =>
   });
 });
 
-describe("orderBudgetLines — prioritized list (§15)", () => {
+describe("orderBudgetLines — prioritized list", () => {
   it("ranks explicit priority first, then category tier default (needs→wants→savings)", () => {
     const lines: BudgetLine[] = [
       expenseLine({ id: "fun", category: "wants" }),
@@ -217,7 +217,7 @@ describe("orderBudgetLines — prioritized list (§15)", () => {
   });
 });
 
-describe("resolveBudget — all three amount sources resolve together (AC1/AC2)", () => {
+describe("resolveBudget — all three amount sources resolve together", () => {
   it("returns the prioritized, per-line funded view tagged with pre/post-tax treatment", () => {
     const lines: BudgetLine[] = [
       expenseLine({ id: "rent", category: "needs" }),

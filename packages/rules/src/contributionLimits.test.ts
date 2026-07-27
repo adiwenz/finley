@@ -11,7 +11,7 @@ function ctx(year: number, age?: number): DeferralLimitContext {
   return { year, age };
 }
 
-describe("contributionLimits — the structured base-year cap set (§5.4)", () => {
+describe("contributionLimits — the structured base-year cap set", () => {
   it("cent-pins the 2026 base-year figures", () => {
     const l = contributionLimits(2026);
     expect(l.year).toBe(2026);
@@ -53,7 +53,7 @@ describe("contributionLimits — the structured base-year cap set (§5.4)", () =
   });
 });
 
-describe("retirementDeferralLimitCents — the age-banded deferral seam (§5.4)", () => {
+describe("retirementDeferralLimitCents — the age-banded deferral seam", () => {
   it("returns the base elective limit below 50 (or with no age supplied)", () => {
     expect(retirementDeferralLimitCents(ctx(2026, 40))).toBe(24_500_00);
     expect(retirementDeferralLimitCents(ctx(2026))).toBe(24_500_00);

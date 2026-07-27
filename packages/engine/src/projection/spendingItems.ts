@@ -1,11 +1,11 @@
 /**
- * The unified **spending read model** (issue #119 follow-up): everything a month
+ * The unified **spending read model**: everything a month
  * actually costs, itemized, from one place.
  *
  * A household's spending arrives at the simulator through several authoring models that
  * have nothing to do with each other — a standing {@link import("../budgetLine").BudgetLine}
- * the user edits, the plan's health line (§5.4), an expense series a life event created
- * (§10.2), and a liability's scheduled payment computed from balance/rate/term (§3).
+ * the user edits, the plan's health line, an expense series a life event created,
+ * and a liability's scheduled payment computed from balance/rate/term.
  * Those models are *right* to be separate: a loan payment is not an expense line, and
  * making it one would invent an editable fact the model does not have. But a reader —
  * "what does this month cost?", a chart, a tooltip — wants one list, and reconstructing
@@ -34,20 +34,20 @@ import type { SimOwnedSeries } from "./simulate.types";
  * nowhere), and lets one list be re-grouped without re-deriving it.
  */
 export type SpendingSourceKind =
-  /** A standing budget line the user authors and edits (§12). */
+  /** A standing budget line the user authors and edits. */
   | "budgetLine"
-  /** The plan's health line (§5.4) — a standing plan input, not a budget line. */
+  /** The plan's health line — a standing plan input, not a budget line. */
   | "healthcare"
   /** The scalar `Plan.expenseCents` series, used when a plan authors no budget lines. */
   | "planExpense"
   /** An expense series a life event created (a child's cost, alimony, an added expense). */
   | "event"
-  /** A liability's scheduled payment (§3) — computed from balance/rate/term, never authored. */
+  /** A liability's scheduled payment — computed from balance/rate/term, never authored. */
   | "liability";
 
 /**
  * How to *read* an item, as distinct from where it came from. Authored lines carry
- * their own §15 tier; the rest carry the kind of obligation they are, because "is this
+ * their own priority tier; the rest carry the kind of obligation they are, because "is this
  * a need or a want?" is not a question a mortgage payment answers.
  */
 export type SpendingCategory = BudgetCategory | "healthcare" | "debtService" | "other";

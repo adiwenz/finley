@@ -23,7 +23,7 @@ describe("replayLedger — empty ledger", () => {
   });
 });
 
-// ─── Event validation (§6, §13) ───────────────────────────────────────────────
+// ─── Event validation ─────────────────────────────────────────────────────────
 
 describe("event validation", () => {
   it("validateLedgerStructure rejects a duplicate event id", () => {
@@ -82,7 +82,7 @@ describe("event validation", () => {
   });
 });
 
-// ─── Replay order — (month, sequenceNumber) (§5, §6) ──────────────────────────
+// ─── Replay order — (month, sequenceNumber) ───────────────────────────────────
 
 describe("replay order", () => {
   it("same-month producer-before-consumer: an end applies after the series it ends", () => {

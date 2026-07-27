@@ -14,9 +14,9 @@ import {
 import { formatDollars, monthLabel, yearOf } from "../../format";
 
 /**
- * Net-worth chart (issue #1 acceptance: render the engine's projection series).
+ * Net-worth chart — renders the engine's projection series.
  * Plots the nominal and real net-worth curves from the {@link ProjectionSeries}
- * contract with Recharts. Real charting/design polish is still Slice 11; this
+ * contract with Recharts. Real charting/design polish is still to come; this
  * proves the engine → app wire on the app's charting stack.
  */
 const INK = "#1f3a2e"; // ledger ink green (nominal)
@@ -26,7 +26,7 @@ const GRID = "#e3dcc6";
 
 type Point = {
   month: number;
-  // Null from the first insolvent month on (§5.1): the engine reports net worth as
+  // Null from the first insolvent month on: the engine reports net worth as
   // unknown once the money runs out, and Recharts breaks the line at the null — so
   // the curves simply END at insolvency rather than flatlining as if stable.
   nominalCents: number | null;
@@ -34,7 +34,7 @@ type Point = {
 };
 
 /**
- * `retirementMonth`: the solved Mode-1 retirement age as a month offset (§7). When
+ * `retirementMonth`: the solved Mode-1 retirement age as a month offset. When
  * present, a labelled vertical reference line marks where retirement begins on the
  * net-worth curve.
  */
@@ -52,7 +52,7 @@ export function NetWorthChart({
   }));
 
   // Where the net-worth curve ends: the last month with a real (non-null) value.
-  // Net worth goes null once the plan is insolvent (§5.1), so for a failed plan this
+  // Net worth goes null once the plan is insolvent, so for a failed plan this
   // is the "money runs out" point; for a surviving plan it is the horizon.
   const horizonMonth = series.months[series.months.length - 1]?.month ?? 0;
   const insolvent = series.months.some((m) => m.isInsolvent);

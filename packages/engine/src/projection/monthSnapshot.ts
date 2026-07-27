@@ -17,8 +17,8 @@ function toRealCents(
 
 /**
  * Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal
- * / (1+infl)^yrs (§0.4). When `netWorthTerminated` (a PRIOR month already went
- * insolvent, §5.1) both net-worth figures are reported as `null` — the model can no
+ * / (1+infl)^yrs. When `netWorthTerminated` (a PRIOR month already went
+ * insolvent) both net-worth figures are reported as `null` — the model can no
  * longer say what net worth is once unfunded spending has been dropped. The balances
  * themselves are still emitted (diagnostic), only the aggregate net worth is nulled.
  */

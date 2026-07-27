@@ -1,15 +1,14 @@
 /**
- * Direct-manipulation budget editing (§18–§20, "UI: Base + Adjustments" of
- * JOBS_HOUSEHOLD_REDESIGN, issue #71).
+ * Direct-manipulation budget editing.
  *
  * The user picks a **point on the budget** — a month on the chart — sees what every
  * row actually resolves to *at that month*, types a new number, and then answers one
  * question: **just this month**, or **from here forward**? There is no separate
- * "adjustment" form and (as §20 insists) still no `Adjustment` entity. The gesture is
+ * "adjustment" form and still no `Adjustment` entity. The gesture is
  * `(row, month, new amount, scope)`; this module is the total function from that
  * gesture to the primitive the write actually lands on.
  *
- * The §20 routing table falls out of the two axes rather than being a menu the user
+ * The routing table falls out of the two axes rather than being a menu the user
  * has to navigate:
  *
  * |            | just this month                  | from here forward             |
@@ -19,9 +18,9 @@
  *
  * The income column is the interesting one. A one-month income change *is* a discrete
  * cash event — a bonus, a missed paycheck — so it routes to the ledger as a **delta**
- * against what that month already resolved to (§18), not as an override that would
+ * against what that month already resolved to, not as an override that would
  * imply a standing change. A permanent income change is a raise, and rides the
- * job/stream (§6/§17) — income is never modelled as a budget line.
+ * job/stream — income is never modelled as a budget line.
  *
  * Pure and jurisdiction-agnostic: the app resolves the "before" amounts, calls
  * {@link routeMonthEdit}, and applies exactly one primitive.
@@ -48,7 +47,7 @@ export interface MonthEditContext {
 
 /**
  * The user's answer to "how long does this change last?" — the only question the
- * gesture asks. These are the engine's own {@link BudgetLineOverride} scopes (§19), so
+ * gesture asks. These are the engine's own {@link BudgetLineOverride} scopes, so
  * a spend edit routes to an override with no translation.
  */
 export type EditScope = "thisMonthOnly" | "fromHereForward";
@@ -71,7 +70,7 @@ export interface MonthEdit {
 }
 
 /**
- * The canonical primitive an edit lands on (§20). Exactly one of these is applied —
+ * The canonical primitive an edit lands on. Exactly one of these is applied —
  * never a fourth "adjustment" record.
  */
 export type MonthEditRoute =
@@ -83,7 +82,7 @@ export type MonthEditRoute =
   | {
       readonly kind: "ledgerTransaction";
       readonly month: number;
-      /** Signed delta against the month's prior income — positive is cash in (§18). */
+      /** Signed delta against the month's prior income — positive is cash in. */
       readonly amountCents: number;
     }
   | {
@@ -93,7 +92,7 @@ export type MonthEditRoute =
     };
 
 /**
- * Route a direct edit to its primitive (§20). Total over the two axes — every
+ * Route a direct edit to its primitive. Total over the two axes — every
  * (row, scope) pair has exactly one home, so the UI never has to ask the user which
  * kind of thing they are creating. Needs no inflation context: the typed figure is
  * stored as that month's dollars and the engine grows it from there.
@@ -128,7 +127,7 @@ export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
 
 /**
  * Grow an amount authored at `fromMonth` to `toMonth`. Display-only: income overrides
- * live in panel state and never reach the projection (they land on jobs in #72), so
+ * live in panel state and never reach the projection (they land on jobs later), so
  * this is an approximation for the editor's own row rather than something the engine
  * has to agree with to the cent.
  */
@@ -158,7 +157,7 @@ export interface ResolvedRow {
 
 /**
  * Resolve every standing line to what it actually is **at `month`**: the base amount,
- * any dated override layered on (§19), and the price growth that has accrued by then.
+ * any dated override layered on, and the price growth that has accrued by then.
  * This is what makes the editor a view of a *point on the budget* — scrub to year 30 and
  * the rows show year-30 dollars, matching the graph directly above them.
  *

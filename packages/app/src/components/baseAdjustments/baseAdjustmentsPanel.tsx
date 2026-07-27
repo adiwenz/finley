@@ -1,25 +1,24 @@
 /**
- * The **Base + Adjustments** budget editor (§18–§20, "UI: Base + Adjustments" of
- * JOBS_HOUSEHOLD_REDESIGN, issue #71). Direct manipulation, not a form:
+ * The **Base + Adjustments** budget editor. Direct manipulation, not a form:
  *
  *   - **Base** — the standing line-item budget, prepopulated from a default template
- *     (or the %-quickstart) and edited in place (AC3).
+ *     (or the %-quickstart) and edited in place.
  *   - **Pick a point** — click anywhere on the graph to select a month. Every row
- *     below then shows what it *actually resolves to at that month* (§19), including
+ *     below then shows what it *actually resolves to at that month*, including
  *     changes made earlier in the session.
  *   - **Edit, then choose how long** — type a new number and answer one question:
  *     just this month, or from here forward? {@link routeMonthEdit} sends the result
  *     to the right primitive — line override, ledger transaction, or job/stream
- *     income override (AC4). There is no `Adjustment` entity underneath.
+ *     income override. There is no `Adjustment` entity underneath.
  *   - **Graph** — what each month actually costs, straight off the engine's itemized
  *     spending report: the budget lines as authored, the spending they don't author
  *     (health, timeline expenses), and each debt's payment, so the stack totals the
  *     month's whole obligation. Spending is never rationed away behind the user's
- *     back; if the plan stops being financeable the graph says so outright (AC2).
+ *     back; if the plan stops being financeable the graph says so outright.
  *
  * The selected month is labelled with its calendar year *and* the household's age at
  * that point, so a far-future edit reads as the milestone it is ("age 50") rather than
- * as an opaque month index — the long-horizon affordance of AC5, without a 40-year
+ * as an opaque month index — the long-horizon affordance, without a 40-year
  * month-by-month scrubber.
  *
  * The budget lives on the app's `Plan.budgetLines`, so editing here drives the whole
@@ -43,7 +42,7 @@
  * plan.
  *
  * Earned income is NOT edited here. Standing pay lives on the person's jobs, authored in
- * the Jobs panel (§6, issue #72); this panel only *displays* the compiled income total at
+ * the Jobs panel; this panel only *displays* the compiled income total at
  * the selected month (read-only). The one exception is a **one-off, single-month** change
  * — a bonus, a missed paycheck, a corrected month — which writes a per-job
  * {@link import("@finley/engine").JobIncomeOverride} taxed as wages, so it belongs with the
@@ -126,13 +125,13 @@ export interface BaseAdjustmentsPanelProps {
   readonly series: ProjectionSeries;
   /**
    * Household member names by person id — what lets the income graph say *whose*
-   * government benefit a band is (issue #118). Two claimants otherwise draw two legend
+   * government benefit a band is. Two claimants otherwise draw two legend
    * entries with the identical label, since the label names the kind of income.
    */
   readonly personNames: ReadonlyMap<string, string>;
   /**
    * The interpreted household and the ledger — who holds which jobs, and where those jobs
-   * are authored (issue #118). A pay change made here used to reach straight into
+   * are authored. A pay change made here used to reach straight into
    * `Plan.jobs`, which is only the *primary* person's; a partner's jobs were unreachable, so
    * their bonus or raise silently went nowhere.
    */
@@ -233,7 +232,7 @@ export function BaseAdjustmentsPanel({
   /**
    * The month whose income the row and the one-off control act on. Month 0 is the
    * projection's flow-free opening snapshot (`simulate.ts` accrues flows only for
-   * `month > 0`, so "now" is not redefined as an earning month — GH #34), so income
+   * `month > 0`, so "now" is not redefined as an earning month), so income
    * reads $0 there even while the jobs pay full salaries. Reading month 0 verbatim showed
    * the row at $0; the income chart already skips that month ({@link buildIncomeChartData}),
    * so the row does too by acting on month 1 when the opening month is selected.
@@ -241,7 +240,7 @@ export function BaseAdjustmentsPanel({
   const incomeMonth = Math.max(1, selectedMonth);
 
   /**
-   * Income the projection actually pays that month, summed across every job (§6), plus
+   * Income the projection actually pays that month, summed across every job, plus
    * any government benefit once earnings stop. Standing income is authored in the Jobs
    * panel — this row only *displays* the compiled total, so multiple jobs (any of them
    * open-ended) are reflected here without the row having to pick "the" income. The
@@ -250,11 +249,11 @@ export function BaseAdjustmentsPanel({
    */
   const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
 
-  // ── Pay change against the selected month: one-month perturbations + permanent pay changes (§6/§10.3/§20) ──
+  // ── Pay change against the selected month: one-month perturbations + permanent pay changes ──
   // The form and its transient state live in {@link PayChangeEditor}; the panel keeps only
   // the mutation, so the child never touches `Plan`, the ledger, or their setters.
   //
-  // EVERY earner's jobs, not just the primary person's (issue #118): a partner's bonus,
+  // EVERY earner's jobs, not just the primary person's: a partner's bonus,
   // missed paycheck, raise or cut is the same adjustment on the same `Job` model, and the
   // picker names whose job each one is.
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
@@ -297,7 +296,7 @@ export function BaseAdjustmentsPanel({
   }
 
   /**
-   * Answer the how-long question — the one gesture that commits a spending change (§20).
+   * Answer the how-long question — the one gesture that commits a spending change.
    * Only budget *lines* are edited in place here now; earned income is authored in the
    * Jobs panel (standing) or via the one-off control above (single month), so a staged
    * edit is always a line override.
@@ -319,7 +318,7 @@ export function BaseAdjustmentsPanel({
     // Non-destructive: rebalance the existing lines to 50/30/20, keeping their names.
     // Off the WHOLE household's standing pay: the budget it splits is the household's, so
     // reading one earner's jobs would size a two-earner household's spending to half its
-    // income (issue #118). Identical on a single-earner plan.
+    // income. Identical on a single-earner plan.
     const monthlyIncomeCents = owners.reduce(
       (sum, o) =>
         sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
@@ -331,7 +330,7 @@ export function BaseAdjustmentsPanel({
 
   const horizonMonths = spendingChartData.rows.length;
 
-  /** The §20 edit gesture, and what a line list may do to the authored budget. */
+  /** The edit gesture, and what a line list may do to the authored budget. */
   const editActions: SpendingEditActions = {
     onStage: stageEdit,
     onCommit: commit,
@@ -350,7 +349,7 @@ export function BaseAdjustmentsPanel({
     <section>
       <h2>Base + Adjustments</h2>
 
-      {/* ── Graph: click a point to move the editor there (AC2 + the edit gesture) ── */}
+      {/* ── Graph: click a point to move the editor there (the edit gesture) ── */}
       <ProjectionCharts
         incomeData={incomeChartData}
         spendingData={spendingChartData}
@@ -389,7 +388,7 @@ export function BaseAdjustmentsPanel({
         {/* Pay change against the selected month: one-month perturbations (a bonus, a
             corrected month, or $0 for a missed paycheck — a per-job {@link JobIncomeOverride})
             and PERMANENT changes from this month forward (a {@link JobPayChange}). All taxed
-            as wages through the job's series (§6/§10.3/§20). The form owns its own transient
+            as wages through the job's series. The form owns its own transient
             state; the panel keeps only plan mutation. */}
         <PayChangeEditor
           jobs={jobOptions}
@@ -409,7 +408,7 @@ export function BaseAdjustmentsPanel({
           form={lineFormActions}
         />
 
-        {/* ── Savings & contributions: money paid into an account each month (§12).
+        {/* ── Savings & contributions: money paid into an account each month.
             Unlike spending, these accumulate in net worth — funded by the sim. ── */}
         <ContributionsEditor
           lines={contributionLines}

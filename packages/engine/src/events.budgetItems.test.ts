@@ -125,7 +125,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
   });
 });
 
-// ─── Base series (value-editing surface, §10.2) ───────────────────────────────
+// ─── Base series (value-editing surface) ──────────────────────────────────────
 
 describe("initialIncomeSeries / initialExpenseSeries", () => {
   it("base income series drive net worth without any events", () => {

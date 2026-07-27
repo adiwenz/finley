@@ -1,5 +1,5 @@
 /**
- * Ledger presentation for the life-event timeline (issue #5, Slice 3b). Pure
+ * Ledger presentation for the life-event timeline. Pure
  * functions over the engine's event ledger — no React, no I/O — so they are
  * unit-testable in isolation.
  *
@@ -7,18 +7,17 @@
  * engine's job — see `snapshotAt` in @finley/engine. This module only turns
  * ledger data into plain language:
  *  - {@link timelineMarkers}: the ledger as plain-language markers on the
- *    shared time axis (§10.2). Each event maps to exactly one label (§10.3
- *    rule 3).
+ *    shared time axis. Each event maps to exactly one label.
  *  - {@link seriesLabel}: the engine's machine-readable series role → the
  *    label shown in the snapshot panel.
  *  - {@link splitMarkers}: markers partitioned into passed/upcoming relative
- *    to the scrubbed month (§10.8 peripheral hints).
+ *    to the scrubbed month (peripheral hints).
  */
 
 import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
-// ─── Plain-language event summaries (§10.3 rule 3: one label = one change) ─────
+// ─── Plain-language event summaries (one label = one change) ───────────────────
 
 export interface EventSummary {
   /** Friendly label. Exactly one per structural change. */
@@ -116,7 +115,7 @@ export function timelineMarkers(ledger: Ledger): TimelineMarker[] {
 
 /**
  * Markers partitioned around the scrubbed month, end-of-month convention:
- * an event at month M has already happened when viewing month M (§10.8).
+ * an event at month M has already happened when viewing month M.
  */
 export function splitMarkers(
   ledger: Ledger,

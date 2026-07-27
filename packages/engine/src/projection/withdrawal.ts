@@ -21,7 +21,7 @@ export interface WithdrawalState {
   /** The authoritative mutable balances; a drawdown reduces its source account in place. */
   readonly assetBalances: Map<string, Cents>;
   /**
-   * Per-account cost basis (§#94) — the post-tax principal the owner has already
+   * Per-account cost basis — the post-tax principal the owner has already
    * paid tax on. A draw books only its GAIN (`draw − pro-rata basis`) to tax; the
    * basis it returns falls out of the account's basis here, pro-rata. An absent
    * entry is basis 0 → the whole draw is taxable, which is exactly right for a
@@ -29,27 +29,27 @@ export interface WithdrawalState {
    */
   readonly basisByAccount: Map<string, Cents>;
   /**
-   * The first liquid account (the §5.1 shortfall sink). Its beginning-of-month
-   * balance is spent down BEFORE any investment is liquidated (D2): the withdrawal
+   * The first liquid account (the shortfall sink). Its beginning-of-month
+   * balance is spent down BEFORE any investment is liquidated: the withdrawal
    * only funds the shortfall the liquid buffer can't, so the cascade drains cash first.
    */
   readonly liquidAccount: SimAccount | null;
-  /** Funding goals — a `convertToEquity`/`spend` goal through its target month earmarks its fund (D4, §5.2). */
+  /** Funding goals — a `convertToEquity`/`spend` goal through its target month earmarks its fund. */
   readonly goals: readonly SimGoal[];
 }
 
 /**
  * The **tax-efficient default** order investment accounts are liquidated in during
- * decumulation (§16, D2), keyed by the account's neutral
+ * decumulation, keyed by the account's neutral
  * {@link import("../simAccount").SimAccountTaxProfile.withdrawalCategory}:
  * `capitalGains` first (brokerage + eligible goal funds, least tax friction under a
  * preferential-rate regime), then `ordinaryIncome` (taxed like an RMD), then
  * `taxExempt` last (preserve tax-free growth). Earlier in the list = drawn first.
- * Every category is grossed up to net its need (#100); the order ranks them by how
+ * Every category is grossed up to net its need; the order ranks them by how
  * much tax that gross-up tends to cost, not by which ones are taxed at all.
  *
  * This is the DEFAULT, not a fixed rule: {@link buildWithdrawalSources} accepts an
- * override (§16 "overridable"), so a plan can, say, spend a tax-exempt account first
+ * override ("overridable"), so a plan can, say, spend a tax-exempt account first
  * for a bequest strategy. Forced RMDs are always honored ahead of any elective draw
  * regardless of this order — they run in a separate channel that has already reduced
  * the balances and the need before this loop (see {@link buildWithdrawalSources}).
@@ -93,16 +93,16 @@ function liquidationRank(
 }
 
 /**
- * Whether `account` may be liquidated to fund a retirement shortfall (D4) — i.e.
+ * Whether `account` may be liquidated to fund a retirement shortfall — i.e.
  * whether it counts as drawable retirement portfolio.
  *
  * "Liquidatable in decumulation" is deliberately distinct from the `liquid` flag:
  * `liquid` means "eligible to *receive* deposits" (the deposit direction); a
  * drawdown is the opposite direction, so every investment account is a valid
  * *source* regardless of `liquid`. The two exclusions:
- *  - the liquid cash account itself — it is spent down first via the §5.1 shortfall
+ *  - the liquid cash account itself — it is spent down first via the shortfall
  *    charge, so it is not a withdrawal source here (it would double-count);
- *  - a goal fund earmarked by its **disposition** (§5.2): a `convertToEquity` or
+ *  - a goal fund earmarked by its **disposition**: a `convertToEquity` or
  *    `spend` goal up to and including its target month is committed to that purchase /
  *    expense, so it drops out of the nest egg. A `retain` (liquid reserve) or
  *    `drawDown` (the nest egg itself) goal always counts. Past its target month the
@@ -131,12 +131,12 @@ function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cent
 
 /**
  * Estimate this month's after-tax income from the non-withdrawal sources (wages,
- * government retirement benefit, RMD). A single-pass estimate (D1): tax is the sum
- * of each owner's §5.3 tax on their taxable-by-category map. Deferrals are ignored —
+ * government retirement benefit, RMD). A single-pass estimate: tax is the sum
+ * of each owner's tax on their taxable-by-category map. Deferrals are ignored —
  * in decumulation there are none, and a still-deferring worker has surplus income
  * (no shortfall) anyway; the residual self-corrects in the liquid buffer next month.
  * Returns both the net total and each owner's per-category taxable base, the latter
- * seeding the pre-tax gross-up (D3).
+ * seeding the pre-tax gross-up.
  */
 function estimateNetIncome(
   sources: readonly IncomeSourceMonth[],
@@ -147,11 +147,11 @@ function estimateNetIncome(
   for (const src of sources) {
     grossTotal += src.waterfallInflowCents;
     // Booked under its provenance category — the jurisdiction owns the inclusion %,
-    // so the engine never pre-applies a fraction (§5.4). A source's taxable base can differ
+    // so the engine never pre-applies a fraction. A source's taxable base can differ
     // from the cash it puts through the waterfall: a returned-basis fund draw books only its
     // gain; a savings-interest booking has positive taxableCents but 0 waterfallInflowCents
     // (the account was already credited). Honor its explicit taxable amount so the gross-up
-    // baseline sees the same taxable base the tax seam will (#94).
+    // baseline sees the same taxable base the tax seam will.
     let map = taxableByOwner.get(src.ownerId);
     if (map === undefined) {
       map = {};
@@ -165,25 +165,25 @@ function estimateNetIncome(
 }
 
 /**
- * The desired-withdrawal (decumulation) channel (§7, D0). Runs BEFORE the waterfall,
+ * The desired-withdrawal (decumulation) channel. Runs BEFORE the waterfall,
  * alongside {@link import("./rmd").buildRmdSources} / {@link
  * import("./governmentBenefit").buildGovernmentBenefitSources}: it pulls cash out of
  * investment accounts (mutating `assetBalances`) and re-injects it as income sources
- * so the withdrawal is taxed once at the §5.3 chokepoint and its net lands where the
+ * so the withdrawal is taxed once at the tax chokepoint and its net lands where the
  * waterfall routes take-home — funding the month's obligations instead of the plan
- * "retiring onto a credit card" (#35).
+ * "retiring onto a credit card".
  *
- * The amount is NEED-based, not a fixed safe-withdrawal rate (D1, §7 RESOLVED):
+ * The amount is NEED-based, not a fixed safe-withdrawal rate:
  * `gap = obligations − non-withdrawal net income`, then the existing liquid buffer is
- * spent first (D2), so the channel only liquidates investments for `gap − liquidBuffer`.
+ * spent first, so the channel only liquidates investments for `gap − liquidBuffer`.
  * Sources are drawn in {@link DEFAULT_LIQUIDATION_ORDER} (capital-gains → ordinary-income → tax-exempt),
- * or in a caller-supplied `liquidationOrder` override (§16 overridable), and
+ * or in a caller-supplied `liquidationOrder` override (overridable), and
  * gated by {@link isLiquidatable}. EVERY draw injects at its account's own withdrawal
- * category and is grossed up so its net still covers the need (D3): the draw is solved
+ * category and is grossed up so its net still covers the need: the draw is solved
  * as the least fixed point of `gross = need + inducedTax(gross)`, where the induced tax
  * is `computeTaxCents` differenced over the WHOLE return (base vs base-plus-draw). Two
  * consequences follow. A draw taxed at 0% on its own but pulling a government benefit
- * into provisional-income taxability is still sized to net the need (#100), because the
+ * into provisional-income taxability is still sized to net the need, because the
  * whole-return difference sees the benefit it drags in. And the draw nets the need
  * EXACTLY rather than approximately — a fixed point satisfies `gross − tax = need` by
  * construction — where inverting an implied rate (`need / (1 − rate)`) assumes tax scales
@@ -205,19 +205,19 @@ function estimateNetIncome(
  *    small shortfall can leave the household better off than paying the lump. This
  *    channel cannot express that: it will cross the notch, and if the lump outruns the
  *    balance it empties the account. Nothing in a bracket-and-phase-in seam has a notch,
- *    so this is latent (#107).
+ *    so this is latent.
  *
  * RMD interaction (no double-withdraw): RMD sources are already in `nonWithdrawalSources`,
  * so their income shrinks the gap and their forced pre-tax draw already reduced the
  * balances here — total pre-tax drawn settles at `max(desired, required)` without an
- * additive draw (the full binding + its dedicated tests stay in #32).
+ * additive draw.
  *
  * Absent tax seam (v1 null jurisdiction) → tax is 0, so every draw nets one-for-one.
  *
  * Returns both the taxable withdrawal `sources` (fed to the waterfall) and the
  * `liquidDrawdownCents` — the slice of the gap the liquid buffer covers before any
- * investment is sold (issue #99). That drawdown never becomes a waterfall source: the
- * cash is already in the account and the §5.1 cascade spends it directly, so injecting
+ * investment is sold. That drawdown never becomes a waterfall source: the
+ * cash is already in the account and the cascade spends it directly, so injecting
  * it would double-count and mis-tax it. It is returned purely so the flow view can show
  * "savings are covering this month" rather than a misleading zero-income band.
  */
@@ -226,7 +226,7 @@ export interface WithdrawalPlan {
   readonly sources: IncomeSourceMonth[];
   /**
    * The gap covered by drawing the existing liquid buffer this month — cash the
-   * household is living on because income fell short. Reporting-only (issue #99): it is
+   * household is living on because income fell short. Reporting-only: it is
    * NOT a waterfall source and is not taxable. 0 when income covered the month.
    */
   readonly liquidDrawdownCents: Cents;
@@ -252,7 +252,7 @@ export function buildWithdrawalSources(
   const gap = obligationsCents - netIncomeCents;
   if (gap <= 0) return { sources: [], liquidDrawdownCents: 0 };
 
-  // Spend down the existing liquid buffer first (D2): the §5.1 cascade will charge
+  // Spend down the existing liquid buffer first: the cascade will charge
   // the shortfall the withdrawal leaves uncovered against the liquid account, draining
   // it to 0 before any investment is sold. So only fund what the buffer can't.
   const liquidBuffer =
@@ -261,7 +261,7 @@ export function buildWithdrawalSources(
       : 0;
   // The buffer covers `min(gap, buffer)` of the gap — the whole gap when the buffer can
   // absorb it (need ≤ 0, nothing sold), else the whole buffer (the rest is sold below).
-  // This IS the reported savings drawdown (issue #99), the same in both branches.
+  // This IS the reported savings drawdown, the same in both branches.
   const liquidDrawdownCents = Math.min(gap, liquidBuffer);
   let need = gap - liquidBuffer;
   if (need <= 0) return { sources: [], liquidDrawdownCents };
@@ -278,7 +278,7 @@ export function buildWithdrawalSources(
     if (balance <= 0) continue;
 
     const withdrawalCategory = account.taxProfile.withdrawalCategory;
-    // Cost basis (#94): only the GAIN portion of a draw is taxable — but WHICH portion
+    // Cost basis: only the GAIN portion of a draw is taxable — but WHICH portion
     // is the jurisdiction's call, not the engine's. The engine owns and passes the basis
     // state; the jurisdiction owns the return-of-capital policy and accounting method
     // (`taxableWithdrawalCents`, mirroring the RMD seam). Absent seam → the whole draw is
@@ -292,8 +292,8 @@ export function buildWithdrawalSources(
       ) ?? draw;
     // Difference the tax over the WHOLE return, not the draw's own-category rate: a
     // capital-gains / tax-exempt draw can read as 0% on its own yet still raise the
-    // return's tax by pulling a government benefit into provisional-income taxability
-    // (#100), and an own-category rate would multiply by 0 and miss it. The category is
+    // return's tax by pulling a government benefit into provisional-income taxability,
+    // and an own-category rate would multiply by 0 and miss it. The category is
     // the account's own neutral provenance, never a US vehicle string. Only the gain is
     // booked to the taxable map — the full gross is still paid out as take-home below.
     const base = taxableByOwner.get(account.ownerId) ?? {};
@@ -330,7 +330,7 @@ export function buildWithdrawalSources(
 
     // The taxable gain is what the jurisdiction returned; the rest of the gross is
     // principal returned. Reduce the account's basis by that principal (method-agnostic:
-    // gross − taxable), so the next draw is measured against the basis that remains (#94).
+    // gross − taxable), so the next draw is measured against the basis that remains.
     const gainCents = gainOf(gross);
     state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
@@ -341,7 +341,7 @@ export function buildWithdrawalSources(
       waterfallInflowCents: gross,
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
-      // Report the draw by the account it came from (issue #99): the account id keys the
+      // Report the draw by the account it came from: the account id keys the
       // band and its label names it, so an "emergency fund" goal draining reads as that
       // fund by name rather than as an anonymous `capitalGains` band.
       sourceId: account.id,

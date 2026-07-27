@@ -52,7 +52,7 @@ const rmdStub: Jurisdiction = {
 
 const born73In2026: SimPerson = { id: "p1", name: "You", birthYear: 1953 };
 
-describe("Required Minimum Distributions (§5.4)", () => {
+describe("Required Minimum Distributions", () => {
   it("forces the required amount out of pre-tax and into the taxable surplus, conserving net worth", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [

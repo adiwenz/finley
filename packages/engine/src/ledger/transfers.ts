@@ -1,6 +1,6 @@
 /**
  * Ledger transfers — the shared, immutable value descriptors for one-time money
- * movements (§3.2). A payoff produces a matched pair: a {@link LiabilityTransfer}
+ * movements. A payoff produces a matched pair: a {@link LiabilityTransfer}
  * that reduces the owed balance and an {@link AccountTransfer} for the funding
  * outflow. These sit on the boundary between the mutable interpret accumulator
  * ({@link InterpretState}) and the immutable {@link Household} it converts to, so
@@ -18,7 +18,7 @@ export interface LiabilityTransfer {
   readonly accountId: AccountId;
 }
 
-/** A one-time outflow applied to an asset account (the funding half of a payoff, §3.2). */
+/** A one-time outflow applied to an asset account (the funding half of a payoff). */
 export interface AccountTransfer {
   readonly accountId: AccountId;
   readonly month: number;

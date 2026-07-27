@@ -46,7 +46,7 @@ const source = (
   // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full cash
   // inflow — the no-haircut case — so a test only names it when it wants a take-home < gross.
   netCashFlowCents = cashInflowCents,
-  // Whose income it is (issue #118) — only the tests about two claimants name it.
+  // Whose income it is — only the tests about two claimants name it.
   ownerId?: string,
 ): ProjectionIncomeSource => ({
   sourceId,
@@ -68,7 +68,7 @@ describe("buildIncomeChartData", () => {
     expect(data.rows[0]!.totalCents).toBe(dollarsToCents(5_000));
   });
 
-  it("keeps two jobs in one tax bucket as distinct bands (the whole point of issue #99)", () => {
+  it("keeps two jobs in one tax bucket as distinct bands", () => {
     const data = buildIncomeChartData(
       seriesOf([
         source("job:a", dollarsToCents(5_000), "wages", "Job A"),
@@ -237,7 +237,7 @@ describe("incomeBandsForMode", () => {
     expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
   });
 
-  // ── Two claimants (issue #118): a benefit band names its kind, never its earner ──
+  // ── Two claimants: a benefit band names its kind, never its earner ──
 
   const twoClaimants = () =>
     buildIncomeChartData(
@@ -293,7 +293,7 @@ describe("incomeBandsForMode", () => {
   });
 });
 
-describe("incomeBandsForMode — take-home vs gross basis (issue #110 follow-up)", () => {
+describe("incomeBandsForMode — take-home vs gross basis", () => {
   /**
    * A month whose one source carries a cash inflow and the engine's already-netted take-home
    * ({@link ProjectionIncomeSource.netCashFlowCents}) — the app reads that net straight

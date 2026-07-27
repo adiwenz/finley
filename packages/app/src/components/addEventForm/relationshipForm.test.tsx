@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * RelationshipForm — a partner joins the household (issue #118). Pins that the partner
+ * RelationshipForm — a partner joins the household. Pins that the partner
  * can be authored WITH their own jobs (the same job model and form the primary earner
  * uses), scoped to the partner, and that a partner with no authored jobs joins exactly
  * as before (single-earner plans unchanged).
@@ -24,7 +24,7 @@ function renderForm(defaultMonth = 0) {
 const spin = (name: RegExp) => screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 const btn = (name: RegExp) => screen.getByRole("button", { name });
 
-describe("RelationshipForm — partner jobs (issue #118)", () => {
+describe("RelationshipForm — partner jobs", () => {
   it("a partner joins with no jobs by default (unchanged behavior)", () => {
     const onAdd = renderForm();
     fireEvent.click(btn(/Add event/i));

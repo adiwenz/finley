@@ -14,7 +14,7 @@ import { formatDollars } from "../../format";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Monthly spending chart (§Q27, "Base + Adjustments", issue #71, AC2). Draws each of
+ * Monthly spending chart ("Base + Adjustments"). Draws each of
  * the engine's spending items as a stacked area — spending **as authored**, with span,
  * dated overrides, and price growth applied — so each band is one thing the money goes
  * to and the total is what the month costs. Bands are coloured by kind ({@link
@@ -149,7 +149,7 @@ export function PerLineBudgetChart({
     () => data.rows.map((r) => ({ month: r.month, ...r.centsByLine })),
     [data.rows],
   );
-  // The horizon runs to life expectancy (§7). Pin the axis to it: left to itself the
+  // The horizon runs to life expectancy. Pin the axis to it: left to itself the
   // domain stretches past the last month to accommodate the selection rule and the
   // open-ended insolvency band, drawing empty years the plan never reaches.
   const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;

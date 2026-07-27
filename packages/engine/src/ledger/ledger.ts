@@ -1,6 +1,6 @@
 /**
  * The Ledger — the append-only event log that is the system's source of truth
- * (§0.3, §6). Everything else (projection, snapshot) is a pure derivation.
+ * Everything else (projection, snapshot) is a pure derivation.
  */
 
 import type { LifeEvent } from "./eventTypes";

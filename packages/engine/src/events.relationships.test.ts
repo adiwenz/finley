@@ -23,7 +23,7 @@ describe("RelationshipEvent", () => {
   });
 });
 
-// ─── RelationshipEvent — a partner's own jobs (issue #118) ────────────────────
+// ─── RelationshipEvent — a partner's own jobs ─────────────────────────────────
 
 describe("RelationshipEvent — partner jobs", () => {
   // A base anchored to a real calendar "now" so the partner's jobs (authored in
@@ -98,7 +98,7 @@ describe("RelationshipEvent — partner jobs", () => {
   });
 });
 
-// ─── RelationshipEvent — a partner's own life-stage ages (issue #118) ─────────
+// ─── RelationshipEvent — a partner's own life-stage ages ──────────────────────
 
 describe("RelationshipEvent — partner retirement & claiming ages", () => {
   const cfg: LedgerBaseConfig = {

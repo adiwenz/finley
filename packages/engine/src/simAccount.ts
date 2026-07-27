@@ -3,22 +3,22 @@
  * one-time transfers. Engine-internal, produced by compiling the authoring
  * {@link import("./account").Account}; the API never constructs it directly.
  *
- * §3.1: The rate is NOT a fixed scalar; use addRateChange to model "moved to a
+ * The rate is NOT a fixed scalar; use addRateChange to model "moved to a
  * conservative allocation at month M." The compounding step in the simulator
  * applies preciseMonthlyRate(rateAt(m)) once per month, unconditionally.
  *
- * §3.2: One-time transfers (influx / outflow) are first-class actions. They move
- * money at their month; they never apply growth — the compounding step (§0.2)
+ * One-time transfers (influx / outflow) are first-class actions. They move
+ * money at their month; they never apply growth — the compounding step
  * starts from the post-transfer balance.
  *
- * Liabilities (mortgage, auto, student loan, credit card) are Slice 2 (#3).
+ * Liabilities (mortgage, auto, student loan, credit card) are modeled separately.
  */
 
 import type { Cents } from "./money";
 import { preciseMonthlyRate, type TaxCategory } from "./cashFlowSeries";
 
 /**
- * The neutral KIND of return an account produces (§5.3) — an economic fact, not a tax
+ * The neutral KIND of return an account produces — an economic fact, not a tax
  * rule. "interest": a currently-taxable cash yield (a bank / money-market balance).
  * "appreciation": an unrealized capital gain. The engine states the kind; the
  * JURISDICTION owns whether/when/how it is taxed ({@link
@@ -27,7 +27,7 @@ import { preciseMonthlyRate, type TaxCategory } from "./cashFlowSeries";
 export type AccountReturnKind = "interest" | "appreciation";
 
 /**
- * A neutral, structured description of an account's tax *behavior* (§5.3 seam 2) —
+ * A neutral, structured description of an account's tax *behavior* (seam 2) —
  * the engine's mechanics need behavior, never a jurisdiction's branded vehicle
  * name. The jurisdiction owns the tax *consequence*; the account only states, in
  * engine terms, what kind of flow a withdrawal produces and how contributions /
@@ -47,7 +47,7 @@ export interface SimAccountTaxProfile {
    * withdrawal and taxed there against cost basis. The engine states the kind and owns
    * the accrual bookkeeping; the JURISDICTION owns whether/when/how it is taxed
    * ({@link import("./jurisdiction").Jurisdiction.returnTaxTreatment}) — accrual-vs-
-   * realization timing and the income category live in `rules`, never here (#94).
+   * realization timing and the income category live in `rules`, never here.
    */
   readonly returnKind?: AccountReturnKind;
 }
@@ -70,7 +70,7 @@ export const CAPITAL_GAINS_TAX_PROFILE: SimAccountTaxProfile = {
   contributionsPreTax: false,
   forcedDistributionEligible: false,
   // Its return is capital appreciation — stated explicitly rather than left absent so the
-  // deferral is the JURISDICTION's call through `returnTaxTreatment` (§5.0), not an engine
+  // deferral is the JURISDICTION's call through `returnTaxTreatment`, not an engine
   // default-by-omission. US defers it to withdrawal; a mark-to-market regime could tax it
   // at accrual. Behaviour is unchanged from omitting it under the US jurisdiction.
   returnKind: "appreciation",
@@ -83,7 +83,7 @@ export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
 };
 
 /**
- * The cash buffer / savings profile (§#94): post-tax in, and its return is bank
+ * The cash buffer / savings profile: post-tax in, and its return is bank
  * interest (`returnKind: "interest"`) — which the jurisdiction may tax at accrual,
  * whether or not the buffer is ever withdrawn. That accrual taxation is exactly why
  * the withdrawal itself is tax-free. Distinct from {@link TAX_EXEMPT_TAX_PROFILE},
@@ -130,14 +130,14 @@ export class SimAccount {
   /**
    * Human-facing name of this account ("Cash savings", "Brokerage", a goal's own name).
    * Diagnostic only — nothing in the simulation reads it; it rides through to the
-   * per-source income flow view (issue #99) so a decumulation draw can be reported as
+   * per-source income flow view so a decumulation draw can be reported as
    * *which* account is being drained rather than as an anonymous tax bucket. Absent → a
    * reporting label falls back to the account id.
    */
   readonly label?: string;
   /** liquid=true: eligible to receive net cash flow from the allocation waterfall. */
   readonly liquid: boolean;
-  /** Neutral tax behavior for withdrawal routing / forced distributions (§5.3 seam 2). */
+  /** Neutral tax behavior for withdrawal routing / forced distributions (seam 2). */
   readonly taxProfile: SimAccountTaxProfile;
   readonly openingBalanceCents: Cents;
 
@@ -202,7 +202,7 @@ export class SimAccount {
   /**
    * A copy of this account with extra one-time transfers attached — used at the
    * simulation boundary to fold in ledger-derived payoff outflows without
-   * reconstructing the account from a subset of its state (§5). Preserves the
+   * reconstructing the account from a subset of its state. Preserves the
    * full rate-segment history and any existing transfers.
    */
   withAdditionalTransfers(transfers: readonly SimOneTimeTransfer[]): SimAccount {

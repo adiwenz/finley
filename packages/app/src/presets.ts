@@ -1,9 +1,9 @@
 /**
- * Starter simulations a session can load (issue #119).
+ * Starter simulations a session can load.
  *
  * A fresh plan opens on the healthy {@link PLAN_DEFAULTS} ("Alex"), but that single
  * on-track saver is a thin slice of the lives the model is meant to illuminate. This
- * module adds three more starting points drawn straight from the issue — living
+ * module adds three more starting points — living
  * paycheck to paycheck, living on a credit card, and carrying a student loan into
  * negative net worth — so the app opens onto a *choice* of situations rather than one
  * comfortable default. Each preset is authored as a full {@link Scenario}: the standing
@@ -60,7 +60,7 @@ export interface Preset {
   readonly description: string;
   /** The standing numbers. */
   readonly plan: Plan;
-  /** Timeline events replayed on top of the plan at load (§6). */
+  /** Timeline events replayed on top of the plan at load. */
   readonly events: readonly NewLifeEvent[];
 }
 
@@ -152,7 +152,7 @@ const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan({
 });
 
 /**
- * Living on a credit card: expenses outrun income from month 0, so the §5.1 shortfall
+ * Living on a credit card: expenses outrun income from month 0, so the shortfall
  * cascade routes the monthly gap onto a synthetic credit-card liability that compounds
  * at ~22% and drags net worth negative within the first year.
  */
@@ -165,9 +165,9 @@ const LIVING_ON_CREDIT: Plan = teachingPlan({
 
 /**
  * Student loan, negative net worth: a new graduate on a solid salary but carrying a
- * $45k student loan, so net worth opens underwater (assets − the loan, §3). The income
+ * $45k student loan, so net worth opens underwater (assets − the loan). The income
  * services the loan and then some, so the line climbs back above zero within a decade —
- * the "negative but improving" case §5.1 says the model must show.
+ * the "negative but improving" case the model must show.
  */
 const STUDENT_LOAN: Plan = teachingPlan({
   name: "Riley",
@@ -185,7 +185,7 @@ const STUDENT_LOAN: Plan = teachingPlan({
  * plan, where Social Security sits under it and is never taxed — tax does NOT stop at the
  * last paycheck: it continues at roughly the working-years level right through retirement,
  * with both an ordinary-income (the withdrawals) and a Government-benefit band on the tax
- * chart (issue #110 follow-up; ~$946/mo of the retirement tax is on the benefit itself).
+ * chart (~$946/mo of the retirement tax is on the benefit itself).
  *
  * Tuned deliberately: the $5.5k monthly spend forces the 401(k) to actually fund
  * retirement (a lower spend lets cash accumulate and cover it tax-free, leaving SS barely

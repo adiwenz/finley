@@ -1,4 +1,4 @@
-/** Add-event form (§10.5 — plain-language authoring, one label = one event). */
+/** Add-event form — plain-language authoring, one label = one event. */
 
 import { useState } from "react";
 import type { LifeEvent, NewLifeEvent, Household, ProjectionSeries } from "@finley/engine";
@@ -45,7 +45,7 @@ export function AddEventForm({
   onAdd,
 }: {
   household: Household;
-  /** The live projection — the home-purchase form reads it for the §4.5 DTI warning. */
+  /** The live projection — the home-purchase form reads it for the DTI warning. */
   series: ProjectionSeries;
   defaultMonth: number;
   nextId: number;

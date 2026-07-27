@@ -2,9 +2,8 @@
 
 A pure, event-sourced simulation engine that projects a household's month-by-month net
 worth from a ledger of entered financial facts and life events, and solves for a
-retirement age. Seeded from `BUILD_SPEC.md`/`ARCHITECTURE.md`; sharpened live during the
-spec-interrogation ("grilling") session — see `DECISIONS.md` for the resolutions that
-prompted term changes here.
+retirement age. This glossary is the project's ubiquitous language — the canonical
+vocabulary for the domain.
 
 ## Language
 
@@ -21,7 +20,7 @@ _Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy on
 The reusable primitive modeling any recurring dollar amount that changes over time
 (salary, rent, groceries, debt payments). Carries a baseline, a growth mode, and
 overrides.
-_Avoid_: stream (used loosely elsewhere in the spec, but "series" is the precise type name).
+_Avoid_: stream (used loosely elsewhere, but "series" is the precise type name).
 
 **Account**:
 A balance-holding entity, either `asset` (compounds) or `liability` (amortizes). Always
@@ -67,9 +66,9 @@ _Avoid_: edit, change (too generic — "override" is the precise mechanism).
 **History correction**:
 A THIRD edit operation, distinct from an override: an in-place change to a closed
 historical segment's stored value (fix an old salary, correct a superseded mortgage rate).
-Creates no new segment and shifts no boundary (segment start/end stay event-owned, per
-§10.7). Authored on an entity's history view, never through the scrubber's
-this-month/forward prompt. See `DECISIONS.md` §11.10.
+Creates no new segment and shifts no boundary (segment start/end stay event-owned).
+Authored on an entity's history view, never through the scrubber's
+this-month/forward prompt.
 _Avoid_: backdated override (it is NOT an override — it neither rebases forward nor
 perturbs a single future month).
 
@@ -84,14 +83,14 @@ pre-tax deductions → personal cash pool → shared pool (proportional-to-incom
 except for three named levers (contribution %, shared-contribution scheme, goal priority
 order + surplus-cash destination). The ordering is fixed plumbing, never user-configurable.
 _Avoid_: budget rules, allocation policy (waterfall is the precise term; "policy" is used
-loosely in the spec but "waterfall" names the specific fixed sequence).
+loosely, but "waterfall" names the specific fixed sequence).
 
 **Lever**:
 One of the (now four) user-exposed choices *within* the fixed waterfall: per-person 401(k)
 %, shared-contribution scheme (proportional vs. even), goal priority order, and default
 surplus-cash destination (idle-in-liquid vs. swept-to-investment). Everything else about the
-waterfall is under the hood. See `DECISIONS.md` "Waterfall configurability."
-_Avoid_: knob, setting, option (the spec's own word is "lever," and it is deliberately a
+waterfall is under the hood.
+_Avoid_: knob, setting, option ("lever" is the precise word, and it is deliberately a
 small closed set).
 
 **Surplus cash**:
@@ -113,9 +112,9 @@ The terminal state where a monthly deficit exceeds all available liquid assets a
 tool produces.
 
 **Liquid** (account flag):
-Marks an `Account` as usable for the §4.5 down-payment check and the shortfall cascade's
+Marks an `Account` as usable for the down-payment check and the shortfall cascade's
 drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
-(`401k`/`Roth`/`HSA`) = not liquid. See `DECISIONS.md` §11.1.
+(`401k`/`Roth`/`HSA`) = not liquid.
 
 **Engine purity**:
 The constraint that the engine is a pure function of its inputs — no I/O, no storage, no
@@ -129,7 +128,7 @@ null jurisdiction (zero tax, no programs) so it runs standalone.
 
 **EarningsRecord**:
 An engine-owned, per-person accumulator filled as the simulator runs forward (every income
-segment contributes), plus an optional entered pre-now earnings seed (§4.6 second historical-
+segment contributes), plus an optional entered pre-now earnings seed (the second historical-
 financial-input exception). Pure engine bookkeeping with no jurisdiction knowledge — the
 `rules` side reads it to compute the Social Security benefit via the jurisdiction seam.
 _Avoid_: earnings history, wage record (this is the specific accumulator type).
@@ -139,7 +138,7 @@ Two distinct tax seams, not synonyms. **`taxTreatment`** is on `Account`
 (`preTax`/`roth`/`taxable`/`hsa`) — how a balance/its withdrawals are taxed.
 **`taxCategory`** is on an income `CashFlowSeries`
 (`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxExempt`) — how an income
-stream is taxed. Both are present but ignored in v1. See `DECISIONS.md`.
+stream is taxed. Both are present but ignored in v1.
 _Avoid_: using "tax treatment" loosely to mean either — name the specific field.
 
 **GovernmentProgram**:
@@ -153,7 +152,7 @@ A prompt surfaced when the user authors a life event that plausibly changes a re
 budget item (e.g. job-change / early retirement → adjust the `category:"health"` item;
 home purchase → end a housing item), typically with a pre-filled suggested value. A nudge
 never silently rewrites a user-controlled value — it makes the change user-authored,
-honoring the anti-deception rules (§10.3). See `DECISIONS.md` §11.12.
+honoring the anti-deception rules.
 _Avoid_: auto-adjust, automatic step (a nudge is explicitly NOT silent/automatic).
 
 **Backdating** / **"now" marker**:
@@ -165,7 +164,7 @@ of financial truth as of now.
 **Job** (income source):
 A single `CashFlowSeries` owned by a person representing one income stream. A person may
 hold multiple concurrent jobs; each is independently anchored and may carry its own plan
-descriptor (§5.5). "Job" and "income source" are used interchangeably — prefer "income
+descriptor. "Job" and "income source" are used interchangeably — prefer "income
 source" in engine-level contexts (it's the general primitive) and "job" in event/UI-facing
 contexts (it's what the user calls it).
 
@@ -174,17 +173,16 @@ The event authored when a person's income source changes structurally (new emplo
 terms) — as opposed to a same-employer raise, which is a plain override. Reference-scoped
 to exactly one income source (`targetIncomeSourceId`); does not touch a person's other
 concurrent jobs. Ends the target income series and its plan descriptor, starts a new
-income series with `resetAnchor: true`. See `DECISIONS.md` §11.8.
+income series with `resetAnchor: true`.
 _Avoid_: job event (ambiguous — "JobChangeEvent" is the exact type name).
 
 **Historical financial input**:
 One of exactly TWO permitted entered-as-of-now facts about the pre-"now" past that feed a
-forward calculation (everything else backdated is structural-only, §4.6): (1) year-to-date
+forward calculation (everything else backdated is structural-only): (1) year-to-date
 401(k) contributions (for the partial-first-year contribution cap), and (2) the pre-now
-earnings summary (to seed the `EarningsRecord` for Social Security). See `DECISIONS.md`
-§11.17 and the SS-earnings gap.
-_Avoid_: past finances, historical balance (those are exactly what §4.6 forbids — only these
-two inputs are allowed).
+earnings summary (to seed the `EarningsRecord` for Social Security).
+_Avoid_: past finances, historical balance (those are exactly what backdating forbids — only
+these two inputs are allowed).
 
 **Recommendation**:
 A machine-computed, mechanically-derived suggestion (never opinion) that closes a goal's
@@ -194,8 +192,7 @@ override path. Distinct from advice — the tool quantifies options, the user de
 ## Notes
 
 - This is a **single-context** repo for now (the `engine`). If `rules` and `app` grow
-  their own vocabulary as those repos come online (Phase 2/3 per `ARCHITECTURE.md`), split
-  into a `CONTEXT-MAP.md` at that point rather than overloading this file.
-- Terms here mirror `BUILD_SPEC.md`'s own vocabulary — this file exists to keep that
-  vocabulary consistent and opinionated as it gets stress-tested during grilling, not to
-  introduce new concepts unilaterally.
+  their own vocabulary as those repos come online, split into a `CONTEXT-MAP.md` at that
+  point rather than overloading this file.
+- This file is the canonical vocabulary — it exists to keep terms consistent and
+  opinionated as they get stress-tested, not to introduce new concepts unilaterally.

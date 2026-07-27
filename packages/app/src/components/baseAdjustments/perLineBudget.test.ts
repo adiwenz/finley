@@ -63,7 +63,7 @@ function seriesOf(months: SpendingItem[][], insolventFrom?: number): ProjectionS
   return { months: all } as unknown as ProjectionSeries;
 }
 
-describe("buildPerLineBudgetData — the spending graph reads the engine's items (AC2)", () => {
+describe("buildPerLineBudgetData — the spending graph reads the engine's items", () => {
   it("emits one row per flowed month, with each item's amount and the engine's total", () => {
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000), fun(2_000)]]));
     expect(data.rows).toHaveLength(1);
@@ -117,7 +117,7 @@ describe("buildPerLineBudgetData — the spending graph reads the engine's items
   });
 });
 
-describe("describeInsolvency — the a11y / summary line (AC2)", () => {
+describe("describeInsolvency — the a11y / summary line", () => {
   it("returns null when the plan finances the budget throughout", () => {
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000), fun(2_000)]]));
     expect(describeInsolvency(data)).toBeNull();

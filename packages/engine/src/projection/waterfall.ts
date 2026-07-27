@@ -1,9 +1,8 @@
 /**
- * Allocation waterfall — pipeline step 3 in detail (§5.0).
+ * Allocation waterfall — pipeline step 3 in detail.
  *
  * ONE opinionated, FIXED-structure waterfall — not a pile of configurable knobs.
- * The order is never user-rearrangeable; exactly four levers are exposed
- * (§5.0 RESOLVED):
+ * The order is never user-rearrangeable; exactly four levers are exposed:
  *   1. each person's pre-tax deferral % (per income source's `planDescriptor`),
  *   2. the shared-contribution scheme (proportional default / even split),
  *   3. the goal priority order,
@@ -11,23 +10,23 @@
  *
  * Per month, in strict order:
  *   1. Per-income-source pre-tax deferrals come off each source's gross first.
- *      Only sources carrying a `planDescriptor` (§5.5) defer; a source without one
+ *      Only sources carrying a `planDescriptor` defer; a source without one
  *      defers nothing. Each person's combined deferral is capped at the shared
- *      annual IRS limit (§5.4); overflow re-enters the waterfall as taxable cash.
- *   2. gross − deferral = taxable → `computeTaxCents` (§5.3 seam 1) → take-home.
+ *      annual IRS limit; overflow re-enters the waterfall as taxable cash.
+ *   2. gross − deferral = taxable → `computeTaxCents` (seam 1) → take-home.
  *      Non-wage income (government benefit/alimony/dividends) has no `planDescriptor`, so it enters
  *      POST-deferral yet still feeds the taxable pool (placement reads
  *      `planDescriptor`; taxation reads `taxCategory` — never conflated).
  *   3. Shared obligations are split across people by the scheme (proportional to
  *      take-home by default, or even). A share a person cannot cover is a shortfall
- *      (§5.1) — never silently absorbed by the other partner.
+ *      — never silently absorbed by the other partner.
  *   4. Shared goals funded from the combined discretionary pool in priority order.
  *   5. Each person's remaining leftover funds their own personal goals.
  *   6. Whatever remains lands in the surplus destination.
  *
  * This module is pure: it takes a month's resolved figures and returns per-account
  * deposits plus the household shortfall. The simulator applies the deposits and
- * routes the shortfall through the §5.1 cascade.
+ * routes the shortfall through the cascade.
  */
 
 import { splitEven, type Cents } from "../money";
@@ -70,13 +69,13 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 
 /**
  * Step 1 — per-income-source pre-tax deferrals, capped per person against the
- * annual limit (§5.4). Writes each deferral plus its employer match into
+ * annual limit. Writes each deferral plus its employer match into
  * `deposits`; returns each person's summed gross, their taxable amount broken down
  * by {@link TaxCategory} (the full per-source gross, minus any pre-tax deferral,
  * booked under the source's own category — the jurisdiction later applies whatever
  * inclusion % each category deserves), and the amount actually deferred. Overflow
  * past the cap is simply not deferred: it stays in the person's gross and re-enters
- * the waterfall as taxable take-home (§5.0 RESOLVED).
+ * the waterfall as taxable take-home.
  */
 function applyDeferrals(
   input: WaterfallInput,
@@ -127,14 +126,14 @@ function applyDeferrals(
 
     // The taxable base for this source is its gross (or its explicit `taxableCents`
     // when the taxable amount differs from the cash — a returned-basis fund draw or
-    // an accrued-interest booking, #94) booked under its own provenance category,
+    // an accrued-interest booking) booked under its own provenance category,
     // less any pre-tax deferral (which reduces taxable income from that same source).
     // The jurisdiction's tax seam applies each category's inclusion % — the whole
     // gross is still paid out as take-home below.
     const sourceTaxable = Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferred);
     addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
     // Record this source's taxable weight so its share of the category's tax can be
-    // attributed back to it below (§5.3, #110). The weight is exactly the amount added
+    // attributed back to it below. The weight is exactly the amount added
     // to the category total, so the per-source split reconciles to the category tax.
     if (sourceTaxable > 0) {
       let list = sourceTaxableByPerson.get(src.ownerId);
@@ -149,12 +148,12 @@ function applyDeferrals(
 }
 
 /**
- * Step 2 — each person's taxable-by-category map is taxed through the single §5.3
- * seam to give take-home. `computeTaxCents` is called ONCE per person and nowhere
+ * Step 2 — each person's taxable-by-category map is taxed through the single
+ * tax seam to give take-home. `computeTaxCents` is called ONCE per person and nowhere
  * else: the whole point of the seam is that no tax logic lives in the allocation
  * code — the jurisdiction decides how much of each category is taxed. Take-home is
  * charged against the FULL gross (a partially-taxed benefit still pays its whole
- * check), and the gross minus deferral was fed per-category to the seam (§5.4).
+ * check), and the gross minus deferral was fed per-category to the seam.
  */
 function computeTakeHome(
   input: WaterfallInput,
@@ -199,7 +198,7 @@ function computeTakeHome(
 /**
  * Step 3 — split shared obligations across people by the scheme, then take each
  * person's share out of their take-home. Only positive take-home can contribute;
- * a share a person cannot cover becomes a household shortfall (§5.1), never
+ * a share a person cannot cover becomes a household shortfall, never
  * silently absorbed by the other partner. Returns each person's leftover, the
  * combined discretionary pool, and the shortfall.
  *
@@ -210,7 +209,7 @@ function computeTakeHome(
  * `waterfallInflowCents`, since the account was already credited — but the treatment is
  * deliberately cause-agnostic. It is the HOUSEHOLD's to pay, so it is first covered from the
  * combined discretionary pool (a partner's surplus pays it before any asset is touched); only
- * the part no household cash can cover falls to the §5.1 cascade (drain savings → credit →
+ * the part no household cash can cover falls to the cascade (drain savings → credit →
  * insolvency), like an unmet obligation. Clamping it to 0 instead — the old behaviour —
  * silently dropped it: with no other cash reaching the waterfall the deduction was reported
  * but never drawn from the balance, so the ending balance overstated wealth by that amount
@@ -224,7 +223,7 @@ function splitSharedObligation(
   let totalPositive: Cents = 0;
   // Deductions (deferral + tax) that exceeded the cash reaching the waterfall this month — a
   // person's take-home gone negative — summed across the household. Cause-agnostic (today
-  // usually tax on out-of-waterfall cash like savings interest); a real cash need the §5.1
+  // usually tax on out-of-waterfall cash like savings interest); a real cash need the
   // cascade must fund, folded into the shortfall below.
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
@@ -242,7 +241,7 @@ function splitSharedObligation(
     input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
   } else if (totalPositive <= 0) {
     // Proportional with zero total income: short-circuit the 0/0. Nobody can
-    // contribute; the whole obligation is a shortfall (§5.0 RESOLVED).
+    // contribute; the whole obligation is a shortfall.
     for (const pid of input.personIds) shareByPerson.set(pid, 0);
   } else {
     // Proportional to take-home, distributed with cumulative rounding so the
@@ -279,7 +278,7 @@ function splitSharedObligation(
   // Unfunded deductions (a person whose tax/deferral exceeded the cash that reached the
   // waterfall — see the note above) are the HOUSEHOLD's to pay. Cover them from the combined
   // discretionary pool FIRST — a partner's surplus pays the tax on cash credited outside the
-  // waterfall — and only the part no household cash can cover falls to the §5.1 cascade. So
+  // waterfall — and only the part no household cash can cover falls to the cascade. So
   // shared available cash covers the household's obligations before savings, credit, or
   // insolvency are touched; the balance is drawn only when the household genuinely can't pay.
   const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
@@ -290,19 +289,19 @@ function splitSharedObligation(
 }
 
 /**
- * Steps 4–6 — the #26 deadline-paced (sinking-fund) goal loop, then the surplus.
+ * Steps 4–6 — the deadline-paced (sinking-fund) goal loop, then the surplus.
  *
  * The old strict fill-order (each priority-0 goal soaking up every dollar until full)
- * is replaced by two jobs pulled apart (§14, #26): the **deadline sets the pace** and
+ * is replaced by two jobs pulled apart: the **deadline sets the pace** and
  * **priority is scarcity triage**. In priority order, each *dated* goal is funded up
  * to its {@link requiredContributionCents} pace — no more — so when every pace fits,
  * all goals amortize concurrently to their own deadlines and the order is a no-op;
  * only when the paces exceed the month's cash does priority decide who falls behind.
  *
- * Standing account contributions (§12) fund between the two goal passes — after every
+ * Standing account contributions fund between the two goal passes — after every
  * dated pace, before the `asap` fill. Unlike goals they are COMMITTED: the full amount
  * always lands in the account, and the part the discretionary pool cannot cover is
- * returned as a shortfall (borrowed via the §5.1 cascade), so an unaffordable contribution
+ * returned as a shortfall (borrowed via the cascade), so an unaffordable contribution
  * breaks the plan rather than silently shrinking. `asap` goals then fund fill-order from
  * whatever remains, in priority order. The exact leftover after all of that lands in the
  * surplus destination — the balancing figure, so every discretionary cent is conserved.
@@ -366,11 +365,11 @@ function fundGoalsAndContributions(
     fundGoalUpTo(goal, pace);
   }
 
-  // Standing account contributions (§12/§15) are a COMMITTED monthly outflow, not a
+  // Standing account contributions are a COMMITTED monthly outflow, not a
   // sweep of whatever is left over: "put $X into this account" means the full $X lands
   // in the account (like a spending line's full amount is always spent), funded from the
   // discretionary pool as far as it reaches. The part the pool cannot cover is BORROWED
-  // — returned as a shortfall that the §5.1 cascade drains savings then credit to meet,
+  // — returned as a shortfall that the cascade drains savings then credit to meet,
   // so a contribution beyond your means makes the plan unfinanceable exactly as
   // unaffordable spending does (you do not silently save less than you asked to). Funding
   // draws in the priority order the caller supplied, and BEFORE the asap goals below so a
@@ -413,7 +412,7 @@ function fundGoalsAndContributions(
 }
 
 /**
- * Run the §5.0 waterfall for a single month, as the four sequential phases named
+ * Run the waterfall for a single month, as the four sequential phases named
  * in the module doc. Pure at the boundary: the shared `deposits` map is the only
  * mutable state, threaded through the phases that add to it.
  */
@@ -434,7 +433,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     takeHomeByPerson,
   );
   // A committed contribution the discretionary pool can't cover is borrowed — its
-  // shortfall joins the obligation shortfall for the §5.1 cascade (drain savings → credit
+  // shortfall joins the obligation shortfall for the cascade (drain savings → credit
   // → insolvency), so an unaffordable auto-invest breaks the plan like unaffordable spending.
   const contributionShortfall = fundGoalsAndContributions(
     input,

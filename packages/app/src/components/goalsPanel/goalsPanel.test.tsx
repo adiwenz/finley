@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * Render coverage for the Goals + Budget panels using the server renderer, since
- * this repo's jsdom is unavailable here. Interaction (reorder) and the §5.2
+ * this repo's jsdom is unavailable here. Interaction (reorder) and the
  * priority tradeoff are covered by goalsView.test.ts; these pin the wiring —
  * on-track % surfaced, the honesty flag shown, and the person-partitioned
  * Budget/Accounts panel with its Shared section and four exposed levers.
@@ -34,7 +34,7 @@ function project(budget: Plan) {
 }
 
 describe("GoalsPanel", () => {
-  it("shows each goal's projection-based on-track % and name (§5.2)", () => {
+  it("shows each goal's projection-based on-track % and name", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
@@ -43,7 +43,7 @@ describe("GoalsPanel", () => {
     expect(html).toContain("on track");
   });
 
-  it("surfaces each goal's disposition — the fate of the money at target (§5.2, #28)", () => {
+  it("surfaces each goal's disposition — the fate of the money at target", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
@@ -52,7 +52,7 @@ describe("GoalsPanel", () => {
     expect(html).toContain("Becomes home equity");
   });
 
-  it("shows the short-horizon-in-risky-account honesty flag (§5.2)", () => {
+  it("shows the short-horizon-in-risky-account honesty flag", () => {
     // One near-term goal in a 7% account → the flag fires.
     const budget: Plan = {
       ...PLAN_DEFAULTS,
@@ -81,7 +81,7 @@ describe("GoalsPanel", () => {
     expect(html).toContain("Move Home down payment down");
   });
 
-  it("offers per-goal edit and delete authoring controls (Slice 5b)", () => {
+  it("offers per-goal edit and delete authoring controls", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
@@ -89,7 +89,7 @@ describe("GoalsPanel", () => {
     expect(html).toContain("Delete Emergency fund");
   });
 
-  it("discloses the add-goal form on demand, not always open (§10.4)", () => {
+  it("discloses the add-goal form on demand, not always open", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
@@ -113,21 +113,21 @@ describe("BudgetEditor — person-partitioned panel with the four levers", () =>
     <BudgetEditor budget={PLAN_DEFAULTS} setBudget={noop} />,
   );
 
-  it("partitions into a member section plus a Shared section (§4.2)", () => {
+  it("partitions into a member section plus a Shared section", () => {
     expect(html).toContain("’s budget"); // member section aria-label
     expect(html).toContain('aria-label="Shared"');
   });
 
-  it("discloses advanced controls behind a summary (§10.4)", () => {
+  it("discloses advanced controls behind a summary", () => {
     expect(html).toContain("<summary>Advanced</summary>");
     // The account-return knobs are the disclosed levers; the 401(k) deferral moved onto
-    // jobs (§11, issue #72), so it is no longer a Budget-editor field.
+    // jobs, so it is no longer a Budget-editor field.
     expect(html).toContain("Retirement return");
     expect(html).not.toContain("401(k) contribution");
   });
 
-  it("exposes the shared-scheme lever (§5.0)", () => {
-    // The surplus-destination lever is gone with the #72 hinge: leftover cash idles, and
+  it("exposes the shared-scheme lever", () => {
+    // The surplus-destination lever is gone with the jobs hinge: leftover cash idles, and
     // investing it is authored as a brokerage contribution line, not a scalar toggle.
     expect(html).toContain("Shared expenses split");
     expect(html).toContain("Split evenly");

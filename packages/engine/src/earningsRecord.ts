@@ -1,10 +1,10 @@
 import type { Cents } from "./money";
 
 /**
- * A person's lifetime record of covered earnings (§5.4) — one
+ * A person's lifetime record of covered earnings — one
  * nominal wage total per calendar year. Pure engine-side bookkeeping: the
  * simulator ACCUMULATES it as the projection runs forward (every wage segment
- * contributes) and seeds it with the optional pre-"now" earnings summary (§4.6),
+ * contributes) and seeds it with the optional pre-"now" earnings summary,
  * but it holds NO jurisdiction knowledge.
  *
  * The full benefit formula lives entirely in `rules`, which reads this
@@ -33,9 +33,9 @@ export const EMPTY_EARNINGS_RECORD: EarningsRecord = {
 export type EarningsAccumulator = Map<number, Cents>;
 
 /**
- * Seed a fresh accumulator from an optional pre-"now" earnings summary (§4.6) —
- * the one historical financial input, resolving the §4.6 ↔ §5.4 contradiction
- * (a mid-career record cannot be built purely from post-"now" earnings). A
+ * Seed a fresh accumulator from an optional pre-"now" earnings summary —
+ * the one historical financial input (a mid-career record cannot be built
+ * purely from post-"now" earnings). A
  * missing/empty seed yields an empty accumulator.
  */
 export function seedEarnings(

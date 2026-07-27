@@ -23,7 +23,7 @@ function monthly(cents: number): SimCashFlowSeries {
   return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
-describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)", () => {
+describe("isEarmarkedForDisposition — retirement-portfolio inclusion", () => {
   it("earmarks a future-dated convertToEquity / spend fund out of the drawable portfolio", () => {
     expect(isEarmarkedForDisposition({ disposition: "convertToEquity", targetDate: 24 }, 1)).toBe(true);
     expect(isEarmarkedForDisposition({ disposition: "spend", targetDate: 24 }, 1)).toBe(true);
@@ -48,7 +48,7 @@ describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)",
     expect(isEarmarkedForDisposition({ disposition: "convertToEquity", targetDate: 24 }, 36)).toBe(false);
   });
 
-  it("cannot express an 'asap' firing disposition — the phantom-fund hole is unbuildable (§5.2)", () => {
+  it("cannot express an 'asap' firing disposition — the phantom-fund hole is unbuildable", () => {
     // A dateless STANDING disposition is legal, and drawable: an emergency fund has no
     // purchase date, so "as fast as you can" is the honest input, not an invented one.
     expect(isEarmarkedForDisposition({ disposition: "retain", targetDate: "asap" }, 1)).toBe(false);
@@ -56,7 +56,7 @@ describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)",
     // A dateless FIRING disposition is a type error. Were it representable it would never
     // fire (`fireGoalDispositions` matches on `targetDate !== month`) and never earmark
     // (the rule above needs a number), so its fund would compound forever as drawable
-    // money — the exact phantom-fund defect §5.2 / #28 exists to correct. This is a
+    // money — the exact phantom-fund defect the disposition pairing exists to correct. This is a
     // type-level guard: if the pairing is ever loosened, the line below starts compiling,
     // the `@ts-expect-error` goes unused, and `npm run typecheck` fails.
     // @ts-expect-error — "asap" is not a legal targetDate for `spend` / `convertToEquity`.
@@ -65,7 +65,7 @@ describe("isEarmarkedForDisposition — retirement-portfolio inclusion (§5.2)",
   });
 });
 
-describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
+describe("computeGoalProgress — projection-based on-track %", () => {
   it("on-track fraction is projected fund at target date ÷ target, not saved-so-far ÷ target", () => {
     // $1000/mo income, all swept to the goal fund; 0% growth.
     const fund = account("fund", 0);
@@ -152,7 +152,7 @@ describe("computeGoalProgress — projection-based on-track % (§5.2)", () => {
   });
 });
 
-describe("computeGoalProgress — verdict routing & risk flag (§5.2 RESOLVED)", () => {
+describe("computeGoalProgress — verdict routing & risk flag", () => {
   const trivialProjection = simulateHousehold(
     {
       horizonMonths: 36,

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { requiredContributionCents } from "./requiredContribution";
 import { dollarsToCents } from "./cashFlowSeries";
 
-describe("requiredContributionCents (§14/§19, #26 sinking-fund pace)", () => {
+describe("requiredContributionCents (sinking-fund pace)", () => {
   it("zero-rate: spreads the remaining gap evenly over the months left", () => {
     // $12,000 target, nothing saved, 12 months, no growth → $1,000/mo.
     expect(requiredContributionCents(dollarsToCents(12000), 0, 12, 0)).toBe(dollarsToCents(1000));

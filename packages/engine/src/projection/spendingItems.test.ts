@@ -1,5 +1,5 @@
 /**
- * The unified spending read model (issue #119 follow-up). The load-bearing property is
+ * The unified spending read model. The load-bearing property is
  * the invariant: the itemized list IS the month's spending, so its sum must equal the
  * rollups the simulator reports independently (`expensesCents + liabilityPaymentsCents`).
  * Anything that spends money without producing an item — a new expense channel, a
@@ -83,7 +83,7 @@ const ADDED_EXPENSE: NewLifeEvent = {
   growthMode: { type: "fixed" },
 };
 
-describe("spendingItems — the invariant (issue #119 follow-up)", () => {
+describe("spendingItems — the invariant", () => {
   it.each([
     ["authored lines + health", LINED_PLAN, []],
     ["with a liability being serviced", LINED_PLAN, [LOAN]],
@@ -131,7 +131,7 @@ describe("spendingItems — the invariant (issue #119 follow-up)", () => {
 
   it("keeps the per-line report as the budget-line slice of the same items", () => {
     // `lineMonthlyCents` is derived from the items rather than computed beside them, so
-    // the itemized view and the §Q27 per-line view are one computation, two shapes.
+    // the itemized view and the per-line view are one computation, two shapes.
     const flows = project(LINED_PLAN, [LOAN]).months[1]!.flows!;
     const fromItems = Object.fromEntries(
       flows.spendingItems

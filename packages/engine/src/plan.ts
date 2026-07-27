@@ -23,8 +23,8 @@ export interface ValueOverride {
  * The kind of account a goal's fund is held in — the thing a person actually knows
  * ("my emergency fund is in savings"). It is the source of truth from which the
  * projection derives the fund account's {@link import("./simAccount").SimAccountTaxProfile}
- * and its liquidity, rather than hard-coding every goal to a capital-gains investment
- * (issue #101). Whole-account-type list, so the four standing vehicles are all
+ * and its liquidity, rather than hard-coding every goal to a capital-gains investment.
+ * Whole-account-type list, so the four standing vehicles are all
  * expressible:
  *  - `"cash"`      — a cash/savings buffer: tax-free withdrawal (interest taxed at
  *                    accrual), and liquid, because a cash reserve's whole purpose is
@@ -55,7 +55,7 @@ interface GoalPlanBase {
   readonly annualReturnPct: number;
   /**
    * The {@link GoalAccountType} the fund is held in — the fund account's tax profile
-   * and liquidity derive from it (issue #101). Optional: a goal that never declared a
+   * and liquidity derive from it. Optional: a goal that never declared a
    * type keeps the `"brokerage"` default (capital-gains, liquid).
    */
   readonly accountType?: GoalAccountType;
@@ -145,7 +145,7 @@ export interface Plan {
   /** Pinned government-benefit claiming age — an input to the check, never searched. */
   readonly benefitClaimingAge: number;
   /**
-   * Optional cost-of-living rate for the government retirement benefit (§5.4), as a
+   * Optional cost-of-living rate for the government retirement benefit, as a
    * DECIMAL rate (e.g. `0.02`). When unset, the benefit COLA is COUPLED to general
    * inflation ({@link inflationPct}); setting it DECOUPLES the two — a benefit that
    * indexes below (or above) general CPI. Optional so no existing `Plan` literal
@@ -153,19 +153,19 @@ export interface Plan {
    */
   readonly benefitColaRate?: number;
   /**
-   * First-class {@link Job} standing model (§1–§8, issue #64) — the **source of
-   * truth for earned income** since the #72 hinge deleted the scalar `incomeCents` /
+   * First-class {@link Job} standing model — the **source of
+   * truth for earned income** since the hinge deleted the scalar `incomeCents` /
    * `careerStartAge` path. `createProjectionBase` compiles these jobs into the base
    * income series (the primary member's open-ended jobs end at
    * {@link retirementAge}; fixed-term jobs carry their own end). A person's covered
-   * SS earnings, including the pre-"now" record (§4.6), are derived directly from the
+   * SS earnings, including the pre-"now" record, are derived directly from the
    * jobs' spans and salaries — so when a person started working is now the earliest
    * job's `startYear`, not a separate scalar field.
    */
   readonly jobs: readonly Job[];
   /**
-   * First-class line-item {@link BudgetLine} budget (§12, §15, §18, §19, issue #67,
-   * slice 4): a prioritized list of dollar line items — expenses and account
+   * First-class line-item {@link BudgetLine} budget: a prioritized list of dollar
+   * line items — expenses and account
    * contributions — each with a `{ literal, fill-to-limit, goal-paced }` amount
    * source and optional spans + dated overrides. When present and non-empty,
    * `createProjectionBase` compiles the *expense* lines into the base expense series

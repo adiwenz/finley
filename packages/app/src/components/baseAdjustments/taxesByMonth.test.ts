@@ -24,7 +24,7 @@ interface SrcSpec {
 }
 
 /**
- * A fixture whose flowed months carry a per-SOURCE tax breakdown (issue #110 follow-up),
+ * A fixture whose flowed months carry a per-SOURCE tax breakdown,
  * plus the matching `incomeSources` so the chart can learn each source's label. Each month
  * is a list of tax-bearing sources.
  */
@@ -83,7 +83,7 @@ describe("buildTaxChartData", () => {
   });
 });
 
-describe("buildTaxChartData — per-source stacking (issue #110 follow-up)", () => {
+describe("buildTaxChartData — per-source stacking", () => {
   it("reports no per-source bands when no tax is attributed to any source (empty breakdown)", () => {
     const data = buildTaxChartData(seriesOf(dollarsToCents(300), dollarsToCents(420)));
     expect(data.hasSourceBreakdown).toBe(false);

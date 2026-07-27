@@ -68,7 +68,7 @@ function baseInput(
   };
 }
 
-describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
+describe("Desired-withdrawal decumulation channel", () => {
   it("liquidates an investment account to fund a retirement shortfall instead of borrowing", () => {
     const series = simulateHousehold(
       baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)], {
@@ -86,7 +86,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(series.months[1].isInsolvent).toBe(false);
   });
 
-  it("spends the liquid buffer down to 0 before selling investments (D2)", () => {
+  it("spends the liquid buffer down to 0 before selling investments", () => {
     const series = simulateHousehold(
       baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 1_200, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)], {
         expenseSeries: [expense(2_000)],
@@ -98,7 +98,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(99_200));
   });
 
-  it("drains taxable before pre-tax (liquidation order D2)", () => {
+  it("drains taxable before pre-tax (liquidation order)", () => {
     const series = simulateHousehold(
       baseInput(
         [
@@ -149,7 +149,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
   /**
    * A goal fixture accumulating into `goal-<id>`. Takes the disposition/date as one
    * {@link GoalDisposal} pair rather than two params, so a fixture cannot build a
-   * combination the type forbids (§5.2).
+   * combination the type forbids.
    */
   function goal(id: string, disposal: GoalDisposal): SimGoal {
     return {
@@ -163,7 +163,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     };
   }
 
-  it("leaves a future-dated convertToEquity goal fund earmarked, funding the shortfall from the brokerage instead (D4, §5.2)", () => {
+  it("leaves a future-dated convertToEquity goal fund earmarked, funding the shortfall from the brokerage instead", () => {
     const futureGoal = goal("home", { disposition: "convertToEquity", targetDate: 24 }); // still in the future at month 1
     const series = simulateHousehold(
       baseInput(
@@ -181,7 +181,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(98_000));
   });
 
-  it("counts a future-dated `retain` goal fund toward the drawable nest egg (§5.2)", () => {
+  it("counts a future-dated `retain` goal fund toward the drawable nest egg", () => {
     // A `retain` reserve (e.g. an emergency fund) stays in net worth and IS drawable
     // in retirement — unlike a `convertToEquity`/`spend` fund it is NOT earmarked out,
     // even before its target date. So it funds the shortfall before other investments.
@@ -203,7 +203,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     }
   });
 
-  it("counts a future-dated `drawDown` goal fund toward the drawable nest egg (§5.2)", () => {
+  it("counts a future-dated `drawDown` goal fund toward the drawable nest egg", () => {
     // A `drawDown` goal fund IS the nest egg (retirement / college) — the fourth
     // disposition, the counterpart to the `retain` case above. Like `retain` and
     // unlike `convertToEquity`/`spend`, it is NOT earmarked out of decumulation even
@@ -229,7 +229,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     }
   });
 
-  it("does not double-withdraw when an RMD is forced: total pre-tax drawn is max(desired, required), not the sum (§7/#32)", () => {
+  it("does not double-withdraw when an RMD is forced: total pre-tax drawn is max(desired, required), not the sum", () => {
     // A forced RMD already draws `required` from pre-tax and re-enters as income, so the
     // desired channel sees a smaller gap. The two must settle at max(desired, required),
     // never required + desired.
@@ -284,7 +284,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
-      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      // Matching per-source breakdown (attribution contract): single category, so exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.25);
         return t > 0 ? { ordinaryIncome: t } : {};
@@ -311,7 +311,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
-      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      // Matching per-source breakdown (attribution contract): single category, so exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.25);
         return t > 0 ? { ordinaryIncome: t } : {};
@@ -332,7 +332,7 @@ describe("Desired-withdrawal decumulation channel (§7, #35)", () => {
   });
 });
 
-describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16, #69 AC7)", () => {
+describe("Drawdown order — RMD-first, tax-efficient default, overridable", () => {
   const ctx = { year: 2026 };
 
   /** A withdrawal state over the given accounts, each seeded to `dollars`. */
@@ -358,7 +358,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     expect(sources[0].taxCategory).toBe("capitalGains");
   });
 
-  it("honors an explicit liquidation-order OVERRIDE (§16 overridable)", () => {
+  it("honors an explicit liquidation-order OVERRIDE (overridable)", () => {
     const accounts = [
       account("pretax", PRE_TAX_TAX_PROFILE, 0),
       account("taxexempt", TAX_EXEMPT_TAX_PROFILE, 0),
@@ -380,7 +380,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
     expect(sources[0].taxCategory).toBe("taxExempt");
   });
 
-  it("honors forced RMDs first: an RMD source shrinks the need before any elective draw (§16)", () => {
+  it("honors forced RMDs first: an RMD source shrinks the need before any elective draw", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     const st = state(accounts, { brokerage: 10_000 });
     // A $3k forced RMD is already booked as income; the $5k obligation only needs a
@@ -406,7 +406,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable (§16
   });
 });
 
-describe("Every taxed draw nets the need — whole-return gross-up (#100)", () => {
+describe("Every taxed draw nets the need — whole-return gross-up", () => {
   const ctx = { year: 2026 };
 
   /** A withdrawal state over the given accounts, each seeded to `dollars` (and optional basis). */
@@ -429,7 +429,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
   /**
    * The household's actual after-tax income across ALL sources combined — the number
    * the obligations are funded from. Sums the gross and subtracts each owner's tax on
-   * the COMBINED per-category map (tax is computed once at the §5.3 chokepoint over the
+   * the COMBINED per-category map (tax is computed once at the tax chokepoint over the
    * whole return, so category interactions — a draw pulling a benefit into taxability —
    * are captured here exactly as the simulator would).
    */
@@ -451,7 +451,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
   }
 
   /**
-   * A jurisdiction modelling the provisional-income trap at the heart of #100: a
+   * A jurisdiction modelling the provisional-income trap: a
    * capital-gains draw is taxed at 0% on its OWN, and the government benefit is taxed
    * at 0% on its OWN, but the draw pulls the benefit into taxability — so tax lands on
    * income the household already had. A per-category own-rate gross-up (×0%) cannot see
@@ -474,7 +474,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     },
   };
 
-  it("sizes a 0%-rate capital-gains draw that pulls a benefit into taxability to net the need (AC5)", () => {
+  it("sizes a 0%-rate capital-gains draw that pulls a benefit into taxability to net the need", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
     const st = state(accounts, { brokerage: 100_000 });
     // A $2k benefit already booked as income; obligations are $3k → a $1k net need must
@@ -499,7 +499,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
     expect(drawn).toBeGreaterThan(dollarsToCents(1_000));
   });
 
-  it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need (AC1)", () => {
+  it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need", () => {
     // A flat 20% tax on the capitalGains category — the draw's own rate is non-zero
     // here, but the point is the same: the sized draw must net the need, not the gross.
     const flatGains: Jurisdiction = {
@@ -609,7 +609,7 @@ describe("Every taxed draw nets the need — whole-return gross-up (#100)", () =
   });
 });
 
-describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1, #94)", () => {
+describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
   const ctx = { year: 2026 };
 
   /** A withdrawal state over the given accounts, seeded to `dollars` (and optional basis). */
@@ -631,8 +631,8 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
 
   /**
    * The household's after-tax income across all sources — but taxing each source's
-   * GAIN (`taxableCents`), not its full gross, exactly as the §5.3 seam now does for a
-   * returned-basis fund draw (#94). This is the number the obligations are funded from.
+   * GAIN (`taxableCents`), not its full gross, exactly as the tax seam now does for a
+   * returned-basis fund draw. This is the number the obligations are funded from.
    */
   function householdNetCentsGain(
     sources: readonly IncomeSourceMonth[],
@@ -651,7 +651,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
     return gross - tax;
   }
 
-  // The taxable-base policy now lives behind the jurisdiction seam (#94 follow-up), so a
+  // The taxable-base policy now lives behind the jurisdiction seam, so a
   // test that wants to observe the engine WIRING supplies a representative rule. This is
   // the US pro-rata return-of-capital: only the gain of a draw is taxable, basis returned
   // in proportion to how much of the balance is basis. (The rule's own arithmetic is
@@ -738,7 +738,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable (Commit 1
   });
 });
 
-describe("Liquid-buffer drawdown reporting (issue #99)", () => {
+describe("Liquid-buffer drawdown reporting", () => {
   const ctx = { year: 2026 };
 
   /** A state whose liquid cash account holds `cashDollars`, plus an investable brokerage. */
@@ -804,7 +804,7 @@ describe("Liquid-buffer drawdown reporting (issue #99)", () => {
     expect(liquidDrawdownCents).toBe(0);
   });
 
-  it("names an investment draw by its account (issue #99)", () => {
+  it("names an investment draw by its account", () => {
     const brokerage = new SimAccount({
       id: "brokerage",
       ownerId: "p1",

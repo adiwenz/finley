@@ -1,5 +1,5 @@
 /**
- * Job draft <-> standing {@link Job} round-trip (issue #72). Focused on the optional
+ * Job draft <-> standing {@link Job} round-trip. Focused on the optional
  * human `name`: it is stored only when the user actually typed one (trimmed), never as
  * an empty/whitespace title, and reads back into the edit draft as "" when absent — so
  * an unnamed job stays unnamed and reports fall back to its stable id.

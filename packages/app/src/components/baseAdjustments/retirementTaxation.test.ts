@@ -1,5 +1,5 @@
 /**
- * Integration demo (issue #110 follow-up): Social Security IS taxed — and the SS band's
+ * Integration demo: Social Security IS taxed — and the SS band's
  * take-home reflects it — once there's enough *other* taxable income in retirement to push
  * the benefit over the standard deduction. In the default plan SS sits below that threshold
  * (retirement is funded by non-taxable savings drawdowns), so SS take-home == gross and the

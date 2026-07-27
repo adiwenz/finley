@@ -1,5 +1,5 @@
 /**
- * Editing a job as ONE operation (§6, issue #118) — fields and owner in a single form
+ * Editing a job as ONE operation — fields and owner in a single form
  * submission.
  *
  * The regression these pin: reassigning used to remove the job from one member and *mint* a

@@ -1,4 +1,4 @@
-/** Shared controls and props for the per-event authoring forms (§10.5). */
+/** Shared controls and props for the per-event authoring forms. */
 
 import type { NewLifeEvent, Person } from "@finley/engine";
 import { monthLabel } from "../../format";

@@ -1,25 +1,24 @@
 /**
- * The `Projection` root — the headline public API of `@finley/engine` (§2, §18,
- * §20, "npm API surface" of JOBS_HOUSEHOLD_REDESIGN, issue #70, slice 7).
+ * The `Projection` root — the headline public API of `@finley/engine` ("npm API surface").
  *
  * One **unified `Projection` root**: both standing edits (`addJob`, `addBudgetLine`,
  * `setRetirementTarget`) and ledger transactions (`buyHome`, `marry`, `takeLoan`) are
  * methods on it. Internally they route to standing data (a {@link Plan}) vs the
- * {@link Ledger} per §18/§20 — but the caller sees **one object**. It is
- * "imperative-looking over an immutable core" (§2): each write derives a *new*
+ * {@link Ledger} — but the caller sees **one object**. It is
+ * "imperative-looking over an immutable core": each write derives a *new*
  * immutable {@link ProjectionState} and swaps it in, so no caller can observe a
  * half-applied write and any state already handed out stays intact.
  *
  * **Writes are not reversible by the root.** There is deliberately no undo stack: a
  * `Projection` holds the *current* state only. Reversal is addressable, not
  * positional — a future `removeTransaction(id)` / `removeJob(id)` names the thing to
- * drop (removal from a ledger *deletes the event*, per §6.1, cascading to dependents
+ * drop (removal from a ledger *deletes the event*, cascading to dependents
  * and refusing when a survivor's preconditions would fail). A UI deleting row 3 of a
  * timeline must not have to know what order rows were created in, and cross-session
  * undo would require a persisted operation log — a different design, not a stack held
- * in memory. See issue #70's amended ACs.
+ * in memory.
  *
- * **Creating writes mint a deterministic sequence id and return it** (§ "npm API").
+ * **Creating writes mint a deterministic sequence id and return it** ("npm API").
  * A single monotonic counter (`nextSeq`) lives in the state — `addJob` → `"job-1"`,
  * the next creating write → `"…-2"`, and so on. Because it is one counter across all
  * kinds, ids never collide. The counter is part of the serialized state
@@ -32,11 +31,11 @@
  * injected at `run()`, never at construction: `Projection` is pure, jurisdiction-free
  * authoring state, so one plan can be re-run under different rule sets without
  * mutation. `ProjectionResult` carries the already-monthly {@link ProjectionSeries}
- * plus the insolvency marker; per-line monthly resolution (§Q27, slice 8, issue #71)
- * now rides inside each month's `flows.lineMonthlyCents`. The §5 solver outputs
+ * plus the insolvency marker; per-line monthly resolution
+ * now rides inside each month's `flows.lineMonthlyCents`. The solver outputs
  * (career-exit/work-optional ages, on-track %) remain deferred.
  *
- * Packaging (§ "npm API", Q28): the root ships *inside* `@finley/engine` as the
+ * Packaging ("npm API"): the root ships *inside* `@finley/engine` as the
  * headline surface; the existing functional barrel (`interpretLedger`,
  * `simulateHousehold`, …) stays exported as the low-level surface. The purity guard
  * is unchanged — swapping the internal state field is not I/O, and `Jurisdiction` is a
@@ -61,16 +60,16 @@ import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 
 /**
  * The immutable authoring state a {@link Projection} holds — and the whole of what it
- * serializes. The {@link Scenario} carries the two homes writes route to (§18/§20):
+ * serializes. The {@link Scenario} carries the two homes writes route to:
  * standing data ({@link Plan}) and the {@link Ledger} of transactions. `nextSeq` is the
  * deterministic id counter
- * (§ "npm API") that **must** be serialized so a reload continues the sequence; and
+ * ("npm API") that **must** be serialized so a reload continues the sequence; and
  * `startYear` is the frozen "now" the compilation resolves against (an environment
  * input the engine cannot read from a wall clock).
  */
 export interface ProjectionState {
   /**
-   * The projectable unit (§6): the standing {@link Plan} coupled to the {@link Ledger}
+   * The projectable unit: the standing {@link Plan} coupled to the {@link Ledger}
    * of events replayed on top of it. Held as ONE {@link Scenario} rather than two
    * sibling fields precisely because that is the type's purpose — the engine projects a
    * scenario, never a bare plan, so a timeline cannot be silently dropped on its way to
@@ -79,7 +78,7 @@ export interface ProjectionState {
   readonly scenario: Scenario;
   /** The frozen "now" — calendar year of month 0. */
   readonly startYear: number;
-  /** Next deterministic sequence number a creating write will mint. Serialized (§ "npm API"). */
+  /** Next deterministic sequence number a creating write will mint. Serialized ("npm API"). */
   readonly nextSeq: number;
 }
 
@@ -94,9 +93,9 @@ export type BudgetLineInput = Omit<BudgetLine, "id"> & { readonly id?: string };
 export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
 
 /**
- * A `marry` payload: the incoming partner, authored as a {@link Person} (§8). `birthYear`
- * is **required** — it is what makes a benefit basis (§5.4) and the age-50 deferral
- * catch-up (§11) computable, and a spouse with no birth year is a data-entry gap rather
+ * A `marry` payload: the incoming partner, authored as a {@link Person}. `birthYear`
+ * is **required** — it is what makes a benefit basis and the age-50 deferral
+ * catch-up computable, and a spouse with no birth year is a data-entry gap rather
  * than an intent. `retirementTargetAge` defaults to 65 and `benefitClaimingAge` to the US
  * full retirement age (67). `jobs` defaults to none (a partner whose earned income the
  * caller has not authored); their pre-"now" covered-earnings record is derived from those
@@ -137,7 +136,7 @@ export type TakeLoanInput =
       readonly termMonths: number;
     });
 
-/** A `buyHome` payload. `appreciationMode` defaults to `inflationLinked` at base inflation (§4.1). */
+/** A `buyHome` payload. `appreciationMode` defaults to `inflationLinked` at base inflation. */
 export interface BuyHomeInput {
   readonly month: number;
   readonly ownerId: PersonId;
@@ -152,19 +151,19 @@ export interface BuyHomeInput {
 }
 
 /**
- * The computed snapshot a {@link Projection.run} produces (§ "npm API", Q26). Pure
+ * The computed snapshot a {@link Projection.run} produces ("npm API"). Pure
  * and **immutable** (frozen): the plan is authoring state, the result is one pipeline
  * pass under a specific jurisdiction. It carries the already-monthly {@link
  * ProjectionSeries} the chart reads — including per-line monthly resolution in each
- * month's `flows.lineMonthlyCents` (§Q27, slice 8) — plus the first insolvent month (a
- * convenience the app already derives). The §5 solver outputs / on-track % stay deferred.
+ * month's `flows.lineMonthlyCents` — plus the first insolvent month (a
+ * convenience the app already derives). The solver outputs / on-track % stay deferred.
  */
 export interface ProjectionResult {
   /** The jurisdiction this snapshot was computed under — echoes {@link Jurisdiction.id}. */
   readonly jurisdictionId: string;
   /** The per-month accumulation table (net worth, per-account/liability balances, flows). */
   readonly series: ProjectionSeries;
-  /** First month the §5.1 shortfall cascade exhausted all credit, or `null` if solvent throughout. */
+  /** First month the shortfall cascade exhausted all credit, or `null` if solvent throughout. */
   readonly firstInsolventMonth: number | null;
 }
 
@@ -194,7 +193,7 @@ export class Projection {
    * The current authoring state — the ONLY mutable field. Each write swaps in a fresh
    * immutable {@link ProjectionState} rather than mutating this one, so a state already
    * read out of {@link state} never changes underfoot (imperative-looking over an
-   * immutable core, §2). No prior states are retained; writes are not reversible by the
+   * immutable core). No prior states are retained; writes are not reversible by the
    * root (see the module doc).
    */
   private current: ProjectionState;
@@ -230,7 +229,7 @@ export class Projection {
 
   /**
    * Commit a standing edit: swap the plan and carry the ledger through via
-   * {@link withPlan}, so no standing write can drop the timeline (§6).
+   * {@link withPlan}, so no standing write can drop the timeline.
    */
   private commitPlan(plan: Plan, nextSeq?: number): void {
     const s = this.state;
@@ -241,11 +240,11 @@ export class Projection {
     });
   }
 
-  // ─── Standing edits (§18) ─────────────────────────────────────────────────
+  // ─── Standing edits ───────────────────────────────────────────────────────
 
   /**
    * Add a {@link Job} owned by `personId`. Mints and returns a `"job-N"` id (override
-   * with `job.id`). The job appends to the plan's standing job list (§1).
+   * with `job.id`). The job appends to the plan's standing job list.
    */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
@@ -263,7 +262,7 @@ export class Projection {
   }
 
   /**
-   * Add a {@link BudgetLine} to the standing line-item budget (§12). Mints and returns
+   * Add a {@link BudgetLine} to the standing line-item budget. Mints and returns
    * a `"line-N"` id (override with `line.id`).
    */
   addBudgetLine(line: BudgetLineInput): string {
@@ -277,7 +276,7 @@ export class Projection {
   }
 
   /**
-   * Add a funding {@link GoalPlan} (appended = lowest priority, §14). Mints and returns
+   * Add a funding {@link GoalPlan} (appended = lowest priority). Mints and returns
    * a `"goal-N"` id (override with `goal.id`).
    */
   addGoal(goal: GoalInput): string {
@@ -291,18 +290,18 @@ export class Projection {
   }
 
   /**
-   * Set the retirement target age (§5) — the career-exit input. A standing *edit*, not
+   * Set the retirement target age — the career-exit input. A standing *edit*, not
    * a creating write: it overwrites an existing value, so it mints no id.
    */
   setRetirementTarget(age: number): void {
     this.commitPlan({ ...this.state.scenario.plan, retirementAge: age });
   }
 
-  // ─── Ledger transactions (§18) ────────────────────────────────────────────
+  // ─── Ledger transactions ──────────────────────────────────────────────────
 
   /**
    * Grow the ledger with a life event through the safe, base-aware {@link addEvent}
-   * path (its own-field + precondition validation, incl. the §4.5 affordability gate,
+   * path (its own-field + precondition validation, incl. the affordability gate,
    * evaluated under the engine's own {@link nullJurisdiction} — no rules import, purity
    * intact), and commit it as ONE new state carrying both the grown ledger and the
    * post-mint `nextSeq`. Throws the conflict on failure, leaving the current state
@@ -318,7 +317,7 @@ export class Projection {
     if (!result.ok) {
       throw new Error(`Projection: cannot apply transaction — ${result.conflict}`);
     }
-    // withLedger carries the plan through — the mirror of commitPlan (§6).
+    // withLedger carries the plan through — the mirror of commitPlan.
     this.commit({ ...s, scenario: withLedger(s.scenario, result.ledger), nextSeq });
   }
 
@@ -369,7 +368,7 @@ export class Projection {
   /**
    * Buy a home (a {@link HomePurchaseEvent}): mints the property id (override with
    * `input.id`) and derives the mortgage liability id from it (`mortgage-<propertyId>`).
-   * Subject to the §4.5 down-payment hard block. Returns the property id.
+   * Subject to the down-payment hard block. Returns the property id.
    */
   buyHome(input: BuyHomeInput): string {
     const { id, nextSeq } = mint(this.state, "home", input.id);
@@ -395,7 +394,7 @@ export class Projection {
     return id;
   }
 
-  // ─── Run (§ "npm API", Q26) ────────────────────────────────────────────────
+  // ─── Run ("npm API") ──────────────────────────────────────────────────────
 
   /**
    * Compute the immutable {@link ProjectionResult} for the current authoring state
@@ -403,7 +402,7 @@ export class Projection {
    * same `Projection` can be re-run under different jurisdictions without mutation.
    *
    * Delegates to {@link projectScenario} rather than restating its steps: that is the
-   * one pipeline the net-worth chart and the §5 solver panel already share (#37), and a
+   * one pipeline the net-worth chart and the solver panel already share, and a
    * second spelling of it here is how those three quietly stop agreeing.
    */
   run(jurisdiction: Jurisdiction): ProjectionResult {
@@ -416,7 +415,7 @@ export class Projection {
     });
   }
 
-  // ─── Serialization (§ "npm API": the id counter round-trips) ───────────────
+  // ─── Serialization (the id counter round-trips) ───────────────────────────
 
   /**
    * The serializable current state — plan, ledger, `startYear`, and the `nextSeq`
