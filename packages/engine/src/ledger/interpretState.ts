@@ -116,6 +116,17 @@ export function freshState(): InterpretState {
   };
 }
 
+/**
+ * One liquid account's contribution to the sourced-funds total at a month: the
+ * account's reporting label and its balance. The down-payment block enumerates
+ * these so the conflict names exactly which buckets it counted (a liquid cash goal
+ * fund included), rather than telling the user goal funds never count.
+ */
+export interface LiquidBucket {
+  readonly label: string;
+  readonly balanceCents: Cents;
+}
+
 /** Read-only context available to handlers during interpretation (base-provided facts). */
 export interface InterpretContext {
   /** Account ids known to exist (from base config) — validates payoff targets. */
@@ -123,12 +134,15 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * Liquid funds available at a month, summed across the base's `liquid` accounts
-   * from a projection of the ledger *so far*. Present only on the authoring path
-   * ({@link addEvent}), where the down-payment hard block reads it; `undefined`
-   * during ordinary interpretation and undo, when handlers skip projection-dependent
-   * affordability checks. Credit is never included — it is not a liquid asset —
-   * so "credit is not a down-payment source" holds by construction.
+   * The liquid accounts (label + balance) available at a month — one bucket per
+   * base `liquid` account with a positive balance, from a projection of the ledger
+   * *so far*, descending. The down-payment hard block sums these for its sourced-funds
+   * total AND names them in its conflict message, so the total and the itemised list
+   * are one value by construction. A cash goal fund is included (it is liquid, hence a
+   * genuine source); credit never is (not a liquid asset), so "credit is not a
+   * down-payment source" holds by construction. Present only on the authoring path
+   * ({@link addEvent}); `undefined` during ordinary interpretation and undo, when
+   * handlers skip projection-dependent affordability checks.
    */
-  readonly liquidBalanceAt?: (month: number) => Cents;
+  readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
 }

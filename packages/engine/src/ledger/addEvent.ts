@@ -16,42 +16,57 @@ import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
 import { contextFrom, interpretLedger, interpretToState } from "./interpret";
-import type { InterpretContext } from "./interpretState";
+import type { InterpretContext, LiquidBucket } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 
 /**
- * Liquid funds available at each month for the ledger *so far*, summed across the
- * base's `liquid` accounts from a projection. This is the sourced-funds figure the
- * down-payment hard block checks against; credit is a liability, never an
- * asset here, so it can never fund a down payment. The month is clamped into the
- * projection horizon.
+ * The liquid buckets available at each month for the ledger *so far*, from a
+ * projection: one bucket per base `liquid` account with a positive balance, largest
+ * first. The down-payment hard block both SUMS these for its sourced-funds total and
+ * NAMES them in its conflict message, so the stated total and the printed list are one
+ * value — they can never disagree. A liquid goal fund (a cash emergency reserve) IS a
+ * bucket; its whole purpose is to be reachable. Credit is a liability, never an asset
+ * here, so it can never fund a down payment. The month is clamped into the horizon.
+ *
+ * Positive-only is faithful to the full liquid position because a snapshot balance is
+ * never negative: the shortfall cascade (`applyShortfallCascade`) floors the liquid
+ * sink to zero and routes any deficit onto credit *before* the month is snapshotted,
+ * and every other account is drawn down only through `Math.max(0, …)` guards. So the
+ * summed buckets equal the full liquid total, with no hidden negative to reconcile.
  */
-function liquidBalanceLookup(
+function liquidBucketsLookup(
   ledger: Ledger,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
-): (month: number) => number {
-  const liquidIds = new Set(
-    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => a.id),
+): (month: number) => readonly LiquidBucket[] {
+  // Label by id so a counted bucket reads by its account name ("Emergency fund"),
+  // falling back to the id when an account carries no label. `||` (not `??`) so an
+  // empty-string label falls back too, rather than printing a nameless "()".
+  const labelById = new Map(
+    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label || a.id]),
   );
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
+  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
   return (month) => {
-    const m = projection.months[Math.max(0, Math.min(month, last))];
-    if (!m) return 0;
-    let sum = 0;
+    const m = monthAt(month);
+    if (!m) return [];
+    const buckets: LiquidBucket[] = [];
     for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
-      if (liquidIds.has(id)) sum += balance;
+      const label = labelById.get(id);
+      if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
     }
-    return sum;
+    // Largest first: the biggest sources read first in the conflict message.
+    return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
   };
 }
 
 /**
- * The add-event replay context: the base facts plus a `liquidBalanceAt`
- * capability from a projection of the ledger so far (the pre-candidate state).
+ * The add-event replay context: the base facts plus the `liquidBucketsAt` capability
+ * (the liquid accounts the down-payment block sums for its total and names in its
+ * message), from one projection of the ledger so far (the pre-candidate state).
  * Projection-dependent affordability checks fire only through this context.
  */
 function addEventContext(
@@ -61,7 +76,7 @@ function addEventContext(
 ): InterpretContext {
   return {
     ...contextFrom(base),
-    liquidBalanceAt: liquidBalanceLookup(ledger, base, jurisdiction),
+    liquidBucketsAt: liquidBucketsLookup(ledger, base, jurisdiction),
   };
 }
 
