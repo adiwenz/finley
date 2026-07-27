@@ -363,3 +363,31 @@ describe("createProjectionBase — health as its own additive, growing expense",
     expect(enrolled).toBe(selfFunded);
   });
 });
+
+describe("createProjectionBase — surplus-cash destination lever", () => {
+  // The plan carries the user-facing "savings"/"brokerage" intent; the base maps it to
+  // the engine's idle/swept SurplusDestination, keeping the concrete account id here.
+  it("defaults an unset lever to idle (surplus stays in the liquid cash account)", () => {
+    expect(createProjectionBase(samplePlan, ctx()).surplusDestination).toEqual({
+      kind: "idle",
+    });
+  });
+
+  it("maps surplusCashTo:'savings' to idle", () => {
+    const base = createProjectionBase({ ...samplePlan, surplusCashTo: "savings" }, ctx());
+    expect(base.surplusDestination).toEqual({ kind: "idle" });
+  });
+
+  it("maps surplusCashTo:'brokerage' to a sweep into the brokerage account", () => {
+    const base = createProjectionBase({ ...samplePlan, surplusCashTo: "brokerage" }, ctx());
+    expect(base.surplusDestination).toEqual({ kind: "swept", accountId: "brokerage" });
+  });
+
+  it("sweeping surplus to the higher-returning brokerage grows net worth faster than idling in cash", () => {
+    // samplePlan earns 6% in the brokerage vs 5% in cash, so a plan with real monthly
+    // surplus ends richer when that surplus compounds in the brokerage instead of idling.
+    const idle = endingNetWorthCents({ ...samplePlan, surplusCashTo: "savings" });
+    const swept = endingNetWorthCents({ ...samplePlan, surplusCashTo: "brokerage" });
+    expect(swept).toBeGreaterThan(idle);
+  });
+});

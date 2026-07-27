@@ -39,6 +39,18 @@ export interface ValueOverride {
 export type GoalAccountType = "cash" | "brokerage" | "taxExempt" | "preTax";
 
 /**
+ * The surplus-cash destination lever, in plan-authoring terms: where each month's
+ * leftover cash — the residual after every goal and standing contribution is funded —
+ * lands. `"savings"` (the default) idles it in the liquid Cash savings account, where
+ * it earns {@link Plan.savingsReturnPct}; `"brokerage"` sweeps it into the taxable
+ * brokerage, where it earns {@link Plan.brokerageReturnPct} instead. This is the
+ * user-facing shape of the engine's {@link import("./projection/waterfall").SurplusDestination}
+ * (`idle` / `swept`); `createProjectionBase` maps the two together, keeping the
+ * concrete account id inside the engine.
+ */
+export type SurplusCashDestination = "savings" | "brokerage";
+
+/**
  * A funding goal. Priority is the goal's position in {@link Plan.goals}
  * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
  * accumulates into its own derived fund account (`goal-<id>`).
@@ -93,6 +105,14 @@ export interface Plan {
   readonly brokerageReturnPct: number;
   /** How shared obligations are split between partners. */
   readonly sharedScheme: SharedContributionScheme;
+  /**
+   * The surplus-cash destination lever: where the month's leftover cash lands.
+   * Optional — defaults to `"savings"` (idle in the liquid account, the historical
+   * behaviour), so no existing `Plan` literal needs editing. `"brokerage"` sweeps the
+   * surplus into the taxable brokerage so it earns the brokerage return instead of the
+   * cash rate.
+   */
+  readonly surplusCashTo?: SurplusCashDestination;
   /** Funding goals in priority order (array index = priority). */
   readonly goals: readonly GoalPlan[];
   /**
