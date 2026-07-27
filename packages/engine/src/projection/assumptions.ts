@@ -44,4 +44,15 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "can afford is covered only from income, cash savings, and credit, and can make the " +
       "plan unfinanceable even while investment balances remain.",
   },
+  {
+    id: "downPaymentAffordabilityTaxEstimate",
+    text:
+      "When a home purchase is funded by selling an investment, the affordability check " +
+      "that decides whether you can cover the down payment estimates the capital-gains tax " +
+      "on that sale on its own, without folding in your other income that month. That " +
+      "estimate is exact when capital gains are taxed at a single flat rate and a close " +
+      "guide under a bracketed or income-tested regime; the projection itself always taxes " +
+      "the sale precisely against your whole return, so the numbers you see remain accurate " +
+      "— only the accept/block affordability threshold uses the simpler estimate.",
+  },
 ];

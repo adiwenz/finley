@@ -69,7 +69,11 @@ function liquidBucketsLookup(
       const label = labelById.get(id);
       if (label === undefined || balance <= 0) continue;
       // The still-untaxed gain and the tax liquidating it would owe under this bucket's
-      // category: what the bucket NETS toward the purchase is `balance − tax`.
+      // category: what the bucket NETS toward the purchase is `balance − tax`. The tax is
+      // priced on the gain ALONE (no owner income for the month) — exact for a flat rate, a
+      // close guide otherwise; the sim taxes the sale precisely, so only this accept/block
+      // threshold uses the estimate. Disclosed as
+      // MODEL_ASSUMPTIONS["downPaymentAffordabilityTaxEstimate"] (assumptions.ts).
       const basis = m.accountBasisCents[id] ?? 0;
       const gain = Math.max(0, balance - basis);
       const category = categoryById.get(id) ?? "capitalGains";
