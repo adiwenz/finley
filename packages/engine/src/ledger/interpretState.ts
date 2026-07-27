@@ -124,32 +124,41 @@ export function freshState(): InterpretState {
 }
 
 /**
- * One selected down-payment source as the §4.5 affordability check saw it: its reporting
- * label and its liquid balance at the month. The conflict message enumerates these so it
- * names exactly which sources it counted (a liquid cash goal fund included), rather than
- * telling the user goal funds never count. A selected id that is not a liquid account (or
- * holds nothing) is carried at balance 0 so it still names itself.
+ * One selected funding source as the availability check saw it: its reporting label and its
+ * liquid balance at the month. A conflict message enumerates these so it names exactly which
+ * sources it counted (a liquid cash goal fund included), rather than telling the user goal
+ * funds never count. A selected id that is not a liquid account (or holds nothing) is carried
+ * at balance 0 so it still names itself.
  */
-export interface DownPaymentSource {
+export interface FundingSourceBalance {
   readonly id: string;
   readonly label: string;
   readonly balanceCents: Cents;
 }
 
 /**
- * The §4.5 affordability verdict for a set of selected down-payment sources at a month —
- * whether they can net the down payment once the capital-gains tax on liquidating them is
- * paid. The gate hard-blocks on a positive `shortfallCents`.
+ * The affordability verdict for a set of selected funding sources at a month — whether they
+ * can net a wanted amount once the capital-gains tax on liquidating them is paid. Event-
+ * neutral: the Home Purchase §4.5 down-payment gate reads it today, and any other event that
+ * funds a fixed amount from an ordered source list (One-Time Spend, #154) reads the same
+ * shape. A gate hard-blocks on a positive `shortfallCents`.
  */
-export interface DownPaymentAffordability {
+export interface FundingAvailability {
   /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
   readonly shortfallCents: Cents;
-  /** What the selected sources genuinely net toward the down payment, after that tax. */
+  /** What the selected sources genuinely net toward the wanted amount, after that tax. */
   readonly availableCents: Cents;
-  /** True when capital-gains tax reduced coverage (net delivered < the sources' combined balance). */
+  /**
+   * The capital-gains tax the liquidation induces — the wedge between what the sources hold
+   * and what they deliver. Zero for cash sources (no gain over basis) and under a no-tax
+   * jurisdiction. A picker states it so the user sees why $60,500 of balances buys a $60,000
+   * house only sometimes.
+   */
+  readonly taxCents: Cents;
+  /** True when that tax is non-zero — the flag a message reads to add "after tax". */
   readonly taxed: boolean;
   /** The selected sources in drain order, for the conflict message. */
-  readonly sources: readonly DownPaymentSource[];
+  readonly sources: readonly FundingSourceBalance[];
 }
 
 /** Read-only context available to handlers during interpretation (base-provided facts). */
@@ -159,21 +168,26 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The §4.5 down-payment affordability check: given the SELECTED sources (in the user's
-   * drain order), the down payment, and the purchase month, resolve — against a projection
-   * of the ledger *so far* — whether those sources can net the down payment once the
-   * capital-gains tax on liquidating them is paid. It runs the SAME ordered gross-up the
-   * simulator uses ({@link import("../projection/fundingDrawStep").resolveOrderedFundingDraw}),
-   * differencing each sale's tax marginally over the owner's projected other income that
-   * month, so the gate blocks exactly when the sim would fall short — under any tax regime,
-   * with no standalone-rate estimate. Only liquid accounts fund it (a cash goal fund
-   * included; credit never, being a liability), so an illiquid or empty selected source
-   * contributes 0. Present only on the authoring path ({@link addEvent}); `undefined` during
-   * ordinary interpretation and undo, when handlers skip projection-dependent checks.
+   * The funding-availability check every money-out event's affordability gate shares: given
+   * the SELECTED sources (in the user's drain order), the amount wanted, and the month,
+   * resolve — against a projection of the ledger *so far* — whether those sources can net
+   * that amount once the capital-gains tax on liquidating them is paid. It runs the SAME
+   * ordered gross-up the simulator uses ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}) on the same
+   * {@link import("./transfers").FundingDraw} shape, differencing each sale's tax marginally
+   * over the owner's projected other income that month, so a gate blocks exactly when the sim
+   * would fall short — under any tax regime, with no standalone-rate estimate.
+   *
+   * Deliberately event-neutral: the Home Purchase §4.5 down-payment gate is its first caller,
+   * and One-Time Spend (#154) gates on the identical question. Only liquid accounts fund a
+   * draw (a cash goal fund included; credit never, being a liability), so an illiquid or empty
+   * selected source contributes 0. Present only on the authoring path ({@link addEvent});
+   * `undefined` during ordinary interpretation and undo, when handlers skip
+   * projection-dependent checks.
    */
-  readonly downPaymentAffordabilityAt?: (
+  readonly fundingAvailabilityAt?: (
     sourceIds: readonly string[],
     amountCents: Cents,
     month: number,
-  ) => DownPaymentAffordability;
+  ) => FundingAvailability;
 }

@@ -26,7 +26,13 @@ export interface AccountTransfer {
   readonly amountCents: Cents;
 }
 
-/** Why a {@link FundingDraw} exists — drives its reporting provenance downstream. */
+/**
+ * Why a {@link FundingDraw} exists — drives its reporting provenance downstream: the
+ * simulator names the draw's flow bands from it (`REPORT_PREFIX` in {@link
+ * import("../projection/fundingDrawStep")}), and nothing else about the resolution reads it.
+ * So a new money-out event (One-Time Spend, #154) adds a reason here plus its prefix there,
+ * and reuses the whole channel unchanged.
+ */
 export type FundingReason = "homeDownPayment";
 
 /**

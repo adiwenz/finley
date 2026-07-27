@@ -36,6 +36,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
+import type { FundingReason } from "../ledger/transfers";
 
 /** A per-owner map of taxable amount by {@link TaxCategory} (mirrors the withdrawal channel). */
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
@@ -49,6 +50,19 @@ export type TaxableByOwner = Map<string, TaxableByCategory>;
  * the moment it reaches its fixed point, so this bound is only met by seams that never do.
  */
 const GROSS_UP_ITERATIONS = 1_000;
+
+/**
+ * The reporting-provenance prefix each {@link FundingReason} stamps on the `sourceId` of the
+ * bands its draw produces: `<prefix>:<accountId>` for the realized-gain band and
+ * `<prefix>-tax:<accountId>` for the net-neutral source that carries its tax. This is the one
+ * place a draw's *reason* becomes a *name* — the resolution itself (balances, gross-up, basis,
+ * tax) is reason-blind, so a new money-out event (One-Time Spend, #154) names its own bands by
+ * adding one line here rather than reporting under the down payment's name. Exhaustive by
+ * type: a new reason without a prefix fails the typecheck instead of silently going unnamed.
+ */
+const REPORT_PREFIX: Record<FundingReason, string> = {
+  homeDownPayment: "downpayment",
+};
 
 /** One resolved source of an ordered funding draw — the balances/basis it drew against. */
 export interface FundingSourceState {
@@ -275,6 +289,8 @@ export function resolveFundingDraws(
       ctx,
       working,
     );
+    // What this draw's bands call themselves — its reason, not the caller's event.
+    const prefix = REPORT_PREFIX[draw.reason];
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
@@ -295,7 +311,7 @@ export function resolveFundingDraws(
           cashInflowCents: s.gainCents,
           taxCategory: s.category,
           taxableCents: 0,
-          sourceId: `downpayment:${s.id}`,
+          sourceId: `${prefix}:${s.id}`,
           label: s.label ?? s.id,
         });
       }
@@ -310,7 +326,7 @@ export function resolveFundingDraws(
           cashInflowCents: 0,
           taxCategory: s.category,
           taxableCents: s.gainCents,
-          sourceId: `downpayment-tax:${s.id}`,
+          sourceId: `${prefix}-tax:${s.id}`,
           label: s.label ?? s.id,
         });
       }

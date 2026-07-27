@@ -226,15 +226,16 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid
     // sources at the purchase month, NET of the capital-gains tax liquidating them owes.
-    // `downPaymentAffordabilityAt` (present only on the authoring path) runs the SAME ordered
-    // gross-up the simulator does against a projection of the ledger so far — draining the
-    // selected sources in the user's order, taxing each sale marginally over the owner's
+    // `fundingAvailabilityAt` (present only on the authoring path) is the shared, event-neutral
+    // question "can these sources net this amount at this month, after tax?": it runs the SAME
+    // ordered gross-up the simulator does against a projection of the ledger so far — draining
+    // the selected sources in the user's order, taxing each sale marginally over the owner's
     // other income that month — so a positive shortfall means those sources genuinely cannot
     // fund the purchase once the sale is taxed, and the gate blocks exactly when the sim
     // would fall short. A selected source that is not a liquid account (illiquid, or empty)
     // contributes 0. Absent a projection (ordinary replay/undo) the capability is undefined
     // and this check is skipped — replay never re-litigates an already-accepted purchase.
-    const affordability = context.downPaymentAffordabilityAt?.(
+    const affordability = context.fundingAvailabilityAt?.(
       event.downPaymentSourceIds,
       event.downPaymentCents,
       event.month,

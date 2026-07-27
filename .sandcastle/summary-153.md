@@ -17,9 +17,17 @@
 > but not after it is blocked, and the gate blocks **exactly** when the sim would fall short —
 > under any tax regime (a bracketed/provisional one included), not just a flat rate. (A
 > freshly-originated mortgage owes no payment in its origination month, so the purchase adds
-> no same-month obligation and the gate's pre-purchase base equals the sim's.) #154 (One-Time
-> Spend) inherits all of this through the shared channel. The passages below that say the gain
-> is untaxed / that taxing it would break conservation describe the superseded original slice.
+> no same-month obligation and the gate's pre-purchase base equals the sim's.) The authoring
+> capability the gate calls is `InterpretContext.fundingAvailabilityAt(sourceIds, amount,
+> month) → FundingAvailability` (it replaced the old `liquidBucketsAt`), named for the
+> `FundingDraw` it resolves rather than for the down payment — so **#154 (One-Time Spend)
+> inherits all of this through the shared channel** by calling the same capability with its
+> own amount and sources. The channel is reason-blind end to end: the only place a draw's
+> `FundingReason` is read is `REPORT_PREFIX` in `fundingDrawStep.ts`, which names its flow
+> bands (`downpayment:` / `downpayment-tax:` today), so a new money-out event adds one reason
+> and one prefix and reuses the resolution, the tax, and the gate unchanged. The passages below that say the gain is untaxed / that taxing it
+> would break conservation — and those naming `LiquidBucket`/`liquidBucketsAt` — describe the
+> superseded original slice.
 
 ## Overview
 
