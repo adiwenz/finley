@@ -130,6 +130,33 @@ describe("goalRows — projection-based on-track %", () => {
   });
 });
 
+describe("goalRows — surfaces derived completion (In Progress → Funded) and behind-pace", () => {
+  it("marks a goal Funded once its projected balance reaches target on/before the date", () => {
+    // $1,500/mo surplus fills a $3,000 target by ~month 2, well before month 24.
+    const funded: GoalPlan = {
+      id: "f",
+      name: "Funded goal",
+      targetCents: dollarsToCents(3000),
+      targetDate: 24,
+      disposition: "retain",
+      annualReturnPct: 0,
+    };
+    const budget = { ...baseBudget, goals: [funded] };
+    const rows = goalRows(budget, project(budget));
+    expect(rows[0].completion).toBe("funded");
+    // A funded goal is by definition not behind pace.
+    expect(rows[0].behindPace).toBe(false);
+  });
+
+  it("marks an underfunded goal In Progress and behind pace (onTrackFraction < 1)", () => {
+    // $30,000 by month 12 off a $1,500/mo surplus → only 60% funded in time.
+    const budget = { ...baseBudget, goals: [goalA] };
+    const rows = goalRows(budget, project(budget));
+    expect(rows[0].completion).toBe("inProgress");
+    expect(rows[0].behindPace).toBe(true);
+  });
+});
+
 describe("goalRows — surfaces each goal's disposition", () => {
   it("carries the disposition and a plain-language label so the fate of the money is visible", () => {
     // The whole point: make explicit what BECOMES of a goal's money at target.

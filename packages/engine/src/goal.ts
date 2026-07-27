@@ -100,6 +100,17 @@ export const RISKY_ANNUAL_RATE_THRESHOLD = 0.05;
 /** Which verdict branch a goal's on-track question is answered by. */
 export type GoalVerdictPath = "immediate" | "projection";
 
+/**
+ * A goal's completion state, derived from the projection series — never stored, and
+ * carrying zero cross-reference to any event (#129/#150). It is binary and monotone:
+ *
+ *  - `inProgress` — the fund has not yet reached target on/before the target date.
+ *  - `funded`     — the fund balance reached target at some month **on or before** the
+ *    target date. This **latches**: because it is decided by the *earliest* reaching
+ *    month, a later event draining the account can never move it back to `inProgress`.
+ */
+export type GoalCompletion = "inProgress" | "funded";
+
 export interface GoalProgress {
   readonly goalId: string;
   /**
@@ -109,6 +120,12 @@ export interface GoalProgress {
    * A zero-target goal reports 1 (nothing to fund).
    */
   readonly onTrackFraction: number;
+  /**
+   * Derived, latched completion state — see {@link GoalCompletion}. Scanned from the
+   * projection series (fund balance vs target across every month up to the target
+   * date); not a stored status.
+   */
+  readonly completion: GoalCompletion;
   readonly verdictPath: GoalVerdictPath;
   /**
    * True when a near-term goal accumulates into an equity-like account — v1 does
@@ -149,6 +166,19 @@ export function computeGoalProgress(
         ? 1
         : 0;
 
+  // Completion is derived by scanning every month up to (and including) the target
+  // month: Funded latches the instant the balance first reaches target on/before the
+  // date, so a later draining month — never scanned once we've latched — cannot undo it.
+  // A zero-target goal is trivially Funded (balance 0 already reaches target 0).
+  let completion: GoalCompletion = "inProgress";
+  for (let m = 0; m <= targetMonth; m++) {
+    const balCents = projection.months[m]?.accountBalancesCents[goal.fundAccountId] ?? 0;
+    if (balCents >= goal.targetCents) {
+      completion = "funded";
+      break;
+    }
+  }
+
   const monthsToTarget =
     goal.targetDate === "asap" ? 0 : Math.max(0, goal.targetDate - nowMonth);
 
@@ -164,5 +194,5 @@ export function computeGoalProgress(
   const shortHorizonRiskFlag =
     monthsToTarget < SHORT_HORIZON_RISK_MONTHS && fundRate >= RISKY_ANNUAL_RATE_THRESHOLD;
 
-  return { goalId: goal.id, onTrackFraction, verdictPath, shortHorizonRiskFlag };
+  return { goalId: goal.id, onTrackFraction, completion, verdictPath, shortHorizonRiskFlag };
 }

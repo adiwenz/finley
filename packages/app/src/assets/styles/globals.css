@@ -237,16 +237,47 @@ select,
 .goal-head {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: var(--space-2);
 }
 
 .goal-name {
   font-weight: 600;
+  /* Let a long name wrap within its share of the row instead of pushing the
+     on-track % (or Funded pill) past the card's right edge. */
+  min-width: 0;
 }
 
 .goal-track {
   color: var(--color-accent);
   font-variant-numeric: tabular-nums;
+  /* The % is a compact unit — never shrink or wrap it; the name yields instead. */
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Derived, latched completion badge (In progress → Funded), never a stored status. */
+.goal-status {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.goal-status-funded {
+  color: var(--color-surface);
+  background: var(--color-text);
+}
+
+.goal-status-in-progress {
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  /* Rendered on its own line (a direct child of the column-flex .goal-row), so
+     hug the content width and left-align instead of stretching full width. */
+  align-self: flex-start;
 }
 
 .goal-meta {
@@ -308,4 +339,33 @@ select,
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Segmented control — a row of mutually-exclusive view toggles (e.g. the net-worth
+   breakdown's Accounts / Assets / Net worth). The pressed segment fills solid. */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--color-border-input);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.seg-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px var(--space-3);
+  border: none;
+  border-left: 1px solid var(--color-border-input);
+  background: var(--color-white);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.seg-btn:first-child {
+  border-left: none;
+}
+
+.seg-btn[aria-pressed="true"] {
+  background: var(--color-text);
+  color: var(--color-background);
 }

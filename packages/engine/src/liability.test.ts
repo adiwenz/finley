@@ -10,6 +10,7 @@ import {
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+  liabilityKindLabel,
 } from "./liability";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -271,5 +272,14 @@ describe("deriveLoanStatus (v1-seam: delinquent not reachable in-sim yet)", () =
 
   it("missed → delinquent", () => {
     expect(deriveLoanStatus("missed")).toBe("delinquent");
+  });
+});
+
+describe("liabilityKindLabel", () => {
+  it("gives a human label per kind", () => {
+    expect(liabilityKindLabel("mortgage")).toBe("Mortgage");
+    expect(liabilityKindLabel("auto")).toBe("Auto loan");
+    expect(liabilityKindLabel("studentLoan")).toBe("Student loan");
+    expect(liabilityKindLabel("creditCard")).toBe("Credit card");
   });
 });

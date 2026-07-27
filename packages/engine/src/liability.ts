@@ -15,6 +15,19 @@ import type { SimOneTimeTransfer } from "./simAccount";
 
 export type LiabilityKind = "mortgage" | "auto" | "studentLoan" | "creditCard";
 
+/** Human-facing labels per {@link LiabilityKind}, so a UI can name a debt by its kind. */
+const LIABILITY_KIND_LABELS: Readonly<Record<LiabilityKind, string>> = {
+  mortgage: "Mortgage",
+  auto: "Auto loan",
+  studentLoan: "Student loan",
+  creditCard: "Credit card",
+};
+
+/** Display label for a liability kind — e.g. `"studentLoan"` → "Student loan". */
+export function liabilityKindLabel(kind: LiabilityKind): string {
+  return LIABILITY_KIND_LABELS[kind];
+}
+
 /**
  * How a single scheduled payment was serviced this month — the payment-record
  * seam for future partial-payment / negative-amortization work.
