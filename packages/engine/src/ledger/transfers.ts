@@ -33,7 +33,7 @@ export interface AccountTransfer {
  * So a new money-out event (One-Time Spend, #154) adds a reason here plus its prefix there,
  * and reuses the whole channel unchanged.
  */
-export type FundingReason = "homeDownPayment";
+export type FundingReason = "homeDownPayment" | "oneTimeSpend";
 
 /**
  * An ordered, cross-account outflow resolved at SIMULATION time — the money-out

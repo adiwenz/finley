@@ -117,6 +117,29 @@ export interface HomePurchaseEvent extends EventBase {
   readonly appreciationMode?: GrowthMode;
 }
 
+/**
+ * A discretionary one-time spend: a pure outflow that drains an ordered list of the user's
+ * liquid accounts and hard-blocks if they cannot cover it. Distinct from {@link
+ * HomePurchaseEvent} — it carries no price / mortgage terms and originates NO asset, so the
+ * money simply leaves net worth (a car, a trip, a gift). It shares only the funding channel:
+ * the shared helper drains `fundingSourceIds` in order, taking as much as each holds before
+ * the next, and a positive shortfall is HARD-BLOCKED — financing is a {@link LoanEvent}'s
+ * job, and an opt-in soft-cascade onto credit is deferred (#128). Credit is never eligible.
+ */
+export interface OneTimeSpendEvent extends EventBase {
+  readonly type: "OneTimeSpendEvent";
+  /** Total to spend — drained from `fundingSourceIds`, in order, subject to the hard block. */
+  readonly amountCents: Cents;
+  /**
+   * The liquid accounts funding the spend, in drain order (#151): the shared funding helper
+   * takes as much as each holds before moving to the next, so an early source empties before
+   * a later one is touched. Each contributing source receives its own paired outflow.
+   */
+  readonly fundingSourceIds: readonly string[];
+  /** The user's plain-language name for the spend ("New car", "Europe trip"). */
+  readonly label: string;
+}
+
 /** The fields a {@link LoanEvent} carries whatever the liability's kind. */
 interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
@@ -183,6 +206,7 @@ export type LifeEvent =
   | ChildEvent
   | SeparationEvent
   | HomePurchaseEvent
+  | OneTimeSpendEvent
   | LoanEvent
   | DebtPayoffEvent
   | BudgetItemStartEvent

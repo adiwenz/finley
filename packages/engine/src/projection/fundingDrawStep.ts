@@ -62,6 +62,7 @@ const GROSS_UP_ITERATIONS = 1_000;
  */
 const REPORT_PREFIX: Record<FundingReason, string> = {
   homeDownPayment: "downpayment",
+  oneTimeSpend: "spend",
 };
 
 /** One resolved source of an ordered funding draw — the balances/basis it drew against. */

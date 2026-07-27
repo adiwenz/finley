@@ -13,6 +13,7 @@ import { ChildForm } from "./childForm";
 import { ExpenseForm } from "./expenseForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { SpendForm } from "./spendForm";
 import { SeparationForm } from "./separationForm";
 import styles from "./addEventForm.module.css";
 
@@ -28,6 +29,7 @@ type EventKind = Extract<
   | "BudgetItemStartEvent"
   | "LoanEvent"
   | "HomePurchaseEvent"
+  | "OneTimeSpendEvent"
   | "RelationshipEvent"
   | "ChildEvent"
   | "SeparationEvent"
@@ -37,6 +39,7 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "BudgetItemStartEvent", label: "Added an expense" },
   { value: "LoanEvent", label: "Took out a loan" },
   { value: "HomePurchaseEvent", label: "Bought a home" },
+  { value: "OneTimeSpendEvent", label: "Made a one-time spend" },
   { value: "RelationshipEvent", label: "Partnered" },
   { value: "ChildEvent", label: "Had a child" },
   { value: "SeparationEvent", label: "Separated" },
@@ -92,6 +95,7 @@ export function AddEventForm({
       {kind === "HomePurchaseEvent" && (
         <HomePurchaseForm {...formProps} household={household} series={series} funding={funding} />
       )}
+      {kind === "OneTimeSpendEvent" && <SpendForm {...formProps} funding={funding} />}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} household={household} />}

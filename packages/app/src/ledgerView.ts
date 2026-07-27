@@ -58,6 +58,11 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
         label: "Bought a home",
         detail: `${formatDollars(e.purchasePriceCents)}, ${formatDollars(e.downPaymentCents)} down`,
       };
+    case "OneTimeSpendEvent":
+      return {
+        label: "One-time spend",
+        detail: `${e.label}, ${formatDollars(e.amountCents)}`,
+      };
     case "LoanEvent":
       return {
         label: "Took out a loan",

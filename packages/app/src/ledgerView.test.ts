@@ -64,6 +64,21 @@ describe("summarizeEvent — one plain-language label per structural change", ()
     });
     expect(s.label).toBe("Separated");
   });
+
+  it("labels a one-time spend with its name and amount", () => {
+    const s = summarizeEvent({
+      id: "sp1",
+      type: "OneTimeSpendEvent",
+      month: 36,
+      sequenceNumber: 0,
+      amountCents: 3_000_000,
+      fundingSourceIds: ["savings"],
+      label: "New car",
+    });
+    expect(s.label).toBe("One-time spend");
+    expect(s.detail).toContain("New car");
+    expect(s.detail).toContain("$30,000");
+  });
 });
 
 describe("timelineMarkers", () => {

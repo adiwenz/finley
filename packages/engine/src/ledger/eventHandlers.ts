@@ -18,6 +18,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -298,6 +299,62 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
   },
 };
 
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, _state, context) {
+    if (event.fundingSourceIds.length === 0) {
+      return fail(event, `at least one funding source is required`);
+    }
+    for (const sourceId of event.fundingSourceIds) {
+      if (!context.accountIds.has(asAccountId(sourceId))) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    if (event.amountCents <= 0) {
+      return fail(event, `spend amount must be positive`);
+    }
+    // HARD BLOCK: the spend must be coverable from the SELECTED liquid sources at the event
+    // month, NET of the capital-gains tax liquidating them owes — the SAME §4.5 contract a
+    // Home Purchase down payment enforces, asked of the same shared, event-neutral capability
+    // (`fundingAvailabilityAt`). A positive shortfall means those sources genuinely cannot
+    // fund the spend once the sale is taxed, and the gate blocks exactly when the sim would
+    // fall short. Financing is a LoanEvent's job and a soft-cascade onto credit is deferred
+    // (#128), so unlike a plain expense override this never spills silently onto credit.
+    // Absent a projection (ordinary replay/undo) the capability is undefined and this check is
+    // skipped — replay never re-litigates an already-accepted spend.
+    const affordability = context.fundingAvailabilityAt?.(
+      event.fundingSourceIds,
+      event.amountCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `spend of ${dollars(event.amountCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the spend — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the amount while this still fails.`,
+      );
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // A pure outflow: an ordered draw across the selected liquid sources, resolved at
+    // simulation time (the per-source split is balance-dependent — see FundingDraw). Unlike a
+    // Home Purchase, NO asset is originated, so this draw is the whole net-worth change — the
+    // money leaves net worth. Its reporting bands (savings drawdown / realized gain) come from
+    // the reason-blind funding channel, named by this event's `oneTimeSpend` reason.
+    state.fundingDraws.push({
+      month: event.month,
+      amountCents: event.amountCents,
+      sourceIds: event.fundingSourceIds,
+      reason: "oneTimeSpend",
+    });
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -385,6 +442,7 @@ const handlers: HandlerRegistry = {
   ChildEvent: child,
   SeparationEvent: separation,
   HomePurchaseEvent: homePurchase,
+  OneTimeSpendEvent: oneTimeSpend,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
   BudgetItemStartEvent: budgetItemStart,

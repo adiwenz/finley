@@ -88,6 +88,23 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       }
       return positiveInteger(event, "mortgageTermMonths", event.mortgageTermMonths) ?? { ok: true };
     }
+    case "OneTimeSpendEvent": {
+      // A spend of nothing is not an event; the amount must be a genuine outflow.
+      if (!(event.amountCents > 0)) {
+        return bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+      }
+      // An ordered, non-empty list of distinct funding sources — a zero-source spend has
+      // nothing to drain, and a repeated id would double-drain one account.
+      if (!Array.isArray(event.fundingSourceIds) || event.fundingSourceIds.length === 0) {
+        return bad(event, `fundingSourceIds must list at least one funding source`);
+      }
+      if (new Set(event.fundingSourceIds).size !== event.fundingSourceIds.length) {
+        return bad(event, `fundingSourceIds must not repeat a source`);
+      }
+      return event.label.trim().length > 0
+        ? { ok: true }
+        : bad(event, `label must be non-empty`);
+    }
     case "DebtPayoffEvent":
       return event.amountCents > 0
         ? { ok: true }
