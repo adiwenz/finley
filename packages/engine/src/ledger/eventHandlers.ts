@@ -23,7 +23,6 @@ import type {
 } from "./eventTypes";
 import type { InterpretContext, InterpretState, SeriesDef } from "./interpretState";
 import type { AccountTransfer } from "./transfers";
-import { drainSources } from "./funding";
 import {
   asAccountId,
   asChildId,
@@ -227,45 +226,33 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid
     // sources at the purchase month, NET of the capital-gains tax liquidating them owes.
-    // `liquidBucketsAt` (present only on the authoring path) lists the liquid accounts,
-    // their balances, and what each NETS after that tax (`afterTaxCents`) — never credit.
-    // We drain the down payment from the selected sources' after-tax value, in the user's
-    // order; a positive shortfall means those sources cannot cover it once the sale is
-    // taxed. A selected source that is not a liquid bucket (illiquid, or empty) contributes
-    // 0. Absent a projection (ordinary replay/undo) the capability is undefined and this
-    // check is skipped — replay never re-litigates an already-accepted purchase.
-    const buckets = context.liquidBucketsAt?.(event.month);
-    if (buckets !== undefined) {
-      const byId = new Map(buckets.map((b) => [b.id, b]));
-      // The selected sources in drain order — the balances that actually fund this
-      // purchase, not the whole liquid pool. A selected id absent from the liquid
-      // buckets (illiquid or zero-balance) is carried at 0 so it still names itself.
-      const selected = event.downPaymentSourceIds.map(
-        (id) => byId.get(id) ?? { id, label: id, balanceCents: 0, afterTaxCents: 0 },
+    // `downPaymentAffordabilityAt` (present only on the authoring path) runs the SAME ordered
+    // gross-up the simulator does against a projection of the ledger so far — draining the
+    // selected sources in the user's order, taxing each sale marginally over the owner's
+    // other income that month — so a positive shortfall means those sources genuinely cannot
+    // fund the purchase once the sale is taxed, and the gate blocks exactly when the sim
+    // would fall short. A selected source that is not a liquid account (illiquid, or empty)
+    // contributes 0. Absent a projection (ordinary replay/undo) the capability is undefined
+    // and this check is skipped — replay never re-litigates an already-accepted purchase.
+    const affordability = context.downPaymentAffordabilityAt?.(
+      event.downPaymentSourceIds,
+      event.downPaymentCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      // Name the SELECTED sources and what each holds. When capital-gains tax bit into the
+      // coverage (the sources net less than they hold), say so — otherwise the stated
+      // available total and the printed balances agree exactly, as before.
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
       );
-      // Drain the down payment over each source's AFTER-TAX value: a source that clears
-      // the down payment pre-tax but not once its embedded gain is taxed still falls short.
-      const { drained, shortfall } = drainSources(
-        selected.map((b) => ({ ...b, balanceCents: b.afterTaxCents })),
-        event.downPaymentCents,
-      );
-      if (shortfall > 0) {
-        // Name the SELECTED sources and what each holds. When tax bit into the coverage
-        // (a source nets less than it holds), say so — otherwise the stated available
-        // total (the sum of the after-tax values, = `drained` here) and the printed
-        // balances agree exactly, as before.
-        const counted = selected
-          .map((b) => `${b.label} (${dollars(b.balanceCents)})`)
-          .join(", ");
-        const taxed = selected.some((b) => b.afterTaxCents < b.balanceCents);
-        const taxNote = taxed
-          ? " (after the capital-gains tax on liquidating the selected investment sources)"
-          : "";
-        return fail(
-          event,
-          `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(drained)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
-        );
-      }
     }
     return ok;
   },

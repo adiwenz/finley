@@ -8,14 +8,18 @@
 > still cover the down payment), the gain is routed through the single tax chokepoint as a
 > net-neutral source (`fundingDrawStep.resolveFundingDraws`, run *before* `allocateMonth`),
 > and **net worth falls by exactly the tax paid** — which is what actually happens. A cash
-> source (no gain) still conserves. The §4.5 gate now sizes on **down payment + tax**: it
-> drains the down payment over each bucket's *after-tax* value (`LiquidBucket.afterTaxCents`,
-> priced by the jurisdiction from the basis exposed on `ProjectionMonth.accountBasisCents`),
-> so a source that clears the down payment pre-tax but not after it is blocked. The gate's
-> tax estimate is standalone (exact for a flat rate; the sim's marginal gross-up is
-> authoritative). #154 (One-Time Spend) inherits all of this through the shared channel.
-> The passages below that say the gain is untaxed / that taxing it would break conservation
-> describe the superseded original slice.
+> source (no gain) still conserves. The §4.5 gate now sizes on **down payment + tax**: the
+> gross-up is one shared, mutation-free helper (`fundingDrawStep.resolveOrderedFundingDraw`)
+> that both the simulator and the authoring gate call — the gate runs it against a projection
+> of the ledger so far, differencing each sale's tax **marginally** over the owner's projected
+> other income that month (exposed as `ProjectionMonthFlows.taxableByOwnerCents`, with basis
+> from `ProjectionMonth.accountBasisCents`). So a source that clears the down payment pre-tax
+> but not after it is blocked, and the gate blocks **exactly** when the sim would fall short —
+> under any tax regime (a bracketed/provisional one included), not just a flat rate. (A
+> freshly-originated mortgage owes no payment in its origination month, so the purchase adds
+> no same-month obligation and the gate's pre-purchase base equals the sim's.) #154 (One-Time
+> Spend) inherits all of this through the shared channel. The passages below that say the gain
+> is untaxed / that taxing it would break conservation describe the superseded original slice.
 
 ## Overview
 
@@ -168,4 +172,6 @@ cannot disagree.
   withdrawal — but reconcile the net-worth-conservation invariant first.~~ **Done** (see
   the follow-up at the top): the gain is taxed via a net-neutral chokepoint source, the
   draw grosses up over it, and net worth intentionally drops by the tax. The gate sizes on
-  down payment + tax off `LiquidBucket.afterTaxCents` / `ProjectionMonth.accountBasisCents`.
+  down payment + tax by running the shared `resolveOrderedFundingDraw` against the projected
+  month state, marginally over `ProjectionMonthFlows.taxableByOwnerCents` — exact under any
+  regime, so the gate blocks exactly when the sim would fall short.

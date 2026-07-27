@@ -188,6 +188,18 @@ export interface ProjectionMonthFlows {
    * deferred.
    */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * The month's taxable base, per owner, by tax category — the NON-funding income the tax
+   * seam would tax a down-payment liquidation's gain on top of (wages, benefit, RMD, and the
+   * decumulation withdrawal, before any funding draw). The authoring §4.5 affordability gate
+   * reads it so it differences a would-be sale's capital-gains tax marginally over the
+   * owner's real other income — exactly as the simulation does — instead of pricing the gain
+   * standalone. Present whenever flows are (absent only at month 0); `{}` for an owner with
+   * no taxable income that month. Optional: the simulator attaches it after `buildFlows`
+   * (it is the pre-funding base, a sim-level concern, not a flow-bucketing one), so a
+   * consumer synthesising flows without it is valid — the gate reads it defensively.
+   */
+  readonly taxableByOwnerCents?: Readonly<Record<string, Readonly<Record<string, Cents>>>>;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */

@@ -22,7 +22,7 @@ import {
   advanceLiabilities,
 } from "./liabilitySteps";
 import { applyAssetTransfers, compoundAssets, advanceProperties } from "./assetSteps";
-import { resolveFundingDraws } from "./fundingDrawStep";
+import { resolveFundingDraws, buildTaxableByOwner, toTaxableRecord } from "./fundingDrawStep";
 import {
   buildIncomeSources,
   buildInterestAccrualSources,
@@ -157,7 +157,12 @@ export function simulateHousehold(
       // principal bands feed the flow view below. A cash source realizes no gain, grosses up
       // by nothing, and conserves net worth exactly as before; an appreciated source's
       // purchase now costs the household the tax, so net worth falls by that tax.
-      const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, incomeSources);
+      // The month's taxable base, per owner, from the non-funding income — the marginal
+      // context a down-payment gain's tax is differenced over. Exposed on the flow view so
+      // the authoring §4.5 gate differences the gain the SAME way (exact under any regime,
+      // not a flat-rate estimate); built before the draw so it is the pre-funding base.
+      const fundingBase = buildTaxableByOwner(incomeSources);
+      const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
       const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
 
       const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
@@ -207,6 +212,10 @@ export function simulateHousehold(
         taxBySourceCents,
         deferralBySourceCents,
       );
+      // Expose the pre-funding taxable base so the authoring affordability gate differences
+      // a down-payment sale's tax marginally, the same way this month just did. `fundingBase`
+      // is untouched by resolveFundingDraws (it threads a private copy), so it is pristine here.
+      flows = { ...flows, taxableByOwnerCents: toTaxableRecord(fundingBase) };
     }
 
     months.push(

@@ -124,28 +124,32 @@ export function freshState(): InterpretState {
 }
 
 /**
- * One liquid account's contribution to the sourced-funds total at a month: the
- * account's reporting label and its balance. The down-payment block enumerates
- * these so the conflict names exactly which buckets it counted (a liquid cash goal
- * fund included), rather than telling the user goal funds never count.
+ * One selected down-payment source as the §4.5 affordability check saw it: its reporting
+ * label and its liquid balance at the month. The conflict message enumerates these so it
+ * names exactly which sources it counted (a liquid cash goal fund included), rather than
+ * telling the user goal funds never count. A selected id that is not a liquid account (or
+ * holds nothing) is carried at balance 0 so it still names itself.
  */
-export interface LiquidBucket {
-  /** The account id — how the down-payment gate matches a bucket to a selected source. */
+export interface DownPaymentSource {
   readonly id: string;
   readonly label: string;
   readonly balanceCents: Cents;
-  /**
-   * What the bucket actually NETS toward a purchase after the capital-gains tax liquidating
-   * it would owe: `balanceCents − tax(balance − basis)`, priced by the jurisdiction under
-   * the account's own withdrawal category. The down-payment gate drains the down payment
-   * over this (not the raw balance), so a source that clears the down payment pre-tax but
-   * not after it is blocked. A pure cash bucket has basis == balance (no gain), so
-   * `afterTaxCents === balanceCents` and the gate is unchanged for it. Equals `balanceCents`
-   * under a zero-tax jurisdiction. For a single source this is exact; across several it
-   * matches the simulation's ordered gross-up under a flat rate (a close guide otherwise —
-   * the sim's marginal gross-up stays authoritative).
-   */
-  readonly afterTaxCents: Cents;
+}
+
+/**
+ * The §4.5 affordability verdict for a set of selected down-payment sources at a month —
+ * whether they can net the down payment once the capital-gains tax on liquidating them is
+ * paid. The gate hard-blocks on a positive `shortfallCents`.
+ */
+export interface DownPaymentAffordability {
+  /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
+  readonly shortfallCents: Cents;
+  /** What the selected sources genuinely net toward the down payment, after that tax. */
+  readonly availableCents: Cents;
+  /** True when capital-gains tax reduced coverage (net delivered < the sources' combined balance). */
+  readonly taxed: boolean;
+  /** The selected sources in drain order, for the conflict message. */
+  readonly sources: readonly DownPaymentSource[];
 }
 
 /** Read-only context available to handlers during interpretation (base-provided facts). */
@@ -155,15 +159,21 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The liquid accounts (id + label + balance) available at a month — one bucket per
-   * base `liquid` account with a positive balance, from a projection of the ledger
-   * *so far*. The down-payment hard block matches its SELECTED sources against these by
-   * id, drains them in the user's order, and names them in its conflict message, so the
-   * stated total and the itemised list are one value by construction. A cash goal fund
-   * is included (it is liquid, hence a genuine source); credit never is (not a liquid
-   * asset), so "credit is not a down-payment source" holds by construction. Present only
-   * on the authoring path ({@link addEvent}); `undefined` during ordinary interpretation
-   * and undo, when handlers skip projection-dependent affordability checks.
+   * The §4.5 down-payment affordability check: given the SELECTED sources (in the user's
+   * drain order), the down payment, and the purchase month, resolve — against a projection
+   * of the ledger *so far* — whether those sources can net the down payment once the
+   * capital-gains tax on liquidating them is paid. It runs the SAME ordered gross-up the
+   * simulator uses ({@link import("../projection/fundingDrawStep").resolveOrderedFundingDraw}),
+   * differencing each sale's tax marginally over the owner's projected other income that
+   * month, so the gate blocks exactly when the sim would fall short — under any tax regime,
+   * with no standalone-rate estimate. Only liquid accounts fund it (a cash goal fund
+   * included; credit never, being a liability), so an illiquid or empty selected source
+   * contributes 0. Present only on the authoring path ({@link addEvent}); `undefined` during
+   * ordinary interpretation and undo, when handlers skip projection-dependent checks.
    */
-  readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
+  readonly downPaymentAffordabilityAt?: (
+    sourceIds: readonly string[],
+    amountCents: Cents,
+    month: number,
+  ) => DownPaymentAffordability;
 }

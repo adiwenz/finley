@@ -10,6 +10,7 @@ import {
   type NewLifeEvent,
 } from "./index";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 
@@ -500,6 +501,36 @@ function flatCapitalGains(rate: number): Jurisdiction {
   };
 }
 
+/**
+ * A bracketed capital-gains test jurisdiction: a capital gain stacked ON TOP of the owner's
+ * ordinary income is untaxed up to `thresholdCents` of total taxable income and taxed at
+ * `rate` above it — so the gain's tax depends on the owner's OTHER income, the marginal
+ * behavior a standalone (gain-alone) estimate cannot see. Ordinary income itself is untaxed
+ * here, to isolate the gain. Monotone non-decreasing in the gain, as the gross-up requires.
+ */
+function bracketedCapitalGains(thresholdCents: number, rate: number): Jurisdiction {
+  const gainTaxCents = (byCat: Partial<Record<string, number>>): number => {
+    const ordinary = byCat.ordinaryIncome ?? 0;
+    const gains = byCat.capitalGains ?? 0;
+    // The slice of `gains` sitting above the threshold once stacked on ordinary income.
+    const taxable =
+      Math.max(0, ordinary + gains - thresholdCents) - Math.max(0, ordinary - thresholdCents);
+    return Math.round(Math.max(0, taxable) * rate);
+  };
+  return {
+    id: "test-bracketed-capital-gains",
+    computeTaxCents: gainTaxCents,
+    computeTaxByCategoryCents: (byCat) => {
+      const tax = gainTaxCents(byCat);
+      return tax > 0 ? { capitalGains: tax } : {};
+    },
+    taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) => {
+      const basisFraction = balanceCents > 0 ? Math.min(1, basisCents / balanceCents) : 0;
+      return grossCents - Math.round(grossCents * basisFraction);
+    },
+  };
+}
+
 describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
   it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
     // A brokerage grown 12 months carries an embedded gain over its $80k cost basis; its
@@ -588,6 +619,39 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
       purchase({ month: 24, downPaymentSourceIds: ["brokerage"] }),
       flatCapitalGains(0.2),
     );
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
+  });
+
+  it("prices the gain MARGINALLY over the owner's other income, not standalone", () => {
+    // The exactness proof: with a bracketed regime where a gain stacked on top of ordinary
+    // income above a threshold is taxed but below it is free, the SAME brokerage funding the
+    // SAME down payment is affordable with no other income (the gain sits under the
+    // threshold, untaxed) yet unaffordable once a wage that month pushes the whole gain into
+    // the taxed band. Only a gate that reads the owner's other income — as the sim does —
+    // can tell these apart; a standalone estimate would decide both identically.
+    const wage = new SimCashFlowSeries(0, dollarsToCents(15_000), { type: "fixed" }, { baselineUnit: "monthly" });
+    const accounts = () => [liquidAcct("savings", 0), liquidAcct("brokerage", 5_000_000, 0.1)];
+    const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4); // $15k/mo threshold, 40% above
+
+    const withoutWage: LedgerBaseConfig = {
+      horizonMonths: 24,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: accounts(),
+    };
+    const withWage: LedgerBaseConfig = {
+      ...withoutWage,
+      initialAccounts: accounts(),
+      initialIncomeSeries: [{ series: wage, ownerId: "p1" }],
+    };
+    const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
+
+    // No other income: the ~$10k gain sits below the $15k threshold → untaxed → affordable.
+    expect(addEvent(emptyLedger, withoutWage, buy, jur).ok).toBe(true);
+    // A $15k wage that month stacks the whole gain above the threshold → taxed → the
+    // after-tax proceeds no longer cover the down payment, so the gate blocks.
+    const blocked = addEvent(emptyLedger, withWage, buy, jur);
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
   });

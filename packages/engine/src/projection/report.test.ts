@@ -116,8 +116,6 @@ describe("buildSimulationReport", () => {
     // funded. Each carries plain-language text.
     expect(ids).toContain("postTaxOpeningBasis");
     expect(ids).toContain("contributionsNotAssetFunded");
-    // The down-payment affordability check estimates the capital-gains tax standalone.
-    expect(ids).toContain("downPaymentAffordabilityTaxEstimate");
     for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
   });
 
