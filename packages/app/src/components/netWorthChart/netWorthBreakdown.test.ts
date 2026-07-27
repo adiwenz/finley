@@ -126,23 +126,25 @@ describe("buildNetWorthBreakdown", () => {
     expect(data.rows.map((r) => r.month)).toEqual([0, 1]); // insolvent months 2,3 dropped
   });
 
-  it("stops only at the first draw on the synthetic last-resort card, matched by its id", () => {
-    // The synthetic card is the engine's borrow-of-last-resort, not a real debt: a month that
-    // draws on it ends the self-funded period, so rows stop before it and it never becomes a
-    // band or dents net worth. The check is on the card's specific id, not a missing label.
+  it("charts the synthetic last-resort card as a labelled debt, not a truncation point", () => {
+    // The synthetic card is the engine's borrow-of-last-resort; when the caller labels it, it
+    // charts below zero as debt like any liability, so a plan living on borrowed money shows
+    // that debt piling up rather than the chart stopping where it starts.
+    const meta: BreakdownMeta = { ...META, liabilityLabels: { [SYNTHETIC_CARD_ID]: "Credit card" } };
     const data = buildNetWorthBreakdown(
       series([
         { accounts: { savings: 100 } },
-        { accounts: { savings: 60 } },
+        { accounts: { savings: 0 } },
         { accounts: { savings: 0 }, liabilities: { [SYNTHETIC_CARD_ID]: 500 } },
         { accounts: { savings: 0 }, liabilities: { [SYNTHETIC_CARD_ID]: 900 } },
       ]),
-      META,
+      meta,
     );
-    expect(data.rows.map((r) => r.month)).toEqual([0, 1]); // stops before the first card draw
-    expect(data.hasLiabilities).toBe(false);
-    expect(data.bands.every((b) => b.kind === "account")).toBe(true);
-    expect(data.terminalNetWorthCents).toBe(60); // last self-funded month, no phantom debt
+    expect(data.rows).toHaveLength(4); // charts through the borrowing, not truncated
+    expect(data.hasLiabilities).toBe(true);
+    const liabilityBand = data.bands.find((b) => b.kind === "liability");
+    expect(liabilityBand).toEqual({ id: SYNTHETIC_CARD_ID, label: "Credit card", kind: "liability" });
+    expect(data.terminalNetWorthCents).toBe(-900); // debt owed at the last charted month
   });
 
   it("renders an UNLABELLED real liability normally (a missing label never truncates)", () => {
@@ -164,21 +166,27 @@ describe("buildNetWorthBreakdown", () => {
     expect(data.terminalNetWorthCents).toBe(-300);
   });
 
-  it("truncates on the synthetic card even while a real liability is charting", () => {
-    // A named mortgage charts through all rows up to the synthetic-card draw, which still ends
-    // the run — the two liabilities are treated differently by id, not by label presence.
-    const meta: BreakdownMeta = { ...META, liabilityLabels: { "mortgage-1": "Mortgage" } };
+  it("charts a real debt and the synthetic card together, truncating only at insolvency", () => {
+    // A named mortgage and the synthetic card both chart below zero; the run ends at the first
+    // insolvent month, not where the synthetic borrowing began.
+    const meta: BreakdownMeta = {
+      ...META,
+      liabilityLabels: { "mortgage-1": "Mortgage", [SYNTHETIC_CARD_ID]: "Credit card" },
+    };
     const data = buildNetWorthBreakdown(
       series([
         { accounts: { savings: 100 }, liabilities: { "mortgage-1": 500 } },
-        { accounts: { savings: 120 }, liabilities: { "mortgage-1": 480 } },
+        { accounts: { savings: 0 }, liabilities: { "mortgage-1": 480, [SYNTHETIC_CARD_ID]: 200 } },
         { accounts: { savings: 0 }, liabilities: { "mortgage-1": 460, [SYNTHETIC_CARD_ID]: 900 } },
+        { accounts: { savings: 0 }, isInsolvent: true },
       ]),
       meta,
     );
-    expect(data.rows).toHaveLength(2); // stops before the synthetic-card month
-    expect(data.bands.filter((b) => b.kind === "liability").map((b) => b.label)).toEqual(["Mortgage"]);
-    expect(data.bands.some((b) => b.id === SYNTHETIC_CARD_ID)).toBe(false);
+    expect(data.rows).toHaveLength(3); // stops at the insolvent month (3), not the synthetic draw (1)
+    expect(data.bands.filter((b) => b.kind === "liability").map((b) => b.label)).toEqual([
+      "Mortgage",
+      "Credit card",
+    ]);
   });
 
   it("returns no bands and null terminal net worth for an empty series", () => {

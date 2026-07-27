@@ -21,7 +21,7 @@
  * negative for the net-worth view.
  */
 
-import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
+import type { ProjectionSeries } from "@finley/engine";
 
 /** Which side of the balance sheet a band sits on — drives colour, order, and sign. */
 export type BreakdownBandKind = "account" | "property" | "liability";
@@ -113,14 +113,10 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
  * presence is read from the series too, so an account the plan defines but never funds is
  * dropped rather than drawn as a flat-zero band.
  *
- * The breakdown is the household's balance sheet *while the plan self-funds*. Rows stop at
- * the first month the plan is insolvent OR draws on the engine's synthetic last-resort credit
- * card ({@link SYNTHETIC_CARD_ID}) — a modelling device rather than a debt the household
- * holds. Past that point the composition story is over, and the sibling total net-worth chart
- * takes over with its own insolvency handling. The synthetic card is matched by its specific
- * id, NOT by whether a label happens to be missing: real liabilities always render (a missing
- * label only affects display, never which months chart), and only this one engine construct
- * is treated as the end of the self-funded period.
+ * Rows stop at the first insolvent month, matching how the total net-worth chart ends its
+ * curves at insolvency. Every liability the series carries is charted below zero as debt —
+ * including the engine's synthetic last-resort borrowing once the caller labels it — so a plan
+ * living on borrowed money shows that debt piling up rather than truncating where it starts.
  */
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
@@ -138,12 +134,6 @@ export function buildNetWorthBreakdown(
 
   for (const m of series.months) {
     if (m.isInsolvent) break; // curves end at insolvency, as the total net-worth chart does
-    // The first draw on the synthetic last-resort card marks the end of the self-funded
-    // period — stop before it so that engine construct never becomes a band. This keys off
-    // the card's specific id, not a missing label, so a real (even unlabelled) debt keeps
-    // charting normally.
-    const drawsSyntheticCredit = (m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0) !== 0;
-    if (drawsSyntheticCredit) break;
 
     const centsById: Record<string, number> = {};
     const collect = (source: Readonly<Record<string, number>>, into: Set<string>) => {
@@ -173,12 +163,11 @@ export function buildNetWorthBreakdown(
   const propertyBands: BreakdownBand[] = [...propertyIds]
     .filter((id) => nonZero.has(id))
     .map((id) => ({ id, label: meta.propertyLabels?.[id] ?? humanizeId(id), kind: "property" }));
-  // Real liabilities band, labelled from the meta or humanized as a fallback — a missing
-  // label only affects the name, never whether it charts. The synthetic card is excluded
-  // explicitly (it is also always zero in the charted rows, which stop before its first
-  // draw, so this is belt-and-suspenders).
+  // Every liability the series carries, labelled from the meta or humanized as a fallback — a
+  // missing label only affects the name, never whether it charts. This includes the engine's
+  // synthetic last-resort borrowing once the caller labels it (shown as debt below zero).
   const liabilityBands: BreakdownBand[] = [...liabilityIds]
-    .filter((id) => nonZero.has(id) && id !== SYNTHETIC_CARD_ID)
+    .filter((id) => nonZero.has(id))
     .map((id) => ({ id, label: meta.liabilityLabels?.[id] ?? humanizeId(id), kind: "liability" }));
 
   const bands = [...accountBands, ...propertyBands, ...liabilityBands];
