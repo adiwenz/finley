@@ -84,20 +84,24 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
                 <div className="goal-head">
                   <span className="goal-name">{row.name}</span>
                   {row.completion === "funded" ? (
-                    // Funded is terminal — the badge stands alone. The on-track % is the
-                    // pacing signal for a goal still being worked toward, so once the goal
-                    // has latched Funded it would only contradict the badge (e.g. a drained
-                    // fund reading "Funded · 40% on track"). Show it only while In progress.
+                    // Funded is terminal — a short pill that sits inline in the head. The
+                    // on-track % is the pacing signal for a goal still being worked toward,
+                    // so once the goal has latched Funded it would only contradict the badge
+                    // (e.g. a drained fund reading "Funded · 40% on track"). Show it only
+                    // while In progress, paired with the name here on the head line.
                     <span className="goal-status goal-status-funded">Funded</span>
                   ) : (
-                    <>
-                      <span className="goal-status goal-status-in-progress">
-                        In progress{row.behindPace ? " · Behind pace" : ""}
-                      </span>
-                      <span className="goal-track">{row.onTrackPct}% on track</span>
-                    </>
+                    <span className="goal-track">{row.onTrackPct}% on track</span>
                   )}
                 </div>
+                {row.completion === "inProgress" && (
+                  // The In-progress badge can read "In progress · Behind pace", too long to
+                  // share the head line in this narrow panel, so it gets its own line and
+                  // hugs the left (see .goal-status-in-progress align-self).
+                  <span className="goal-status goal-status-in-progress">
+                    In progress{row.behindPace ? " · Behind pace" : ""}
+                  </span>
+                )}
                 <div className="goal-meta">
                   {formatDollars(row.targetCents)} by{" "}
                   {row.targetDate === "asap" ? "as soon as possible" : monthLabel(row.targetDate)}
