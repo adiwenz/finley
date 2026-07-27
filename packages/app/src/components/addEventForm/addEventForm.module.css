@@ -5,3 +5,54 @@
   flex-direction: column;
   gap: 10px;
 }
+
+/* The ordered funding-source picker (#156) — which accounts pay, in drain order. */
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sourceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sourceRow:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+
+/* The drain position. Fixed width so the names stay aligned whether or not a row is chosen. */
+.sourceOrder {
+  flex: 0 0 1.4em;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8em;
+  opacity: 0.7;
+  text-align: center;
+}
+
+.sourceName {
+  flex: 1 1 auto;
+}
+
+.sourceBalance {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.sourceShort {
+  color: var(--color-warning, #b45309);
+}

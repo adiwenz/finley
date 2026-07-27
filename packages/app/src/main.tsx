@@ -10,6 +10,7 @@ import {
   planAccountDescriptors,
   liabilityKindLabel,
   SYNTHETIC_CARD_ID,
+  fundingLookup,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -98,6 +99,12 @@ export function App() {
     () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
     [household],
   );
+  // The funding questions the authoring forms ask about money-out events: which accounts
+  // could pay at a month, and what a chosen set nets after capital-gains tax. Built from the
+  // SAME ledger+base+jurisdiction `recordEvent` validates against, so the down-payment picker
+  // shows the numbers the §4.5 gate will decide on. Memoized because it projects the ledger
+  // once and then answers both questions cheaply.
+  const funding = useMemo(() => fundingLookup(ledger, base, usJurisdiction), [ledger, base]);
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
   // The retirement panel reasons about the SAME scenario the graph draws — the plan
@@ -208,6 +215,7 @@ export function App() {
             <AddEventForm
               household={household}
               series={series}
+              funding={funding}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               nextId={ledger.nextSequenceNumber}
               horizonMonths={horizonMonths}

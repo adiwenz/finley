@@ -1,10 +1,11 @@
 /** A house is bought — a HomePurchaseEvent (property + mortgage + down payment). */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   dollarsToCents,
   DTI_FRONT_END_THRESHOLD,
   DTI_BACK_END_THRESHOLD,
+  type FundingLookup,
   type Household,
   type ProjectionSeries,
 } from "@finley/engine";
@@ -12,13 +13,14 @@ import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
 import { assessHomePurchaseDti } from "./homePurchaseDti";
+import { FundingSourcePicker } from "./fundingSourcePicker";
 
 /**
  * Opening values for the form — a plausible starter purchase the user edits, not
  * a recommendation. Dollars and percent, matching the inputs below; the cents
  * conversion happens at the engine boundary.
  */
-const DEFAULTS: Omit<HomePurchaseDraft, "month"> = {
+const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
   price: 300_000,
   down: 60_000,
   apr: 6.5,
@@ -36,6 +38,8 @@ interface HomePurchaseDraft {
   readonly down: number;
   readonly apr: number;
   readonly termYears: number;
+  /** The accounts the down payment drains, IN ORDER — the first empties before the next. */
+  readonly sourceIds: readonly string[];
 }
 
 export function HomePurchaseForm({
@@ -45,12 +49,30 @@ export function HomePurchaseForm({
   onAdd,
   household,
   series,
+  funding,
 }: FormProps & {
   household: Household;
   series: ProjectionSeries;
+  /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
+  funding: FundingLookup;
 }) {
-  const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({ month: defaultMonth, ...DEFAULTS }));
+  const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({
+    month: defaultMonth,
+    ...DEFAULTS,
+    // Open on the largest account at that month (the pool is engine-ordered), so the form is
+    // usable without a choice — the same "it just funds from savings" default as before, but
+    // now visible and editable rather than hardcoded.
+    sourceIds: funding.sourcesAt(defaultMonth).slice(0, 1).map((s) => s.id),
+  }));
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
+
+  // The pool and the verdict for the CURRENT month/selection/amount. Both come from one
+  // projection inside `funding`, so this re-derives on edit without re-simulating the plan.
+  const pool = useMemo(() => funding.sourcesAt(draft.month), [funding, draft.month]);
+  const availability = useMemo(
+    () => funding.availabilityAt(draft.sourceIds, dollarsToCents(draft.down), draft.month),
+    [funding, draft.sourceIds, draft.down, draft.month],
+  );
 
   // The SOFT warning: advisory only, recomputed each render so it tracks the
   // live inputs. It never gates `submit` — the event records regardless (the only
@@ -72,10 +94,9 @@ export function HomePurchaseForm({
       ownerId: "p1",
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
-      // The base plan seeds a single liquid account, "savings" (projectionBase). The
-      // ordered multi-source picker is #156; today the down payment drains that one
-      // account, expressed as a single-source list.
-      downPaymentSourceIds: ["savings"],
+      // The user's chosen accounts, in the order they chose them — the drain order the
+      // simulator resolves the down payment against (#156).
+      downPaymentSourceIds: draft.sourceIds,
       mortgageLiabilityId: `mortgage-${nextId}`,
       mortgageApr: draft.apr / 100,
       mortgageTermMonths: draft.termYears * 12,
@@ -89,13 +110,21 @@ export function HomePurchaseForm({
       <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
       <NumInput label="Mortgage APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
       <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
+      <FundingSourcePicker
+        pool={pool}
+        selected={draft.sourceIds}
+        amountCents={dollarsToCents(draft.down)}
+        availability={availability}
+        onChange={(sourceIds) => patch({ sourceIds })}
+        label="Down payment paid from"
+      />
       <button className="btn primary" onClick={submit}>
         Add event
       </button>
       {dti.exceeded && <DtiWarning dti={dti} />}
       <p className="hint">
-        The down payment must be covered by liquid savings at that month — credit
-        can’t fund it.
+        Accounts are drained in the order you pick them, and only cash and
+        investment accounts can pay — retirement savings and credit can’t.
       </p>
     </>
   );

@@ -1,7 +1,13 @@
 /** Add-event form — plain-language authoring, one label = one event. */
 
 import { useState } from "react";
-import type { LifeEvent, NewLifeEvent, Household, ProjectionSeries } from "@finley/engine";
+import type {
+  LifeEvent,
+  NewLifeEvent,
+  FundingLookup,
+  Household,
+  ProjectionSeries,
+} from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
 import { ExpenseForm } from "./expenseForm";
@@ -39,6 +45,7 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
 export function AddEventForm({
   household,
   series,
+  funding,
   defaultMonth,
   nextId,
   horizonMonths,
@@ -47,6 +54,12 @@ export function AddEventForm({
   household: Household;
   /** The live projection — the home-purchase form reads it for the DTI warning. */
   series: ProjectionSeries;
+  /**
+   * The engine's funding questions against the ledger so far — which accounts could pay
+   * for a money-out event at a month, and what a chosen set nets after tax. The
+   * home-purchase form's source picker reads it; #154's spend form will read the same.
+   */
+  funding: FundingLookup;
   defaultMonth: number;
   nextId: number;
   horizonMonths: number;
@@ -77,7 +90,7 @@ export function AddEventForm({
       {kind === "BudgetItemStartEvent" && <ExpenseForm {...formProps} household={household} />}
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (
-        <HomePurchaseForm {...formProps} household={household} series={series} />
+        <HomePurchaseForm {...formProps} household={household} series={series} funding={funding} />
       )}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
