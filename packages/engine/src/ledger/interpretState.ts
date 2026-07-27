@@ -134,20 +134,15 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * Liquid funds available at a month, summed across the base's `liquid` accounts
-   * from a projection of the ledger *so far*. Present only on the authoring path
-   * ({@link addEvent}), where the down-payment hard block reads it; `undefined`
-   * during ordinary interpretation and undo, when handlers skip projection-dependent
-   * affordability checks. Credit is never included — it is not a liquid asset —
-   * so "credit is not a down-payment source" holds by construction.
-   */
-  readonly liquidBalanceAt?: (month: number) => Cents;
-  /**
-   * The liquid accounts (label + balance) that make up {@link liquidBalanceAt} at a
-   * month, positive balances only, descending. Paired with `liquidBalanceAt` and
-   * present on the same authoring path: it lets the down-payment block *name* the
-   * buckets it counted — including a cash goal fund, which is liquid and therefore a
-   * genuine source — instead of a blanket, now-false "goal funds do not count".
+   * The liquid accounts (label + balance) available at a month — one bucket per
+   * base `liquid` account with a positive balance, from a projection of the ledger
+   * *so far*, descending. The down-payment hard block sums these for its sourced-funds
+   * total AND names them in its conflict message, so the total and the itemised list
+   * are one value by construction. A cash goal fund is included (it is liquid, hence a
+   * genuine source); credit never is (not a liquid asset), so "credit is not a
+   * down-payment source" holds by construction. Present only on the authoring path
+   * ({@link addEvent}); `undefined` during ordinary interpretation and undo, when
+   * handlers skip projection-dependent affordability checks.
    */
   readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
 }

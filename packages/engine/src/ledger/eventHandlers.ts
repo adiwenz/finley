@@ -219,15 +219,16 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK: the down payment must be coverable from liquid, sourced
-    // funds at the purchase month. `liquidBalanceAt` (present only on the authoring
-    // path) never counts credit, so the shortfall cascade can never fund a
-    // down payment. Absent a projection (ordinary replay/undo) this check is skipped.
-    const liquid = context.liquidBalanceAt?.(event.month);
-    if (liquid !== undefined && liquid < event.downPaymentCents) {
+    // HARD BLOCK: the down payment must be coverable from liquid, sourced funds at
+    // the purchase month. `liquidBucketsAt` (present only on the authoring path) lists
+    // exactly the liquid accounts that count — never credit — so summing them for the
+    // total AND naming them in the message are one read. Absent a projection (ordinary
+    // replay/undo) the capability is undefined and this check is skipped.
+    const buckets = context.liquidBucketsAt?.(event.month);
+    const liquid = buckets?.reduce((sum, b) => sum + b.balanceCents, 0);
+    if (buckets !== undefined && liquid !== undefined && liquid < event.downPaymentCents) {
       // Name the buckets that WERE counted — a liquid cash goal fund is a genuine
       // source, so a blanket "goal funds do not count" would misread the shortfall.
-      const buckets = context.liquidBucketsAt?.(event.month) ?? [];
       const counted =
         buckets.length > 0
           ? buckets.map((b) => `${b.label} (${dollars(b.balanceCents)})`).join(", ")

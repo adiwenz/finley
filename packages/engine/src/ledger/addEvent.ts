@@ -22,31 +22,25 @@ import { buildProjection } from "../projection/buildHouseholdInput";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 
 /**
- * Liquid funds available at each month for the ledger *so far*, from a projection:
- * both the total (`balanceAt`, the sourced-funds figure the down-payment hard block
- * checks against) and the per-account breakdown (`bucketsAt`, so the block can name
- * which buckets it counted). Both read the SAME `liquid` accounts and share ONE
- * projection. Credit is a liability, never an asset here, so it can never fund a down
- * payment. A liquid goal fund (a cash emergency reserve) IS counted — its whole
- * purpose is to be reachable. The month is clamped into the projection horizon.
+ * The liquid buckets available at each month for the ledger *so far*, from a
+ * projection: one bucket per base `liquid` account with a positive balance, largest
+ * first. The down-payment hard block both SUMS these for its sourced-funds total and
+ * NAMES them in its conflict message, so the stated total and the printed list are one
+ * value — they can never disagree. A liquid goal fund (a cash emergency reserve) IS a
+ * bucket; its whole purpose is to be reachable. Credit is a liability, never an asset
+ * here, so it can never fund a down payment. The month is clamped into the horizon.
  *
- * `balanceAt` is defined as the SUM of exactly the buckets `bucketsAt` names, so the
- * total the block states and the list it prints can never disagree. That is faithful
- * to the full liquid position because a snapshot balance is never negative: the
- * shortfall cascade (`applyShortfallCascade`) floors the liquid sink to zero and
- * routes any deficit onto credit *before* the month is snapshotted, and every other
- * account is drawn down only through `Math.max(0, …)` guards. Summing the positive
- * buckets therefore equals summing all liquid accounts — with no hidden negative to
- * reconcile — while guaranteeing the message is internally consistent by construction.
+ * Positive-only is faithful to the full liquid position because a snapshot balance is
+ * never negative: the shortfall cascade (`applyShortfallCascade`) floors the liquid
+ * sink to zero and routes any deficit onto credit *before* the month is snapshotted,
+ * and every other account is drawn down only through `Math.max(0, …)` guards. So the
+ * summed buckets equal the full liquid total, with no hidden negative to reconcile.
  */
-function liquidLookups(
+function liquidBucketsLookup(
   ledger: Ledger,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
-): {
-  balanceAt: (month: number) => number;
-  bucketsAt: (month: number) => readonly LiquidBucket[];
-} {
+): (month: number) => readonly LiquidBucket[] {
   // Label by id so a counted bucket reads by its account name ("Emergency fund"),
   // falling back to the id when an account carries no label. `||` (not `??`) so an
   // empty-string label falls back too, rather than printing a nameless "()".
@@ -56,7 +50,7 @@ function liquidLookups(
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
   const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
-  const bucketsAt = (month: number): readonly LiquidBucket[] => {
+  return (month) => {
     const m = monthAt(month);
     if (!m) return [];
     const buckets: LiquidBucket[] = [];
@@ -67,30 +61,22 @@ function liquidLookups(
     // Largest first: the biggest sources read first in the conflict message.
     return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
   };
-  return {
-    // The sourced-funds total is the sum of the very buckets the block names — one
-    // source of truth, so "$Y of liquid funds" and the itemised list stay in lockstep.
-    balanceAt: (month) => bucketsAt(month).reduce((sum, b) => sum + b.balanceCents, 0),
-    bucketsAt,
-  };
 }
 
 /**
- * The add-event replay context: the base facts plus the paired `liquidBalanceAt`
- * (the sourced-funds total) and `liquidBucketsAt` (its per-account breakdown)
- * capabilities, both from one projection of the ledger so far (the pre-candidate
- * state). Projection-dependent affordability checks fire only through this context.
+ * The add-event replay context: the base facts plus the `liquidBucketsAt` capability
+ * (the liquid accounts the down-payment block sums for its total and names in its
+ * message), from one projection of the ledger so far (the pre-candidate state).
+ * Projection-dependent affordability checks fire only through this context.
  */
 function addEventContext(
   ledger: Ledger,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): InterpretContext {
-  const liquid = liquidLookups(ledger, base, jurisdiction);
   return {
     ...contextFrom(base),
-    liquidBalanceAt: liquid.balanceAt,
-    liquidBucketsAt: liquid.bucketsAt,
+    liquidBucketsAt: liquidBucketsLookup(ledger, base, jurisdiction),
   };
 }
 
