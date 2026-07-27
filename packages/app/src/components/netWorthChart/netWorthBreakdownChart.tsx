@@ -296,7 +296,11 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
                 type="monotone"
                 dataKey={band.id}
                 name={band.label}
-                stackId="nw"
+                // Assets and liabilities live in SEPARATE stacks so each accumulates from the
+                // zero line — assets upward, liabilities (negative) downward — instead of the
+                // debt stacking off the top of the assets and drifting above zero. Reads as a
+                // simultaneous rise in assets and fall in liabilities across the crossing.
+                stackId={band.kind === "liability" ? "liabilities" : "assets"}
                 stroke={colors.get(band.id)}
                 fill={colors.get(band.id)}
                 fillOpacity={0.6}
