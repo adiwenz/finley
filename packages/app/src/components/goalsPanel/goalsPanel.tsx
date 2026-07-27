@@ -83,6 +83,13 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
               <li key={row.id} className="goal-row" aria-label={row.name}>
                 <div className="goal-head">
                   <span className="goal-name">{row.name}</span>
+                  {row.completion === "funded" ? (
+                    <span className="goal-status goal-status-funded">Funded</span>
+                  ) : (
+                    <span className="goal-status goal-status-in-progress">
+                      In progress{row.behindPace ? " · Behind pace" : ""}
+                    </span>
+                  )}
                   <span className="goal-track">{row.onTrackPct}% on track</span>
                 </div>
                 <div className="goal-meta">

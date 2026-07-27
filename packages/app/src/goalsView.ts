@@ -18,6 +18,7 @@ import type {
   GoalDisposition,
   GoalDisposal,
   GoalAccountType,
+  GoalCompletion,
 } from "@finley/engine";
 
 /**
@@ -54,6 +55,17 @@ export interface GoalRow {
   readonly annualReturnPct: number;
   /** True when a near-term goal accumulates into an equity-like account. */
   readonly shortHorizonRiskFlag: boolean;
+  /**
+   * Derived, latched completion state from the projection series — In Progress until the
+   * fund reaches target on/before the target date, then Funded for good. Never stored.
+   */
+  readonly completion: GoalCompletion;
+  /**
+   * True when a still-In-Progress goal is not on pace to hit its target by the date
+   * (raw on-track fraction < 1). A Funded goal is never behind pace. Reuses the existing
+   * `onTrackFraction` — no separate state (#129 slice).
+   */
+  readonly behindPace: boolean;
   /** What becomes of the money at target — see {@link GoalDisposition}. */
   readonly disposition: GoalDisposition;
   /** Plain-language rendering of {@link disposition} for display. */
@@ -81,6 +93,8 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
       onTrackPct: Math.min(100, Math.round(progress.onTrackFraction * 100)),
       annualReturnPct: budget.goals[i].annualReturnPct,
       shortHorizonRiskFlag: progress.shortHorizonRiskFlag,
+      completion: progress.completion,
+      behindPace: progress.completion === "inProgress" && progress.onTrackFraction < 1,
       disposition: goal.disposition,
       dispositionLabel: dispositionLabel(goal.disposition),
     };

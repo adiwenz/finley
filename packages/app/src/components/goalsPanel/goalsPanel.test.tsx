@@ -51,6 +51,49 @@ describe("GoalsPanel", () => {
     expect(html).toContain("Kept as a reserve");
   });
 
+  it("shows a Funded badge once a goal's projected fund reaches target on/before the date", () => {
+    // $5,000 target off the default surplus fills long before the 24-month date.
+    const budget: Plan = {
+      ...PLAN_DEFAULTS,
+      goals: [
+        {
+          id: "car",
+          name: "New car",
+          targetCents: dollarsToCents(5000),
+          targetDate: 24,
+          disposition: "retain",
+          annualReturnPct: 0,
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} />,
+    );
+    expect(html).toContain("Funded");
+  });
+
+  it("marks an unreachable goal In progress and behind pace", () => {
+    // A $10M target by month 12 is nowhere near funded off the default surplus.
+    const budget: Plan = {
+      ...PLAN_DEFAULTS,
+      goals: [
+        {
+          id: "moon",
+          name: "Moon base",
+          targetCents: dollarsToCents(10_000_000),
+          targetDate: 12,
+          disposition: "retain",
+          annualReturnPct: 0,
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} />,
+    );
+    expect(html).toContain("In progress");
+    expect(html).toContain("Behind pace");
+  });
+
   it("shows the short-horizon-in-risky-account honesty flag", () => {
     // One near-term goal in a 7% account → the flag fires.
     const budget: Plan = {
