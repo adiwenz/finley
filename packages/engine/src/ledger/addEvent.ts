@@ -48,9 +48,10 @@ function liquidLookups(
   bucketsAt: (month: number) => readonly LiquidBucket[];
 } {
   // Label by id so a counted bucket reads by its account name ("Emergency fund"),
-  // falling back to the id when an account carries no label.
+  // falling back to the id when an account carries no label. `||` (not `??`) so an
+  // empty-string label falls back too, rather than printing a nameless "()".
   const labelById = new Map(
-    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label ?? a.id]),
+    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label || a.id]),
   );
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
@@ -75,9 +76,10 @@ function liquidLookups(
 }
 
 /**
- * The add-event replay context: the base facts plus a `liquidBalanceAt`
- * capability from a projection of the ledger so far (the pre-candidate state).
- * Projection-dependent affordability checks fire only through this context.
+ * The add-event replay context: the base facts plus the paired `liquidBalanceAt`
+ * (the sourced-funds total) and `liquidBucketsAt` (its per-account breakdown)
+ * capabilities, both from one projection of the ledger so far (the pre-candidate
+ * state). Projection-dependent affordability checks fire only through this context.
  */
 function addEventContext(
   ledger: Ledger,

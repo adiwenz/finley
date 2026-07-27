@@ -254,6 +254,18 @@ describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("falls back to the account id when a counted bucket has an empty label", () => {
+    // An empty-string label must fall back to the id ("goal-emergency"), not print a
+    // nameless "()". $30k savings + $15k = $45k < $60k, so the gate blocks and lists both.
+    const base = baseWithGoalFund(3_000_000, { label: "", cents: 1_500_000, liquid: true });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("goal-emergency ($15,000)");
+      expect(result.conflict).not.toContain("()");
+    }
+  });
+
   it("states a total that equals the sum of the buckets it lists", () => {
     // The stated "$Y of liquid funds" is derived from the same buckets the message
     // itemises, so the two can never disagree. $30k savings + $15k emergency = $45k,
