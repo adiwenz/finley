@@ -77,6 +77,112 @@ function bandsForMode(bands: readonly BreakdownBand[], mode: Mode): BreakdownBan
   return [...bands]; // networth: everything, liabilities signed negative below
 }
 
+/** One entry Recharts hands a tooltip: a band's id and its (possibly signed) value. */
+interface TooltipEntry {
+  readonly dataKey?: unknown;
+  readonly value?: number | null;
+}
+
+/**
+ * Sum a month's tooltip entries into balance-sheet totals. Liability values arrive already
+ * signed (negative in the net-worth view), so net worth is a plain sum: assets + signed
+ * liabilities. `liabilitiesCents` is that signed figure (≤ 0 when debt is shown).
+ */
+export function tooltipTotals(
+  entries: readonly TooltipEntry[],
+  bands: readonly BreakdownBand[],
+): {
+  readonly assetsCents: number;
+  readonly liabilitiesCents: number;
+  readonly netWorthCents: number;
+  readonly hasLiabilities: boolean;
+} {
+  const kindById = new Map(bands.map((b) => [b.id, b.kind]));
+  let assetsCents = 0;
+  let liabilitiesCents = 0;
+  let hasLiabilities = false;
+  for (const entry of entries) {
+    const value = Number(entry.value) || 0;
+    if (kindById.get(String(entry.dataKey)) === "liability") {
+      liabilitiesCents += value;
+      hasLiabilities = true;
+    } else {
+      assetsCents += value;
+    }
+  }
+  return { assetsCents, liabilitiesCents, netWorthCents: assetsCents + liabilitiesCents, hasLiabilities };
+}
+
+/** One label/value line in the tooltip. */
+function TooltipLine({ label, cents, strong }: { label: string; cents: number; strong?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, fontWeight: strong ? 600 : 400 }}>
+      <span>{label}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDollars(cents)}</span>
+    </div>
+  );
+}
+
+/**
+ * The breakdown tooltip: each visible band, then a totals block. When debt is in view it
+ * splits into Assets / Liabilities / Net worth; otherwise a single Total (assets alone).
+ */
+function BreakdownTooltip({
+  active,
+  payload,
+  label,
+  bands,
+}: {
+  active?: boolean;
+  // Recharts' own payload shape (dataKey can be a function) — kept loose here; the exported
+  // `tooltipTotals` is what's strictly typed and unit-tested.
+  payload?: readonly { dataKey?: unknown; value?: number | null; name?: string; color?: string }[];
+  label?: string | number;
+  bands: readonly BreakdownBand[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const totals = tooltipTotals(payload, bands);
+  const month = Number(label) || 0;
+  return (
+    <div
+      style={{
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        borderRadius: 6,
+        padding: "8px 10px",
+        fontSize: 12,
+        color: "var(--color-text)",
+        minWidth: 160,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Year {Math.floor(month / 12) + 1}</div>
+      {/* Top band first, matching the visual stack read top-down. */}
+      {[...payload].reverse().map((entry) => (
+        <div
+          key={String(entry.dataKey)}
+          style={{ display: "flex", justifyContent: "space-between", gap: 16 }}
+        >
+          <span style={{ color: entry.color }}>{entry.name}</span>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+            {formatDollars(Number(entry.value) || 0)}
+          </span>
+        </div>
+      ))}
+      <div style={{ borderTop: "1px solid var(--color-border)", marginTop: 6, paddingTop: 6 }}>
+        {totals.hasLiabilities ? (
+          <>
+            <TooltipLine label="Assets" cents={totals.assetsCents} />
+            <TooltipLine label="Liabilities" cents={totals.liabilitiesCents} />
+            <TooltipLine label="Net worth" cents={totals.netWorthCents} strong />
+          </>
+        ) : (
+          <TooltipLine label="Total" cents={totals.assetsCents} strong />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }) {
   // Only offer a view that shows something the previous one doesn't: Assets adds property,
   // Net worth adds debt (or property, when there's no debt but the total still differs).
@@ -165,9 +271,19 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
               stroke={GRID}
             />
             <Tooltip
-              formatter={(value, name) => [formatDollars(Number(value)), name]}
-              labelFormatter={(label) => `Month ${label}`}
-              contentStyle={{ fontSize: 12 }}
+              content={(props) => (
+                <BreakdownTooltip
+                  active={props.active}
+                  label={props.label}
+                  payload={props.payload?.map((p) => ({
+                    dataKey: p.dataKey,
+                    value: Number(p.value) || 0,
+                    name: p.name == null ? undefined : String(p.name),
+                    color: p.color,
+                  }))}
+                  bands={visibleBands}
+                />
+              )}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {/* Zero rule matters once debt stacks below it. */}

@@ -9,8 +9,8 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProjectionSeries } from "@finley/engine";
-import { NetWorthBreakdownChart } from "./netWorthBreakdownChart";
-import { buildNetWorthBreakdown, type BreakdownMeta } from "./netWorthBreakdown";
+import { NetWorthBreakdownChart, tooltipTotals } from "./netWorthBreakdownChart";
+import { buildNetWorthBreakdown, type BreakdownMeta, type BreakdownBand } from "./netWorthBreakdown";
 
 interface MonthSpec {
   readonly accounts?: Readonly<Record<string, number>>;
@@ -82,5 +82,42 @@ describe("NetWorthBreakdownChart", () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("Cash savings");
     expect(html).not.toContain("Mortgage"); // liability band hidden in the default Accounts view
+  });
+});
+
+describe("tooltipTotals", () => {
+  const bands: readonly BreakdownBand[] = [
+    { id: "savings", label: "Cash savings", kind: "account" },
+    { id: "home-1", label: "Home", kind: "property" },
+    { id: "loan-student", label: "Student loan", kind: "liability" },
+  ];
+
+  it("splits assets from liabilities and nets them (liabilities arrive signed negative)", () => {
+    const totals = tooltipTotals(
+      [
+        { dataKey: "savings", value: 100000 },
+        { dataKey: "home-1", value: 40000 },
+        { dataKey: "loan-student", value: -30000 }, // networth view negates the owed balance
+      ],
+      bands,
+    );
+    expect(totals.assetsCents).toBe(140000);
+    expect(totals.liabilitiesCents).toBe(-30000);
+    expect(totals.netWorthCents).toBe(110000);
+    expect(totals.hasLiabilities).toBe(true);
+  });
+
+  it("reports no liabilities when only asset bands are in view", () => {
+    const totals = tooltipTotals(
+      [
+        { dataKey: "savings", value: 100000 },
+        { dataKey: "home-1", value: 40000 },
+      ],
+      bands,
+    );
+    expect(totals.assetsCents).toBe(140000);
+    expect(totals.liabilitiesCents).toBe(0);
+    expect(totals.netWorthCents).toBe(140000);
+    expect(totals.hasLiabilities).toBe(false);
   });
 });
