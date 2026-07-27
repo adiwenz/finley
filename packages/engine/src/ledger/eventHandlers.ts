@@ -23,6 +23,7 @@ import type {
 } from "./eventTypes";
 import type { InterpretContext, InterpretState, SeriesDef } from "./interpretState";
 import type { AccountTransfer } from "./transfers";
+import { drainSources } from "./funding";
 import {
   asAccountId,
   asChildId,
@@ -219,24 +220,29 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK: the down payment must be coverable from liquid, sourced funds at
-    // the purchase month. `liquidBucketsAt` (present only on the authoring path) lists
-    // exactly the liquid accounts that count — never credit — so summing them for the
-    // total AND naming them in the message are one read. Absent a projection (ordinary
-    // replay/undo) the capability is undefined and this check is skipped.
+    // HARD BLOCK: the down payment must be coverable from the selected liquid,
+    // sourced funds at the purchase month. `liquidBucketsAt` (present only on the
+    // authoring path) lists exactly the liquid accounts that count — never credit.
+    // The shared funding primitive drains the down payment from those sources in
+    // order; a positive shortfall means they cannot cover it. Absent a projection
+    // (ordinary replay/undo) the capability is undefined and this check is skipped.
     const buckets = context.liquidBucketsAt?.(event.month);
-    const liquid = buckets?.reduce((sum, b) => sum + b.balanceCents, 0);
-    if (buckets !== undefined && liquid !== undefined && liquid < event.downPaymentCents) {
-      // Name the buckets that WERE counted — a liquid cash goal fund is a genuine
-      // source, so a blanket "goal funds do not count" would misread the shortfall.
-      const counted =
-        buckets.length > 0
-          ? buckets.map((b) => `${b.label} (${dollars(b.balanceCents)})`).join(", ")
-          : "no liquid accounts";
-      return fail(
-        event,
-        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Counted toward the down payment: ${counted}. Illiquid balances — retirement and tax-exempt or pre-tax goal funds — never count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
-      );
+    if (buckets !== undefined) {
+      const { drained, shortfall } = drainSources(buckets, event.downPaymentCents);
+      if (shortfall > 0) {
+        // Name the buckets that WERE counted — a liquid cash goal fund is a genuine
+        // source, so a blanket "goal funds do not count" would misread the shortfall.
+        // `drained` here equals the buckets' combined balance (every source was drained
+        // dry and still fell short), so the stated total and the itemised list agree.
+        const counted =
+          buckets.length > 0
+            ? buckets.map((b) => `${b.label} (${dollars(b.balanceCents)})`).join(", ")
+            : "no liquid accounts";
+        return fail(
+          event,
+          `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(drained)} of liquid funds available at month ${event.month}. Counted toward the down payment: ${counted}. Illiquid balances — retirement and tax-exempt or pre-tax goal funds — never count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
+        );
+      }
     }
     return ok;
   },

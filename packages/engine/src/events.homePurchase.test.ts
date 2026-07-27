@@ -149,6 +149,14 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("hard-blocks on any shortfall — one cent short still fails the gate", () => {
+    // The gate drains the down payment from the sources and blocks on a positive
+    // shortfall, so exact coverage passes but a single-cent gap does not.
+    const base = baseWith(DOWN - 1); // one cent under the down payment
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+  });
+
   it("quotes dollars, not raw cents, and says why other balances don't count", () => {
     // The conflict is read by a person: "6000000¢ exceeds 5000000¢" left users
     // comparing the shortfall against a net worth that already looked sufficient.

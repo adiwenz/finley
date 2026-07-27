@@ -156,6 +156,7 @@ export * from "./ledger/household";
 export * from "./ledger/interpret";
 export * from "./ledger/eventValidation";
 export * from "./ledger/dependencies";
+export * from "./ledger/funding";
 export * from "./ledger/removeEvent";
 export * from "./ledger/addEvent";
 export * from "./ledger/updateEvent";
