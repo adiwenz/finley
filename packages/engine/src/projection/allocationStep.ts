@@ -196,42 +196,36 @@ export function unwindUnfundedContributions(
  * government benefit into taxability.
  */
 export function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
-  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
-  const byOwnerCategory = new Map<
-    string,
-    { ownerId: string; category: TaxCategory; cents: Cents }
-  >();
-  for (const [accountId, accrued] of state.accruedReturnByAccount) {
-    if (accrued.cents <= 0) continue;
-    const acc = accountsById.get(accountId);
-    if (acc === undefined) continue;
-    const category = accrued.category;
-    const key = `${acc.ownerId} ${category}`;
-    const entry = byOwnerCategory.get(key);
-    if (entry === undefined) {
-      byOwnerCategory.set(key, { ownerId: acc.ownerId, category, cents: accrued.cents });
-    } else {
-      entry.cents += accrued.cents;
-    }
-  }
   const sources: IncomeSourceMonth[] = [];
-  for (const { ownerId, category, cents } of byOwnerCategory.values()) {
+  // One source PER ACCOUNT, in the plan's account order (stable, so the cash-flow chart
+  // keeps each band's identity across months). A separate band per cash account is the
+  // honest read: an emptied savings buffer stops booking interest entirely (its accrued
+  // cents are 0, skipped below), while a still-funded reserve or cash goal keeps earning
+  // under its OWN name — where a single merged "Savings interest" line made a drained
+  // account look like it was still earning. The app's Simple view re-collapses every
+  // `savingsInterest` band into one (keyed on this reportCategory, not the id), so "most
+  // people" still see a single "Savings interest"; the Advanced view shows them per account.
+  for (const acc of state.accounts) {
+    const accrued = state.accruedReturnByAccount.get(acc.id);
+    if (accrued === undefined || accrued.cents <= 0) continue;
     // Zero allocation-gross (the cash is already in the balance, so the waterfall places
     // nothing) but a real cash inflow for the flow view: the interest is genuine household
-    // cash, reported under a stable id so the cash-flow chart bands it and deducts its tax.
-    // `reportCategory: "savingsInterest"` marks it as savings-account interest explicitly, so
-    // the UI groups it without parsing the id — while `taxCategory` keeps it taxed (and
-    // rolled up) as the ordinary income it is. Other interest kinds (brokerage/bond) will
-    // later carry their own provenance rather than folding in here.
+    // cash, reported under a stable per-account id so the cash-flow chart bands it and
+    // deducts its tax. `reportCategory: "savingsInterest"` marks it as savings-account
+    // interest explicitly, so the UI groups it without parsing the id — while `taxCategory`
+    // keeps it taxed (and rolled up) as the ordinary income it is. The label is the
+    // account's own human name (a goal fund reads as its goal), falling back to the id.
+    // Other interest kinds (brokerage/bond) will later carry their own provenance rather
+    // than folding in here.
     sources.push({
-      ownerId,
+      ownerId: acc.ownerId,
       waterfallInflowCents: 0,
-      cashInflowCents: cents,
-      taxCategory: category,
-      taxableCents: cents,
+      cashInflowCents: accrued.cents,
+      taxCategory: accrued.category,
+      taxableCents: accrued.cents,
       reportCategory: "savingsInterest",
-      sourceId: `interest:${ownerId}:${category}`,
-      label: "Savings interest",
+      sourceId: `interest:${acc.id}`,
+      label: acc.label ?? acc.id,
     });
   }
   return sources;

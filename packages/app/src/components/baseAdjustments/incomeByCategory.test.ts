@@ -237,6 +237,34 @@ describe("incomeBandsForMode", () => {
     expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
   });
 
+  it("breaks savings interest out per account in Advanced — 'Savings interest: <account>'", () => {
+    // The engine reports one interest band per cash account, labelled by the account's own
+    // name. Advanced qualifies each with the kind of income it is, so two cash accounts read
+    // as distinct, self-explaining bands (this is the read the merged single line hid — a
+    // drained buffer that looked like it was still earning its neighbour's interest).
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings"),
+        source("interest:goal-emergency", dollarsToCents(20), "savingsInterest", "Emergency fund"),
+      ]),
+    );
+    const advanced = incomeBandsForMode(data, "advanced");
+    expect(advanced.sources.map((s) => s.label)).toEqual([
+      "Savings interest: Cash savings",
+      "Savings interest: Emergency fund",
+    ]);
+    // The per-account cash rides through under each account's own band id.
+    expect(advanced.rows[0]!.centsBySource["interest:savings"]).toBe(dollarsToCents(30));
+    expect(advanced.rows[0]!.centsBySource["interest:goal-emergency"]).toBe(dollarsToCents(20));
+    // A single cash account needs no disambiguation — it stays the plain "Savings interest".
+    const one = buildIncomeChartData(
+      seriesOf([source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings")]),
+    );
+    expect(incomeBandsForMode(one, "advanced").sources.map((s) => s.label)).toEqual([
+      "Savings interest",
+    ]);
+  });
+
   // ── Two claimants: a benefit band names its kind, never its earner ──
 
   const twoClaimants = () =>

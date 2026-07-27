@@ -267,6 +267,29 @@ function withEarnerNames(
 }
 
 /**
+ * Qualify the Advanced view's savings-interest bands so each reads under its own account.
+ * The engine reports one interest band per cash account, labelled by the account's own name
+ * ("Cash savings", a goal fund's name). In the Advanced view we prefix them with the kind
+ * of income they are — `Savings interest: Cash savings`, `Savings interest: Emergency fund`
+ * — but ONLY when two or more are on the chart: a single cash account needs no
+ * disambiguation, so it reads as the plain "Savings interest" band the Simple view also
+ * shows. This mirrors {@link withEarnerNames}: qualify a band by whose/what it is only when
+ * an identical-kind sibling would otherwise be indistinguishable.
+ */
+function qualifySavingsInterestNames(
+  sources: readonly IncomeSourceBand[],
+): readonly IncomeSourceBand[] {
+  const interest = sources.filter((s) => s.category === "savingsInterest");
+  if (interest.length === 0) return sources;
+  return sources.map((s) => {
+    if (s.category !== "savingsInterest") return s;
+    return interest.length === 1
+      ? { ...s, label: "Savings interest" }
+      : { ...s, label: `Savings interest: ${s.label}` };
+  });
+}
+
+/**
  * The bands and per-month rows to draw for a given {@link IncomeMode} and {@link
  * IncomeBasis}. `advanced` keeps every source its own band (every job, every account draw,
  * the benefit, the drawdown); `simple` collapses via {@link simpleBandOf} — re-keying each
@@ -293,7 +316,7 @@ export function incomeBandsForMode(
       const totalCents = Object.values(centsBySource).reduce((s, c) => s + c, 0);
       return { ...r, centsBySource, totalCents };
     });
-    return { sources: withEarnerNames(data.sources, personNames), rows };
+    return { sources: qualifySavingsInterestNames(withEarnerNames(data.sources, personNames)), rows };
   }
 
   const bandForSource = new Map<string, IncomeSourceBand>();
