@@ -1,5 +1,5 @@
 /**
- * Jobs panel (§6, issue #72) — the single authoring surface for earned income. Lists
+ * Jobs panel — the single authoring surface for earned income. Lists
  * **every household member's** {@link Job}s and lets the user add, edit, and delete them,
  * each re-running the projection so net worth and the retirement solver move live. A
  * person may hold any number of jobs, several possibly open-ended; none is privileged —
@@ -9,8 +9,8 @@
  * data, but it *lists* each job's permanent pay changes (which move what the job pays,
  * unlike the headline starting salary) and lets them be removed here.
  *
- * **Two planes, one list (issue #118).** The primary person's jobs are standing plan data
- * (a value-plane edit, §10.3 — never a timeline event); a partner's ride the
+ * **Two planes, one list.** The primary person's jobs are standing plan data
+ * (a value-plane edit — never a timeline event); a partner's ride the
  * `RelationshipEvent` that brought them into the household, so editing those revises that
  * event ({@link import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the
  * difference behind one owner list, and each row's owner decides which plane its edit is
@@ -49,13 +49,13 @@ import styles from "./jobsPanel.module.css";
 interface JobsPanelProps {
   budget: Plan;
   setBudget: Dispatch<SetStateAction<Plan>>;
-  /** The interpreted household — the roster whose members can hold jobs (§3, §8). */
+  /** The interpreted household — the roster whose members can hold jobs. */
   household: Household;
   /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
   /**
    * Revise ledger events in one all-or-nothing write — how a partner's jobs are written
-   * back (#118). Returns `false` if the revision was rejected (§6.1), in which case the
+   * back. Returns `false` if the revision was rejected, in which case the
    * ledger is untouched and the panel writes nothing else either.
    */
   onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
@@ -88,7 +88,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
   // label the whole app names that job by (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
   const [authoring, setAuthoring] = useState<Authoring>(null);
-  // Per PERSON, not per household: the elective limit belongs to the earner (§5.4).
+  // Per PERSON, not per household: the elective limit belongs to the earner.
   const deferralCrossing = useMemo(
     () => firstDeferralLimitCrossing(owners, budget.inflationPct),
     [owners, budget.inflationPct],
@@ -133,7 +133,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
   function removePayChange(id: string, month: number) {
     // Any member's job can carry one now that the Base + Adjustments pay-change control
-    // reaches every earner (#118), so this routes by owner like every other job write.
+    // reaches every earner, so this routes by owner like every other job write.
     const result = reviseJob(owners, id, (job) => withoutPayChange(job, month));
     if (result.ok) commit(result.writes);
   }
@@ -229,7 +229,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
         <p className="hint">
           {/* Whose limit it is, once the household has a second earner: the limit is per
               person, so "your jobs" would misattribute a partner's crossing to the user —
-              and imply the two are pooled, which they are not (§5.4). */}
+              and imply the two are pooled, which they are not. */}
           {deferralCrossing.personId === PRIMARY_PERSON_ID
             ? `Across your jobs, your yearly 401(k) contribution tops the elective limit`
             : `Across ${deferralCrossing.personName}’s jobs, their yearly 401(k) contribution tops the elective limit`}{" "}

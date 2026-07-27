@@ -1,6 +1,6 @@
 /**
- * Add/edit form for a budget {@link import("@finley/engine").BudgetLine} (§12/§15, issue
- * #72) — the disclosed authoring surface the Base + Adjustments panel opens to create or
+ * Add/edit form for a budget {@link import("@finley/engine").BudgetLine} — the
+ * disclosed authoring surface the Base + Adjustments panel opens to create or
  * rename a line. A line is an **expense** (a cash outflow, tiered needs/wants/savings) or a
  * **contribution** into a named account (recurring saving/investment). Speaks the user's
  * terms and folds them into a {@link BudgetLineDraft} on submit. Mirrors `jobForm`/`goalForm`.

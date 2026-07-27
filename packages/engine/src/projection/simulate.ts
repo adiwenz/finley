@@ -32,7 +32,7 @@ import { fireGoalDispositions } from "./goalSteps";
 
 // Re-exported so existing importers (and the engine barrel in index.ts) keep resolving
 // the simulator's public types through ./simulate. `SimPerson` is deliberately OMITTED:
-// since the #72 hinge it is an engine-INTERNAL compiled shape (the app authors the
+// it is an engine-INTERNAL compiled shape (the app authors the
 // standing `Person` and the sim derives `SimPerson` via `compilePerson`), so it must not
 // ride the public barrel. Internal engine code imports it directly from ./simulate.types.
 export type {
@@ -51,7 +51,7 @@ const DEFAULT_START_YEAR = 2026;
 
 // ---------------------------------------------------------------------------
 // Household simulator — real income/expense series + compounding accounts
-// Slice-2 extension — liabilities, shortfall cascade (§5.1), infeasibility flag
+// Liabilities, shortfall cascade, infeasibility flag
 // ---------------------------------------------------------------------------
 
 /** Σ of a set of series at `month` — reused for both income (step 1) and expenses (step 3). */
@@ -62,18 +62,18 @@ function sumMonthlySeries(series: readonly SimOwnedSeries[], month: number): Cen
 }
 
 /**
- * Household simulator. Fixed pipeline per month (§5), each step a named helper:
- *   3–6. §5.0 allocation waterfall: per-source pre-tax deferrals, tax seam,
+ * Household simulator. Fixed pipeline per month, each step a named helper:
+ *   3–6. allocation waterfall: per-source pre-tax deferrals, tax seam,
  *        take-home pools, shared/personal goals, surplus — plus the deficit charge
  *        that feeds the cascade                            → allocateMonth
- *     7. §5.1 shortfall cascade                            → applyShortfallCascade
+ *     7. shortfall cascade                                 → applyShortfallCascade
  *  8–9. Asset one-time transfers, then compounding        → applyAssetTransfers / compoundAssets
  *   10. Liability transfers, interest, payments           → advanceLiabilities
  *  10b. Property appreciation                             → advanceProperties
  *   11. Snapshot                                          → snapshotMonth
  * Expenses and liability payments are the month's shared obligations; the tax
- * chokepoint (§5.3) lives inside the waterfall and nowhere else.
- * Month 0 is the opening snapshot only — no month is processed before "now" (§4.6).
+ * chokepoint lives inside the waterfall and nowhere else.
+ * Month 0 is the opening snapshot only — no month is processed before "now".
  */
 export function simulateHousehold(
   input: HouseholdSimInput,
@@ -82,7 +82,7 @@ export function simulateHousehold(
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const state = initSimState(input);
   const months: ProjectionMonth[] = [];
-  // Insolvency is terminal for net-worth reporting (§5.1): once any month exhausts
+  // Insolvency is terminal for net-worth reporting: once any month exhausts
   // all credit, every LATER month reports net worth as null. Tracks whether a prior
   // month already tripped it — the first insolvent month itself still reports its
   // (honest, negative) value; only the months after it are nulled.
@@ -103,21 +103,21 @@ export function simulateHousehold(
       // mid-year start would in reality leave even fewer months; 11 is neither that
       // nor a full 12. Impact is ~0.1% (e.g. the graph's benefit is ~$34/yr below the
       // panel's full-first-year closed form). Modelling a start month-of-year so the
-      // first partial year is exact — and the two benefit numbers agree — is tracked in
-      // GH #34; do NOT "fix" it by making month 0 earn (that redefines "now").
+      // first partial year is exact — and the two benefit numbers agree — remains future
+      // work; do NOT "fix" it by making month 0 earn (that redefines "now").
       const year = startYear + Math.floor(month / 12);
       const ctx: JurisdictionContext = { year };
 
       // Fold this month's covered wages into each person's covered-earnings record
-      // before assembling income, so a claim landing this month sees them (§5.4).
+      // before assembling income, so a claim landing this month sees them.
       accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year, jurisdiction);
-      // RMDs (§5.4) force this year's required draw out of pre-tax accounts BEFORE
+      // RMDs force this year's required draw out of pre-tax accounts BEFORE
       // the waterfall runs and re-enter it here as taxable ordinary income, so the
       // withdrawal is taxed once at the single chokepoint and lands in the surplus.
       const nonWithdrawalSources = [
         ...buildIncomeSources(input.incomeSeries, month),
         // Last month's credited cash interest, taxed as ordinary income at accrual
-        // (§#94 Commit 2) — a non-withdrawal taxable source, so it shrinks the gap and
+        // — a non-withdrawal taxable source, so it shrinks the gap and
         // feeds provisional income exactly like a benefit or RMD would.
         ...buildInterestAccrualSources(state),
         ...buildGovernmentBenefitSources(
@@ -125,7 +125,7 @@ export function simulateHousehold(
           jurisdiction,
           month,
           startYear,
-          // Benefit COLA defaults to general CPI when the plan doesn't decouple it (§5.4).
+          // Benefit COLA defaults to general CPI when the plan doesn't decouple it.
           input.benefitColaRate ?? input.annualInflationRate,
         ),
         ...buildRmdSources(state, jurisdiction, month, startYear),
@@ -135,11 +135,11 @@ export function simulateHousehold(
       const payments = computeLiabilityPayments(state, month);
       const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
 
-      // Decumulation (§7, #35): when non-withdrawal income can't cover the month's
+      // Decumulation: when non-withdrawal income can't cover the month's
       // obligations, liquidate investment accounts BEFORE the waterfall — same seam
       // as RMD/benefit — so the shortfall is funded by selling assets (taxed once at the
       // chokepoint) instead of landing on the synthetic credit card. RMD income is
-      // already counted here, so the desired draw never double-withdraws (#32).
+      // already counted here, so the desired draw never double-withdraws.
       const withdrawal = buildWithdrawalSources(
         state,
         jurisdiction,
@@ -159,12 +159,12 @@ export function simulateHousehold(
           expenseCents + totalPaymentsCents,
           month,
         );
-      // Nothing — savings or credit — could absorb this: the §5.1 terminal flag.
+      // Nothing — savings or credit — could absorb this: the terminal flag.
       const uncoveredCents = applyShortfallCascade(state, month);
       isInsolvent = uncoveredCents > 0;
       // A committed contribution deposits in full and borrows the rest; if that borrowing
       // couldn't be funded (this uncovered slice), unwind the phantom deposit so net worth
-      // isn't inflated by a contribution the household could not actually make (§12).
+      // isn't inflated by a contribution the household could not actually make.
       unwindUnfundedContributions(state, contributions, uncoveredCents);
 
       applyAssetTransfers(state, month);
@@ -173,7 +173,7 @@ export function simulateHousehold(
       advanceProperties(state, month);
       paymentRecords = buildLiabilityPaymentRecords(payments);
       // One itemized view of everything the month cost — every expense series at what
-      // it charged, plus each liability's payment (§119 follow-up). The per-line map
+      // it charged, plus each liability's payment. The per-line map
       // and the spending total are both derived from it inside buildFlows.
       const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
       flows = buildFlows(
@@ -183,12 +183,12 @@ export function simulateHousehold(
         totalPaymentsCents,
         spendingItems,
         // The liquid-buffer drawdown the withdrawal channel measured — reported as a
-        // `savingsDrawdown` source so a month lived on savings isn't a zero-income band (#99).
+        // `savingsDrawdown` source so a month lived on savings isn't a zero-income band.
         withdrawal.liquidDrawdownCents,
-        // The per-category tax breakdown (§5.3, #110), undefined when the jurisdiction
+        // The per-category tax breakdown, undefined when the jurisdiction
         // declines it — the app then draws one band, as before.
         taxByCategoryCents,
-        // The finer per-SOURCE tax split and per-source deferral (issue #110 follow-up),
+        // The finer per-SOURCE tax split and per-source deferral,
         // so a chart can band tax by job and show take-home per source.
         taxBySourceCents,
         deferralBySourceCents,
@@ -210,7 +210,7 @@ export function simulateHousehold(
 
     // Fire any goal maturing THIS month after its snapshot, so the fund reads as
     // achieved on its target date and the disposition (spend leaves net worth /
-    // convertToEquity swaps to illiquid equity) takes hold from next month (§5.2, #28).
+    // convertToEquity swaps to illiquid equity) takes hold from next month.
     fireGoalDispositions(state, month);
   }
 

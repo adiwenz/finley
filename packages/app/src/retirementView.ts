@@ -1,12 +1,12 @@
 /**
- * Presentation logic for the retirement panel (§7). Reads the two things the UI
- * needs off the REAL projection (§5): the Mode-1 headline ("when can we retire?")
+ * Presentation logic for the retirement panel. Reads the two things the UI
+ * needs off the REAL projection: the Mode-1 headline ("when can we retire?")
  * and the target-mode assessment against the pinned retirement age (on-track % +
- * honest nearest-feasible date, §7.1). The survival math lives in the engine's
+ * honest nearest-feasible date). The survival math lives in the engine's
  * retirement solver (`@finley/engine`), which runs the same `simulateHousehold` the
- * net-worth graph does — so the panel's answer and the graph can never disagree (#37).
+ * net-worth graph does — so the panel's answer and the graph can never disagree.
  *
- * The Medicare / early-retiree health honesty flags (§5.4) stay here: they are a
+ * The Medicare / early-retiree health honesty flags stay here: they are a
  * today's-dollars read on the authored health line, independent of the projection.
  */
 
@@ -32,37 +32,37 @@ export interface RetirementView {
    * headline age converted to months from "now". Null when there is no feasible age.
    */
   readonly headlineMonth: number | null;
-  /** The plan's evaluation at the pinned retirement age (§7.1). */
+  /** The plan's evaluation at the pinned retirement age. */
   readonly target: RetirementEvaluation;
   /**
-   * On-track % against the pinned age (§7.1), rounded DOWN to a tenth of a percent and
+   * On-track % against the pinned age, rounded DOWN to a tenth of a percent and
    * clamped to [0, 100]. Rounding down (not to-nearest) is deliberate: a plan 99.97% of
    * the way must not round UP to a reassuring "100%" it hasn't earned — and an infeasible
-   * plan's fraction is strictly < 1 (#78), so the floor keeps it honestly below 100.
+   * plan's fraction is strictly < 1, so the floor keeps it honestly below 100.
    */
   readonly targetOnTrackPct: number;
   /**
-   * Medicare honesty flag (§5.4): fires when the plan retires before the
+   * Medicare honesty flag: fires when the plan retires before the
    * Medicare-eligibility age but its authored health line is below the elevated
    * pre-65 self-funded benchmark. The panel surfaces it as a "you'll self-fund
    * coverage until 65" nudge — an estimate, not advice.
    */
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
   /**
-   * The authored Medicare residual the plan carries from 65 (§5.4), in **today's
+   * The authored Medicare residual the plan carries from 65, in **today's
    * dollars** — the user's own {@link Plan.postCoverageHealthMonthlyCents},
    * not a derived figure. 0 when the plan does not enrol in Medicare (no residual —
    * the pre-65 self-funded line runs for life instead); {@link enrollsInPublicHealthCoverage}
    * tells the panel which story to tell.
    */
   readonly residualHealthMonthlyCents: number;
-  /** Whether the plan enrols in Medicare at 65 (§5.4) — drives the panel's post-65 copy. */
+  /** Whether the plan enrols in Medicare at 65 — drives the panel's post-65 copy. */
   readonly enrollsInPublicHealthCoverage: boolean;
 }
 
 /**
- * The pre-65 early-retiree health honesty flag for the plan (§5.4), in **today's
- * dollars**. The retirement panel is a real / today's-dollars surface (§0.5) and
+ * The pre-65 early-retiree health honesty flag for the plan, in **today's
+ * dollars**. The retirement panel is a real / today's-dollars surface and
  * the authored health line is a today's-dollars figure, so the benchmark is priced
  * at the base year too — NOT indexed out to the future retirement year, which would
  * pit a nominal 2040s cost against a today's-dollars budget. (The rules seam still
@@ -98,9 +98,9 @@ export function retirementView(
   // The app supplies the engine's projection environment: the frozen "now" plus the
   // jurisdiction the solver resolves the real projection against.
   const ctx: ProjectionContext = { jurisdiction, startYear: START_YEAR };
-  // `solveRetirement` runs all §5 searches off the same real projection. The headline
+  // `solveRetirement` runs all searches off the same real projection. The headline
   // "when can we retire?" is the FULL retirement age — the honest "you can stop ALL your
-  // jobs" milestone people actually ask about (issue #66).
+  // jobs" milestone people actually ask about.
   const solution = solveRetirement(scenario, ctx);
   const headlineAge = solution.fullRetirementAge;
   const headlineMonth =
@@ -119,7 +119,7 @@ export function retirementView(
     headlineAge,
     headlineMonth,
     target,
-    // Floor to 0.1% so a hair under 100 never rounds up to 100 (§7.1, #78).
+    // Floor to 0.1% so a hair under 100 never rounds up to 100.
     targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
     earlyRetireeHealth: earlyRetireeHealthFlag(budget, jurisdiction),
     // The authored residual (today's dollars); 0 and moot when not enrolling.

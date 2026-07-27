@@ -1,6 +1,6 @@
 /**
  * Event types — the serializable data at the heart of the event-sourcing spine
- * (§0.3, §6). Events are plain discriminated-union objects; they are never
+ * Events are plain discriminated-union objects; they are never
  * classes and are never mutated. Their meaning is defined in exactly one place
  * (the handler registry consumed by `interpretLedger`), never re-interpreted.
  */
@@ -24,7 +24,7 @@ export interface Child {
 // ─── Event base ──────────────────────────────────────────────────────────────
 
 /**
- * Fields shared by *every* event — nothing more (§11). Dependency metadata and
+ * Fields shared by *every* event — nothing more. Dependency metadata and
  * roles are NOT here; they belong only to the event types that use them.
  */
 export interface EventBase {
@@ -36,7 +36,7 @@ export interface EventBase {
 
 /**
  * Mixed into the event types that can be *auto-created as a consequence of*
- * another event (§8). `causedByEventId` names the producer; removing the
+ * another event. `causedByEventId` names the producer; removing the
  * producer transitively removes everything it caused. Producer-only events
  * (relationship, separation, series-end) do not carry it.
  */
@@ -72,7 +72,7 @@ export interface ChildEvent extends EventBase, CausedByFields {
  * Records a separation: ends all income series owned by the departing partner,
  * and optionally creates alimony and child-support expense streams tagged with
  * this event's id. Never touches child-owned expenses, mortgages, or other
- * liabilities (§4.3).
+ * liabilities.
  */
 export interface SeparationEvent extends EventBase {
   readonly type: "SeparationEvent";
@@ -87,11 +87,11 @@ export interface SeparationEvent extends EventBase {
 }
 
 /**
- * Buys a house (§4.3). Property-only: creates a durable {@link Property} entity
+ * Buys a house. Property-only: creates a durable {@link Property} entity
  * with its appreciating value, originates its mortgage liability, and pays the
  * down payment as a one-time outflow from a liquid account. Does NOT touch any
  * budget item (ceasing to rent is a separate, user-authored decision). Subject
- * to the §4.5 down-payment hard block. The financed mortgage balance is
+ * to the down-payment hard block. The financed mortgage balance is
  * `purchasePriceCents − downPaymentCents`.
  */
 export interface HomePurchaseEvent extends EventBase {
@@ -100,7 +100,7 @@ export interface HomePurchaseEvent extends EventBase {
   readonly ownerId: string;
   /** The property's value at purchase — the appreciating stock's opening value. */
   readonly purchasePriceCents: Cents;
-  /** Paid at the purchase month from `downPaymentAccountId` (§4.5 hard block). */
+  /** Paid at the purchase month from `downPaymentAccountId` (hard block). */
   readonly downPaymentCents: Cents;
   /** The liquid account funding the down payment; receives the paired outflow. */
   readonly downPaymentAccountId: string;
@@ -108,7 +108,7 @@ export interface HomePurchaseEvent extends EventBase {
   readonly mortgageLiabilityId: string;
   readonly mortgageApr: number;
   readonly mortgageTermMonths: number;
-  /** Value appreciation; defaults to `inflationLinked` at base inflation (§4.1). */
+  /** Value appreciation; defaults to `inflationLinked` at base inflation. */
   readonly appreciationMode?: GrowthMode;
 }
 
@@ -145,7 +145,7 @@ export type LoanEvent =
 
 /**
  * Applies a lump-sum principal paydown on a liability. Paired with an Account
- * outflow (same amount, same month) to conserve net worth (§3.2). The engine
+ * outflow (same amount, same month) to conserve net worth. The engine
  * records both halves; callers must supply both transfers.
  */
 export interface DebtPayoffEvent extends EventBase, CausedByFields {
@@ -202,7 +202,7 @@ export type SeriesRole =
   | "childCost";
 
 /**
- * How a series' baseline amount is expressed (§4). Annual baselines stay the
+ * How a series' baseline amount is expressed. Annual baselines stay the
  * source of truth and are distributed across the year deterministically (12
  * months sum exactly to the annual total); monthly baselines repeat exactly.
  */

@@ -23,22 +23,22 @@ import {
 
 /**
  * Monthly cash-flows-vs.-spending chart — the cash-flow companion to the per-line budget
- * chart (issue #71). It stacks every cash source the household actually sees — earned income,
+ * chart. It stacks every cash source the household actually sees — earned income,
  * the government benefit, savings interest, and savings/asset withdrawals — against the
  * spending it has to cover, so it is deliberately broader than "income" alone. It gets its
  * own graph stacked directly above the budget, sharing the same x-axis, the same
  * click-to-select gesture, and the same selection marker: two views of one timeline.
  *
- * Two views of those cash flows (issue #99 follow-up), switched by the Advanced toggle:
+ * Two views of those cash flows, switched by the Advanced toggle:
  *   - **Simple** (default) — three ideas: wages (per job), Social Security, and one
  *     "Living off savings" band that folds in every asset-sale draw and the cash
  *     drawdown. A dashed spending-need line says whether it's enough, and a "broke"
  *     marker names the month the plan runs out.
  *   - **Advanced** — every source as its own band (which job, which account draining,
  *     the benefit, savings interest, the cash drawdown), for the reader who wants the full
- *     breakdown. The gain-vs-principal split of the drawdown lands later via issue #122.
+ *     breakdown. The gain-vs-principal split of the drawdown lands later.
  *
- * Bands are drawn on a **take-home** basis by default (issue #110 follow-up): each source's
+ * Bands are drawn on a **take-home** basis by default: each source's
  * cash after its own tax and pre-tax deferral — the money actually available to meet the
  * spending-need line. Gross would draw the cash flow *above* the tax and 401(k) money that
  * never reach the checking account, overstating the headroom against spending. The
@@ -61,7 +61,7 @@ const WAGE_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd"];
 // floors — while staying inside the chart's muted register.
 const BENEFIT_COLORS = ["#2f6b66", "#5aa39a"];
 // Living off savings is NOT income — a muted earth family (tan first), one step per draw,
-// set apart from the cool income bands above it (issue #99).
+// set apart from the cool income bands above it.
 const DRAW_COLORS = ["#c6b784", "#b08968", "#9c8459", "#d8c79a"];
 const SPENDING_NEED_COLOR = "#9c5b39"; // the dashed "is it enough" line
 const BROKE_COLOR = "#b23a2e"; // the "plan runs out" marker
@@ -144,7 +144,7 @@ export function IncomeChart({
   // The banded view, its colour map, and the recharts rows depend only on `data`, `mode`,
   // `basis` and the roster — not on `selectedMonth`. Memoize them so scrubbing the selected
   // month (a frequent re-render) doesn't recompute the band collapse or remap every month
-  // row (§rerender-memo).
+  // row.
   const view = useMemo(
     () => incomeBandsForMode(data, mode, basis, personNames),
     [data, mode, basis, personNames],
@@ -181,7 +181,7 @@ export function IncomeChart({
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
           {/* Take-home cash flows are the default (bands = cash after tax + deferral); this
-              toggle switches to gross cash flows for reading raw earning power (issue #110). */}
+              toggle switches to gross cash flows for reading raw earning power. */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"
@@ -190,7 +190,7 @@ export function IncomeChart({
             />
             Show gross cash flows
           </label>
-          {/* Simple is the default; Advanced reveals every source separately (issue #99). */}
+          {/* Simple is the default; Advanced reveals every source separately. */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"

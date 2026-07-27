@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Engine-purity check (§0.8, ARCHITECTURE.md — enforced, not just intended).
+ * Engine-purity check — enforced, not just intended.
  *
  * The engine is a pure function of its inputs: no I/O, no network, no storage,
  * and no dependency on app- or rules-specific code. Jurisdiction facts enter
@@ -76,7 +76,7 @@ for (const file of tsFiles(engineSrc)) {
 }
 
 if (violations.length > 0) {
-  console.error("✗ Engine purity check FAILED (§0.8):\n");
+  console.error("✗ Engine purity check FAILED:\n");
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}  ${v.rule}`);
     console.error(`      ${v.text}`);

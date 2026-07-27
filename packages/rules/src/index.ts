@@ -55,12 +55,12 @@ export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
  * @finley/rules — jurisdiction implementations of the engine's interface.
  *
  * Depends only on `@finley/engine` (to implement its interface); never the
- * reverse. This one-way dependency is the open-core boundary (ARCHITECTURE.md).
+ * reverse. This one-way dependency is the open-core boundary.
  *
  * `US-2026` implements the interface with real single-filer facts: the tax seam
  * runs actual federal brackets, the standard deduction, the capital-gains
  * preference, and the Social-Security inclusion formula ({@link
- * import("./federalTax").computeFederalTaxCents}, #53); contribution limits,
+ * import("./federalTax").computeFederalTaxCents}); contribution limits,
  * government benefit, RMDs, and health-cost benchmarks fill their own seams. The
  * app → rules → engine dependency direction is proven end to end.
  *

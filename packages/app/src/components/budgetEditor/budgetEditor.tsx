@@ -1,8 +1,8 @@
 /**
- * Budget/Accounts panel (§4.2, §10.2) — person-partitioned ongoing numbers plus a
- * Shared section, all edited directly (no timeline event, §10.3). Advanced knobs
+ * Budget/Accounts panel — person-partitioned ongoing numbers plus a
+ * Shared section, all edited directly (no timeline event). Advanced knobs
  * (account return, pre-tax deferral %) are progressively disclosed behind the
- * plain number (§10.4). The Shared section carries two of the four waterfall
+ * plain number. The Shared section carries two of the four waterfall
  * levers (split scheme, surplus destination); the deferral % is the third and
  * goal priority (the fourth) lives in the Goals panel.
  *
@@ -34,8 +34,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
       <h2>Budget &amp; accounts</h2>
       <p className="hint">Edit ongoing numbers directly — this doesn’t add a timeline event.</p>
 
-      {/* One section per household member. This slice has a single member; the
-          shape is partitioned so partners drop in as their own sections (§4.2). */}
+      {/* One section per household member. Today there is a single member; the
+          shape is partitioned so partners drop in as their own sections. */}
       <section className="budget-member" aria-label={`${budget.name || "You"}’s budget`}>
         <label className="field name-field">
           <span className="field-label">Name</span>
@@ -101,7 +101,7 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           used to show today’s-dollars (real) figures. Estimate, not advice.
         </p>
 
-        {/* §7: the life-stage ages the retirement solver counts from and reports
+        {/* The life-stage ages the retirement solver counts from and reports
             against — current age is "now", retirement age is the pinned target the
             panel scores on-track %, life expectancy is how long the money must last.
             The bounds chain them so the plan stays ordered (current ≤ retirement ≤
@@ -131,7 +131,7 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           step={1}
         />
 
-        {/* §5.4: the pinned Social Security claiming age (62–70). The retirement
+        {/* The pinned Social Security claiming age (62–70). The retirement
             solver reads it — benefits begin at this age, so delaying raises the
             monthly benefit but pushes it later. An estimate, not advice. */}
         <NumInput
@@ -155,7 +155,7 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           step={1000}
         />
 
-        {/* §10.4: the plain numbers are above; the rate and deferral lever are
+        {/* The plain numbers are above; the rate and deferral lever are
             disclosed on demand rather than shown by default. */}
         <details className="advanced">
           <summary>Advanced</summary>

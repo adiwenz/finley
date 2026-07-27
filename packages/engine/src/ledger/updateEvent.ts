@@ -1,9 +1,9 @@
 /**
- * updateEvent — revise an event that is already in the ledger (§6.1), the third write
+ * updateEvent — revise an event that is already in the ledger, the third write
  * alongside `addEvent` (grow) and `removeEvent` (undo).
  *
  * Until now the ledger could only be appended to and pruned, so anything authored *on*
- * an event was write-once: a partner's own jobs (issue #118) live on their
+ * an event was write-once: a partner's own jobs live on their
  * `RelationshipEvent`, which meant changing a partner's salary required removing the
  * partner and re-adding them, taking every event that depended on them along with it.
  * This closes that gap without weakening the log: an update is not a free rewrite, it is
@@ -15,13 +15,13 @@
  *     would be a different event wearing an existing event's name. Add and remove are the
  *     way to change what kind of thing happened.
  *   - **The sequence number.** It is the ledger's tie-breaker for same-month ordering
- *     (§6) and is never recycled; a revision keeps its place in that order rather than
+ *     and is never recycled; a revision keeps its place in that order rather than
  *     jumping to the end of the log.
  *
  * Everything else — including the month — is revisable, so validation is the same
  * whole-ledger replay `removeEvent` runs: check every remaining event against the
  * base-seeded state in interpretation order and block the edit, naming the offender, if
- * any precondition now fails. (Like undo, this runs the pure replay context: the §4.5
+ * any precondition now fails. (Like undo, this runs the pure replay context: the
  * affordability gate needs a projection and fires on the authoring path in `addEvent`.)
  */
 
@@ -63,7 +63,7 @@ export function updateEvent(
   const data = validateEventData(next);
   if (!data.ok) return { ok: false, conflict: data.reason };
 
-  // The revision keeps its place in the ledger's order (§6).
+  // The revision keeps its place in the ledger's order.
   const revised = { ...next, sequenceNumber: existing.sequenceNumber } as LifeEvent;
   const events = ledger.events.map((e) => (e.id === id ? revised : e));
 

@@ -1,6 +1,6 @@
 /**
  * The **Savings & contributions** rows of Base + Adjustments: budget lines whose target
- * is an account rather than an expense (§12). They are listed apart from spending
+ * is an account rather than an expense. They are listed apart from spending
  * because they are a different kind of money — funded by the sim, they accumulate in
  * net worth instead of leaving it — and because they carry no month-resolved amount to
  * adjust: a contribution is a flat literal into an account, edited through its form.

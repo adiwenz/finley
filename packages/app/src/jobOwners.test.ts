@@ -1,5 +1,5 @@
 /**
- * Who can own a job, and which plane their jobs are authored on (issue #118). This is
+ * Who can own a job, and which plane their jobs are authored on. This is
  * the seam that lets one Jobs panel edit both the primary person's standing plan jobs
  * and a partner's, which ride the RelationshipEvent that brought them into the
  * household — so what it must never do is confuse the two.

@@ -12,7 +12,7 @@ function draw(grossDollars: number, basisDollars: number, balanceDollars: number
   };
 }
 
-describe("taxableWithdrawalCents — US pro-rata return of capital (§5.3, #94)", () => {
+describe("taxableWithdrawalCents — US pro-rata return of capital", () => {
   it("taxes $0 when the draw is all principal (basis == balance)", () => {
     // $2k out of a $100k account whose basis is the full $100k → every dollar is
     // returned principal, nothing is gain.
@@ -43,7 +43,7 @@ describe("taxableWithdrawalCents — US pro-rata return of capital (§5.3, #94)"
   });
 });
 
-describe("returnTaxTreatment — US accrual-vs-realization (§5.3, #94)", () => {
+describe("returnTaxTreatment — US accrual-vs-realization", () => {
   it("taxes interest at accrual as ordinary income", () => {
     expect(returnTaxTreatment("interest")).toEqual({ taxAtAccrual: true, category: "ordinaryIncome" });
   });

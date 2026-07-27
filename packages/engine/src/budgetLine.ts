@@ -1,6 +1,5 @@
 /**
- * The line-item budget authoring model (§12, §15, §18, §19 of
- * JOBS_HOUSEHOLD_REDESIGN, issue #67, slice 4) — the *new* source of truth for
+ * The line-item budget authoring model — the *new* source of truth for
  * cash allocation, replacing the scalar `Plan.expenseCents` /
  * `retirementDeferralPct%` / `surplusSwept`. A budget is a **prioritized list of
  * dollar line items**: general expenses and dollar contributions to named
@@ -11,18 +10,18 @@
  * `projection/*`, so the standing budget types stay clear of the simulator core
  * (the sim dependency lives in {@link import("./compileBudget")}). It lands
  * **additively**, alongside the scalar budget path — both compile into the same
- * `LedgerBaseConfig` — so nothing existing is removed here (that is #72's job).
+ * `LedgerBaseConfig` — so nothing existing is removed here (that is the rewire's job).
  *
  * Two facts a contribution line needs are jurisdiction-agnostic and ride on the
- * target *account*, never named per line in engine vocabulary (§12):
+ * target *account*, never named per line in engine vocabulary:
  *   - **pre/post-tax treatment** — the account target carries a {@link TaxTreatment}
  *     (`preTax`/`postTax`) directly. The concrete vehicle names that imply it (US
  *     "traditional"/"Roth", UK ISA/SIPP, …) are jurisdiction-specific and live in
  *     the `rules`/`Account` layer, which maps a vehicle to this portable treatment;
- *     the engine never hardcodes a jurisdiction's account-type names (issue #38).
+ *     the engine never hardcodes a jurisdiction's account-type names.
  *   - **the annual limit** a `fill-to-limit` line tracks — supplied through the
  *     rules/jurisdiction seam ({@link ResolveLineContext.annualLimitCents}), which
- *     auto-follows the legislated age-50 catch-up bump with no user edit (§19).
+ *     auto-follows the legislated age-50 catch-up bump with no user edit.
  */
 
 import type { Cents } from "./money";
@@ -31,15 +30,15 @@ import type { DeferralLimitContext } from "./jurisdiction";
 import { requiredContributionCents } from "./requiredContribution";
 
 /**
- * Whether a contribution goes in pre-tax (reduces taxable income) or post-tax
- * (§12). This is the portable, jurisdiction-agnostic fact the waterfall consumes;
+ * Whether a contribution goes in pre-tax (reduces taxable income) or post-tax.
+ * This is the portable, jurisdiction-agnostic fact the waterfall consumes;
  * the concrete account vehicle that implies it (US "traditional"/"Roth", etc.) is
  * a jurisdiction concern the `rules`/`Account` layer resolves to this treatment.
  */
 export type TaxTreatment = "preTax" | "postTax";
 
 /**
- * What a line funds (§12): general expenses (a cash outflow) or a dollar
+ * What a line funds: general expenses (a cash outflow) or a dollar
  * contribution to a named account. A contribution carries the target account's
  * {@link TaxTreatment} directly (derived upstream from the account's vehicle), so
  * pre/post-tax treatment is read off the target, not authored per line and not
@@ -56,16 +55,16 @@ export type BudgetTarget =
     };
 
 /**
- * How a line's dollar amount is computed each month (§19) — the three amount
+ * How a line's dollar amount is computed each month — the three amount
  * sources:
  *   - `literal` — a fixed monthly dollar amount authored directly.
  *   - `fillToLimit` — max out the target account's legislated annual cap, spread
  *     evenly across the year. Auto-follows the age-50 catch-up bump via the
  *     rules/jurisdiction seam ({@link ResolveLineContext.annualLimitCents}); the
- *     user authors nothing (§19, AC3).
- *   - `goalPaced` — the #26 deadline-paced sinking-fund pace: fund the remaining
+ *     user authors nothing.
+ *   - `goalPaced` — the deadline-paced sinking-fund pace: fund the remaining
  *     gap to `targetCents` evenly over the months left to `targetMonth`. The full
- *     #26 pacing computation is wired in slice 6; this carries the primitive.
+ *     pacing computation is wired in separately; this carries the primitive.
  */
 export type AmountSource =
   | { readonly kind: "literal"; readonly monthlyCents: Cents }
@@ -73,14 +72,14 @@ export type AmountSource =
   | { readonly kind: "goalPaced"; readonly targetCents: Cents; readonly targetMonth: number };
 
 /**
- * Descriptive category tier (§15): needs/wants/savings. A default-priority source
+ * Descriptive category tier: needs/wants/savings. A default-priority source
  * (needs before wants before savings) and a UI ring, but NOT constraining — an
  * explicit {@link BudgetLine.priority} overrides it.
  */
 export type BudgetCategory = "needs" | "wants" | "savings";
 
 /**
- * The calendar window a line is active in (§19 spans). `startMonth` is inclusive,
+ * The calendar window a line is active in (spans). `startMonth` is inclusive,
  * `endMonth` exclusive; an absent bound is open on that side. Outside the span the
  * line resolves to 0 — it contributes nothing to that month's allocation.
  */
@@ -92,7 +91,7 @@ export interface BudgetLineSpan {
 }
 
 /**
- * A dated value override on a line (§10.3/§19: "value edits are overrides, not
+ * A dated value override on a line ("value edits are overrides, not
  * events"). From `month`, the line's monthly amount becomes `monthlyCents`,
  * layered on top of whatever the {@link AmountSource} computes. A
  * `thisMonthOnly` override perturbs exactly that month; a `fromHereForward`
@@ -106,10 +105,10 @@ export interface BudgetLineOverride {
 }
 
 /**
- * One budget line (§12): an expense or a dollar contribution to a named account,
+ * One budget line: an expense or a dollar contribution to a named account,
  * with an amount source, a descriptive category, an optional explicit priority,
  * and optional time-variation (span + dated overrides). Dollars, not percentages.
- * Priority is the line's rank in the waterfall (§15); when absent the category
+ * Priority is the line's rank in the waterfall; when absent the category
  * tier supplies the default (see {@link orderBudgetLines}).
  */
 export interface BudgetLine {
@@ -139,11 +138,11 @@ export interface ResolveLineContext {
   /** The contributor's age in `year`; enables the fill-to-limit age-50 catch-up bump. */
   readonly age?: number;
   /**
-   * §12 rules/jurisdiction seam: the target account's legislated annual
+   * Rules/jurisdiction seam: the target account's legislated annual
    * contribution cap for the given year+age. Consulted ONLY by `fill-to-limit`.
    * Absent → uncapped, so a `fill-to-limit` line has no cap to max and resolves
    * to 0 (nothing to fill). The catch-up bump rides inside this function, so the
-   * line auto-follows it with no authoring change (§19, AC3).
+   * line auto-follows it with no authoring change.
    */
   readonly annualLimitCents?: (ctx: DeferralLimitContext) => Cents;
   /**
@@ -153,13 +152,13 @@ export interface ResolveLineContext {
   readonly currentBalanceCents?: Cents;
   /**
    * The fund account's monthly growth rate, for the growth-aware `goal-paced`
-   * sinking-fund pace (#26). Absent → 0 (a flat, even spread over the months left).
+   * sinking-fund pace. Absent → 0 (a flat, even spread over the months left).
    * Leaning on projected growth lowers the required contribution below the flat pace.
    */
   readonly fundMonthlyRate?: number;
 }
 
-/** Whether `month` falls inside a line's span (§19). No span → always active. */
+/** Whether `month` falls inside a line's span. No span → always active. */
 function isWithinSpan(span: BudgetLineSpan | undefined, month: number): boolean {
   if (span === undefined) return true;
   if (span.startMonth !== undefined && month < span.startMonth) return false;
@@ -175,13 +174,13 @@ function baseSourceMonthlyCents(source: AmountSource, ctx: ResolveLineContext): 
     case "fillToLimit": {
       // "Max the target account's annual cap" — spread evenly across the 12 months
       // of the year. The cap (incl. the age-50 catch-up) comes entirely from the
-      // rules/jurisdiction seam; no seam → no cap to fill → 0 (§19, AC3).
+      // rules/jurisdiction seam; no seam → no cap to fill → 0.
       if (ctx.annualLimitCents === undefined) return 0;
       const annualCap = ctx.annualLimitCents({ year: ctx.year, age: ctx.age });
       return Math.round(annualCap / 12);
     }
     case "goalPaced": {
-      // #26 deadline pace: the growth-aware sinking-fund contribution needed to reach
+      // Deadline pace: the growth-aware sinking-fund contribution needed to reach
       // the target by the deadline (see {@link requiredContributionCents}). Past (or
       // at) the deadline there is no time left to pace, so it stops — the goal has
       // matured and its disposition fires elsewhere. With no fund rate this degrades
@@ -199,7 +198,7 @@ function baseSourceMonthlyCents(source: AmountSource, ctx: ResolveLineContext): 
 }
 
 /**
- * The dated-override value that applies at `month`, or `undefined` if none (§19).
+ * The dated-override value that applies at `month`, or `undefined` if none.
  * A `thisMonthOnly` override at exactly `month` wins outright; otherwise the
  * latest `fromHereForward` override on or before `month` stands. Mirrors the
  * {@link import("./cashFlowSeries").SimCashFlowSeries} override semantics so the
@@ -222,9 +221,9 @@ function overrideValueAt(
 
 /**
  * Resolve one budget line to its funded monthly dollar amount for a single month
- * (§19) — the amount source computed, then any dated override layered on top,
+ * — the amount source computed, then any dated override layered on top,
  * gated by the line's span. This is the primitive the waterfall/compilation reads
- * so all three amount sources resolve through one path (AC2). Pure and
+ * so all three amount sources resolve through one path. Pure and
  * jurisdiction-agnostic: every jurisdiction fact arrives via {@link
  * ResolveLineContext}.
  */
@@ -234,12 +233,12 @@ export function resolveBudgetLineMonthlyCents(line: BudgetLine, ctx: ResolveLine
   return override ?? baseSourceMonthlyCents(line.amountSource, ctx);
 }
 
-/** The tax treatment a line's contribution carries — post-tax for expenses (§12). */
+/** The tax treatment a line's contribution carries — post-tax for expenses. */
 export function taxTreatmentForLine(line: BudgetLine): TaxTreatment {
   return line.target.kind === "account" ? line.target.taxTreatment : "postTax";
 }
 
-/** Default priority a category tier implies (§15): needs before wants before savings. */
+/** Default priority a category tier implies: needs before wants before savings. */
 const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
   needs: 0,
   wants: 1000,
@@ -247,7 +246,7 @@ const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
 };
 
 /**
- * A line's effective flat waterfall priority (§15): its explicit
+ * A line's effective flat waterfall priority: its explicit
  * {@link BudgetLine.priority} when set, else the category-tier default (needs before
  * wants before savings). The single source of truth for ordering — both
  * {@link orderBudgetLines} and the unified `allocations()` view read it, so the two
@@ -258,7 +257,7 @@ export function budgetLinePriority(line: BudgetLine): number {
 }
 
 /**
- * The budget as a prioritized list (§15): explicit {@link BudgetLine.priority}
+ * The budget as a prioritized list: explicit {@link BudgetLine.priority}
  * first, else the category tier default. A stable sort keeps authored order within
  * a tier. Order only bites in a shortfall — it is the waterfall's funding sequence.
  */
@@ -279,9 +278,9 @@ export interface ResolvedBudgetLine {
 
 /**
  * Resolve the whole budget for one month into the prioritized, per-line funded
- * view (§13 `allocations()` / §Q27 per-line monthly resolution): every line's
+ * view (`allocations()` / per-line monthly resolution): every line's
  * dollar amount in waterfall priority order, each tagged with the pre/post-tax
- * treatment derived from its target account's kind (§12). This is the resolved
+ * treatment derived from its target account's kind. This is the resolved
  * allocation the waterfall consumes — author line ↔ resolved line.
  */
 export function resolveBudget(

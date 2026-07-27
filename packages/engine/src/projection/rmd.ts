@@ -31,17 +31,17 @@ function isRmdTriggerMonth(month: number): boolean {
 }
 
 /**
- * This year's Required Minimum Distributions (§5.4) — one income source per person
+ * This year's Required Minimum Distributions — one income source per person
  * with a pre-tax balance who has reached the jurisdiction's start age. On a trigger
  * month, for each such person the seam is asked for the required amount from their
  * aggregate pre-tax balance; that amount is forced out of their pre-tax accounts
  * (sequentially — `required ≤ balance`, so it always fully draws) and re-enters as
  * `ordinaryIncome` with NO planDescriptor. That routing is deliberate: the single
- * tax chokepoint (§5.3) lives inside the waterfall, so the withdrawn gross is taxed
+ * tax chokepoint lives inside the waterfall, so the withdrawn gross is taxed
  * there once and its remainder lands in the surplus (taxable) destination; and
  * because it is not earned wages it enters POST-deferral and can never be re-deferred.
  *
- * The withdrawal binds as `max(desired, required)` (§5.4); the base sim has no
+ * The withdrawal binds as `max(desired, required)`; the base sim has no
  * desired draw, so `required` binds. Absent seam (v1 null jurisdiction) → no RMD.
  * Mutates `assetBalances` as a side effect, as `buildGovernmentBenefitSources` does.
  */
@@ -86,7 +86,7 @@ export function buildRmdSources(
       ownerId: person.id,
       waterfallInflowCents: required,
       taxCategory: "ordinaryIncome",
-      // Reported as its own source (issue #99) — a forced distribution reads apart from
+      // Reported as its own source — a forced distribution reads apart from
       // an elective pre-tax draw even though both are `ordinaryIncome`.
       sourceId: `rmd:${person.id}`,
       label: "Required distribution",

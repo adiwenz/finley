@@ -11,7 +11,7 @@ function ctx(age: number, year: number): HealthCostContext {
   return { age, year };
 }
 
-describe("healthCostBenchmark — US attributed health costs (§5.4)", () => {
+describe("healthCostBenchmark — US attributed health costs", () => {
   it("cent-pinned base year: pre-65 $1,200/mo, Medicare residual $500/mo", () => {
     const b = healthCostBenchmark(HEALTH_COST_BASE_YEAR);
     expect(b.pre65SelfFundedMonthlyCents).toBe(1_200_00);
@@ -48,7 +48,7 @@ describe("healthCostBenchmark — US attributed health costs (§5.4)", () => {
   });
 });
 
-describe("healthCostBenchmarkMonthlyCents — the seam (§5.4)", () => {
+describe("healthCostBenchmarkMonthlyCents — the seam", () => {
   it("returns the elevated self-funded figure just below the Medicare age", () => {
     expect(healthCostBenchmarkMonthlyCents(ctx(MEDICARE_ELIGIBILITY_AGE - 1, HEALTH_COST_BASE_YEAR)))
       .toBe(1_200_00);

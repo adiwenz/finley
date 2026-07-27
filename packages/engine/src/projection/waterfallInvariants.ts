@@ -2,7 +2,7 @@ import type { Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 
 /**
- * §5.3 PER-PERSON attribution invariant (issue #110 follow-up), checked as each person is
+ * PER-PERSON attribution invariant, checked as each person is
  * taxed and BEFORE anything is aggregated. The jurisdiction's contract is that the Σ of its
  * per-category breakdown equals its own scalar `computeTaxCents` for the SAME taxable input —
  * so we assert it per person. Checking here, not only on the household total, catches
@@ -26,7 +26,7 @@ export function assertPersonTaxBreakdownReconciles(
 }
 
 /**
- * §5.3 HOUSEHOLD attribution invariant (issue #110 follow-up) — the second check. When any
+ * HOUSEHOLD attribution invariant — the second check. When any
  * tax is charged, the per-source breakdown MUST reconcile to the scalar `taxCents`. This is
  * what keeps the take-home cash-flow chart honest: it derives each source's net as `cashInflow
  * − deferral − attributed tax`, so a partial `taxBySourceCents` would leave tax un-subtracted

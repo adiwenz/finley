@@ -32,13 +32,13 @@ export interface ProjectionChartsProps {
   readonly currentAge: number;
   /**
    * Household member names by person id — what lets the income graph say *whose*
-   * government benefit a band is (issue #118). Two claimants otherwise draw two legend
+   * government benefit a band is. Two claimants otherwise draw two legend
    * entries with the identical label, since the label names the kind of income.
    */
   readonly personNames: ReadonlyMap<string, string>;
   readonly selectedMonth: number;
   readonly onSelectMonth: (month: number) => void;
-  /** The %-quickstart (§15): rebalance the existing budget to 50/30/20 of income. */
+  /** The %-quickstart: rebalance the existing budget to 50/30/20 of income. */
   readonly onQuickstart: () => void;
 }
 

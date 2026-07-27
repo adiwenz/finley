@@ -1,9 +1,9 @@
 /**
- * Job authoring form (§6, issue #72) — the disclosed add/edit surface for one job on
- * the value-editing plane (§4.2 / §10.3): a direct edit to `plan.jobs`, never a timeline
+ * Job authoring form — the disclosed add/edit surface for one job on
+ * the value-editing plane: a direct edit to `plan.jobs`, never a timeline
  * event. Speaks the user's terms (a monthly salary, the age they started, whether it
  * runs to retirement) and folds them into a {@link JobDraft} on submit. Progressive
- * disclosure (§10.4): the 401(k) deferral and above-inflation raises live behind an
+ * disclosure: the 401(k) deferral and above-inflation raises live behind an
  * "Advanced" details, like the account-return knobs in the Budget editor.
  *
  * The same form backs both add and edit — `initial` seeds it.
@@ -15,7 +15,7 @@ import type { JobDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import styles from "./jobsPanel.module.css";
 
-/** A household member this job could belong to — the owner picker's options (#118). */
+/** A household member this job could belong to — the owner picker's options. */
 export interface JobFormOwner {
   readonly id: PersonId;
   readonly name: string;
@@ -27,7 +27,7 @@ interface JobFormProps {
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
   /**
-   * Who could own this job (issue #118). With a second earner in the household the form
+   * Who could own this job. With a second earner in the household the form
    * discloses a picker, so a job can be authored for — or reassigned to — either of
    * them; with only the primary person there is nothing to choose and none is shown.
    */
@@ -44,7 +44,7 @@ interface JobFormProps {
  */
 interface JobFormDraft {
   readonly name: string;
-  /** Whose job this is — the ages below are this person's ages (issue #118). */
+  /** Whose job this is — the ages below are this person's ages. */
   readonly ownerId: PersonId;
   readonly monthlyDollars: number;
   readonly startAge: number;
@@ -113,7 +113,7 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
         submit();
       }}
     >
-      {/* Whose job (issue #118). Shown only once the household holds a second earner —
+      {/* Whose job. Shown only once the household holds a second earner —
           with one member there is nothing to pick. Changing it on an existing job
           reassigns the job to that member. */}
       {pickableOwners.length > 1 && (
@@ -189,7 +189,7 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
       <details className="advanced">
         <summary>Advanced</summary>
         {/* Capped at 100%: you can't defer more than your whole paycheck. The annual
-            DOLLAR elective limit is enforced separately by the engine (§5.4) — deferral
+            DOLLAR elective limit is enforced separately by the engine — deferral
             past it is paid as taxable income, disclosed by the nudge on the Jobs panel. */}
         <NumInput
           label="401(k) contribution"

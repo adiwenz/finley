@@ -1,4 +1,4 @@
-/** A partner leaves the household — a SeparationEvent (§4.3). */
+/** A partner leaves the household — a SeparationEvent. */
 
 import { useState } from "react";
 import { dollarsToCents, membersAt, type Household } from "@finley/engine";

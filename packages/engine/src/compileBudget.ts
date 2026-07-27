@@ -1,7 +1,6 @@
 /**
  * Pure compilation from the standing line-item {@link BudgetLine} model into the
- * simulator's inputs (§12, §15, §18, §19 of JOBS_HOUSEHOLD_REDESIGN, issue #67,
- * slice 4). Expense lines compile to forward expense {@link SimOwnedSeries}
+ * simulator's inputs. Expense lines compile to forward expense {@link SimOwnedSeries}
  * (spans → the series' start/end months, dated overrides → the series' own
  * override edits), so a line-item budget drives the *existing* waterfall /
  * simulator unchanged.
@@ -15,7 +14,7 @@
  *
  * Lands **additively**, alongside the scalar `Plan.expenseCents` path — both
  * compile into the same `initialExpenseSeries` — so nothing existing is removed
- * here (that is #72's job).
+ * here (that removal is a later cleanup's job).
  */
 
 import type { Cents } from "./money";
@@ -25,9 +24,9 @@ import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
 import type { BudgetLine } from "./budgetLine";
 
 /**
- * The fill-to-limit cap seam for a jurisdiction (§12, §19): the function a
+ * The fill-to-limit cap seam for a jurisdiction: the function a
  * `fill-to-limit` line reads its legislated annual cap from — the jurisdiction's
- * {@link Jurisdiction.retirementDeferralLimitCents} plug (which #33 supplies for
+ * {@link Jurisdiction.retirementDeferralLimitCents} plug (supplied for
  * capped accounts, age-50 catch-up included). Returns `undefined` when the
  * jurisdiction defines no cap (v1 null jurisdiction), so a `fill-to-limit` line
  * resolves to 0 rather than inventing a cap. Injected, never imported — this is
@@ -43,7 +42,7 @@ export function fillToLimitSeamFor(
  * Compile one expense {@link BudgetLine} into a forward expense
  * {@link SimCashFlowSeries}. A literal source is the monthly baseline; the line's
  * span becomes the series' start month and (exclusive) end; each dated override
- * becomes a matching series edit (§19). Only literal expense sources are
+ * becomes a matching series edit. Only literal expense sources are
  * compilable — a `fill-to-limit` / `goal-paced` *expense* is meaningless (those
  * are contribution behaviours), so it is refused at compile time.
  */
@@ -83,7 +82,7 @@ function compileExpenseLine(
   // Tag the compiled series with its source line's label (for reporting) and its id, so
   // the simulator can report each line's monthly amount without re-resolving (author
   // line ↔ resolved series ↔ reported line — see ProjectionMonthFlows.lineMonthlyCents).
-  // The line's §15 priority is deliberately NOT carried: nothing downstream ranks lines,
+  // The line's priority is deliberately NOT carried: nothing downstream ranks lines,
   // because a tight month is absorbed by savings and credit rather than by starving the
   // low-priority ones. `budgetLinePriority` remains the ordering source of truth for the
   // authoring view (`allocations.ts`); re-add it here when something actually ranks.
@@ -93,7 +92,7 @@ function compileExpenseLine(
     label: line.label,
     lineId: line.id,
     // The one spending stream a user edits directly, and the only one that carries an
-    // authored §15 tier — both facts the unified spending report reads off here.
+    // authored priority tier — both facts the unified spending report reads off here.
     spendingSource: {
       kind: "budgetLine",
       id: line.id,
@@ -105,7 +104,7 @@ function compileExpenseLine(
 
 /**
  * Compile a budget's expense lines into forward expense {@link SimOwnedSeries}
- * (§12, §15) — one series per expense line, owned by `ownerId`. Contribution
+ * — one series per expense line, owned by `ownerId`. Contribution
  * lines (targets other than `expense`) are skipped here: they route to the
  * contribution channels, not the expense series. Order is preserved so the
  * caller can keep it aligned with the prioritized budget.

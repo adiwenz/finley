@@ -5,12 +5,12 @@
  * loop iteration during autonomous implementation — they catch wrong financial math,
  * which is SILENT (plausible-but-wrong numbers) rather than a crash.
  *
- * Sections mirror TEST_PLAN.md. Tests against the already-built CashFlowSeries and the
+ * Tests against the already-built CashFlowSeries and the
  * known-value anchors are IMPLEMENTED and pass now. Tests for not-yet-built components
  * (Account, Simulator, Goals, Recommendations) are marked `todo(...)` — they are concrete
  * targets: fill in the body when the component's build step lands, keeping the assertion.
  *
- * DO NOT let the implementing loop rewrite the §9 known-value anchors. Those assert against
+ * DO NOT let the implementing loop rewrite the known-value anchors. Those assert against
  * external truth (published amortization, closed-form compounding); they are the backstop
  * that stops code + tests converging on the same wrong answer.
  */
@@ -65,19 +65,19 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
 });
 
 todo("net worth = Σassets − Σliabilities, every month; property contributes equity value−mortgage (needs Account + Property)");
-todo("one-time transfer conserves money: between-account transfer leaves total unchanged; influx/outflow moves exactly one balance (§3.2)");
+todo("one-time transfer conserves money: between-account transfer leaves total unchanged; influx/outflow moves exactly one balance");
 
 // ===========================================================================
-// 2. COMPOUNDING DISCIPLINE (§0.2)
+// 2. COMPOUNDING DISCIPLINE
 // ===========================================================================
 console.log("\n2. Compounding discipline");
 todo("growth happens in exactly one place: disable compound step -> balances flat (needs Simulator)");
 todo("each account compounds at most once per month (needs Account + Simulator)");
-todo("one-time transfers never compound: transfer moves at its month; growth only from compounding step, post-transfer balance (§3.2)");
-todo("account rate is a segment series not a scalar: a fromHereForward rate change applies only from its month (§3.1)");
+todo("one-time transfers never compound: transfer moves at its month; growth only from compounding step, post-transfer balance");
+todo("account rate is a segment series not a scalar: a fromHereForward rate change applies only from its month");
 
 // ===========================================================================
-// 3. DETERMINISM & REPLAY (§6)
+// 3. DETERMINISM & REPLAY
 // ===========================================================================
 console.log("\n3. Determinism & replay");
 
@@ -99,11 +99,11 @@ todo("remove-then-readd the same event returns identical state (needs events)");
 todo("no operation mutates a stored event/edit in place (needs ledger)");
 
 // ===========================================================================
-// 4. ALLOCATION & SHORTFALL (§5.1)
+// 4. ALLOCATION & SHORTFALL
 // ===========================================================================
 console.log("\n4. Allocation & shortfall");
 todo("no impossible move: never transfer cash an account lacks (needs allocation)");
-todo("shortfalls route through cascade, never a silent negative cash balance (needs §5.1)");
+todo("shortfalls route through cascade, never a silent negative cash balance (needs allocation)");
 todo("credit-covered shortfall raises card liability by exactly the deficit (conservation)");
 
 // ===========================================================================
@@ -134,49 +134,49 @@ test("endMonth truncates: a series yields nothing past endMonth", () => {
   assert.strictEqual(s.getMonthlyCents(11), 0, "one past endMonth must be 0");
   assert.strictEqual(s.getMonthlyCents(100), 0, "far past endMonth must be 0");
 });
-todo("separation tagging isolation: ending partner income leaves child/mortgage streams intact (§4.3)");
-todo("buy does not end any budget item: HomePurchaseEvent leaves all budget items untouched (§4.3)");
+todo("separation tagging isolation: ending partner income leaves child/mortgage streams intact");
+todo("buy does not end any budget item: HomePurchaseEvent leaves all budget items untouched");
 todo("multiple housing items coexist: DTI/% -on-housing sums all category:housing items");
 todo("ending a budget item is general: setting endMonth works identically for any item, no rent-specific path");
 todo("HomeSaleEvent targets one property: other houses' mortgages/streams untouched");
 todo("sale proceeds conserve money: net = sale price − remaining mortgage − selling costs");
-todo("intra-month ordering: same-month sell-then-buy funds the down-payment check from proceeds (§5)");
-todo("property equity = value − mortgage contributes to net worth every month (§4.1)");
-todo("refinance keeps history: old mortgage ends at refinance month (still present), new one starts; no overlap in payments (§10.7)");
+todo("intra-month ordering: same-month sell-then-buy funds the down-payment check from proceeds");
+todo("property equity = value − mortgage contributes to net worth every month");
+todo("refinance keeps history: old mortgage ends at refinance month (still present), new one starts; no overlap in payments");
 todo("refinance targets one property: other properties' mortgages unchanged");
-todo("durable entity survives origin-event edit surface: partner job change / property mortgage editable directly; undoing origin removes entity + all it owns (§10.3, §6)");
-todo("backdated event reconstructs structure not past finances: child born 2y pre-now is age 2, cost stream 2y into 18y run, no past billing (§4.6)");
-todo("financial accumulation starts at now: net-worth curve begins at the now marker from entered balances; no values before now (§4.6)");
-todo("backdated in-flight state uses entered current values: 3y-old mortgage uses entered current balance + remaining term, not re-amortized from origin (§4.6)");
+todo("durable entity survives origin-event edit surface: partner job change / property mortgage editable directly; undoing origin removes entity + all it owns");
+todo("backdated event reconstructs structure not past finances: child born 2y pre-now is age 2, cost stream 2y into 18y run, no past billing");
+todo("financial accumulation starts at now: net-worth curve begins at the now marker from entered balances; no values before now");
+todo("backdated in-flight state uses entered current values: 3y-old mortgage uses entered current balance + remaining term, not re-amortized from origin");
 
 // ===========================================================================
 // 6. GOALS & RETIREMENT
 // ===========================================================================
 console.log("\n6. Goals & retirement");
-todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero (§8.6)");
+todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
-// Solve mode and target mode both read one survival signal off the real §5
-// projection now (the standalone accumulation solver was retired, #37); their
+// Solve mode and target mode both read one survival signal off the real
+// projection now (the standalone accumulation solver was retired); their
 // agreement at a pinned age is covered app-side in retirementView.test.ts, where
 // the projection they share actually lives.
-todo("solve mode and target mode agree at the same pinned age off the shared projection (§7.1, #37)");
-todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross (§5.0)");
-todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account (§5.5)");
-todo("employer-plan account belongs to person and persists after job ends (contributions stop, balance stays) (§5.5)");
-todo("match follows the job's employerMatchRule, separate per job, does not share the deferral limit (§5.5, §5.4)");
-todo("combined 401k deferral across jobs shares one annual limit; employer match is separate (§5.4)");
-todo("contribution never exceeds applicable cap; overflow redirects to next priority destination (§5.0, §5.4)");
-todo("catch-up applies by age and account type (401k vs IRA), only at/after trigger age (§5.4)");
-todo("Government benefit derives from earnings record: computed from accumulated history; higher history => >= benefit; zero before claiming age (§5.4)");
-todo("Benefit is engine-accumulated (EarningsRecord, no jurisdiction knowledge), rules-computed (benefit seam) (§5.4)");
-todo("Government benefit enters post-deferral and is partially taxed via taxCategory tag, not as wages (§5.4)");
-todo("ANCHOR (rules repo): known earnings history => expected SS benefit, pinned to the cent (§5.4)");
-todo("Benefit claiming age monotonicity: later claiming (<=70) => higher monthly benefit (§5.4)");
-todo("Medicare step lowers health cost at 65; pre-65 early-retiree health cost modeled elevated (§5.4)");
-todo("RMDs force taxable withdrawals from pre-tax accounts past RMD age regardless of need (§5.4)");
+todo("solve mode and target mode agree at the same pinned age off the shared projection");
+todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross");
+todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account");
+todo("employer-plan account belongs to person and persists after job ends (contributions stop, balance stays)");
+todo("match follows the job's employerMatchRule, separate per job, does not share the deferral limit");
+todo("combined 401k deferral across jobs shares one annual limit; employer match is separate");
+todo("contribution never exceeds applicable cap; overflow redirects to next priority destination");
+todo("catch-up applies by age and account type (401k vs IRA), only at/after trigger age");
+todo("Government benefit derives from earnings record: computed from accumulated history; higher history => >= benefit; zero before claiming age");
+todo("Benefit is engine-accumulated (EarningsRecord, no jurisdiction knowledge), rules-computed (benefit seam)");
+todo("Government benefit enters post-deferral and is partially taxed via taxCategory tag, not as wages");
+todo("ANCHOR (rules repo): known earnings history => expected SS benefit, pinned to the cent");
+todo("Benefit claiming age monotonicity: later claiming (<=70) => higher monthly benefit");
+todo("Medicare step lowers health cost at 65; pre-65 early-retiree health cost modeled elevated");
+todo("RMDs force taxable withdrawals from pre-tax accounts past RMD age regardless of need");
 
 // ===========================================================================
-// 7. RECOMMENDATIONS (§8)
+// 7. RECOMMENDATIONS
 // ===========================================================================
 console.log("\n7. Recommendations");
 todo("apply then un-apply returns to identical pre-apply state (tagged remove-then-replay)");

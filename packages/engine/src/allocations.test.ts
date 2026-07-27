@@ -48,7 +48,7 @@ const houseGoal: SimGoal = {
 
 const ids = (a: readonly Allocation[]): string[] => a.map((x) => x.id);
 
-describe("allocations() — unified view (§13/§14, #69 AC1)", () => {
+describe("allocations() — unified view", () => {
   it("unifies job deferrals, budget lines, and goals into one list", () => {
     const view = allocations({ jobs: [job], budgetLines: [rentLine, brokerageLine], goals: [houseGoal] });
     // One entry per source item — nothing dropped, nothing invented.
@@ -67,7 +67,7 @@ describe("allocations() — unified view (§13/§14, #69 AC1)", () => {
     expect(ids(again)).toEqual(ids(view));
   });
 
-  it("orders pre-tax deferrals first (above the tax line), then post-tax in priority order (§13)", () => {
+  it("orders pre-tax deferrals first (above the tax line), then post-tax in priority order", () => {
     const view = allocations({ jobs: [job], budgetLines: [rentLine, brokerageLine], goals: [houseGoal] });
     // The deferral (pre-tax) is first; everything after it is post-tax.
     expect(view[0].home.kind).toBe("job");
@@ -88,7 +88,7 @@ describe("allocations() — unified view (§13/§14, #69 AC1)", () => {
   });
 });
 
-describe("goalToLineItem() — a goal is a computed goal-paced line item (§14)", () => {
+describe("goalToLineItem() — a goal is a computed goal-paced line item", () => {
   it("compiles a goal into a goal-paced contribution line to its fund account", () => {
     const line = goalToLineItem(houseGoal);
     expect(line.target).toEqual({
@@ -113,7 +113,7 @@ describe("goalToLineItem() — a goal is a computed goal-paced line item (§14)"
   });
 });
 
-describe("routeAllocationWrite() — writes go to the canonical home (§13, #69 AC2)", () => {
+describe("routeAllocationWrite() — writes go to the canonical home", () => {
   const view = allocations({ jobs: [job], budgetLines: [rentLine, brokerageLine], goals: [houseGoal] });
   const byId = new Map(view.map((a) => [a.id, a]));
 

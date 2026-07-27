@@ -1,5 +1,5 @@
 /**
- * Debug export (§10) — filename for the downloaded run. The payload itself is the
+ * Debug export — filename for the downloaded run. The payload itself is the
  * engine's {@link import("@finley/engine").SimulationReport} verbatim (engine-only,
  * no app wrapper): the report already echoes the resolved inputs, so an export is a
  * self-contained account of the run. Only the filename is app-side, since it carries

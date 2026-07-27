@@ -1,11 +1,11 @@
 /**
- * Snapshot — the household cross-section as of one month (§10.8).
+ * Snapshot — the household cross-section as of one month.
  *
  * Built from the same {@link Household} the projection consumes, so
- * presence (who/what is active) can never drift from the projection's stocks
- * (§1, §14). The requested month is clamped once (to the projection horizon)
+ * presence (who/what is active) can never drift from the projection's stocks.
+ * The requested month is clamped once (to the projection horizon)
  * and that single clamped month drives every field — people, children, flows,
- * liabilities, balances, and the returned `month` (§2).
+ * liabilities, balances, and the returned `month`.
  */
 
 import type { Cents } from "../money";
@@ -30,7 +30,7 @@ export interface SnapshotSeries {
   readonly ownerId: PersonId;
   readonly seriesType: "income" | "expense";
   readonly role: SeriesRole;
-  /** Monthly rate at the snapshot month, growth applied — a *flow* (§10.8). */
+  /** Monthly rate at the snapshot month, growth applied — a *flow*. */
   readonly monthlyCents: Cents;
   /** The event that created this series; `null` for base (value-editing) series. */
   readonly causedByEventId: string | null;
@@ -53,7 +53,7 @@ export interface BalanceEntry {
 }
 
 /**
- * A property in the snapshot cross-section (§4.1). `valueCents` and
+ * A property in the snapshot cross-section. `valueCents` and
  * `mortgageBalanceCents` come from the projection month; `equityCents` is their
  * difference (value − mortgage). Without a projection, value falls back to the
  * opening value and mortgage/equity are unknown (null).
@@ -72,7 +72,7 @@ export interface SnapshotBalances {
   readonly accounts: readonly BalanceEntry[];
   /** Amounts owed, positive. */
   readonly liabilities: readonly BalanceEntry[];
-  /** Null once the plan is insolvent (§5.1) — see {@link ProjectionMonth}. */
+  /** Null once the plan is insolvent — see {@link ProjectionMonth}. */
   readonly netWorthNominalCents: Cents | null;
   readonly isInsolvent: boolean;
 }
@@ -97,7 +97,7 @@ function clampMonth(month: number, projection?: ProjectionSeries): number {
 }
 
 /**
- * The people in the household as of `month` (end-of-month convention, §10.8):
+ * The people in the household as of `month` (end-of-month convention):
  * present from their `startMonth` and not yet separated (`endMonth > month`).
  * The single authoritative answer to "who is in the household at M" — the
  * snapshot and any UI that offers people to act on should read through this.
@@ -109,7 +109,7 @@ export function membersAt(household: Household, month: number): Person[] {
 }
 
 /**
- * Household cross-section as of `month` (end-of-month convention, §10.8): an
+ * Household cross-section as of `month` (end-of-month convention): an
  * event at month M is applied at M. Presence is derived from `household`;
  * balances (stocks) are read from `projection` when supplied.
  */
@@ -150,7 +150,7 @@ export function buildSnapshot(
   const liabilities: SnapshotLiability[] = household.liabilities
     .filter((l) => {
       // With a projection, "active" means a positive balance at the month —
-      // a paid-off liability disappears (§16). Without one, fall back to the
+      // a paid-off liability disappears. Without one, fall back to the
       // contractual origination month.
       if (projectionMonth) return (projectionMonth.liabilityBalancesCents[l.id] ?? 0) > 0;
       return l.startMonth <= m;

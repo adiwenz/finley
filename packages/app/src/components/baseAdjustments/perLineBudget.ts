@@ -1,5 +1,5 @@
 /**
- * Monthly spending graph data (§Q27, "Base + Adjustments", issue #71, AC2).
+ * Monthly spending graph data ("Base + Adjustments").
  *
  * Turns a projection series into the rows a spending chart draws: one band per thing the
  * household's money goes to, at what it actually cost each month.
@@ -18,7 +18,7 @@
  * spending without the chart pretending they are different quantities. A month's stack
  * totals exactly the obligation the income graph's spending-need line plots.
  *
- * It deliberately does **not** ration a tight month across the §15 priority order. The
+ * It deliberately does **not** ration a tight month across the priority order. The
  * simulator never skips spending, so drawing a line below its amount would depict money
  * the household did in fact spend; and the point where the plan genuinely stops working
  * is insolvency, which is reported here as its own fact ({@link insolventFromMonth})
@@ -50,7 +50,7 @@ export interface ChartBand {
   readonly id: string;
   readonly label: string;
   readonly kind: BandKind;
-  /** Whether the underlying fact is editable as a line (§ the item's own flag). */
+  /** Whether the underlying fact is editable as a line (the item's own flag). */
   readonly editable: boolean;
 }
 
@@ -66,7 +66,7 @@ export interface PerLineMonthRow {
 export interface PerLineBudgetData {
   readonly rows: readonly PerLineMonthRow[];
   /**
-   * First month the §5.1 cascade exhausted savings AND credit — the point the plan
+   * First month the cascade exhausted savings AND credit — the point the plan
    * stops being financeable. `null` when the plan holds across the whole horizon.
    */
   readonly insolventFromMonth: number | null;
@@ -78,8 +78,8 @@ export interface PerLineBudgetData {
 }
 
 /**
- * Build the spending chart data from a projection series (AC2). One row per *flowed*
- * month (month 0 is the flow-free opening snapshot, §4.6, so it is skipped), each
+ * Build the spending chart data from a projection series. One row per *flowed*
+ * month (month 0 is the flow-free opening snapshot, so it is skipped), each
  * carrying every item's amount for that month and their total — the engine's own
  * `totalSpendingCents`, not a re-sum.
  *
@@ -143,7 +143,7 @@ function yearOf(month: number): number {
 }
 
 /**
- * A one-line, human-readable summary for the a11y label / status line (AC2), or `null`
+ * A one-line, human-readable summary for the a11y label / status line, or `null`
  * when the plan finances the whole budget across the horizon. Names the year the plan
  * runs out rather than naming a line to cut — which spending to give up at that point
  * is the user's decision, not one the graph should make for them.

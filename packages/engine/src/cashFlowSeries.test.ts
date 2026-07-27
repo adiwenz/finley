@@ -7,7 +7,7 @@ import {
 } from "./cashFlowSeries";
 
 // ---------------------------------------------------------------------------
-// Original Slice-0 tests (preserved verbatim — these are behavioral anchors)
+// Original tests (preserved verbatim — these are behavioral anchors)
 // ---------------------------------------------------------------------------
 
 test("cumulative rounding: 12 months sum exactly to an awkward annual total", () => {
@@ -114,8 +114,8 @@ test("preciseMonthlyRate compounds to the annual rate over 12 months", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Slice-1 additions: baselineUnit, growthAnchor, endMonth, resetAnchor,
-//                    taxCategory, history correction (§2 additions)
+// Additions: baselineUnit, growthAnchor, endMonth, resetAnchor,
+//            taxCategory, history correction
 // ---------------------------------------------------------------------------
 
 test("monthly-native: $150 repeats exactly — zero rounding drift over 36 months", () => {

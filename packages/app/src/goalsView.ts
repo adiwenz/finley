@@ -1,8 +1,8 @@
 /**
- * Pure presentation logic for the Goals panel (§5.2). Scores each plan goal
+ * Pure presentation logic for the Goals panel. Scores each plan goal
  * against the projection via the engine's projection-based on-track math, and
  * reprioritizes the goal list. Reordering here changes who the waterfall funds
- * first, so the *other* goals' on-track numbers visibly move (§5.2 tradeoff) —
+ * first, so the *other* goals' on-track numbers visibly move (tradeoff) —
  * the whole point of a shared priority list.
  */
 
@@ -23,9 +23,9 @@ import type {
 
 /**
  * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the
- * accumulated money at target (§5.2). The engine drives the money's actual
+ * accumulated money at target. The engine drives the money's actual
  * behavior off the disposition; this only names it for the user so the Goals
- * panel makes explicit *what becomes of it* (issue #28), which the on-track %
+ * panel makes explicit *what becomes of it*, which the on-track %
  * alone never conveys.
  */
 export function dispositionLabel(disposition: GoalDisposition): string {
@@ -49,17 +49,17 @@ export interface GoalRow {
   /** 0-based priority (position in the funding order); 0 is funded first. */
   readonly priority: number;
   /**
-   * Projected fund at target ÷ target, as a whole-number percent, capped at 100
-   * (§5.2). A funded goal keeps earning its account's return, so its raw fraction
+   * Projected fund at target ÷ target, as a whole-number percent, capped at 100.
+   * A funded goal keeps earning its account's return, so its raw fraction
    * drifts past 1.0 — but the waterfall stops depositing once the target is met
    * and the surplus flows on, so "done" is 100%, never more.
    */
   readonly onTrackPct: number;
   /** Annual return on this goal's fund account, whole-number percent. */
   readonly annualReturnPct: number;
-  /** True when a near-term goal accumulates into an equity-like account (§5.2). */
+  /** True when a near-term goal accumulates into an equity-like account. */
   readonly shortHorizonRiskFlag: boolean;
-  /** What becomes of the money at target (§5.2) — see {@link GoalDisposition}. */
+  /** What becomes of the money at target — see {@link GoalDisposition}. */
   readonly disposition: GoalDisposition;
   /** Plain-language rendering of {@link disposition} for display. */
   readonly dispositionLabel: string;
@@ -106,14 +106,14 @@ export function setGoalRate(
  * stable `id`, which the plan owns (add mints a fresh one; edit keeps the old). The
  * `disposition`/`targetDate` pair is carried as the engine's {@link GoalDisposal}
  * union so an authoring form cannot construct an illegal pairing (a firing
- * disposition with no month to fire at — §5.2).
+ * disposition with no month to fire at).
  */
 export type GoalDraft = {
   readonly name: string;
   readonly targetCents: number;
   readonly annualReturnPct: number;
   /**
-   * The kind of account the goal's fund is held in (issue #101). Optional so a draft
+   * The kind of account the goal's fund is held in. Optional so a draft
    * that omits it keeps the engine's legacy default (a capital-gains investment); the
    * authoring form always supplies one.
    */
@@ -122,8 +122,8 @@ export type GoalDraft = {
 
 /**
  * The selectable goal account types, in the order the authoring form lists them, each
- * paired with a plain-language label. The default emergency-style goal is `"cash"`
- * (issue #101). Kept here so the form never hardcodes the engine's account-type union.
+ * paired with a plain-language label. The default emergency-style goal is `"cash"`.
+ * Kept here so the form never hardcodes the engine's account-type union.
  */
 export const GOAL_ACCOUNT_TYPES: readonly {
   readonly value: GoalAccountType;
@@ -165,8 +165,8 @@ export function freshGoalId(goals: readonly GoalPlan[]): string {
 }
 
 /**
- * Append a new goal at lowest priority (last position; §5.2 priority is array index),
- * returning a new array. A direct value-plane override — no timeline event (§4.2/§10.3).
+ * Append a new goal at lowest priority (last position; priority is array index),
+ * returning a new array. A direct value-plane override — no timeline event.
  * The id is minted from the current list so the transform stays pure.
  */
 export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[] {
@@ -177,7 +177,7 @@ export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[
  * Replace one goal's authorable fields with `draft`, keeping its id and list position
  * (so priority is unchanged), returning a new array. A no-op (still a fresh array) when
  * `id` matches nothing. Re-projecting the result moves this goal's on-track % — and,
- * where funding competes, the others' — the same live feedback loop reorder has (§5.2).
+ * where funding competes, the others' — the same live feedback loop reorder has.
  */
 export function updateGoal(
   goals: readonly GoalPlan[],
@@ -190,7 +190,7 @@ export function updateGoal(
 /**
  * Drop a goal, returning a new array. Its derived `goal-<id>` fund account falls away
  * with it — `buildPlanAccounts` mints one account per remaining goal, so removing the
- * goal removes the account (§5.2). A direct override — no timeline event (§4.2/§10.3).
+ * goal removes the account. A direct override — no timeline event.
  */
 export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
   return goals.filter((g) => g.id !== id);

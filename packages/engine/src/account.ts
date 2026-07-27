@@ -1,7 +1,6 @@
 /**
- * The authoring account model (§9, §10 of JOBS_HOUSEHOLD_REDESIGN, issue #68,
- * slice 5) — per-person account *ownership* and the household net worth aggregate
- * that #30 (multi-person panel) and #38 (account types) build on.
+ * The authoring account model — per-person account *ownership* and the household
+ * net worth aggregate that the multi-person panel and account types build on.
  *
  * This is the external, user-facing `Account`, deliberately distinct from the
  * lower-level simulator {@link import("./simAccount").SimAccount} class (a compiled
@@ -11,7 +10,7 @@
  * retirement vehicle. Keeping the two as separate types is the same seam that
  * keeps the authoring `Person` out of the sim's `SimPerson` (see `person.ts`).
  *
- * Ownership is a set of persons (§10): `owners = [p]` is an individual account,
+ * Ownership is a set of persons: `owners = [p]` is an individual account,
  * `owners = [p1, p2]` a joint one. There is ONE canonical `household.accounts`
  * list — a joint account lives in it exactly once — which is what makes net worth
  * a clean household aggregate with no double-counting.
@@ -22,7 +21,7 @@ import type { PersonId } from "./job";
 import type { Person } from "./person";
 
 /**
- * A user-authored account (§10). `owners` distinguishes individual
+ * A user-authored account. `owners` distinguishes individual
  * (`[p]`) from joint (`[p1, p2]`) ownership; `retirement` marks a legally
  * per-person retirement vehicle, which is why it is constrained to a
  * single owner. `balanceCents` is the authored current balance (today's dollars);
@@ -38,7 +37,7 @@ export interface Account {
 }
 
 /**
- * An authoring household (§8, §9): the persons and the single canonical account
+ * An authoring household: the persons and the single canonical account
  * list. Net worth is a property of *this* aggregate, not of any one person —
  * summing `accounts` once is what avoids double-counting joint holdings.
  */
@@ -55,7 +54,7 @@ function idOf(ref: PersonRef): PersonId {
 }
 
 /**
- * Assert the ownership invariants (§10) for a single account and return it
+ * Assert the ownership invariants for a single account and return it
  * unchanged. Refused where the account is authored: an illegal shape is a hard
  * model constraint, not a value the rest of the engine should ever have to defend
  * against:
@@ -104,7 +103,7 @@ export function isIndividual(account: Account): boolean {
 }
 
 /**
- * The person's individually-held accounts (§10): those they own *alone*
+ * The person's individually-held accounts: those they own *alone*
  * (`owners === [person]`). Personal + joint partition {@link accountsOf} with no
  * overlap.
  */
@@ -117,7 +116,7 @@ export function personalAccounts(
 }
 
 /**
- * The person's jointly-held accounts (§10): those with more than one owner that
+ * The person's jointly-held accounts: those with more than one owner that
  * include this person.
  */
 export function jointAccounts(household: AccountHousehold, person: PersonRef): Account[] {
@@ -135,7 +134,7 @@ export function accountsOf(household: AccountHousehold, person: PersonRef): Acco
 }
 
 /**
- * Household net worth (§9): the sum of the canonical account list, taken **once**.
+ * Household net worth: the sum of the canonical account list, taken **once**.
  * Because a joint account lives in `household.accounts` a single time, summing
  * the list here never double-counts it — the aggregate is a property of the
  * household, not the per-person sum (which *would* count joint holdings twice).

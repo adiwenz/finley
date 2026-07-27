@@ -51,10 +51,10 @@ export function buildLiabilityPaymentRecords(
 }
 
 /**
- * Step 7: §5.1 shortfall cascade. If the liquid account went negative, zero it and
+ * Step 7: shortfall cascade. If the liquid account went negative, zero it and
  * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
  * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
- * it too can be exhausted — #36).
+ * it too can be exhausted).
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
  * amount the household genuinely could not pay. Zero is the common case: the month was
@@ -63,7 +63,7 @@ export function buildLiabilityPaymentRecords(
  * The distinction it draws is what makes a non-zero return meaningful. A budget squeezed
  * by a bad month is meant to be absorbed — by savings first, then by credit — and the
  * household still spent every dollar it budgeted. Only when there is nothing left to
- * absorb it with has the plan actually failed, and that is what this reports: the §5.1
+ * absorb it with has the plan actually failed, and that is what this reports: the
  * terminal condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line
  * is derived from it (see {@link
  * import("./spendingItems").buildSpendingItems} for why spending is reported as
@@ -93,14 +93,14 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
 
 /**
  * Step 10: advance every liability. One-time principal adjustments (lump-sum
- * payments — the future DebtPayoffEvent, §4.3) land FIRST, before interest — the
+ * payments — the future DebtPayoffEvent) land FIRST, before interest — the
  * liability analogue of step 8 preceding step 9 for assets — so a lump sum reduces
  * the interest charged that month. Then accrue interest and apply the pre-computed
  * `payments` figure.
  *
  * A transfer only moves the owed balance; the paired cash outflow (from a liquid
  * account) is the caller's responsibility, exactly as with asset-to-asset transfers
- * (§3.2) — the engine does not auto-fund it, so pairing a Liability payoff with an
+ * — the engine does not auto-fund it, so pairing a Liability payoff with an
  * Account outflow is what keeps net worth conserved. A lump sum can drive the balance
  * below the precomputed schedule; the payoff cap in computeLiabilityPayments keeps
  * that safe and yields shorten-term behavior (loan retires early, payment unchanged).

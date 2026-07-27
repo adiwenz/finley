@@ -1,7 +1,7 @@
 import type { SimState } from "./runState";
 
 /**
- * Fire each goal's disposition at its maturity (§5.2, #28). Runs at the END of the
+ * Fire each goal's disposition at its maturity. Runs at the END of the
  * target month — AFTER that month's snapshot has already recorded the fund AT its
  * target (so a goals surface reads the goal as achieved on its date) — and takes
  * effect from the next month forward:
@@ -10,7 +10,7 @@ import type { SimState } from "./runState";
  *  - `convertToEquity` — the fund is transferred out of the liquid accounts and
  *    reappears as an illiquid home-equity holding (a property opening at the fund's
  *    matured value, appreciating at that fund's own rate). Net worth is unchanged at
- *    the swap (§4.5), and the equity drops out of the drawable retirement nest egg
+ *    the swap, and the equity drops out of the drawable retirement nest egg
  *    for free — it is no longer a `SimAccount`, so the decumulation liquidation loop
  *    never sees it (a fuller property+mortgage model needs purchase/mortgage terms a
  *    GoalPlan does not carry — future work).
@@ -29,7 +29,7 @@ export function fireGoalDispositions(state: SimState, month: number): void {
     state.assetBalances.set(goal.fundAccountId, 0);
     // The fund is fully drained — spent, or swapped to illiquid equity (which the
     // decumulation loop never sees, so it needs no carried basis). Zero its basis to
-    // match, so a re-used account id could not resurrect stale basis (§#94). The
+    // match, so a re-used account id could not resurrect stale basis. The
     // dropped basis on a convertToEquity swap is disclosed to the app as
     // MODEL_ASSUMPTIONS["convertedEquityNoBasis"] (assumptions.ts).
     state.basisByAccount.set(goal.fundAccountId, 0);

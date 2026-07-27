@@ -2,7 +2,7 @@ import type { Cents, HealthCostContext } from "@finley/engine";
 
 /**
  * US health-cost benchmarks — the attributed monthly figures behind the Medicare
- * step (§5.4, shape 2). Medicare is an eligibility age (65) that triggers a
+ * step (shape 2). Medicare is an eligibility age (65) that triggers a
  * DOWNWARD step in health cost: before it, an early retiree self-funds coverage
  * at an elevated rate; at/after it, Medicare replaces most of that but a residual
  * (premiums / Part B / supplements / out-of-pocket) remains — the step does not
@@ -17,17 +17,17 @@ import type { Cents, HealthCostContext } from "@finley/engine";
  *
  * These make the pre-65 vs. post-65 gap VISIBLE — the decade between an early
  * retirement (say 55) and Medicare at 65 is expensive self-funded insurance the
- * retirement solver must reflect (§5.4). The app pre-fills the attributed stepped
+ * retirement solver must reflect. The app pre-fills the attributed stepped
  * segment and the early-retirement nudge from these figures; it is NOT a silent
  * auto-step in the sim (health is an authored budget item).
  *
  * ⚠ Estimates, not advice. These are current US costs and change yearly; the
  * pre-65 figure is UNSUBSIDISED (v1 conservative — real ACA subsidies would lower
  * it). Forward years are INDEXED at a health-specific inflation rate (medical
- * inflation runs above CPI), not held flat (§5.4 "indexed forward").
+ * inflation runs above CPI), not held flat ("indexed forward").
  */
 
-// ── Legislated / benchmark base-year constants (one place, disclaimed — §5.4) ──
+// ── Legislated / benchmark base-year constants (one place, disclaimed) ─────────
 
 /** The calendar year the pinned dollar figures below are authoritative for. */
 export const HEALTH_COST_BASE_YEAR = 2026;
@@ -96,7 +96,7 @@ export function healthCostBenchmark(year: number): HealthCostBenchmark {
 /**
  * The engine's health-cost benchmark seam: the attributed monthly health cost for
  * a person of `ctx.age` in `ctx.year` — the elevated self-funded figure below the
- * Medicare-eligibility age, the lower residual at/after it (§5.4). This is the
+ * Medicare-eligibility age, the lower residual at/after it. This is the
  * "visible attributed step" (down at 65) and the benchmark the early-retiree
  * honesty flag compares an authored health expense against.
  */

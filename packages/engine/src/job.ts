@@ -1,13 +1,12 @@
 /**
- * The first-class `Job` standing authoring model (§4, §6, §11 of
- * JOBS_HOUSEHOLD_REDESIGN, issue #64, slice 1) — the *new* source of truth for
+ * The first-class `Job` standing authoring model — the *new* source of truth for
  * earned income. Pure types plus one salary-entry converter; a job is held by a
  * {@link import("./person").Person}, and the standing model compiles into the
  * simulator via {@link import("./compilePerson")}.
  *
  * This module imports nothing from `projection/*`, so the standing types stay
  * clear of the simulator core (the sim dependency lives in `compilePerson`).
- * Since the #72 hinge this is the **sole** source of truth for earned income —
+ * This is now the **sole** source of truth for earned income —
  * the scalar `Plan.incomeCents` / `careerStartAge` / `JobChangeEvent` path it
  * was built alongside has been deleted.
  */
@@ -18,11 +17,11 @@ import type { Cents } from "./money";
 export type PersonId = string;
 
 /**
- * A job's salary path (§6). Canonical form: a single starting salary in *today's
+ * A job's salary path. Canonical form: a single starting salary in *today's
  * dollars* anchored at the job's `startYear`, plus a *real* growth rate (growth
  * above CPI). The engine layers CPI on top — CPI-indexing backward for the
  * covered-wage record and nominal growth forward for the projected income series
- * — so the same authored pair drives both. A single forward rate for v1 (§6).
+ * — so the same authored pair drives both. A single forward rate for v1.
  */
 export interface SalaryTrajectory {
   /** Annual salary in today's dollars, as of the owning job's `startYear`. */
@@ -36,7 +35,7 @@ export interface SalaryTrajectory {
 }
 
 /**
- * A one-month perturbation of a job's earned income (§10.3, §20) — a bonus, a missed
+ * A one-month perturbation of a job's earned income — a bonus, a missed
  * paycheck, or a one-off "this month I actually earned X" correction. Keyed by the
  * absolute simulation `month` (relative to "now"), like the plan's expense overrides.
  * It is a **value edit on the standing job**, never a timeline life event: the same
@@ -58,7 +57,7 @@ export interface JobIncomeOverride {
 }
 
 /**
- * A **permanent** step change to a job's pay from a given month onward (§6, §10.3) — a
+ * A **permanent** step change to a job's pay from a given month onward — a
  * raise OR a pay cut (the reason this is a *pay change*, not a "raise": the new pay can be
  * lower than before). Where a {@link JobIncomeOverride} perturbs a single month, a pay
  * change opens a new salary segment: the new pay is in force from `month` and then keeps
@@ -83,7 +82,7 @@ export interface JobPayChange {
 }
 
 /**
- * The pre-tax 401(k)-style deferral a job carries (§11). Deferral lives on the
+ * The pre-tax 401(k)-style deferral a job carries. Deferral lives on the
  * **job**, not the person, because the employer match and the elected fraction
  * are a property of that employment. Compiles to the income source's
  * {@link import("./projection/waterfall").PlanDescriptor}.
@@ -98,11 +97,11 @@ export interface JobDeferral {
 }
 
 /**
- * A job (§4): an earned, covered income stream owned by exactly one person, with
+ * A job: an earned, covered income stream owned by exactly one person, with
  * a calendar span and a salary trajectory. Employment is per-person — a
  * two-earner household is two jobs, not one job with two owners — which is what
  * lets an open-ended job resolve its stop year against *the* owner's
- * `retirementTargetAge` (§5) without ambiguity.
+ * `retirementTargetAge` without ambiguity.
  *
  * `endYear === null` marks an **open-ended** job — it has no authored stop date, so
  * it runs until the owner's `retirementTargetAge` (the person's default stop age),
@@ -142,7 +141,7 @@ export interface Job {
 
 /**
  * Derive a real growth rate (whole-number percent) from two salary points in
- * today's dollars — the default "two salary points" entry mode (§6). Both points
+ * today's dollars — the default "two salary points" entry mode. Both points
  * are real (today's dollars), so the derived rate is the real, above-CPI slope.
  * Returns 0 when the span is a single year or the earlier salary is zero.
  */

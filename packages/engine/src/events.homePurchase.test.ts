@@ -13,7 +13,7 @@ import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { nullJurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 
-// ─── HomePurchaseEvent (property lifecycle §4.1, §4.5) ────────────────────────
+// ─── HomePurchaseEvent (property lifecycle) ───────────────────────────────────
 
 function savings(openingCents: number, rate = 0): SimAccount {
   return new SimAccount({
@@ -135,12 +135,12 @@ describe("HomePurchaseEvent", () => {
   });
 });
 
-describe("HomePurchaseEvent — down-payment hard block (§4.5)", () => {
+describe("HomePurchaseEvent — down-payment hard block", () => {
   it("blocks the purchase when liquid funds cannot cover the down payment", () => {
     const base = baseWith(5_000_000); // $50k < $60k down
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.conflict).toMatch(/down payment|§4\.5/);
+    if (!result.ok) expect(result.conflict).toMatch(/down payment/);
   });
 
   it("allows the purchase when liquid funds cover the down payment", () => {

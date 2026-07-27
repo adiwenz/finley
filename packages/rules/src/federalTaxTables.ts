@@ -1,9 +1,9 @@
 import type { Cents, ModelAssumption } from "@finley/engine";
 
 /**
- * Legislated single-filer federal-tax tables and constants (§5.3/§5.4) — the pinned
- * base-year facts behind {@link federalTax}. Every US constant lives HERE (§5.0, from
- * #50): brackets, deduction, cap-gains tops, Social Security inclusion thresholds, and
+ * Legislated single-filer federal-tax tables and constants — the pinned
+ * base-year facts behind {@link federalTax}. Every US constant lives HERE:
+ * brackets, deduction, cap-gains tops, Social Security inclusion thresholds, and
  * the forward-indexing knobs. The core bracket math in `federalTax.ts` and the
  * attribution helpers in `federalTaxAttribution.ts` import these; the engine only ever
  * states neutral per-category gross.
@@ -12,7 +12,7 @@ import type { Cents, ModelAssumption } from "@finley/engine";
  * base; later years are indexed forward, earlier years return the base unchanged.
  */
 
-// ── Legislated base-year constants (one place, disclaimed — §5.4) ──────────────
+// ── Legislated base-year constants (one place, disclaimed) ─────────────────────
 //
 // Single-filer figures pinned to 2026 (projected inflation-adjusted brackets,
 // standard deduction, and long-term capital-gains bracket tops). Sources are the
@@ -99,7 +99,7 @@ export interface OrdinaryBracket {
   readonly rate: number;
 }
 
-/** The full structured single-filer tax tables for a year (§5.4 pattern). */
+/** The full structured single-filer tax tables for a year. */
 export interface FederalTaxTables {
   readonly year: number;
   /** Standard deduction (single), indexed to `year`. */

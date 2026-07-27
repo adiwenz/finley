@@ -1,7 +1,7 @@
 /**
  * Pure compilation from the standing {@link Person}/{@link Job} authoring model into
- * the simulator's inputs (§3, §4.6, §6 of JOBS_HOUSEHOLD_REDESIGN, issue #64):
- * a forward income {@link SimOwnedSeries} per still-paying job, plus the pre-"now"
+ * the simulator's inputs: a forward income {@link SimOwnedSeries} per
+ * still-paying job, plus the pre-"now"
  * covered-earnings record computed directly from the jobs (never simulated).
  *
  * This is the one module in the standing model that depends on the simulator
@@ -21,7 +21,7 @@ import type { Person } from "./person";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson}
- * (§3, §4.6, §8) — the seam that keeps the authoring roster (identity + retirement
+ * — the seam that keeps the authoring roster (identity + retirement
  * inputs + jobs) out of the pure sim core. The sim needs only identity, the benefit
  * basis (`birthYear` + `benefitClaimingAge`), and the pre-"now" covered-earnings record,
  * which is derived directly from the person's jobs (never simulated). `retirementTargetAge`
@@ -55,7 +55,7 @@ function jobEndYearExclusive(job: Job, owner: Person): number {
 
 /**
  * Nominal covered earnings this person's jobs imply for the working years
- * **before** "now", keyed by calendar year (§3, §4.6). Computed directly from the
+ * **before** "now", keyed by calendar year. Computed directly from the
  * jobs — never simulated, since the sim starts at "now". Each pre-"now" year's
  * covered wage is the real (today's-dollars) salary at that year, CPI-deflated
  * from now to that year (past years are worth fewer nominal dollars). Overlapping
@@ -79,13 +79,13 @@ export function compilePersonPriorEarnings(
 
 /**
  * Compile one job into a forward income {@link SimOwnedSeries} covering "now" through
- * the job's end (§6, §4.6). The series starts at the later of month 0 and the
+ * the job's end. The series starts at the later of month 0 and the
  * job's start, carries the salary at "now" as a monthly baseline, and grows
  * nominally (real growth compounded with CPI). A `null`-end (open-ended) job runs to
  * the owner's `retirementTargetAge`. Returns `null` for a job that has already
  * ended before "now" (its earnings are entirely in the prior-earnings record).
  *
- * `membership` clips the *paid* span to a household-membership interval (issue #118): a
+ * `membership` clips the *paid* span to a household-membership interval: a
  * partner's job only pays the household while they are a member — from the month they
  * join, and stopping at a separation. It narrows where the series pays, never the
  * growth anchor, so the salary path (real+CPI compounding from the job's own start) is
@@ -136,7 +136,7 @@ function compileJobIncome(
     taxCategory: "wages",
   });
 
-  // Permanent pay changes (§6, §10.3): a step change to pay that holds from its month
+  // Permanent pay changes: a step change to pay that holds from its month
   // forward. Each opens a new salary segment via a `fromHereForward` override with
   // `resetAnchor`, so the new pay compounds from here at the job's own real+CPI rate.
   // `changeBy` reads the month's pre-change baseline and adds to it (a negative delta is a
@@ -150,7 +150,7 @@ function compileJobIncome(
     series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
   }
 
-  // One-month pay perturbations (§10.3, §20): a bonus, missed paycheck, or single-month
+  // One-month pay perturbations: a bonus, missed paycheck, or single-month
   // correction rides the job's own series as a `thisMonthOnly` override, so it is taxed
   // as wages and runs through the 401(k) deferral like regular pay. `addBonus` reads the
   // month's baseline (grown pay, before any override) and adds to it; `setTo` replaces
@@ -170,7 +170,7 @@ function compileJobIncome(
     // person, and "p-0-job-1" tells them nothing. The band's stable identity is its
     // `sourceId` below; this is display text.
     label: `Income · ${displayName}`,
-    // Per-source income reporting (issue #99) keys each job's band by this stable id, so
+    // Per-source income reporting keys each job's band by this stable id, so
     // two jobs read apart on the income graph and one ending is legible as that job.
     sourceId: `job:${job.id}`,
     planDescriptor: job.deferral
@@ -186,7 +186,7 @@ function compileJobIncome(
 }
 
 /**
- * A household-membership interval that clips a person's paid job span (issue #118).
+ * A household-membership interval that clips a person's paid job span.
  * `startMonth` is the month they joined; `endMonthExclusive` is one past the last
  * month they are a member (a separation month), or `+Infinity` while still a member.
  */
@@ -196,12 +196,12 @@ export interface MembershipWindow {
 }
 
 /**
- * Compile all of a person's jobs into forward income series (§6). One
+ * Compile all of a person's jobs into forward income series. One
  * {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
  * contribute only to {@link compilePersonPriorEarnings}. Any number of jobs may be
  * open-ended (`null`-end); each simply ends at the owner's `retirementTargetAge`.
  *
- * `membership` (issue #118) clips each job's paid span to a household-membership
+ * `membership` clips each job's paid span to a household-membership
  * interval, so a partner's jobs pay only while they are a member (from the join month,
  * stopping at a separation). Omit it for the primary earner, who is always present.
  */
@@ -226,7 +226,7 @@ export function compilePersonIncomeSeries(
  * A job the user titled is called that. An untitled one is called after its **owner**
  * ("Sam's job") rather than after its id: ids are minted, not written — the primary
  * earner's read tolerably (`job-1`) but a partner's are generated from their person id
- * (`p-0-job-1`), which is meaningless to the person reading the legend (issue #118).
+ * (`p-0-job-1`), which is meaningless to the person reading the legend.
  *
  * Ordinals appear only where they must: a person holding SEVERAL untitled jobs gets
  * "Sam's job 1", "Sam's job 2", since one name for two bands identifies neither. With a

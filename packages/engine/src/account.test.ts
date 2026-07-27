@@ -1,5 +1,5 @@
 /**
- * Slice 5 (issue #68): per-person account ownership + household net worth.
+ * Per-person account ownership + household net worth.
  *
  * The standing authoring account carries `owners: PersonId[]` — `[p]` is an
  * individual account, `[p1, p2]` a joint one. The pins here:
@@ -7,7 +7,7 @@
  *   - `personalAccounts` / `jointAccounts` / `accounts` partition a person's
  *     holdings correctly (personal ∪ joint = accounts, personal ∩ joint = ∅);
  *   - household net worth sums the canonical list ONCE, so a joint account owned
- *     by two people is not double-counted (the headline §9 aggregate rule).
+ *     by two people is not double-counted (the headline aggregate rule).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -58,7 +58,7 @@ const household: AccountHousehold = {
   accounts: [soloTaxable, jointTaxable, p1Ira, p2Ira],
 };
 
-describe("standing account ownership (§10, issue #68)", () => {
+describe("standing account ownership", () => {
   it("refuses a retirement account with more than one owner", () => {
     expect(() =>
       makeAccount({

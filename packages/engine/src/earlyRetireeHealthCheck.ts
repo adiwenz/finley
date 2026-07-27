@@ -1,5 +1,5 @@
 /**
- * Early-retiree health-cost honesty check (§5.4). The engine's contribution to
+ * Early-retiree health-cost honesty check. The engine's contribution to
  * the Medicare picture: making the pre-eligibility health-cost gap visible for
  * someone who retires before Medicare kicks in.
  *
@@ -17,7 +17,7 @@
  * jurisdiction keeps the check testable standalone and the jurisdiction fact in
  * exactly one place.
  *
- * Medicare is deliberately NOT a silent auto-step in the sim (§5.4 resolved):
+ * Medicare is deliberately NOT a silent auto-step in the sim:
  * health is an ordinary authored budget item. This helper does not synthesise a
  * cost — it flags when the authored one is missing the elevated pre-65 reality.
  */
@@ -55,7 +55,7 @@ export interface EarlyRetireeHealthFlag {
 }
 
 /**
- * Assess whether an early retirement is honestly costed for health care (§5.4).
+ * Assess whether an early retirement is honestly costed for health care.
  * The flag fires only when both are true: the person retires before the Medicare-
  * eligibility age (a real self-funded gap exists), and their authored health
  * expense is below the elevated self-funded benchmark for that window (the plan

@@ -1,7 +1,7 @@
 /**
  * The **Spending** rows of Base + Adjustments: every expense line at what it resolves to
  * at the selected month, the one question an edit asks ("just this month, or from here
- * forward?"), and the echo of where that edit was routed (§20, AC4).
+ * forward?"), and the echo of where that edit was routed.
  *
  * Stateless: a staged edit belongs to the panel (moving the month drops it), and the
  * disclosed form is single-at-a-time across this list and the contributions list.
@@ -25,7 +25,7 @@ export interface PendingEdit {
   readonly newAmountCents: number;
 }
 
-/** Staging an amount, then answering how long it lasts — the §20 edit gesture. */
+/** Staging an amount, then answering how long it lasts — the edit gesture. */
 export interface SpendingEditActions {
   readonly onStage: (row: EditRow, label: string, priorCents: number, dollars: number) => void;
   readonly onCommit: (scope: EditScope) => void;
@@ -157,7 +157,7 @@ export function SpendingEditor({
         />
       ))}
 
-      {/* ── The one question an edit asks: how long does this last? (§20) ── */}
+      {/* ── The one question an edit asks: how long does this last? ── */}
       {pending !== null && (
         <div
           className={styles.scopePrompt}

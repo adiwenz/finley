@@ -38,7 +38,7 @@ function baseInput(person: SimPerson, overrides: Partial<HouseholdSimInput> = {}
 const colaFrom62: NonNullable<Jurisdiction["colaAdjustedBenefitCents"]> = (base, ctx) =>
   Math.round(base * Math.pow(1 + ctx.colaRate, ctx.currentAge - 62));
 
-describe("government-benefit accumulation + benefit seam (§5.4)", () => {
+describe("government-benefit accumulation + benefit seam", () => {
   it("null jurisdiction: the record accumulates but the benefit is 0", () => {
     // Person already at full retirement age with seeded lifetime earnings, so a
     // benefit *would* be claimed immediately — but the null jurisdiction supplies
@@ -101,7 +101,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
 
   it("live (post-now) wage earnings feed the record, not just the pre-now seed", () => {
     // Capture the record the seam sees at the FIRST (claim-time) pricing; the base is
-    // re-priced later while working (Phase 5), so only the initial call is asserted.
+    // re-priced later while working, so only the initial call is asserted.
     let seenTotal: number | undefined;
     const stub: Jurisdiction = {
       id: "stub",
@@ -217,7 +217,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(seenTotal).toBe(0);
   });
 
-  it("passes the full benefit gross to the seam, which owns the inclusion % (§5.4 partial taxation)", () => {
+  it("passes the full benefit gross to the seam, which owns the inclusion % (partial taxation)", () => {
     // $1,000/mo benefit. The engine hands the FULL gross tagged
     // `governmentRetirementBenefit`; the jurisdiction applies its own 50% inclusion
     // then a 20% rate → taxable $500 → tax $100 → take-home $900 (not $800 if fully
@@ -226,7 +226,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
       id: "stub",
       computeTaxCents: (byCat) =>
         Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2),
-      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      // Matching per-source breakdown (attribution contract): single category, so exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2);
         return t > 0 ? { governmentRetirementBenefit: t } : {};
@@ -243,7 +243,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
   });
 
-  it("inflates the post-claim benefit by the COLA (CPI) rate each year (§5.4)", () => {
+  it("inflates the post-claim benefit by the COLA (CPI) rate each year", () => {
     // Flat $1,000/mo base benefit, no tax, 10% CPI for clean arithmetic. Claiming
     // at 62 (= eligibility) means no eligibility bridge, so this isolates the
     // forward COLA: once claimed, the paid benefit rises by the COLA rate on each
@@ -274,7 +274,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(paidInMonth(24)).toBe(dollarsToCents(1_210)); // +2 full years → ×1.10²
   });
 
-  it("COLA-bridges a delayed claim from age-62 eligibility to the claim year (§5.4)", () => {
+  it("COLA-bridges a delayed claim from age-62 eligibility to the claim year", () => {
     // A benefit claimed after 62 must carry the COLAs accrued since eligibility,
     // else delaying forfeits them. Stub PIA = $1,000 (age-62 dollars), 10% CPI,
     // claim at 67 → 5 eligibility years bridged: first paid benefit = $1,000 × 1.1⁵.
@@ -325,7 +325,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
-      // Matching per-source breakdown (§5.3 attribution contract): single category, so exact.
+      // Matching per-source breakdown (attribution contract): single category, so exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2);
         return t > 0 ? { governmentRetirementBenefit: t } : {};
@@ -342,7 +342,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
   });
 
-  it("benefitColaRate defaults to general inflation when unset (Phase 6)", () => {
+  it("benefitColaRate defaults to general inflation when unset", () => {
     // No benefitColaRate on the input → the benefit COLA is coupled to general CPI.
     const stub: Jurisdiction = {
       id: "stub",
@@ -367,7 +367,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(paidInMonth(12)).toBe(dollarsToCents(1_100)); // +1yr × 1.10 (= general CPI)
   });
 
-  it("benefitColaRate decouples the benefit COLA from general inflation (Phase 6)", () => {
+  it("benefitColaRate decouples the benefit COLA from general inflation", () => {
     // An explicit benefitColaRate overrides general CPI for the benefit's COLA only.
     const stub: Jurisdiction = {
       id: "stub",
@@ -396,7 +396,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(paidInMonth(12)).toBe(dollarsToCents(1_050)); // +1yr × 1.05 (benefitColaRate, not 1.10)
   });
 
-  it("recomputes the base while the claimant keeps working (Phase 5 bump)", () => {
+  it("recomputes the base while the claimant keeps working", () => {
     // Stub base scales with total covered earnings on the record. The person claims at
     // 62 and keeps earning covered wages, so each completed year grows the record and
     // the base is re-priced upward. No inflation, so any increase is the recompute,
@@ -444,7 +444,7 @@ describe("government-benefit accumulation + benefit seam (§5.4)", () => {
     expect(paidInMonth(40)).toBeGreaterThan(paidInMonth(1));
   });
 
-  it("keeps the base frozen for a retire-then-claim record that never grows (Phase 5)", () => {
+  it("keeps the base frozen for a retire-then-claim record that never grows", () => {
     // Same earnings-sensitive stub, but the person claims and does NOT keep working —
     // no post-claim covered wages — so the record is static and the base is never
     // re-priced. With no inflation the paid benefit is flat across the whole run.

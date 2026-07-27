@@ -9,7 +9,7 @@ import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate, type TaxCategory
 import type { Jurisdiction } from "../jurisdiction";
 import { makePerson, monthlyIncome } from "./simulate.testSupport";
 
-describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94)", () => {
+describe("Savings interest is taxed as ordinary income at accrual", () => {
   // A cash account's return is interest — taxable as ordinary income in the year it
   // is credited (the 1099-INT), whether or not it is ever withdrawn. Before this the
   // model credited the growth straight to the balance and never booked the tax, so
@@ -19,7 +19,7 @@ describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94
     id: "flat-ordinary-10",
     computeTaxCents: (byCat) =>
       Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
-    // The per-category breakdown seam (§5.3, #110) — 10% of each taxable category. Supplying
+    // The per-category breakdown seam — 10% of each taxable category. Supplying
     // it lets the waterfall attribute tax per source, so a source's net cash flow is defined.
     computeTaxByCategoryCents: (byCat) => {
       const out: Partial<Record<TaxCategory, number>> = {};
@@ -134,7 +134,7 @@ describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94
     expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(100));
   });
 
-  // ── Savings interest is real household cash: the cash-flow reconciliation (#94 follow-up)
+  // ── Savings interest is real household cash: the cash-flow reconciliation
   //
   // Interest must reconcile four ways at once — it credits the account, enters the
   // waterfall (once, for tax), shows on the cash-flow view as real cash, and has its tax
@@ -168,7 +168,7 @@ describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94
 
   it("credits the account exactly once — the interest cash is never re-deposited", () => {
     // No income, no expenses: the only things moving the balance are compounding and the
-    // tax on the interest (now drawn from the balance via the §5.1 cascade — see below). If
+    // tax on the interest (now drawn from the balance via the shortfall cascade — see below). If
     // the interest booking's cash were (wrongly) re-injected, month 2 would jump by roughly a
     // second interest payment; instead it only grows by the net interest.
     const series = simulateHousehold(
@@ -237,7 +237,7 @@ describe("Savings interest is taxed as ordinary income at accrual (Commit 2, #94
   });
 });
 
-describe("Already-credited savings interest funds spending without double-counting (#94)", () => {
+describe("Already-credited savings interest funds spending without double-counting", () => {
   // The behavioural reconciliation the cash-flow fix is really about: interest that already
   // compounded into the balance can be spent, is reported as real cash, is taxed, and leaves
   // the account reconciling — with no phantom second credit and no false shortfall.
@@ -320,7 +320,7 @@ describe("Already-credited savings interest funds spending without double-counti
     // not beginning + $500 + a second re-deposited $500.
     expect(b1).toBe(begin + dollarsToCents(500));
     // Month 2 draws the $400 spend AND the $100 interest tax out of that balance — the tax,
-    // owed on income that brought no cash into the waterfall, is funded by the §5.1 cascade
+    // owed on income that brought no cash into the waterfall, is funded by the shortfall cascade
     // rather than dropped. Ending reconciles fully: $10,000 + $500 − $400 − $100 = $10,000.
     expect(b2).toBe(begin + dollarsToCents(500) - dollarsToCents(400) - dollarsToCents(100));
     expect(b2).toBe(dollarsToCents(10_000));

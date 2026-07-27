@@ -1,7 +1,7 @@
 /**
- * The `Projection` root (§2, §18, §20, "npm API surface", issue #70, slice 7).
+ * The `Projection` root ("npm API surface").
  *
- * These tests pin the six acceptance criteria of the slice:
+ * These tests pin the six acceptance criteria:
  *   1. standing-edit + ledger-transaction methods on ONE root;
  *   2. creating writes mint deterministic sequence ids and return them; `{ id }` overrides;
  *   3. the id counter round-trips through serialization (reload continues, no collision);
@@ -40,7 +40,7 @@ const expenseLine = {
   category: "needs" as const,
 };
 
-describe("Projection root — creating writes mint deterministic ids (AC2)", () => {
+describe("Projection root — creating writes mint deterministic ids", () => {
   it("mints a monotonic sequence id and returns it", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
@@ -77,7 +77,7 @@ describe("Projection root — creating writes mint deterministic ids (AC2)", () 
   });
 });
 
-describe("Projection root — one root for standing + ledger writes (AC1, AC5)", () => {
+describe("Projection root — one root for standing + ledger writes", () => {
   it("exposes both standing edits and ledger transactions on the same object", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
@@ -95,8 +95,8 @@ describe("Projection root — one root for standing + ledger writes (AC1, AC5)",
     expect(p.state.scenario.ledger.events).toHaveLength(1);
   });
 
-  it("swaps in a new state rather than mutating the one already read out (AC5)", () => {
-    // The immutable core (§2): a caller holding a state from before a write — a React
+  it("swaps in a new state rather than mutating the one already read out", () => {
+    // The immutable core: a caller holding a state from before a write — a React
     // render closure, a serialized snapshot — must never see it change underfoot.
     const p = freshProjection();
     const before = p.state;
@@ -113,7 +113,7 @@ describe("Projection root — one root for standing + ledger writes (AC1, AC5)",
     expect(p.state).not.toBe(before);
   });
 
-  it("keeps plan and ledger coupled as one Scenario across both kinds of write (§6)", () => {
+  it("keeps plan and ledger coupled as one Scenario across both kinds of write", () => {
     // The state holds the projectable unit, not two sibling fields: a standing edit
     // carries the timeline through (withPlan) and a transaction carries the standing
     // numbers through (withLedger), so neither half can be dropped by a spread that
@@ -133,10 +133,10 @@ describe("Projection root — one root for standing + ledger writes (AC1, AC5)",
     expect(p.state.scenario.plan.jobs).toHaveLength(1);
   });
 
-  it("has no undo — writes are reversed by addressable removal, not a stack (AC5)", () => {
+  it("has no undo — writes are reversed by addressable removal, not a stack", () => {
     // Deliberate: reversal names the thing to drop (a future `removeTransaction(id)`),
     // so a UI can delete row 3 without knowing what order rows were created in, and
-    // nothing pretends to offer cross-session undo. See the module doc + issue #70.
+    // nothing pretends to offer cross-session undo. See the module doc.
     const p = freshProjection();
     expect("undo" in p).toBe(false);
     expect("depth" in p).toBe(false);
@@ -181,7 +181,7 @@ describe("Projection root — one root for standing + ledger writes (AC1, AC5)",
   it("a refused ledger transaction leaves the state and the id counter untouched", () => {
     const p = freshProjection();
     const before = p.state;
-    // Down payment far exceeds any liquid balance → §4.5 hard block refuses it.
+    // Down payment far exceeds any liquid balance → hard block refuses it.
     expect(() =>
       p.buyHome({
         month: 12,
@@ -198,7 +198,7 @@ describe("Projection root — one root for standing + ledger writes (AC1, AC5)",
   });
 });
 
-describe("Projection root — id counter round-trips through serialization (AC3)", () => {
+describe("Projection root — id counter round-trips through serialization", () => {
   it("a reloaded plan continues the sequence without collision", () => {
     const p = freshProjection();
     p.addJob(P1, openEndedJob); // job-1
@@ -222,7 +222,7 @@ describe("Projection root — id counter round-trips through serialization (AC3)
   });
 });
 
-describe("Projection root — run(jurisdiction) → immutable result, no mutation (AC4)", () => {
+describe("Projection root — run(jurisdiction) → immutable result, no mutation", () => {
   it("computes a per-month series and is frozen", () => {
     const p = freshProjection();
     const result = p.run(nullJurisdiction);
@@ -242,7 +242,7 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
       mockJurisdiction({
         id: "flat-tax",
         computeTaxCents: () => dollarsToCents(1500),
-        // §5.3 attribution contract: the flat tax must reconcile per source. Attribute it to
+        // Attribution contract: the flat tax must reconcile per source. Attribute it to
         // the wage income the job produces (the fallback keys it there if no wage source exists).
         computeTaxByCategoryCents: () => ({ wages: dollarsToCents(1500) }),
       }),
@@ -258,7 +258,7 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
   });
 });
 
-describe("Projection root — per-line monthly resolution in the result (§Q27, issue #71)", () => {
+describe("Projection root — per-line monthly resolution in the result", () => {
   const RENT = "line:rent";
   const FUN = "line:fun";
 
@@ -291,7 +291,7 @@ describe("Projection root — per-line monthly resolution in the result (§Q27, 
 
   it("reports every line at its full amount even once the plan is insolvent", () => {
     // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
-    // shortfall. §15 priority funds rent (a need) before fun (a want).
+    // shortfall. Priority funds rent (a need) before fun (a want).
     const p = Projection.create({
       plan: {
         ...samplePlan,

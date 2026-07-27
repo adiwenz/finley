@@ -112,7 +112,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     expect(snap.children[0].ageMonths).toBe(24);
   });
 
-  it("a partner's own job income appears in the snapshot while they are a member (issue #118)", () => {
+  it("a partner's own job income appears in the snapshot while they are a member", () => {
     // The snapshot and the projection read the SAME household, so a partner's job income
     // must surface in the cross-section exactly as it drives net worth.
     const base: LedgerBaseConfig = {
@@ -301,7 +301,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
 // ─── One replay-derived model feeds both snapshot and projection ──────────────
 
-describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §16)", () => {
+describe("buildSnapshot — the shared replay-derived model", () => {
   function liquid(id = "checking", openingCents = 0): SimAccount {
     return new SimAccount({
       id,
@@ -316,7 +316,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
   }
 
-  it("base income/expense drive the projection AND appear as role 'base' in the snapshot (§2)", () => {
+  it("base income/expense drive the projection AND appear as role 'base' in the snapshot", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 12,
       annualInflationRate: 0,
@@ -334,7 +334,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     expect(snap.expenses.find((s) => s.role === "base")?.monthlyCents).toBe(dollarsToCents(1_000));
   });
 
-  it("snapshot flows reconcile with the projection's month-over-month net worth (§14)", () => {
+  it("snapshot flows reconcile with the projection's month-over-month net worth", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 12,
       annualInflationRate: 0,
@@ -357,7 +357,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     expect(snap.balances?.netWorthNominalCents).toBe(projection.months[3].netWorthNominalCents);
   });
 
-  it("clamps presence, balances, and the returned month to the horizon (§2)", () => {
+  it("clamps presence, balances, and the returned month to the horizon", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 24,
       annualInflationRate: 0,
@@ -377,7 +377,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
     expect(snap.balances?.netWorthNominalCents).toBe(dollarsToCents(5_000)); // months[24]
   });
 
-  it("a paid-off liability disappears from active snapshots (§16)", () => {
+  it("a paid-off liability disappears from active snapshots", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 12,
       annualInflationRate: 0,
@@ -401,7 +401,7 @@ describe("buildSnapshot — the shared replay-derived model (§1, §2, §14, §1
   });
 });
 
-// ─── Properties (equity = value − mortgage, §4.1) ─────────────────────────────
+// ─── Properties (equity = value − mortgage) ───────────────────────────────────
 
 const PROPERTY_PRICE = 30_000_000; // $300k
 const PROPERTY_DOWN = 6_000_000; // $60k

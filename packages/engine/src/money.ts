@@ -1,5 +1,5 @@
 /**
- * Money is integer cents, never floats (§0.1). Every monetary value in the
+ * Money is integer cents, never floats. Every monetary value in the
  * engine — balances, series values, transfers, projection points — is an
  * integer number of cents. Floating-point drift compounds over a 40-year
  * horizon, so a float must never leak into a monetary quantity.
@@ -16,7 +16,7 @@ export type Cents = number;
  * slices summing to exactly `totalCents` — cumulative rounding absorbs the
  * remainder so no fraction of a cent is created or lost. Used wherever an
  * integer-cents amount must be divided without drift (e.g. the even shared-split
- * scheme, §5.0).
+ * scheme).
  */
 export function splitEven(totalCents: Cents, n: number): Cents[] {
   const out: Cents[] = [];
@@ -40,7 +40,7 @@ export function splitEven(totalCents: Cents, n: number): Cents[] {
  * The keyed sibling of {@link splitEven} (which splits evenly across positions). Used to
  * attribute an already-decided total down to the sources that bore it — e.g. splitting a
  * tax category's tax across the individual jobs/accounts in that category by their taxable
- * weight (§5.3), where the split must reconcile to the total to the cent. Weights that
+ * weight, where the split must reconcile to the total to the cent. Weights that
  * repeat a key are summed first, so two contributions from the same source band collapse.
  */
 export function apportionByWeight(

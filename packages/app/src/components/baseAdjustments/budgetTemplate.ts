@@ -1,8 +1,7 @@
 /**
- * The **Base** budget template (§12/§15, "UI: Base + Adjustments" of
- * JOBS_HOUSEHOLD_REDESIGN, issue #71). The Base is the user's standing recurring
+ * The **Base** budget template. The Base is the user's standing recurring
  * budget — entered once, then edited. Rather than start from a blank list, we
- * prepopulate two ways (§15):
+ * prepopulate two ways:
  *
  *   - {@link defaultBudgetTemplate} — a sensible starter set of line items across the
  *     needs → wants tiers, so a new user has a budget to edit rather than author.
@@ -11,7 +10,7 @@
  *     discarding the user's named lines, seeding a real savings contribution if needed.
  *
  * The template returns {@link BudgetLineInput}s (id-carrying so the chart, overrides, and
- * the `allocations()` view can key on them). Since the #72 rewire the simulator funds both
+ * the `allocations()` view can key on them). The simulator funds both
  * expense lines and account-contribution lines, so a seeded savings line is a real
  * contribution (into the brokerage), not a vanishing expense. Pure and side-effect-free.
  */
@@ -50,7 +49,7 @@ function expenseLine(
 }
 
 /**
- * A prepopulated starter budget (AC3): housing, groceries, and transport as needs;
+ * A prepopulated starter budget: housing, groceries, and transport as needs;
  * dining and subscriptions as wants. Amounts are round placeholders the user edits;
  * the tiers group the budget the way a user reads it (essentials apart from
  * discretionary). They do not ration anything: a tight month is absorbed by savings and
@@ -82,7 +81,7 @@ const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
 const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
 const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
 
-/** A literal contribution line into an account (the funded shape a savings line takes, §12). */
+/** A literal contribution line into an account (the funded shape a savings line takes). */
 function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLine {
   const account = DEFAULT_CONTRIBUTION_ACCOUNT;
   const line: BudgetLine = {
@@ -93,7 +92,7 @@ function seedSavingsLine(monthlyCents: number, retirementMonth?: number): Budget
     category: "savings",
   };
   // Saving is done out of a paycheck: stop the contribution at retirement, when the
-  // household is drawing savings down rather than adding to it (§19). Needs/wants run on.
+  // household is drawing savings down rather than adding to it. Needs/wants run on.
   return retirementMonth === undefined ? line : { ...line, span: { endMonth: retirementMonth } };
 }
 
@@ -117,7 +116,7 @@ function withMonthlyCents(line: BudgetLine, monthlyCents: number): BudgetLine {
 }
 
 /**
- * The %-quickstart (§15, AC3), **non-destructively**: rebalance the *existing* budget so
+ * The %-quickstart, **non-destructively**: rebalance the *existing* budget so
  * each tier hits the 50/30/20 rule of monthly income — 50% needs, 30% wants, 20% savings
  * — WITHOUT discarding the user's named lines. Each tier's literal lines are scaled so the
  * tier total lands on its target, preserving every line's share within the tier (an

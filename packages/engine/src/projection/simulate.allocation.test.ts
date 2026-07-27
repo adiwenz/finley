@@ -11,7 +11,7 @@ import {
   monthlyExpense,
 } from "./simulate.testSupport";
 
-describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
+describe("simulateHousehold — allocation waterfall", () => {
   const person: SimPerson = { id: "p1", name: "Alice" };
 
   function retirementAccount(): SimAccount {
@@ -51,7 +51,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(13500));
   });
 
-  it("the annual deferral cap is enforced across the calendar year (§5.4)", () => {
+  it("the annual deferral cap is enforced across the calendar year", () => {
     // Wants to defer $5000/mo but the annual limit is $12,000 → capped mid-year,
     // and reset the next calendar year.
     const cappingJurisdiction = {
@@ -86,7 +86,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(24000));
   });
 
-  it("the deferral cap is age-aware: an over-50 catch-up raises one person's limit (§5.4)", () => {
+  it("the deferral cap is age-aware: an over-50 catch-up raises one person's limit", () => {
     // Base annual limit $12,000, plus a $3,000 catch-up from age 50. The seam is
     // called per person with that person's age, so only the older partner's cap lifts.
     const catchUpJurisdiction = {
@@ -200,7 +200,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     });
   }
 
-  describe("goal disposition firing at maturity (§5.2, #28)", () => {
+  describe("goal disposition firing at maturity", () => {
     // $2000/mo income, no expenses; the goal is funded $2000/mo and reaches its
     // $4000 target exactly at month 2 (its target date). Firing happens at the END
     // of the target month, so the month-2 snapshot still shows the fund AT target
@@ -260,7 +260,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
     });
 
-    it("`convertToEquity` synthesizes equity that appreciates at the FUND's own rate (AC3)", () => {
+    it("`convertToEquity` synthesizes equity that appreciates at the FUND's own rate", () => {
       // A pre-funded goal whose fund earns 6%/yr, no contributions. The equity that
       // replaces it at maturity must keep compounding at that same 6% — this pins the
       // rate wiring (fundAccount.getRateAt), which every other firing test, using
@@ -355,7 +355,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
     expect(series.months[6].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
   });
 
-  describe("dated goals amortize to their deadline (#26/#69 AC3, AC7)", () => {
+  describe("dated goals amortize to their deadline", () => {
     // Two goals well within budget: $6k by month 6 and $12k by month 12. A $3k/mo
     // income more than covers both paces ($1k + $1k), so the outcome must not depend
     // on priority order and each fund must track an amortized path, not fill-then-idle.
@@ -393,7 +393,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       goals: [near(nearPriority), far(farPriority)],
     });
 
-    it("amortizes the far goal along a rising path instead of filling it then idling (AC7)", () => {
+    it("amortizes the far goal along a rising path instead of filling it then idling", () => {
       const series = simulateHousehold(scenario(1, 2), nullJurisdiction);
       const far0 = series.months[1].accountBalancesCents["far-fund"];
       const far6 = series.months[6].accountBalancesCents["far-fund"];
@@ -407,7 +407,7 @@ describe("simulateHousehold — §5.0 allocation waterfall (issue #7)", () => {
       expect(far12).toBe(dollarsToCents(12000));
     });
 
-    it("both affordable goals reach 100% regardless of priority order (AC3)", () => {
+    it("both affordable goals reach 100% regardless of priority order", () => {
       const forward = simulateHousehold(scenario(1, 2), nullJurisdiction);
       const reversed = simulateHousehold(scenario(2, 1), nullJurisdiction);
       // The near goal fires (spend) at month 6, so read its balance AT its deadline.

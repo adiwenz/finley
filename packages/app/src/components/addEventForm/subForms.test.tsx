@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * Add-event sub-forms (§10.5, issue #115) — the family of per-event authoring forms
- * now hold their fields in a single draft object (the #72 form-state standard), rather
+ * Add-event sub-forms — the family of per-event authoring forms
+ * now hold their fields in a single draft object (the standard form-state pattern), rather
  * than a `useState` per field. These pin the behaviour that the consolidation must keep:
  * the gates that reveal a field track their driving value, and the submitted event is
  * unchanged.
@@ -37,7 +37,7 @@ const withPartner = {
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 
-describe("LoanForm — kind gates the term (§10.5, #115)", () => {
+describe("LoanForm — kind gates the term", () => {
   it("drops the term field for a revolving credit card, and restores the typed term when switched back", () => {
     render(<LoanForm defaultMonth={0} nextId={0} horizonMonths={660} onAdd={vi.fn()} />);
 
@@ -80,7 +80,7 @@ describe("LoanForm — kind gates the term (§10.5, #115)", () => {
   });
 });
 
-describe("SeparationForm — alimony amount gates its duration (§4.3, #115)", () => {
+describe("SeparationForm — alimony amount gates its duration", () => {
   it("reveals the alimony-years field only once an alimony amount is entered, and folds it into the event", () => {
     const onAdd = vi.fn<(e: NewLifeEvent) => void>();
     render(
@@ -111,7 +111,7 @@ describe("SeparationForm — alimony amount gates its duration (§4.3, #115)", (
   });
 });
 
-describe("ChildForm — single-draft consolidation preserves submit (§10.5, #115)", () => {
+describe("ChildForm — single-draft consolidation preserves submit", () => {
   it("submits a ChildEvent carrying the edited name, month and annual cost", () => {
     const onAdd = vi.fn<(e: NewLifeEvent) => void>();
     render(<ChildForm defaultMonth={0} nextId={2} horizonMonths={660} onAdd={onAdd} />);

@@ -1,11 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * The Base + Adjustments budget editor (issue #71). Pins the UI acceptance criteria:
- *   - AC3: the Base is prepopulated from a default template and editable; quickstart.
- *   - AC4: an edit routes to the right primitive (ledger / line override / income).
- *   - AC5: a far-future point reads as an age milestone, not a bare month index.
- *   - AC2: the per-line graph draws the budget as authored, and says outright when
+ * The Base + Adjustments budget editor. Pins the UI behaviour:
+ *   - the Base is prepopulated from a default template and editable; quickstart.
+ *   - an edit routes to the right primitive (ledger / line override / income).
+ *   - a far-future point reads as an age milestone, not a bare month index.
+ *   - the per-line graph draws the budget as authored, and says outright when
  *     the plan stops being financeable rather than dropping spending on its own.
  *
  * The gesture under test is direct manipulation: point at a month, change a number,
@@ -60,14 +60,14 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  * round-trips exactly as it does in `App`.
  *
  * The panel does not project any more: `App` owns the app's ONE projection (plan *and*
- * ledger, §1) and passes it down, so this harness stands in for `App` and projects
+ * ledger) and passes it down, so this harness stands in for `App` and projects
  * through the identical pipeline. Tests that care only about the budget leave the ledger
  * empty; a test about timeline-authored income passes one in.
  */
 function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
   const [plan, setPlan] = useState(initial);
   // The ledger is state too, now that a pay change can land on a partner's job — it rides
-  // the RelationshipEvent they joined with, so applying one revises that event (#118).
+  // the RelationshipEvent they joined with, so applying one revises that event.
   const [ledger, setLedger] = useState(initialLedger);
   const ctx = { jurisdiction: usJurisdiction, startYear: START_YEAR };
   const base = createProjectionBase(plan, ctx);
@@ -124,7 +124,7 @@ function partnerJobsOf(ledger: Ledger): readonly Job[] {
 const jobsOn = (testId: "primary-jobs" | "partner-jobs"): readonly Job[] =>
   JSON.parse(screen.getByTestId(testId).textContent || "[]") as Job[];
 
-/** A ledger whose only event is a partner joining at month 0 with one open-ended job (#118). */
+/** A ledger whose only event is a partner joining at month 0 with one open-ended job. */
 const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
   events: [
     {
@@ -165,7 +165,7 @@ const selectMonth = (month: number) =>
 const editRow = (name: RegExp | string, dollars: number) =>
   fireEvent.change(spin(name), { target: { value: String(dollars) } });
 
-describe("BaseAdjustmentsPanel — Base (AC3)", () => {
+describe("BaseAdjustmentsPanel — Base", () => {
   it("prepopulates the base from the default template", () => {
     renderPanel(PLAN_DEFAULTS);
     expect(spin(/Housing/)).toBeTruthy();
@@ -181,7 +181,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
   it("shows the standing income as a read-only total at the opening month, not $0", () => {
     // Income is authored in the Jobs panel; this row only displays the compiled total.
     // Month 0 is the projection's flow-free opening snapshot (the engine accrues flows
-    // only for month > 0 — GH #34), so `incomeByMonth[0]` is $0 even though the job pays
+    // only for month > 0), so `incomeByMonth[0]` is $0 even though the job pays
     // a full salary; the row reads the standing rate (month 1) at the opening month.
     renderPanel(PLAN_DEFAULTS);
     expect(screen.getByTestId("selected-month").textContent).toMatch(/month 0/);
@@ -223,18 +223,18 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
   });
 
   it("graphs cash flows by source, and flags the retirement gap as a savings drawdown", () => {
-    // Income is not a budget line (§6/§17), so it gets its own graph above the budget.
+    // Income is not a budget line, so it gets its own graph above the budget.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("income-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(Object.values(firstRow).some((v) => v > 0)).toBe(true);
     // Retires at 65, claims at 67 — that stretch is lived off savings, and the graph now
-    // names it a drawdown rather than showing a misleading flat zero (issue #99).
+    // names it a drawdown rather than showing a misleading flat zero.
     expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
   });
 
-  it("counts income authored on the timeline — a partner's own jobs (issue #118)", () => {
+  it("counts income authored on the timeline — a partner's own jobs", () => {
     // The regression: this panel used to run its OWN projection from the plan alone,
     // whose ledger is empty. A partner joining with a $2,000/mo job moved the net-worth
     // chart and the snapshot while the income graph directly below them showed only the
@@ -252,7 +252,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
   });
 
   it("defaults to the Simple income view and reveals every source under Advanced", () => {
-    // Simple (issue #99 follow-up): wages per job, one "Social Security" band, and one
+    // Simple: wages per job, one "Social Security" band, and one
     // "Living off savings" band that folds in the benefit-gap drawdown and any asset sale.
     renderPanel(PLAN_DEFAULTS);
     const bands = (): string[] =>
@@ -272,7 +272,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
     expect(bands()).not.toContain("Social Security");
   });
 
-  it("draws take-home cash flows by default and switches to gross on the toggle (issue #110 follow-up)", () => {
+  it("draws take-home cash flows by default and switches to gross on the toggle", () => {
     // Take-home is the honest read against the spending-need line: the bands are cash after
     // tax and deferral. Flipping "Show gross cash flows" raises them by exactly the tax the
     // wages bore, so gross > take-home while the household is earning and taxed.
@@ -300,7 +300,7 @@ describe("BaseAdjustmentsPanel — Base (AC3)", () => {
   });
 });
 
-describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
+describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
   it("asks how long a change lasts instead of applying it immediately", () => {
     renderPanel(PLAN_DEFAULTS);
     expect(screen.queryByTestId("scope-prompt")).toBeNull();
@@ -431,14 +431,14 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
     expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
   });
 
-  it("stacks the monthly-tax chart by job, matching the income chart (issue #110 follow-up)", () => {
+  it("stacks the monthly-tax chart by job, matching the income chart", () => {
     // The US jurisdiction reports tax per category and the engine splits it down to the
     // job that bore it, so the tax chart bands by source: the default plan's one job draws
     // its own wage-tax band (named like its income band), and the split's Σ equals the row
     // total.
     renderPanel(PLAN_DEFAULTS);
     const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
-    // Named after its owner, not its minted id: an untitled job reads "Alex's job" (#118).
+    // Named after its owner, not its minted id: an untitled job reads "Alex's job".
     expect(bands).toContain("Income · Alex's job");
     const firstRow = JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}");
     const banded = Object.entries(firstRow.centsBySource as Record<string, number>).reduce(
@@ -514,7 +514,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget (AC4)", () => {
   });
 });
 
-describe("PayChangeEditor — every earner's jobs, not just the primary person's (#118)", () => {
+describe("PayChangeEditor — every earner's jobs, not just the primary person's", () => {
   // A partner's jobs ride the RelationshipEvent they joined with, not `Plan.jobs`. The
   // control used to list only the plan's jobs, so a partner's bonus, missed paycheck,
   // raise or cut had nowhere to land — the picker did not even offer their job.
@@ -713,7 +713,7 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
   });
 });
 
-describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)", () => {
+describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   const openAdd = () => fireEvent.click(screen.getByRole("button", { name: /Add a budget item/i }));
   const setName = (name: string) =>
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: name } });
@@ -835,7 +835,7 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items (§12/§15)"
   });
 });
 
-describe("BaseAdjustmentsPanel — long-horizon points (AC5)", () => {
+describe("BaseAdjustmentsPanel — long-horizon points", () => {
   it("labels a far-future point by calendar year and age, not just a month index", () => {
     renderPanel(PLAN_DEFAULTS);
     // 15 years out for a 35-year-old = month 180 = age 50.
@@ -846,7 +846,7 @@ describe("BaseAdjustmentsPanel — long-horizon points (AC5)", () => {
   });
 });
 
-describe("BaseAdjustmentsPanel — per-line graph (AC2)", () => {
+describe("BaseAdjustmentsPanel — per-line graph", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
     ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(1_500)),

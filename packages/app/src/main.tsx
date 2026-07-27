@@ -49,7 +49,7 @@ export function App() {
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
   const { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger } = useLedger(base);
 
-  // Load a starter simulation wholesale (issue #119): swap in its plan AND its
+  // Load a starter simulation wholesale: swap in its plan AND its
   // seed timeline together. The new ledger is built against the *incoming* plan's
   // base (computed here, not the memoized one, which still reflects the old plan
   // this render), so a preset's events are replayed against the numbers they were
@@ -88,7 +88,7 @@ export function App() {
   );
 
   // Who's in the household, by id — so a chart can name whose income a band is when the
-  // label alone can't (two members' government benefits, issue #118).
+  // label alone can't (two members' government benefits).
   const personNames = useMemo(
     () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
     [household],
@@ -102,7 +102,7 @@ export function App() {
     () => retirementView({ plan: budget, ledger }, usJurisdiction),
     [budget, ledger],
   );
-  // Chart, timeline, and event picker all span "now" → life expectancy (§7).
+  // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 
   return (

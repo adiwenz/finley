@@ -1,5 +1,5 @@
 /**
- * Direct-manipulation budget editing (issue #71, §20). Pins the routing table: the
+ * Direct-manipulation budget editing. Pins the routing table: the
  * (row, scope) gesture has exactly one home per fact, and the income "just this month"
  * case is a *delta* ledger transaction rather than a standing change.
  */

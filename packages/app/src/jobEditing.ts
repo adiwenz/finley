@@ -1,5 +1,5 @@
 /**
- * Editing the household's jobs — **owner-aware, as one domain operation** (§6, issue #118).
+ * Editing the household's jobs — **owner-aware, as one domain operation**.
  *
  * Every surface that changes a job goes through here: the Jobs panel (standing pay, spans,
  * deferral, who owns it) and the Base + Adjustments pay-change control (a bonus, a missed

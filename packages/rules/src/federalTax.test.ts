@@ -138,7 +138,7 @@ describe("computeFederalTaxCents — the monthly seam", () => {
   });
 });
 
-describe("federalAnnualTaxByCategoryCents — per-category attribution (§5.3, issue #110)", () => {
+describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   it("attributes all tax to the sole taxed category (wages only)", () => {
     const total = federalAnnualTaxCents({ wages: 100_000_00 }, 2026);
     const byCategory = federalAnnualTaxByCategoryCents({ wages: 100_000_00 }, 2026);

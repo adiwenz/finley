@@ -15,8 +15,8 @@ import type { SimPerson } from "./simulate.types";
  */
 export interface EarningsState {
   /**
-   * Per-person lifetime covered-earnings accumulator (§5.4), seeded from the
-   * §4.6 pre-now summary and folded into each month.
+   * Per-person lifetime covered-earnings accumulator, seeded from the
+   * pre-now summary and folded into each month.
    */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
   /** Every person by id — benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
@@ -31,7 +31,7 @@ export interface EarningsState {
   readonly governmentBenefitBaseByPerson: Map<string, Cents>;
   /**
    * Per-person marker: the latest COMPLETED calendar year already folded into the
-   * cached base (§5.4, Phase 5). Drives recompute-while-working — see
+   * cached base. Drives recompute-while-working — see
    * {@link buildGovernmentBenefitSources}. Absent until the first base is computed.
    */
   readonly lastComputedThroughYear: Map<string, number>;
@@ -39,7 +39,7 @@ export interface EarningsState {
 
 /**
  * Which income tax categories count toward the covered-earnings record is a
- * jurisdiction fact, not an engine one (§5.4) — it moved onto the {@link
+ * jurisdiction fact, not an engine one — it moved onto the {@link
  * Jurisdiction.isCoveredEarnings} seam. When a jurisdiction omits the predicate,
  * the engine falls back to a documented bookkeeping-only default: `wages` only.
  * (US supplies `wages || ordinaryIncome`; the null jurisdiction never reads the
@@ -51,7 +51,7 @@ function coversEarnings(jurisdiction: Jurisdiction, taxCategory: TaxCategory): b
 
 /**
  * Fold this month's covered wage income into each owner's lifetime earnings
- * accumulator (§5.4). Pure bookkeeping over the same per-source gross the waterfall
+ * accumulator. Pure bookkeeping over the same per-source gross the waterfall
  * sees, tagged by taxCategory (default `ordinaryIncome`); the jurisdiction decides
  * which categories are covered via {@link coversEarnings}.
  */
@@ -72,7 +72,7 @@ export function accumulateEarnings(
 
 /**
  * The first month a person is claiming their government retirement benefit: benefits
- * begin in the calendar year they turn their (already-resolved) claiming age (§5.4).
+ * begin in the calendar year they turn their (already-resolved) claiming age.
  * Returns null when the person has no birth year (benefit not modelled). May be ≤ 0
  * (already claiming at "now").
  */
@@ -86,7 +86,7 @@ function benefitClaimStartMonth(
 }
 
 /**
- * This month's government retirement benefit income sources (§5.4) — one per
+ * This month's government retirement benefit income sources — one per
  * claiming person. The *base* benefit is priced once at the claiming month from the
  * frozen earnings record via the jurisdiction's base seam (0 when the jurisdiction
  * supplies none or the eligibility gate fails), then held OPAQUE. Each year the paid
@@ -96,7 +96,7 @@ function benefitClaimStartMonth(
  * split of an eligibility bridge plus a post-claim forward COLA. Carries
  * `taxCategory:"governmentRetirementBenefit"` and NO planDescriptor, so it enters
  * the waterfall post-deferral and is taxed by the jurisdiction's own benefit-
- * inclusion rule at the §5.3 chokepoint, never as wages. The engine passes the FULL
+ * inclusion rule at the chokepoint, never as wages. The engine passes the FULL
  * benefit gross — the inclusion % lives in `computeTaxCents`, not here.
  */
 export function buildGovernmentBenefitSources(
@@ -111,20 +111,20 @@ export function buildGovernmentBenefitSources(
   for (const person of state.personsById.values()) {
     // The claiming age is the person's own pin, else the jurisdiction's default
     // (full retirement age) — a jurisdiction fact, never a hardcoded engine age.
-    // With neither, the benefit simply isn't timed (§5.4).
+    // With neither, the benefit simply isn't timed.
     const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;
     if (claimingAge === undefined) continue;
     const claimStart = benefitClaimStartMonth(person, startYear, claimingAge);
     if (claimStart === null || month < claimStart) continue;
     const currentAge = year - person.birthYear!;
 
-    // Recompute-while-working (§5.4, Phase 5): the base is priced once at claim, then
+    // Recompute-while-working: the base is priced once at claim, then
     // AGAIN only when a newer completed year has added covered earnings — a person who
     // claims and keeps working bumps their benefit, while a retire-then-claim base
     // stays frozen. `latestCompletedYear` is the last fully-elapsed calendar year; a
     // recompute fires when it exceeds the per-person marker AND that year is on the
     // record with covered earnings, so a static record never re-prices.
-    // NOTE → #81 (Retirement Earnings Test): this models only the UPSIDE of working
+    // NOTE (Retirement Earnings Test): this models only the UPSIDE of working
     //   past claim (a higher benefit); the offsetting earnings-test withholding that
     //   would temporarily reduce benefits for a working claimant before FRA is out of
     //   scope here and tracked separately.
@@ -137,7 +137,7 @@ export function buildGovernmentBenefitSources(
       latestCompletedYear > marker &&
       (acc?.get(latestCompletedYear) ?? 0) > 0;
     if (base === undefined || recordGrew) {
-      // The live seam input (§5.4): the frozen record plus the who/when the
+      // The live seam input: the frozen record plus the who/when the
       // jurisdiction's benefit formula needs. `currentAge` advances on recompute so
       // `rules` indexes the grown record to the same age-60 year.
       const claim: GovernmentBenefitClaim = {
@@ -160,7 +160,7 @@ export function buildGovernmentBenefitSources(
       ownerId: person.id,
       waterfallInflowCents: paid,
       taxCategory: "governmentRetirementBenefit",
-      // Reported per person (issue #99), so a two-earner household shows each benefit.
+      // Reported per person, so a two-earner household shows each benefit.
       sourceId: `benefit:${person.id}`,
       label: "Government benefit",
     });

@@ -1,5 +1,5 @@
 /**
- * Which budget-line form is disclosed, and what a list can do about it (§12/§15).
+ * Which budget-line form is disclosed, and what a list can do about it.
  *
  * One form at a time across the whole editor — the expense rows and the contributions
  * list open into the same slot — so both the state and the actions live here rather

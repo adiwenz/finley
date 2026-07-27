@@ -1,5 +1,5 @@
 /**
- * Committing job-list rewrites to the two authoring planes (§10.2/§10.3, issue #118).
+ * Committing job-list rewrites to the two authoring planes.
  *
  * A household member's jobs live on one of two planes: the primary person's are standing
  * plan data (`Plan.jobs`), a partner's ride the `RelationshipEvent` that brought them into
@@ -9,7 +9,7 @@
  *
  * **Atomic across the planes.** An edit can rewrite two members' lists at once (moving a
  * job between them), and those lists can sit on different planes. So the ledger side goes
- * first, in one all-or-nothing batch, and the plan side only if it was accepted: a §6.1
+ * first, in one all-or-nothing batch, and the plan side only if it was accepted: a
  * conflict can no longer land half of an edit, leaving a job removed from one member and
  * missing from the other.
  */

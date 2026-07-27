@@ -1,13 +1,13 @@
 /**
- * Goals panel (§5.2) — each goal's projection-based on-track %, its target and
+ * Goals panel — each goal's projection-based on-track %, its target and
  * date, and priority reordering. Reordering re-runs the projection through the
- * waterfall, so the OTHER goals' numbers visibly move (the §5.2 tradeoff). A goal
+ * waterfall, so the OTHER goals' numbers visibly move (the tradeoff). A goal
  * held in a risky account for a near-term date shows an honesty flag.
  *
- * Goals are also authored here (Slice 5b): add, edit, and delete are direct
- * value-plane overrides (§4.2 / §10.3 — NO timeline event), each re-running the
+ * Goals are also authored here: add, edit, and delete are direct
+ * value-plane overrides (NO timeline event), each re-running the
  * projection so on-track %s update live, the same feedback loop reorder has. The
- * add/edit form is disclosed on demand (§10.4), not always open.
+ * add/edit form is disclosed on demand, not always open.
  *
  * Priority is the goal's position in the list; ↑/↓ reorder it. (Pointer
  * drag-and-drop is a later polish; the buttons are the accessible, testable

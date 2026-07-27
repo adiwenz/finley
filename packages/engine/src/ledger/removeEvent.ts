@@ -1,9 +1,9 @@
 /**
  * Undo — remove an event (and its transitive dependents) if the remaining
- * ledger still replays cleanly (§6.1, §6.2).
+ * ledger still replays cleanly.
  *
  * Strategy A: replay the remaining events against the *same* base-seeded initial
- * state normal replay uses (§7) — so events that reference base people, accounts,
+ * state normal replay uses — so events that reference base people, accounts,
  * or series are validated correctly. If any precondition fails, the removal is
  * blocked and the offending event is named.
  *

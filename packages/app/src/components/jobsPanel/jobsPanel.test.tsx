@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Jobs panel (§6, issue #72) — the authoring surface for earned income. Pins that a
+ * Jobs panel — the authoring surface for earned income. Pins that a
  * person can hold ANY number of jobs (none privileged, several possibly open-ended),
  * that add / edit / delete are direct value-plane edits to `plan.jobs`, and that the
  * 401(k) elective-limit nudge (which left the Budget editor with the deferral) fires
@@ -36,7 +36,7 @@ afterEach(cleanup);
 /**
  * Controlled harness so edits round-trip through real state, plus probes for each plane
  * a job can live on: the primary person's jobs on the plan, a partner's on their
- * `RelationshipEvent` (issue #118). Stands in for `App`, which owns both.
+ * `RelationshipEvent`. Stands in for `App`, which owns both.
  */
 function Harness({
   initial = PLAN_DEFAULTS,
@@ -45,7 +45,7 @@ function Harness({
 }: {
   initial?: Plan;
   events?: readonly NewLifeEvent[];
-  /** Stands in for a §6.1 conflict: every ledger revision is refused, as `App` would. */
+  /** Stands in for a revision conflict: every ledger revision is refused, as `App` would. */
   rejectRevisions?: boolean;
 }) {
   const [budget, setBudget] = useState<Plan>(initial);
@@ -100,7 +100,7 @@ function partnerJobsOf(ledger: Ledger): readonly Job[] {
   return [];
 }
 
-/** A partner joining at month 0 with `jobs` of their own (§8, issue #118). */
+/** A partner joining at month 0 with `jobs` of their own. */
 const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
   id: "r1",
   type: "RelationshipEvent",
@@ -137,7 +137,7 @@ const authored = (): { plan: Plan; ledger: Ledger } => ({
   ledger: JSON.parse(screen.getByTestId("ledger").textContent || "{}") as Ledger,
 });
 
-describe("JobsPanel — listing (§6)", () => {
+describe("JobsPanel — listing", () => {
   it("lists the default job with its salary and open-ended span", () => {
     render(<Harness />);
     const row = screen.getByLabelText("Job 1");
@@ -146,7 +146,7 @@ describe("JobsPanel — listing (§6)", () => {
   });
 });
 
-describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
+describe("JobsPanel — add / edit / delete", () => {
   it("adds a second job — a person may hold several, none privileged", () => {
     render(<Harness />);
     expect(jobCount()).toBe(1);
@@ -240,7 +240,7 @@ describe("JobsPanel — add / edit / delete (§6, §10.3)", () => {
   });
 });
 
-describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
+describe("JobsPanel — every member's jobs", () => {
   const withPartner = (jobs: readonly Job[] = [partnerJob(2000)]) => [partnerJoining(jobs)];
 
   it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
@@ -377,7 +377,7 @@ describe("JobsPanel — every member's jobs (§8, issue #118)", () => {
   });
 });
 
-describe("JobsPanel — handing a whole job to a partner, end to end (§8, issue #118)", () => {
+describe("JobsPanel — handing a whole job to a partner, end to end", () => {
   // The regression this guards: reassignment used to be two unrelated writes — the job
   // dropped from `Plan.jobs` and a NEW one minted on the partner from the form draft, which
   // carries none of a job's other state. It came back with a fresh id, no employer match, no
@@ -508,9 +508,9 @@ describe("JobsPanel — handing a whole job to a partner, end to end (§8, issue
   });
 });
 
-describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
+describe("JobsPanel — permanent pay changes", () => {
   // A pay change lands on the job's `payChanges`, not its starting salary — so the job
-  // headline stays $5,000/mo while the change is what actually moves pay. (§72 bug: the
+  // headline stays $5,000/mo while the change is what actually moves pay. (A past bug: the
   // panel used to show only the starting figure, hiding the change entirely.)
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
@@ -544,7 +544,7 @@ describe("JobsPanel — permanent pay changes (§6, §10.3)", () => {
   });
 });
 
-describe("JobsPanel — 401(k) elective-limit nudge (§5.4)", () => {
+describe("JobsPanel — 401(k) elective-limit nudge", () => {
   /** A partner joining with one job that defers `pct` of `monthlyDollars`. */
   const partnerDeferring = (monthlyDollars: number, pct: number): NewLifeEvent =>
     partnerJoining([
@@ -569,7 +569,7 @@ describe("JobsPanel — 401(k) elective-limit nudge (§5.4)", () => {
     expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
   });
 
-  it("names the PARTNER when the crossing is theirs (#118)", () => {
+  it("names the PARTNER when the crossing is theirs", () => {
     // The limit is individual: the primary person defers nothing, Sam defers $30k of a
     // $60k job. Scanning only `Plan.jobs` missed this entirely.
     render(<Harness events={[partnerDeferring(5000, 50)]} />);

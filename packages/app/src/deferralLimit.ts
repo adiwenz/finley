@@ -1,5 +1,5 @@
 /**
- * App-side 401(k) deferral-limit disclosure (§5.4). The waterfall silently caps a
+ * App-side 401(k) deferral-limit disclosure. The waterfall silently caps a
  * pre-tax deferral at the year's IRS elective limit and pays the overflow as taxable
  * income (see the engine's `applyDeferrals`); this derivation surfaces that so the
  * cap is not invisible in the editor.
@@ -10,7 +10,7 @@
  * cap today can cross it later — or a catch-up can lift the person back under — and
  * only walking each working year catches the first crossing honestly.
  *
- * And it must be **per person** (issue #118). The elective limit belongs to the earner, not
+ * And it must be **per person**. The elective limit belongs to the earner, not
  * the household: two people each deferring $20k are both inside a $24,500 limit, while one
  * person deferring $20k across two jobs is over it. So each member's own jobs are summed
  * against their own age-indexed limit, over their own working years, and the crossing names
@@ -26,7 +26,7 @@ import type { JobOwner } from "./jobOwners";
 import { yearOfMonth } from "./planPeople";
 
 export interface DeferralLimitCrossing {
-  /** Whose limit it is — the elective limit is individual (§5.4). */
+  /** Whose limit it is — the elective limit is individual. */
   readonly personId: PersonId;
   readonly personName: string;
   /** Calendar year of the first crossing. */
@@ -71,7 +71,7 @@ export function firstDeferralLimitCrossing(
 
   for (const owner of owners) {
     // The limit is per PERSON, across every plan they defer into — so sum over ALL of
-    // THEIR jobs, not one privileged job (§11). Each job defers only in the years it is
+    // THEIR jobs, not one privileged job. Each job defers only in the years it is
     // worked, at its own elected fraction, on its own growing salary.
     const deferringJobs = owner.jobs.filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
     if (deferringJobs.length === 0) continue;

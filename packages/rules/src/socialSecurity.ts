@@ -7,7 +7,7 @@ import type {
 } from "@finley/engine";
 
 /**
- * Which income flows count as US Social-Security-covered earnings (§5.4). Wages and
+ * Which income flows count as US Social-Security-covered earnings. Wages and
  * self-employment (`ordinaryIncome`) are covered; the benefit itself would be
  * circular, and capital gains and tax-exempt income are not covered. This is the
  * `rules`-side plug for {@link import("@finley/engine").Jurisdiction.isCoveredEarnings}
@@ -18,7 +18,7 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
 }
 
 /**
- * US Social Security retirement benefit — the AIME→PIA bend-point formula (§5.4).
+ * US Social Security retirement benefit — the AIME→PIA bend-point formula.
  *
  * This is the `rules`-side plug for the engine's
  * {@link import("@finley/engine").Jurisdiction.governmentBenefitBaseMonthlyCents}
@@ -35,7 +35,7 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
  * jurisdiction concept (never hardcoded in the engine).
  */
 
-// ── Legislated constants (one place, disclaimed — §5.4 open decision) ──────────
+// ── Legislated constants (one place, disclaimed) ──────────────────────────────
 //
 // Base years, indexing anchors & sources. The dollar constants below are SSA
 // figures that change yearly, so each is pinned to the base year its dollar
@@ -70,7 +70,7 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
 // {@link AWI_ANNUAL_GROWTH} (3.5%) is a single assumed rate standing in for the
 // real per-year SSA Average Wage Index series — the biggest v1 approximation,
 // not a figure sourced from any one year. All values are legislation-set and are
-// disclaimed estimates once indexed forward (§5.4).
+// disclaimed estimates once indexed forward.
 
 /** Full retirement age (FRA) for the cohorts v1 models. */
 const FRA_AGE = 67;
@@ -79,7 +79,7 @@ const FRA_AGE = 67;
  * The default benefit claiming age the engine uses to time an unpinned person's
  * benefit — the full retirement age. A US legislative fact, exposed to the engine
  * via the jurisdiction's `defaultBenefitClaimingAge` seam so no US age lives in the
- * engine (§5.4). Single source: it *is* {@link FRA_AGE}.
+ * engine. Single source: it *is* {@link FRA_AGE}.
  */
 export const DEFAULT_BENEFIT_CLAIMING_AGE = FRA_AGE;
 
@@ -247,7 +247,7 @@ const SS_ELIGIBILITY_AGE = 62;
 export function governmentBenefitBaseMonthlyCents(claim: GovernmentBenefitClaim): Cents {
   const { record, claimYear, claimingAge, currentAge } = claim;
   if (record.annualWagesCents.size === 0) return 0;
-  // Eligibility gate lives INSIDE the base function (§5.4): a worker who is not
+  // Eligibility gate lives INSIDE the base function: a worker who is not
   // fully insured (< 40 credits) draws no retirement benefit, so return 0.
   if (totalCredits(record) < FULLY_INSURED_CREDITS) return 0;
   // Earnings are indexed to the year the worker turns 60: birthYear + 60, and
@@ -259,7 +259,7 @@ export function governmentBenefitBaseMonthlyCents(claim: GovernmentBenefitClaim)
 }
 
 /**
- * Cost-of-living adjustment applied to a frozen base benefit (§5.4):
+ * Cost-of-living adjustment applied to a frozen base benefit:
  * `baseCents × (1 + colaRate)^(currentAge − 62)`. COLAs accrue from age-62
  * eligibility whether or not the person has claimed, so a single factor measured
  * from 62 collapses BOTH the old eligibility bridge (62 → claim) AND the post-claim

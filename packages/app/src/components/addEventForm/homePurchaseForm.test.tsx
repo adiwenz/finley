@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Home-purchase authoring form — the §4.5 soft DTI warning (Slice 4, #23).
+ * Home-purchase authoring form — the soft DTI warning.
  *
  * Rendered through the server renderer (this repo's jsdom is unavailable). The
  * arithmetic (`assessDti`, `mortgagePaymentForPurchaseCents`) is unit-tested in
@@ -52,7 +52,7 @@ function render(budget: Plan) {
   );
 }
 
-describe("HomePurchaseForm — §4.5 soft DTI warning (#23)", () => {
+describe("HomePurchaseForm — soft DTI warning", () => {
   it("surfaces a soft warning when the purchase exceeds the DTI guideline", () => {
     // Default: $300k / $60k down / 6.5% / 30yr ≈ $1,516/mo on $5,000 gross →
     // ~30% front-end, above the 28% guideline.
@@ -62,7 +62,7 @@ describe("HomePurchaseForm — §4.5 soft DTI warning (#23)", () => {
     expect(html.toLowerCase()).toContain("credit");
   });
 
-  it("names the downstream consequence, not just the ratio (§4.5)", () => {
+  it("names the downstream consequence, not just the ratio", () => {
     const html = render(PLAN_DEFAULTS);
     // The ratio is shown, but the copy must go further than "you're over 28%".
     expect(html).toMatch(/less income is left|run out of money|everything else/i);

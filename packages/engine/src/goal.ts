@@ -1,6 +1,6 @@
 /**
  * Goal — a funding target competing for the same net cash flow the allocation
- * waterfall (§5 step 3) distributes (§5.2). A goal is NOT a separate subsystem:
+ * waterfall distributes. A goal is NOT a separate subsystem:
  * it is a prioritized destination in the waterfall with a target amount and
  * target date. Retirement is not special — it is the highest-priority *horizon*
  * goal by default, sharing this same priority list and on-track math.
@@ -14,7 +14,7 @@ import type { SimAccount } from "./simAccount";
 import type { ProjectionSeries } from "./projection/simulate";
 
 /**
- * What happens to a goal's accumulated money once its target is reached (§5.2) — the
+ * What happens to a goal's accumulated money once its target is reached — the
  * single axis describing a goal's fate. This *also* fixes the money's timing, so a
  * separate goal "type" is redundant: the {@link DisposingDisposition} fire all at once
  * at a month (the old `oneTime`), the {@link StandingDisposition} are held or drawn over
@@ -24,7 +24,7 @@ import type { ProjectionSeries } from "./projection/simulate";
  *    stop at target; the balance stays in net worth indefinitely and COUNTS toward
  *    the retirement nest egg (it is real, drawable money in retirement).
  *  - `convertToEquity` — an equity transfer (a home down payment feeding
- *    `HomePurchaseEvent`, §4.5). At maturity the cash leaves the fund and reappears as
+ *    `HomePurchaseEvent`). At maturity the cash leaves the fund and reappears as
  *    an illiquid home-equity holding, so net worth is unchanged at the swap — but the
  *    fund is NOT part of the investable nest egg (earmarked for the purchase, then
  *    swapped to illiquid equity that decumulation cannot draw).
@@ -44,7 +44,7 @@ export type GoalDisposition = "retain" | "convertToEquity" | "spend" | "drawDown
 
 /**
  * Whether a goal's fund is *earmarked* out of the drawable retirement portfolio by
- * its disposition (§5.2). Only `convertToEquity` and `spend` earmark — that money is
+ * its disposition. Only `convertToEquity` and `spend` earmark — that money is
  * committed to an imminent purchase / expense, not available for retirement
  * drawdown. `retain` (liquid reserve) and `drawDown` (the nest egg itself) are always
  * drawable. The earmark holds up to AND INCLUDING the target month, so the
@@ -71,7 +71,7 @@ export function isEarmarkedForDisposition(disposal: GoalDisposal, month: number)
 
 /**
  * Whether a goal is funded from the shared household pool or one person's own
- * leftover (§5.0 steps 4–5). A `personal` goal names its `ownerId`.
+ * leftover. A `personal` goal names its `ownerId`.
  */
 export type GoalScope = "shared" | "personal";
 
@@ -119,8 +119,8 @@ interface GoalBase {
   /** The account (or sub-balance) this goal accumulates into. */
   readonly fundAccountId: string;
   /**
-   * Drag-to-order priority, shared with retirement (§5.2). Lower number = funded
-   * first. This is one of the four exposed waterfall levers (§5.0).
+   * Drag-to-order priority, shared with retirement. Lower number = funded
+   * first. This is one of the four exposed waterfall levers.
    */
   readonly priority: number;
   readonly scope: GoalScope;
@@ -129,7 +129,7 @@ interface GoalBase {
 }
 
 /**
- * The legal pairings of a goal's `disposition` with its `targetDate` (§5.2). The two
+ * The legal pairings of a goal's `disposition` with its `targetDate`. The two
  * fields are declared as ONE value rather than independently, because only a subset of
  * the combinations means anything:
  *
@@ -138,7 +138,7 @@ interface GoalBase {
  * has no way to invent one — so such a goal would never fire (`fireGoalDispositions`
  * matches `targetDate !== month`) and never be earmarked
  * ({@link isEarmarkedForDisposition} needs a number), leaving its fund to compound
- * forever as drawable money. That is exactly the phantom-fund defect §5.2 / #28 exists
+ * forever as drawable money. That is exactly the phantom-fund defect this pairing exists
  * to correct, surviving in the one corner the disposition rules couldn't reach.
  *
  * A {@link StandingDisposition} accepts either, since nothing fires and a dateless
@@ -150,7 +150,7 @@ interface GoalBase {
  * rebuilding the fields separately would decorrelate them and lose the guarantee.
  *
  * What `"asap"` should MEAN for funding pace (a goal with no deadline has no
- * sinking-fund pace to compute) is still open in #26 — deliberately not settled here.
+ * sinking-fund pace to compute) is still open — deliberately not settled here.
  * This pairing only removes the combinations that cannot be given a meaning at all.
  */
 export type GoalDisposal =
@@ -167,14 +167,14 @@ export type GoalDisposal =
       readonly targetDate: GoalTargetDate;
     };
 
-/** A funding goal (§5.2). See {@link GoalDisposal} for the `disposition`/`targetDate` pairing. */
+/** A funding goal. See {@link GoalDisposal} for the `disposition`/`targetDate` pairing. */
 export type SimGoal = GoalBase & GoalDisposal;
 
 /**
  * A near-term *standing* goal (`retain`/`drawDown` — the old "horizon") routes to the
- * §8.6 immediate feasibility-verdict branch (asset-ratio path) rather than the
+ * immediate feasibility-verdict branch (asset-ratio path) rather than the
  * projection path — its target date is so close that the projection curve adds no
- * information (§5.2 / §11.3). Firing goals (`spend`/`convertToEquity` — the old
+ * information. Firing goals (`spend`/`convertToEquity` — the old
  * "one-time") always use the projection path regardless of proximity.
  */
 export const HORIZON_GOAL_IMMEDIATE_VERDICT_MONTHS = 12;
@@ -182,7 +182,7 @@ export const HORIZON_GOAL_IMMEDIATE_VERDICT_MONTHS = 12;
 /**
  * A goal held in a high-return / high-risk account whose target is this close is
  * flagged for honesty: v1 uses fixed rates with NO risk modeling, so a near-term
- * goal in an equity-like account overstates certainty (§5.2 RESOLVED). "Near term"
+ * goal in an equity-like account overstates certainty. "Near term"
  * for market-risk purposes is wider than the verdict threshold — the standard
  * "don't hold under-5-year money in equities" rule of thumb.
  */
@@ -191,13 +191,13 @@ export const SHORT_HORIZON_RISK_MONTHS = 60;
 /** An annual return at or above this is treated as equity-like / risk-bearing. */
 export const RISKY_ANNUAL_RATE_THRESHOLD = 0.05;
 
-/** Which verdict branch a goal's on-track question is answered by (§5.2). */
+/** Which verdict branch a goal's on-track question is answered by. */
 export type GoalVerdictPath = "immediate" | "projection";
 
 export interface GoalProgress {
   readonly goalId: string;
   /**
-   * Projection-based on-track fraction (§5.2): projected fund balance at the
+   * Projection-based on-track fraction: projected fund balance at the
    * target date ÷ target amount — NOT saved-so-far ÷ target. 1.0+ = on track;
    * 0.6 = you'll have 60% of the target by your date at current savings rates.
    * A zero-target goal reports 1 (nothing to fund).
@@ -212,7 +212,7 @@ export interface GoalProgress {
 }
 
 /**
- * Compute a goal's on-track progress against a projection (§5.2). The on-track
+ * Compute a goal's on-track progress against a projection. The on-track
  * fraction is projection-based: it reads the fund account's *projected* balance
  * at the target date (future contributions + growth already baked in by the
  * simulator), divided by the target — the entire point of having a simulator.
@@ -247,7 +247,7 @@ export function computeGoalProgress(
     goal.targetDate === "asap" ? 0 : Math.max(0, goal.targetDate - nowMonth);
 
   // Standing goals (not firing) carry the old "horizon" timing, so a near-term one may
-  // use the §8.6 asset-ratio branch; firing goals always project.
+  // use the asset-ratio branch; firing goals always project.
   const verdictPath: GoalVerdictPath =
     !isDisposingDisposition(goal.disposition) &&
     goal.targetDate !== "asap" &&

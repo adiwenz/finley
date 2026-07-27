@@ -1,5 +1,5 @@
 /**
- * affordability.ts — the §4.5 soft-warning arithmetic (debt-to-income) and the
+ * affordability.ts — the soft-warning arithmetic (debt-to-income) and the
  * mortgage payment a purchase implies. Pure functions: no ledger, no projection.
  */
 
@@ -14,7 +14,7 @@ const PRICE = 30_000_000; // $300k
 const DOWN = 6_000_000; // $60k
 const FINANCED = PRICE - DOWN; // $240k
 
-describe("assessDti (§4.5 soft warning)", () => {
+describe("assessDti (soft warning)", () => {
   it("flags when housing exceeds the 28% front-end guideline", () => {
     const a = assessDti(1_000_000, 300_000, 300_000); // 30% housing
     expect(a.frontEndRatio).toBeCloseTo(0.3);

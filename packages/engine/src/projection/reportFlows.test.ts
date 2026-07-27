@@ -57,7 +57,7 @@ describe("buildFlows", () => {
     expect(flows.liabilityPaymentsCents).toBe(1_800_00);
   });
 
-  it("derives the per-line map from the spending items (§Q27), debts excluded", () => {
+  it("derives the per-line map from the spending items, debts excluded", () => {
     const debt: SpendingItem = {
       id: "debt:mortgage-1",
       label: "Mortgage payment",
@@ -88,7 +88,7 @@ describe("buildFlows", () => {
     expect(flows.incomeSources).toEqual([]);
   });
 
-  // ── Per-source reporting (issue #99) ──────────────────────────────────────────
+  // ── Per-source reporting ──────────────────────────────────────────────────────
 
   it("reports income by source, keeping distinct sources in one tax bucket apart", () => {
     // Two jobs both taxed as `wages` — the category rollup collapses them, the source

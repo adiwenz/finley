@@ -1,5 +1,5 @@
 /**
- * Two-tier event validation (§6):
+ * Two-tier event validation:
  *  - {@link validateEventData}: pure, stateless structural checks on an event's
  *    own fields (nonnegative money, valid APR, integer months/terms). Enforced
  *    at append time.

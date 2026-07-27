@@ -6,8 +6,8 @@ export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 
 /**
  * One income source's taxable contribution for a person, tagged with its reporting key
- * and tax category — the weights the per-source tax attribution (issue #110 follow-up)
- * apportions each category's tax across. `key` is the source's `sourceId` (falling back
+ * and tax category — the weights the per-source tax attribution apportions each
+ * category's tax across. `key` is the source's `sourceId` (falling back
  * to its tax category), matching how {@link import("./reportFlows").buildFlows} bands the
  * income side, so tax bands line up with income bands.
  */
@@ -24,8 +24,8 @@ export function addCategory(map: TaxableByCategory, category: TaxCategory, amoun
 }
 
 /**
- * Split one person's per-category tax down to the individual sources that bore it
- * (§5.3, issue #110 follow-up), accumulating into the household `into` map. Within each
+ * Split one person's per-category tax down to the individual sources that bore it,
+ * accumulating into the household `into` map. Within each
  * category, the tax is apportioned across that category's sources by their taxable
  * weight ({@link apportionByWeight}, so Σ shares === the category's tax exactly). All
  * sources in a category face identical treatment from the jurisdiction (it only sees the

@@ -1,13 +1,13 @@
 /**
- * The retirement vocabulary (§7) shared across surfaces. The standalone
- * accumulation solver that used to live alongside this file was retired (#37): the
- * retirement panel now reads its survival signal off the real §5 projection, so the
+ * The retirement vocabulary shared across surfaces. The standalone
+ * accumulation solver that used to live alongside this file was retired: the
+ * retirement panel now reads its survival signal off the real projection, so the
  * only shapes that remain are the mode vocabulary and the per-age evaluation result
- * the UI speaks in. All monetary amounts are real (inflation-adjusted, §0.5) cents.
+ * the UI speaks in. All monetary amounts are real (inflation-adjusted) cents.
  */
 
 /**
- * Which ages are pinned and which are searched — the ONLY thing "mode" means (§7).
+ * Which ages are pinned and which are searched — the ONLY thing "mode" means.
  * Kept as the vocabulary for per-person retirement (Mode 2) once a second household
  * member arrives; the single-person panel today only needs the group headline.
  */
@@ -21,10 +21,10 @@ export interface RetirementEvaluation {
   /** Does the plan's real net worth survive to life expectancy at this age? */
   readonly feasible: boolean;
   /**
-   * On-track fraction (§7.1). 1.0 when the plan survives at this age. When it does NOT,
+   * On-track fraction. 1.0 when the plan survives at this age. When it does NOT,
    * this is how far off it is, read from the authoritative failure signal — WHEN the plan
-   * first fails (insolvency / negative real net worth, §5.1) — never from the magnitude of
-   * a net-worth dip (which insolvency nulls and phantom equity distorts, #78). Concretely:
+   * first fails (insolvency / negative real net worth) — never from the magnitude of
+   * a net-worth dip (which insolvency nulls and phantom equity distorts). Concretely:
    * the fraction of the retirement-to-life-expectancy window the plan stays solvent, so a
    * plan that fails the month after retiring is ~0 and one that fails just short of life
    * expectancy is ~0.99. Strictly < 1 for any infeasible plan; the reporting layer floors
@@ -32,7 +32,7 @@ export interface RetirementEvaluation {
    */
   readonly onTrackFraction: number;
   /**
-   * The honest nearest-feasible age when this age is unreachable (§7.1 / §8.2): the
+   * The honest nearest-feasible age when this age is unreachable: the
    * truthful "this date isn't achievable; the nearest feasible is 58". Null when no
    * age is feasible. Equals `retirementAge` when this age itself is feasible.
    */
@@ -40,10 +40,10 @@ export interface RetirementEvaluation {
 }
 
 /**
- * The two §5 retirement solver outputs, plus the derived latest-authored-work-stop age
+ * The two retirement solver outputs, plus the derived latest-authored-work-stop age
  * — the single shape a caller reads to describe "when can this household retire?" Both
- * ages come off the SAME real §5 projection (#29 substrate); they differ only in which
- * jobs keep paying past the pinned age (§5):
+ * ages come off the SAME real projection; they differ only in which
+ * jobs keep paying past the pinned age:
  *
  *  - **`partialRetirementAge`** — the earliest age every **open-ended** (`null`-end) job
  *    can end while the authored **fixed-term** jobs + passive income + government benefit keep running.

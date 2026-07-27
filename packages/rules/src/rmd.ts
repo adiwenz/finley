@@ -2,7 +2,7 @@ import type { Cents, RmdContext, ModelAssumption } from "@finley/engine";
 
 /**
  * US Required Minimum Distributions — the age-triggered forced withdrawal from
- * pre-tax retirement accounts (§5.4).
+ * pre-tax retirement accounts.
  *
  * This is the `rules`-side plug for the engine's
  * {@link import("@finley/engine").Jurisdiction.requiredMinimumDistributionCents}
@@ -17,7 +17,7 @@ import type { Cents, RmdContext, ModelAssumption } from "@finley/engine";
  * at RMD time — a documented forward-projection simplification.
  */
 
-// ── Legislated constants (one place, disclaimed — §5.4 open decision) ──────────
+// ── Legislated constants (one place, disclaimed) ──────────────────────────────
 
 /**
  * SECURE 2.0 RMD start age by birth year: 73 for 1951–1959, 75 for 1960 and

@@ -3,7 +3,7 @@
  *
  * Barrel export. The engine depends on nothing app- or rules-specific; it
  * defines the jurisdiction interface and runs standalone with the null
- * jurisdiction (ARCHITECTURE.md). Engine purity is enforced by
+ * jurisdiction. Engine purity is enforced by
  * `scripts/check-engine-purity.mjs`.
  */
 export type { Cents } from "./money";
@@ -15,16 +15,16 @@ export * from "./jurisdiction";
 export * from "./earningsRecord";
 export * from "./governmentBenefit";
 export * from "./goal";
-// The standing Job/Person authoring model (§1–§8, issue #64). `Person` is THE
+// The standing Job/Person authoring model. `Person` is THE
 // public household-member type (identity + retirement/benefit inputs + jobs) — the
-// app authors and edits the roster as `Person`s (§8). The lower-level simulator
-// `SimPerson` is the *compiled* shape the sim consumes; since the #72 hinge it is
+// app authors and edits the roster as `Person`s. The lower-level simulator
+// `SimPerson` is the *compiled* shape the sim consumes; since the compilation hinge it is
 // engine-INTERNAL (no longer barrel-exported), derived from a `Person` at the sim
 // boundary via `compilePerson`.
 export type { Job, PersonId, SalaryTrajectory, JobDeferral, JobIncomeOverride, JobPayChange } from "./job";
 export { deriveRealGrowthPct } from "./job";
 export type { Person } from "./person";
-// The authoring per-person account ownership model (§9, §10, issue #68). An
+// The authoring per-person account ownership model. An
 // `Account.owners: PersonId[]` distinguishes individual (`[p]`) from joint
 // (`[p1, p2]`) holdings; net worth is the household aggregate. Distinct from the
 // low-level simulator `SimAccount` class (`./simAccount`).
@@ -44,11 +44,11 @@ export {
   compilePersonPriorEarnings,
   type MembershipWindow,
 } from "./compilePerson";
-// The line-item budget authoring model (§12, §15, §18, §19, issue #67, slice 4):
+// The line-item budget authoring model:
 // a prioritized list of dollar line items (expenses + account contributions) with
 // {literal, fill-to-limit, goal-paced} amount sources, spans + dated overrides.
-// The #72 hinge deleted the scalar `retirementDeferralPct` / `surplusSwept` levers
-// (deferral now rides the Job, §11); `expenseCents` remains as the engine-native
+// The compilation hinge deleted the scalar `retirementDeferralPct` / `surplusSwept` levers
+// (deferral now rides the Job); `expenseCents` remains as the engine-native
 // scalar-expense fallback. `compileBudget` is the sim seam.
 export type {
   TaxTreatment,
@@ -72,10 +72,10 @@ export {
   compileExpenseBudgetLines,
   fillToLimitSeamFor,
 } from "./compileBudget";
-// The deadline-paced sinking-fund pace (§14/§19, #26): the pure primitive behind the
+// The deadline-paced sinking-fund pace: the pure primitive behind the
 // `goalPaced` amount source and the waterfall's fund-to-pace goal loop.
 export { requiredContributionCents } from "./requiredContribution";
-// The unified `allocations()` view (§13/§14/§15, issue #69, slice 6): job deferrals +
+// The unified `allocations()` view: job deferrals +
 // budget lines + goals folded into one priority-ordered list with stable ids; reads
 // unify, writes route to the canonical home (deferral → job, expense → budget, goal → goal).
 export type {
@@ -93,7 +93,7 @@ export {
   routeAllocationWrite,
 } from "./allocations";
 export * from "./plan";
-// The unified `Projection` root (§2/§18/§20 + "npm API surface", issue #70, slice 7):
+// The unified `Projection` root (the "npm API surface"):
 // the headline public API — standing edits + ledger transactions on one root,
 // deterministic id minting, and `run(jurisdiction)` → immutable `ProjectionResult`.
 // Writes are not reversible by the root (no undo stack); reversal is addressable
@@ -112,16 +112,16 @@ export type {
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger — the unit the engine projects, so a
-// plan's timeline events can never be silently dropped from a projection (§6).
+// plan's timeline events can never be silently dropped from a projection.
 export * from "./scenario";
 export * from "./projectionBase";
-// The retirement solver's public API is deliberately narrow (§5, issue #66):
-// `solveRetirement` (the three §5 ages off one plan) and `evaluateAtAge` (the panel's
+// The retirement solver's public API is deliberately narrow:
+// `solveRetirement` (the three ages off one plan) and `evaluateAtAge` (the panel's
 // assessment at the user's pinned age). The redundant per-mode search entry points
 // (partial-retirement/full-retirement/latest-authored-work-stop) stay module-internal — reachable by the
 // solver's own white-box tests, not by consumers — since `solveRetirement` returns them
 // all. `projectScenario` + `planSurvives` remain public: they are the projection
-// substrate + survival predicate the net-worth graph reads and the app's #37 acceptance
+// substrate + survival predicate the net-worth graph reads and the app's acceptance
 // tests use as an INDEPENDENT survival oracle (panel age == first surviving projection age).
 export {
   solveRetirement,
@@ -140,7 +140,7 @@ export * from "./projection/simulate";
 export * from "./projection/rmd";
 export * from "./projection/withdrawal";
 export * from "./projection/buildHouseholdInput";
-// The unified spending read model (issue #119 follow-up): what a month costs, itemized.
+// The unified spending read model: what a month costs, itemized.
 export * from "./projection/spendingItems";
 export * from "./projection/report";
 export * from "./projection/assumptions";

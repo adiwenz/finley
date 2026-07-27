@@ -6,7 +6,7 @@ import type {
 } from "@finley/engine";
 
 /**
- * US-2026 investment-account tax policy (§5.3, #94) — the jurisdiction side of the two
+ * US-2026 investment-account tax policy — the jurisdiction side of the two
  * seams the engine holds state for. The engine tracks each account's cost basis and
  * compounds its return; these functions own the CONSEQUENCE: how much of a withdrawal
  * is taxable, and whether a return is taxed as it accrues or deferred to withdrawal.
@@ -42,7 +42,7 @@ const APPRECIATION_DEFERRED: ReturnTaxTreatment = { taxAtAccrual: false, categor
  * How US-2026 taxes an account's return by its neutral kind: interest is ordinary income
  * booked at accrual; appreciation is deferred to a withdrawal, taxed there against basis
  * (see {@link taxableWithdrawalCents}). This is the accrual-vs-realization timing and
- * income categorization that #94 moved out of the engine and into `rules`.
+ * income categorization that lives in `rules` rather than in the engine.
  */
 export function returnTaxTreatment(returnKind: AccountReturnKind): ReturnTaxTreatment {
   return returnKind === "interest" ? INTEREST_AT_ACCRUAL : APPRECIATION_DEFERRED;

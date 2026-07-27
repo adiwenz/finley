@@ -1,13 +1,13 @@
 /**
- * Integration test for the slice-4 `fill-to-limit` amount source (issue #67, AC3)
- * against the REAL rules-side contribution caps (issue #33's set). It proves the
+ * Integration test for the `fill-to-limit` amount source
+ * against the REAL rules-side contribution caps. It proves the
  * end-to-end seam: a `fill-to-limit` budget line, resolved through the engine's
  * jurisdiction seam, tracks the legislated 401(k) elective-deferral limit AND
  * auto-follows the age-50 catch-up bump — with no authoring change to the line.
  *
  * The engine ships the resolver + the seam bridge (`fillToLimitSeamFor`); `rules`
  * supplies the actual `retirementDeferralLimitCents` plug. Wiring them here is the
- * one place the two halves meet, which is exactly the boundary AC3 cares about.
+ * one place the two halves meet, which is exactly the boundary that matters.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -26,7 +26,7 @@ const maxOut401k: BudgetLine = {
   amountSource: { kind: "fillToLimit" },
 };
 
-describe("fill-to-limit against the real US contribution caps (§19, AC3)", () => {
+describe("fill-to-limit against the real US contribution caps", () => {
   const annualLimitCents = fillToLimitSeamFor(usJurisdiction);
   const resolveAt = (year: number, age?: number): number =>
     resolveBudgetLineMonthlyCents(maxOut401k, { month: 0, year, age, annualLimitCents });

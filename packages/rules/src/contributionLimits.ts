@@ -2,7 +2,7 @@ import type { Cents, DeferralLimitContext } from "@finley/engine";
 
 /**
  * US retirement-account contribution limits — the structured set of caps that
- * govern how much may go into tax-advantaged accounts in a year (§5.4).
+ * govern how much may go into tax-advantaged accounts in a year.
  *
  * This is the `rules`-side plug for the engine's
  * {@link import("@finley/engine").Jurisdiction.retirementDeferralLimitCents} seam.
@@ -11,7 +11,7 @@ import type { Cents, DeferralLimitContext } from "@finley/engine";
  * next priority destination); this module owns the *dollar values* and the age
  * bands, in one place, behind the pluggable jurisdiction concept.
  *
- * The caps are NOT one number (§5.4): the 401(k) employee *elective-deferral*
+ * The caps are NOT one number: the 401(k) employee *elective-deferral*
  * limit is separate from the *total-additions* ceiling (employee + employer
  * match) and from the much lower, separate IRA limit; catch-up is age-banded and
  * per-account-type. The full structured set is modelled here so the values live
@@ -23,10 +23,10 @@ import type { Cents, DeferralLimitContext } from "@finley/engine";
  * ⚠ Estimates, not advice. These are current US legislation and change yearly;
  * forward years are INDEXED, not authoritative. All figures below are the pinned
  * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base; later years are indexed forward
- * (§5.4 "future-year figures are indexed forward, not held flat").
+ * ("future-year figures are indexed forward, not held flat").
  */
 
-// ── Legislated base-year constants (one place, disclaimed — §5.4) ──────────────
+// ── Legislated base-year constants (one place, disclaimed) ─────────────────────
 
 /** The calendar year the pinned dollar figures below are authoritative for. */
 export const CONTRIBUTION_LIMITS_BASE_YEAR = 2026;
@@ -37,7 +37,7 @@ const BASE_ELECTIVE_401K_CENTS: Cents = 24_500_00;
 const BASE_CATCH_UP_50_CENTS: Cents = 8_000_00;
 /** The larger SECURE 2.0 catch-up, available only in the 60–63 age band. Replaces (not adds to) the 50+ figure. */
 const BASE_CATCH_UP_60_TO_63_CENTS: Cents = 11_250_00;
-/** §415(c) total-additions ceiling: employee deferral + employer match combined. */
+/** Section 415(c) total-additions ceiling: employee deferral + employer match combined. */
 const BASE_TOTAL_ADDITIONS_CENTS: Cents = 72_000_00;
 /** Traditional/Roth IRA annual contribution limit (separate, much lower cap). */
 const BASE_IRA_CENTS: Cents = 7_500_00;
@@ -77,7 +77,7 @@ function indexForward(baseCents: Cents, year: number, incrementCents: Cents): Ce
   return Math.floor(indexed / incrementCents) * incrementCents;
 }
 
-/** The full structured cap set (§5.4), keyed by the age bands and account types it governs. */
+/** The full structured cap set, keyed by the age bands and account types it governs. */
 export interface ContributionLimits {
   readonly year: number;
   /** 401(k)-style employee elective-deferral limit (shared across a person's jobs). */
@@ -86,7 +86,7 @@ export interface ContributionLimits {
   readonly catchUp50Cents: Cents;
   /** SECURE 2.0 catch-up for ages 60–63 (replaces, not adds to, the 50+ figure). */
   readonly catchUp60to63Cents: Cents;
-  /** §415(c) total-additions ceiling (employee + employer match). */
+  /** Section 415(c) total-additions ceiling (employee + employer match). */
   readonly totalAdditionsCents: Cents;
   /** Traditional/Roth IRA annual limit (separate, lower cap). */
   readonly iraCents: Cents;
@@ -112,10 +112,10 @@ export function contributionLimits(year: number): ContributionLimits {
 
 /**
  * The engine's deferral-limit seam: a person's 401(k)-style elective-deferral cap
- * for the year, including the age-banded catch-up (§5.4). With no age (or below
+ * for the year, including the age-banded catch-up. With no age (or below
  * 50) it is the base elective limit; from 50 the standard catch-up is added, and
  * in the 60–63 band the larger SECURE 2.0 catch-up applies instead. The employer
- * match is separate and does NOT share this cap (§5.4).
+ * match is separate and does NOT share this cap.
  */
 export function retirementDeferralLimitCents(ctx: DeferralLimitContext): Cents {
   const limits = contributionLimits(ctx.year);

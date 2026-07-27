@@ -7,8 +7,8 @@ import type { Jurisdiction, GovernmentBenefitClaim } from "./jurisdiction";
 export type { GovernmentBenefitClaim } from "./jurisdiction";
 
 /**
- * The frozen base government retirement benefit at claim, via the jurisdiction seam
- * (§5.4). Clamped ≥ 0; 0 when the jurisdiction supplies no benefit seam (v1 null)
+ * The frozen base government retirement benefit at claim, via the jurisdiction seam.
+ * Clamped ≥ 0; 0 when the jurisdiction supplies no benefit seam (v1 null)
  * or the eligibility gate (inside the seam) is unmet. This is the single place the
  * engine invokes the base seam, so the record is priced identically wherever it is
  * read. The COLA that grows this base forward is a separate seam

@@ -1,8 +1,8 @@
 /**
- * The §5.0 waterfall config (goals + levers) and the §5.5 income plan descriptor
- * live on the value-editing surface (LedgerBaseConfig), not the event ledger
- * (§10.2). These tests pin that they survive the replay → simulate bridge, so the
- * app's Budget/Accounts + Goals panels (issue #8) actually reach the waterfall.
+ * The waterfall config (goals + levers) and the income plan descriptor
+ * live on the value-editing surface (LedgerBaseConfig), not the event ledger.
+ * These tests pin that they survive the replay → simulate bridge, so the
+ * app's Budget/Accounts + Goals panels actually reach the waterfall.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
@@ -35,7 +35,7 @@ function account(id: string, liquid: boolean): SimAccount {
   });
 }
 
-describe("LedgerBaseConfig → waterfall threading (issue #8 spine)", () => {
+describe("LedgerBaseConfig → waterfall threading", () => {
   it("a base income series' planDescriptor defers pre-tax through replay", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 3,

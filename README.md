@@ -2,8 +2,8 @@
 
 A browser-based financial life simulator. Inputs are a household's income, expenses,
 accounts, and discrete life events; output is a month-by-month net-worth projection and a
-solved retirement year. See [`FINAL_BUILD_SPEC.md`](./FINAL_BUILD_SPEC.md) — the canonical
-source of truth — and [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the open-core split.
+solved retirement year. See [`CONTEXT.md`](./CONTEXT.md) for the domain glossary; the
+open-core split is summarized below.
 
 ## Workspaces
 
@@ -15,7 +15,7 @@ Open-core monorepo. Dependency direction is **one-way**: `app → rules → engi
 | [`@finley/rules`](./packages/rules) | public | Jurisdiction implementations of the engine's interface (e.g. `US-2026`). |
 | [`@finley/app`](./packages/app) | private | UI, persistence, user data. Imports the two public packages. |
 
-The **engine-purity rule** (§0.8) is enforced by `scripts/check-engine-purity.mjs` (and in
+The **engine-purity rule** is enforced by `scripts/check-engine-purity.mjs` (and in
 CI): engine source may not do I/O or import app/rules code.
 
 ## Commands

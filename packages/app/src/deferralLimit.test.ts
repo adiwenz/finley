@@ -1,6 +1,6 @@
 /**
- * The 401(k) elective-limit disclosure (§5.4). The limit belongs to the **person**, not the
- * household (issue #118): a person's own jobs are summed against their own age-indexed
+ * The 401(k) elective-limit disclosure. The limit belongs to the **person**, not the
+ * household: a person's own jobs are summed against their own age-indexed
  * limit, and two earners are never pooled. Driven through the real household roster
  * (`jobOwnersOf`), the same one the Jobs panel reads, so a partner's jobs reach the scan
  * exactly as they do in the app.
@@ -26,7 +26,7 @@ import { setJobDeferralFraction, setJobMonthlyIncome } from "./planPeople";
 
 /**
  * A budget built off the defaults with the default job's salary + deferral set — income
- * and the pre-tax deferral now ride the job (§11), not scalar plan fields.
+ * and the pre-tax deferral now ride the job, not scalar plan fields.
  */
 function budget(opts: {
   monthlyIncome?: number;
@@ -178,7 +178,7 @@ describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
 describe("firstDeferralLimitCrossing — every earner, each against their own limit", () => {
   it("flags a partner who tops the limit on a job of their own", () => {
     // The primary person defers nothing; Sam defers $30k on a $60k job. Reading only
-    // `Plan.jobs` — the primary's — this crossing was invisible (issue #118).
+    // `Plan.jobs` — the primary's — this crossing was invisible.
     const crossing = crossingFor(
       budget({ deferralPct: 0 }),
       partnerWith([job("p-1-job-1", "p-1", 5000, 50)]),

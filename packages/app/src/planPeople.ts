@@ -1,12 +1,11 @@
 /**
- * App-side helpers over the plan's standing {@link Job} model (§1/§6/§11 of
- * JOBS_HOUSEHOLD_REDESIGN, issue #72). Earned income lives entirely on the primary
- * person's **jobs** — a person may hold any number, several possibly open-ended, and
- * none is privileged. There is no "career job": these helpers read and mutate the job
- * array directly (add / update / remove from a {@link JobDraft}, plus one-month income
- * overrides), the way `goalsView` edits `plan.goals`. The Jobs editor is the single
- * authoring surface for income; the Budget editor and the Base + Adjustments income row
- * only *display* the compiled result.
+ * App-side helpers over the plan's standing {@link Job} model. Earned income lives
+ * entirely on the primary person's **jobs** — a person may hold any number, several
+ * possibly open-ended, and none is privileged. There is no "career job": these helpers
+ * read and mutate the job array directly (add / update / remove from a {@link JobDraft},
+ * plus one-month income overrides), the way `goalsView` edits `plan.goals`. The Jobs
+ * editor is the single authoring surface for income; the Budget editor and the Base +
+ * Adjustments income row only *display* the compiled result.
  */
 
 import {
@@ -63,7 +62,7 @@ export function blendedDeferralFraction(plan: Plan): number {
 /**
  * The age the owner was in a job's start year (its `startYear` back to an age). Every
  * age in the Jobs form is the OWNER's age, so a partner's job reads against the
- * partner's birth year, not the primary person's (issue #118).
+ * partner's birth year, not the primary person's.
  */
 export function jobStartAgeFor(birthYear: number, job: Job): number {
   return job.startYear - birthYear;
@@ -91,7 +90,7 @@ export interface JobDraft {
   /** Optional human title; blank leaves the job unnamed (reports fall back to its id). */
   readonly name: string;
   /**
-   * Whose job this is (§8, issue #118). A household member earns each job, and every
+   * Whose job this is. A household member earns each job, and every
    * age in this draft is THAT person's age — so the owner is part of the draft rather
    * than something the caller remembers on the side. Changing it reassigns the job.
    */
@@ -162,13 +161,13 @@ export function nextJobIdFor(ownerId: PersonId, jobs: readonly Job[]): string {
  * overwritten and everything else is carried through untouched — the job's `id`, its
  * one-month {@link JobIncomeOverride}s, its permanent {@link JobPayChange}s, the deferral's
  * `fundAccountId` and employer match, and any field added to {@link Job} later. Ages resolve
- * against `birthYear`, which is the **owner named by the draft** (issue #118): reassigning a
+ * against `birthYear`, which is the **owner named by the draft**: reassigning a
  * job re-reads its start/end ages against the new owner's clock, so "started at 30" keeps
  * meaning what it says.
  *
  * The counterpart to {@link buildJobFromDraft}, which *mints* a job and so can only carry
  * what a draft holds. An edit must never round-trip through minting: the draft is a
- * projection of a job (§10.3), not the whole of one, and a rebuild silently drops the rest.
+ * projection of a job, not the whole of one, and a rebuild silently drops the rest.
  */
 export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job {
   const name = draft.name.trim();
@@ -205,7 +204,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
 /**
  * Build a {@link Job} from a draft (ages → years, %→fraction). The draft names its owner
  * and `birthYear` is that owner's, so one builder serves the primary person's jobs and a
- * partner's (issue #118). For an *existing* job use {@link applyJobDraft} — this mints a
+ * partner's. For an *existing* job use {@link applyJobDraft} — this mints a
  * new one and carries only what a draft holds.
  */
 export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
@@ -225,7 +224,7 @@ export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft
 
 // ── Authoring against a bare job list ──
 // A person's jobs are a list wherever they live: the primary's on `Plan.jobs`, a
-// partner's on the `Person` inside their RelationshipEvent (issue #118). These operate
+// partner's on the `Person` inside their RelationshipEvent. These operate
 // on the list so both planes get identical behaviour, and the Plan-level helpers below
 // are thin wrappers.
 
@@ -263,13 +262,13 @@ export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
 
 // ── Adjustments on ONE job ──
 // Every household member's jobs get these, wherever they are authored: the primary
-// person's on `Plan.jobs`, a partner's on their `RelationshipEvent` (issue #118). They
+// person's on `Plan.jobs`, a partner's on their `RelationshipEvent`. They
 // take and return a single {@link Job}, so the plan-level wrappers below and the
 // owner-aware routing in `jobEditing` share one implementation rather than each
 // re-deriving "replace the entry at this month".
 
 /**
- * Attach a one-month income perturbation (§10.3, §20) — a bonus, a missed paycheck, or a
+ * Attach a one-month income perturbation — a bonus, a missed paycheck, or a
  * one-month salary correction — to a job. At most one override per (job, month): a new one
  * replaces any existing at that month, so re-editing the same month is idempotent.
  */
@@ -284,7 +283,7 @@ export function withIncomeOverride(job: Job, override: JobIncomeOverride): Job {
 }
 
 /**
- * Attach a permanent pay change (a raise OR a cut) to a job (§6, §10.3) — a step change
+ * Attach a permanent pay change (a raise OR a cut) to a job — a step change
  * that holds from `payChange.month` forward, distinct from the one-month
  * {@link withIncomeOverride}. At most one pay change per (job, month), so re-editing the
  * same month is idempotent.

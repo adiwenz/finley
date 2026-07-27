@@ -193,8 +193,8 @@ describe("AmortizingLoan / RevolvingCard split", () => {
     expect(SYNTHETIC_CARD_ID.length).toBeGreaterThan(0);
   });
 
-  it("SYNTHETIC_CARD_CREDIT_LIMIT_CENTS is a finite, positive limit (#36)", () => {
-    // Must be finite (not null/unlimited) so the §5.1 cascade can be exhausted and
+  it("SYNTHETIC_CARD_CREDIT_LIMIT_CENTS is a finite, positive limit", () => {
+    // Must be finite (not null/unlimited) so the cascade can be exhausted and
     // isInsolvent can fire; a whole number of cents.
     expect(Number.isFinite(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS)).toBe(true);
     expect(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS).toBeGreaterThan(0);

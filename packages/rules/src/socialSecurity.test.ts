@@ -26,7 +26,7 @@ const claimAtFRA = (record: EarningsRecord, year: number): GovernmentBenefitClai
   currentAge: 67,
 });
 
-describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () => {
+describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
     // Age-60 indexing year is 2019 (claimYear 2026, currentAge 67 ⇒ 2026−67+60).
     // All 35 earnings years fall on/after 2019, so every EARNINGS index factor is
@@ -146,7 +146,7 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula (§5.4)", () 
   });
 });
 
-describe("colaAdjustedBenefitCents — single COLA factor from age-62 (§5.4)", () => {
+describe("colaAdjustedBenefitCents — single COLA factor from age-62", () => {
   const ctx = (currentAge: number, colaRate: number): GovernmentBenefitContext => ({
     year: 2026,
     currentAge,
@@ -175,8 +175,8 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62 (§5.4)", 
     expect(colaAdjustedBenefitCents(123_456, ctx(70, 0))).toBe(123_456);
   });
 
-  it("parity: the single COLA factor matches the old bridge+forward split to ≤1¢ (§5.4 Phase 3)", () => {
-    // Guardrail for the Option-B collapse (resolved #2): the pre-change engine grew
+  it("parity: the single COLA factor matches the old bridge+forward split to ≤1¢", () => {
+    // Guardrail for collapsing the two COLA steps into one: the pre-change engine grew
     // the benefit in TWO rounded steps — an age-62→claim eligibility bridge then a
     // post-claim forward COLA — whereas the new seam applies ONE factor measured from
     // age 62. Algebraically identical; the only difference is an intermediate
@@ -205,7 +205,7 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62 (§5.4)", 
   });
 });
 
-describe("isCoveredEarnings — US covered-earnings predicate (§5.4)", () => {
+describe("isCoveredEarnings — US covered-earnings predicate", () => {
   it("covers wages and self-employment ordinary income", () => {
     expect(isCoveredEarnings("wages")).toBe(true);
     expect(isCoveredEarnings("ordinaryIncome")).toBe(true);

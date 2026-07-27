@@ -1,5 +1,5 @@
 /**
- * The starter simulations a fresh session can load (issue #119). Beyond the healthy
+ * The starter simulations a fresh session can load. Beyond the healthy
  * default, three teaching scenarios — living paycheck to paycheck, living on a credit
  * card, and carrying a student loan into negative net worth — each of which must
  * project to its intended financial *shape*, not merely exist. These tests pin that
@@ -41,7 +41,7 @@ function project(preset: Preset): ProjectionSeries {
 const realNetWorthAt = (series: ProjectionSeries, month: number): number | null =>
   series.months[month]?.netWorthRealCents ?? null;
 
-describe("default simulations (issue #119)", () => {
+describe("default simulations", () => {
   it("offers the healthy default plus the teaching scenarios", () => {
     expect(PRESETS.map((p) => p.id)).toEqual([
       "default",
@@ -100,7 +100,7 @@ describe("default simulations (issue #119)", () => {
     const series = project(presetById("living-on-credit"));
     // Net worth turns negative within the first two years...
     expect(realNetWorthAt(series, 24)!).toBeLessThan(0);
-    // ...specifically because the §5.1 cascade routes the monthly shortfall onto a
+    // ...specifically because the shortfall cascade routes the monthly shortfall onto a
     // synthetic credit-card liability that compounds.
     const early = series.months[12]?.liabilityBalancesCents["synthetic-credit-card"] ?? 0;
     const later = series.months[36]?.liabilityBalancesCents["synthetic-credit-card"] ?? 0;
@@ -135,7 +135,7 @@ describe("default simulations (issue #119)", () => {
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {
     const series = project(presetById("student-loan"));
-    // Net worth starts negative — assets minus the student-loan liability (§3).
+    // Net worth starts negative — assets minus the student-loan liability.
     expect(realNetWorthAt(series, 0)!).toBeLessThan(0);
     // The loan is a real amortizing student-loan liability at "now", not a cash hack.
     expect(series.months[0]?.liabilityBalancesCents).toHaveProperty("loan-student");
@@ -144,7 +144,7 @@ describe("default simulations (issue #119)", () => {
   });
 });
 
-describe("the two graphs are one quantity (issue #119 follow-up)", () => {
+describe("the two graphs are one quantity", () => {
   /** The app's own wiring: the graph reads the engine's itemized spending, nothing else. */
   function budgetChart(preset: Preset) {
     const base = createProjectionBase(preset.plan, CTX);
@@ -172,7 +172,7 @@ describe("the two graphs are one quantity (issue #119 follow-up)", () => {
   );
 });
 
-describe("the panel and the graph agree (#37)", () => {
+describe("the panel and the graph agree", () => {
   it.each(PRESETS.map((p) => p.id))(
     "%s: retirement is called infeasible only when the projection actually runs out",
     (id) => {

@@ -37,12 +37,12 @@ function apportionByWeight(
 
 /**
  * Split a `totalCents` federal-tax figure across the {@link TaxCategory} buckets that
- * bore it, given the computed {@link FederalTaxParts}. ATTRIBUTION METHOD (§5.3, issue
- * #110) — regime-aware proportional-to-taxable:
+ * bore it, given the computed {@link FederalTaxParts}. ATTRIBUTION METHOD — regime-aware
+ * proportional-to-taxable:
  *
  *   • The preferential **capital-gains** tax rides the `capitalGains` bucket alone, so
  *     the split respects that gains are taxed at their own 0/15/20% rates rather than
- *     an averaged blend (the interaction #100 turned on).
+ *     an averaged blend.
  *   • The progressive **ordinary** tax is divided among `wages`, `ordinaryIncome`, and
  *     `governmentRetirementBenefit` in proportion to each one's ordinary-taxable weight
  *     (the benefit weighted by its INCLUDED portion only), so the standard deduction
@@ -101,7 +101,7 @@ export function annualizeByCategory(
 }
 
 /**
- * The engine's §5.3 per-category tax seam for the US single filer (issue #110): MONTHLY
+ * The engine's per-category tax seam for the US single filer: MONTHLY
  * per-category taxable amounts in → this month's tax split per {@link TaxCategory} out,
  * the per-category analog of {@link computeFederalTaxCents}. Σ of the returned map equals
  * {@link computeFederalTaxCents} for the same slice EXACTLY — the monthly scalar total is

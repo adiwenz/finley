@@ -14,7 +14,7 @@ import { nullJurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// ─── updateEvent — revising an event already in the ledger (§6.1) ─────────────
+// ─── updateEvent — revising an event already in the ledger ────────────────────
 
 describe("updateEvent", () => {
   const cfg: LedgerBaseConfig = {
@@ -181,7 +181,7 @@ describe("addEvent — sequence numbers", () => {
     expect(ledger.nextSequenceNumber).toBe(2);
   });
 
-  it("does not recycle a removed sequence number (§13)", () => {
+  it("does not recycle a removed sequence number", () => {
     let ledger = emptyLedger;
     for (const id of ["a", "b", "c"]) {
       ledger = add(ledger, {
@@ -217,7 +217,7 @@ describe("addEvent — sequence numbers", () => {
   });
 });
 
-// ─── removeEvent — base replay context (§7) ───────────────────────────────────
+// ─── removeEvent — base replay context ────────────────────────────────────────
 
 describe("removeEvent — replays against base-seeded people", () => {
   it("succeeds when a remaining event's owner is a base person; fails without that person", () => {
@@ -257,7 +257,7 @@ describe("removeEvent — replays against base-seeded people", () => {
   });
 });
 
-// ─── computeDependents — transitive cascade (§8) ──────────────────────────────
+// ─── computeDependents — transitive cascade ───────────────────────────────────
 
 describe("computeDependents — transitive cascade", () => {
   it("returns the whole causedBy chain, and removeEvent cascades all of it", () => {

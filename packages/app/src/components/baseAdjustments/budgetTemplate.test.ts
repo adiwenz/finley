@@ -14,7 +14,7 @@ const tierTotal = (lines: readonly BudgetLine[], category: string): number =>
     .filter((l) => l.category === category)
     .reduce((s, l) => s + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0), 0);
 
-describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
+describe("defaultBudgetTemplate — the prepopulated Base", () => {
   it("prepopulates a non-empty set of standing expense lines with stable ids", () => {
     const lines = defaultBudgetTemplate();
     expect(lines.length).toBeGreaterThan(0);
@@ -39,7 +39,7 @@ describe("defaultBudgetTemplate — the prepopulated Base (AC3)", () => {
   });
 });
 
-describe("redistributeToTiers — the non-destructive 50/30/20 quickstart (§15, AC3)", () => {
+describe("redistributeToTiers — the non-destructive 50/30/20 quickstart", () => {
   const income = dollarsToCents(5_000);
 
   it("preserves the user's named lines — it rebalances, it does not replace", () => {

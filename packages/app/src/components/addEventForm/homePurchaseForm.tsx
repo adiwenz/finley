@@ -52,7 +52,7 @@ export function HomePurchaseForm({
   const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({ month: defaultMonth, ...DEFAULTS }));
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
-  // The §4.5 SOFT warning: advisory only, recomputed each render so it tracks the
+  // The SOFT warning: advisory only, recomputed each render so it tracks the
   // live inputs. It never gates `submit` — the event records regardless (the only
   // hard block, down-payment coverage, is enforced in the engine event handler).
   const dti = assessHomePurchaseDti(household, series, {
@@ -93,14 +93,14 @@ export function HomePurchaseForm({
       {dti.exceeded && <DtiWarning dti={dti} />}
       <p className="hint">
         The down payment must be covered by liquid savings at that month — credit
-        can’t fund it (§4.5).
+        can’t fund it.
       </p>
     </>
   );
 }
 
 /**
- * The §4.5 affordability advisory — distinct from the red hard-block alert (this
+ * The affordability advisory — distinct from the red hard-block alert (this
  * is amber and does NOT block). It names the ratio that fired *and* its projected
  * downstream consequence: an over-guideline mortgage leaves less income for
  * everything else, so the plan leans harder on credit and reaches insolvency

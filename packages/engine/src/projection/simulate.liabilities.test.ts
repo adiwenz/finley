@@ -15,7 +15,7 @@ import {
   monthlyExpense,
 } from "./simulate.testSupport";
 
-describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", () => {
+describe("simulateHousehold — liabilities & shortfall cascade", () => {
   it("month 0: net worth = assets − liabilities at opening balances", () => {
     const acc = makeInvestmentAccount(dollarsToCents(10_000), 0);
     const loan = new AmortizingLoan({
@@ -158,10 +158,10 @@ describe("simulateHousehold — liabilities & shortfall cascade (§5.1, §3)", (
     expect(series.months[3].isInsolvent).toBe(false);
   });
 
-  it("isInsolvent=true once a sustained shortfall exhausts the synthetic card's limit (#36)", () => {
+  it("isInsolvent=true once a sustained shortfall exhausts the synthetic card's limit", () => {
     // No user card entered → synthetic card with a finite default limit. A large
     // monthly deficit ($30k/mo) with no liquid assets overruns the limit within a
-    // few months, tripping the §5.1 terminal HARD-INFEASIBILITY flag instead of
+    // few months, tripping the terminal HARD-INFEASIBILITY flag instead of
     // borrowing without bound.
     const acc = makeInvestmentAccount(0, 0);
     const series = simulateHousehold(

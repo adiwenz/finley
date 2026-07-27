@@ -3,7 +3,7 @@
  *
  * Each event type has one handler colocating its preconditions (`check`) and
  * its replay behavior (`apply`), so adding a new event type is one new entry,
- * not edits to two parallel switches (§14). The registry is a mapped type over
+ * not edits to two parallel switches. The registry is a mapped type over
  * the event union, so a missing handler is a compile error — exhaustiveness is
  * enforced by the type system, with no `any` and no loosely-typed lookups.
  */
@@ -91,8 +91,8 @@ const child: EventHandler<ChildEvent> = {
     });
     // A positive annual cost spawns a linked child-cost expense: bounded to
     // exactly 18 years from birth (mirroring alimony's bounded shape) and
-    // inflation-linked so it stays real across that span (§4.1). The annual
-    // amount is the source of truth — the series distributes it (no pre-round, §4).
+    // inflation-linked so it stays real across that span. The annual
+    // amount is the source of truth — the series distributes it (no pre-round).
     if (event.annualCostCents > 0) {
       const CHILD_COST_YEARS = 18;
       addSeries(state, {
@@ -219,22 +219,22 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // §4.5 HARD BLOCK: the down payment must be coverable from liquid, sourced
+    // HARD BLOCK: the down payment must be coverable from liquid, sourced
     // funds at the purchase month. `liquidBalanceAt` (present only on the authoring
-    // path) never counts credit, so the §5.1 shortfall cascade can never fund a
+    // path) never counts credit, so the shortfall cascade can never fund a
     // down payment. Absent a projection (ordinary replay/undo) this check is skipped.
     const liquid = context.liquidBalanceAt?.(event.month);
     if (liquid !== undefined && liquid < event.downPaymentCents) {
       return fail(
         event,
-        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Only liquid accounts count toward a down payment — goal funds, retirement and brokerage balances do not, so total net worth can be well above the down payment while this still fails. Credit is never a valid source (§4.5).`,
+        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Only liquid accounts count toward a down payment — goal funds, retirement and brokerage balances do not, so total net worth can be well above the down payment while this still fails. Credit is never a valid source.`,
       );
     }
     return ok;
   },
   apply(event, state, context) {
     // Property: the appreciating stock. Default appreciation is inflation-linked
-    // at the base inflation rate (§4.1), user-overridable via appreciationMode.
+    // at the base inflation rate, user-overridable via appreciationMode.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,
@@ -260,7 +260,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       termMonths: event.mortgageTermMonths,
       transfers: [],
     });
-    // Down payment: the paired liquid-account outflow (§3.2). Property value +
+    // Down payment: the paired liquid-account outflow. Property value +
     // mortgage together equal the price, so this outflow is the only net-worth
     // change at purchase — the purchase itself conserves net worth.
     pushAccountTransfer(state, {

@@ -1,6 +1,6 @@
 /**
  * Household — the immutable, array-shaped model that interpretation produces and
- * both consumers (projection and snapshot) read (§1). Built once at the public
+ * both consumers (projection and snapshot) read. Built once at the public
  * boundary from the internal {@link InterpretState} accumulator, so the two
  * consumers can never interpret the ledger differently.
  */
@@ -18,7 +18,7 @@ import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
 export interface HouseholdMembership {
   /**
-   * The household member as **authoring** {@link Person} data (§8) — identity, the
+   * The household member as **authoring** {@link Person} data — identity, the
    * retirement/benefit inputs, and their jobs. The lower-level {@link
    * import("../projection/simulate").SimPerson} the sim consumes is *derived* from this
    * at the sim boundary via {@link import("../compilePerson").compilePerson}; the roster
@@ -32,8 +32,7 @@ export interface HouseholdMembership {
 /**
  * A household income/expense series. Carries its own materialized
  * `SimCashFlowSeries` — built exactly once at interpretation — so projection and
- * snapshot read monthly amounts through the *same* instance and cannot disagree
- * (§14, §15).
+ * snapshot read monthly amounts through the *same* instance and cannot disagree.
  */
 export interface HouseholdSeries {
   readonly id: SeriesId;
@@ -53,19 +52,19 @@ export interface HouseholdSeries {
    */
   readonly label?: string;
   /**
-   * Stable per-source id carried over from the base series (issue #99) — a job's id, so
+   * Stable per-source id carried over from the base series — a job's id, so
    * per-source income reporting can name *which* job a paycheck came from. Diagnostic
    * only; nothing in the interpretation or simulation reads it.
    */
   readonly sourceId?: string;
   /**
-   * Retirement-plan descriptor (§5.5) for an income series funding a person-owned
-   * account. Presence makes the source eligible for pre-tax deferral in the §5.0
+   * Retirement-plan descriptor for an income series funding a person-owned
+   * account. Presence makes the source eligible for pre-tax deferral in the
    * waterfall. Only meaningful on income series; absent otherwise.
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * Provenance of an expense series compiled from a standing budget line (§Q27): the
+   * Provenance of an expense series compiled from a standing budget line: the
    * source line's id. Carried through so the simulator can report each line's monthly
    * amount ({@link
    * import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Only set on
@@ -73,7 +72,7 @@ export interface HouseholdSeries {
    */
   readonly lineId?: string;
   /**
-   * Provenance for the unified spending report (issue #119 follow-up): which authoring
+   * Provenance for the unified spending report: which authoring
    * model this expense came from. Carried through from the base series, or derived from
    * an event-created series' {@link SeriesRole}, and passed to the sim so a month's
    * spending can be reported itemized. See {@link
@@ -110,7 +109,7 @@ export type HouseholdLiability =
       readonly termMonths: number;
     });
 
-/** A durable property in the derived model — an appreciating stock (§4.1). */
+/** A durable property in the derived model — an appreciating stock. */
 export interface HouseholdProperty {
   readonly id: PropertyId;
   readonly ownerId: PersonId;

@@ -1,8 +1,8 @@
 /**
- * Engine-native wiring tests for the plan→projection mapping (§5.4/§7). Driven by
+ * Engine-native wiring tests for the plan→projection mapping. Driven by
  * the purpose-built {@link samplePlan} fixture and {@link mockJurisdiction} so they
  * run standalone against the engine with no rules package — each test enables
- * exactly the one seam it exercises. The app keeps the #37 real-jurisdiction
+ * exactly the one seam it exercises. The app keeps the real-jurisdiction
  * acceptance tests (panel age == first surviving projection age on the default
  * plan under `usJurisdiction`); these pin the mapping itself.
  */
@@ -35,7 +35,7 @@ function project(plan: Plan, jurisdiction = nullJurisdiction) {
   return replayLedger(emptyLedger, createProjectionBase(plan, ctx(jurisdiction)), jurisdiction);
 }
 
-/** Last KNOWN nominal net worth: the final balance, or the terminal value if insolvent (§5.1). */
+/** Last KNOWN nominal net worth: the final balance, or the terminal value if insolvent. */
 function endingNetWorthCents(plan: Plan, jurisdiction = nullJurisdiction): number {
   const known = project(plan, jurisdiction)
     .months.map((m) => m.netWorthNominalCents)
@@ -49,7 +49,7 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
   return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
 }
 
-describe("createProjectionBase — retirement + government benefit wired into the graph (§5.4/§7)", () => {
+describe("createProjectionBase — retirement + government benefit wired into the graph", () => {
   it("gives the projection person a benefit basis: birth year (from age) and claiming age", () => {
     const base = createProjectionBase({ ...samplePlan, currentAge: 40, benefitClaimingAge: 68 }, ctx());
     const p = base.initialPersons![0];
@@ -83,7 +83,7 @@ describe("createProjectionBase — retirement + government benefit wired into th
   });
 });
 
-describe("createProjectionBase — earned income before current age comes from the job (§4.6, #41)", () => {
+describe("createProjectionBase — earned income before current age comes from the job", () => {
   // The age a job began is now the job's `startYear`, not a scalar field.
   const planFromStartAge = (startAge: number): Plan => ({
     ...samplePlan,
@@ -115,7 +115,7 @@ describe("createProjectionBase — earned income before current age comes from t
   });
 
   it("lowers the priced government benefit when the job started later (fewer covered years)", () => {
-    // The US AIME (§5.4) divides a fixed 35-year window, so seeding fewer pre-"now" years
+    // The US AIME divides a fixed 35-year window, so seeding fewer pre-"now" years
     // leaves more $0 slots and drags the benefit down. A jurisdiction that prices the benefit
     // straight off the covered record surfaces the difference in late net worth.
     const priced = mockJurisdiction({
@@ -130,7 +130,7 @@ describe("createProjectionBase — earned income before current age comes from t
   });
 });
 
-describe("createProjectionBase — retirement decumulation liquidates instead of borrowing (#35)", () => {
+describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall
     // is met by SELLING assets (a taxable-fund sale re-enters as capitalGains at the
@@ -148,7 +148,7 @@ describe("createProjectionBase — retirement decumulation liquidates instead of
   });
 });
 
-describe("createProjectionBase — income reported by source + savings drawdown (issue #99)", () => {
+describe("createProjectionBase — income reported by source + savings drawdown", () => {
   it("bands working income by its job source, keeping the wages rollup as a convenience view", () => {
     const series = project(samplePlan, mockJurisdiction());
     const working = series.months[12]!.flows!;
@@ -186,7 +186,7 @@ describe("createProjectionBase — income reported by source + savings drawdown 
   });
 });
 
-describe("createProjectionBase — savings account tax profile is never-sold-consistent (issue #99 AC3)", () => {
+describe("createProjectionBase — savings account tax profile is never-sold-consistent", () => {
   it("does NOT give the never-liquidated cash account a capital-gains profile", () => {
     // A capital-gains draw counts toward provisional income and pulls the benefit into
     // tax — wrong for an account that is only ever spent as cash. Its withdrawal is
@@ -201,7 +201,7 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
   });
 });
 
-describe("createProjectionBase — a goal declares its account type (issue #101)", () => {
+describe("createProjectionBase — a goal declares its account type", () => {
   /** The `emergency` goal's derived fund account under a given account type. */
   function goalFund(plan: Plan) {
     return createProjectionBase(plan, ctx()).initialAccounts!.find((a) => a.id === "goal-emergency")!;
@@ -256,7 +256,7 @@ describe("createProjectionBase — a goal declares its account type (issue #101)
 
   it("does not report a cash goal's drawdown as capital-gains investment income", () => {
     // A cash goal drawn down in decumulation must never surface as a capitalGains draw:
-    // that would count toward provisional income and pull the benefit into tax (#100).
+    // that would count toward provisional income and pull the benefit into tax.
     const plan: Plan = {
       ...samplePlan,
       goals: [
@@ -288,7 +288,7 @@ describe("createProjectionBase — a goal declares its account type (issue #101)
   });
 });
 
-describe("createProjectionBase — horizon spans to life expectancy (§7)", () => {
+describe("createProjectionBase — horizon spans to life expectancy", () => {
   it("projects from now to life expectancy, not a fixed 30 years", () => {
     const horizon = (currentAge: number, lifeExpectancy: number) =>
       project({ ...samplePlan, currentAge, lifeExpectancy }).months.length;
@@ -300,7 +300,7 @@ describe("createProjectionBase — horizon spans to life expectancy (§7)", () =
   });
 });
 
-describe("createProjectionBase — health as its own additive, growing expense (§5.4)", () => {
+describe("createProjectionBase — health as its own additive, growing expense", () => {
   const saver: Plan = {
     ...samplePlan,
     jobs: [salariedJob(dollarsToCents(6_000))],

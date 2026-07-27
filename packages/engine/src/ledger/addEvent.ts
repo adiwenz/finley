@@ -1,11 +1,11 @@
 /**
- * addEvent — the safe, base-aware way to grow the ledger (§6.1); the write-path
+ * addEvent — the safe, base-aware way to grow the ledger; the write-path
  * twin of `removeEvent`.
  *
  * `addEvent`/`validateNewEvent` validate a candidate event's own fields and its
  * preconditions against the interpreted state before appending it. Unlike the
  * pure interpret path, this can also run *affordability* preconditions that need
- * a projection — the §4.5 down-payment hard block reads projected liquid
+ * a projection — the down-payment hard block reads projected liquid
  * balances. That projection is why these live here rather than in `interpret.ts`:
  * this module sits above the projection layer (it imports {@link buildProjection}),
  * keeping `interpret.ts` free of any projection dependency.
@@ -24,7 +24,7 @@ import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 /**
  * Liquid funds available at each month for the ledger *so far*, summed across the
  * base's `liquid` accounts from a projection. This is the sourced-funds figure the
- * §4.5 down-payment hard block checks against; credit is a liability, never an
+ * down-payment hard block checks against; credit is a liability, never an
  * asset here, so it can never fund a down payment. The month is clamped into the
  * projection horizon.
  */
@@ -68,7 +68,7 @@ function addEventContext(
 /**
  * Validate a would-be appended event against the current ledger+base: its own
  * fields, then its preconditions relative to the replayed state (including the
- * §4.5 affordability gate, evaluated with `jurisdiction`). A standalone
+ * affordability gate, evaluated with `jurisdiction`). A standalone
  * pre-check; {@link addEvent} runs this internally before appending.
  */
 export function validateNewEvent(
@@ -97,7 +97,7 @@ export type AddResult =
  * Validates the event's own fields and its preconditions against the replayed
  * state; on success appends it (stamped with the next sequence number), on
  * failure returns the conflict and leaves the ledger untouched. `jurisdiction`
- * feeds the §4.5 affordability projection; it defaults to the null jurisdiction
+ * feeds the affordability projection; it defaults to the null jurisdiction
  * so existing callers stay source-compatible.
  */
 export function addEvent(

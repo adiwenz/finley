@@ -1,6 +1,6 @@
 /**
  * Compilation of the line-item {@link BudgetLine} budget into the simulator's
- * inputs (§12, §15, §18, §19, issue #67, slice 4). Unit-level assertions on the
+ * inputs. Unit-level assertions on the
  * compiled expense series, plus an end-to-end pass through the real simulator via
  * {@link createProjectionBase} proving a line-item budget drives spending (spans +
  * dated overrides included) exactly like the scalar `expenseCents` path.
@@ -132,11 +132,11 @@ describe("fillToLimitSeamFor", () => {
   });
 });
 
-describe("createProjectionBase — the line-item budget drives spending (§12, AC1)", () => {
+describe("createProjectionBase — the line-item budget drives spending", () => {
   it("reproduces the scalar expense path when a single literal line replaces expenseCents", () => {
     // A budget line rises with prices exactly like the scalar `expenseCents` series it
     // replaces, so one line carrying the whole scalar amount is indistinguishable from
-    // it — the parity that lets #72 delete the scalar path without moving any number.
+    // it — the parity that lets the rewire delete the scalar path without moving any number.
     const scalar = project(samplePlan);
     const lineItem = project({
       ...samplePlan,
