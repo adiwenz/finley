@@ -226,12 +226,13 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
     // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid
-    // sources at the purchase month. `liquidBucketsAt` (present only on the authoring
-    // path) lists the liquid accounts and their balances — never credit. We drain the
-    // down payment from the selected sources, in the user's order, via the shared
-    // funding primitive; a positive shortfall means those sources cannot cover it. A
-    // selected source that is not a liquid bucket (illiquid, or empty) contributes 0.
-    // Absent a projection (ordinary replay/undo) the capability is undefined and this
+    // sources at the purchase month, NET of the capital-gains tax liquidating them owes.
+    // `liquidBucketsAt` (present only on the authoring path) lists the liquid accounts,
+    // their balances, and what each NETS after that tax (`afterTaxCents`) — never credit.
+    // We drain the down payment from the selected sources' after-tax value, in the user's
+    // order; a positive shortfall means those sources cannot cover it once the sale is
+    // taxed. A selected source that is not a liquid bucket (illiquid, or empty) contributes
+    // 0. Absent a projection (ordinary replay/undo) the capability is undefined and this
     // check is skipped — replay never re-litigates an already-accepted purchase.
     const buckets = context.liquidBucketsAt?.(event.month);
     if (buckets !== undefined) {
@@ -240,19 +241,29 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       // purchase, not the whole liquid pool. A selected id absent from the liquid
       // buckets (illiquid or zero-balance) is carried at 0 so it still names itself.
       const selected = event.downPaymentSourceIds.map(
-        (id) => byId.get(id) ?? { id, label: id, balanceCents: 0 },
+        (id) => byId.get(id) ?? { id, label: id, balanceCents: 0, afterTaxCents: 0 },
       );
-      const { drained, shortfall } = drainSources(selected, event.downPaymentCents);
+      // Drain the down payment over each source's AFTER-TAX value: a source that clears
+      // the down payment pre-tax but not once its embedded gain is taxed still falls short.
+      const { drained, shortfall } = drainSources(
+        selected.map((b) => ({ ...b, balanceCents: b.afterTaxCents })),
+        event.downPaymentCents,
+      );
       if (shortfall > 0) {
-        // Name the SELECTED sources and what each holds — `drained` equals their
-        // combined balance (all drained dry and still short), so the stated total and
-        // the itemised list agree by construction.
+        // Name the SELECTED sources and what each holds. When tax bit into the coverage
+        // (a source nets less than it holds), say so — otherwise the stated available
+        // total (the sum of the after-tax values, = `drained` here) and the printed
+        // balances agree exactly, as before.
         const counted = selected
           .map((b) => `${b.label} (${dollars(b.balanceCents)})`)
           .join(", ");
+        const taxed = selected.some((b) => b.afterTaxCents < b.balanceCents);
+        const taxNote = taxed
+          ? " (after the capital-gains tax on liquidating the selected investment sources)"
+          : "";
         return fail(
           event,
-          `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(drained)} available from the selected sources at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
+          `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(drained)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
         );
       }
     }

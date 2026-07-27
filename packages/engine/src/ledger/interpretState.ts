@@ -134,6 +134,18 @@ export interface LiquidBucket {
   readonly id: string;
   readonly label: string;
   readonly balanceCents: Cents;
+  /**
+   * What the bucket actually NETS toward a purchase after the capital-gains tax liquidating
+   * it would owe: `balanceCents − tax(balance − basis)`, priced by the jurisdiction under
+   * the account's own withdrawal category. The down-payment gate drains the down payment
+   * over this (not the raw balance), so a source that clears the down payment pre-tax but
+   * not after it is blocked. A pure cash bucket has basis == balance (no gain), so
+   * `afterTaxCents === balanceCents` and the gate is unchanged for it. Equals `balanceCents`
+   * under a zero-tax jurisdiction. For a single source this is exact; across several it
+   * matches the simulation's ordered gross-up under a flat rate (a close guide otherwise —
+   * the sim's marginal gross-up stays authoritative).
+   */
+  readonly afterTaxCents: Cents;
 }
 
 /** Read-only context available to handlers during interpretation (base-provided facts). */

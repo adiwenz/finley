@@ -34,9 +34,13 @@ export function snapshotMonth(
   let nominalNetWorth: Cents = 0;
 
   const accountBalancesCents: Record<string, Cents> = {};
+  const accountBasisCents: Record<string, Cents> = {};
   for (const acc of state.accounts) {
     const bal = state.assetBalances.get(acc.id) ?? 0;
     accountBalancesCents[acc.id] = bal;
+    // Basis rides alongside the balance (never nets into net worth) so an affordability
+    // check can read the still-untaxed gain `balance − basis` of a would-be liquidation.
+    accountBasisCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
     nominalNetWorth += bal;
   }
 
@@ -61,6 +65,7 @@ export function snapshotMonth(
       ? null
       : toRealCents(nominalNetWorth, annualInflationRate, month),
     accountBalancesCents,
+    accountBasisCents,
     liabilityBalancesCents,
     liabilityPaymentRecords,
     propertyValuesCents,

@@ -1,5 +1,22 @@
 # Issue #153 — HomePurchase: `downPaymentAccountId` → `downPaymentSourceIds[]`
 
+> **Follow-up (down-payment capital-gains tax — accurate net worth):** the original
+> #153 slice below deliberately left the down-payment gain *reporting-only* (untaxed) to
+> keep the purchase net-worth-conserving. That has since been **reversed on purpose**:
+> liquidating an appreciated source to fund a down payment now realizes a **taxable**
+> gain. The draw is **grossed up** over that tax (sells enough that the after-tax proceeds
+> still cover the down payment), the gain is routed through the single tax chokepoint as a
+> net-neutral source (`fundingDrawStep.resolveFundingDraws`, run *before* `allocateMonth`),
+> and **net worth falls by exactly the tax paid** — which is what actually happens. A cash
+> source (no gain) still conserves. The §4.5 gate now sizes on **down payment + tax**: it
+> drains the down payment over each bucket's *after-tax* value (`LiquidBucket.afterTaxCents`,
+> priced by the jurisdiction from the basis exposed on `ProjectionMonth.accountBasisCents`),
+> so a source that clears the down payment pre-tax but not after it is blocked. The gate's
+> tax estimate is standalone (exact for a flat rate; the sim's marginal gross-up is
+> authoritative). #154 (One-Time Spend) inherits all of this through the shared channel.
+> The passages below that say the gain is untaxed / that taxing it would break conservation
+> describe the superseded original slice.
+
 ## Overview
 
 Part of the **#129 epic** (Home Purchase Funding & Goal Decoupling). Migrates the
@@ -46,6 +63,12 @@ free" note): the gain band has `waterfallInflowCents: 0` — it is folded only i
 break the purchase's net-worth conservation (property + mortgage = price). This matches
 #122, which is a **reporting** fix (band the sale as gain + returned principal), not a
 change to what is taxed.
+
+> _Superseded by the follow-up (see top):_ the gain **is** now taxed. Net-worth
+> conservation is intentionally broken by exactly the tax — the reporting gain band stays
+> (`cashInflowCents` the gain, `waterfallInflowCents` 0), and the tax it bears rides a
+> *separate* net-neutral source (`waterfallInflowCents` the tax, `cashInflowCents` 0), so
+> the chokepoint charges the tax without double-counting the gain as income.
 
 The §4.5 gate now validates only the **selected** sources: `LiquidBucket` gained an
 `id`, the gate matches the selected `downPaymentSourceIds` against the liquid buckets
@@ -140,6 +163,9 @@ cannot disagree.
   identical.)
 - **#156 (funding-source picker UI)** replaces the hardcoded `["savings"]` in
   `homePurchaseForm.tsx` with the ordered eligible-source picker.
-- The gain band is reporting-only (untaxed); if a future slice wants down-payment
+- ~~The gain band is reporting-only (untaxed); if a future slice wants down-payment
   capital-gains tax, route the gain through the waterfall like the decumulation
-  withdrawal — but reconcile the net-worth-conservation invariant first.
+  withdrawal — but reconcile the net-worth-conservation invariant first.~~ **Done** (see
+  the follow-up at the top): the gain is taxed via a net-neutral chokepoint source, the
+  draw grosses up over it, and net worth intentionally drops by the tax. The gate sizes on
+  down payment + tax off `LiquidBucket.afterTaxCents` / `ProjectionMonth.accountBasisCents`.

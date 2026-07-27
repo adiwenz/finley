@@ -10,7 +10,7 @@ import {
   type NewLifeEvent,
 } from "./index";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
-import { nullJurisdiction } from "./jurisdiction";
+import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 
 // ─── HomePurchaseEvent (property lifecycle) ───────────────────────────────────
@@ -472,5 +472,123 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
     expect((gainBand?.cashInflowCents ?? 0) + (drawdown?.cashInflowCents ?? 0)).toBe(4_000_000);
     // The gain is genuine capital-gains income in the rollup; the principal is not.
     expect(flows!.incomeByCategoryCents.capitalGains).toBe(expectedGain);
+  });
+});
+
+// ─── Down-payment capital-gains tax — accurate net worth (#153 follow-up) ─────
+// Liquidating an appreciated source to fund a down payment realizes a taxable gain. The
+// draw grosses up over that tax and net worth falls by exactly the tax paid; a cash source
+// (no gain) still conserves. The §4.5 gate sizes on the down payment PLUS the tax.
+
+/**
+ * A flat capital-gains test jurisdiction: taxes the `capitalGains` category at `rate`,
+ * returning basis pro-rata so only the gain over cost basis is taxable, everything else
+ * untaxed. Monotone non-decreasing in the gross draw, as the gross-up loop requires.
+ */
+function flatCapitalGains(rate: number): Jurisdiction {
+  return {
+    id: "test-capital-gains",
+    computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * rate),
+    computeTaxByCategoryCents: (byCat) => {
+      const tax = Math.round((byCat.capitalGains ?? 0) * rate);
+      return tax > 0 ? { capitalGains: tax } : {};
+    },
+    taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) => {
+      const basisFraction = balanceCents > 0 ? Math.min(1, basisCents / balanceCents) : 0;
+      return grossCents - Math.round(grossCents * basisFraction); // the gain over basis
+    },
+  };
+}
+
+describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
+  it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
+    // A brokerage grown 12 months carries an embedded gain over its $80k cost basis; its
+    // pre-tax balance amply covers the $60k down payment. Comparing a taxing run against an
+    // otherwise-identical no-tax run isolates the tax's effect from the month's growth.
+    const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 12, downPaymentSourceIds: ["brokerage"] }),
+    );
+    const household = interpretLedger(ledger, base);
+    const taxed = buildProjection(household, base, flatCapitalGains(0.2));
+    const untaxed = buildProjection(household, base, nullJurisdiction);
+
+    const at = taxed.months[12];
+    // A real gain was realized and taxed at the purchase month.
+    expect(at.flows!.taxCents).toBeGreaterThan(0);
+    // Net worth is strictly LOWER than the untaxed run — the purchase now costs the tax.
+    expect(at.netWorthNominalCents!).toBeLessThan(untaxed.months[12].netWorthNominalCents!);
+    // The draw was grossed up: taxation drained MORE from the brokerage than the bare down
+    // payment did, so less is left than in the untaxed run.
+    expect(at.accountBalancesCents.brokerage).toBeLessThan(
+      untaxed.months[12].accountBalancesCents.brokerage,
+    );
+    // The tax is the household's loss, not the home's: property equity is still the down
+    // payment (price − financed), unchanged by the tax.
+    expect(at.propertyValuesCents.house1).toBe(PRICE);
+    expect(at.liabilityBalancesCents.mtg1).toBe(FINANCED);
+  });
+
+  it("conserves net worth for a cash-funded down payment (no gain → no tax)", () => {
+    // A 0%-growth cash account has basis == balance: no embedded gain, so nothing is taxed
+    // and the purchase conserves net worth even under a taxing jurisdiction.
+    const base = baseWithAccounts([liquidAcct("savings", 10_000_000, 0)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 3, downPaymentSourceIds: ["savings"] }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
+    const at = series.months[3];
+    expect(at.flows!.taxCents).toBe(0);
+    expect(at.netWorthNominalCents).toBe(series.months[2].netWorthNominalCents);
+    expect(at.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
+  });
+
+  it("reports the gain as capital-gains income taxed at the jurisdiction's rate", () => {
+    const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 12, downPaymentSourceIds: ["brokerage"] }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
+    const flows = series.months[12].flows!;
+    // The gain still surfaces as its own capital-gains band and the principal as a savings
+    // drawdown (#122-consistent), and the tax charged is exactly 20% of that reported gain.
+    const gainBand = flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
+    expect(gainBand?.category).toBe("capitalGains");
+    expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
+    expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(true);
+    expect(flows.taxCents).toBe(Math.round(gainBand!.cashInflowCents * 0.2));
+  });
+});
+
+describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
+  it("blocks when a selected investment source covers the down payment but not the tax on it", () => {
+    // $50k basis grown 24 months at 10%/yr clears the $60k down payment pre-tax, but the
+    // capital-gains tax on liquidating its embedded gain leaves the after-tax proceeds
+    // short — so the purchase is not actually affordable and the gate blocks it.
+    const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.1)]);
+    // Pre-tax, the brokerage clears the down payment (so the block is due to tax, not raw
+    // insufficiency): the same purchase is ALLOWED under a no-tax jurisdiction.
+    const allowed = addEvent(
+      emptyLedger,
+      base,
+      purchase({ month: 24, downPaymentSourceIds: ["brokerage"] }),
+      nullJurisdiction,
+    );
+    expect(allowed.ok).toBe(true);
+
+    const blocked = addEvent(
+      emptyLedger,
+      base,
+      purchase({ month: 24, downPaymentSourceIds: ["brokerage"] }),
+      flatCapitalGains(0.2),
+    );
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
   });
 });

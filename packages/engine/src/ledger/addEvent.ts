@@ -19,7 +19,12 @@ import { contextFrom, interpretLedger, interpretToState } from "./interpret";
 import type { InterpretContext, LiquidBucket } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
+import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction";
+
+// The projection's default start year (simulate.ts / report.ts hold the same local
+// constant): only bracket indexing reads it, and the down-payment tax estimate is
+// deliberately standalone, so an off-by-a-year here never changes a block decision.
+const DEFAULT_START_YEAR = 2026;
 
 /**
  * The liquid buckets available at each month for the ledger *so far*, from a
@@ -41,22 +46,35 @@ function liquidBucketsLookup(
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): (month: number) => readonly LiquidBucket[] {
-  // Label by id so a counted bucket reads by its account name ("Emergency fund"),
-  // falling back to the id when an account carries no label. `||` (not `??`) so an
-  // empty-string label falls back too, rather than printing a nameless "()".
-  const labelById = new Map(
-    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label || a.id]),
-  );
+  const startYear = base.startYear ?? DEFAULT_START_YEAR;
+  // Label and withdrawal category by id: the label names a counted bucket ("Emergency
+  // fund", falling back to the id — `||`, not `??`, so an empty-string label falls back too
+  // rather than printing a nameless "()"); the category prices the capital-gains tax a
+  // liquidation of that bucket would owe, so `afterTaxCents` taxes each bucket under its own
+  // provenance (a tax-exempt cash reserve is untaxed; a taxable brokerage bears the gain).
+  const liquidAccounts = (base.initialAccounts ?? []).filter((a) => a.liquid);
+  const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
+  const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
   const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
   return (month) => {
     const m = monthAt(month);
     if (!m) return [];
+    // The tax context year for this month — bracket indexing only; the estimate is
+    // deliberately standalone (it omits the owner's other income), exact for a flat rate.
+    const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
     const buckets: LiquidBucket[] = [];
     for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
       const label = labelById.get(id);
-      if (label !== undefined && balance > 0) buckets.push({ id, label, balanceCents: balance });
+      if (label === undefined || balance <= 0) continue;
+      // The still-untaxed gain and the tax liquidating it would owe under this bucket's
+      // category: what the bucket NETS toward the purchase is `balance − tax`.
+      const basis = m.accountBasisCents[id] ?? 0;
+      const gain = Math.max(0, balance - basis);
+      const category = categoryById.get(id) ?? "capitalGains";
+      const tax = gain > 0 ? jurisdiction.computeTaxCents({ [category]: gain }, ctx) : 0;
+      buckets.push({ id, label, balanceCents: balance, afterTaxCents: Math.max(0, balance - tax) });
     }
     // Largest first is a stable default; the down-payment gate re-orders the buckets it
     // selects into the user's drain order, so this ordering only affects any consumer

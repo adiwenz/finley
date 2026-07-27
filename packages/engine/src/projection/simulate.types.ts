@@ -60,6 +60,13 @@ export interface ProjectionMonth {
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
+  /**
+   * Per-account cost basis at this month (post-tax principal already taxed going in),
+   * keyed like `accountBalancesCents`. The embedded, still-untaxed gain of an account is
+   * `balance − basis`. Exposed so an affordability check can price the capital-gains tax a
+   * liquidation would owe — the down-payment §4.5 gate reads it to size on down + tax.
+   */
+  readonly accountBasisCents: Readonly<Record<string, Cents>>;
   /** Balance owed on each liability at this month (positive = owed). */
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
   /**

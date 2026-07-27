@@ -22,7 +22,7 @@ import {
   advanceLiabilities,
 } from "./liabilitySteps";
 import { applyAssetTransfers, compoundAssets, advanceProperties } from "./assetSteps";
-import { applyFundingDraws } from "./fundingDrawStep";
+import { resolveFundingDraws } from "./fundingDrawStep";
 import {
   buildIncomeSources,
   buildInterestAccrualSources,
@@ -149,10 +149,21 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
+      // Down-payment / one-time-spend draws (#153/#154) resolve BEFORE the tax chokepoint
+      // so an appreciated source's realized gain is actually taxed. Each selected source is
+      // grossed up over that tax and drained here (before compounding, so a drained balance
+      // does not earn this month); its net-neutral tax source rides into `allocateMonth` so
+      // the gain is charged exactly once at the single chokepoint, and its gain / returned-
+      // principal bands feed the flow view below. A cash source realizes no gain, grosses up
+      // by nothing, and conserves net worth exactly as before; an appreciated source's
+      // purchase now costs the household the tax, so net worth falls by that tax.
+      const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, incomeSources);
+      const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
+
       const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
         allocateMonth(
           state,
-          incomeSources,
+          allocationSources,
           ctx,
           jurisdiction,
           expenseCents + totalPaymentsCents,
@@ -167,11 +178,6 @@ export function simulateHousehold(
       unwindUnfundedContributions(state, contributions, uncoveredCents);
 
       applyAssetTransfers(state, month);
-      // Ordered down-payment / spend draws: drain the selected sources at this month
-      // (after the cascade, so the draw is not itself a fundable obligation) and collect
-      // the gain / returned-principal report bands. Runs before compounding so a drained
-      // balance does not earn this month — a discrete transfer never grows.
-      const fundingDraw = applyFundingDraws(state, month);
       compoundAssets(state, month, jurisdiction, ctx);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
@@ -181,8 +187,9 @@ export function simulateHousehold(
       // and the spending total are both derived from it inside buildFlows.
       const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
       flows = buildFlows(
-        // Fold in any down-payment gain bands (reporting-only: they were never routed
-        // through allocation/tax above, so appending them here can't affect the sim).
+        // Fold in the down-payment gain bands (reporting-only: `cashInflowCents` the gain,
+        // no waterfall inflow — the tax the gain bears rode the separate net-neutral source
+        // through allocation, so appending these here reports the gain without re-taxing it).
         [...incomeSources, ...fundingDraw.gainSources],
         taxCents,
         expenseCents,
