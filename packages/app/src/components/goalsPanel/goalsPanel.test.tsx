@@ -70,6 +70,9 @@ describe("GoalsPanel", () => {
       <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} />,
     );
     expect(html).toContain("Funded");
+    // Funded is terminal: the pacing %, which only answers "am I on pace to get there",
+    // is dropped so it can't contradict the badge (e.g. a drained fund's low %).
+    expect(html).not.toContain("on track");
   });
 
   it("marks an unreachable goal In progress and behind pace", () => {
@@ -92,6 +95,8 @@ describe("GoalsPanel", () => {
     );
     expect(html).toContain("In progress");
     expect(html).toContain("Behind pace");
+    // The on-track % is the pacing signal, shown precisely while a goal is still In progress.
+    expect(html).toContain("on track");
   });
 
   it("shows the short-horizon-in-risky-account honesty flag", () => {

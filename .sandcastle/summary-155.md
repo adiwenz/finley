@@ -9,7 +9,11 @@ balance reached its target at some month **on or before** the target date. The s
 event draining the account can never move a Funded goal back to In Progress. There is
 zero cross-reference between events and goals (no stored status, no `satisfiesGoalIds`).
 "Behind pace" reuses the existing `onTrackFraction` — no new engine state — and the
-Goals panel renders both the In-Progress/Funded badge and the behind-pace flag.
+Goals panel renders the In-Progress/Funded badge and the behind-pace flag. The on-track
+% is a **pacing** signal shown only while a goal is In progress; once it latches Funded
+(a terminal state) the badge stands alone, so a drained fund can't read "Funded · 40% on
+track". Completion and on-track % answer different questions — *did I get there / will it
+stay* vs. *am I on pace* — which is why the percentage cannot replace the binary state.
 
 ## RGR Verification Details
 
@@ -60,9 +64,11 @@ Three Red-Green cycles, one per seam:
   reached-after-date, `asap`).
 - **`packages/app/src/goalsView.ts`** — `GoalRow` gains `completion` and `behindPace`; `goalRows` populates them.
 - **`packages/app/src/goalsView.test.ts`** — new describe block covering Funded and In-Progress/behind-pace rows.
-- **`packages/app/src/components/goalsPanel/goalsPanel.tsx`** — status badge in the goal head.
+- **`packages/app/src/components/goalsPanel/goalsPanel.tsx`** — status badge in the goal head; the
+  on-track % renders only while In progress (Funded is terminal, so the badge stands alone).
 - **`packages/app/src/components/goalsPanel/goalsPanel.test.tsx`** — render tests for the Funded and
-  In-progress/Behind-pace badges.
+  In-progress/Behind-pace badges, pinning that the on-track % is present while In progress and absent
+  once Funded.
 - **`packages/app/src/assets/styles/globals.css`** — `.goal-status` / `-funded` / `-in-progress` badge styling.
 
 ## Verification & Testing
