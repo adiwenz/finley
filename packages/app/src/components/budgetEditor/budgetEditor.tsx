@@ -15,7 +15,11 @@
  */
 
 import type { Dispatch, SetStateAction } from "react";
-import { dollarsToCents, type SharedContributionScheme } from "@finley/engine";
+import {
+  dollarsToCents,
+  type SharedContributionScheme,
+  type SurplusCashDestination,
+} from "@finley/engine";
 import type { Plan } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 
@@ -203,6 +207,24 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
             <option value="even">Split evenly</option>
           </select>
         </label>
+
+        <label className="field">
+          <span className="field-label">Surplus cash goes to</span>
+          <select
+            value={budget.surplusCashTo ?? "savings"}
+            onChange={(e) =>
+              updateBudget({ surplusCashTo: e.target.value as SurplusCashDestination })
+            }
+          >
+            <option value="savings">Cash savings (idle)</option>
+            <option value="brokerage">Brokerage (invested)</option>
+          </select>
+        </label>
+        <p className="hint">
+          Where each month’s leftover cash lands after your goals and contributions are
+          funded. “Cash savings” earns your savings return; “Brokerage” invests it at the
+          brokerage return instead.
+        </p>
       </section>
     </>
   );

@@ -358,10 +358,15 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     inflationRate,
   );
 
-  // Leftover cash idles in the liquid account by default; a household that wants it
-  // invested authors a contribution budget line to the brokerage. The
-  // scalar "sweep everything" lever is gone.
-  const surplusDestination: SurplusDestination = { kind: "idle" };
+  // Leftover cash idles in the liquid account by default. The `surplusCashTo` lever
+  // lets a household sweep it into the taxable brokerage instead (so it earns the
+  // brokerage return, not the cash rate); a household can still additionally author a
+  // contribution budget line to any account. The concrete account id stays here —
+  // the plan carries only the user-facing "savings"/"brokerage" intent.
+  const surplusDestination: SurplusDestination =
+    budget.surplusCashTo === "brokerage"
+      ? { kind: "swept", accountId: BROKERAGE_ID }
+      : { kind: "idle" };
 
   return {
     horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),

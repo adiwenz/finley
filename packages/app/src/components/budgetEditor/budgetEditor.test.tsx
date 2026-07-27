@@ -25,6 +25,7 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>
       <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
+      <output data-testid="surplus-to">{budget.surplusCashTo ?? "savings"}</output>
     </>
   );
 }
@@ -105,6 +106,28 @@ describe("BudgetEditor — health cost + its own inflation rate", () => {
     const select = screen.getByLabelText(/Medicare at 65/i);
     fireEvent.change(select, { target: { value: "self-fund" } });
     expect(screen.getByTestId("enrolls").textContent).toBe("false");
+  });
+});
+
+describe("BudgetEditor — surplus-cash destination lever", () => {
+  it("defaults the control to Cash savings when the plan leaves the lever unset", () => {
+    render(<Harness initial={{ ...PLAN_DEFAULTS, surplusCashTo: undefined }} />);
+    const select = screen.getByLabelText(/Surplus cash goes to/i) as HTMLSelectElement;
+    expect(select.value).toBe("savings");
+  });
+
+  it("offers both the savings and brokerage destinations", () => {
+    render(<Harness />);
+    const select = screen.getByLabelText(/Surplus cash goes to/i) as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toEqual(["savings", "brokerage"]);
+  });
+
+  it("edits flow back into surplusCashTo (sweeping surplus to the brokerage)", () => {
+    render(<Harness initial={{ ...PLAN_DEFAULTS, surplusCashTo: undefined }} />);
+    const select = screen.getByLabelText(/Surplus cash goes to/i);
+    fireEvent.change(select, { target: { value: "brokerage" } });
+    expect(screen.getByTestId("surplus-to").textContent).toBe("brokerage");
   });
 });
 
