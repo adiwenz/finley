@@ -21,7 +21,7 @@
  * negative for the net-worth view.
  */
 
-import type { ProjectionSeries } from "@finley/engine";
+import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 
 /** Which side of the balance sheet a band sits on — drives colour, order, and sign. */
 export type BreakdownBandKind = "account" | "property" | "liability";
@@ -114,11 +114,13 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
  * dropped rather than drawn as a flat-zero band.
  *
  * The breakdown is the household's balance sheet *while the plan self-funds*. Rows stop at
- * the first month the plan is insolvent OR draws on a liability the caller didn't name — the
- * engine's synthetic last-resort credit card, a modelling device rather than a debt the
- * household holds. Past that point the composition story is over, and the sibling total
- * net-worth chart takes over with its own insolvency handling. This also keeps the synthetic
- * card from ever appearing as a band or denting the reported net worth.
+ * the first month the plan is insolvent OR draws on the engine's synthetic last-resort credit
+ * card ({@link SYNTHETIC_CARD_ID}) — a modelling device rather than a debt the household
+ * holds. Past that point the composition story is over, and the sibling total net-worth chart
+ * takes over with its own insolvency handling. The synthetic card is matched by its specific
+ * id, NOT by whether a label happens to be missing: real liabilities always render (a missing
+ * label only affects display, never which months chart), and only this one engine construct
+ * is treated as the end of the self-funded period.
  */
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
@@ -126,7 +128,6 @@ export function buildNetWorthBreakdown(
 ): NetWorthBreakdownData {
   const accountOrder = meta.accounts.map((a) => a.id);
   const accountLabel = new Map(meta.accounts.map((a) => [a.id, a.label]));
-  const isNamedLiability = (id: string) => meta.liabilityLabels?.[id] !== undefined;
 
   const rows: BreakdownMonthRow[] = [];
   const accountIds = new Set<string>();
@@ -137,12 +138,12 @@ export function buildNetWorthBreakdown(
 
   for (const m of series.months) {
     if (m.isInsolvent) break; // curves end at insolvency, as the total net-worth chart does
-    // The first draw on an unnamed liability (the synthetic last-resort card) marks the end
-    // of the self-funded period — stop before it so it never becomes a band.
-    const drawsUnnamedDebt = Object.entries(m.liabilityBalancesCents).some(
-      ([id, cents]) => cents !== 0 && !isNamedLiability(id),
-    );
-    if (drawsUnnamedDebt) break;
+    // The first draw on the synthetic last-resort card marks the end of the self-funded
+    // period — stop before it so that engine construct never becomes a band. This keys off
+    // the card's specific id, not a missing label, so a real (even unlabelled) debt keeps
+    // charting normally.
+    const drawsSyntheticCredit = (m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0) !== 0;
+    if (drawsSyntheticCredit) break;
 
     const centsById: Record<string, number> = {};
     const collect = (source: Readonly<Record<string, number>>, into: Set<string>) => {
@@ -172,11 +173,13 @@ export function buildNetWorthBreakdown(
   const propertyBands: BreakdownBand[] = [...propertyIds]
     .filter((id) => nonZero.has(id))
     .map((id) => ({ id, label: meta.propertyLabels?.[id] ?? humanizeId(id), kind: "property" }));
-  // Only named (household) liabilities band — an unnamed one would have truncated the rows
-  // above, so this filter is defensive belt-and-suspenders.
+  // Real liabilities band, labelled from the meta or humanized as a fallback — a missing
+  // label only affects the name, never whether it charts. The synthetic card is excluded
+  // explicitly (it is also always zero in the charted rows, which stop before its first
+  // draw, so this is belt-and-suspenders).
   const liabilityBands: BreakdownBand[] = [...liabilityIds]
-    .filter((id) => nonZero.has(id) && isNamedLiability(id))
-    .map((id) => ({ id, label: meta.liabilityLabels![id]!, kind: "liability" }));
+    .filter((id) => nonZero.has(id) && id !== SYNTHETIC_CARD_ID)
+    .map((id) => ({ id, label: meta.liabilityLabels?.[id] ?? humanizeId(id), kind: "liability" }));
 
   const bands = [...accountBands, ...propertyBands, ...liabilityBands];
   const lastRow = rows[rows.length - 1];

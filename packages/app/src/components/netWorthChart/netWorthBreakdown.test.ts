@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ProjectionSeries } from "@finley/engine";
+import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 import { buildNetWorthBreakdown, type BreakdownMeta } from "./netWorthBreakdown";
 
 /**
@@ -126,22 +126,59 @@ describe("buildNetWorthBreakdown", () => {
     expect(data.rows.map((r) => r.month)).toEqual([0, 1]); // insolvent months 2,3 dropped
   });
 
-  it("stops at the first draw on an unnamed liability (the synthetic last-resort card)", () => {
-    // The synthetic card carries no label, so a month that draws on it ends the self-funded
-    // period: rows stop before it and it never becomes a debt band or dents net worth.
+  it("stops only at the first draw on the synthetic last-resort card, matched by its id", () => {
+    // The synthetic card is the engine's borrow-of-last-resort, not a real debt: a month that
+    // draws on it ends the self-funded period, so rows stop before it and it never becomes a
+    // band or dents net worth. The check is on the card's specific id, not a missing label.
     const data = buildNetWorthBreakdown(
       series([
         { accounts: { savings: 100 } },
         { accounts: { savings: 60 } },
-        { accounts: { savings: 0 }, liabilities: { "synthetic-credit-card": 500 } },
-        { accounts: { savings: 0 }, liabilities: { "synthetic-credit-card": 900 } },
+        { accounts: { savings: 0 }, liabilities: { [SYNTHETIC_CARD_ID]: 500 } },
+        { accounts: { savings: 0 }, liabilities: { [SYNTHETIC_CARD_ID]: 900 } },
       ]),
-      META, // no liabilityLabels → the card id is unnamed
+      META,
     );
     expect(data.rows.map((r) => r.month)).toEqual([0, 1]); // stops before the first card draw
     expect(data.hasLiabilities).toBe(false);
     expect(data.bands.every((b) => b.kind === "account")).toBe(true);
     expect(data.terminalNetWorthCents).toBe(60); // last self-funded month, no phantom debt
+  });
+
+  it("renders an UNLABELLED real liability normally (a missing label never truncates)", () => {
+    // A real debt with no entry in liabilityLabels must still chart across all its months and
+    // band with a humanized fallback name — only the synthetic card ends the self-funded run.
+    const data = buildNetWorthBreakdown(
+      series([
+        { accounts: { savings: 100 }, liabilities: { "mortgage-1": 800 } },
+        { accounts: { savings: 200 }, liabilities: { "mortgage-1": 700 } },
+        { accounts: { savings: 300 }, liabilities: { "mortgage-1": 600 } },
+      ]),
+      META, // deliberately no liabilityLabels for "mortgage-1"
+    );
+    expect(data.rows).toHaveLength(3); // not truncated
+    expect(data.hasLiabilities).toBe(true);
+    const liabilityBand = data.bands.find((b) => b.kind === "liability");
+    expect(liabilityBand).toEqual({ id: "mortgage-1", label: "Mortgage", kind: "liability" });
+    // Terminal net worth nets the real debt: 300 − 600 = −300.
+    expect(data.terminalNetWorthCents).toBe(-300);
+  });
+
+  it("truncates on the synthetic card even while a real liability is charting", () => {
+    // A named mortgage charts through all rows up to the synthetic-card draw, which still ends
+    // the run — the two liabilities are treated differently by id, not by label presence.
+    const meta: BreakdownMeta = { ...META, liabilityLabels: { "mortgage-1": "Mortgage" } };
+    const data = buildNetWorthBreakdown(
+      series([
+        { accounts: { savings: 100 }, liabilities: { "mortgage-1": 500 } },
+        { accounts: { savings: 120 }, liabilities: { "mortgage-1": 480 } },
+        { accounts: { savings: 0 }, liabilities: { "mortgage-1": 460, [SYNTHETIC_CARD_ID]: 900 } },
+      ]),
+      meta,
+    );
+    expect(data.rows).toHaveLength(2); // stops before the synthetic-card month
+    expect(data.bands.filter((b) => b.kind === "liability").map((b) => b.label)).toEqual(["Mortgage"]);
+    expect(data.bands.some((b) => b.id === SYNTHETIC_CARD_ID)).toBe(false);
   });
 
   it("returns no bands and null terminal net worth for an empty series", () => {
