@@ -38,7 +38,11 @@ interface HomePurchaseDraft {
   readonly down: number;
   readonly apr: number;
   readonly termYears: number;
-  /** The accounts the down payment drains, IN ORDER — the first empties before the next. */
+  /**
+   * The accounts the down payment drains, IN ORDER — the first empties before the next. What
+   * the user has picked; the render filters it to what can still pay at `month` before
+   * anything reads it, so treat this as the stored intent rather than the live selection.
+   */
   readonly sourceIds: readonly string[];
 }
 
@@ -56,22 +60,50 @@ export function HomePurchaseForm({
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
 }) {
+  // The accounts that can actually pay at `month`, in the engine's drain-order-friendly
+  // largest-first order. The pool itself also lists accounts holding nothing (the picker greys
+  // those out); only these can be selected.
+  const fundableAt = (month: number) =>
+    funding.sourcesAt(month).filter((s) => s.balanceCents > 0).map((s) => s.id);
+
   const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({
     month: defaultMonth,
     ...DEFAULTS,
-    // Open on the largest account at that month (the pool is engine-ordered), so the form is
-    // usable without a choice — the same "it just funds from savings" default as before, but
-    // now visible and editable rather than hardcoded.
-    sourceIds: funding.sourcesAt(defaultMonth).slice(0, 1).map((s) => s.id),
+    // Open on the largest account that can pay at that month, so the form is usable without a
+    // choice — the same "it just funds from savings" default as before, but now visible and
+    // editable rather than hardcoded.
+    sourceIds: fundableAt(defaultMonth).slice(0, 1),
   }));
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
+
+  /**
+   * Moving the purchase re-prices every account: one the user picked while it held money may
+   * hold nothing at the new month. Drop it from the draft as the month moves — a selection the
+   * user can no longer see is a selection they no longer have. Nothing takes its place: which
+   * account pays is the user's call, and quietly substituting one would spend money they did
+   * not choose to spend.
+   */
+  const setMonth = (month: number) =>
+    setDraft((d) => {
+      const fundable = new Set(fundableAt(month));
+      return { ...d, month, sourceIds: d.sourceIds.filter((id) => fundable.has(id)) };
+    });
 
   // The pool and the verdict for the CURRENT month/selection/amount. Both come from one
   // projection inside `funding`, so this re-derives on edit without re-simulating the plan.
   const pool = useMemo(() => funding.sourcesAt(draft.month), [funding, draft.month]);
+  // The selection that is actually in play. `setMonth` already prunes on the path a user
+  // takes, but the pool also moves when `funding` itself changes (a new event elsewhere
+  // redraws the same month's balances), and that path has no setter to hook. Filtering here
+  // makes it an invariant rather than a thing each caller must remember: what the picker shows
+  // checked, what the coverage line counts, and what `submit` records are one list.
+  const sourceIds = useMemo(
+    () => draft.sourceIds.filter((id) => pool.some((s) => s.id === id && s.balanceCents > 0)),
+    [draft.sourceIds, pool],
+  );
   const availability = useMemo(
-    () => funding.availabilityAt(draft.sourceIds, dollarsToCents(draft.down), draft.month),
-    [funding, draft.sourceIds, draft.down, draft.month],
+    () => funding.availabilityAt(sourceIds, dollarsToCents(draft.down), draft.month),
+    [funding, sourceIds, draft.down, draft.month],
   );
 
   // The SOFT warning: advisory only, recomputed each render so it tracks the
@@ -95,8 +127,9 @@ export function HomePurchaseForm({
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
       // The user's chosen accounts, in the order they chose them — the drain order the
-      // simulator resolves the down payment against (#156).
-      downPaymentSourceIds: draft.sourceIds,
+      // simulator resolves the down payment against (#156). The pruned list, so an account
+      // that emptied under a month change cannot ride onto the event unseen.
+      downPaymentSourceIds: sourceIds,
       mortgageLiabilityId: `mortgage-${nextId}`,
       mortgageApr: draft.apr / 100,
       mortgageTermMonths: draft.termYears * 12,
@@ -105,14 +138,14 @@ export function HomePurchaseForm({
 
   return (
     <>
-      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={setMonth} />
       <NumInput label="Price" value={draft.price} onChange={(price) => patch({ price })} prefix="$" step={10000} />
       <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
       <NumInput label="Mortgage APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
       <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
       <FundingSourcePicker
         pool={pool}
-        selected={draft.sourceIds}
+        selected={sourceIds}
         amountCents={dollarsToCents(draft.down)}
         availability={availability}
         onChange={(sourceIds) => patch({ sourceIds })}

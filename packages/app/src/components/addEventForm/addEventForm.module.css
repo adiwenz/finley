@@ -35,6 +35,18 @@
   background: rgba(127, 127, 127, 0.08);
 }
 
+/* An account holding nothing at the chosen month: still listed, so the user can see it is
+   there and empty, but visibly out of play — no hover affordance, no pointer, and its
+   checkbox is `disabled` in the markup rather than only looking that way. */
+.sourceRowEmpty {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sourceRowEmpty:hover {
+  background: none;
+}
+
 /* The drain position. Fixed width so the names stay aligned whether or not a row is chosen. */
 .sourceOrder {
   flex: 0 0 1.4em;

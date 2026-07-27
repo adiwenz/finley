@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   emptyLedger,
   addEvent,
+  fundingLookup,
   interpretLedger,
   buildProjection,
   removeEvent,
@@ -707,5 +708,55 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     // same-month sibling is gone. Affordable. So the block above is caused by the sibling's
     // realized gain, not by the account being too small.
     expect(addEvent(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).ok).toBe(true);
+  });
+});
+
+// ─── fundingLookup.sourcesAt — the pool an authoring surface lists ────────────
+// The pool's MEMBERSHIP is a property of the account, not of the month: every liquid account
+// is listed at every month, and only `balanceCents` moves. A pool that omitted empty accounts
+// let a picker's rows appear and disappear as the month changed, so an account chosen while it
+// held money could vanish from the list while its id stayed selected behind the scenes (#153).
+
+describe("fundingLookup — the source pool", () => {
+  // $40k savings + $40k brokerage, $60k down at month 3: savings empties, brokerage keeps $20k.
+  const base = () =>
+    baseWithAccounts([liquidAcct("savings", 4_000_000), liquidAcct("brokerage", 4_000_000)]);
+  const spendIt = purchase({ month: 3, downPaymentSourceIds: ["savings", "brokerage"] });
+
+  it("lists an account the plan has emptied, at $0, rather than dropping it", () => {
+    const b = base();
+    const ledger = addWithBase(emptyLedger, b, spendIt);
+    const { sourcesAt } = fundingLookup(ledger, b, nullJurisdiction);
+
+    // Before the purchase both hold $40k; at it savings is spent to nothing — and is STILL in
+    // the pool, now carrying the zero that says why it cannot pay.
+    expect(sourcesAt(2).map((s) => s.id).sort()).toEqual(["brokerage", "savings"]);
+    expect(sourcesAt(3).map((s) => s.id).sort()).toEqual(["brokerage", "savings"]);
+    expect(sourcesAt(2).find((s) => s.id === "savings")?.balanceCents).toBe(4_000_000);
+    expect(sourcesAt(3).find((s) => s.id === "savings")?.balanceCents).toBe(0);
+    // The other source is untouched by the drain — this is the emptied account being reported,
+    // not the whole month going to zero.
+    expect(sourcesAt(3).find((s) => s.id === "brokerage")?.balanceCents).toBe(2_000_000);
+  });
+
+  it("keeps the largest-first order, so the empty accounts sort to the bottom", () => {
+    const b = base();
+    const ledger = addWithBase(emptyLedger, b, spendIt);
+    // The order is the picker's default drain order: spend the biggest bucket first, and never
+    // offer an empty one ahead of an account that can actually pay.
+    expect(fundingLookup(ledger, b, nullJurisdiction).sourcesAt(3).map((s) => s.id)).toEqual([
+      "brokerage",
+      "savings",
+    ]);
+  });
+
+  it("omits accounts that could never fund a draw, empty or not", () => {
+    // Membership is "liquid", not "has money": an illiquid retirement fund holding $50k is
+    // absent, while a liquid account holding nothing is present. Listing at $0 widens what the
+    // pool SHOWS, not what it considers spendable (#125).
+    const b = baseWithAccounts([liquidAcct("savings", 0), goalFund("retirement", "401(k)", 5_000_000, false)]);
+    expect(fundingLookup(emptyLedger, b, nullJurisdiction).sourcesAt(6).map((s) => s.id)).toEqual([
+      "savings",
+    ]);
   });
 });

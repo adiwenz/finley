@@ -36,11 +36,14 @@ const DEFAULT_START_YEAR = 2026;
  * The two funding questions an authoring surface asks of the ledger *so far*, both answered
  * from ONE projection so a caller pays for it once:
  *
- * - `sourcesAt(month)` — the POOL: every account that could fund a draw at that month, with
- *   what it holds then, largest first. What a source picker lists (#156) and what a conflict
- *   message can name. Only liquid accounts qualify — a cash goal fund included (its whole
- *   purpose is to be reachable), retirement excluded (#125), credit never, being a liability
- *   rather than an asset — so "credit is not a funding source" holds by construction.
+ * - `sourcesAt(month)` — the POOL: every account that could ever fund a draw, with what it
+ *   holds at that month — WHICH MAY BE NOTHING — largest first. What a source picker lists
+ *   (#156) and what a conflict message can name. Only liquid accounts qualify — a cash goal
+ *   fund included (its whole purpose is to be reachable), retirement excluded (#125), credit
+ *   never, being a liability rather than an asset — so "credit is not a funding source" holds
+ *   by construction. Membership is a property of the ACCOUNT, not of the month: what varies
+ *   with the month is only `balanceCents`, so a caller comparing two months sees an emptied
+ *   account go to $0 rather than disappear.
  * - `availabilityAt(sourceIds, amountCents, month)` — the VERDICT for a chosen selection.
  *
  * The two agree by construction on what a source holds: the pool's `balanceCents` and the
@@ -100,16 +103,19 @@ export function fundingLookup(
   const last = projection.months.length - 1;
   const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
 
-  // The pool: every liquid account holding something at the month, largest first — a stable,
-  // sensible default drain order for a picker (spend the biggest bucket first), which the user
-  // then reorders by choosing. An empty account is omitted rather than listed at $0: it cannot
-  // fund anything, and offering it as a choice would only invite a selection that does nothing.
+  // The pool: EVERY liquid account, carrying what it holds at the month, largest first — a
+  // stable, sensible default drain order for a picker (spend the biggest bucket first), which
+  // the user then reorders by choosing. An empty account is listed at $0 rather than omitted,
+  // so the pool's membership does not shift under a caller as the month moves: a picker can
+  // then show an account that has emptied — greyed out and unpickable — instead of having it
+  // silently vanish while an id the user chose earlier is still selected behind the scenes.
+  // Whether a listed account can actually pay is `balanceCents > 0`, the same test
+  // `availabilityAt` applies below.
   const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
-      const balance = (m?.accountBalancesCents[id] ?? 0) as number;
-      if (balance > 0) pool.push({ id, label, balanceCents: balance });
+      pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };

@@ -81,8 +81,12 @@ describe("HomePurchaseForm — soft DTI warning", () => {
   it("does not block: the Add event button stays enabled alongside the warning", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("soft-warning");
-    expect(html).not.toContain("disabled");
-    expect(html).toContain("Add event");
+    // The BUTTON specifically — not "the page contains no `disabled` anywhere", which the
+    // funding picker legitimately trips by disabling accounts that hold nothing at the chosen
+    // month. Whether an account can pay is a different question from whether the warning blocks.
+    const button = html.match(/<button[^>]*>Add event<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
   });
 
   it("stays silent when the purchase sits comfortably within the guideline", () => {

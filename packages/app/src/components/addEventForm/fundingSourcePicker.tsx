@@ -11,6 +11,13 @@
  * Order is the drain order: the first selected account empties before the next is touched,
  * which is why selecting appends rather than sorting. That makes the numbered badge the
  * control's real content — a checkbox says *whether*, the number says *when*.
+ *
+ * An account with nothing in it is shown, greyed and unpickable, rather than dropped from the
+ * list. Dropping it made the pool's membership move with the month, so an account chosen when
+ * it held money could disappear from the list at a later month while its id stayed in the
+ * selection — no row rendered as checked, yet the coverage line and the submitted event were
+ * still counting it. Every account the pool knows about is on screen, and what changes between
+ * months is only whether a row can be picked.
  */
 
 import type { FundingAvailability, FundingSourceBalance } from "@finley/engine";
@@ -25,9 +32,16 @@ export function FundingSourcePicker({
   onChange,
   label = "Paid from",
 }: {
-  /** Every account holding something at the event month, largest first (engine-ordered). */
+  /**
+   * Every account that could fund the event, with what it holds AT THE EVENT MONTH — possibly
+   * nothing — largest first (engine-ordered). The empty ones are rendered unpickable, not hidden.
+   */
   pool: readonly FundingSourceBalance[];
-  /** The chosen ids IN DRAIN ORDER — the value this control edits. */
+  /**
+   * The chosen ids IN DRAIN ORDER — the value this control edits. Every id here must name a
+   * pool entry that can actually pay; the caller drops any that cannot, so this control never
+   * has to render a checked row it also has to disable.
+   */
   selected: readonly string[];
   /** What the event needs, for the coverage line. */
   amountCents: number;
@@ -41,25 +55,37 @@ export function FundingSourcePicker({
   const toggle = (id: string) =>
     onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
 
+  // Whether ANY listed account can pay at this month. Distinct from an empty pool: a plan can
+  // own three funding accounts and have all three at $0 by the month in question.
+  const anyFunds = pool.some((source) => source.balanceCents > 0);
+
   return (
     <div className={styles.sources}>
       <span className="field-label">{label}</span>
       {pool.length === 0 ? (
         <p className="hint">
-          No account holds anything at that month, so nothing can fund this yet.
+          This plan has no cash or investment account, so nothing can fund this yet.
         </p>
       ) : (
         <ul className={styles.sourceList}>
           {pool.map((source) => {
             const order = selected.indexOf(source.id);
+            // Nothing in it, nothing to take from it. Muted and disabled rather than absent, so
+            // the reason a selection went away at this month is on screen instead of implied.
+            const empty = source.balanceCents <= 0;
             return (
               <li key={source.id}>
-                <label className={styles.sourceRow}>
+                <label className={`${styles.sourceRow} ${empty ? styles.sourceRowEmpty : ""}`}>
                   <input
                     type="checkbox"
                     checked={order >= 0}
+                    disabled={empty}
                     onChange={() => toggle(source.id)}
-                    aria-label={`${source.label} — ${formatDollars(source.balanceCents)} available`}
+                    aria-label={
+                      empty
+                        ? `${source.label} — nothing available at that time`
+                        : `${source.label} — ${formatDollars(source.balanceCents)} available`
+                    }
                   />
                   {/* The drain position, shown only once chosen — an unchosen account has none. */}
                   <span className={styles.sourceOrder} aria-hidden="true">
@@ -73,7 +99,12 @@ export function FundingSourcePicker({
           })}
         </ul>
       )}
-      <Coverage amountCents={amountCents} availability={availability} selected={selected} />
+      <Coverage
+        amountCents={amountCents}
+        availability={availability}
+        selected={selected}
+        anyFunds={anyFunds}
+      />
     </div>
   );
 }
@@ -87,11 +118,23 @@ function Coverage({
   amountCents,
   availability,
   selected,
+  anyFunds,
 }: {
   amountCents: number;
   availability: FundingAvailability;
   selected: readonly string[];
+  /** Whether anything in the pool holds money at this month — see the picker. */
+  anyFunds: boolean;
 }) {
+  // Checked first: with every account empty, "choose at least one" is advice the user cannot
+  // take. Say what is actually wrong — the money isn't there yet at this month.
+  if (!anyFunds) {
+    return (
+      <p className={`hint ${styles.sourceShort}`} role="status">
+        No account holds anything at that month, so nothing can fund this yet.
+      </p>
+    );
+  }
   if (selected.length === 0) {
     return <p className="hint">Choose at least one account to pay from.</p>;
   }
