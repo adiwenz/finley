@@ -1,8 +1,11 @@
 # Issue #150 — Disposition purge: remove `convertToEquity`/`spend`, collapse `GoalDisposition`
 
 Part of the #129 epic (Home Purchase Funding & Goal Decoupling). This is the foundational
-"clearing" slice: it removes the goal→use semantic coupling so that **events become the
-only thing that moves money out of a goal**.
+"clearing" slice: it removes the goal→use semantic coupling so that **a goal never moves its
+own money out**. Money still leaves a goal fund through ordinary decumulation withdrawals
+(every goal fund is a liquidatable source — see `withdrawal.ts` `isLiquidatable`) and, in the
+#129 work, through explicit events; what's removed here is the goal *firing its own
+disposition* (`spend`/`convertToEquity`) at its target month.
 
 ## Overview
 
