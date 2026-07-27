@@ -1,11 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { runWaterfall, type WaterfallInput, type IncomeSourceMonth } from "./waterfall";
 import {
-  runWaterfall,
   assertTaxAttributionReconciles,
   assertPersonTaxBreakdownReconciles,
-  type WaterfallInput,
-  type IncomeSourceMonth,
-} from "./waterfall";
+} from "./waterfallInvariants";
 import type { SimGoal } from "../goal";
 import { dollarsToCents } from "../cashFlowSeries";
 
