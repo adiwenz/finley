@@ -1,5 +1,10 @@
 import type { Cents, TaxCategory } from "@finley/engine";
-import { federalTaxParts, type FederalTaxParts } from "./federalTax";
+import { federalTaxParts, annualizeByCategory, type FederalTaxParts } from "./federalTaxCore";
+
+// annualizeByCategory now lives in ./federalTaxCore (a neutral ×12 helper, not
+// attribution logic); re-exported here to preserve its former ./federalTaxAttribution
+// import path.
+export { annualizeByCategory } from "./federalTaxCore";
 
 /**
  * Distribute an integer-cents `totalCents` across `entries` (each a `[category,
@@ -87,17 +92,6 @@ export function federalAnnualTaxByCategoryCents(
 ): Partial<Record<TaxCategory, Cents>> {
   const parts = federalTaxParts(annualByCategory, year);
   return attributeFederalTax(parts.totalCents, parts);
-}
-
-/** Annualize a monthly per-category slice (×12) — the input the annual math expects. */
-export function annualizeByCategory(
-  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
-): Partial<Record<TaxCategory, Cents>> {
-  const annualByCategory: Partial<Record<TaxCategory, Cents>> = {};
-  for (const [category, cents] of Object.entries(monthlyByCategory)) {
-    annualByCategory[category as TaxCategory] = (cents ?? 0) * 12;
-  }
-  return annualByCategory;
 }
 
 /**
