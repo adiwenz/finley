@@ -19,6 +19,7 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import { vercelProvider } from "./vercelProvider";
+import { repoRoot, sandboxImageName } from "./repoPaths";
 import { z } from "zod";
 import { exec, execSync } from "child_process";
 import { promisify, format } from "util";
@@ -136,7 +137,12 @@ function makeSandbox(kind: SandboxKind) {
     // repo, which rides along in the workspace bind-mount. That is the only source
     // that also reaches a CI runner and a cloud sandbox, neither of which has a
     // host ~/.claude to mount.
-    return docker();
+    //
+    // The image name is pinned to the main checkout rather than left to
+    // Sandcastle's directory-basename default, which would ask for
+    // `sandcastle:finley-review-issue-138` if this were ever run from a worktree.
+    // Identical to the default from the main checkout and on CI.
+    return docker({ imageName: sandboxImageName(REPO_ROOT) });
   }
   const url = originRemoteUrl();
 
@@ -195,6 +201,13 @@ function makeSandbox(kind: SandboxKind) {
     env: sandboxEnv,
   });
 }
+
+// The main checkout, which is where `.sandcastle/.env`, `.sandcastle/worktrees/`
+// and `.sandcastle/logs/` live. Sandcastle anchors all three at the working
+// directory, so every run below passes `cwd: REPO_ROOT` to keep them put if the
+// orchestrator is ever launched from a worktree. Equal to process.cwd() from the
+// main checkout and on CI, so this is a no-op there.
+const REPO_ROOT = repoRoot();
 
 // Resolved once at startup; the kind drives both the provider and how we seed
 // each sandbox's dependencies. Reused across every planner/implementer run.
@@ -366,6 +379,7 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       hooks,
       copyToWorktree,
       sandbox,
+      cwd: REPO_ROOT,
       branchStrategy: { type: "branch", branch: issue.branch },
       name: "implementer",
       // One run, but many iterations: the agent is re-prompted until it emits
@@ -481,6 +495,7 @@ async function main() {
     const plan = await sandcastle.run({
       hooks,
       sandbox,
+      cwd: REPO_ROOT,
       name: "planner",
       maxIterations: 1,
       agent: sandcastle.claudeCode("claude-opus-4-8"),
