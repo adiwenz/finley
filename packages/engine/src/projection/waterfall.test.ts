@@ -284,8 +284,8 @@ describe("runWaterfall — shared obligations (step 3)", () => {
 });
 
 describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
-  // Dated: a `spend` goal needs a month to fire at (GoalDisposal). Funding is
-  // deadline-PACED (sinking-fund), so amounts read as target ÷ months left.
+  // Dated goal: funding is deadline-PACED (sinking-fund), so amounts read as
+  // target ÷ months left. The disposition is purely descriptive here.
   const datedGoal = (
     id: string,
     priority: number,
@@ -299,7 +299,7 @@ describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
     targetDate,
     fundAccountId,
     priority,
-    disposition: "spend",
+    disposition: "retain",
     scope: "shared",
   });
 
@@ -441,7 +441,7 @@ describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
       targetDate: 12,
       fundAccountId: "car-fund",
       priority: 5,
-      disposition: "spend",
+      disposition: "retain",
       scope: "personal",
       ownerId: "p1",
     };

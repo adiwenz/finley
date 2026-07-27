@@ -42,7 +42,7 @@ const houseGoal: SimGoal = {
   targetDate: 24,
   fundAccountId: "house-fund",
   priority: 1500,
-  disposition: "convertToEquity",
+  disposition: "retain",
   scope: "shared",
 };
 

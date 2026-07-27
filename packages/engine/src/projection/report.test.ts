@@ -112,10 +112,9 @@ describe("buildSimulationReport", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     const ids = report.assumptions.map((a) => a.id);
     // The engine's neutral simplifications must reach the consumer so the app can disclose
-    // them: the two post-tax basis ones, plus how a committed account contribution is
+    // them: the post-tax opening-basis one, plus how a committed account contribution is
     // funded. Each carries plain-language text.
     expect(ids).toContain("postTaxOpeningBasis");
-    expect(ids).toContain("convertedEquityNoBasis");
     expect(ids).toContain("contributionsNotAssetFunded");
     for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
   });

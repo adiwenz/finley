@@ -67,9 +67,11 @@ export const PLAN_DEFAULTS: Plan = {
       name: "Home down payment",
       targetCents: dollarsToCents(60000),
       targetDate: 60,
-      // Swapped into home equity via HomePurchaseEvent — an asset swap.
+      // A home-savings goal: the down payment simply accumulates and is retained in
+      // net worth. A goal no longer moves its own money out at maturity — only a
+      // timeline event does — so a savings goal needs no purchase event (#150).
       // A near-term down payment saved in a taxable brokerage.
-      disposition: "convertToEquity",
+      disposition: "retain",
       accountType: "brokerage",
       annualReturnPct: 7,
     },

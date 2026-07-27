@@ -10,7 +10,6 @@ import {
   computeGoalProgress,
   buildPlanAccounts,
   buildPlanGoals,
-  isDisposingDisposition,
   type ProjectionSeries,
 } from "@finley/engine";
 import type {
@@ -32,10 +31,6 @@ export function dispositionLabel(disposition: GoalDisposition): string {
   switch (disposition) {
     case "retain":
       return "Kept as a reserve";
-    case "convertToEquity":
-      return "Becomes home equity";
-    case "spend":
-      return "Spent at target";
     case "drawDown":
       return "Drawn down over time";
   }
@@ -104,9 +99,8 @@ export function setGoalRate(
 /**
  * The user-authorable shape of a goal — every field on {@link GoalPlan} EXCEPT its
  * stable `id`, which the plan owns (add mints a fresh one; edit keeps the old). The
- * `disposition`/`targetDate` pair is carried as the engine's {@link GoalDisposal}
- * union so an authoring form cannot construct an illegal pairing (a firing
- * disposition with no month to fire at).
+ * `disposition`/`targetDate` pair is carried as the engine's {@link GoalDisposal} so
+ * the authoring form and the engine goal keep the two fields correlated.
  */
 export type GoalDraft = {
   readonly name: string;
@@ -136,19 +130,15 @@ export const GOAL_ACCOUNT_TYPES: readonly {
 ];
 
 /**
- * Build a legal {@link GoalDisposal} from an independently-held disposition and date
- * — the shape an authoring form keeps its two controls in. A firing disposition
- * (`spend`/`convertToEquity`) MUST land on a concrete month, so a stray `"asap"`
- * collapses to month 0 rather than producing the illegal pair the engine's
- * {@link GoalDisposal} exists to forbid. Standing dispositions keep their date as-is.
+ * Build a {@link GoalDisposal} from an independently-held disposition and date — the
+ * shape an authoring form keeps its two controls in. Every disposition is purely
+ * descriptive and accepts either a concrete month or `"asap"` (#150), so the pair is
+ * assembled verbatim.
  */
 export function goalDisposal(
   disposition: GoalDisposition,
   targetDate: number | "asap",
 ): GoalDisposal {
-  if (isDisposingDisposition(disposition)) {
-    return { disposition, targetDate: targetDate === "asap" ? 0 : targetDate };
-  }
   return { disposition, targetDate };
 }
 

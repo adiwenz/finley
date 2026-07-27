@@ -125,12 +125,18 @@ describe("default simulations", () => {
     // some retirement month — the guard against regressing to a cash-funded retirement where
     // SS is barely taxed.
     expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
-    // Contrast: the default plan never taxes the benefit at all.
-    const defaultSSTaxed = project(presetById("default")).months.some((m) => {
-      const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
-      return (byCat.governmentRetirementBenefit ?? 0) > 0;
-    });
-    expect(defaultSSTaxed).toBe(false);
+    // Contrast: the default plan taxes the benefit only trivially. Its home goal is now
+    // a drawable `retain` reserve (#150), so a little taxable drawdown does reach the
+    // benefit — but nowhere near the sustained several-hundred-a-month scale the
+    // taxed-in-retirement preset is tuned for; the two regimes stay clearly distinct.
+    const defaultMaxSSTax = Math.max(
+      0,
+      ...project(presetById("default")).months.map((m) => {
+        const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
+        return byCat.governmentRetirementBenefit ?? 0;
+      }),
+    );
+    expect(defaultMaxSSTax).toBeLessThan(dollarsToCents(100));
   });
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {

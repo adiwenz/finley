@@ -183,7 +183,7 @@ function baseSourceMonthlyCents(source: AmountSource, ctx: ResolveLineContext): 
       // Deadline pace: the growth-aware sinking-fund contribution needed to reach
       // the target by the deadline (see {@link requiredContributionCents}). Past (or
       // at) the deadline there is no time left to pace, so it stops — the goal has
-      // matured and its disposition fires elsewhere. With no fund rate this degrades
+      // matured and simply holds its accumulated fund. With no fund rate this degrades
       // to the flat even spread; a positive rate leans on projected growth.
       const monthsLeft = source.targetMonth - ctx.month;
       if (monthsLeft <= 0) return 0;

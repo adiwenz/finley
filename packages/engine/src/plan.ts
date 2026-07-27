@@ -66,10 +66,9 @@ interface GoalPlanBase {
  * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
  * accumulates into its own derived fund account (`goal-<id>`).
  *
- * The `disposition`/`targetDate` pairing is the engine's {@link GoalDisposal}: a
- * disposition that fires at maturity needs a month to fire AT, so `"asap"` is rejected
- * for those. Sharing the type means the plan cannot author a goal the projection would
- * be unable to honour — it is refused where the user writes it, not where it breaks.
+ * The `disposition`/`targetDate` pairing is the engine's {@link GoalDisposal}. Both
+ * dispositions are purely descriptive (#150), so either accepts a concrete month or
+ * `"asap"`. Sharing the type keeps the plan and the sim goal from drifting apart.
  */
 export type GoalPlan = GoalPlanBase & GoalDisposal;
 

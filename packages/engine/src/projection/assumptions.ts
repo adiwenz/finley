@@ -11,7 +11,7 @@
  * and the report concatenates the two, so a US fact never leaks into the neutral
  * engine. Together they are the machine-readable disclosure the report carries.
  *
- * Scope: the two basis-related simplifications, plus how a committed account
+ * Scope: the post-tax opening-basis simplification, plus how a committed account
  * contribution is funded. It is intentionally NOT a catalog of every documented
  * engine simplification (year-boundary timing, RMD forward-projection live as code
  * comments); add to this list as more NEUTRAL model behavior warrants user-facing disclosure.
@@ -31,13 +31,6 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "(cost basis equals the opening balance, no built-in gain). Withdrawals are " +
       "taxed only on growth from today forward, so tax is understated for an account " +
       "that already holds unrealized gains.",
-  },
-  {
-    id: "convertedEquityNoBasis",
-    text:
-      "When a goal fund is converted to home equity it becomes an illiquid holding " +
-      "the projection never sells, so it carries no cost basis — a later sale of that " +
-      "equity is not modeled and its gain is not taxed.",
   },
   {
     id: "contributionsNotAssetFunded",

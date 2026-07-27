@@ -60,7 +60,7 @@ const goalA: GoalPlan = {
   name: "Goal A",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  disposition: "spend",
+  disposition: "retain",
   annualReturnPct: 0,
 };
 const goalB: GoalPlan = {
@@ -68,7 +68,7 @@ const goalB: GoalPlan = {
   name: "Goal B",
   targetCents: dollarsToCents(30000),
   targetDate: 12,
-  disposition: "spend",
+  disposition: "retain",
   annualReturnPct: 0,
 };
 
@@ -133,37 +133,27 @@ describe("goalRows — projection-based on-track %", () => {
 describe("goalRows — surfaces each goal's disposition", () => {
   it("carries the disposition and a plain-language label so the fate of the money is visible", () => {
     // The whole point: make explicit what BECOMES of a goal's money at target.
-    const equityGoal: GoalPlan = { ...goalA, id: "home", disposition: "convertToEquity" };
-    const budget = { ...baseBudget, goals: [equityGoal] };
+    const nestEggGoal: GoalPlan = { ...goalA, id: "nest", disposition: "drawDown" };
+    const budget = { ...baseBudget, goals: [nestEggGoal] };
     const rows = goalRows(budget, project(budget));
-    expect(rows[0].disposition).toBe("convertToEquity");
-    expect(rows[0].dispositionLabel).toBe("Becomes home equity");
+    expect(rows[0].disposition).toBe("drawDown");
+    expect(rows[0].dispositionLabel).toBe("Drawn down over time");
   });
 });
 
 describe("dispositionLabel", () => {
   it("maps each disposition to a plain-language fate", () => {
     expect(dispositionLabel("retain")).toBe("Kept as a reserve");
-    expect(dispositionLabel("convertToEquity")).toBe("Becomes home equity");
-    expect(dispositionLabel("spend")).toBe("Spent at target");
     expect(dispositionLabel("drawDown")).toBe("Drawn down over time");
   });
 });
 
-describe("goalDisposal — legal disposition/date pairing", () => {
-  it("keeps a standing disposition's date, including 'asap'", () => {
+describe("goalDisposal — disposition/date pairing", () => {
+  it("assembles the disposition and date verbatim, including 'asap'", () => {
+    // Both dispositions are purely descriptive (#150), so either date is kept as-is.
     expect(goalDisposal("retain", "asap")).toEqual({ disposition: "retain", targetDate: "asap" });
     expect(goalDisposal("drawDown", 24)).toEqual({ disposition: "drawDown", targetDate: 24 });
-  });
-
-  it("forces a firing disposition onto a concrete month, never 'asap'", () => {
-    // spend/convertToEquity must fire AT a month; a stray 'asap' collapses to 0
-    // so an illegal GoalDisposal pair can never be authored.
-    expect(goalDisposal("spend", 12)).toEqual({ disposition: "spend", targetDate: 12 });
-    expect(goalDisposal("convertToEquity", "asap")).toEqual({
-      disposition: "convertToEquity",
-      targetDate: 0,
-    });
+    expect(goalDisposal("retain", 12)).toEqual({ disposition: "retain", targetDate: 12 });
   });
 });
 
@@ -191,7 +181,7 @@ describe("addGoal", () => {
     const next = addGoal(goals, {
       name: "Goal C",
       targetCents: dollarsToCents(1000),
-      disposition: "spend",
+      disposition: "retain",
       targetDate: 12,
       annualReturnPct: 0,
     });
@@ -205,7 +195,7 @@ describe("addGoal", () => {
     const budget = { ...baseBudget, goals: addGoal([goalA], {
       name: "Goal C",
       targetCents: dollarsToCents(6000),
-      disposition: "spend",
+      disposition: "retain",
       targetDate: 12,
       annualReturnPct: 0,
     }) };
@@ -248,7 +238,7 @@ describe("updateGoal", () => {
       goals: updateGoal(before.goals, "a", {
         name: "Goal A",
         targetCents: dollarsToCents(15000),
-        disposition: "spend",
+        disposition: "retain",
         targetDate: 12,
         annualReturnPct: 0,
       }),
@@ -261,7 +251,7 @@ describe("updateGoal", () => {
     const next = updateGoal(goals, "missing", {
       name: "x",
       targetCents: 0,
-      disposition: "spend",
+      disposition: "retain",
       targetDate: 1,
       annualReturnPct: 0,
     });

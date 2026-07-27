@@ -28,7 +28,6 @@ import {
   allocateMonth,
   unwindUnfundedContributions,
 } from "./allocationStep";
-import { fireGoalDispositions } from "./goalSteps";
 
 // Re-exported so existing importers (and the engine barrel in index.ts) keep resolving
 // the simulator's public types through ./simulate. `SimPerson` is deliberately OMITTED:
@@ -143,7 +142,6 @@ export function simulateHousehold(
       const withdrawal = buildWithdrawalSources(
         state,
         jurisdiction,
-        month,
         nonWithdrawalSources,
         expenseCents + totalPaymentsCents,
         ctx,
@@ -207,11 +205,6 @@ export function simulateHousehold(
       ),
     );
     if (isInsolvent) priorInsolvency = true;
-
-    // Fire any goal maturing THIS month after its snapshot, so the fund reads as
-    // achieved on its target date and the disposition (spend leaves net worth /
-    // convertToEquity swaps to illiquid equity) takes hold from next month.
-    fireGoalDispositions(state, month);
   }
 
   return { months };

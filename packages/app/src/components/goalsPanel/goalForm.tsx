@@ -2,8 +2,9 @@
  * Goal authoring form — the disclosed add/edit surface for a goal
  * on the value-editing plane: a direct override, NO timeline event.
  * Holds the disposition and target date as separate controls and folds them back
- * into a legal {@link GoalDisposal} via {@link goalDisposal} on submit, so a firing
- * disposition can never be authored without a month to fire at.
+ * into a {@link GoalDisposal} via {@link goalDisposal} on submit. Both dispositions
+ * are purely descriptive (#150), so either accepts a concrete month or "as soon as
+ * possible".
  *
  * Progressive disclosure: this is rendered on demand by the panel, not
  * always open. The same form backs both add and edit — `initial` seeds it.
@@ -11,17 +12,12 @@
 
 import { useState } from "react";
 import type { GoalDisposition, GoalAccountType } from "@finley/engine";
-import { dollarsToCents, centsToDollars, isDisposingDisposition } from "@finley/engine";
+import { dollarsToCents, centsToDollars } from "@finley/engine";
 import type { GoalDraft } from "../../goalsView";
 import { goalDisposal, dispositionLabel, GOAL_ACCOUNT_TYPES } from "../../goalsView";
 import { NumInput } from "../numInput/numInput";
 
-const DISPOSITIONS: readonly GoalDisposition[] = [
-  "retain",
-  "convertToEquity",
-  "spend",
-  "drawDown",
-];
+const DISPOSITIONS: readonly GoalDisposition[] = ["retain", "drawDown"];
 
 interface GoalFormProps {
   /** Seed values (an existing goal, when editing); omitted for a blank add form. */
@@ -38,7 +34,7 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
     initial ? centsToDollars(initial.targetCents) : 0,
   );
   const [disposition, setDisposition] = useState<GoalDisposition>(
-    initial?.disposition ?? "spend",
+    initial?.disposition ?? "retain",
   );
   const [asap, setAsap] = useState(initial?.targetDate === "asap");
   const [targetMonth, setTargetMonth] = useState(
@@ -51,18 +47,13 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
     initial?.accountType ?? "cash",
   );
 
-  // A firing disposition can't be "as soon as possible" — there'd be no month to
-  // fire at. Force the date control back to a concrete month while one is selected.
-  const asapAllowed = !isDisposingDisposition(disposition);
-  const asapChecked = asap && asapAllowed;
-
   function submit() {
     onSubmit({
       name: name.trim(),
       targetCents: dollarsToCents(targetDollars),
       annualReturnPct,
       accountType,
-      ...goalDisposal(disposition, asapChecked ? "asap" : targetMonth),
+      ...goalDisposal(disposition, asap ? "asap" : targetMonth),
     });
   }
 
@@ -102,13 +93,12 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel }: GoalFormP
       <label className="field field-check">
         <input
           type="checkbox"
-          checked={asapChecked}
-          disabled={!asapAllowed}
+          checked={asap}
           onChange={(e) => setAsap(e.target.checked)}
         />
         <span className="field-label">As soon as possible</span>
       </label>
-      {!asapChecked && (
+      {!asap && (
         <NumInput
           label="Target month"
           value={targetMonth}
