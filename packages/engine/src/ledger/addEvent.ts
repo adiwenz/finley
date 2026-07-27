@@ -5,8 +5,9 @@
  * `addEvent`/`validateNewEvent` validate a candidate event's own fields and its
  * preconditions against the interpreted state before appending it. Unlike the
  * pure interpret path, this can also run *affordability* preconditions that need
- * a projection — the down-payment hard block reads projected liquid
- * balances. That projection is why these live here rather than in `interpret.ts`:
+ * a projection — a money-out event's hard block reads projected liquid balances
+ * (the down-payment block today). That projection is why these live here rather
+ * than in `interpret.ts`:
  * this module sits above the projection layer (it imports {@link buildProjection}),
  * keeping `interpret.ts` free of any projection dependency.
  */
@@ -16,58 +17,175 @@ import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
 import { contextFrom, interpretLedger, interpretToState } from "./interpret";
-import type { InterpretContext, LiquidBucket } from "./interpretState";
+import type { InterpretContext, FundingAvailability, FundingSourceBalance } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
+import {
+  resolveOrderedFundingDraw,
+  type FundingSourceState,
+  type TaxableByOwner,
+  type TaxableByCategory,
+} from "../projection/fundingDrawStep";
+import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction";
+
+// The projection's default start year (simulate.ts / report.ts hold the same local
+// constant): only bracket indexing reads it, so an off-by-a-year here is immaterial.
+const DEFAULT_START_YEAR = 2026;
 
 /**
- * The liquid buckets available at each month for the ledger *so far*, from a
- * projection: one bucket per base `liquid` account with a positive balance, largest
- * first. The down-payment hard block both SUMS these for its sourced-funds total and
- * NAMES them in its conflict message, so the stated total and the printed list are one
- * value — they can never disagree. A liquid goal fund (a cash emergency reserve) IS a
- * bucket; its whole purpose is to be reachable. Credit is a liability, never an asset
- * here, so it can never fund a down payment. The month is clamped into the horizon.
+ * The two funding questions an authoring surface asks of the ledger *so far*, both answered
+ * from ONE projection so a caller pays for it once:
  *
- * Positive-only is faithful to the full liquid position because a snapshot balance is
- * never negative: the shortfall cascade (`applyShortfallCascade`) floors the liquid
- * sink to zero and routes any deficit onto credit *before* the month is snapshotted,
- * and every other account is drawn down only through `Math.max(0, …)` guards. So the
- * summed buckets equal the full liquid total, with no hidden negative to reconcile.
+ * - `sourcesAt(month)` — the POOL: every account that could ever fund a draw, with what it
+ *   holds at that month — WHICH MAY BE NOTHING — largest first. What a source picker lists
+ *   (#156) and what a conflict message can name. Only liquid accounts qualify — a cash goal
+ *   fund included (its whole purpose is to be reachable), retirement excluded (#125), credit
+ *   never, being a liability rather than an asset — so "credit is not a funding source" holds
+ *   by construction. Membership is a property of the ACCOUNT, not of the month: what varies
+ *   with the month is only `balanceCents`, so a caller comparing two months sees an emptied
+ *   account go to $0 rather than disappear.
+ * - `availabilityAt(sourceIds, amountCents, month)` — the VERDICT for a chosen selection.
+ *
+ * The two agree by construction on what a source holds: the pool's `balanceCents` and the
+ * verdict's are the same projected number, so a picker that shows $60,500 and a gate that
+ * blocks against it can never be telling the user different stories — the gap between them is
+ * only ever the tax, which the verdict reports separately (`taxed`).
  */
-function liquidBucketsLookup(
-  ledger: Ledger,
-  base: LedgerBaseConfig,
-  jurisdiction: Jurisdiction,
-): (month: number) => readonly LiquidBucket[] {
-  // Label by id so a counted bucket reads by its account name ("Emergency fund"),
-  // falling back to the id when an account carries no label. `||` (not `??`) so an
-  // empty-string label falls back too, rather than printing a nameless "()".
-  const labelById = new Map(
-    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label || a.id]),
-  );
-  const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
-  const last = projection.months.length - 1;
-  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
-  return (month) => {
-    const m = monthAt(month);
-    if (!m) return [];
-    const buckets: LiquidBucket[] = [];
-    for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
-      const label = labelById.get(id);
-      if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
-    }
-    // Largest first: the biggest sources read first in the conflict message.
-    return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
-  };
+export interface FundingLookup {
+  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  readonly availabilityAt: (
+    sourceIds: readonly string[],
+    amountCents: number,
+    month: number,
+  ) => FundingAvailability;
 }
 
 /**
- * The add-event replay context: the base facts plus the `liquidBucketsAt` capability
- * (the liquid accounts the down-payment block sums for its total and names in its
- * message), from one projection of the ledger so far (the pre-candidate state).
- * Projection-dependent affordability checks fire only through this context.
+ * The funding-availability check for the ledger *so far*, from one projection. Given the
+ * SELECTED sources (in drain order), the amount wanted, and the month, it runs the SAME
+ * ordered gross-up the simulator uses ({@link resolveOrderedFundingDraw}) against the
+ * projected month state — draining each source, grossed up over the capital-gains tax the
+ * sale induces (differenced marginally over the owner's projected other income that month
+ * PLUS any draw already authored at that month, from `flows.taxableByOwnerAfterFundingCents`)
+ * — and reports whether the net covers the amount. Because
+ * it is the SAME resolution the sim runs, a gate built on it blocks exactly when the sim
+ * would fall short, under any tax regime.
+ *
+ * It is a question about a {@link import("./transfers").FundingDraw}, not about any one
+ * event: the Home Purchase §4.5 gate asks it of a down payment, One-Time Spend (#154) will
+ * ask it of a spend, and both get the identical answer from this one lookup. Only liquid
+ * accounts fund a draw (a cash goal fund included; credit never, being a liability), so a
+ * selected id that is not a positive-balance liquid account contributes 0 to the draw yet is
+ * still named (at balance 0) in the returned sources. The month is clamped into the horizon.
+ * Balances are positive-only — faithful to the full liquid position, because the cascade
+ * floors the liquid sink to zero before each snapshot and every other account is drawn only
+ * through `Math.max(0, …)` guards, so no hidden negative to reconcile.
+ *
+ * Exported because the authoring UI asks the same questions the gate does, and must get the
+ * same answers: the down-payment picker lists `sourcesAt(month)` and previews the block with
+ * `availabilityAt(...)`, so what it shows IS what `addEvent` will decide.
+ */
+export function fundingLookup(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  jurisdiction: Jurisdiction = nullJurisdiction,
+): FundingLookup {
+  const startYear = base.startYear ?? DEFAULT_START_YEAR;
+  // Label and withdrawal category of each LIQUID account: the label names a counted source
+  // ("Emergency fund", falling back to the id — `||`, not `??`, so an empty-string label
+  // falls back too rather than a nameless "()"); the category prices each sale's tax under
+  // its own provenance (a tax-exempt cash reserve untaxed; a taxable brokerage bears its gain).
+  const liquidAccounts = (base.initialAccounts ?? []).filter((a) => a.liquid);
+  const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
+  const ownerById = new Map(liquidAccounts.map((a) => [a.id, a.ownerId]));
+  const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
+  const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
+  const last = projection.months.length - 1;
+  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
+
+  // The pool: EVERY liquid account, carrying what it holds at the month, largest first — a
+  // stable, sensible default drain order for a picker (spend the biggest bucket first), which
+  // the user then reorders by choosing. An empty account is listed at $0 rather than omitted,
+  // so the pool's membership does not shift under a caller as the month moves: a picker can
+  // then show an account that has emptied — greyed out and unpickable — instead of having it
+  // silently vanish while an id the user chose earlier is still selected behind the scenes.
+  // Whether a listed account can actually pay is `balanceCents > 0`, the same test
+  // `availabilityAt` applies below.
+  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+    const m = monthAt(month);
+    const pool: FundingSourceBalance[] = [];
+    for (const [id, label] of labelById) {
+      pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    return pool.sort((a, b) => b.balanceCents - a.balanceCents);
+  };
+
+  const availabilityAt = (
+    sourceIds: readonly string[],
+    amountCents: number,
+    month: number,
+  ): FundingAvailability => {
+    const m = monthAt(month);
+    const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
+    // The owner's projected taxable base for this month WITH any already-authored draw at
+    // this month stacked in — the marginal context the sale's tax is differenced over, and
+    // the very map the sim exposed from this same projection. A candidate appended now is
+    // last in ledger order, so the sim will resolve it against exactly this base.
+    const taxableByOwner: TaxableByOwner = new Map();
+    const baseRecord = m?.flows?.taxableByOwnerAfterFundingCents ?? {};
+    for (const [ownerId, byCategory] of Object.entries(baseRecord)) {
+      taxableByOwner.set(ownerId, { ...(byCategory as TaxableByCategory) });
+    }
+
+    // The selected sources in drain order: name every one (balance 0 if not a liquid,
+    // positive-balance account), but only fund the draw from those that genuinely can.
+    const named: FundingSourceBalance[] = [];
+    const fundingSources: FundingSourceState[] = [];
+    for (const id of sourceIds) {
+      const label = labelById.get(id) ?? id;
+      const balance = (m?.accountBalancesCents[id] ?? 0) as number;
+      const isLiquidBucket = labelById.has(id) && balance > 0;
+      named.push({ id, label, balanceCents: isLiquidBucket ? balance : 0 });
+      if (isLiquidBucket) {
+        fundingSources.push({
+          id,
+          ownerId: ownerById.get(id) ?? "",
+          category: categoryById.get(id) ?? "capitalGains",
+          balanceCents: balance,
+          basisCents: (m?.accountBasisCents[id] ?? 0) as number,
+          label,
+        });
+      }
+    }
+
+    const { perSource, netDeliveredCents, shortfallCents } = resolveOrderedFundingDraw(
+      amountCents,
+      fundingSources,
+      jurisdiction,
+      ctx,
+      taxableByOwner,
+    );
+    // The tax actually induced, summed over the sources this draw touched — NOT inferred from
+    // "delivered less than the sources hold", which is true of any draw smaller than its
+    // sources and would call an untaxed cash draw taxed.
+    const taxCents = perSource.reduce((sum, s) => sum + s.taxCents, 0);
+    return {
+      shortfallCents,
+      availableCents: netDeliveredCents,
+      taxCents,
+      taxed: taxCents > 0,
+      sources: named,
+    };
+  };
+
+  return { sourcesAt, availabilityAt };
+}
+
+/**
+ * The add-event replay context: the base facts plus the `fundingAvailabilityAt` capability
+ * (can these sources net this amount at this month, after tax?), from one projection of the
+ * ledger so far (the pre-candidate state). Every money-out event's affordability gate — the
+ * §4.5 down-payment block today, One-Time Spend next — fires only through this.
  */
 function addEventContext(
   ledger: Ledger,
@@ -76,7 +194,7 @@ function addEventContext(
 ): InterpretContext {
   return {
     ...contextFrom(base),
-    liquidBucketsAt: liquidBucketsLookup(ledger, base, jurisdiction),
+    fundingAvailabilityAt: fundingLookup(ledger, base, jurisdiction).availabilityAt,
   };
 }
 

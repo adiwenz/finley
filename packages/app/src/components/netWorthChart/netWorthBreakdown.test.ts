@@ -21,6 +21,8 @@ function series(months: readonly MonthSpec[]): ProjectionSeries {
       netWorthNominalCents: 0,
       netWorthRealCents: 0,
       accountBalancesCents: m.accounts ?? {},
+      // Inert here: the breakdown charts balances, never the embedded gain.
+      accountBasisCents: {},
       liabilityBalancesCents: m.liabilities ?? {},
       liabilityPaymentRecords: {},
       propertyValuesCents: m.properties ?? {},

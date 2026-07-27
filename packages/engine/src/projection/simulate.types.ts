@@ -16,6 +16,7 @@ import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type { SpendingItem, SpendingSource } from "./spendingItems";
+import type { FundingDraw } from "../ledger/transfers";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -59,6 +60,13 @@ export interface ProjectionMonth {
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
+  /**
+   * Per-account cost basis at this month (post-tax principal already taxed going in),
+   * keyed like `accountBalancesCents`. The embedded, still-untaxed gain of an account is
+   * `balance − basis`. Exposed so an affordability check can price the capital-gains tax a
+   * liquidation would owe — the down-payment §4.5 gate reads it to size on down + tax.
+   */
+  readonly accountBasisCents: Readonly<Record<string, Cents>>;
   /** Balance owed on each liability at this month (positive = owed). */
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
   /**
@@ -180,6 +188,27 @@ export interface ProjectionMonthFlows {
    * deferred.
    */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * The month's taxable base, per owner, by tax category, **including the gains this month's
+   * funding draws already realized** — precisely what a FURTHER money-out draw appended at
+   * this month would be taxed on top of. That is the non-funding income (wages, benefit, RMD,
+   * the decumulation withdrawal) with each already-resolved draw's gain stacked on, in the
+   * order the simulator resolved them.
+   *
+   * The authoring §4.5 affordability gate reads it so it differences a would-be sale's
+   * capital-gains tax marginally over the same base the simulation will — including a sibling
+   * purchase in the same month. Reading the PRE-funding base here would under-price the
+   * second of two same-month draws: the gate would accept a purchase the sim then cannot
+   * fund, since the sim stacks the sibling's gain and the gate did not.
+   *
+   * Present whenever flows are (absent only at month 0); `{}` for an owner with no taxable
+   * income that month. Optional: the simulator attaches it after `buildFlows` (it is a
+   * sim-level concern, not a flow-bucketing one), so a consumer synthesising flows without it
+   * is valid — the gate reads it defensively.
+   */
+  readonly taxableByOwnerAfterFundingCents?: Readonly<
+    Readonly<Record<string, Readonly<Record<string, Cents>>>>
+  >;
   /** Non-liability expenses this month (general + health + any authored lines). */
   readonly expensesCents: Cents;
   /** Scheduled liability payments this month (mortgages, loans, card minimums). */
@@ -412,6 +441,13 @@ export interface HouseholdSimInput {
    * feeds net worth; the associated mortgage is an ordinary entry in `liabilities`.
    */
   readonly properties?: readonly SimProperty[];
+  /**
+   * Ordered, cross-account down-payment / spend draws (Home Purchase; #154 Spend).
+   * The simulator drains each `amountCents` from its `sourceIds` in order at `month`,
+   * taking as much as each holds before the next — the split is balance-dependent, so
+   * it is resolved here, not when the event is authored. Defaults to none.
+   */
+  readonly fundingDraws?: readonly FundingDraw[];
   /**
    * Funding goals — prioritized destinations in the waterfall. Shared
    * goals draw from the household pool; personal goals from their owner's leftover.

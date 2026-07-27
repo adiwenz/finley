@@ -23,7 +23,6 @@ import type {
 } from "./eventTypes";
 import type { InterpretContext, InterpretState, SeriesDef } from "./interpretState";
 import type { AccountTransfer } from "./transfers";
-import { drainSources } from "./funding";
 import {
   asAccountId,
   asChildId,
@@ -211,8 +210,13 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (!ownerExists(state, event.ownerId)) {
       return fail(event, `owner "${event.ownerId}" not found`);
     }
-    if (!context.accountIds.has(asAccountId(event.downPaymentAccountId))) {
-      return fail(event, `down-payment account "${event.downPaymentAccountId}" not found`);
+    if (event.downPaymentSourceIds.length === 0) {
+      return fail(event, `at least one down-payment source is required`);
+    }
+    for (const sourceId of event.downPaymentSourceIds) {
+      if (!context.accountIds.has(asAccountId(sourceId))) {
+        return fail(event, `down-payment source "${sourceId}" not found`);
+      }
     }
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
@@ -220,29 +224,36 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK: the down payment must be coverable from the selected liquid,
-    // sourced funds at the purchase month. `liquidBucketsAt` (present only on the
-    // authoring path) lists exactly the liquid accounts that count — never credit.
-    // The shared funding primitive drains the down payment from those sources in
-    // order; a positive shortfall means they cannot cover it. Absent a projection
-    // (ordinary replay/undo) the capability is undefined and this check is skipped.
-    const buckets = context.liquidBucketsAt?.(event.month);
-    if (buckets !== undefined) {
-      const { drained, shortfall } = drainSources(buckets, event.downPaymentCents);
-      if (shortfall > 0) {
-        // Name the buckets that WERE counted — a liquid cash goal fund is a genuine
-        // source, so a blanket "goal funds do not count" would misread the shortfall.
-        // `drained` here equals the buckets' combined balance (every source was drained
-        // dry and still fell short), so the stated total and the itemised list agree.
-        const counted =
-          buckets.length > 0
-            ? buckets.map((b) => `${b.label} (${dollars(b.balanceCents)})`).join(", ")
-            : "no liquid accounts";
-        return fail(
-          event,
-          `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(drained)} of liquid funds available at month ${event.month}. Counted toward the down payment: ${counted}. Illiquid balances — retirement and tax-exempt or pre-tax goal funds — never count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
-        );
-      }
+    // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid
+    // sources at the purchase month, NET of the capital-gains tax liquidating them owes.
+    // `fundingAvailabilityAt` (present only on the authoring path) is the shared, event-neutral
+    // question "can these sources net this amount at this month, after tax?": it runs the SAME
+    // ordered gross-up the simulator does against a projection of the ledger so far — draining
+    // the selected sources in the user's order, taxing each sale marginally over the owner's
+    // other income that month — so a positive shortfall means those sources genuinely cannot
+    // fund the purchase once the sale is taxed, and the gate blocks exactly when the sim
+    // would fall short. A selected source that is not a liquid account (illiquid, or empty)
+    // contributes 0. Absent a projection (ordinary replay/undo) the capability is undefined
+    // and this check is skipped — replay never re-litigates an already-accepted purchase.
+    const affordability = context.fundingAvailabilityAt?.(
+      event.downPaymentSourceIds,
+      event.downPaymentCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      // Name the SELECTED sources and what each holds. When capital-gains tax bit into the
+      // coverage (the sources net less than they hold), say so — otherwise the stated
+      // available total and the printed balances agree exactly, as before.
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
+      );
     }
     return ok;
   },
@@ -274,13 +285,15 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       termMonths: event.mortgageTermMonths,
       transfers: [],
     });
-    // Down payment: the paired liquid-account outflow. Property value +
-    // mortgage together equal the price, so this outflow is the only net-worth
-    // change at purchase — the purchase itself conserves net worth.
-    pushAccountTransfer(state, {
-      accountId: asAccountId(event.downPaymentAccountId),
+    // Down payment: an ordered draw across the selected liquid sources, resolved at
+    // simulation time (the per-source split is balance-dependent — see FundingDraw).
+    // Property value + mortgage together equal the price, so this outflow is the only
+    // net-worth change at purchase — the purchase itself conserves net worth.
+    state.fundingDraws.push({
       month: event.month,
-      amountCents: -event.downPaymentCents,
+      amountCents: event.downPaymentCents,
+      sourceIds: event.downPaymentSourceIds,
+      reason: "homeDownPayment",
     });
   },
 };

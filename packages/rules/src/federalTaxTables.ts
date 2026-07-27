@@ -160,6 +160,17 @@ export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
       "becomes taxable over time.",
   },
   {
+    id: "capitalGainsAllLongTerm",
+    text:
+      "Every investment sale is taxed at the long-term capital-gains rates (0%/15%/20%), " +
+      "however recently the money was invested. Real tax law charges the higher ordinary " +
+      "income rates on a gain from anything held a year or less. The plan does not track " +
+      "when each dollar went in, so a sale from an account you have been paying into " +
+      "month after month — a savings goal funding a house, say — is treated as entirely " +
+      "long-term. Wherever part of it would really be short-term, the tax shown is too " +
+      "low and the money left over too high.",
+  },
+  {
     id: "taxAttributionProportional",
     text:
       "When the tax bill is broken out — by income type, or by individual job — each " +

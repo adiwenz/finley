@@ -23,6 +23,9 @@ describe("usJurisdiction (US-2026)", () => {
     expect(ids).toContain("socialSecurityThresholdsUnindexed");
     expect(ids).toContain("taxAttributionProportional");
     expect(ids).toContain("rmdStartAge");
+    // Gains are taxed at the LONG-TERM rates with no holding period tracked, so a sale
+    // from a recently-funded account is under-taxed. Disclosed, not silently assumed.
+    expect(ids).toContain("capitalGainsAllLongTerm");
     for (const a of usJurisdiction.modelAssumptions ?? []) {
       expect(a.text.length).toBeGreaterThan(0);
     }

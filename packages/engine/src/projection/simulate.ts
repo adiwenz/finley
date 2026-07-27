@@ -22,6 +22,7 @@ import {
   advanceLiabilities,
 } from "./liabilitySteps";
 import { applyAssetTransfers, compoundAssets, advanceProperties } from "./assetSteps";
+import { resolveFundingDraws, buildTaxableByOwner, toTaxableRecord } from "./fundingDrawStep";
 import {
   buildIncomeSources,
   buildInterestAccrualSources,
@@ -148,10 +149,26 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
+      // Down-payment / one-time-spend draws (#153/#154) resolve BEFORE the tax chokepoint
+      // so an appreciated source's realized gain is actually taxed. Each selected source is
+      // grossed up over that tax and drained here (before compounding, so a drained balance
+      // does not earn this month); its net-neutral tax source rides into `allocateMonth` so
+      // the gain is charged exactly once at the single chokepoint, and its gain / returned-
+      // principal bands feed the flow view below. A cash source realizes no gain, grosses up
+      // by nothing, and conserves net worth exactly as before; an appreciated source's
+      // purchase now costs the household the tax, so net worth falls by that tax.
+      // The month's taxable base, per owner, from the non-funding income — the marginal
+      // context a down-payment gain's tax is differenced over. Exposed on the flow view so
+      // the authoring §4.5 gate differences the gain the SAME way (exact under any regime,
+      // not a flat-rate estimate); built before the draw so it is the pre-funding base.
+      const fundingBase = buildTaxableByOwner(incomeSources);
+      const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
+      const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
+
       const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
         allocateMonth(
           state,
-          incomeSources,
+          allocationSources,
           ctx,
           jurisdiction,
           expenseCents + totalPaymentsCents,
@@ -175,14 +192,18 @@ export function simulateHousehold(
       // and the spending total are both derived from it inside buildFlows.
       const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
       flows = buildFlows(
-        incomeSources,
+        // Fold in the down-payment gain bands (reporting-only: `cashInflowCents` the gain,
+        // no waterfall inflow — the tax the gain bears rode the separate net-neutral source
+        // through allocation, so appending these here reports the gain without re-taxing it).
+        [...incomeSources, ...fundingDraw.gainSources],
         taxCents,
         expenseCents,
         totalPaymentsCents,
         spendingItems,
-        // The liquid-buffer drawdown the withdrawal channel measured — reported as a
-        // `savingsDrawdown` source so a month lived on savings isn't a zero-income band.
-        withdrawal.liquidDrawdownCents,
+        // The liquid-buffer drawdown the withdrawal channel measured PLUS a down
+        // payment's returned principal (and any cash source's whole draw) — reported as
+        // one `savingsDrawdown` source so a month spent from savings isn't a zero band.
+        withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
         // The per-category tax breakdown, undefined when the jurisdiction
         // declines it — the app then draws one band, as before.
         taxByCategoryCents,
@@ -191,6 +212,12 @@ export function simulateHousehold(
         taxBySourceCents,
         deferralBySourceCents,
       );
+      // Expose the taxable base WITH this month's funding gains already stacked in, so the
+      // authoring gate prices a would-be draw exactly where the simulator would put it — on
+      // top of any sibling draw already at this month, not just the non-funding income. A
+      // newly appended event's draw is last in ledger order, hence last in this month's
+      // resolution, so this post-draw base is precisely its marginal context.
+      flows = { ...flows, taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter) };
     }
 
     months.push(

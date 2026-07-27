@@ -22,7 +22,7 @@ import type {
   SeriesId,
 } from "../ids";
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
-import type { AccountTransfer, LiabilityTransfer } from "./transfers";
+import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
 /** Membership as an explicit interval: durable authoring person, active window. */
 export interface PersonMembership {
@@ -103,6 +103,12 @@ export interface InterpretState {
   readonly liabilitiesById: Map<LiabilityId, LiabilityDef>;
   readonly propertiesById: Map<PropertyId, PropertyDef>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
+  /**
+   * Ordered, cross-account down-payment / spend draws, appended in event order. The
+   * simulator resolves each against the sources' month-M balances (they cannot be
+   * pre-split here — the split is balance-dependent, and replay carries no balances).
+   */
+  readonly fundingDraws: FundingDraw[];
 }
 
 export function freshState(): InterpretState {
@@ -113,18 +119,46 @@ export function freshState(): InterpretState {
     liabilitiesById: new Map(),
     propertiesById: new Map(),
     accountTransfersByAccountId: new Map(),
+    fundingDraws: [],
   };
 }
 
 /**
- * One liquid account's contribution to the sourced-funds total at a month: the
- * account's reporting label and its balance. The down-payment block enumerates
- * these so the conflict names exactly which buckets it counted (a liquid cash goal
- * fund included), rather than telling the user goal funds never count.
+ * One selected funding source as the availability check saw it: its reporting label and its
+ * liquid balance at the month. A conflict message enumerates these so it names exactly which
+ * sources it counted (a liquid cash goal fund included), rather than telling the user goal
+ * funds never count. A selected id that is not a liquid account (or holds nothing) is carried
+ * at balance 0 so it still names itself.
  */
-export interface LiquidBucket {
+export interface FundingSourceBalance {
+  readonly id: string;
   readonly label: string;
   readonly balanceCents: Cents;
+}
+
+/**
+ * The affordability verdict for a set of selected funding sources at a month — whether they
+ * can net a wanted amount once the capital-gains tax on liquidating them is paid. Event-
+ * neutral: the Home Purchase §4.5 down-payment gate reads it today, and any other event that
+ * funds a fixed amount from an ordered source list (One-Time Spend, #154) reads the same
+ * shape. A gate hard-blocks on a positive `shortfallCents`.
+ */
+export interface FundingAvailability {
+  /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
+  readonly shortfallCents: Cents;
+  /** What the selected sources genuinely net toward the wanted amount, after that tax. */
+  readonly availableCents: Cents;
+  /**
+   * The capital-gains tax the liquidation induces — the wedge between what the sources hold
+   * and what they deliver. Zero for cash sources (no gain over basis) and under a no-tax
+   * jurisdiction. A picker states it so the user sees why $60,500 of balances buys a $60,000
+   * house only sometimes.
+   */
+  readonly taxCents: Cents;
+  /** True when that tax is non-zero — the flag a message reads to add "after tax". */
+  readonly taxed: boolean;
+  /** The selected sources in drain order, for the conflict message. */
+  readonly sources: readonly FundingSourceBalance[];
 }
 
 /** Read-only context available to handlers during interpretation (base-provided facts). */
@@ -134,15 +168,26 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The liquid accounts (label + balance) available at a month — one bucket per
-   * base `liquid` account with a positive balance, from a projection of the ledger
-   * *so far*, descending. The down-payment hard block sums these for its sourced-funds
-   * total AND names them in its conflict message, so the total and the itemised list
-   * are one value by construction. A cash goal fund is included (it is liquid, hence a
-   * genuine source); credit never is (not a liquid asset), so "credit is not a
-   * down-payment source" holds by construction. Present only on the authoring path
-   * ({@link addEvent}); `undefined` during ordinary interpretation and undo, when
-   * handlers skip projection-dependent affordability checks.
+   * The funding-availability check every money-out event's affordability gate shares: given
+   * the SELECTED sources (in the user's drain order), the amount wanted, and the month,
+   * resolve — against a projection of the ledger *so far* — whether those sources can net
+   * that amount once the capital-gains tax on liquidating them is paid. It runs the SAME
+   * ordered gross-up the simulator uses ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}) on the same
+   * {@link import("./transfers").FundingDraw} shape, differencing each sale's tax marginally
+   * over the owner's projected other income that month, so a gate blocks exactly when the sim
+   * would fall short — under any tax regime, with no standalone-rate estimate.
+   *
+   * Deliberately event-neutral: the Home Purchase §4.5 down-payment gate is its first caller,
+   * and One-Time Spend (#154) gates on the identical question. Only liquid accounts fund a
+   * draw (a cash goal fund included; credit never, being a liability), so an illiquid or empty
+   * selected source contributes 0. Present only on the authoring path ({@link addEvent});
+   * `undefined` during ordinary interpretation and undo, when handlers skip
+   * projection-dependent checks.
    */
-  readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
+  readonly fundingAvailabilityAt?: (
+    sourceIds: readonly string[],
+    amountCents: Cents,
+    month: number,
+  ) => FundingAvailability;
 }

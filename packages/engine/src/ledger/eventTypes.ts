@@ -88,11 +88,11 @@ export interface SeparationEvent extends EventBase {
 
 /**
  * Buys a house. Property-only: creates a durable {@link Property} entity
- * with its appreciating value, originates its mortgage liability, and pays the
- * down payment as a one-time outflow from a liquid account. Does NOT touch any
- * budget item (ceasing to rent is a separate, user-authored decision). Subject
- * to the down-payment hard block. The financed mortgage balance is
- * `purchasePriceCents − downPaymentCents`.
+ * with its appreciating value, originates its mortgage liability, and drains the
+ * down payment as one-time outflows from an ordered list of liquid sources. Does
+ * NOT touch any budget item (ceasing to rent is a separate, user-authored
+ * decision). Subject to the down-payment hard block. The financed mortgage balance
+ * is `purchasePriceCents − downPaymentCents`.
  */
 export interface HomePurchaseEvent extends EventBase {
   readonly type: "HomePurchaseEvent";
@@ -100,10 +100,15 @@ export interface HomePurchaseEvent extends EventBase {
   readonly ownerId: string;
   /** The property's value at purchase — the appreciating stock's opening value. */
   readonly purchasePriceCents: Cents;
-  /** Paid at the purchase month from `downPaymentAccountId` (hard block). */
+  /** Drained at the purchase month from `downPaymentSourceIds`, in order (hard block). */
   readonly downPaymentCents: Cents;
-  /** The liquid account funding the down payment; receives the paired outflow. */
-  readonly downPaymentAccountId: string;
+  /**
+   * The liquid accounts funding the down payment, in drain order (#129/#151): the
+   * shared funding helper takes as much as each holds before moving to the next, so
+   * an early source empties before a later one is touched. Each contributing source
+   * receives its own paired outflow. Credit is never eligible (a real mortgage rule).
+   */
+  readonly downPaymentSourceIds: readonly string[];
   /** The mortgage liability this purchase originates (financed = price − down). */
   readonly mortgageLiabilityId: string;
   readonly mortgageApr: number;

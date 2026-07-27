@@ -142,7 +142,8 @@ export interface BuyHomeInput {
   readonly ownerId: PersonId;
   readonly purchasePriceCents: number;
   readonly downPaymentCents: number;
-  readonly downPaymentAccountId: string;
+  /** The liquid funding accounts drained for the down payment, in order (#129/#151). */
+  readonly downPaymentSourceIds: readonly string[];
   readonly mortgageApr: number;
   readonly mortgageTermMonths: number;
   readonly appreciationMode?: GrowthMode;
@@ -381,7 +382,7 @@ export class Projection {
         ownerId: input.ownerId,
         purchasePriceCents: input.purchasePriceCents,
         downPaymentCents: input.downPaymentCents,
-        downPaymentAccountId: input.downPaymentAccountId,
+        downPaymentSourceIds: input.downPaymentSourceIds,
         mortgageLiabilityId: `mortgage-${id}`,
         mortgageApr: input.mortgageApr,
         mortgageTermMonths: input.mortgageTermMonths,
