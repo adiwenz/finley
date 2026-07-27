@@ -2,11 +2,45 @@ import { describe, it, expect } from "vitest";
 import { computeGoalProgress, type SimGoal } from "./goal";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { simulateHousehold } from "./projection/simulate";
-import type { SimPerson } from "./projection/simulate.types";
+import type { SimPerson, ProjectionSeries } from "./projection/simulate.types";
 import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 
 const person: SimPerson = { id: "p1", name: "Alice" };
+
+/**
+ * A hand-built projection whose only moving part is the `"fund"` account balance,
+ * one entry per month — the independent source of truth for the completion scan.
+ * Every other field is inert so the test pins exactly the balance-vs-target logic.
+ */
+function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSeries {
+  return {
+    months: balancesCents.map((bal, month) => ({
+      month,
+      netWorthNominalCents: bal,
+      netWorthRealCents: bal,
+      accountBalancesCents: { fund: bal },
+      liabilityBalancesCents: {},
+      liabilityPaymentRecords: {},
+      propertyValuesCents: {},
+      isInsolvent: false,
+    })),
+  };
+}
+
+function fundGoal(overrides: Partial<SimGoal> = {}): SimGoal {
+  return {
+    id: "g",
+    name: "House",
+    targetCents: dollarsToCents(24000),
+    targetDate: 24,
+    fundAccountId: "fund",
+    priority: 1,
+    disposition: "retain",
+    scope: "shared",
+    ...overrides,
+  };
+}
 
 function account(id: string, annualRate: number, liquid = true): SimAccount {
   return new SimAccount({
@@ -107,6 +141,49 @@ describe("computeGoalProgress — projection-based on-track %", () => {
       scope: "shared",
     };
     expect(computeGoalProgress(goal, projection, [fund]).onTrackFraction).toBe(1);
+  });
+});
+
+describe("computeGoalProgress — completion (In Progress → Funded, latched)", () => {
+  it("latches Funded once the balance reaches target on/before the target date, even if a later event drains the account", () => {
+    // Reaches $24,000 at month 10, then a drain empties the account by month 20;
+    // target date is month 24. Completion must latch at the month-10 reach.
+    const balances = Array.from({ length: 25 }, (_, m) => {
+      if (m < 10) return dollarsToCents(2400 * m); // ramp to target by month 10
+      if (m < 20) return dollarsToCents(24000); // held at target
+      return 0; // drained
+    });
+    const progress = computeGoalProgress(fundGoal(), seriesFromFundBalances(balances), []);
+    expect(progress.completion).toBe("funded");
+  });
+
+  it("stays In Progress when the balance never reaches target on/before the target date", () => {
+    // Climbs but only reaches ~$15,000 of the $24,000 target by the horizon end,
+    // never crossing target on/before the month-24 date.
+    const balances = Array.from({ length: 31 }, (_, m) => dollarsToCents(500 * m));
+    const progress = computeGoalProgress(fundGoal(), seriesFromFundBalances(balances), []);
+    expect(progress.completion).toBe("inProgress");
+  });
+
+  it("does not count a target reached only AFTER the target date", () => {
+    // Balance is below target through month 24, only reaching it at month 30.
+    const balances = Array.from({ length: 31 }, (_, m) =>
+      m < 30 ? dollarsToCents(20000) : dollarsToCents(24000),
+    );
+    expect(computeGoalProgress(fundGoal(), seriesFromFundBalances(balances), []).completion).toBe(
+      "inProgress",
+    );
+  });
+
+  it("an 'asap' goal is Funded once the balance ever reaches target across the whole horizon", () => {
+    const balances = Array.from({ length: 13 }, (_, m) => dollarsToCents(2000 * m));
+    const progress = computeGoalProgress(
+      fundGoal({ targetDate: "asap" }),
+      seriesFromFundBalances(balances),
+      [],
+    );
+    // $24,000 reached at month 12 (the horizon end) → funded.
+    expect(progress.completion).toBe("funded");
   });
 });
 

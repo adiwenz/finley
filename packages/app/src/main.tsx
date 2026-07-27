@@ -7,10 +7,15 @@ import {
   summarizeSimulation,
   createProjectionBase,
   firstInsolventMonth,
+  planAccountDescriptors,
+  liabilityKindLabel,
+  SYNTHETIC_CARD_ID,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
+import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
+import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers } from "./ledgerView";
 import { planHorizonMonths, START_YEAR } from "./config";
 import { monthLabel } from "./format";
@@ -104,6 +109,25 @@ export function App() {
   );
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
+
+  // The net-worth *breakdown* chart's data. Names/order come through supported engine seams —
+  // account descriptors and the household's liabilities (labelled by kind) — never the
+  // SimAccount class, so presentation stays off the sim-construction path.
+  const breakdown = useMemo(() => {
+    // The engine's synthetic last-resort borrowing is a revolving credit card in the model, so
+    // it charts as "Credit card" debt below zero — a plan living on borrowed money (or one that
+    // runs dry in late retirement) shows that debt rather than the composition just stopping.
+    const liabilityLabels: Record<string, string> = {
+      [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
+    };
+    for (const liability of household.liabilities) {
+      liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
+    }
+    return buildNetWorthBreakdown(series, {
+      accounts: planAccountDescriptors(budget),
+      liabilityLabels,
+    });
+  }, [series, budget, household]);
 
   return (
     <>
@@ -236,6 +260,10 @@ export function App() {
 
       <div className="card">
         <DebugPanel report={report} budget={budget} />
+      </div>
+
+      <div className="card">
+        <NetWorthBreakdownChart data={breakdown} />
       </div>
     </>
   );
