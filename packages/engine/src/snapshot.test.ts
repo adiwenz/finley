@@ -434,7 +434,7 @@ function purchaseFixture(): NewLifeEvent {
     ownerId: "p1",
     purchasePriceCents: PROPERTY_PRICE,
     downPaymentCents: PROPERTY_DOWN,
-    downPaymentAccountId: "savings",
+    downPaymentSourceIds: ["savings"],
     mortgageLiabilityId: "mtg1",
     mortgageApr: 0,
     mortgageTermMonths: 360,

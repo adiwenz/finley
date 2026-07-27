@@ -22,7 +22,7 @@ import type {
   SeriesId,
 } from "../ids";
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
-import type { AccountTransfer, LiabilityTransfer } from "./transfers";
+import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
 /** Membership as an explicit interval: durable authoring person, active window. */
 export interface PersonMembership {
@@ -103,6 +103,12 @@ export interface InterpretState {
   readonly liabilitiesById: Map<LiabilityId, LiabilityDef>;
   readonly propertiesById: Map<PropertyId, PropertyDef>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
+  /**
+   * Ordered, cross-account down-payment / spend draws, appended in event order. The
+   * simulator resolves each against the sources' month-M balances (they cannot be
+   * pre-split here — the split is balance-dependent, and replay carries no balances).
+   */
+  readonly fundingDraws: FundingDraw[];
 }
 
 export function freshState(): InterpretState {
@@ -113,6 +119,7 @@ export function freshState(): InterpretState {
     liabilitiesById: new Map(),
     propertiesById: new Map(),
     accountTransfersByAccountId: new Map(),
+    fundingDraws: [],
   };
 }
 
@@ -123,6 +130,8 @@ export function freshState(): InterpretState {
  * fund included), rather than telling the user goal funds never count.
  */
 export interface LiquidBucket {
+  /** The account id — how the down-payment gate matches a bucket to a selected source. */
+  readonly id: string;
   readonly label: string;
   readonly balanceCents: Cents;
 }
@@ -134,15 +143,15 @@ export interface InterpretContext {
   /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The liquid accounts (label + balance) available at a month — one bucket per
+   * The liquid accounts (id + label + balance) available at a month — one bucket per
    * base `liquid` account with a positive balance, from a projection of the ledger
-   * *so far*, descending. The down-payment hard block sums these for its sourced-funds
-   * total AND names them in its conflict message, so the total and the itemised list
-   * are one value by construction. A cash goal fund is included (it is liquid, hence a
-   * genuine source); credit never is (not a liquid asset), so "credit is not a
-   * down-payment source" holds by construction. Present only on the authoring path
-   * ({@link addEvent}); `undefined` during ordinary interpretation and undo, when
-   * handlers skip projection-dependent affordability checks.
+   * *so far*. The down-payment hard block matches its SELECTED sources against these by
+   * id, drains them in the user's order, and names them in its conflict message, so the
+   * stated total and the itemised list are one value by construction. A cash goal fund
+   * is included (it is liquid, hence a genuine source); credit never is (not a liquid
+   * asset), so "credit is not a down-payment source" holds by construction. Present only
+   * on the authoring path ({@link addEvent}); `undefined` during ordinary interpretation
+   * and undo, when handlers skip projection-dependent affordability checks.
    */
   readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
 }

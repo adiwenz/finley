@@ -22,6 +22,7 @@ import {
   advanceLiabilities,
 } from "./liabilitySteps";
 import { applyAssetTransfers, compoundAssets, advanceProperties } from "./assetSteps";
+import { applyFundingDraws } from "./fundingDrawStep";
 import {
   buildIncomeSources,
   buildInterestAccrualSources,
@@ -166,6 +167,11 @@ export function simulateHousehold(
       unwindUnfundedContributions(state, contributions, uncoveredCents);
 
       applyAssetTransfers(state, month);
+      // Ordered down-payment / spend draws: drain the selected sources at this month
+      // (after the cascade, so the draw is not itself a fundable obligation) and collect
+      // the gain / returned-principal report bands. Runs before compounding so a drained
+      // balance does not earn this month — a discrete transfer never grows.
+      const fundingDraw = applyFundingDraws(state, month);
       compoundAssets(state, month, jurisdiction, ctx);
       advanceLiabilities(state, month, payments);
       advanceProperties(state, month);
@@ -175,14 +181,17 @@ export function simulateHousehold(
       // and the spending total are both derived from it inside buildFlows.
       const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
       flows = buildFlows(
-        incomeSources,
+        // Fold in any down-payment gain bands (reporting-only: they were never routed
+        // through allocation/tax above, so appending them here can't affect the sim).
+        [...incomeSources, ...fundingDraw.gainSources],
         taxCents,
         expenseCents,
         totalPaymentsCents,
         spendingItems,
-        // The liquid-buffer drawdown the withdrawal channel measured — reported as a
-        // `savingsDrawdown` source so a month lived on savings isn't a zero-income band.
-        withdrawal.liquidDrawdownCents,
+        // The liquid-buffer drawdown the withdrawal channel measured PLUS a down
+        // payment's returned principal (and any cash source's whole draw) — reported as
+        // one `savingsDrawdown` source so a month spent from savings isn't a zero band.
+        withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
         // The per-category tax breakdown, undefined when the jurisdiction
         // declines it — the app then draws one band, as before.
         taxByCategoryCents,

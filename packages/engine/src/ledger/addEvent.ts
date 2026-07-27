@@ -56,9 +56,11 @@ function liquidBucketsLookup(
     const buckets: LiquidBucket[] = [];
     for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
       const label = labelById.get(id);
-      if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
+      if (label !== undefined && balance > 0) buckets.push({ id, label, balanceCents: balance });
     }
-    // Largest first: the biggest sources read first in the conflict message.
+    // Largest first is a stable default; the down-payment gate re-orders the buckets it
+    // selects into the user's drain order, so this ordering only affects any consumer
+    // that reads the whole pool.
     return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
   };
 }

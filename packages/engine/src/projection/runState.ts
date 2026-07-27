@@ -13,6 +13,7 @@ import type { BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
+import type { FundingDraw } from "../ledger/transfers";
 
 /**
  * The resolved, mutable state a single `simulateHousehold` run threads through
@@ -67,6 +68,13 @@ export interface SimState {
   readonly liabilityBalances: Map<string, Cents>;
   /** Owned properties, seeded from the resolved input; only their values move each month. */
   readonly properties: readonly SimProperty[];
+  /**
+   * Ordered, cross-account down-payment / spend draws, resolved per month by
+   * {@link import("./fundingDrawStep").applyFundingDraws}: it drains each from its
+   * sources in order, reducing balances and returning basis, and reports the gain vs.
+   * returned principal. Fixed for the whole run.
+   */
+  readonly fundingDraws: readonly FundingDraw[];
   /** Authoritative, mutable current value of each property — updated by advanceProperties. */
   readonly propertyValues: Map<string, Cents>;
   /** Every person who appears as an income owner or roster member — waterfall pools. */
@@ -199,6 +207,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     liabilityBalances,
     properties,
     propertyValues,
+    fundingDraws: input.fundingDraws ?? [],
     personIds,
     goals: [...(input.goals ?? [])],
     contributionLines: input.contributionLines ?? [],

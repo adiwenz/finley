@@ -72,8 +72,10 @@ export function HomePurchaseForm({
       ownerId: "p1",
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
-      // The base plan seeds a single liquid account, "savings" (projectionBase).
-      downPaymentAccountId: "savings",
+      // The base plan seeds a single liquid account, "savings" (projectionBase). The
+      // ordered multi-source picker is #156; today the down payment drains that one
+      // account, expressed as a single-source list.
+      downPaymentSourceIds: ["savings"],
       mortgageLiabilityId: `mortgage-${nextId}`,
       mortgageApr: draft.apr / 100,
       mortgageTermMonths: draft.termYears * 12,

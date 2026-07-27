@@ -14,7 +14,7 @@ import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
 import type { Child, SeriesRole } from "./eventTypes";
-import type { AccountTransfer, LiabilityTransfer } from "./transfers";
+import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
 export interface HouseholdMembership {
   /**
@@ -128,4 +128,9 @@ export interface Household {
   readonly liabilities: readonly HouseholdLiability[];
   readonly properties: readonly HouseholdProperty[];
   readonly accountTransfers: readonly AccountTransfer[];
+  /**
+   * Ordered, cross-account down-payment / spend draws — resolved against source
+   * balances at the sim boundary, not here (the split is balance-dependent).
+   */
+  readonly fundingDraws: readonly FundingDraw[];
 }

@@ -214,6 +214,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     liabilities,
     properties,
     accountTransfers: [...state.accountTransfersByAccountId.values()].flat(),
+    fundingDraws: [...state.fundingDraws],
   };
 }
 

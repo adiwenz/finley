@@ -48,7 +48,7 @@ function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
     ownerId: "p1",
     purchasePriceCents: PRICE,
     downPaymentCents: DOWN,
-    downPaymentAccountId: "savings",
+    downPaymentSourceIds: ["savings"],
     mortgageLiabilityId: "mtg1",
     mortgageApr: 0,
     mortgageTermMonths: 360,
@@ -222,43 +222,45 @@ function baseWithGoalFund(
   };
 }
 
-describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
-  it("lets a liquid emergency reserve cover the gap savings alone cannot", () => {
-    // $30k savings + $40k cash emergency fund = $70k liquid ≥ $60k down.
+const BOTH_SOURCES = ["savings", "goal-emergency"];
+
+describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", () => {
+  it("lets a selected liquid emergency reserve cover the gap savings alone cannot", () => {
+    // $30k savings + $40k cash emergency fund = $70k liquid ≥ $60k down, both selected.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 4_000_000,
       liquid: true,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(true);
   });
 
-  it("names the liquid goal buckets it counted when the gate still blocks", () => {
+  it("names the selected goal buckets it counted when the gate still blocks", () => {
     // $30k savings + $20k cash emergency fund = $50k liquid < $60k down.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 2_000_000,
       liquid: true,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // A liquid goal fund WAS counted, so the message must name it — not claim that
-      // goal funds categorically do not count toward a down payment.
+      // A selected liquid goal fund WAS counted, so the message must name it.
       expect(result.conflict).toContain("Emergency fund");
-      expect(result.conflict).toContain("$50,000"); // the counted liquid total
+      expect(result.conflict).toContain("$50,000"); // the counted selected total
     }
   });
 
-  it("still excludes an illiquid goal fund from the down-payment gate", () => {
-    // $30k savings + $40k ILLIQUID goal fund → only $30k counts, so the gate blocks.
+  it("still excludes an illiquid goal fund even when it is selected", () => {
+    // $30k savings + $40k ILLIQUID goal fund → the illiquid one contributes 0, so only
+    // $30k counts and the gate blocks despite both being selected.
     const base = baseWithGoalFund(3_000_000, {
       label: "Retirement top-up",
       cents: 4_000_000,
       liquid: false,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
   });
 
@@ -266,7 +268,7 @@ describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
     // An empty-string label must fall back to the id ("goal-emergency"), not print a
     // nameless "()". $30k savings + $15k = $45k < $60k, so the gate blocks and lists both.
     const base = baseWithGoalFund(3_000_000, { label: "", cents: 1_500_000, liquid: true });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflict).toContain("goal-emergency ($15,000)");
@@ -275,15 +277,15 @@ describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
   });
 
   it("states a total that equals the sum of the buckets it lists", () => {
-    // The stated "$Y of liquid funds" is derived from the same buckets the message
-    // itemises, so the two can never disagree. $30k savings + $15k emergency = $45k,
-    // and the message names each bucket at exactly the amounts that sum to $45k.
+    // The stated "$Y available" is derived from the same buckets the message itemises,
+    // so the two can never disagree. $30k savings + $15k emergency = $45k, and the
+    // message names each selected bucket at exactly the amounts that sum to $45k.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 1_500_000,
       liquid: true,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflict).toContain("$45,000"); // the stated total
@@ -304,5 +306,171 @@ describe("removeEvent — HomePurchaseEvent", () => {
       expect(household.properties).toHaveLength(0);
       expect(household.liabilities).toHaveLength(0);
     }
+  });
+});
+
+// ─── Ordered multi-source down payment (#129/#151/#153) ──────────────────────
+// The down payment drains an ORDERED list of sources: the shared funding helper
+// takes as much as each holds before moving to the next, so an early source empties
+// before a later one is touched. Each contributing source receives its own outflow.
+
+/** A liquid asset account with an id, opening balance, rate, and optional label. */
+function liquidAcct(id: string, openingCents: number, rate = 0, label?: string): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    ...(label !== undefined ? { label } : {}),
+    liquid: true,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: rate,
+  });
+}
+
+function baseWithAccounts(accounts: SimAccount[], inflation = 0): LedgerBaseConfig {
+  return {
+    horizonMonths: 24,
+    annualInflationRate: inflation,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: accounts,
+  };
+}
+
+describe("HomePurchaseEvent — ordered multi-source down payment", () => {
+  it("drains sources in order: the first empties before the second is touched", () => {
+    // $40k savings + $40k brokerage, $60k down, ordered [savings, brokerage].
+    // Savings empties ($40k), the remaining $20k comes from brokerage.
+    const base = baseWithAccounts([
+      liquidAcct("savings", 4_000_000),
+      liquidAcct("brokerage", 4_000_000),
+    ]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 3, downPaymentSourceIds: ["savings", "brokerage"] }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // Before the purchase: both accounts untouched, $80k liquid.
+    expect(series.months[2].accountBalancesCents.savings).toBe(4_000_000);
+    expect(series.months[2].accountBalancesCents.brokerage).toBe(4_000_000);
+    const netBefore = series.months[2].netWorthNominalCents;
+
+    // At the purchase month: savings drained dry, brokerage down by the $20k remainder,
+    // so two distinct sources funded the down payment — not one over-drawn account.
+    const m3 = series.months[3];
+    expect(m3.accountBalancesCents.savings).toBe(0);
+    expect(m3.accountBalancesCents.brokerage).toBe(2_000_000);
+    // The purchase conserves net worth (property + mortgage = price; the draws are the
+    // only net move, and they sum to the down payment across the two sources).
+    expect(m3.netWorthNominalCents).toBe(netBefore);
+  });
+
+  it("respects the drain order — reversing the sources reverses which one empties", () => {
+    const base = baseWithAccounts([
+      liquidAcct("savings", 4_000_000),
+      liquidAcct("brokerage", 4_000_000),
+    ]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 3, downPaymentSourceIds: ["brokerage", "savings"] }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const m3 = series.months[3];
+    // Brokerage now drains first (empties); savings keeps the $20k remainder.
+    expect(m3.accountBalancesCents.brokerage).toBe(0);
+    expect(m3.accountBalancesCents.savings).toBe(2_000_000);
+  });
+
+  it("hard-blocks a multi-source shortfall, naming every selected source and the total", () => {
+    // $30k savings + $20k brokerage = $50k < $60k down: the combined selected balance
+    // falls short, so the gate blocks and itemises both selected sources.
+    const base = baseWithAccounts([
+      liquidAcct("savings", 3_000_000),
+      liquidAcct("brokerage", 2_000_000, 0, "Brokerage"),
+    ]);
+    const result = addEvent(
+      emptyLedger,
+      base,
+      purchase({ month: 1, downPaymentSourceIds: ["savings", "brokerage"] }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("$60,000"); // the down payment
+      expect(result.conflict).toContain("$50,000"); // combined selected balance
+      expect(result.conflict).toContain("savings ($30,000)");
+      expect(result.conflict).toContain("Brokerage ($20,000)");
+    }
+  });
+});
+
+// ─── Down-payment draw reporting (#122-consistent) ───────────────────────────
+// The draw converts a liquid asset into home equity (net worth conserved), but it
+// still surfaces in the diagnostic flow view: a cash source's whole draw as a savings
+// drawdown, an investment source's realized GAIN as capital-gains income and its
+// returned PRINCIPAL as a savings drawdown.
+
+describe("HomePurchaseEvent — down-payment draw reporting", () => {
+  it("reports a cash-funded draw as a savings drawdown, with no capital gain", () => {
+    // $80k cash savings (0% growth → basis == balance, no embedded gain). A $60k down
+    // payment is pure returned principal: it reports as a savings drawdown, nothing as
+    // capital gains.
+    const base = baseWithAccounts([liquidAcct("savings", 8_000_000)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({ month: 3, downPaymentSourceIds: ["savings"] }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const flows = series.months[3].flows;
+    expect(flows).toBeDefined();
+
+    const drawdown = flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
+    expect(drawdown?.cashInflowCents).toBe(DOWN);
+    // No capital-gains band — a zero-growth cash account has no gain to realize.
+    expect(flows!.incomeSources.some((s) => s.category === "capitalGains")).toBe(false);
+    // A drawdown is spending an asset, not income: it stays out of the income total.
+    expect(flows!.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+  });
+
+  it("splits an investment-funded draw into capital-gains income and returned principal", () => {
+    // A brokerage grown 12 months at 12%/yr carries an embedded gain over its cost
+    // basis (its $50k opening). A $40k draw realizes the gain as capital-gains income
+    // and returns the rest as principal (a savings drawdown); the two sum to the draw.
+    const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.12)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      purchase({
+        month: 12,
+        purchasePriceCents: 20_000_000,
+        downPaymentCents: 4_000_000,
+        downPaymentSourceIds: ["brokerage"],
+      }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // The balance the draw sees is the end-of-month-11 balance (the draw runs before
+    // month 12 compounds); basis is the untouched $50k opening (rate growth adds none).
+    const balanceAtDraw = series.months[11].accountBalancesCents.brokerage;
+    const basis = 5_000_000;
+    const expectedPrincipal = Math.round(4_000_000 * (basis / balanceAtDraw));
+    const expectedGain = 4_000_000 - expectedPrincipal;
+    expect(expectedGain).toBeGreaterThan(0); // there genuinely is an embedded gain
+
+    const flows = series.months[12].flows;
+    expect(flows).toBeDefined();
+    const gainBand = flows!.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
+    expect(gainBand?.category).toBe("capitalGains");
+    expect(gainBand?.cashInflowCents).toBe(expectedGain);
+
+    const drawdown = flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
+    expect(drawdown?.cashInflowCents).toBe(expectedPrincipal);
+
+    // Conserved: the two bands sum to the whole draw.
+    expect((gainBand?.cashInflowCents ?? 0) + (drawdown?.cashInflowCents ?? 0)).toBe(4_000_000);
+    // The gain is genuine capital-gains income in the rollup; the principal is not.
+    expect(flows!.incomeByCategoryCents.capitalGains).toBe(expectedGain);
   });
 });

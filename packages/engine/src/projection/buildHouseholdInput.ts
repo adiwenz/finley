@@ -128,6 +128,9 @@ export function buildHouseholdSimInput(
     expenseSeries,
     liabilities: liabilities.length > 0 ? liabilities : undefined,
     properties: properties.length > 0 ? properties : undefined,
+    // Ordered down-payment / spend draws — the simulator resolves each against the
+    // source balances at its month (the per-source split is balance-dependent).
+    fundingDraws: household.fundingDraws.length > 0 ? household.fundingDraws : undefined,
     // Waterfall config lives on the value-editing surface, not the
     // ledger, so it rides along on the base rather than being derived from events.
     goals: base.goals,

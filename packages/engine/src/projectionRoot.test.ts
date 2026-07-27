@@ -188,7 +188,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
         ownerId: P1,
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
-        downPaymentAccountId: "savings",
+        downPaymentSourceIds: ["savings"],
         mortgageApr: 6,
         mortgageTermMonths: 360,
       }),
