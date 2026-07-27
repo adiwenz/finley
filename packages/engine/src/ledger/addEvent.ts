@@ -16,36 +16,57 @@ import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
 import { contextFrom, interpretLedger, interpretToState } from "./interpret";
-import type { InterpretContext } from "./interpretState";
+import type { InterpretContext, LiquidBucket } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 
 /**
- * Liquid funds available at each month for the ledger *so far*, summed across the
- * base's `liquid` accounts from a projection. This is the sourced-funds figure the
- * down-payment hard block checks against; credit is a liability, never an
- * asset here, so it can never fund a down payment. The month is clamped into the
- * projection horizon.
+ * Liquid funds available at each month for the ledger *so far*, from a projection:
+ * both the total (`balanceAt`, the sourced-funds figure the down-payment hard block
+ * checks against) and the per-account breakdown (`bucketsAt`, so the block can name
+ * which buckets it counted). Both read the SAME `liquid` accounts and share ONE
+ * projection. Credit is a liability, never an asset here, so it can never fund a down
+ * payment. A liquid goal fund (a cash emergency reserve) IS counted — its whole
+ * purpose is to be reachable. The month is clamped into the projection horizon.
  */
-function liquidBalanceLookup(
+function liquidLookups(
   ledger: Ledger,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
-): (month: number) => number {
-  const liquidIds = new Set(
-    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => a.id),
+): {
+  balanceAt: (month: number) => number;
+  bucketsAt: (month: number) => readonly LiquidBucket[];
+} {
+  // Label by id so a counted bucket reads by its account name ("Emergency fund"),
+  // falling back to the id when an account carries no label.
+  const labelById = new Map(
+    (base.initialAccounts ?? []).filter((a) => a.liquid).map((a) => [a.id, a.label ?? a.id]),
   );
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
-  return (month) => {
-    const m = projection.months[Math.max(0, Math.min(month, last))];
-    if (!m) return 0;
-    let sum = 0;
-    for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
-      if (liquidIds.has(id)) sum += balance;
-    }
-    return sum;
+  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
+  return {
+    balanceAt: (month) => {
+      const m = monthAt(month);
+      if (!m) return 0;
+      let sum = 0;
+      for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
+        if (labelById.has(id)) sum += balance;
+      }
+      return sum;
+    },
+    bucketsAt: (month) => {
+      const m = monthAt(month);
+      if (!m) return [];
+      const buckets: LiquidBucket[] = [];
+      for (const [id, balance] of Object.entries(m.accountBalancesCents)) {
+        const label = labelById.get(id);
+        if (label !== undefined && balance > 0) buckets.push({ label, balanceCents: balance });
+      }
+      // Largest first: the biggest sources read first in the conflict message.
+      return buckets.sort((a, b) => b.balanceCents - a.balanceCents);
+    },
   };
 }
 
@@ -59,9 +80,11 @@ function addEventContext(
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): InterpretContext {
+  const liquid = liquidLookups(ledger, base, jurisdiction);
   return {
     ...contextFrom(base),
-    liquidBalanceAt: liquidBalanceLookup(ledger, base, jurisdiction),
+    liquidBalanceAt: liquid.balanceAt,
+    liquidBucketsAt: liquid.bucketsAt,
   };
 }
 

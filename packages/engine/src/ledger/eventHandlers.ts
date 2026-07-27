@@ -225,9 +225,16 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     // down payment. Absent a projection (ordinary replay/undo) this check is skipped.
     const liquid = context.liquidBalanceAt?.(event.month);
     if (liquid !== undefined && liquid < event.downPaymentCents) {
+      // Name the buckets that WERE counted — a liquid cash goal fund is a genuine
+      // source, so a blanket "goal funds do not count" would misread the shortfall.
+      const buckets = context.liquidBucketsAt?.(event.month) ?? [];
+      const counted =
+        buckets.length > 0
+          ? buckets.map((b) => `${b.label} (${dollars(b.balanceCents)})`).join(", ")
+          : "no liquid accounts";
       return fail(
         event,
-        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Only liquid accounts count toward a down payment — goal funds, retirement and brokerage balances do not, so total net worth can be well above the down payment while this still fails. Credit is never a valid source.`,
+        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(liquid)} of liquid funds available at month ${event.month}. Counted toward the down payment: ${counted}. Illiquid balances — retirement and tax-exempt or pre-tax goal funds — never count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
       );
     }
     return ok;

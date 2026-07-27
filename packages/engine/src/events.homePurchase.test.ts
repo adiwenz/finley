@@ -183,6 +183,78 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
   });
 });
 
+// ─── §4.5 gate — liquid goal funds (the cash emergency reserve) are sources ──────
+// Issue #105: a goal held as cash (the "liquid reserve" emergency fund) lands in a
+// liquid account, so it IS a sourced down-payment fund. The gate must count it, and
+// the block message must name which buckets it counted rather than telling the user
+// "goal funds do not count" — a claim the model contradicts the moment a cash goal exists.
+
+/** A goal's fund account; liquid when the goal is held as cash (the emergency reserve). */
+function goalFund(id: string, label: string, openingCents: number, liquid: boolean): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    label,
+    liquid,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: 0,
+  });
+}
+
+function baseWithGoalFund(
+  savingsCents: number,
+  goal: { label: string; cents: number; liquid: boolean },
+): LedgerBaseConfig {
+  return {
+    horizonMonths: 24,
+    annualInflationRate: 0,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [savings(savingsCents), goalFund("goal-emergency", goal.label, goal.cents, goal.liquid)],
+  };
+}
+
+describe("HomePurchaseEvent — §4.5 gate counts liquid goal funds", () => {
+  it("lets a liquid emergency reserve cover the gap savings alone cannot", () => {
+    // $30k savings + $40k cash emergency fund = $70k liquid ≥ $60k down.
+    const base = baseWithGoalFund(3_000_000, {
+      label: "Emergency fund",
+      cents: 4_000_000,
+      liquid: true,
+    });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(true);
+  });
+
+  it("names the liquid goal buckets it counted when the gate still blocks", () => {
+    // $30k savings + $20k cash emergency fund = $50k liquid < $60k down.
+    const base = baseWithGoalFund(3_000_000, {
+      label: "Emergency fund",
+      cents: 2_000_000,
+      liquid: true,
+    });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // A liquid goal fund WAS counted, so the message must name it — not claim that
+      // goal funds categorically do not count toward a down payment.
+      expect(result.conflict).toContain("Emergency fund");
+      expect(result.conflict).toContain("$50,000"); // the counted liquid total
+    }
+  });
+
+  it("still excludes an illiquid goal fund from the down-payment gate", () => {
+    // $30k savings + $40k ILLIQUID goal fund → only $30k counts, so the gate blocks.
+    const base = baseWithGoalFund(3_000_000, {
+      label: "Retirement top-up",
+      cents: 4_000_000,
+      liquid: false,
+    });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("removeEvent — HomePurchaseEvent", () => {
   it("removes the property and its mortgage together", () => {
     const base = baseWith(10_000_000);

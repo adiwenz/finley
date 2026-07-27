@@ -116,6 +116,17 @@ export function freshState(): InterpretState {
   };
 }
 
+/**
+ * One liquid account's contribution to the sourced-funds total at a month: the
+ * account's reporting label and its balance. The down-payment block enumerates
+ * these so the conflict names exactly which buckets it counted (a liquid cash goal
+ * fund included), rather than telling the user goal funds never count.
+ */
+export interface LiquidBucket {
+  readonly label: string;
+  readonly balanceCents: Cents;
+}
+
 /** Read-only context available to handlers during interpretation (base-provided facts). */
 export interface InterpretContext {
   /** Account ids known to exist (from base config) — validates payoff targets. */
@@ -131,4 +142,12 @@ export interface InterpretContext {
    * so "credit is not a down-payment source" holds by construction.
    */
   readonly liquidBalanceAt?: (month: number) => Cents;
+  /**
+   * The liquid accounts (label + balance) that make up {@link liquidBalanceAt} at a
+   * month, positive balances only, descending. Paired with `liquidBalanceAt` and
+   * present on the same authoring path: it lets the down-payment block *name* the
+   * buckets it counted — including a cash goal fund, which is liquid and therefore a
+   * genuine source — instead of a blanket, now-false "goal funds do not count".
+   */
+  readonly liquidBucketsAt?: (month: number) => readonly LiquidBucket[];
 }
