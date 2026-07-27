@@ -18,7 +18,13 @@ import {
   TAX_EXEMPT_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
 } from "./index";
-import { createProjectionBase, type ProjectionContext } from "./projectionBase";
+import {
+  createProjectionBase,
+  buildPlanAccounts,
+  planAccountDescriptors,
+  goalFundAccountId,
+  type ProjectionContext,
+} from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, salariedJob } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
@@ -361,5 +367,30 @@ describe("createProjectionBase — health as its own additive, growing expense",
     const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, noCoverage);
     const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, noCoverage);
     expect(enrolled).toBe(selfFunded);
+  });
+});
+
+describe("planAccountDescriptors — presentation metadata that agrees with buildPlanAccounts", () => {
+  it("matches buildPlanAccounts on id, label, and order (the shared source of truth)", () => {
+    const plan: Plan = { ...samplePlan };
+    const descriptors = planAccountDescriptors(plan);
+    const accounts = buildPlanAccounts(plan);
+    // Same ids, same order.
+    expect(descriptors.map((d) => d.id)).toEqual(accounts.map((a) => a.id));
+    // Same labels — so a name can't drift between the sim account and its descriptor.
+    for (const d of descriptors) {
+      expect(d.label).toBe(accounts.find((a) => a.id === d.id)?.label);
+    }
+  });
+
+  it("names the standing accounts and one goal fund per goal, by the goal's name", () => {
+    const plan: Plan = { ...samplePlan };
+    const descriptors = planAccountDescriptors(plan);
+    const standing = descriptors.filter((d) => d.kind !== "goal");
+    expect(standing.map((d) => d.kind)).toEqual(["cash", "retirement", "brokerage"]);
+    for (const goal of plan.goals) {
+      const band = descriptors.find((d) => d.id === goalFundAccountId(goal));
+      expect(band).toEqual({ id: goalFundAccountId(goal), label: goal.name, kind: "goal" });
+    }
   });
 });

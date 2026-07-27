@@ -52,6 +52,13 @@ const SAVINGS_ID = "savings";
 export const RETIREMENT_ID = "retirement";
 const BROKERAGE_ID = "brokerage";
 
+// Display labels for the standing accounts — the single source both the SimAccount
+// builder ({@link buildPlanAccounts}) and the presentation descriptors
+// ({@link planAccountDescriptors}) read, so a name can't drift between the two.
+const SAVINGS_LABEL = "Cash savings";
+const RETIREMENT_LABEL = "Retirement account";
+const BROKERAGE_LABEL = "Brokerage";
+
 /**
  * The standing accounts a budget **contribution** line may pay into, with their
  * portable {@link TaxTreatment}. Only **post-tax** targets: a contribution is funded out
@@ -120,7 +127,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: SAVINGS_ID,
       ownerId: PRIMARY_PERSON_ID,
-      label: "Cash savings",
+      label: SAVINGS_LABEL,
       liquid: true,
       // A cash buffer, not an investment: money went in post-tax and comes out
       // untaxed. It carried a capital-gains profile, which was wrong on its face and
@@ -136,7 +143,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: RETIREMENT_ID,
       ownerId: PRIMARY_PERSON_ID,
-      label: "Retirement account",
+      label: RETIREMENT_LABEL,
       liquid: false,
       taxProfile: PRE_TAX_TAX_PROFILE,
       openingBalanceCents: 0,
@@ -145,7 +152,7 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     new SimAccount({
       id: BROKERAGE_ID,
       ownerId: PRIMARY_PERSON_ID,
-      label: "Brokerage",
+      label: BROKERAGE_LABEL,
       liquid: false,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
       openingBalanceCents: 0,
@@ -172,6 +179,36 @@ export function buildPlanAccounts(budget: Plan): SimAccount[] {
     );
   }
   return accounts;
+}
+
+/** The kind of standing account a descriptor names — presentation grouping, not tax shape. */
+export type PlanAccountKind = "cash" | "retirement" | "brokerage" | "goal";
+
+/** A plan account as presentation metadata: its stable id, display label, and kind. */
+export interface PlanAccountDescriptor {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: PlanAccountKind;
+}
+
+/**
+ * The plan's accounts as lightweight presentation metadata — id, label, and kind — in the
+ * SAME order and with the SAME ids/labels as {@link buildPlanAccounts}, but without
+ * constructing simulation objects. This is the app's supported way to name and order a
+ * plan's accounts (a cash/brokerage/retirement standing account, then one goal fund per goal
+ * by its goal name); the UI reads it instead of the `SimAccount` instances, so presentation
+ * never depends on the sim-construction path and account ids are never hardcoded in the app.
+ */
+export function planAccountDescriptors(budget: Plan): PlanAccountDescriptor[] {
+  const descriptors: PlanAccountDescriptor[] = [
+    { id: SAVINGS_ID, label: SAVINGS_LABEL, kind: "cash" },
+    { id: RETIREMENT_ID, label: RETIREMENT_LABEL, kind: "retirement" },
+    { id: BROKERAGE_ID, label: BROKERAGE_LABEL, kind: "brokerage" },
+  ];
+  for (const goal of budget.goals) {
+    descriptors.push({ id: goalFundAccountId(goal), label: goal.name, kind: "goal" });
+  }
+  return descriptors;
 }
 
 /**
