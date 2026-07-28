@@ -240,7 +240,10 @@ export function BaseAdjustmentsPanel({
     setPending(null);
   }, [plan, retirementMonth, setLines]);
 
-  const horizonMonths = spendingChartData.rows.length;
+  // `length - 1`: every row is a processed month now (the opening snapshot left the array), so
+  // the last selectable month is the last INDEX, not the count. Clamping to the count would
+  // point the editor one month past the horizon, at no row at all.
+  const lastMonth = Math.max(0, spendingChartData.rows.length - 1);
 
   const editActions: SpendingEditActions = {
     onStage: stageEdit,
@@ -280,7 +283,7 @@ export function BaseAdjustmentsPanel({
           <NumInput
             label="Month"
             value={selectedMonth}
-            onChange={(m) => selectMonth(Math.max(0, Math.min(horizonMonths, Math.round(m))))}
+            onChange={(m) => selectMonth(Math.max(0, Math.min(lastMonth, Math.round(m))))}
           />
         </div>
 

@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, toAxisX } from "../monthAxis";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
@@ -34,18 +35,17 @@ export function NetWorthChart({
   series: ProjectionSeries;
   retirementMonth?: number | null;
 }) {
-  // The x-axis is "months from now": `opening` (today) plots at 0 and each processed month at
-  // `month + 1`. The shift keeps today and end-of-month-0 — a genuine month apart — from
-  // collapsing onto x=0, where the line between them would read as a vertical rendering
-  // artifact rather than a real step.
+  // The shared months-from-now axis: `opening` (today) at TODAY_X, each processed month at
+  // `toAxisX(m.month)`. See {@link import("../monthAxis")} for why the shift exists and why
+  // every projection chart draws on it.
   const data: Point[] = [
     {
-      month: 0,
+      month: TODAY_X,
       nominalCents: series.opening.netWorthNominalCents,
       realCents: series.opening.netWorthRealCents,
     },
     ...series.months.map((m) => ({
-      month: m.month + 1,
+      month: toAxisX(m.month),
       nominalCents: m.netWorthNominalCents,
       realCents: m.netWorthRealCents,
     })),
@@ -111,8 +111,7 @@ export function NetWorthChart({
           <ReferenceLine y={0} stroke="#c9bfa5" />
           {retirementMonth != null && (
             <ReferenceLine
-              // +1 to match the data's months-from-now axis (processed month M plots at M+1).
-              x={retirementMonth + 1}
+              x={toAxisX(retirementMonth)}
               stroke={AMBER}
               strokeDasharray="4 4"
               label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
@@ -123,13 +122,7 @@ export function NetWorthChart({
               value == null ? "—" : formatDollars(Number(value)),
               name,
             ]}
-            // x=0 is `opening` — net worth as it stands right now, before any flow. Every
-            // later x is the END of processed month x−1, one month further out.
-            labelFormatter={(label) =>
-              Number(label) === 0
-                ? "Today · net worth now"
-                : `End of month ${Number(label) - 1} · ${monthLabel(Number(label) - 1)}`
-            }
+            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
             contentStyle={{ fontSize: 12 }}
           />
           <Area

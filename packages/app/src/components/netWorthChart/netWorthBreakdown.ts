@@ -50,6 +50,13 @@ export interface BreakdownMonthRow {
 }
 
 export interface NetWorthBreakdownData {
+  /**
+   * Balances as they stand NOW, before any flow — {@link
+   * import("@finley/engine").ProjectionSeries.opening} in the same band shape as a row. This
+   * is a balance sheet, so "today" is a real column: the chart draws it at the axis' reserved
+   * today slot, one month left of `rows[0]`'s end-of-month-0.
+   */
+  readonly opening: BreakdownMonthRow;
   readonly rows: readonly BreakdownMonthRow[];
   /**
    * Every band non-zero at some month, ordered accounts (in the meta's order) → properties →
@@ -112,9 +119,8 @@ export function buildNetWorthBreakdown(
   // Which ids ever hold a non-zero value — the drop-if-always-zero filter for the bands.
   const nonZero = new Set<string>();
 
-  for (const m of series.months) {
-    if (m.isInsolvent) break;
-
+  /** One month's three balance maps folded into a band row, registering ids as it goes. */
+  const rowFor = (m: ProjectionSeries["opening"]): BreakdownMonthRow => {
     const centsById: Record<string, number> = {};
     const collect = (source: Readonly<Record<string, number>>, into: Set<string>) => {
       for (const [id, cents] of Object.entries(source)) {
@@ -126,7 +132,17 @@ export function buildNetWorthBreakdown(
     collect(m.accountBalancesCents, accountIds);
     collect(m.propertyValuesCents, propertyIds);
     collect(m.liabilityBalancesCents, liabilityIds);
-    rows.push({ month: m.month, centsById });
+    return { month: m.month, centsById };
+  };
+
+  // Opening first, so a band that exists TODAY but is gone by month 0 — a savings account a
+  // Year-0 purchase drains outright — still earns its band rather than being dropped as
+  // always-zero and leaving a hole in the today column.
+  const opening = rowFor(series.opening);
+
+  for (const m of series.months) {
+    if (m.isInsolvent) break;
+    rows.push(rowFor(m));
   }
 
   // Meta-ordered accounts first, then any series-only account ids (defensive — the sim runs
@@ -149,11 +165,15 @@ export function buildNetWorthBreakdown(
 
   const bands = [...accountBands, ...propertyBands, ...liabilityBands];
   const lastRow = rows[rows.length - 1];
+  // Today is a charted point, so it competes for the peak — for a plan that decumulates from
+  // day one, "now" IS the high-water mark, and reporting month 0's slightly lower figure
+  // would be a number the chart visibly contradicts.
   const peakNetWorthCents = rows.length
-    ? Math.max(...rows.map((r) => netWorthOf(r, bands)))
+    ? Math.max(netWorthOf(opening, bands), ...rows.map((r) => netWorthOf(r, bands)))
     : null;
 
   return {
+    opening,
     rows,
     bands,
     hasProperties: propertyBands.length > 0,

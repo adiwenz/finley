@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars } from "../../format";
+import { formatDollars, monthLabel } from "../../format";
+import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "../monthAxis";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
@@ -72,14 +73,17 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
   // Geometry depends only on `data`, stable while scrubbing — memoized so moving
   // `selectedMonth` doesn't rebuild the colour map or remap every row.
   const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
+  // On the shared months-from-now axis; a flow chart, so the today slot stays empty (no tax is
+  // paid at "now") and the bands start at end-of-month-0, aligned with the charts above.
   const rows = useMemo(
     () =>
-      data.rows.map((r) =>
-        stacked ? { month: r.month, ...r.centsBySource } : { month: r.month, taxCents: r.taxCents },
-      ),
+      data.rows.map((r) => {
+        const x = toAxisX(r.month);
+        return stacked ? { month: x, ...r.centsBySource } : { month: x, taxCents: r.taxCents };
+      }),
     [data.rows, stacked],
   );
-  const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
+  const lastX = toAxisX(data.rows[data.rows.length - 1]?.month ?? 0);
 
   return (
     <div
@@ -109,14 +113,14 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           style={{ cursor: "pointer" }}
           onClick={(state: { activeLabel?: string | number } | null) => {
             const label = Number(state?.activeLabel);
-            if (Number.isFinite(label)) onSelectMonth(label);
+            if (Number.isFinite(label)) onSelectMonth(fromAxisX(label));
           }}
         >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="month"
             type="number"
-            domain={[0, lastMonth]}
+            domain={[TODAY_X, lastX]}
             allowDataOverflow
             tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
             tick={{ fill: AXIS, fontSize: 11 }}
@@ -130,11 +134,11 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           />
           <Tooltip
             formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => `Month ${label}`}
+            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
             contentStyle={{ fontSize: 12 }}
           />
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
-          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
+          <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
           {stacked ? (
             data.sources.map((band) => (
               <Area

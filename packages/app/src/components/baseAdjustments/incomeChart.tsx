@@ -11,7 +11,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars } from "../../format";
+import { formatDollars, monthLabel } from "../../format";
+import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "../monthAxis";
 import {
   describeIncomeGap,
   incomeBandsForMode,
@@ -125,16 +126,19 @@ export function IncomeChart({
     [data, mode, basis, personNames],
   );
   const colors = useMemo(() => colorsForBands(view.sources), [view]);
+  // On the shared months-from-now axis. This is a chart of FLOWS, so the axis' today slot
+  // stays empty — no flow has run at "now" — and the bands start at end-of-month-0. The slot
+  // is still reserved, so this chart's x lines up with the net-worth charts' above it.
   const rows = useMemo(
     () =>
       view.rows.map((r) => ({
-        month: r.month,
+        month: toAxisX(r.month),
         [SPENDING_NEED_KEY]: r.spendingNeedCents,
         ...clampBandsForStack(r.centsBySource),
       })),
     [view],
   );
-  const lastMonth = view.rows[view.rows.length - 1]?.month ?? 0;
+  const lastX = toAxisX(view.rows[view.rows.length - 1]?.month ?? 0);
   const brokeMonth = data.firstInsolventMonth;
 
   return (
@@ -194,14 +198,14 @@ export function IncomeChart({
           style={{ cursor: "pointer" }}
           onClick={(state: { activeLabel?: string | number } | null) => {
             const label = Number(state?.activeLabel);
-            if (Number.isFinite(label)) onSelectMonth(label);
+            if (Number.isFinite(label)) onSelectMonth(fromAxisX(label));
           }}
         >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="month"
             type="number"
-            domain={[0, lastMonth]}
+            domain={[TODAY_X, lastX]}
             allowDataOverflow
             tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
             tick={{ fill: AXIS, fontSize: 11 }}
@@ -215,14 +219,14 @@ export function IncomeChart({
           />
           <Tooltip
             formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => `Month ${label}`}
+            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
             contentStyle={{ fontSize: 12 }}
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
-          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
+          <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
           {brokeMonth !== null && (
             <ReferenceLine
-              x={brokeMonth}
+              x={toAxisX(brokeMonth)}
               stroke={BROKE_COLOR}
               strokeWidth={1.5}
               strokeDasharray="2 4"
