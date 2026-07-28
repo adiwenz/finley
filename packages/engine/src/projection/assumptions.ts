@@ -1,22 +1,17 @@
 /**
- * Model simplifications the engine deliberately makes — in post-tax accounting and in the
- * allocation waterfall — surfaced so the app can disclose them: no behaviour should be
- * visible in the numbers but unexplained. Each entry is co-located by `id` with the code
- * embodying it (referencing comments in `simulate.ts` and `waterfall.ts`).
+ * Model simplifications visible in the numbers, surfaced so the app can disclose them.
+ * Each entry is co-located by `id` with the code embodying it (`simulate.ts`,
+ * `waterfall.ts`).
  *
- * NEUTRAL simplifications only. A jurisdiction's own caveats (e.g. US tax-threshold
- * forward indexing) ride its
- * {@link import("../jurisdiction").Jurisdiction.modelAssumptions}, and the report
- * concatenates the two, so a US fact never leaks into the neutral engine.
- *
- * Not a catalog of every documented simplification — year-boundary timing and RMD
- * forward-projection live as code comments. Add here as more NEUTRAL behavior warrants
- * user-facing disclosure.
+ * NEUTRAL simplifications only — a jurisdiction's own caveats ride its
+ * {@link import("../jurisdiction").Jurisdiction.modelAssumptions} and the report
+ * concatenates the two, so no US fact leaks into the neutral engine. Not exhaustive:
+ * year-boundary timing and RMD forward-projection stay as code comments.
  */
 export interface ModelAssumption {
-  /** Stable identifier for the assumption — lets a consumer key/dedupe/style it. */
+  /** Stable — consumers key, dedupe and style on it. */
   readonly id: string;
-  /** Plain-language disclosure, safe to render verbatim to an end user. */
+  /** Safe to render verbatim to an end user. */
   readonly text: string;
 }
 

@@ -1,8 +1,8 @@
 /**
  * The engine's *internal*, mutable accumulator: indexed maps the event handlers push into,
- * avoiding linear `.find`/`.some` scans. Never externally observable — `interpret.ts`
- * converts it to the immutable, array-shaped {@link Household} at the public boundary.
- * Maps preserve insertion order, so that conversion is deterministic.
+ * avoiding linear `.find`/`.some` scans. `interpret.ts` converts it to the immutable,
+ * array-shaped {@link Household} at the public boundary; Maps preserve insertion order, so
+ * that conversion is deterministic.
  */
 
 import type { Cents } from "../money";
@@ -53,9 +53,8 @@ interface LiabilityDefCommon {
 }
 
 /**
- * Immutable data, instantiated at the sim boundary. Mirrors {@link LoanEvent}: a revolving
- * card carries a credit limit and never amortizes; a term loan amortizes over a term and has
- * no limit.
+ * Mirrors {@link LoanEvent}: a revolving card carries a credit limit and never amortizes; a
+ * term loan amortizes over a term and has no limit.
  */
 export type LiabilityDef =
   | (LiabilityDefCommon & {
@@ -92,9 +91,9 @@ export interface InterpretState {
   readonly propertiesById: Map<PropertyId, PropertyDef>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
   /**
-   * Cross-account down-payment / spend draws, appended in event order. The simulator
-   * resolves each against the sources' month-M balances; they cannot be pre-split here,
-   * since the split is balance-dependent and replay carries no balances.
+   * Cross-account down-payment / spend draws, appended in event order. The simulator resolves
+   * each against the sources' month-M balances; they cannot be pre-split here, since the split
+   * is balance-dependent and replay carries no balances.
    */
   readonly fundingDraws: FundingDraw[];
 }
@@ -114,7 +113,7 @@ export function freshState(): InterpretState {
 /**
  * One selected funding source as the availability check saw it. A selected id that is not a
  * liquid account (or holds nothing) is carried at balance 0 so a conflict message still
- * names it, rather than silently dropping it.
+ * names it.
  */
 export interface FundingSourceBalance {
   readonly id: string;
@@ -123,9 +122,9 @@ export interface FundingSourceBalance {
 }
 
 /**
- * Whether selected funding sources can net a wanted amount at a month once the
- * capital-gains tax on liquidating them is paid. Event-neutral: the Home Purchase §4.5
- * down-payment gate reads it today, One-Time Spend reads the same shape.
+ * Whether selected funding sources can net a wanted amount at a month once the capital-gains
+ * tax on liquidating them is paid. Event-neutral: the Home Purchase §4.5 down-payment gate
+ * and One-Time Spend read the same shape.
  */
 export interface FundingAvailability {
   /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
@@ -148,11 +147,11 @@ export interface InterpretContext {
   /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The affordability check every money-out event's gate shares, resolved against a
-   * projection of the ledger *so far*. Runs the SAME ordered gross-up as the simulator
-   * ({@link import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), differencing
-   * each sale's tax marginally over the owner's projected other income that month, so a gate
-   * blocks exactly when the sim would fall short.
+   * The affordability check every money-out event's gate shares, resolved against a projection
+   * of the ledger *so far*. Runs the SAME ordered gross-up as the simulator ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), differencing each
+   * sale's tax marginally over the owner's projected other income that month, so a gate blocks
+   * exactly when the sim would fall short.
    *
    * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
    * interpretation and undo, when handlers skip projection-dependent checks.

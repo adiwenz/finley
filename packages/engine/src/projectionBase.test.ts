@@ -34,7 +34,6 @@ function ctx(jurisdiction = nullJurisdiction): ProjectionContext {
   return { jurisdiction, startYear: START_YEAR };
 }
 
-/** Replay the plan's base with one jurisdiction driving both the mapping and the sim. */
 function project(plan: Plan, jurisdiction = nullJurisdiction) {
   return replayLedger(emptyLedger, createProjectionBase(plan, ctx(jurisdiction)), jurisdiction);
 }
@@ -67,8 +66,7 @@ describe("createProjectionBase — retirement + government benefit wired into th
   });
 
   it("pays a government retirement benefit from the claiming age — it appears in the series", () => {
-    // The null jurisdiction models no benefit; this one pays a flat monthly amount from
-    // the claiming age (67).
+    // The null jurisdiction models no benefit; this one pays a flat amount from age 67.
     const benefitJurisdiction = mockJurisdiction({
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(2_500),
     });
@@ -92,8 +90,7 @@ describe("createProjectionBase — earned income before current age comes from t
   });
   const priorYears = (startAge: number) => {
     const base = createProjectionBase(planFromStartAge(startAge), ctx());
-    // Derive the pre-"now" record from the authoring Persons' jobs exactly as the sim
-    // boundary does.
+    // Derived from the authoring Persons' jobs exactly as the sim boundary does.
     const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
     return Object.keys(prior)
       .map(Number)
@@ -130,8 +127,7 @@ describe("createProjectionBase — earned income before current age comes from t
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall
-    // is met by SELLING assets (re-entering as capitalGains at the chokepoint), so the
-    // synthetic card stays flat at 0 the whole horizon.
+    // is met by SELLING assets (re-entering as capitalGains), not by borrowing.
     const series = project({ ...samplePlan, retirementAge: 63 }, mockJurisdiction());
     for (const m of series.months) {
       expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
@@ -309,8 +305,8 @@ describe("createProjectionBase — health as its own additive, growing expense",
 
   it("steps health down at the jurisdiction's public-coverage age when enrolling", () => {
     // A near-coverage saver puts the step (65) inside the horizon with income running
-    // through it (retirementAge past life expectancy), so the difference shows in net
-    // worth instead of being masked by the synthetic-card insolvency floor.
+    // through it (retirementAge past life expectancy), so the difference is not masked by
+    // the synthetic-card insolvency floor.
     const nearCoverage: Plan = {
       ...samplePlan,
       currentAge: 55,
@@ -326,7 +322,6 @@ describe("createProjectionBase — health as its own additive, growing expense",
     const covered = mockJurisdiction({ publicHealthCoverageAge: 65 });
     const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, covered);
     const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, covered);
-    // Enrolling drops health at 65 → less spent after it → more left in savings.
     expect(enrolled).toBeGreaterThan(selfFunded);
   });
 
@@ -351,8 +346,6 @@ describe("createProjectionBase — health as its own additive, growing expense",
 });
 
 describe("createProjectionBase — surplus-cash destination lever", () => {
-  // The plan carries the "savings"/"brokerage" intent; the base maps it to the engine's
-  // idle/swept SurplusDestination, keeping the concrete account id there.
   it("defaults an unset lever to idle (surplus stays in the liquid cash account)", () => {
     expect(createProjectionBase(samplePlan, ctx()).surplusDestination).toEqual({
       kind: "idle",
@@ -384,7 +377,6 @@ describe("planAccountDescriptors — presentation metadata that agrees with buil
     const descriptors = planAccountDescriptors(plan);
     const accounts = buildPlanAccounts(plan);
     expect(descriptors.map((d) => d.id)).toEqual(accounts.map((a) => a.id));
-    // So a name can't drift between the sim account and its descriptor.
     for (const d of descriptors) {
       expect(d.label).toBe(accounts.find((a) => a.id === d.id)?.label);
     }

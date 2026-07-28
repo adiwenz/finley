@@ -17,11 +17,9 @@ import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfer
 
 export interface HouseholdMembership {
   /**
-   * The member as **authoring** {@link Person} data — identity, retirement/benefit inputs,
-   * jobs. The lower-level {@link import("../projection/simulate").SimPerson} the sim
-   * consumes is derived from this at the sim boundary via
-   * {@link import("../compilePerson").compilePerson}; the roster the app edits never
-   * touches it.
+   * The member as **authoring** {@link Person} data. The narrower
+   * {@link import("../projection/simulate").SimPerson} the sim consumes is derived from it
+   * at the sim boundary via {@link import("../compilePerson").compilePerson}.
    */
   readonly person: Person;
   readonly startMonth: number;
@@ -45,8 +43,7 @@ export interface HouseholdSeries {
   readonly series: SimCashFlowSeries;
   /**
    * Human-facing name carried over from the base series ("Income", "Healthcare", a budget
-   * line's label). Diagnostic only — nothing in interpretation or simulation reads it; it
-   * lets a report name a series instead of numbering it positionally.
+   * line's label). Diagnostic only — nothing in interpretation or simulation reads it.
    */
   readonly label?: string;
   /**
@@ -60,22 +57,19 @@ export interface HouseholdSeries {
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * The source line's id, for an expense series compiled from a standing budget line, so
-   * the simulator can report each line's monthly amount
-   * ({@link import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Set
+   * The source line's id, keying
+   * {@link import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}. Set
    * only on budget-line expense series; absent on scalar/health/event-caused ones.
    */
   readonly lineId?: string;
   /**
-   * Which authoring model this expense came from, for the unified spending report. Carried
-   * from the base series or derived from an event-created series' {@link SeriesRole}, then
-   * passed to the sim so a month's spending reports itemized. See
-   * {@link import("../projection/spendingItems").SpendingSource}.
+   * Which authoring model this expense came from, for the itemized spending report.
+   * Carried from the base series or derived from an event-created series'
+   * {@link SeriesRole}.
    */
   readonly spendingSource?: SpendingSource;
 }
 
-/** The fields a derived liability carries whatever its kind. */
 interface HouseholdLiabilityCommon {
   readonly id: LiabilityId;
   readonly ownerId: PersonId;
@@ -87,10 +81,9 @@ interface HouseholdLiabilityCommon {
 }
 
 /**
- * A liability in the derived model, discriminated on `kind` like {@link LoanEvent} and
- * {@link LiabilityDef}: a revolving card carries a credit limit and never amortizes; a
- * term loan amortizes and has no limit. A card with a term, or a loan with a credit limit,
- * will not typecheck.
+ * Discriminated on `kind` like {@link LoanEvent} and {@link LiabilityDef}: a revolving card
+ * carries a credit limit and never amortizes; a term loan amortizes and has no limit. A
+ * card with a term, or a loan with a credit limit, will not typecheck.
  */
 export type HouseholdLiability =
   | (HouseholdLiabilityCommon & {
@@ -102,7 +95,7 @@ export type HouseholdLiability =
       readonly termMonths: number;
     });
 
-/** A durable property in the derived model — an appreciating stock. */
+/** An appreciating asset stock. */
 export interface HouseholdProperty {
   readonly id: PropertyId;
   readonly ownerId: PersonId;

@@ -2,8 +2,7 @@
  * @vitest-environment node
  *
  * Render coverage for the Retirement panel via the server renderer (jsdom is unavailable
- * here). The headline/target math lives in retirementView.test.ts; these pin the wiring —
- * headline age surfaced, and the Medicare health nudge shown or hidden per the honesty flag.
+ * here). The headline/target math lives in retirementView.test.ts; these pin the wiring.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -46,7 +45,6 @@ describe("RetirementPanel", () => {
     const html = render(budget);
     expect(html).toContain("Medicare");
     expect(html).toContain("self-funded");
-    // Estimates-not-advice framing is on the nudge.
     expect(html).toContain("not advice");
   });
 

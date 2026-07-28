@@ -17,10 +17,8 @@ import type { FundingDraw } from "../ledger/transfers";
 
 /**
  * The resolved, mutable state one `simulateHousehold` run threads through its per-month
- * step helpers. The Maps mutate as months advance, the readonly config arrays do not.
- *
- * Engine-INTERNAL: exported so the step modules share the exact shape, but kept OFF the
- * public barrel (index.ts).
+ * step helpers. Engine-INTERNAL: exported so the step modules share the exact shape, but
+ * kept OFF the public barrel (index.ts).
  */
 export interface SimState {
   readonly accounts: readonly SimAccount[];
@@ -32,28 +30,27 @@ export interface SimState {
   readonly cascadeCards: readonly RevolvingCard[];
   readonly assetBalances: Map<string, Cents>;
   /**
-   * Per-account post-tax principal. Rises with post-tax deposits (surplus sweep, goal
-   * funding), falls pro-rata as the account is drawn, drained to 0 when a goal fund is
-   * spent/converted. A draw books only its gain (`draw − pro-rata basis`) to tax. Pre-tax
-   * accounts keep basis 0: contributions went in tax-deferred, so the whole withdrawal is
-   * taxable.
+   * Per-account post-tax principal. Rises with post-tax deposits, falls pro-rata as the
+   * account is drawn, drained to 0 when a goal fund is spent/converted. A draw books only
+   * its gain (`draw − pro-rata basis`) to tax. Pre-tax accounts keep basis 0: contributions
+   * went in tax-deferred, so the whole withdrawal is taxable.
    */
   readonly basisByAccount: Map<string, Cents>;
   /**
    * Credited return awaiting accrual-taxation, keyed by ACCOUNT id — not by owner, so two
-   * cash accounts held by one person accumulate independently. Where the JURISDICTION
+   * cash accounts held by one person accumulate independently. Where the jurisdiction
    * marks an account's `returnKind` `taxAtAccrual`, `compoundAssets` records the credited
-   * growth and its income category, and the NEXT month's waterfall books it through the
-   * tax seam. Compounding runs after that seam, so the figure is taxed one month on — an
-   * accrual lag, not a defer-to-withdrawal leak. Every entry is refreshed each month (and
-   * cleared when the jurisdiction defers it), so it never goes stale.
+   * growth and its category, and the NEXT month's waterfall books it through the tax seam.
+   * Compounding runs after that seam, so the figure is taxed one month on — an accrual lag,
+   * not a defer-to-withdrawal leak. Every entry is refreshed each month (and cleared when
+   * the jurisdiction defers it), so it never goes stale.
    */
   readonly accruedReturnByAccount: Map<string, { cents: Cents; category: TaxCategory }>;
   /**
    * Authoritative current balance of each liability, updated in place by
-   * advanceLiabilities. This Map, NOT the origination amortization schedule, is the
-   * source of truth for what is owed: a lump-sum payoff or (future)
-   * capitalization mutates it directly; the schedule is only a payment lookup.
+   * advanceLiabilities. This Map, NOT the origination amortization schedule, is what is
+   * owed: a lump-sum payoff or (future) capitalization mutates it directly; the schedule
+   * is only a payment lookup.
    */
   readonly liabilityBalances: Map<string, Cents>;
   readonly properties: readonly SimProperty[];
@@ -109,9 +106,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
   for (const acc of input.accounts) {
     assetBalances.set(acc.id, acc.openingBalanceCents);
     // A pre-tax account has zero basis by definition. Others open with unknown basis;
-    // assume basis == opening balance (no embedded gain), which understates tax for an
-    // already-appreciated portfolio — disclosed as
-    // MODEL_ASSUMPTIONS["postTaxOpeningBasis"].
+    // assuming basis == opening balance understates tax for an already-appreciated
+    // portfolio — disclosed as MODEL_ASSUMPTIONS["postTaxOpeningBasis"].
     basisByAccount.set(acc.id, acc.taxProfile.contributionsPreTax ? 0 : acc.openingBalanceCents);
   }
 
@@ -125,9 +121,9 @@ export function initSimState(input: HouseholdSimInput): SimState {
   const userLiabilities = input.liabilities ?? [];
 
   // Absorbs shortfalls when no real cards are entered, folded into `liabilities` so every
-  // step treats it as an ordinary card. Its limit is finite so the cascade can genuinely
-  // exhaust: a plan financed on unbounded revolving debt would otherwise read solvent
-  // forever instead of tripping `isInsolvent`.
+  // step treats it as an ordinary card. Its limit is finite so the cascade can exhaust: a
+  // plan financed on unbounded revolving debt would read solvent forever instead of
+  // tripping `isInsolvent`.
   const syntheticCard = userLiabilities.some((l) => l instanceof RevolvingCard)
     ? null
     : new RevolvingCard({

@@ -3,13 +3,12 @@
  * and tax paid — three views of one projected scenario sharing an x-axis, a selection
  * marker, and the click-to-select gesture.
  *
- * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} to keep state
- * + plan mutation apart from presentation. It owns no state: the selected month is the
- * panel's, because the editor below points at the same month — that shared cursor is the
- * whole gesture.
+ * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} to keep state +
+ * plan mutation apart from presentation. It owns no state: the selected month is the panel's,
+ * since the editor below points at the same month.
  *
- * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points on
- * a default plan, one area per band) are the most expensive thing this panel draws, and the
+ * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points on a
+ * default plan, one area per band) are the most expensive thing this panel draws, and the
  * panel re-renders on every keystroke in a spending row. Nothing here reads that staging
  * state, so with the data memoized upstream and both callbacks stable, typing skips them.
  */
@@ -32,7 +31,7 @@ export interface ProjectionChartsProps {
   /**
    * Household member names by person id — lets the income graph say *whose* government
    * benefit a band is. The label names the kind of income, so two claimants would otherwise
-   * draw two identical legend entries.
+   * draw identical legend entries.
    */
   readonly personNames: ReadonlyMap<string, string>;
   readonly selectedMonth: number;

@@ -8,8 +8,7 @@
  *    total equals the nominal net worth the other chart draws.
  *
  * A band's KIND comes from which series map its id sits in (`accountBalancesCents` /
- * `propertyValuesCents` / `liabilityBalancesCents`), so this is never told what an id is —
- * only how to NAME and ORDER it. Names and order arrive as plain metadata
+ * `propertyValuesCents` / `liabilityBalancesCents`); names and order arrive as plain metadata
  * ({@link BreakdownMeta}), so this module depends on neither the `SimAccount` class nor any
  * engine construction path.
  */
@@ -36,7 +35,6 @@ export interface BreakdownMeta {
 }
 
 export interface BreakdownBand {
-  /** The engine's stable id — an account id, a property id, or a liability id. */
   readonly id: string;
   readonly label: string;
   readonly kind: BreakdownBandKind;
@@ -55,8 +53,8 @@ export interface BreakdownMonthRow {
 export interface NetWorthBreakdownData {
   readonly rows: readonly BreakdownMonthRow[];
   /**
-   * Every band non-zero at some month, ordered accounts (in the meta's order) →
-   * properties → liabilities. Always-zero bands are dropped so no dead legend entry appears.
+   * Every band non-zero at some month, ordered accounts (in the meta's order) → properties →
+   * liabilities. Always-zero bands are dropped, so no dead legend entry appears.
    */
   readonly bands: readonly BreakdownBand[];
   /** True when any property value is ever present — gates the "assets" view/button. */
@@ -66,9 +64,9 @@ export interface NetWorthBreakdownData {
   /** Nominal net worth (assets − liabilities) at the last charted month; null if no rows. */
   readonly terminalNetWorthCents: number | null;
   /**
-   * Highest nominal net worth over the charted period; null if no rows. A better headline
-   * than the terminal value for a plan that decumulates through retirement, whose last
-   * self-funded month can be near zero.
+   * Highest nominal net worth over the charted period; null if no rows. A better headline than
+   * the terminal value for a plan that decumulates through retirement, whose last self-funded
+   * month can be near zero.
    */
   readonly peakNetWorthCents: number | null;
 }
@@ -98,8 +96,8 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
  * flat-zero band.
  *
  * Rows stop at the first insolvent month, as the total net-worth chart does. Every liability
- * charts below zero as debt — including the engine's synthetic last-resort borrowing once the
- * caller labels it — so a plan living on borrowed money shows the debt piling up.
+ * charts below zero as debt, including the engine's synthetic last-resort borrowing once the
+ * caller labels it.
  */
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
@@ -132,8 +130,8 @@ export function buildNetWorthBreakdown(
     rows.push({ month: m.month, centsById });
   }
 
-  // Meta-ordered accounts first, then any series-only account ids (defensive — the sim
-  // runs the same accounts), then properties, then liabilities. Always-zero ids dropped.
+  // Meta-ordered accounts first, then any series-only account ids (defensive — the sim runs
+  // the same accounts), then properties, then liabilities. Always-zero ids dropped.
   const orderedAccountIds = [
     ...accountOrder.filter((id) => accountIds.has(id) && nonZero.has(id)),
     ...[...accountIds].filter((id) => !accountOrder.includes(id) && nonZero.has(id)),

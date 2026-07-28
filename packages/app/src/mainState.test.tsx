@@ -1,9 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Behavioral coverage for App's plan state (value editing and the event ledger):
- * budget edits churn the projection base, scrub/ledger edits do not, and removal
- * resolves against the latest ledger.
+ * Behavioral coverage for App's plan state: value editing and the event ledger.
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
@@ -47,7 +45,7 @@ describe("App — event ledger", () => {
     // The default "Added an expense" event has one timeline marker (one Remove).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
-    // Ledger edits must not churn budget identity (projection base is memoized).
+    // The base is memoized on budget identity, which a ledger edit must not churn.
     expect(spy.mock.calls.length).toBe(callsAfterMount);
   });
 
@@ -94,7 +92,7 @@ describe("App — event ledger", () => {
     expect(screen.queryByLabelText("From")).toBeNull();
     expect(screen.getByText(/No partner in the household as of Year 0/)).toBeTruthy();
 
-    // Move the separation to Year 5 — now the partner exists to separate from.
+    // Move the separation to Year 5, where the partner exists.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     expect(screen.getByLabelText("From")).toBeTruthy();
   });
@@ -109,24 +107,23 @@ describe("App — event ledger", () => {
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     fireEvent.click(screen.getByText("Add event"));
 
-    // Back to the default "Added an expense": its month defaults to Year 0, before the
-    // partnership, so only you can own it.
+    // The default "Added an expense" defaults to Year 0, before the partnership, so only
+    // you can own it.
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "BudgetItemStartEvent" },
     });
     expect(screen.queryByLabelText("Whose")).toBeNull();
 
-    // Move the expense to Year 5 — the partner is now in the household and eligible.
+    // Move the expense to Year 5, where the partner is in the household.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     const owner = screen.getByLabelText("Whose");
     expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();
   });
 
   it("carries a partner's own job through every surface, and edits it from the Jobs panel", () => {
-    // End to end: a partner authored WITH a job on the timeline must (a) show up in the
-    // household's job list, (b) count as income on the income-vs-spend graph, which once
-    // projected the plan alone so no timeline event reached it, and (c) stay editable in
-    // place, revising the event it rides on.
+    // A partner authored WITH a job on the timeline must (a) show up in the household's
+    // job list, (b) count as income on the income-vs-spend graph, which once projected the
+    // plan alone so no timeline event reached it, and (c) stay editable in place.
     render(<App />);
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "RelationshipEvent" },
@@ -143,7 +140,7 @@ describe("App — event ledger", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     fireEvent.click(screen.getByText("Add event"));
 
-    // (a) The Jobs panel lists it, owned by the partner and alongside the primary's.
+    // (a) The Jobs panel lists it, owned by the partner, alongside the primary's.
     const row = screen.getByLabelText("Partner · Job 1");
     expect(within(row).getByText("$2,000/mo")).toBeTruthy();
     expect(screen.getByLabelText("Alex · Job 1")).toBeTruthy();
@@ -159,8 +156,7 @@ describe("App — event ledger", () => {
     selectBudgetMonth(6);
     expect(incomeDollars()).toBe(7000);
 
-    // (c) Editing the partner's pay revises the RelationshipEvent — the timeline keeps
-    // its single event, and the projection moves with it.
+    // (c) Editing the partner's pay revises the RelationshipEvent in place.
     fireEvent.click(screen.getByRole("button", { name: /Edit Partner · Job 1/i }));
     fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
       target: { value: "3000" },
@@ -227,7 +223,7 @@ describe("App — starter simulations", () => {
 
     // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment (~$500/mo on
     // $45k at 6% over 10 years): the Base panel charts the whole scenario, not the bare
-    // plan, so servicing the loan is part of what income has to cover.
+    // plan.
     const riley = presetById("student-loan").plan;
     const budgetAndHealth = riley.expenseCents + riley.healthMonthlyCents;
     expect(spendingNeed()).toBeGreaterThan(budgetAndHealth + dollarsToCents(400));
@@ -240,8 +236,7 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Servicing the loan is spending, so it belongs in the graph of what the month costs
-    // — beside the budget lines, not as one of them.
+    // Beside the budget lines, not as one of them.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
@@ -279,15 +274,15 @@ describe("App — budget edits", () => {
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
     // A budget edit rebuilds it more than once — the net-worth graph, plus the sweep the
-    // retirement panel runs to find the feasible age. Only *that* it rebuilds matters.
+    // retirement panel runs to find the feasible age — so only the fact of a rebuild is
+    // asserted.
     fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },
     });
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
-  // The line-item budget (Base + Adjustments) is the single source of truth for spending.
-  // Its guard — overrides accumulate rather than replace — lives in
+  // The guard that overrides accumulate rather than replace lives in
   // `baseAdjustments/monthEdit.test.ts` (applyLineOverride).
 
   it("drives the whole projection from a line-item budget edit", () => {
@@ -301,7 +296,6 @@ describe("App — budget edits", () => {
     fireEvent.change(housing, { target: { value: "9000" } }); // far past the $5,000 income
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
-    // The projection base rebuilt, so every surface reflects the new budget.
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
     const lastPlan = spy.mock.calls.at(-1)?.[0];
     expect(lastPlan?.budgetLines?.find((l) => l.id === "housing")?.overrides).toHaveLength(1);

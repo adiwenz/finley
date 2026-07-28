@@ -35,10 +35,9 @@ export interface GrowthSegmentView {
 }
 
 /**
- * The engine-owned flow-provenance vocabulary: only the engine can label where a flow
- * originated, and the jurisdiction's tax seam decides how much of each category is taxed.
- * Brand-neutral — no jurisdiction program names, so a government retirement benefit (US:
- * Social Security) is `governmentRetirementBenefit`.
+ * The engine-owned flow-provenance vocabulary: the engine labels where a flow originated, the
+ * jurisdiction's tax seam decides how much of each category is taxed. Brand-neutral — no
+ * jurisdiction program names, so US Social Security is `governmentRetirementBenefit`.
  */
 export type TaxCategory =
   | "wages"
@@ -73,10 +72,7 @@ export interface SimCashFlowSeriesOptions {
 
 interface Segment {
   startMonth: number;
-  /**
-   * Annual cents when baselineUnit="annual", monthly cents when "monthly". The iteration
-   * cache preserves the compounded value at each year, so nothing re-derives from baseline.
-   */
+  /** Annual cents when baselineUnit="annual", monthly cents when "monthly". */
   baseCents: number;
   growthMode: GrowthMode;
   /** The month from which this segment's growth clock counts (ownCycle only). */
@@ -138,7 +134,6 @@ export class SimCashFlowSeries {
 
   /** Per-segment cache: yearsElapsed → compounded baseCents at that year. */
   private yearlyBaseCache: Map<Segment, Map<number, number>> = new Map();
-  /** Final monthly cents cache, keyed by absolute month. */
   private monthlyCache: Map<number, number> = new Map();
 
   constructor(
@@ -186,7 +181,7 @@ export class SimCashFlowSeries {
     this.invalidateFrom(month, false);
   }
 
-  /** History correction: edit a prior segment's base in-place; no new segment, boundary stays. */
+  /** Edits a prior segment's base in-place; no new segment, boundary stays. */
   correctHistory(segmentStartMonth: number, newBaseCents: number): void {
     const segment = this.segments.find((s) => s.startMonth === segmentStartMonth);
     if (!segment) return;
@@ -211,8 +206,7 @@ export class SimCashFlowSeries {
 
   /**
    * One entry per segment, ascending by `startMonth`. A series edited `fromHereForward` with
-   * a new growth mode carries more than one — reporting only the rate at month 0 would hide
-   * every later change.
+   * a new growth mode carries more than one, so month 0's rate alone would hide later changes.
    */
   growthSchedule(): readonly GrowthSegmentView[] {
     return this.segments.map((s) => ({

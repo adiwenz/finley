@@ -29,12 +29,10 @@ export interface ReportPerson {
   readonly ageAtStart: number | null;
 }
 
-/** An asset account's opening configuration. */
 export interface ReportAccount {
   readonly id: string;
   readonly ownerId: string;
   readonly liquid: boolean;
-  /** The {@link TaxCategory} withdrawals produce. */
   readonly withdrawalCategory: string;
   readonly openingBalanceCents: Cents;
   /** Annual return in force at month 0; see {@link rateSchedule} for later changes. */
@@ -99,7 +97,6 @@ export interface ReportExpenseSource {
   readonly growthSchedule: readonly GrowthSegmentView[];
 }
 
-/** The resolved inputs the run consumed. */
 export interface ReportInputs {
   readonly horizonMonths: number;
   /** `horizonMonths / 12`. */
@@ -109,10 +106,7 @@ export interface ReportInputs {
   readonly endYear: number;
   /** General CPI: the rate that drives inflation-linked series and the real/nominal split. */
   readonly annualInflationRate: number;
-  /**
-   * COLA on the government retirement benefit: the plan's `benefitColaRate` when set, else
-   * general CPI. Already resolved — do not re-apply the fallback.
-   */
+  /** Already resolved (`benefitColaRate` ?? general CPI) — do not re-apply the fallback. */
   readonly benefitColaRate: number;
   /** Whether {@link benefitColaRate} was authored rather than inherited from CPI. */
   readonly benefitColaRateIsExplicit: boolean;
@@ -127,7 +121,6 @@ export interface ReportInputs {
   readonly goals: readonly SimGoal[];
 }
 
-/** The household's stocks and flows at `month`. */
 export interface ReportMonth {
   readonly month: number;
   readonly year: number;
@@ -145,14 +138,11 @@ export interface ReportMonth {
   readonly governmentRetirementBenefitCents: Cents;
   /** Tax charged through the jurisdiction seam, summed over persons. */
   readonly taxCents: Cents;
-  /**
-   * This month's tax by {@link TaxCategory}. Present for every flowed month (`{}` when no
-   * tax, otherwise Σ === `taxCents`); absent only for the flow-free opening month 0.
-   */
+  /** `{}` when no tax, else Σ === `taxCents`; absent only for the flow-free month 0. */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
-   * Tax keyed by each source's reporting id, so a job's tax is named rather than collapsed
-   * into `wages`. Same presence rule and Σ invariant as {@link taxByCategoryCents}.
+   * Keyed by each source's reporting id, so a job's tax is named rather than collapsed into
+   * `wages`. Same presence rule and Σ invariant as {@link taxByCategoryCents}.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source; absent when none deferred. */
@@ -164,8 +154,8 @@ export interface ReportMonth {
 }
 
 /**
- * The keys appearing anywhere in the run, each list ordered by first appearance, so a consumer
- * can lay out table columns without scanning every row.
+ * Every key appearing anywhere in the run, ordered by first appearance, so a consumer can lay
+ * out table columns without scanning every row.
  */
 export interface ReportColumns {
   readonly personIds: readonly string[];
@@ -183,17 +173,11 @@ export interface SimulationReport {
   readonly inputs: ReportInputs;
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
-  /**
-   * Model simplifications to disclose to the end user: the engine's ({@link MODEL_ASSUMPTIONS})
-   * then the jurisdiction's
-   * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}), each declared where it
-   * is embodied.
-   */
+  /** Engine {@link MODEL_ASSUMPTIONS} then the jurisdiction's, each declared where embodied. */
   readonly assumptions: readonly ModelAssumption[];
   /**
-   * Caller-supplied configuration echoed back verbatim — opaque to the engine, and the one
-   * place to round-trip knobs the engine's inputs compiled away (the app records life
-   * expectancy, retirement age and health config here).
+   * Echoed back verbatim, opaque to the engine — the one place to round-trip knobs its inputs
+   * compiled away (the app records life expectancy, retirement age, health config here).
    */
   readonly meta?: Readonly<Record<string, unknown>>;
 }
@@ -249,7 +233,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       openingBalanceCents: l.openingBalanceCents,
       startMonth: l.startMonth,
       apr: l.apr,
-      // Flat DTO with explicit nulls — the kind-split lives only in the derived classes.
+      // Flat DTO with explicit nulls; the kind-split lives only in the derived classes.
       termMonths: l instanceof AmortizingLoan ? l.termMonths : null,
       creditLimitCents: l instanceof RevolvingCard ? l.creditLimitCents : null,
     })),

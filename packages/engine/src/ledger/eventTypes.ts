@@ -1,7 +1,7 @@
 /**
- * Event types — plain serializable discriminated-union objects: never classes, never
- * mutated. Their meaning is defined in exactly one place, the handler registry
- * `interpretLedger` consumes, and never re-interpreted.
+ * Plain serializable discriminated-union objects: never classes, never mutated. Their
+ * meaning is defined in exactly one place — the handler registry `interpretLedger`
+ * consumes.
  */
 
 import type { Cents } from "../money";
@@ -24,7 +24,7 @@ export interface Child {
 
 /**
  * Fields shared by *every* event — nothing more. Dependency metadata and roles belong to
- * the event types that use them, not here.
+ * the event types that use them.
  */
 export interface EventBase {
   readonly id: string;
@@ -34,8 +34,8 @@ export interface EventBase {
 }
 
 /**
- * Mixed into event types that can be *auto-created as a consequence of* another event.
- * Removing the producer transitively removes everything it caused. Producer-only events
+ * Mixed into event types that can be auto-created as a consequence of another event;
+ * removing the producer transitively removes everything it caused. Producer-only events
  * (relationship, separation, series-end) omit it.
  */
 export interface CausedByFields {
@@ -50,7 +50,7 @@ export interface RelationshipEvent extends EventBase {
 }
 
 /**
- * A positive `annualCostCents` spawns a linked expense (role `childCost`) running from
+ * A positive `annualCostCents` spawns a linked expense (role `childCost`) from
  * `birthMonth` for exactly 18 years, tagged with this event's id so undoing the child
  * removes it. A zero cost records the child with no financial effect.
  */
@@ -64,10 +64,10 @@ export interface ChildEvent extends EventBase, CausedByFields {
 }
 
 /**
- * Ends all income series owned by the departing partner, and creates alimony and
+ * Ends all income series owned by the departing partner and creates alimony and
  * child-support expense streams tagged with this event's id — 0 in an amount field means
- * no such stream, and the alimony duration runs from this event's month. Never touches
- * child-owned expenses, mortgages, or other liabilities.
+ * no such stream; alimony duration runs from this event's month. Never touches child-owned
+ * expenses, mortgages, or other liabilities.
  */
 export interface SeparationEvent extends EventBase {
   readonly type: "SeparationEvent";
@@ -79,15 +79,14 @@ export interface SeparationEvent extends EventBase {
 
 /**
  * Creates a durable {@link Property} entity with its appreciating value, originates its
- * mortgage liability, and drains the down payment as one-time outflows. Does NOT touch any
- * budget item — ceasing to rent is a separate, user-authored decision. Subject to the
+ * mortgage, and drains the down payment as one-time outflows. Does NOT touch any budget
+ * item — ceasing to rent is a separate, user-authored decision. Subject to the
  * down-payment hard block. Financed balance = `purchasePriceCents − downPaymentCents`.
  */
 export interface HomePurchaseEvent extends EventBase {
   readonly type: "HomePurchaseEvent";
   readonly propertyId: string;
   readonly ownerId: string;
-  /** The appreciating stock's opening value. */
   readonly purchasePriceCents: Cents;
   readonly downPaymentCents: Cents;
   /**
@@ -103,7 +102,6 @@ export interface HomePurchaseEvent extends EventBase {
   readonly appreciationMode?: GrowthMode;
 }
 
-/** The fields a {@link LoanEvent} carries whatever the liability's kind. */
 interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
   readonly liabilityId: string;
@@ -113,13 +111,11 @@ interface LoanEventCommon extends EventBase, CausedByFields {
 }
 
 /**
- * Creates a new liability, discriminated on `kind`. `termMonths` and `creditLimitCents`
- * are not optional but kind-*determined*: a revolving card has a credit limit and never
- * amortizes, a term loan amortizes over a term and has no limit. A card with a term will
- * not typecheck, so replay and validation need not re-check the combination.
- *
- * One event `type`, not two: both arms originate a liability, replay identically, and
- * cascade identically on removal — only the shape differs.
+ * `termMonths` and `creditLimitCents` are not optional but kind-*determined*: a revolving
+ * card has a credit limit and never amortizes, a term loan amortizes and has no limit. A
+ * card with a term will not typecheck, so replay and validation need not re-check the
+ * combination. One event `type`, not two, because both arms replay and cascade
+ * identically — only the shape differs.
  */
 export type LoanEvent =
   | (LoanEventCommon & {
@@ -133,7 +129,7 @@ export type LoanEvent =
 
 /**
  * A lump-sum principal paydown. Callers must supply the paired Account outflow (same
- * amount, same month) themselves, to conserve net worth.
+ * amount, same month) to conserve net worth.
  */
 export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly type: "DebtPayoffEvent";
@@ -142,7 +138,7 @@ export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly amountCents: Cents;
 }
 
-/** Creates a recurring income or expense series from `month` forward. */
+/** Runs from `month` forward. */
 export interface BudgetItemStartEvent extends EventBase, CausedByFields {
   readonly type: "BudgetItemStartEvent";
   readonly seriesId: string;
@@ -153,7 +149,7 @@ export interface BudgetItemStartEvent extends EventBase, CausedByFields {
   readonly taxCategory?: TaxCategory;
 }
 
-/** Ends a recurring income or expense series at month−1. */
+/** The series' last active month is `month − 1`. */
 export interface BudgetItemEndEvent extends EventBase {
   readonly type: "BudgetItemEndEvent";
   /** `seriesId` of the {@link BudgetItemStartEvent} to end. */
@@ -202,8 +198,5 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, Extract<K, keyof T>>
   : never;
 
-/**
- * Every field except the ledger-assigned `sequenceNumber`. The caller supplies `id` —
- * ids are intentional and stable.
- */
+/** `sequenceNumber` is ledger-assigned; the caller supplies `id`, which is stable. */
 export type NewLifeEvent = DistributiveOmit<LifeEvent, "sequenceNumber">;

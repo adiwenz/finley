@@ -9,8 +9,7 @@ export { annualizeByCategory } from "./federalTaxCore";
  * Distribute integer-cents `totalCents` across `entries` (`[category, weight]` pairs) in
  * proportion to the weights, every share an integer cent and Σ shares === `totalCents`
  * exactly (largest-remainder: floor each share, then hand leftover cents to the largest
- * fractional remainders). Zero-weight and zero-share categories are omitted. That exact-sum
- * guarantee is what keeps the total equal to `computeTaxCents`.
+ * fractional remainders). Zero-weight and zero-share categories are omitted.
  */
 function apportionByWeight(
   totalCents: Cents,
@@ -49,10 +48,9 @@ function apportionByWeight(
  *   • `taxExempt` never bears tax — it is only counted for the benefit test.
  *
  * ⚠ LIMITATION: an average-rate attribution WITHIN the ordinary regime. It cannot capture
- * that a category's LAST dollar sits in a higher bracket than its first, nor the
- * notch/inclusion effects (a marginal ordinary dollar can raise the taxable benefit or
- * push gains out of the 0% band). Exact in TOTAL, but not a marginal-incidence
- * decomposition.
+ * that a category's LAST dollar sits in a higher bracket than its first, nor notch/inclusion
+ * effects (a marginal ordinary dollar can raise the taxable benefit or push gains out of the
+ * 0% band). Exact in TOTAL, not a marginal-incidence decomposition.
  */
 function attributeFederalTax(
   totalCents: Cents,
@@ -87,8 +85,7 @@ export function federalAnnualTaxByCategoryCents(
 
 /**
  * The engine's per-category tax seam for the US single filer, taking MONTHLY amounts. Σ
- * equals {@link computeFederalTaxCents} for the same slice EXACTLY, so the breakdown can
- * never disagree with the total take-home already used. Method and limitation:
+ * equals {@link computeFederalTaxCents} for the same slice EXACTLY. Method and limitation:
  * {@link attributeFederalTax}. The only per-category entry point `index.ts` wires into
  * {@link usJurisdiction}.
  */
@@ -97,9 +94,9 @@ export function computeFederalTaxByCategoryCents(
   year: number,
 ): Partial<Record<TaxCategory, Cents>> {
   const parts = federalTaxParts(annualizeByCategory(monthlyByCategory), year);
-  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights — the
-  // ratios are identical monthly vs. annual — so Σ(breakdown) === the scalar the waterfall
-  // charged, not a separately-rounded figure.
+  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights — identical
+  // ratios monthly vs. annual — so Σ(breakdown) === the scalar the waterfall charged, not a
+  // separately-rounded figure.
   const monthlyTotal = Math.round(parts.totalCents / 12);
   return attributeFederalTax(monthlyTotal, parts);
 }

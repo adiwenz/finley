@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  *
  * Jobs panel. Pins that a person can hold any number of jobs (none privileged, several
- * possibly open-ended), that add / edit / delete are direct value-plane edits to `plan.jobs`,
- * and that the 401(k) elective-limit nudge fires here across all jobs.
+ * possibly open-ended), that add/edit/delete are value-plane edits to `plan.jobs`, and that
+ * the 401(k) elective-limit nudge fires here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { useMemo, useRef, useState } from "react";
@@ -32,9 +32,8 @@ import { JobsPanel } from "./jobsPanel";
 afterEach(cleanup);
 
 /**
- * Controlled harness standing in for `App`: edits round-trip through real state, with a probe
- * for each plane a job can live on — the primary person's on the plan, a partner's on their
- * `RelationshipEvent`.
+ * Controlled harness standing in for `App`, with a probe for each plane a job can live on: the
+ * primary person's on the plan, a partner's on their `RelationshipEvent`.
  */
 function Harness({
   initial = PLAN_DEFAULTS,
@@ -56,8 +55,8 @@ function Harness({
     [budget],
   );
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // The ledger, readable synchronously — `onReviseEvents` answers whether it committed before
-  // the panel writes the plan side, as `useLedger` does.
+  // Readable synchronously: `onReviseEvents` answers whether it committed before the panel
+  // writes the plan side, as `useLedger` does.
   const ledgerRef = useRef(ledger);
   ledgerRef.current = ledger;
   const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
@@ -184,8 +183,8 @@ describe("JobsPanel — add / edit / delete", () => {
   });
 
   it("remembers the entered end age across an open-ended toggle instead of resetting it", () => {
-    // endAge:null is open-ended, but the last finite value is kept, so toggling the box on
-    // then off restores the user's number rather than the 65 default.
+    // Open-ended keeps the last finite value, so toggling the box on then off restores the
+    // user's number rather than the 65 default.
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     fireEvent.click(screen.getByLabelText(/Open-ended/i)); // reveal the end-age field
@@ -238,8 +237,7 @@ describe("JobsPanel — every member's jobs", () => {
   const withPartner = (jobs: readonly Job[] = [partnerJob(2000)]) => [partnerJoining(jobs)];
 
   it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
-    // Both earners' jobs are one list; a partner's used to be reachable only at the moment they
-    // joined.
+    // Both earners' jobs are one list; a partner's used to be reachable only as they joined.
     render(<Harness events={withPartner()} />);
     expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
     const partnerRow = screen.getByLabelText("Sam · Job 1");
@@ -296,8 +294,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
-    // Fields and owner are one edit to the existing job, so all of it rides along; minting a
-    // new job from the form draft instead loses id, bonus, raise and match.
+    // One edit to the existing job, so all of it rides along; minting from the form draft
+    // instead loses id, bonus, raise and match.
     const rich = addJobPayChange(
       setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.1),
       "job-1",
@@ -329,8 +327,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("writes neither plane when the ledger refuses the revision", () => {
-    // Rejecting the ledger half after the plan half was written would lose the job outright,
-    // so the ledger goes first and the plan follows only if it was accepted.
+    // Ledger first, plan only if accepted: the reverse order loses the job outright when the
+    // ledger half is refused.
     render(<Harness events={withPartner([])} rejectRevisions />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
@@ -368,10 +366,9 @@ describe("JobsPanel — every member's jobs", () => {
 
 describe("JobsPanel — handing a whole job to a partner, end to end", () => {
   // Guards the regression where reassignment was two unrelated writes — dropped from
-  // `Plan.jobs`, a new job minted on the partner from the form draft: fresh id, no employer
-  // match, no pay change, no bonus, ages read against the wrong birth year. Driven through the
-  // panel and asserted on both planes plus the projection compiled from them, so the seam
-  // between `Plan.jobs`, the `RelationshipEvent` and `compilePersonIncomeSeries` is covered too.
+  // `Plan.jobs`, a fresh job minted on the partner from the draft: new id, no match, no pay
+  // change, no bonus, ages against the wrong birth year. Asserted on both planes and the
+  // projection, covering the `Plan.jobs` / `RelationshipEvent` / `compilePersonIncomeSeries` seam.
   const PRIMARY_BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now
   const PARTNER_BIRTH_YEAR = START_YEAR - 40; // Sam, 40 now, retiring at 65
   const JOIN_MONTH = 60; // Sam arrives five years in
@@ -445,7 +442,6 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(job.payChanges).toEqual([PAY_CHANGE]);
     expect(job.incomeOverrides).toEqual([BONUS]);
 
-    // The projection compiled from that pair of planes.
     const series = projectScenario(
       { plan, ledger },
       { jurisdiction: usJurisdiction, startYear: START_YEAR },
@@ -453,8 +449,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     // The income is the partner's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
-    // None of it lands before Sam is in the household — the job started in 2018, but a
-    // member's jobs are paid only from the month they join (the membership window).
+    // The job started in 2018, but a member's jobs pay only from the month they join.
     expect(wagesFor(series, "p-1", 1)).toBe(0);
     expect(wagesFor(series, "p-1", JOIN_MONTH - 1)).toBe(0);
     // It stops at the boundary its owner carries: open-ended, so Sam's retirement age.
@@ -495,7 +490,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 
 describe("JobsPanel — permanent pay changes", () => {
   // A pay change lands on `payChanges`, not the starting salary, so the headline stays
-  // $5,000/mo while the change is what moves pay — showing only the headline hides it.
+  // $5,000/mo while the change moves pay — showing only the headline hides it.
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
@@ -552,16 +547,15 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
   });
 
   it("names the PARTNER when the crossing is theirs", () => {
-    // The limit is individual: the primary person defers nothing, Sam defers $30k of a $60k job.
-    // Scanning only `Plan.jobs` misses it.
+    // Individual limit: the primary defers nothing, Sam $30k of a $60k job. Scanning only
+    // `Plan.jobs` misses it.
     render(<Harness events={[partnerDeferring(5000, 50)]} />);
     expect(screen.getByText(/Across Sam’s jobs/i)).toBeTruthy();
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
   });
 
   it("does not pool two earners into one limit", () => {
-    // $20k + $20k across the household tops a single $24,500 limit, but neither person is
-    // over their own, so there is nothing to disclose.
+    // $20k + $20k tops a single $24,500 limit, but neither person is over their own.
     render(
       <Harness
         initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.3334)}

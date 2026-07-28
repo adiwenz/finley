@@ -50,15 +50,11 @@ interface GoalPlanBase {
   readonly accountType?: GoalAccountType;
 }
 
-/**
- * Both dispositions are purely descriptive, so either accepts a concrete month or
- * `"asap"`.
- */
 export type GoalPlan = GoalPlanBase & GoalDisposal;
 
 /**
- * Immutable — replace it, never mutate in place. Identity changes only when a value does,
- * so consumers can memoize the projection base on `[plan]`.
+ * Immutable — replace it, never mutate in place, so consumers can memoize the projection
+ * base on `[plan]`.
  */
 export interface Plan {
   readonly name: string;
@@ -66,8 +62,7 @@ export interface Plan {
   readonly expenseOverrides: readonly ValueOverride[];
   readonly openingBalanceCents: number;
   /**
-   * Per-account annual returns, whole-number percents. Goal fund accounts carry their own
-   * rate on {@link GoalPlan}.
+   * Whole-number percents. Goal fund accounts carry their own rate on {@link GoalPlan}.
    */
   readonly savingsReturnPct: number;
   readonly retirementReturnPct: number;
@@ -77,27 +72,20 @@ export interface Plan {
   readonly surplusCashTo?: SurplusCashDestination;
   readonly goals: readonly GoalPlan[];
   /**
-   * Monthly self-funded health expense paid until public coverage begins (and for life
-   * when {@link enrollsInPublicHealthCoverage} is false), cents. ADDITIVE to
-   * {@link expenseCents}, not a slice of it; grows at {@link healthInflationPct}.
-   * Understating it while retiring early trips the early-retiree honesty nudge.
+   * Self-funded health expense until public coverage begins (for life when
+   * {@link enrollsInPublicHealthCoverage} is false). ADDITIVE to {@link expenseCents}, not
+   * a slice of it; grows at {@link healthInflationPct}.
    */
   readonly healthMonthlyCents: number;
   /**
-   * Monthly health expense from the public-coverage age onward, today's dollars, grown at
-   * {@link healthInflationPct}. 0 models forgoing coverage. Used only when
-   * {@link enrollsInPublicHealthCoverage}.
+   * Health expense from the public-coverage age onward, today's dollars. 0 models forgoing
+   * coverage. Used only when {@link enrollsInPublicHealthCoverage}.
    */
   readonly postCoverageHealthMonthlyCents: number;
-  /**
-   * True → health steps from {@link healthMonthlyCents} down to
-   * {@link postCoverageHealthMonthlyCents} at the coverage age; false → the self-funded
-   * line runs for life.
-   */
   readonly enrollsInPublicHealthCoverage: boolean;
   /**
-   * Annual growth of the health lines, whole-number percent. The real-dollars retirement
-   * drawdown compounds health net of {@link inflationPct}.
+   * Whole-number percent. The real-dollars retirement drawdown compounds health net of
+   * {@link inflationPct}.
    */
   readonly healthInflationPct: number;
   /**
@@ -106,32 +94,30 @@ export interface Plan {
    * line and the retirement drawdown.
    */
   readonly inflationPct: number;
-  /** Age at "now" — the base the retirement solver counts years from. */
+  /** The base the retirement solver counts years from. */
   readonly currentAge: number;
-  /** The pinned/desired retirement age; target mode reports on-track % against it. */
+  /** Target mode reports on-track % against it. */
   readonly retirementAge: number;
   /** Age the portfolio must last to. */
   readonly lifeExpectancy: number;
-  /** Pinned government-benefit claiming age — an input to the check, never searched. */
+  /** An input to the check, never searched. */
   readonly benefitClaimingAge: number;
   /**
-   * Cost-of-living rate for the government retirement benefit, as a DECIMAL rate
-   * (e.g. `0.02`), unlike the whole-percent fields above. Unset couples the benefit COLA
-   * to {@link inflationPct}.
+   * A DECIMAL rate (e.g. `0.02`), unlike the whole-percent fields above. Unset couples the
+   * benefit COLA to {@link inflationPct}.
    */
   readonly benefitColaRate?: number;
   /**
-   * Source of truth for earned income. `createProjectionBase` compiles these into the
-   * base income series: the primary member's open-ended jobs end at
-   * {@link retirementAge}, fixed-term jobs carry their own end. Covered SS earnings,
-   * including the pre-"now" record, derive from job spans and salaries — when a person
-   * started working is the earliest job's `startYear`, not a separate field.
+   * Source of truth for earned income. `createProjectionBase` compiles these into the base
+   * income series: the primary member's open-ended jobs end at {@link retirementAge},
+   * fixed-term jobs carry their own end. Covered SS earnings, including the pre-"now"
+   * record, derive from job spans and salaries — when a person started working is the
+   * earliest job's `startYear`, not a separate field.
    */
   readonly jobs: readonly Job[];
   /**
-   * Prioritized expense and account-contribution line items. When present and non-empty,
-   * the *expense* lines replace the scalar {@link expenseCents} series in
-   * `createProjectionBase`; contribution lines resolve via
+   * When present and non-empty, the *expense* lines replace the scalar
+   * {@link expenseCents} series in `createProjectionBase`; contribution lines resolve via
    * {@link import("./budgetLine").resolveBudget}.
    */
   readonly budgetLines?: readonly BudgetLine[];

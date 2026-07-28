@@ -10,15 +10,13 @@ import type { Jurisdiction } from "../jurisdiction";
 import { makePerson, monthlyIncome } from "./simulate.testSupport";
 
 describe("Savings interest is taxed as ordinary income at accrual", () => {
-  // A cash account's return is interest — taxable as ordinary income in the year it is
-  // credited (the 1099-INT), withdrawn or not; otherwise decades of compounding ride
-  // untaxed. Flat 10% so the tax figure is easy to read off.
+  // Cash interest is ordinary income in the year it is credited (1099-INT), withdrawn or
+  // not. Flat 10% so the tax figure is easy to read off.
   const flatOrdinary10: Jurisdiction = {
     id: "flat-ordinary-10",
     computeTaxCents: (byCat) =>
       Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
-    // Per-category tax lets the waterfall attribute tax per source, so a source's net cash
-    // flow is defined.
+    // Per-category tax lets the waterfall attribute tax per source.
     computeTaxByCategoryCents: (byCat) => {
       const out: Partial<Record<TaxCategory, number>> = {};
       for (const [cat, cents] of Object.entries(byCat)) {
@@ -26,22 +24,19 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
       }
       return out;
     },
-    // Interest taxed at accrual, appreciation deferred to withdrawal — the same split the
-    // US jurisdiction makes. Keyed on the account's `returnKind`, so the deferral is the
-    // jurisdiction's call, not a default.
+    // The same split the US jurisdiction makes; the deferral is the jurisdiction's call,
+    // not a default.
     returnTaxTreatment: (kind) =>
       kind === "interest"
         ? { taxAtAccrual: true, category: "ordinaryIncome" }
         : { taxAtAccrual: false, category: "capitalGains" },
   };
 
-  /** A liquid cash buffer (savings) — post-tax in, tax-free withdrawal, taxable interest. */
   function savings(openingDollars: number, annualRate: number, id = "savings"): SimAccount {
     return new SimAccount({
       id,
       ownerId: "p1",
-      // Bands are per account: the labelled one reads under its own name, label-less
-      // accounts fall back to the id.
+      // Only the default is labelled; the rest fall back to the id.
       label: id === "savings" ? "Cash savings" : id,
       liquid: id === "savings",
       taxProfile: CASH_INTEREST_TAX_PROFILE,
@@ -57,8 +52,7 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
         annualInflationRate: 0,
         persons: [makePerson()],
         accounts: [savings(120_000, annualRate)],
-        // Steady $3k/mo so the buffer is never WITHDRAWN — its interest is the only thing
-        // under test.
+        // Steady $3k/mo so the buffer is never drawn — only its interest is under test.
         incomeSeries: [{ series: monthlyIncome(dollarsToCents(3_000)), ownerId: "p1" }],
         expenseSeries: [],
       },
@@ -68,13 +62,12 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
 
   it("taxes the credited interest the year after it is credited, never $0 while growing", () => {
     const series = run(0.12); // ~1%/mo on a six-figure buffer → four-figure annual interest
-    // Month 1: compounding runs after the tax seam, so no interest has accrued yet — tax is
-    // exactly 10% of $3k.
+    // Compounding runs after the tax seam, so month 1 has no accrued interest.
     expect(series.months[1].flows?.taxCents).toBe(dollarsToCents(300));
-    // Month 2 onward: last month's credited interest is taxed on top of wages.
+    // Then last month's credited interest is taxed on top of wages.
     expect(series.months[2].flows?.taxCents).toBeGreaterThan(dollarsToCents(300));
     expect(series.months[3].flows?.taxCents).toBeGreaterThan(dollarsToCents(300));
-    // The buffer is never drawn — it only grows — yet its interest is still taxed.
+    // Never drawn, only growing — yet still taxed.
     const b1 = series.months[1].accountBalancesCents["savings"];
     const b3 = series.months[3].accountBalancesCents["savings"];
     expect(b3).toBeGreaterThan(b1);
@@ -82,8 +75,7 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
   });
 
   it("books nothing when the buffer earns no interest (0% return → wage-only tax)", () => {
-    // Control: at a 0 cash rate there is no credited interest, isolating the interest as the
-    // cause of the rise above.
+    // Control: at a 0 rate no interest is credited, isolating it as the cause of the rise above.
     const series = run(0);
     for (const m of [1, 2, 3, 4]) {
       expect(series.months[m].flows?.taxCents).toBe(dollarsToCents(300));
@@ -91,11 +83,10 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
   });
 
   it("taxes EVERY cash account's interest, not only the liquid shortfall sink", () => {
-    // Interest accrual is a per-account tax keyed on `returnTaxCategory`, not on the single
-    // liquid sink, so a second NON-liquid cash buffer's interest must be taxed too. Only the
-    // second account varies — brokerage (deferred, taxed at a withdrawal that never happens
-    // → no tax) vs cash reserve (taxed at accrual) — at equal balance and rate, so the tax
-    // gap is exactly the reserve's interest tax.
+    // Accrual tax is keyed on the account's `returnKind`, not on the single liquid sink.
+    // Only the second account varies — brokerage (deferred to a withdrawal that never
+    // happens) vs cash reserve — at equal balance and rate, so the tax gap is exactly the
+    // reserve's interest tax.
     const brokerage = new SimAccount({
       id: "brokerage",
       ownerId: "p1",
@@ -118,8 +109,8 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
         flatOrdinary10,
       );
     }
-    // Month 2 taxes month 1's credited interest. Equal figures would mean a non-liquid
-    // buffer's interest was dropped.
+    // Month 2 taxes month 1's interest. Equal figures would mean the non-liquid buffer's
+    // interest was dropped.
     const brokerageTax = runWith(brokerage).months[2].flows?.taxCents ?? 0;
     const reserveTax = runWith(reserve).months[2].flows?.taxCents ?? 0;
     expect(reserveTax).toBeGreaterThan(brokerageTax);
@@ -128,9 +119,8 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
   });
 
   it("bands each cash account's interest separately, under its own name", () => {
-    // Two cash buffers → two bands, keyed `interest:<accountId>`. Merging them into one
-    // per-owner line made a drained buffer look like it was still earning its neighbour's
-    // interest. The app's Simple view re-collapses them; the engine reports per account.
+    // Merging the two into one per-owner line made a drained buffer look like it was still
+    // earning its neighbour's interest. The app's Simple view re-collapses them.
     const reserve = savings(120_000, 0.12, "reserve");
     const series = simulateHousehold(
       {
@@ -152,14 +142,10 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     for (const s of interest) expect(s.cashInflowCents).toBeGreaterThan(0);
   });
 
-  // Savings interest must reconcile four ways at once: it credits the account, enters the
-  // waterfall once for tax, shows on the cash-flow view as cash, and has its tax netted off
-  // — without being double-counted against the balance.
-
   it("reports credited interest as a cash inflow and nets its tax off (cash flow ≠ zero)", () => {
     const series = run(0.12);
-    // Month 2 carries month 1's credited interest as a source, identified by its explicit
-    // `savingsInterest` provenance — never by parsing its id.
+    // The source is identified by its explicit `savingsInterest` provenance, never by
+    // parsing its id.
     const interest = series.months[2].flows?.incomeSources.find((s) => s.category === "savingsInterest");
     expect(interest).toBeDefined();
     expect(interest!.label).toBe("Cash savings");
@@ -177,9 +163,9 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
   });
 
   it("credits the account exactly once — the interest cash is never re-deposited", () => {
-    // No income, no expenses: only compounding and the interest tax (drawn from the balance
-    // via the shortfall cascade) move the balance. Re-injecting the booking's cash would jump
-    // month 2 by roughly a second interest payment.
+    // No income or expenses: only compounding and the interest tax (drawn from the balance
+    // via the shortfall cascade) move the balance. Re-injecting the booking's cash would
+    // jump month 2 by roughly a second interest payment.
     const series = simulateHousehold(
       {
         horizonMonths: 4,
@@ -195,10 +181,10 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     const r = preciseMonthlyRate(0.12);
     const b1 = series.months[1].accountBalancesCents["savings"];
     const b2 = series.months[2].accountBalancesCents["savings"];
-    // Month 1 has no interest source yet (nothing accrued) → pure compounding.
+    // Nothing accrued yet → pure compounding.
     expect(b1).toBe(Math.round(opening * (1 + r)));
-    // Month 2 taxes month 1's interest; with no other income that tax is a deficit funded
-    // from the balance, so month 2 is (prior − tax) compounded once, not a second credit.
+    // With no other income the tax is a deficit funded from the balance, so month 2 is
+    // (prior − tax) compounded once, not a second credit.
     const tax = series.months[2].flows?.taxCents ?? 0;
     expect(tax).toBeGreaterThan(0);
     expect(b2).toBe(Math.round((b1 - tax) * (1 + r)));

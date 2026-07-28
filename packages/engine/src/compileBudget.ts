@@ -1,14 +1,14 @@
 /**
  * Pure compilation from the standing line-item {@link BudgetLine} model into simulator
  * inputs. Expense lines compile to forward expense {@link SimOwnedSeries} (spans → the
- * series' start/end months, dated overrides → its override edits), so a line-item budget
- * drives the *existing* waterfall/simulator unchanged.
+ * series' start/end months, dated overrides → its override edits), driving the *existing*
+ * waterfall/simulator unchanged.
  *
  * The one budget-model module depending on the simulator (`SimOwnedSeries`) and the
- * jurisdiction seam; isolating it keeps {@link import("./budgetLine")}'s pure types free
- * of any `projection/*` import, mirroring the {@link import("./compilePerson")} seam.
- * Inflation arrives from the caller, the legislated fill-to-limit cap through the
- * jurisdiction interface — never imported.
+ * jurisdiction seam; isolating it keeps {@link import("./budgetLine")}'s pure types free of
+ * any `projection/*` import, mirroring the {@link import("./compilePerson")} seam. Inflation
+ * arrives from the caller, the legislated fill-to-limit cap through the jurisdiction
+ * interface — never imported.
  *
  * Additive alongside the scalar `Plan.expenseCents` path; both compile into the same
  * `initialExpenseSeries`.
@@ -21,10 +21,9 @@ import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
 import type { BudgetLine } from "./budgetLine";
 
 /**
- * Where a `fill-to-limit` line reads its legislated annual cap: the jurisdiction's
- * {@link Jurisdiction.retirementDeferralLimitCents} plug (age-banded catch-up included).
- * `undefined` when the jurisdiction defines no cap, so the line resolves to 0 rather than
- * inventing one.
+ * Where a `fill-to-limit` line reads its legislated annual cap: the jurisdiction's {@link
+ * Jurisdiction.retirementDeferralLimitCents} plug (age-banded catch-up included). `undefined`
+ * when the jurisdiction defines no cap, so the line resolves to 0 rather than inventing one.
  */
 export function fillToLimitSeamFor(
   jurisdiction: Jurisdiction,
@@ -48,9 +47,9 @@ function compileExpenseLine(
   const endMonth = line.span?.endMonth !== undefined ? line.span.endMonth - 1 : undefined;
   const monthlyCents: Cents = line.amountSource.monthlyCents;
 
-  // A budget line is authored in TODAY's dollars and rises with prices. Compiling it
-  // `fixed` would model spending that never rises — over decades that understates lifetime
-  // cost enough to move the retirement age by years.
+  // A budget line is authored in TODAY's dollars and rises with prices. Compiling it `fixed`
+  // would model spending that never rises, understating lifetime cost enough over decades to
+  // move the retirement age by years.
   const series = new SimCashFlowSeries(
     startMonth,
     monthlyCents,
@@ -59,15 +58,15 @@ function compileExpenseLine(
   );
   for (const o of line.overrides ?? []) {
     // Reset the growth clock to the override's own month: X is that month's dollars.
-    // Inheriting the prior segment's anchor would read X as today's dollars and inflate
-    // it forward — a $2,500 edit fifteen years out would charge $3,895 on landing.
+    // Inheriting the prior segment's anchor would read X as today's dollars and inflate it
+    // forward — a $2,500 edit fifteen years out would charge $3,895 on landing.
     series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
-  // Carry the source line's label and id so the simulator reports each line's monthly
-  // amount without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority is NOT
-  // carried: nothing downstream ranks lines, since a tight month is absorbed by savings and
-  // credit rather than by starving low-priority ones. `budgetLinePriority` stays the
-  // ordering source of truth for the authoring view (`allocations.ts`).
+  // Carry the source line's label and id so the simulator reports each line's monthly amount
+  // without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority is NOT carried:
+  // nothing downstream ranks lines, since a tight month is absorbed by savings and credit
+  // rather than by starving low-priority ones. `budgetLinePriority` stays the ordering source
+  // of truth for the authoring view (`allocations.ts`).
   return {
     series,
     ownerId,

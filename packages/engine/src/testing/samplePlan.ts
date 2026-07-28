@@ -1,16 +1,15 @@
 /**
  * A small, purpose-built plan fixture for engine-native mapping/solver tests.
  *
- * Deliberately NOT a copy of the app's `PLAN_DEFAULTS` — that would drift silently and
- * couple engine tests to a product default. Minimal and self-contained (one household, one
- * goal), chosen so the mapping wiring is easy to assert: a clear surplus to accumulate, a
- * retirement age below the health-coverage age (exercising the health step), a finite
- * horizon.
+ * NOT a copy of the app's `PLAN_DEFAULTS` — that would drift silently and couple engine tests
+ * to a product default. One household, one goal, chosen so the mapping wiring is easy to
+ * assert: a clear surplus to accumulate, a retirement age below the health-coverage age
+ * (exercising the health step), a finite horizon.
  *
- * `satisfies Plan` rather than a `: Plan` annotation, so the fixture is type-checked without
- * widening: tests still see each field's literal value, and a drift in `Plan` fails here
- * rather than at a use site. Pure (satisfies `check-engine-purity`) and NOT barrel-exported
- * — tests import it by relative path (`../testing/samplePlan`).
+ * `satisfies Plan` rather than a `: Plan` annotation type-checks without widening: tests still
+ * see each field's literal value, and a drift in `Plan` fails here rather than at a use site.
+ * Pure (satisfies `check-engine-purity`) and NOT barrel-exported — tests import it by relative
+ * path (`../testing/samplePlan`).
  */
 import type { Plan } from "../plan";
 import type { Job } from "../job";
@@ -27,8 +26,8 @@ const SAMPLE_START_AGE = 18;
  * A single open-ended, flat-salary {@link Job}: real-flat salary (`realGrowthPct: 0` → grows
  * at CPI nominally, constant in real terms), anchored in the past so it pays from "now",
  * ending at the owner's `retirementTargetAge`. `startAge` sets the job's `startYear`, which
- * seeds the pre-"now" covered-earnings record; an optional deferral rides on the job. It is
- * one job, in no way privileged — a fixture can hold several (see {@link baristaPlan}).
+ * seeds the pre-"now" covered-earnings record; an optional deferral rides on the job. One job,
+ * in no way privileged — a fixture can hold several (see {@link baristaPlan}).
  */
 export function salariedJob(
   monthlyIncomeCents: number,
@@ -91,9 +90,9 @@ const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
 /**
  * A "barista retirement" fixture: a high-earning **open-ended** job (`null` end, ending at
  * `retirementTargetAge`) plus a low-earning **fixed-term** ("barista") job that keeps paying
- * long past it. Pins the two solver outputs *distinctly*: the partial retirement age (drop
- * the open-ended job, keep barista + government benefit + assets) lands earlier than the
- * full one (cease ALL jobs and survive on government benefit + assets alone).
+ * long past it. Pins the two solver outputs *distinctly*: the partial retirement age (drop the
+ * open-ended job, keep barista + government benefit + assets) lands earlier than the full one
+ * (cease ALL jobs, survive on government benefit + assets alone).
  */
 const baristaOpenEndedJob: Job = {
   id: "main",

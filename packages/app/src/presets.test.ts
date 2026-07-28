@@ -1,9 +1,8 @@
 /**
- * The starter simulations a fresh session can load. Beyond the healthy default, three
- * teaching scenarios — paycheck to paycheck, living on a credit card, and a student loan
- * into negative net worth — each of which must project to its intended financial *shape*,
- * not merely exist. These tests pin that shape so a tweak to the numbers can't turn
- * "living on credit" into a plan that quietly accumulates wealth.
+ * The starter simulations a fresh session can load: a healthy default plus three teaching
+ * scenarios — paycheck to paycheck, living on a credit card, and a student loan into
+ * negative net worth. These tests pin each one's financial *shape*, so a tweak to the
+ * numbers can't turn "living on credit" into a plan that quietly accumulates wealth.
  */
 
 import { describe, it, expect } from "vitest";
@@ -49,12 +48,10 @@ describe("default simulations", () => {
       "student-loan",
       "taxed-in-retirement",
     ]);
-    // Each preset carries a distinct, non-empty human label and description.
     for (const preset of PRESETS) {
       expect(preset.label.length).toBeGreaterThan(0);
       expect(preset.description.length).toBeGreaterThan(0);
     }
-    // The first preset is the current fresh-plan default, unchanged.
     expect(PRESETS[0].plan).toEqual(presetById("default").plan);
   });
 
@@ -95,10 +92,9 @@ describe("default simulations", () => {
 
   it("living-on-credit: overspends from the start, accruing compounding credit-card debt", () => {
     const series = project(presetById("living-on-credit"));
-    // Net worth turns negative within the first two years...
     expect(realNetWorthAt(series, 24)!).toBeLessThan(0);
-    // ...specifically because the shortfall cascade routes the monthly shortfall onto a
-    // synthetic credit-card liability that compounds.
+    // The shortfall cascade routes each month's shortfall onto a synthetic credit-card
+    // liability that compounds.
     const early = series.months[12]?.liabilityBalancesCents["synthetic-credit-card"] ?? 0;
     const later = series.months[36]?.liabilityBalancesCents["synthetic-credit-card"] ?? 0;
     expect(early).toBeGreaterThan(0);
@@ -109,20 +105,19 @@ describe("default simulations", () => {
 
   it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {
     // Taxable 401(k) withdrawals fund retirement — the spend is tuned high enough that cash
-    // can't pile up and cover it tax-free — so that ordinary income lifts the benefit over
-    // the standard deduction and the government-benefit category bears real tax for years.
+    // can't cover it tax-free — so that ordinary income lifts the benefit over the standard
+    // deduction.
     const series = project(presetById("taxed-in-retirement"));
     const ssTax = series.months.map((m) => {
       const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
       return byCat.governmentRetirementBenefit ?? 0;
     });
     expect(ssTax.filter((c) => c > 0).length).toBeGreaterThan(24); // taxed across years, not a blip
-    // Meaningfully, not a rounding-scale $25/mo: it must clear a few hundred in some
-    // retirement month, guarding against a regression to cash-funded retirement.
+    // A few hundred, not a rounding-scale $25/mo: guards a regression to cash-funded
+    // retirement.
     expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
-    // Contrast: the default plan taxes the benefit only trivially. Its home goal is a
-    // drawable `retain` reserve, so a little taxable drawdown does reach the benefit — but
-    // nowhere near the sustained several-hundred-a-month scale here.
+    // The default plan taxes the benefit only trivially: its home goal is a drawable
+    // `retain` reserve, so a little taxable drawdown does reach the benefit.
     const defaultMaxSSTax = Math.max(
       0,
       ...project(presetById("default")).months.map((m) => {
@@ -139,7 +134,7 @@ describe("default simulations", () => {
     expect(realNetWorthAt(series, 0)!).toBeLessThan(0);
     // The loan is a real amortizing student-loan liability at "now", not a cash hack.
     expect(series.months[0]?.liabilityBalancesCents).toHaveProperty("loan-student");
-    // A solid income services it: net worth climbs back above water within a decade.
+    // A solid income services it.
     expect(realNetWorthAt(series, 120)!).toBeGreaterThan(0);
   });
 });
@@ -184,7 +179,7 @@ describe("the panel and the graph agree", () => {
         firstInsolventMonth(projectScenario(scenario, CTX)) === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
-      // draws reaching age 90.
+      // draws surviving.
       const pinnedWorks = evaluateFullRetirementAtAge(scenario, preset.plan.retirementAge, CTX)
         .feasible;
       if (graphSurvives) expect(pinnedWorks).toBe(true);

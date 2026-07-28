@@ -1,10 +1,8 @@
 /**
- * Starter simulations a session can load, beyond the healthy {@link PLAN_DEFAULTS} ("Alex") a
- * fresh plan opens on. Each preset is a full {@link Scenario} — the standing {@link Plan} plus
- * the {@link NewLifeEvent}s it needs — so what the user loads is what the engine projects.
- *
- * The numbers are tuned against the live engine (see `presets.test.ts`) so each projects to its
- * intended shape.
+ * Starter simulations, beyond the healthy {@link PLAN_DEFAULTS} ("Alex") a fresh plan opens on.
+ * Each is a full {@link Scenario} — plan plus events — so what the user loads is what the engine
+ * projects. The numbers are tuned against the live engine (`presets.test.ts`) to project to
+ * their intended shape.
  */
 
 import {
@@ -39,7 +37,6 @@ export interface Preset {
   readonly label: string;
   readonly description: string;
   readonly plan: Plan;
-  /** Replayed on top of the plan at load. */
   readonly events: readonly NewLifeEvent[];
 }
 
@@ -59,10 +56,9 @@ function salariedJob(monthlyCents: number): Job {
 
 /**
  * The default Base budget rescaled to a scenario's monthly spend. A preset is authored as one
- * monthly number, but empty `budgetLines` open the Base + Adjustments editor onto an empty
- * chart, so every scenario gets the fresh plan's starter items scaled proportionally. Rounding
- * residue settles on the largest line so the lines sum to `monthlyCents` to the cent: the
- * budget replaces the scalar series wholesale, so drift here is drift in the projection.
+ * number, but empty `budgetLines` would open the editor onto an empty chart. Rounding residue
+ * settles on the largest line so the lines sum to `monthlyCents` exactly — the budget replaces
+ * the scalar series wholesale, so drift here is drift in the projection.
  */
 function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
   const scale = monthlyCents / DEFAULT_TEMPLATE_TOTAL_CENTS;
@@ -94,10 +90,9 @@ function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
 }
 
 /**
- * Shared knobs for the teaching scenarios: each is one legible income/expense gap, with health
- * lines trimmed below the default's ~$700 so that gap, not an outsized medical line, sets the
- * trajectory. The scalar `expenseCents` stays set as the engine-native fallback, inert while
- * lines exist.
+ * Each teaching scenario is one legible income/expense gap, with health trimmed below the
+ * default's ~$700 so that gap — not a medical line — sets the trajectory. Scalar `expenseCents`
+ * stays set as the engine-native fallback, inert while lines exist.
  */
 function teachingPlan(over: Partial<Plan> & { readonly expenseCents: number }): Plan {
   return {
@@ -144,16 +139,14 @@ const STUDENT_LOAN: Plan = teachingPlan({
 });
 
 /**
- * A 401(k) saver who lives off that pre-tax balance. Spending is high enough that cash never
- * piles into a tax-free buffer, so retirement is funded by taxable withdrawals whose ordinary
- * income, stacked on Social Security, lifts the benefit over the standard deduction. Tax
- * therefore does not stop at the last paycheck — unlike the default plan, where SS sits under
- * the deduction untaxed — and the chart carries both an ordinary-income and a
- * government-benefit band.
+ * A 401(k) saver living off that pre-tax balance. Spending is high enough that cash never piles
+ * into a tax-free buffer, so retirement is funded by taxable withdrawals whose ordinary income,
+ * stacked on Social Security, lifts the benefit over the standard deduction — so tax does not
+ * stop at the last paycheck, unlike the default plan where SS sits under the deduction untaxed.
  *
- * Tuning: the $5.5k spend forces the 401(k) to fund retirement — lower, and cash accumulates to
- * cover it tax-free, leaving SS barely taxed — and life expectancy 72 stops short of the age-73
- * required minimum distributions that would spike the tax chart annually.
+ * Tuning: $5.5k spend forces the 401(k) to fund retirement (lower, and cash covers it tax-free,
+ * leaving SS barely taxed); life expectancy 72 stops short of the age-73 RMDs that would spike
+ * the tax chart annually.
  */
 const TAXED_IN_RETIREMENT: Plan = {
   ...PLAN_DEFAULTS,
@@ -222,15 +215,14 @@ export const PRESETS: readonly Preset[] = [
   },
 ];
 
-/** Falls back to the default preset when the id is unknown. */
 export function presetById(id: string): Preset {
   return PRESETS.find((p) => p.id === id) ?? PRESETS[0];
 }
 
 /**
- * Replays seeds through the same base-aware {@link addEvent} path the live UI uses, so they
- * validate exactly like hand-added events. A rejected seed is a preset bug, not user error, so
- * it throws rather than dropping the event.
+ * Replays seeds through the same {@link addEvent} path the live UI uses, so they validate like
+ * hand-added events. A rejected seed is a preset bug, not user error, so it throws rather than
+ * silently dropping the event.
  */
 export function buildPresetLedger(
   base: LedgerBaseConfig,

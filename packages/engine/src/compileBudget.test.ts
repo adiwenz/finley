@@ -1,8 +1,8 @@
 /**
  * Compilation of the line-item {@link BudgetLine} budget into simulator inputs: unit
  * assertions on the compiled expense series, plus an end-to-end pass through the real
- * simulator via {@link createProjectionBase} proving a line-item budget drives spending —
- * spans and dated overrides included — exactly like the scalar `expenseCents` path.
+ * simulator proving a line-item budget drives spending — spans and dated overrides
+ * included — exactly like the scalar `expenseCents` path.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "./index";
@@ -78,8 +78,8 @@ describe("compileExpenseBudgetLines", () => {
 
   it("reads a dated override as THAT month's dollars, not today's", () => {
     // An override means "from here the amount is X". Inheriting the line's original growth
-    // clock would read X as today's dollars and inflate it forward, so a $2,500 edit
-    // fifteen years out would charge $3,895 the moment it landed.
+    // clock would read X as today's dollars and inflate it forward: a $2,500 edit fifteen
+    // years out would charge $3,895 the moment it landed.
     const [s] = compileExpenseBudgetLines(
       [
         literalExpense("housing", dollarsToCents(1_600), {
@@ -134,8 +134,7 @@ describe("fillToLimitSeamFor", () => {
 describe("createProjectionBase — the line-item budget drives spending", () => {
   it("reproduces the scalar expense path when a single literal line replaces expenseCents", () => {
     // A budget line rises with prices exactly like the scalar `expenseCents` series, so one
-    // line carrying the whole amount is indistinguishable from it — the parity that lets
-    // the scalar path be deleted without moving any number.
+    // line carrying the whole amount is indistinguishable from it.
     const scalar = project(samplePlan);
     const lineItem = project({
       ...samplePlan,
