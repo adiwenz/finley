@@ -1,46 +1,17 @@
 /**
- * The `Projection` root — the headline public API of `@finley/engine` ("npm API surface").
+ * The `Projection` root — the high-level public API of `@finley/engine`; the functional
+ * barrel (`interpretLedger`, `simulateHousehold`, …) remains the low-level surface.
  *
- * One **unified `Projection` root**: both standing edits (`addJob`, `addBudgetLine`,
- * `setRetirementTarget`) and ledger transactions (`buyHome`, `marry`, `takeLoan`) are
- * methods on it. Internally they route to standing data (a {@link Plan}) vs the
- * {@link Ledger} — but the caller sees **one object**. It is
- * "imperative-looking over an immutable core": each write derives a *new*
- * immutable {@link ProjectionState} and swaps it in, so no caller can observe a
- * half-applied write and any state already handed out stays intact.
+ * Standing edits (`addJob`) route to a {@link Plan}, ledger transactions (`buyHome`) to the
+ * {@link Ledger}. Each write derives a new {@link ProjectionState}, so state already handed
+ * out stays intact.
  *
- * **Writes are not reversible by the root.** There is deliberately no undo stack: a
- * `Projection` holds the *current* state only. Reversal is addressable, not
- * positional — a future `removeTransaction(id)` / `removeJob(id)` names the thing to
- * drop (removal from a ledger *deletes the event*, cascading to dependents
- * and refusing when a survivor's preconditions would fail). A UI deleting row 3 of a
- * timeline must not have to know what order rows were created in, and cross-session
- * undo would require a persisted operation log — a different design, not a stack held
- * in memory.
+ * No undo stack. Reversal is addressable, not positional: a future `removeTransaction(id)`
+ * names the event to drop, because a UI deleting row 3 does not know creation order.
  *
- * **Creating writes mint a deterministic sequence id and return it** ("npm API").
- * A single monotonic counter (`nextSeq`) lives in the state — `addJob` → `"job-1"`,
- * the next creating write → `"…-2"`, and so on. Because it is one counter across all
- * kinds, ids never collide. The counter is part of the serialized state
- * ({@link Projection.toJSON}), so a reloaded plan continues the sequence rather than
- * restarting at 1 and colliding with an existing id. A caller may override the minted
- * id with `{ id }` in the payload (round-trips, tests); an override does **not**
- * consume the counter.
- *
- * **`run(jurisdiction)` → immutable {@link ProjectionResult}.** The jurisdiction is
- * injected at `run()`, never at construction: `Projection` is pure, jurisdiction-free
- * authoring state, so one plan can be re-run under different rule sets without
- * mutation. `ProjectionResult` carries the already-monthly {@link ProjectionSeries}
- * plus the insolvency marker; per-line monthly resolution
- * now rides inside each month's `flows.lineMonthlyCents`. The solver outputs
- * (career-exit/work-optional ages, on-track %) remain deferred.
- *
- * Packaging ("npm API"): the root ships *inside* `@finley/engine` as the
- * headline surface; the existing functional barrel (`interpretLedger`,
- * `simulateHousehold`, …) stays exported as the low-level surface. The purity guard
- * is unchanged — swapping the internal state field is not I/O, and `Jurisdiction` is a
- * `run()` argument (the engine's own {@link nullJurisdiction} is used for the
- * write-time affordability gate), never a rules-package import.
+ * The jurisdiction is injected at `run()`, never at construction, so one plan re-runs under
+ * different rule sets. `Projection` therefore imports no rules package; the write-time
+ * affordability gate uses {@link nullJurisdiction}.
  */
 
 import type { Plan, GoalPlan } from "./plan";
@@ -58,48 +29,28 @@ import { projectScenario } from "./retirementSolver";
 import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 
-/**
- * The immutable authoring state a {@link Projection} holds — and the whole of what it
- * serializes. The {@link Scenario} carries the two homes writes route to:
- * standing data ({@link Plan}) and the {@link Ledger} of transactions. `nextSeq` is the
- * deterministic id counter
- * ("npm API") that **must** be serialized so a reload continues the sequence; and
- * `startYear` is the frozen "now" the compilation resolves against (an environment
- * input the engine cannot read from a wall clock).
- */
+/** The immutable authoring state a {@link Projection} holds, and the whole of what it serializes. */
 export interface ProjectionState {
   /**
-   * The projectable unit: the standing {@link Plan} coupled to the {@link Ledger}
-   * of events replayed on top of it. Held as ONE {@link Scenario} rather than two
-   * sibling fields precisely because that is the type's purpose — the engine projects a
-   * scenario, never a bare plan, so a timeline cannot be silently dropped on its way to
-   * {@link Projection.run}.
+   * Plan plus the {@link Ledger} replayed on top of it. One field rather than two siblings,
+   * so a timeline cannot be silently dropped on its way to {@link Projection.run}.
    */
   readonly scenario: Scenario;
-  /** The frozen "now" — calendar year of month 0. */
+  /** The frozen "now" — calendar year of month 0. An input, never a wall-clock read. */
   readonly startYear: number;
-  /** Next deterministic sequence number a creating write will mint. Serialized ("npm API"). */
   readonly nextSeq: number;
 }
 
-/** A {@link Job} payload for {@link Projection.addJob}: the owner is supplied as the
- * `personId` argument, the id is minted (override with `{ id }`). */
 export type JobInput = Omit<Job, "id" | "ownerId"> & { readonly id?: string };
 
-/** A {@link BudgetLine} payload for {@link Projection.addBudgetLine}: id minted (override with `{ id }`). */
 export type BudgetLineInput = Omit<BudgetLine, "id"> & { readonly id?: string };
 
-/** A {@link GoalPlan} payload for {@link Projection.addGoal}: id minted (override with `{ id }`). */
 export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
 
 /**
- * A `marry` payload: the incoming partner, authored as a {@link Person}. `birthYear`
- * is **required** — it is what makes a benefit basis and the age-50 deferral
- * catch-up computable, and a spouse with no birth year is a data-entry gap rather
- * than an intent. `retirementTargetAge` defaults to 65 and `benefitClaimingAge` to the US
- * full retirement age (67). `jobs` defaults to none (a partner whose earned income the
- * caller has not authored); their pre-"now" covered-earnings record is derived from those
- * jobs at the sim boundary, so an empty list models no benefit basis of their own.
+ * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
+ * catch-up computable. `retirementTargetAge` defaults to 65, `benefitClaimingAge` to 67.
+ * Covered earnings derive from `jobs`, so the empty default models no benefit basis.
  */
 export interface MarryInput {
   readonly month: number;
@@ -112,7 +63,6 @@ export interface MarryInput {
   readonly id?: string;
 }
 
-/** The fields every `takeLoan` payload carries, whatever the liability's kind. */
 interface TakeLoanCommon {
   readonly month: number;
   readonly ownerId: PersonId;
@@ -123,11 +73,8 @@ interface TakeLoanCommon {
 }
 
 /**
- * A `takeLoan` payload, discriminated on `kind`. `termMonths` and `creditLimitCents`
- * are not "optional" — they are kind-*determined*: a revolving card has a credit limit
- * and never amortizes; a term loan amortizes over a term and has no limit. Modelling
- * that as a union makes each field required exactly where it applies and
- * unrepresentable where it does not, so no caller has to invent a term for a card.
+ * Discriminated on `kind`: a revolving card has a limit and never amortizes, a term loan
+ * amortizes and has no limit.
  */
 export type TakeLoanInput =
   | (TakeLoanCommon & { readonly kind: "creditCard"; readonly creditLimitCents: number })
@@ -136,39 +83,29 @@ export type TakeLoanInput =
       readonly termMonths: number;
     });
 
-/** A `buyHome` payload. `appreciationMode` defaults to `inflationLinked` at base inflation. */
+/** `appreciationMode` defaults to `inflationLinked` at base inflation. */
 export interface BuyHomeInput {
   readonly month: number;
   readonly ownerId: PersonId;
   readonly purchasePriceCents: number;
   readonly downPaymentCents: number;
-  /** The liquid funding accounts drained for the down payment, in order (#129/#151). */
+  /** Liquid funding accounts drained for the down payment, in order. */
   readonly downPaymentSourceIds: readonly string[];
   readonly mortgageApr: number;
   readonly mortgageTermMonths: number;
   readonly appreciationMode?: GrowthMode;
-  /** Override the minted property id (the mortgage liability id is derived from it). */
+  /** Override the minted property id. */
   readonly id?: string;
 }
 
-/**
- * The computed snapshot a {@link Projection.run} produces ("npm API"). Pure
- * and **immutable** (frozen): the plan is authoring state, the result is one pipeline
- * pass under a specific jurisdiction. It carries the already-monthly {@link
- * ProjectionSeries} the chart reads — including per-line monthly resolution in each
- * month's `flows.lineMonthlyCents` — plus the first insolvent month (a
- * convenience the app already derives). The solver outputs / on-track % stay deferred.
- */
+/** One pipeline pass under a specific jurisdiction, frozen. */
 export interface ProjectionResult {
-  /** The jurisdiction this snapshot was computed under — echoes {@link Jurisdiction.id}. */
   readonly jurisdictionId: string;
-  /** The per-month accumulation table (net worth, per-account/liability balances, flows). */
   readonly series: ProjectionSeries;
   /** First month the shortfall cascade exhausted all credit, or `null` if solvent throughout. */
   readonly firstInsolventMonth: number | null;
 }
 
-/** The initial standing numbers a fresh {@link Projection} is created from. */
 export interface ProjectionInit {
   readonly plan: Plan;
   /** The frozen "now" — calendar year of month 0. */
@@ -176,9 +113,8 @@ export interface ProjectionInit {
 }
 
 /**
- * Mint the next id for a creating write. A supplied override is returned verbatim and
- * does **not** advance the counter; otherwise `${kind}-${nextSeq}` is minted and the
- * counter steps by one. A single counter across all kinds guarantees no collision.
+ * An override is returned verbatim and does NOT advance the counter. One counter across all
+ * kinds, so ids cannot collide.
  */
 function mint(
   state: ProjectionState,
@@ -190,21 +126,13 @@ function mint(
 }
 
 export class Projection {
-  /**
-   * The current authoring state — the ONLY mutable field. Each write swaps in a fresh
-   * immutable {@link ProjectionState} rather than mutating this one, so a state already
-   * read out of {@link state} never changes underfoot (imperative-looking over an
-   * immutable core). No prior states are retained; writes are not reversible by the
-   * root (see the module doc).
-   */
+  /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
 
-  /** Construct from an explicit state (used by {@link fromJSON}); prefer {@link create}. */
   private constructor(state: ProjectionState) {
     this.current = state;
   }
 
-  /** A fresh projection from standing numbers: empty ledger, sequence starting at 1. */
   static create(init: ProjectionInit): Projection {
     return new Projection({
       scenario: scenarioOf(init.plan),
@@ -213,25 +141,20 @@ export class Projection {
     });
   }
 
-  /** The current authoring state. */
   get state(): ProjectionState {
     return this.current;
   }
 
-  /** The current standing plan — shorthand for `state.scenario.plan`. */
   get plan(): Plan {
     return this.current.scenario.plan;
   }
 
-  /** Swap in a derived state — the single write primitive every method routes through. */
+  /** The single write primitive every method routes through. */
   private commit(next: ProjectionState): void {
     this.current = next;
   }
 
-  /**
-   * Commit a standing edit: swap the plan and carry the ledger through via
-   * {@link withPlan}, so no standing write can drop the timeline.
-   */
+  /** Swap the plan, carrying the ledger through, so no standing write drops the timeline. */
   private commitPlan(plan: Plan, nextSeq?: number): void {
     const s = this.state;
     this.commit({
@@ -241,12 +164,9 @@ export class Projection {
     });
   }
 
-  // ─── Standing edits ───────────────────────────────────────────────────────
+  // Standing edits
 
-  /**
-   * Add a {@link Job} owned by `personId`. Mints and returns a `"job-N"` id (override
-   * with `job.id`). The job appends to the plan's standing job list.
-   */
+  /** Returns the minted `"job-N"` id. */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
     const { id, nextSeq } = mint(s, "job", job.id);
@@ -262,10 +182,7 @@ export class Projection {
     return id;
   }
 
-  /**
-   * Add a {@link BudgetLine} to the standing line-item budget. Mints and returns
-   * a `"line-N"` id (override with `line.id`).
-   */
+  /** Returns the minted `"line-N"` id. */
   addBudgetLine(line: BudgetLineInput): string {
     const s = this.state;
     const { id, nextSeq } = mint(s, "line", line.id);
@@ -276,10 +193,7 @@ export class Projection {
     return id;
   }
 
-  /**
-   * Add a funding {@link GoalPlan} (appended = lowest priority). Mints and returns
-   * a `"goal-N"` id (override with `goal.id`).
-   */
+  /** Appended, so lowest funding priority. Returns the minted `"goal-N"` id. */
   addGoal(goal: GoalInput): string {
     const s = this.state;
     const { id, nextSeq } = mint(s, "goal", goal.id);
@@ -290,23 +204,17 @@ export class Projection {
     return id;
   }
 
-  /**
-   * Set the retirement target age — the career-exit input. A standing *edit*, not
-   * a creating write: it overwrites an existing value, so it mints no id.
-   */
   setRetirementTarget(age: number): void {
     this.commitPlan({ ...this.state.scenario.plan, retirementAge: age });
   }
 
-  // ─── Ledger transactions ──────────────────────────────────────────────────
+  // Ledger transactions
 
   /**
-   * Grow the ledger with a life event through the safe, base-aware {@link addEvent}
-   * path (its own-field + precondition validation, incl. the affordability gate,
-   * evaluated under the engine's own {@link nullJurisdiction} — no rules import, purity
-   * intact), and commit it as ONE new state carrying both the grown ledger and the
-   * post-mint `nextSeq`. Throws the conflict on failure, leaving the current state
-   * untouched (so a refused transaction consumes no id and cannot half-apply).
+   * Validates through {@link addEvent} — including the affordability gate, run under
+   * {@link nullJurisdiction} to keep purity — and commits ledger and post-mint `nextSeq` as
+   * ONE new state. On failure it throws with the state untouched, so a refused transaction
+   * consumes no id.
    */
   private commitEvent(event: NewLifeEvent, nextSeq: number): void {
     const s = this.state;
@@ -318,14 +226,10 @@ export class Projection {
     if (!result.ok) {
       throw new Error(`Projection: cannot apply transaction — ${result.conflict}`);
     }
-    // withLedger carries the plan through — the mirror of commitPlan.
     this.commit({ ...s, scenario: withLedger(s.scenario, result.ledger), nextSeq });
   }
 
-  /**
-   * Marry a partner into the household (a {@link RelationshipEvent}). Mints and returns
-   * the `"person-N"` id (override with `input.id`).
-   */
+  /** Returns the minted `"person-N"` id. */
   marry(input: MarryInput): string {
     const { id, nextSeq } = mint(this.state, "person", input.id);
     const person: Person = {
@@ -340,10 +244,7 @@ export class Projection {
     return id;
   }
 
-  /**
-   * Originate a liability (a {@link LoanEvent}). Mints and returns the `"loan-N"` id
-   * (override with `input.id`).
-   */
+  /** Returns the minted `"loan-N"` id. */
   takeLoan(input: TakeLoanInput): string {
     const { id, nextSeq } = mint(this.state, "loan", input.id);
     const common = {
@@ -355,8 +256,8 @@ export class Projection {
       openingBalanceCents: input.openingBalanceCents,
       apr: input.apr,
     } as const;
-    // Built per arm rather than spread: `kind` and its companion field have to travel
-    // together for the event union to accept them.
+    // Built per arm, not spread: the event union only accepts `kind` and its companion
+    // field together.
     this.commitEvent(
       input.kind === "creditCard"
         ? { ...common, kind: input.kind, creditLimitCents: input.creditLimitCents }
@@ -367,9 +268,8 @@ export class Projection {
   }
 
   /**
-   * Buy a home (a {@link HomePurchaseEvent}): mints the property id (override with
-   * `input.id`) and derives the mortgage liability id from it (`mortgage-<propertyId>`).
-   * Subject to the down-payment hard block. Returns the property id.
+   * The mortgage liability id derives from the minted property id
+   * (`mortgage-<propertyId>`). Subject to the down-payment hard block.
    */
   buyHome(input: BuyHomeInput): string {
     const { id, nextSeq } = mint(this.state, "home", input.id);
@@ -395,16 +295,11 @@ export class Projection {
     return id;
   }
 
-  // ─── Run ("npm API") ──────────────────────────────────────────────────────
+  // Run
 
   /**
-   * Compute the immutable {@link ProjectionResult} for the current authoring state
-   * under `jurisdiction`. Pure and read-only: it never swaps the current state, so the
-   * same `Projection` can be re-run under different jurisdictions without mutation.
-   *
-   * Delegates to {@link projectScenario} rather than restating its steps: that is the
-   * one pipeline the net-worth chart and the solver panel already share, and a
-   * second spelling of it here is how those three quietly stop agreeing.
+   * Read-only — never swaps the current state. Delegates to {@link projectScenario}, the
+   * pipeline the chart and solver panel already share.
    */
   run(jurisdiction: Jurisdiction): ProjectionResult {
     const s = this.state;
@@ -416,19 +311,16 @@ export class Projection {
     });
   }
 
-  // ─── Serialization (the id counter round-trips) ───────────────────────────
+  // Serialization
 
   /**
-   * The serializable current state — plan, ledger, `startYear`, and the `nextSeq`
-   * counter. Serializing `nextSeq` is what lets a reloaded plan continue the sequence
-   * and never collide with an existing id. This is the whole of a `Projection` — it
-   * retains no prior states — so a round-trip loses nothing.
+   * Serializing `nextSeq` is what lets a reloaded plan continue the sequence instead of
+   * colliding with an existing id.
    */
   toJSON(): ProjectionState {
     return this.state;
   }
 
-  /** Reconstruct a projection from a {@link toJSON} snapshot. */
   static fromJSON(state: ProjectionState): Projection {
     return new Projection(state);
   }

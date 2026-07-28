@@ -1,9 +1,8 @@
 /**
- * Retirement panel — the Mode-1 headline age ("when can we retire?") and,
- * for the pinned retirement age, the target-mode on-track % plus the honest
- * nearest-feasible age when the pin is unreachable. Single-person for
- * now, so Mode 1 and the per-person Mode 2 coincide; the per-person click-through
- * arrives with a second household member.
+ * Retirement panel — the Mode-1 headline age ("when can we retire?") and, for the pinned
+ * retirement age, the target-mode on-track % plus the nearest feasible age when the pin is
+ * unreachable. Single-person for now, so Mode 1 and per-person Mode 2 coincide; the
+ * per-person click-through arrives with a second household member.
  */
 
 import type { Plan } from "@finley/engine";

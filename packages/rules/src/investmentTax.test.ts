@@ -14,8 +14,7 @@ function draw(grossDollars: number, basisDollars: number, balanceDollars: number
 
 describe("taxableWithdrawalCents — US pro-rata return of capital", () => {
   it("taxes $0 when the draw is all principal (basis == balance)", () => {
-    // $2k out of a $100k account whose basis is the full $100k → every dollar is
-    // returned principal, nothing is gain.
+    // $2k out of a $100k account with $100k basis → all returned principal, no gain.
     expect(taxableWithdrawalCents(draw(2_000, 100_000, 100_000))).toBe(0);
   });
 
@@ -25,7 +24,7 @@ describe("taxableWithdrawalCents — US pro-rata return of capital", () => {
   });
 
   it("taxes the whole draw when there is no basis (a pre-tax account)", () => {
-    // basis 0 → the entire draw is gain, fully taxable — the pre-tax behavior.
+    // basis 0 → the whole draw is gain, fully taxable: the pre-tax behavior.
     expect(taxableWithdrawalCents(draw(2_000, 0, 100_000))).toBe(2_000_00);
   });
 

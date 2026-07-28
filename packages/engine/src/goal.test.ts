@@ -9,9 +9,9 @@ import { nullJurisdiction } from "./jurisdiction";
 const person: SimPerson = { id: "p1", name: "Alice" };
 
 /**
- * A hand-built projection whose only moving part is the `"fund"` account balance,
- * one entry per month — the independent source of truth for the completion scan.
- * Every other field is inert so the test pins exactly the balance-vs-target logic.
+ * A hand-built projection whose only moving part is the `"fund"` balance, one entry per
+ * month — the independent source of truth for the completion scan. Every other field is
+ * inert, so the test pins exactly the balance-vs-target logic.
  */
 function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSeries {
   return {
@@ -147,8 +147,8 @@ describe("computeGoalProgress — projection-based on-track %", () => {
 
 describe("computeGoalProgress — completion (In Progress → Funded, latched)", () => {
   it("latches Funded once the balance reaches target on/before the target date, even if a later event drains the account", () => {
-    // Reaches $24,000 at month 10, then a drain empties the account by month 20;
-    // target date is month 24. Completion must latch at the month-10 reach.
+    // Reaches $24,000 at month 10, drained by month 20, target date month 24: completion
+    // must latch at the month-10 reach.
     const balances = Array.from({ length: 25 }, (_, m) => {
       if (m < 10) return dollarsToCents(2400 * m); // ramp to target by month 10
       if (m < 20) return dollarsToCents(24000); // held at target
@@ -159,8 +159,7 @@ describe("computeGoalProgress — completion (In Progress → Funded, latched)",
   });
 
   it("stays In Progress when the balance never reaches target on/before the target date", () => {
-    // Climbs but only reaches ~$15,000 of the $24,000 target by the horizon end,
-    // never crossing target on/before the month-24 date.
+    // Climbs to only ~$15,000 of the $24,000 target, never crossing on/before month 24.
     const balances = Array.from({ length: 31 }, (_, m) => dollarsToCents(500 * m));
     const progress = computeGoalProgress(fundGoal(), seriesFromFundBalances(balances), []);
     expect(progress.completion).toBe("inProgress");

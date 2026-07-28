@@ -1,9 +1,8 @@
 /**
- * Debug export — filename for the downloaded run. The payload itself is the
- * engine's {@link import("@finley/engine").SimulationReport} verbatim (engine-only,
- * no app wrapper): the report already echoes the resolved inputs, so an export is a
- * self-contained account of the run. Only the filename is app-side, since it carries
- * a wall-clock stamp the pure engine can't produce.
+ * Debug export — filename for the downloaded run. The payload is the engine's
+ * {@link import("@finley/engine").SimulationReport} verbatim, no app wrapper: it already
+ * echoes the resolved inputs, so an export is a self-contained account of the run. Only the
+ * filename is app-side, since it carries a wall-clock stamp the pure engine can't produce.
  */
 
 /** `finley-debug-2026-07-15-14-30-00.json` — a filesystem-safe, sortable filename. */

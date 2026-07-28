@@ -1,20 +1,15 @@
 /**
- * Pure compilation from the standing line-item {@link BudgetLine} model into the
- * simulator's inputs. Expense lines compile to forward expense {@link SimOwnedSeries}
- * (spans → the series' start/end months, dated overrides → the series' own
- * override edits), so a line-item budget drives the *existing* waterfall /
- * simulator unchanged.
+ * Pure compilation from the standing line-item {@link BudgetLine} model into simulator inputs:
+ * expense lines become forward expense {@link SimOwnedSeries} (spans → the series' start/end
+ * months, dated overrides → its override edits), driving the *existing* waterfall unchanged.
  *
- * This is the one module in the budget model that depends on the simulator
- * (`SimOwnedSeries`) and the jurisdiction seam; isolating it here keeps
- * {@link import("./budgetLine")}'s pure *types* free of any `projection/*` import,
- * mirroring the {@link import("./compilePerson")} seam. Everything here is pure:
- * the calendar "now" (`nowYear`) and CPI arrive from the caller, and the legislated
- * fill-to-limit cap arrives through the jurisdiction interface — never imported.
+ * The one budget-model module depending on the simulator (`SimOwnedSeries`) and the
+ * jurisdiction seam; isolating it keeps {@link import("./budgetLine")}'s pure types free of
+ * any `projection/*` import. Inflation arrives from the caller, the legislated fill-to-limit
+ * cap through the jurisdiction interface — never imported.
  *
- * Lands **additively**, alongside the scalar `Plan.expenseCents` path — both
- * compile into the same `initialExpenseSeries` — so nothing existing is removed
- * here (that removal is a later cleanup's job).
+ * Additive alongside the scalar `Plan.expenseCents` path; both compile into the same
+ * `initialExpenseSeries`.
  */
 
 import type { Cents } from "./money";
@@ -24,13 +19,9 @@ import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
 import type { BudgetLine } from "./budgetLine";
 
 /**
- * The fill-to-limit cap seam for a jurisdiction: the function a
- * `fill-to-limit` line reads its legislated annual cap from — the jurisdiction's
- * {@link Jurisdiction.retirementDeferralLimitCents} plug (supplied for
- * capped accounts, age-50 catch-up included). Returns `undefined` when the
- * jurisdiction defines no cap (v1 null jurisdiction), so a `fill-to-limit` line
- * resolves to 0 rather than inventing a cap. Injected, never imported — this is
- * how the engine stays pure while consuming the rules-side caps.
+ * Where a `fill-to-limit` line reads its legislated annual cap: the jurisdiction's {@link
+ * Jurisdiction.retirementDeferralLimitCents} plug (age-banded catch-up included). `undefined`
+ * when the jurisdiction defines no cap, so the line resolves to 0 rather than inventing one.
  */
 export function fillToLimitSeamFor(
   jurisdiction: Jurisdiction,
@@ -38,14 +29,6 @@ export function fillToLimitSeamFor(
   return jurisdiction.retirementDeferralLimitCents?.bind(jurisdiction);
 }
 
-/**
- * Compile one expense {@link BudgetLine} into a forward expense
- * {@link SimCashFlowSeries}. A literal source is the monthly baseline; the line's
- * span becomes the series' start month and (exclusive) end; each dated override
- * becomes a matching series edit. Only literal expense sources are
- * compilable — a `fill-to-limit` / `goal-paced` *expense* is meaningless (those
- * are contribution behaviours), so it is refused at compile time.
- */
 function compileExpenseLine(
   line: BudgetLine,
   ownerId: string,
@@ -62,10 +45,9 @@ function compileExpenseLine(
   const endMonth = line.span?.endMonth !== undefined ? line.span.endMonth - 1 : undefined;
   const monthlyCents: Cents = line.amountSource.monthlyCents;
 
-  // A budget line is authored in TODAY's dollars and rises with prices, exactly like
-  // the scalar `expenseCents` series it replaces. Compiling it `fixed` would model a
-  // household whose spending never rises for the whole horizon — which over decades
-  // understates lifetime cost badly enough to move the retirement age by years.
+  // A budget line is authored in TODAY's dollars and rises with prices. Compiling it `fixed`
+  // would model spending that never rises, understating lifetime cost enough over decades to
+  // move the retirement age by years.
   const series = new SimCashFlowSeries(
     startMonth,
     monthlyCents,
@@ -73,26 +55,22 @@ function compileExpenseLine(
     { baselineUnit: "monthly", ...(endMonth !== undefined ? { endMonth } : {}) },
   );
   for (const o of line.overrides ?? []) {
-    // Reset the growth clock to the override's own month: an override means "from
-    // here the amount is X", where X is that month's dollars. Inheriting the prior
-    // segment's anchor would instead read X as today's dollars and inflate it forward
-    // — so a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
+    // Reset the growth clock to the override's own month: X is that month's dollars.
+    // Inheriting the prior segment's anchor would read X as today's dollars and inflate it
+    // forward — a $2,500 edit fifteen years out would charge $3,895 on landing.
     series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
-  // Tag the compiled series with its source line's label (for reporting) and its id, so
-  // the simulator can report each line's monthly amount without re-resolving (author
-  // line ↔ resolved series ↔ reported line — see ProjectionMonthFlows.lineMonthlyCents).
-  // The line's priority is deliberately NOT carried: nothing downstream ranks lines,
-  // because a tight month is absorbed by savings and credit rather than by starving the
-  // low-priority ones. `budgetLinePriority` remains the ordering source of truth for the
-  // authoring view (`allocations.ts`); re-add it here when something actually ranks.
+  // Carry the source line's label and id so the simulator reports each line's monthly amount
+  // without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority is NOT carried:
+  // nothing downstream ranks lines, since a tight month is absorbed by savings and credit
+  // rather than by starving low-priority ones. `budgetLinePriority` is the ordering source of
+  // truth for the authoring view (`allocations.ts`).
   return {
     series,
     ownerId,
     label: line.label,
     lineId: line.id,
-    // The one spending stream a user edits directly, and the only one that carries an
-    // authored priority tier — both facts the unified spending report reads off here.
+    // The only spending stream a user edits directly; the unified spending report reads it.
     spendingSource: {
       kind: "budgetLine",
       id: line.id,
@@ -103,15 +81,9 @@ function compileExpenseLine(
 }
 
 /**
- * Compile a budget's expense lines into forward expense {@link SimOwnedSeries}
- * — one series per expense line, owned by `ownerId`. Contribution
- * lines (targets other than `expense`) are skipped here: they route to the
- * contribution channels, not the expense series. Order is preserved so the
- * caller can keep it aligned with the prioritized budget.
- *
- * `annualInflationRate` (e.g. `0.03`) is the rate every line's amount rises at, since
- * a budget is authored in today's dollars. It arrives from the caller like every other
- * calendar fact — the engine never reads a rate it wasn't handed.
+ * One forward expense {@link SimOwnedSeries} per expense line, owned by `ownerId`.
+ * Contribution lines (targets other than `expense`) are skipped — they route to the
+ * contribution channels. Order is preserved, aligned with the prioritized budget.
  */
 export function compileExpenseBudgetLines(
   lines: readonly BudgetLine[],

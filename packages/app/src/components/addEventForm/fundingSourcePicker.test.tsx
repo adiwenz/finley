@@ -1,13 +1,12 @@
 /**
  * @vitest-environment jsdom
  *
- * The ordered funding-source picker (#156) — the interaction the static render can't show:
- * that the ORDER the user checks accounts in is the drain order the event records, and that
- * the coverage line tracks the selection live.
+ * The ordered funding-source picker: the ORDER accounts are checked in is the drain order the
+ * event records, and the coverage line tracks the selection live.
  *
- * Driven through the real home-purchase form (not the picker in isolation) so these pin the
- * whole path a user takes: pick accounts → the form states what they cover → submit records
- * exactly that ordered list on the event the engine will gate.
+ * Driven through the real home-purchase form, not the picker in isolation, so these pin the
+ * whole path: pick accounts → the form states what they cover → submit records exactly that
+ * ordered list on the event the engine will gate.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -48,7 +47,6 @@ function renderForm(month: number) {
   return { onAdd };
 }
 
-/** The purchase the form submitted, narrowed off the event union (no cast needed). */
 function submittedPurchase(onAdd: ReturnType<typeof vi.fn>) {
   const event: NewLifeEvent = onAdd.mock.calls[0][0];
   if (event.type !== "HomePurchaseEvent") throw new Error(`submitted a ${event.type}`);
@@ -57,24 +55,23 @@ function submittedPurchase(onAdd: ReturnType<typeof vi.fn>) {
 
 const box = (name: RegExp) => screen.getByRole("checkbox", { name });
 const addEvent = () => fireEvent.click(screen.getByRole("button", { name: /add event/i }));
-/** Move the purchase to `month` through the real "When" picker (the form's only select). */
+/** The "When" picker is the form's only select. */
 const setMonth = (month: number) =>
   fireEvent.change(screen.getByRole("combobox"), { target: { value: String(month) } });
-/** The row a source renders as, so a test can assert on the balance shown beside its name. */
 const row = (name: RegExp) => box(name).closest("label")!;
 
 // Month 120 of the default plan: all three liquid accounts hold something — the brokerage
-// home fund (~$46.9k, the largest, and appreciated so selling it is TAXED), the cash
-// emergency fund (~$16.1k), and cash savings (~$11.0k). Together they clear the $60,000
-// down payment; the home fund alone does not.
+// home fund (~$46.9k, the largest, appreciated so selling it is TAXED), the cash emergency
+// fund (~$16.1k), and cash savings (~$11.0k). Together they clear the $60,000 down payment;
+// the home fund alone does not.
 const MONTH = 120;
 
 describe("down-payment source picker", () => {
   it("records the accounts in the ORDER they were picked, not display order", () => {
     const { onAdd } = renderForm(MONTH);
     fireEvent.click(box(/Home down payment/)); // drop the default pick
-    // Pick bottom-up: the drain order is the CLICK order, so cash savings must come first
-    // even though the emergency fund is listed above it.
+    // Pick bottom-up: drain order is CLICK order, so cash savings comes first even though
+    // the emergency fund is listed above it.
     fireEvent.click(box(/Cash savings/));
     fireEvent.click(box(/Emergency fund/));
     addEvent();
@@ -97,20 +94,17 @@ describe("down-payment source picker", () => {
 
   it("updates the coverage line as accounts are added to the selection", () => {
     renderForm(MONTH);
-    // The largest account alone falls short of the $60,000 down payment…
     expect(screen.getByText(/short of the/i).textContent).toMatch(
       /\$[\d,]+ short of the \$60,000 needed/,
     );
-    // …and adding the household's other liquid money covers it.
     fireEvent.click(box(/Emergency fund/));
     fireEvent.click(box(/Cash savings/));
     expect(screen.getByText(/covers the \$60,000 needed/i)).toBeDefined();
   });
 
   it("names the capital-gains tax that selling the investment account costs", () => {
-    // The home fund is a taxable brokerage: part of what it holds goes to tax, not to the
-    // house. The line says so with the amount — the whole reason a balance and an
-    // "available" can differ, and exactly the wedge the §4.5 gate blocks on.
+    // The home fund is a taxable brokerage: part of what it holds goes to tax, not the
+    // house. That wedge is why balance and "available" differ, and what §4.5 gates on.
     renderForm(MONTH);
     fireEvent.click(box(/Emergency fund/));
     fireEvent.click(box(/Cash savings/));
@@ -120,18 +114,17 @@ describe("down-payment source picker", () => {
   });
 });
 
-// ─── A selected account that empties under a month change ─────────────────────────────
+// A selected account that empties under a month change.
 //
-// The pool used to list only accounts holding something, so moving the purchase to a month
-// where a chosen account had run dry made its row DISAPPEAR while its id stayed in the draft:
-// nothing on screen looked selected, yet the coverage line and the submitted event were both
-// still counting it. The account now stays listed at $0 — greyed, disabled — and is dropped
-// from the selection, so what is on screen is what the event will carry.
+// Listing only accounts that hold something makes a drained pick's row DISAPPEAR while its id
+// stays in the draft: nothing looks selected, yet the coverage line and submitted event still
+// count it. So an emptied account stays listed at $0 — greyed, disabled — and is dropped from
+// the selection; what is on screen is what the event carries.
 //
-// Default plan, months 360 → 420: cash savings holds $160,244.24 at 360 and is spent to
-// exactly $0 by 420 (retirement decumulation drains it), while the home fund ($48,288.72) and
-// the emergency fund ($20,607.02) still hold money — so the drained account is distinguishable
-// from an empty plan.
+// Default plan, months 360 → 420: cash savings holds $160,244.24 at 360 and is drained to
+// exactly $0 by 420 (retirement decumulation), while the home fund ($48,288.72) and emergency
+// fund ($20,607.02) still hold money — so a drained account is distinguishable from an empty
+// plan.
 const FUNDED_MONTH = 360;
 const DRAINED_MONTH = 420;
 
@@ -143,7 +136,6 @@ describe("down-payment source picker — an account that empties at a later mont
 
     setMonth(DRAINED_MONTH);
 
-    // Still on screen — the point of the fix — and showing why it can no longer be used.
     const savings = box(/Cash savings/);
     expect(savings).toBeDefined();
     expect((savings as HTMLInputElement).disabled).toBe(true);
@@ -156,7 +148,6 @@ describe("down-payment source picker — an account that empties at a later mont
     setMonth(DRAINED_MONTH);
 
     expect((box(/Cash savings/) as HTMLInputElement).checked).toBe(false);
-    // The user's other pick is untouched, and nothing was silently substituted for the one lost.
     expect((box(/Home down payment/) as HTMLInputElement).checked).toBe(true);
     expect((box(/Emergency fund/) as HTMLInputElement).checked).toBe(false);
   });
@@ -167,7 +158,6 @@ describe("down-payment source picker — an account that empties at a later mont
     setMonth(DRAINED_MONTH);
     setMonth(FUNDED_MONTH);
 
-    // Selectable again, but NOT selected: the pick did not survive the month it was invalid at.
     expect((box(/Cash savings/) as HTMLInputElement).disabled).toBe(false);
     expect((box(/Cash savings/) as HTMLInputElement).checked).toBe(false);
   });
@@ -181,8 +171,6 @@ describe("down-payment source picker — an account that empties at a later mont
 
     setMonth(DRAINED_MONTH);
 
-    // The coverage claim went with the money. Nothing is selected now, so the form asks for a
-    // pick rather than continuing to promise the drained account's $160k.
     expect(screen.queryByText(/covers the \$60,000 needed/i)).toBeNull();
     expect(screen.getByText(/choose at least one account/i)).toBeDefined();
   });
@@ -195,15 +183,14 @@ describe("down-payment source picker — an account that empties at a later mont
     fireEvent.click(box(/Emergency fund/)); // a fresh, valid pick at the new month
     addEvent();
 
-    // Only what the user can see checked. The drained id does not ride along to the engine,
-    // where it would have been silently worth $0 against the §4.5 gate.
+    // The drained id must not ride along to the engine, where it would be silently worth $0
+    // against the §4.5 gate.
     expect(submittedPurchase(onAdd).downPaymentSourceIds).toEqual(["goal-emergency"]);
   });
 
   it("lists every account at $0 when none of them holds anything, and picks no default", () => {
-    // Month 480: the plan has spent all three funding accounts to zero. A pool that hid empty
-    // accounts rendered this as "no accounts at all"; it is a different situation, and the
-    // accounts are still the user's.
+    // Month 480: all three funding accounts are spent to zero. Hiding empty accounts would
+    // render this as "no accounts at all" — a different situation.
     renderForm(480);
     for (const name of [/Cash savings/, /Emergency fund/, /Home down payment/]) {
       expect((box(name) as HTMLInputElement).disabled).toBe(true);

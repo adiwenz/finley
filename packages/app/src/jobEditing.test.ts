@@ -1,12 +1,11 @@
 /**
- * Editing a job as ONE operation — fields and owner in a single form
- * submission.
+ * Editing a job as ONE operation — fields and owner in a single form submission.
  *
- * The regression these pin: reassigning used to remove the job from one member and *mint* a
- * new one on the other from the form draft alone, so the job came back with a fresh id and
- * without its one-month overrides, its permanent pay changes, or its employer match — all
- * of which the form never shows and therefore cannot carry. An edit works from the existing
- * full {@link Job} instead, and either resolves completely or writes nothing.
+ * The regression pinned here: reassigning used to remove the job from one member and
+ * *mint* a new one on the other from the form draft alone, so it came back with a fresh id
+ * and without its one-month overrides, pay changes, or employer match — none of which the
+ * form shows, so it cannot carry them. An edit works from the existing full {@link Job}
+ * instead, and either resolves completely or writes nothing.
  */
 
 import { describe, it, expect } from "vitest";
@@ -49,20 +48,17 @@ function household(jobs: readonly Job[] = [richJob], samJobs: readonly Job[] = [
       birthYear: SAM_BIRTH_YEAR,
       jobs: samJobs,
       startMonth: 0,
-      // Stands for the partner's plane; `editJob` is plane-agnostic, so a stub event is
-      // enough here — the Jobs panel is where the two planes are actually written.
+      // `editJob` is plane-agnostic, so a stub event suffices.
       writeTarget: { kind: "event", event: { id: "r1" } as never },
     }),
   ];
 }
 
-/** The draft the edit form would submit for `job`, with `over` typed into its fields. */
 const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): JobDraft => ({
   ...jobToDraftFor(birthYear, job),
   ...over,
 });
 
-/** Apply an edit's writes to the owners it names, giving each member's resulting job list. */
 function applied(result: ReturnType<typeof editJob>): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
   const lists = new Map<string, readonly Job[]>();
@@ -122,12 +118,11 @@ describe("editJob — changing the owner", () => {
     );
 
     const lists = applied(result);
-    // Gone from Alex, on Sam — one job in the household, not zero and not two.
+    // One job in the household, not zero and not two.
     expect(lists.get(PRIMARY_PERSON_ID)).toEqual([]);
     const moved = lists.get("p-1")!;
     expect(moved).toHaveLength(1);
     expect(moved[0].ownerId).toBe("p-1");
-    // The salary edited in the same submission landed with the move.
     expect(moved[0].salary.startingSalaryCents).toBe(9_000_00 * 12);
   });
 
@@ -137,8 +132,8 @@ describe("editJob — changing the owner", () => {
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
     ).get("p-1")!;
 
-    // A minted id would be `p-1-job-1` — and every band, override and pay change keyed to
-    // `job-1` would be orphaned by the rename.
+    // A minted id would be `p-1-job-1`, orphaning every band, override and pay change
+    // keyed to `job-1`.
     expect(moved[0].id).toBe("job-1");
   });
 
@@ -184,9 +179,8 @@ describe("editJob — changing the owner", () => {
 });
 
 describe("editJob — a transfer that cannot be made writes nothing", () => {
-  // The failure cases all return before a single write is produced, so there is no
-  // half-applied state to clean up: a job can never be removed from one member without
-  // landing on the other.
+  // Every failure returns before a single write is produced, so there is no half-applied
+  // state: a job can never leave one member without landing on the other.
   it("refuses an unknown target owner", () => {
     const result = editJob(household(), PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-9" }));
     expect(result.ok).toBe(false);
@@ -203,8 +197,8 @@ describe("editJob — a transfer that cannot be made writes nothing", () => {
   });
 
   it("refuses to move a job onto an id the target already holds", () => {
-    // Two jobs sharing an id would make their income bands ambiguous — and the loser
-    // would be silently dropped by the very next edit.
+    // Two jobs sharing an id make their income bands ambiguous, and the loser is silently
+    // dropped by the very next edit.
     const collision: Job = { ...richJob, ownerId: "p-1" };
     const result = editJob(
       household([richJob], [collision]),

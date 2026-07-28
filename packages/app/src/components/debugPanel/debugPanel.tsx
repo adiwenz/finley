@@ -1,10 +1,9 @@
 /**
- * Debug panel — a raw inspector over the engine's {@link SimulationReport}.
- * It lists every configuration knob, renders the accumulation table (ages, balances,
- * and cash flows incl. Social Security, per period), and downloads the whole run as
- * JSON. Pure consumer of the engine output: it derives nothing about the simulation
- * itself, so it can never disagree with what the engine computed. The full authored
- * config rides in the report's `meta`, so the download is complete on its own.
+ * Debug panel — raw inspector over the engine's {@link SimulationReport}: every configuration
+ * knob, the accumulation table (ages, balances, cash flows incl. Social Security, per period),
+ * and a JSON download of the whole run. A pure consumer that derives nothing about the
+ * simulation, so it can never disagree with the engine. The full authored config rides in the
+ * report's `meta`, so the download stands alone.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
@@ -49,11 +48,10 @@ function ConfigGroup({ title, rows }: { title: string; rows: readonly [string, R
 }
 
 /**
- * Every per-series growth rate the run RESOLVED — the income "raise rate" and each
- * expense line's escalation. These can only come from the report, never the plan:
- * the plan carries no raise-rate field (income inherits CPI), and its single
- * `healthInflationPct` compiles into a separate expense series with its own rate and
- * its own mid-run step at Medicare age. So this group is the only place the rates the
+ * Every per-series growth rate the run RESOLVED — the income "raise rate" and each expense
+ * line's escalation. Only the report has these: the plan carries no raise-rate field (income
+ * inherits CPI), and its single `healthInflationPct` compiles into a separate expense series
+ * with its own rate and mid-run step at Medicare age. So this is the only place the rates the
  * engine actually applied are visible.
  */
 function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
@@ -61,9 +59,8 @@ function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
     annualGrowthRate: number;
     growthSchedule: readonly { annualRate: number }[];
   }): ReactNode => {
-    // Annotate only when the RATE actually changes over the run. The health line
-    // carries two segments purely because its AMOUNT steps down at Medicare age —
-    // its rate never moves, so flagging "+1 change" there would be noise.
+    // Annotate only when the RATE changes over the run. The health line has two segments
+    // purely because its AMOUNT steps down at Medicare age; its rate never moves.
     const rates = new Set(s.growthSchedule.map((g) => g.annualRate));
     return rates.size > 1
       ? `${ratePct(s.annualGrowthRate)} → ${ratePct([...rates].pop() ?? 0)}`
@@ -175,9 +172,9 @@ export function DebugPanel({
   const { columns, months, inputs } = report;
   const jurisdictionId = String((report.meta?.jurisdictionId as string | undefined) ?? "—");
 
-  // The accumulation table is naturally annual; showing every one of hundreds of
-  // months is opt-in so the default view stays readable. Yearly rows are the
-  // year-boundary months (0, 12, 24, …) plus the final month so the horizon shows.
+  // The table is naturally annual; hundreds of monthly rows are opt-in so the default view
+  // stays readable. Yearly rows are the year boundaries (0, 12, 24, …) plus the final month,
+  // so the horizon shows.
   const rows = useMemo(() => {
     if (everyMonth) return months;
     const lastMonth = months.length - 1;

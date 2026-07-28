@@ -48,8 +48,8 @@ describe("buildSimulationReport", () => {
 
   it("echoes every growth rate: the raise rate, expense escalation, and account returns", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
-    // The fixture's series are `fixed`, so the rate is 0 — but the field is present
-    // and the mode says WHY it is 0 (pinned flat, not "0% inflation this run").
+    // The fixture's series are `fixed`, so the rate is 0 — the mode says WHY (pinned flat,
+    // not "0% inflation this run").
     expect(report.inputs.incomeSources[0]).toMatchObject({
       annualGrowthRate: 0,
       growthMode: "fixed",
@@ -111,9 +111,9 @@ describe("buildSimulationReport", () => {
   it("carries the model's disclosed assumptions & simplifications", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     const ids = report.assumptions.map((a) => a.id);
-    // The engine's neutral simplifications must reach the consumer so the app can disclose
-    // them: the post-tax opening-basis one, plus how a committed account contribution is
-    // funded. Each carries plain-language text.
+    // The engine's neutral simplifications must reach the consumer to be disclosed:
+    // post-tax opening basis, plus how a committed account contribution is funded. Each
+    // carries plain-language text.
     expect(ids).toContain("postTaxOpeningBasis");
     expect(ids).toContain("contributionsNotAssetFunded");
     for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
@@ -134,13 +134,13 @@ describe("buildSimulationReport", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[1].taxCents).toBe(0);
 
-    // A flat 10% jurisdiction: $3,000 of wages → $300 of tax on the report row, and
-    // the household is $300 poorer for it (income 3000 − expenses 2000 − tax 300).
+    // Flat 10%: $3,000 of wages → $300 of tax on the row, and the household is $300 poorer
+    // (income 3000 − expenses 2000 − tax 300).
     const flatTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
         Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
-      // Matching per-source breakdown (attribution contract): each category taxed 10%.
+      // Matching breakdown (the attribution contract): each category taxed 10%.
       computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
         const out: Record<string, number> = {};
         for (const [cat, cents] of Object.entries(byCategory)) {
@@ -164,9 +164,9 @@ describe("buildSimulationReport", () => {
   });
 
   it("carries the jurisdiction's per-category tax breakdown, summing to taxCents", () => {
-    // A jurisdiction that both taxes AND splits: a flat 10% total, attributed half to
-    // wages and half to ordinaryIncome. The report must carry the split, and its Σ must
-    // equal the scalar `taxCents` the take-home already used — the invariant.
+    // A jurisdiction that taxes AND splits: flat 10%, half to wages, half to ordinaryIncome.
+    // The report carries the split, and its Σ must equal the scalar `taxCents` take-home
+    // already used — the invariant.
     const splittingTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -189,8 +189,8 @@ describe("buildSimulationReport", () => {
   });
 
   it("splits the tax by income SOURCE, naming each job and summing to taxCents", () => {
-    // Two jobs for one person; a wages-taxing jurisdiction that reports the per-category
-    // breakdown. The engine attributes the wages tax down to each job by taxable weight.
+    // Two jobs for one person, a wages-taxing jurisdiction reporting the per-category
+    // breakdown. The engine attributes the wages tax to each job by taxable weight.
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
@@ -220,9 +220,8 @@ describe("buildSimulationReport", () => {
   });
 
   it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute)", () => {
-    // The null jurisdiction charges no tax, so its required breakdown is `{}` on every flowed
-    // month (empty, not absent — absent belongs only to the flow-free month 0), and the column
-    // unions are empty.
+    // No tax charged, so the required breakdown is `{}` on every flowed month — empty, not
+    // absent; absent belongs only to the flow-free month 0 — and the column unions are empty.
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
     for (const m of report.months) {
       const flowed = m.taxByCategoryCents !== undefined; // month 0 carries no flows at all
@@ -253,9 +252,8 @@ describe("buildSimulationReport", () => {
   });
 
   it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {
-    // A jurisdiction that declares its own simplifications gets them merged onto the
-    // report — engine's neutral assumptions first, the jurisdiction's after — so a US
-    // tax caveat rides `rules`, never the neutral engine.
+    // A jurisdiction's own simplifications merge onto the report after the engine's neutral
+    // ones, so a US tax caveat rides `rules`, never the neutral engine.
     const jurisdictionAssumption = { id: "j-specific", text: "A jurisdiction-specific caveat." };
     const withAssumptions = {
       ...nullJurisdiction,

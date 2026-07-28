@@ -1,9 +1,8 @@
 /**
- * Compilation of the line-item {@link BudgetLine} budget into the simulator's
- * inputs. Unit-level assertions on the
- * compiled expense series, plus an end-to-end pass through the real simulator via
- * {@link createProjectionBase} proving a line-item budget drives spending (spans +
- * dated overrides included) exactly like the scalar `expenseCents` path.
+ * Compilation of the line-item {@link BudgetLine} budget into simulator inputs: unit
+ * assertions on the compiled expense series, plus an end-to-end pass through the real
+ * simulator proving a line-item budget drives spending — spans and dated overrides
+ * included — exactly like the scalar `expenseCents` path.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "./index";
@@ -37,9 +36,9 @@ describe("compileExpenseBudgetLines", () => {
   });
 
   it("grows a line with inflation, like the scalar expense series it replaces", () => {
-    // A budget is authored in today's dollars. Compiling it flat would model a
-    // household whose spending never rises — over a lifetime that understates cost
-    // enough to move the retirement age by years.
+    // A budget is authored in today's dollars; compiling it flat models a household whose
+    // spending never rises, understating lifetime cost enough to move the retirement age
+    // by years.
     const [s] = compileExpenseBudgetLines(
       [literalExpense("rent", dollarsToCents(2_000))],
       "p1",
@@ -78,9 +77,9 @@ describe("compileExpenseBudgetLines", () => {
   });
 
   it("reads a dated override as THAT month's dollars, not today's", () => {
-    // An override means "from here the amount is X". Inheriting the line's original
-    // growth clock would instead read X as today's dollars and inflate it forward, so
-    // a $2,500 edit fifteen years out would charge $3,895 the moment it landed.
+    // An override means "from here the amount is X". Inheriting the line's original growth
+    // clock would read X as today's dollars and inflate it forward: a $2,500 edit fifteen
+    // years out would charge $3,895 the moment it landed.
     const [s] = compileExpenseBudgetLines(
       [
         literalExpense("housing", dollarsToCents(1_600), {
@@ -95,7 +94,7 @@ describe("compileExpenseBudgetLines", () => {
     expect(s!.series.getMonthlyCents(300)).toBe(
       Math.round(dollarsToCents(2_500) * Math.pow(1.03, 10)),
     );
-    // The months before it are untouched by the override.
+    // Earlier months are untouched.
     expect(s!.series.getMonthlyCents(179)).toBeLessThan(dollarsToCents(2_500));
   });
 
@@ -134,9 +133,8 @@ describe("fillToLimitSeamFor", () => {
 
 describe("createProjectionBase — the line-item budget drives spending", () => {
   it("reproduces the scalar expense path when a single literal line replaces expenseCents", () => {
-    // A budget line rises with prices exactly like the scalar `expenseCents` series it
-    // replaces, so one line carrying the whole scalar amount is indistinguishable from
-    // it — the parity that lets the rewire delete the scalar path without moving any number.
+    // A budget line rises with prices exactly like the scalar `expenseCents` series, so one
+    // line carrying the whole amount is indistinguishable from it.
     const scalar = project(samplePlan);
     const lineItem = project({
       ...samplePlan,
@@ -156,8 +154,8 @@ describe("createProjectionBase — the line-item budget drives spending", () => 
       ...samplePlan,
       budgetLines: [literalExpense("spend", dollarsToCents(5_000))],
     });
-    // Compared mid-horizon: an inflating $5k/mo eventually exhausts the household and
-    // reports a null (insolvent) net worth, which is not a number to compare against.
+    // Mid-horizon: an inflating $5k/mo eventually exhausts the household and reports a
+    // null (insolvent) net worth, which is not a number to compare against.
     const AT = 120;
     expect(lean.months[AT]!.netWorthNominalCents!).toBeGreaterThan(
       lavish.months[AT]!.netWorthNominalCents!,

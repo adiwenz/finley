@@ -1,11 +1,10 @@
 /**
  * Event handlers — the single definition of what each event *means*.
  *
- * Each event type has one handler colocating its preconditions (`check`) and
- * its replay behavior (`apply`), so adding a new event type is one new entry,
- * not edits to two parallel switches. The registry is a mapped type over
- * the event union, so a missing handler is a compile error — exhaustiveness is
- * enforced by the type system, with no `any` and no loosely-typed lookups.
+ * Each event type has one handler colocating its preconditions (`check`) and its replay
+ * behavior (`apply`), so adding an event type is one new entry, not edits to two parallel
+ * switches. The registry is a mapped type over the event union, so a missing handler is a
+ * compile error.
  */
 
 import type { ValidationResult } from "./ledger";
@@ -42,10 +41,7 @@ function fail(event: LifeEvent, requirement: string): ValidationResult {
   return { ok: false, reason: `${event.type} "${event.id}": ${requirement}` };
 }
 
-/**
- * Whole dollars for a conflict message. Conflicts are read by a person, so they
- * quote dollars, not the raw cents the engine counts in.
- */
+/** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
 function dollars(cents: number): string {
   return (cents / 100).toLocaleString("en-US", {
     style: "currency",
@@ -89,10 +85,9 @@ const child: EventHandler<ChildEvent> = {
       birthMonth: event.birthMonth,
       causedByEventId: event.id,
     });
-    // A positive annual cost spawns a linked child-cost expense: bounded to
-    // exactly 18 years from birth (mirroring alimony's bounded shape) and
-    // inflation-linked so it stays real across that span. The annual
-    // amount is the source of truth — the series distributes it (no pre-round).
+    // A positive annual cost spawns a linked child-cost expense: bounded to exactly 18
+    // years from birth and inflation-linked. The annual amount is the source of truth —
+    // the series distributes it, no pre-round.
     if (event.annualCostCents > 0) {
       const CHILD_COST_YEARS = 18;
       addSeries(state, {
@@ -188,8 +183,7 @@ const loan: EventHandler<LoanEvent> = {
       apr: event.apr,
       transfers: [],
     };
-    // LoanEvent is discriminated on kind; carry exactly the field that kind owns
-    // into the derived LiabilityDef (also a discriminated union).
+    // Carry exactly the field the event's kind owns into the derived LiabilityDef.
     state.liabilitiesById.set(
       asLiabilityId(event.liabilityId),
       event.kind === "creditCard"
@@ -224,26 +218,23 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid
-    // sources at the purchase month, NET of the capital-gains tax liquidating them owes.
-    // `fundingAvailabilityAt` (present only on the authoring path) is the shared, event-neutral
-    // question "can these sources net this amount at this month, after tax?": it runs the SAME
-    // ordered gross-up the simulator does against a projection of the ledger so far — draining
-    // the selected sources in the user's order, taxing each sale marginally over the owner's
-    // other income that month — so a positive shortfall means those sources genuinely cannot
-    // fund the purchase once the sale is taxed, and the gate blocks exactly when the sim
-    // would fall short. A selected source that is not a liquid account (illiquid, or empty)
-    // contributes 0. Absent a projection (ordinary replay/undo) the capability is undefined
-    // and this check is skipped — replay never re-litigates an already-accepted purchase.
+    // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid sources
+    // at the purchase month, NET of the capital-gains tax liquidating them owes.
+    // `fundingAvailabilityAt` runs the SAME ordered gross-up the simulator does against a
+    // projection of the ledger so far — draining the selected sources in the user's order,
+    // taxing each sale marginally over the owner's other income that month — so the gate
+    // blocks exactly when the sim would fall short. A selected source that is not a liquid
+    // account (illiquid, or empty) contributes 0. It exists only on the authoring path;
+    // absent it (ordinary replay/undo) this check is skipped — replay never re-litigates
+    // an accepted purchase.
     const affordability = context.fundingAvailabilityAt?.(
       event.downPaymentSourceIds,
       event.downPaymentCents,
       event.month,
     );
     if (affordability !== undefined && affordability.shortfallCents > 0) {
-      // Name the SELECTED sources and what each holds. When capital-gains tax bit into the
-      // coverage (the sources net less than they hold), say so — otherwise the stated
-      // available total and the printed balances agree exactly, as before.
+      // Name the SELECTED sources and what each holds, flagging when capital-gains tax bit
+      // into the coverage — otherwise the total and the printed balances agree exactly.
       const counted = affordability.sources
         .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
         .join(", ");
@@ -258,8 +249,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     return ok;
   },
   apply(event, state, context) {
-    // Property: the appreciating stock. Default appreciation is inflation-linked
-    // at the base inflation rate, user-overridable via appreciationMode.
+    // Property: the appreciating stock.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,
@@ -272,8 +262,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
         { type: "inflationLinked", annualRate: context.annualInflationRate },
       mortgageLiabilityId: asLiabilityId(event.mortgageLiabilityId),
     });
-    // Mortgage: financed amount = price − down payment. Reuses the liability
-    // machinery — amortizes from its origination month like any other loan.
+    // Mortgage: reuses the liability machinery — amortizes from origination like any
+    // other loan.
     state.liabilitiesById.set(asLiabilityId(event.mortgageLiabilityId), {
       id: asLiabilityId(event.mortgageLiabilityId),
       causedByEventId: event.id,
@@ -287,8 +277,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     });
     // Down payment: an ordered draw across the selected liquid sources, resolved at
     // simulation time (the per-source split is balance-dependent — see FundingDraw).
-    // Property value + mortgage together equal the price, so this outflow is the only
-    // net-worth change at purchase — the purchase itself conserves net worth.
+    // Property value + mortgage equal the price, so this outflow is the only net-worth
+    // change at purchase.
     state.fundingDraws.push({
       month: event.month,
       amountCents: event.downPaymentCents,
@@ -392,9 +382,9 @@ const handlers: HandlerRegistry = {
 };
 
 /**
- * Dispatch to the handler for `event.type`. The one localized cast bridges
- * TypeScript's inability to correlate the mapped-type lookup with the specific
- * union member; it is sound because the registry is keyed by that exact type.
+ * Dispatch to the handler for `event.type`. The cast bridges TypeScript's inability to
+ * correlate the mapped-type lookup with the specific union member; sound because the
+ * registry is keyed by that exact type.
  */
 function handlerFor(event: LifeEvent): EventHandler<LifeEvent> {
   return handlers[event.type] as EventHandler<LifeEvent>;

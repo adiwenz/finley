@@ -1,17 +1,14 @@
 /**
  * Committing job-list rewrites to the two authoring planes.
  *
- * A household member's jobs live on one of two planes: the primary person's are standing
- * plan data (`Plan.jobs`), a partner's ride the `RelationshipEvent` that brought them into
- * the household. Every surface that writes a job — the Jobs panel, the Base + Adjustments
- * pay-change control — needs the same routing, so it is written once here rather than
- * re-derived (differently, and eventually wrongly) in each panel.
+ * A member's jobs live on one of two planes: the primary person's are standing plan data
+ * (`Plan.jobs`), a partner's ride the `RelationshipEvent` that brought them into the
+ * household. The routing lives here once rather than re-derived in each panel.
  *
- * **Atomic across the planes.** An edit can rewrite two members' lists at once (moving a
- * job between them), and those lists can sit on different planes. So the ledger side goes
- * first, in one all-or-nothing batch, and the plan side only if it was accepted: a
- * conflict can no longer land half of an edit, leaving a job removed from one member and
- * missing from the other.
+ * **Atomic across the planes.** One edit can rewrite two members' lists (moving a job
+ * between them) that sit on different planes, so the ledger side goes first as one
+ * all-or-nothing batch and the plan side only if accepted: a conflict can't land half an
+ * edit, leaving a job removed from one member and missing from the other.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -19,7 +16,6 @@ import type { Plan } from "@finley/engine";
 import type { JobListWrite } from "./jobEditing";
 import type { EventRevision } from "./hooks/useLedger";
 
-/** Where the two planes are actually written — the app's state setters. */
 export interface JobWriteTargets {
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
   /** Revise ledger events in one all-or-nothing write; `false` = rejected, nothing changed. */
@@ -27,11 +23,10 @@ export interface JobWriteTargets {
 }
 
 /**
- * Commit job-list rewrites, each to whichever plane its owner is authored on. Returns
- * whether it committed — `false` leaves **both** planes exactly as they were.
+ * Returns whether it committed — `false` leaves **both** planes exactly as they were.
  *
- * Plan writes revise the LATEST plan (a functional update), so two edits in one tick
- * compose instead of discarding each other.
+ * Plan writes revise the LATEST plan (functional update), so two edits in one tick compose
+ * instead of discarding each other.
  */
 export function commitJobWrites(
   writes: readonly JobListWrite[],

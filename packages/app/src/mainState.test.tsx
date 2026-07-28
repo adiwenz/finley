@@ -1,10 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Behavioral coverage for App's plan state (the value-editing surface and
- * the event ledger). These pin the wiring that replaced the old usePlanState
- * hook: budget edits churn the projection base, scrub/ledger edits do not, and
- * removal resolves against the latest ledger.
+ * Behavioral coverage for App's plan state: value editing and the event ledger.
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
@@ -45,10 +42,10 @@ describe("App — event ledger", () => {
 
     fireEvent.click(screen.getByText("Add event"));
 
-    // The default "Added an expense" event now has one timeline marker (one Remove).
+    // The default "Added an expense" event has one timeline marker (one Remove).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
-    // Ledger edits must not churn budget identity (projection base is memoized).
+    // The base is memoized on budget identity, which a ledger edit must not churn.
     expect(spy.mock.calls.length).toBe(callsAfterMount);
   });
 
@@ -95,7 +92,7 @@ describe("App — event ledger", () => {
     expect(screen.queryByLabelText("From")).toBeNull();
     expect(screen.getByText(/No partner in the household as of Year 0/)).toBeTruthy();
 
-    // Move the separation to Year 5 — now the partner exists to separate from.
+    // Move the separation to Year 5, where the partner exists.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     expect(screen.getByLabelText("From")).toBeTruthy();
   });
@@ -110,32 +107,31 @@ describe("App — event ledger", () => {
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     fireEvent.click(screen.getByText("Add event"));
 
-    // Back to the default "Added an expense"; its month defaults to Year 0, before
-    // the partnership — so there's no one but you to attribute the expense to.
+    // The default "Added an expense" defaults to Year 0, before the partnership, so only
+    // you can own it.
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "BudgetItemStartEvent" },
     });
     expect(screen.queryByLabelText("Whose")).toBeNull();
 
-    // Move the expense to Year 5 — the partner is now in the household and eligible.
+    // Move the expense to Year 5, where the partner is in the household.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     const owner = screen.getByLabelText("Whose");
     expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();
   });
 
   it("carries a partner's own job through every surface, and edits it from the Jobs panel", () => {
-    // End to end: author a partner WITH a job on the timeline, and it must
-    // (a) show up in the household's job list, (b) count as income on the income-vs-spend
-    // graph below it — which used to project the plan alone, so no timeline event reached
-    // it — and (c) be editable in place afterwards, revising the event it rides on.
+    // A partner authored WITH a job on the timeline must (a) show up in the household's
+    // job list, (b) count as income on the income-vs-spend graph, which once projected the
+    // plan alone so no timeline event reached it, and (c) stay editable in place.
     render(<App />);
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "RelationshipEvent" },
     });
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
 
-    // The partner's job is authored in the join form (both this and the Jobs panel offer
-    // an "Add a job" button, so scope to the form's own Jobs section).
+    // Authored in the join form; scope to its Jobs section since the Jobs panel also
+    // offers an "Add a job" button.
     const partnerJobsField = screen.getByText("Jobs (optional)").closest(".field") as HTMLElement;
     fireEvent.click(within(partnerJobsField).getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
@@ -144,7 +140,7 @@ describe("App — event ledger", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     fireEvent.click(screen.getByText("Add event"));
 
-    // (a) The Jobs panel lists it, owned by the partner and alongside the primary's.
+    // (a) The Jobs panel lists it, owned by the partner, alongside the primary's.
     const row = screen.getByLabelText("Partner · Job 1");
     expect(within(row).getByText("$2,000/mo")).toBeTruthy();
     expect(screen.getByLabelText("Alex · Job 1")).toBeTruthy();
@@ -160,8 +156,7 @@ describe("App — event ledger", () => {
     selectBudgetMonth(6);
     expect(incomeDollars()).toBe(7000);
 
-    // (c) Editing the partner's pay here revises the RelationshipEvent — the timeline
-    // keeps its single event, and the projection moves with it.
+    // (c) Editing the partner's pay revises the RelationshipEvent in place.
     fireEvent.click(screen.getByRole("button", { name: /Edit Partner · Job 1/i }));
     fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
       target: { value: "3000" },
@@ -169,8 +164,8 @@ describe("App — event ledger", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(within(screen.getByLabelText("Partner · Job 1")).getByText("$3,000/mo")).toBeTruthy();
-    // Still ONE timeline marker — the event was revised in place, not removed and re-added.
-    // (Named exactly "Remove"; the join form's own job list has a "Remove job 1" button.)
+    // Still ONE marker — revised in place, not removed and re-added. (Match "Remove"
+    // exactly; the join form's job list has a "Remove job 1" button.)
     expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
     expect(incomeDollars()).toBe(8000);
   });
@@ -178,13 +173,11 @@ describe("App — event ledger", () => {
   it("blocks a removal whose dependent would fail, and surfaces the conflict", () => {
     render(<App />);
 
-    // Partner joins the household…
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "RelationshipEvent" },
     });
     fireEvent.click(screen.getByText("Add event"));
 
-    // …then a separation from that partner.
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "SeparationEvent" },
     });
@@ -204,11 +197,9 @@ describe("App — event ledger", () => {
 describe("App — starter simulations", () => {
   it("loads a scenario's plan and its seed timeline together", () => {
     render(<App />);
-    // Opens on the healthy default with an empty timeline.
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Alex");
     expect(screen.getByText(/No life events yet/)).toBeTruthy();
 
-    // Pick the student-loan scenario: its plan AND its seed loan event load at once.
     fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
       target: { value: "student-loan" },
     });
@@ -230,9 +221,9 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment: the Base
-    // panel charts the whole scenario, not the bare plan, so servicing the loan is part
-    // of what income has to cover. ~$500/mo on $45k at 6% over 10 years.
+    // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment (~$500/mo on
+    // $45k at 6% over 10 years): the Base panel charts the whole scenario, not the bare
+    // plan.
     const riley = presetById("student-loan").plan;
     const budgetAndHealth = riley.expenseCents + riley.healthMonthlyCents;
     expect(spendingNeed()).toBeGreaterThan(budgetAndHealth + dollarsToCents(400));
@@ -245,13 +236,12 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Servicing the loan is spending: it belongs in the graph of what the month costs,
-    // beside the budget lines it is not one of.
+    // Beside the budget lines, not as one of them.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
-    // And the budget lines are still there, unchanged by its arrival.
+    // And the budget lines are unchanged by its arrival.
     expect(firstRow["line:housing"]).toBeGreaterThan(0);
   });
 
@@ -283,24 +273,21 @@ describe("App — budget edits", () => {
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
-    // A budget edit rebuilds it — once for the net-worth graph, plus the sweep the
-    // projection-driven retirement panel runs to find the feasible age, so the
-    // count jumps by more than one. What matters is that an edit *does* rebuild.
+    // A budget edit rebuilds it more than once — the net-worth graph, plus the sweep the
+    // retirement panel runs to find the feasible age — so only the fact of a rebuild is
+    // asserted.
     fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },
     });
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
-  // The scalar monthly-expenses control this once drove is gone: the line-item budget
-  // (Base + Adjustments) is the single source of truth for spending. Its equivalent
-  // guard — that overrides accumulate rather than replace one another — now lives in
-  // `baseAdjustments/monthEdit.test.ts` (applyLineOverride) and the panel's own tests.
+  // The guard that overrides accumulate rather than replace lives in
+  // `baseAdjustments/monthEdit.test.ts` (applyLineOverride).
 
   it("drives the whole projection from a line-item budget edit", () => {
-    // The regression this guards: the Base + Adjustments panel used to hold the budget
-    // in its own state and project it separately, so raising spending past income moved
-    // its chart and nothing else — the net-worth graph never noticed.
+    // Guards a regression: the panel once held the budget in its own state and projected
+    // it separately, so raising spending past income moved its chart and nothing else.
     const spy = vi.spyOn(engine, "createProjectionBase");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
@@ -309,7 +296,6 @@ describe("App — budget edits", () => {
     fireEvent.change(housing, { target: { value: "9000" } }); // far past the $5,000 income
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
-    // The app's projection base rebuilt, so every surface reflects the new budget.
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
     const lastPlan = spy.mock.calls.at(-1)?.[0];
     expect(lastPlan?.budgetLines?.find((l) => l.id === "housing")?.overrides).toHaveLength(1);

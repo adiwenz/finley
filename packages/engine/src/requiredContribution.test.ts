@@ -16,11 +16,11 @@ describe("requiredContributionCents (sinking-fund pace)", () => {
   });
 
   it("near-deadline (monthsRemaining ≤ 1): funds the entire remaining gap this month", () => {
-    // One month left → no time to spread; contribute the whole gap now.
+    // One month left → no time to spread.
     expect(requiredContributionCents(dollarsToCents(5000), dollarsToCents(2000), 1, 0.005)).toBe(
       dollarsToCents(3000),
     );
-    // At/​past the deadline behaves the same — the gap is due immediately.
+    // At/​past the deadline is the same: the gap is due immediately.
     expect(requiredContributionCents(dollarsToCents(5000), dollarsToCents(2000), 0, 0.005)).toBe(
       dollarsToCents(3000),
     );
@@ -31,8 +31,8 @@ describe("requiredContributionCents (sinking-fund pace)", () => {
     const flat = requiredContributionCents(target, 0, 12, 0);
     const withGrowth = requiredContributionCents(target, 0, 12, 0.01);
     expect(withGrowth).toBeLessThan(flat);
-    // Sinking-fund identity: contributing `c` for 12 months at 1%/mo must accumulate
-    // to (approximately) the target, so verify the annuity future value lands on it.
+    // Sinking-fund identity: 12 monthly contributions at 1%/mo must accumulate to
+    // roughly the target, so check the annuity future value lands on it.
     const r = 0.01;
     const fv = (withGrowth * (Math.pow(1 + r, 12) - 1)) / r;
     expect(Math.round(fv)).toBeCloseTo(target, -2);

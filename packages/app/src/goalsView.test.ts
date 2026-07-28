@@ -41,8 +41,8 @@ const baseBudget: Plan = {
   brokerageReturnPct: 0,
   sharedScheme: "proportional",
   goals: [],
-  // No health line here: these tests pin the $1,500/mo surplus ($5,000 − $3,500)
-  // that goal funding draws from, and health is a separate additive expense.
+  // No health line: these tests pin the $1,500/mo surplus ($5,000 − $3,500) goal funding
+  // draws from, and health is a separate additive expense.
   healthMonthlyCents: 0,
   postCoverageHealthMonthlyCents: 0,
   enrollsInPublicHealthCoverage: true,
@@ -100,9 +100,9 @@ describe("goalRows — projection-based on-track %", () => {
   });
 
   it("caps on-track % at 100 once a goal is funded and left to grow", () => {
-    // $3,000 target fills in 2 months from the $1,500/mo surplus, then compounds
-    // for the rest of the horizon — the raw fraction drifts past 1.0, but the
-    // display is capped: a met goal reads 100%, and the surplus flows onward.
+    // A $3,000 target fills in 2 months from the $1,500/mo surplus, then compounds for
+    // the rest of the horizon — the raw fraction drifts past 1.0, but display is capped:
+    // a met goal reads 100% and the surplus flows onward.
     const smallGoal: GoalPlan = {
       id: "s",
       name: "Small goal",
@@ -159,7 +159,7 @@ describe("goalRows — surfaces derived completion (In Progress → Funded) and 
 
 describe("goalRows — surfaces each goal's disposition", () => {
   it("carries the disposition and a plain-language label so the fate of the money is visible", () => {
-    // The whole point: make explicit what BECOMES of a goal's money at target.
+    // What BECOMES of a goal's money at target must be explicit.
     const nestEggGoal: GoalPlan = { ...goalA, id: "nest", disposition: "drawDown" };
     const budget = { ...baseBudget, goals: [nestEggGoal] };
     const rows = goalRows(budget, project(budget));
@@ -177,7 +177,7 @@ describe("dispositionLabel", () => {
 
 describe("goalDisposal — disposition/date pairing", () => {
   it("assembles the disposition and date verbatim, including 'asap'", () => {
-    // Both dispositions are purely descriptive (#150), so either date is kept as-is.
+    // Both dispositions are purely descriptive, so either date is kept as-is.
     expect(goalDisposal("retain", "asap")).toEqual({ disposition: "retain", targetDate: "asap" });
     expect(goalDisposal("drawDown", 24)).toEqual({ disposition: "drawDown", targetDate: 24 });
     expect(goalDisposal("retain", 12)).toEqual({ disposition: "retain", targetDate: 12 });

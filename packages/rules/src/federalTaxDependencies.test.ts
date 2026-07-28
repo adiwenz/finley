@@ -4,15 +4,14 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Structural regression guard for the federal-tax module graph. The scalar seam
- * (./federalTax) and the per-category attribution (./federalTaxAttribution) once
- * imported each other, forming a cycle. Both now read the neutral ./federalTaxCore
- * intermediate instead, so dependencies flow one way:
+ * (./federalTax) and the per-category attribution (./federalTaxAttribution) once imported
+ * each other, forming a cycle; both now read the neutral ./federalTaxCore instead, so
+ * dependencies flow one way:
  *
  *   federalTax ─┬─▶ federalTaxAttribution ─▶ federalTaxCore ─▶ federalTaxTables
  *               └────────────────────────────▶ federalTaxCore
  *
- * These assertions fail the moment anyone reintroduces a sibling→sibling edge that
- * would recreate the cycle.
+ * These fail the moment a sibling→sibling edge reappears.
  */
 function sourceOf(relative: string): string {
   return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");

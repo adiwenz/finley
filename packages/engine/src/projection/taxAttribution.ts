@@ -5,11 +5,9 @@ import type { TaxCategory } from "../cashFlowSeries";
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 
 /**
- * One income source's taxable contribution for a person, tagged with its reporting key
- * and tax category — the weights the per-source tax attribution apportions each
- * category's tax across. `key` is the source's `sourceId` (falling back
- * to its tax category), matching how {@link import("./reportFlows").buildFlows} bands the
- * income side, so tax bands line up with income bands.
+ * `key` is the source's `sourceId` (falling back to its tax category), matching how
+ * {@link import("./reportFlows").buildFlows} bands the income side, so tax bands line up
+ * with income bands.
  */
 export interface SourceTaxable {
   readonly key: string;
@@ -17,26 +15,21 @@ export interface SourceTaxable {
   readonly taxableCents: Cents;
 }
 
-/** Add `amount` to `map[category]` (creating the entry at 0 first). */
 export function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cents): void {
   if (amount === 0) return;
   map[category] = (map[category] ?? 0) + amount;
 }
 
 /**
- * Split one person's per-category tax down to the individual sources that bore it,
- * accumulating into the household `into` map. Within each
- * category, the tax is apportioned across that category's sources by their taxable
- * weight ({@link apportionByWeight}, so Σ shares === the category's tax exactly). All
- * sources in a category face identical treatment from the jurisdiction (it only sees the
- * summed per-category taxable), so proportional-to-taxable is the neutral, information-
- * preserving split — average-rate, not marginal (disclosed as `taxAttributionProportional`).
+ * Splits one person's per-category tax down to the sources that bore it, accumulating into
+ * the household `into` map. Within a category, tax is apportioned by taxable weight
+ * ({@link apportionByWeight}, so Σ shares === the category's tax exactly). The jurisdiction
+ * sees only the summed per-category taxable, so proportional-to-taxable is the neutral
+ * split — average-rate, not marginal (disclosed as `taxAttributionProportional`).
  *
- * Doing this per person (this is called once per person) keeps two earners in different
- * brackets from cross-subsidising: each person's own tax is split only across their own
- * sources. A category that carries tax but whose sources weren't recorded (defensive —
- * shouldn't happen, since the taxable that produced the tax came from those sources) is
- * attributed to the category key itself, so the household Σ still reconciles to `taxCents`.
+ * Call once per person, so two earners in different brackets cannot cross-subsidise. A
+ * category carrying tax with no recorded sources (defensive) is attributed to the category
+ * key, keeping the household Σ reconciled to `taxCents`.
  */
 export function attributeTaxToSources(
   perCategory: TaxableByCategory,

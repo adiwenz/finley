@@ -1,11 +1,9 @@
 /**
  * Snapshot — the household cross-section as of one month.
  *
- * Built from the same {@link Household} the projection consumes, so
- * presence (who/what is active) can never drift from the projection's stocks.
- * The requested month is clamped once (to the projection horizon)
- * and that single clamped month drives every field — people, children, flows,
- * liabilities, balances, and the returned `month`.
+ * Built from the same {@link Household} the projection consumes, so presence (who/what is
+ * active) can never drift from the projection's stocks. The requested month is clamped
+ * once to the projection horizon, and that clamped month drives every field.
  */
 
 import type { Cents } from "../money";
@@ -53,10 +51,9 @@ export interface BalanceEntry {
 }
 
 /**
- * A property in the snapshot cross-section. `valueCents` and
- * `mortgageBalanceCents` come from the projection month; `equityCents` is their
- * difference (value − mortgage). Without a projection, value falls back to the
- * opening value and mortgage/equity are unknown (null).
+ * `valueCents` and `mortgageBalanceCents` come from the projection month; `equityCents` is
+ * value − mortgage. Without a projection, value falls back to the opening value and
+ * mortgage/equity are unknown (null).
  */
 export interface SnapshotProperty {
   readonly id: PropertyId;
@@ -89,7 +86,6 @@ export interface HouseholdSnapshot {
   readonly balances: SnapshotBalances | null;
 }
 
-/** Clamp the requested month into the projection horizon, if one is supplied. */
 function clampMonth(month: number, projection?: ProjectionSeries): number {
   const count = projection?.months.length ?? 0;
   if (count === 0) return month;
@@ -97,10 +93,9 @@ function clampMonth(month: number, projection?: ProjectionSeries): number {
 }
 
 /**
- * The people in the household as of `month` (end-of-month convention):
- * present from their `startMonth` and not yet separated (`endMonth > month`).
- * The single authoritative answer to "who is in the household at M" — the
- * snapshot and any UI that offers people to act on should read through this.
+ * The people in the household as of `month` (end-of-month convention): present from
+ * `startMonth` and not yet separated (`endMonth > month`). The single authoritative answer
+ * to "who is in the household at M" — any people-offering UI reads through this.
  */
 export function membersAt(household: Household, month: number): Person[] {
   return household.memberships
@@ -109,9 +104,9 @@ export function membersAt(household: Household, month: number): Person[] {
 }
 
 /**
- * Household cross-section as of `month` (end-of-month convention): an
- * event at month M is applied at M. Presence is derived from `household`;
- * balances (stocks) are read from `projection` when supplied.
+ * Household cross-section as of `month` (end-of-month convention: an event at month M is
+ * applied at M). Presence is derived from `household`; balances (stocks) are read from
+ * `projection` when supplied.
  */
 export function buildSnapshot(
   household: Household,
@@ -149,9 +144,8 @@ export function buildSnapshot(
   const projectionMonth = projection?.months[m];
   const liabilities: SnapshotLiability[] = household.liabilities
     .filter((l) => {
-      // With a projection, "active" means a positive balance at the month —
-      // a paid-off liability disappears. Without one, fall back to the
-      // contractual origination month.
+      // With a projection, "active" means a positive balance at the month, so a paid-off
+      // liability disappears. Without one, fall back to the contractual origination month.
       if (projectionMonth) return (projectionMonth.liabilityBalancesCents[l.id] ?? 0) > 0;
       return l.startMonth <= m;
     })
@@ -163,9 +157,8 @@ export function buildSnapshot(
       startMonth: l.startMonth,
     }));
 
-  // Properties active at the month: present from purchase, not yet sold. With a
-  // projection, a property with 0 value (sold, or pre-purchase) drops out; value,
-  // mortgage balance and equity are read from the projection month.
+  // Present from purchase, not yet sold. With a projection, one worth 0 (sold or
+  // pre-purchase) drops out and the value/mortgage/equity come from the projection month.
   const properties: SnapshotProperty[] = household.properties
     .filter((p) => {
       const active = p.startMonth <= m && (p.endMonth === null || m <= p.endMonth);
@@ -208,9 +201,8 @@ export function buildSnapshot(
 }
 
 /**
- * Convenience wrapper: replay `ledger` (seeded with `opts.initialPersons`) and
- * snapshot it. Goes through the same {@link interpretLedger} interpreter as the
- * projection, so it cannot interpret events differently.
+ * Replay `ledger` (seeded with `opts.initialPersons`) and snapshot it, through the same
+ * {@link interpretLedger} the projection uses, so it cannot interpret events differently.
  */
 export function snapshotAt(
   ledger: Ledger,

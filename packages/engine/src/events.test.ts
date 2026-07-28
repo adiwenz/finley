@@ -12,7 +12,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { personLit, baseConfig, add } from "./events.testSupport";
 
-// ─── Replay basics ────────────────────────────────────────────────────────────
+// Replay basics
 
 describe("replayLedger — empty ledger", () => {
   it("empty ledger with no income/expense produces flat zero projection", () => {
@@ -23,7 +23,7 @@ describe("replayLedger — empty ledger", () => {
   });
 });
 
-// ─── Event validation ─────────────────────────────────────────────────────────
+// Event validation
 
 describe("event validation", () => {
   it("validateLedgerStructure rejects a duplicate event id", () => {
@@ -69,7 +69,7 @@ describe("event validation", () => {
   });
 
   it("validateNewEvent rejects separating before the partnership month", () => {
-    // Partner joins at month 60; a separation dated month 12 predates the partnership.
+    // Partner joins at month 60, so a separation at month 12 predates the partnership.
     const ledger = add(emptyLedger, {
       id: "r1", type: "RelationshipEvent", month: 60, person: personLit("p2", "Sam"),
     });
@@ -82,7 +82,7 @@ describe("event validation", () => {
   });
 });
 
-// ─── Replay order — (month, sequenceNumber) ───────────────────────────────────
+// Replay order — (month, sequenceNumber)
 
 describe("replay order", () => {
   it("same-month producer-before-consumer: an end applies after the series it ends", () => {
@@ -105,7 +105,7 @@ describe("replay order", () => {
   });
 
   it("orders by sequenceNumber, not array position", () => {
-    // Hand-built ledger with the events stored in reverse of their sequence.
+    // Events stored in reverse of their sequence.
     const j1: LifeEvent = {
       id: "j1", type: "BudgetItemStartEvent", sequenceNumber: 0, month: 0, seriesId: "s1", ownerId: "p1",
       seriesType: "income", monthlyCents: dollarsToCents(1_000), growthMode: { type: "fixed" }, taxCategory: "wages",

@@ -1,23 +1,12 @@
 /**
- * The ordered funding-source picker — which accounts pay for a money-out event, and in
- * what order they are drained.
+ * Which accounts pay for a money-out event, and in what order they drain.
+ * Event-neutral: it edits a funding draw's `sourceIds`. Pool and
+ * coverage both come from the engine's `fundingLookup`, the function `addEvent` gates on,
+ * so the form cannot promise what the engine will refuse.
  *
- * Deliberately event-neutral (#156): it edits the `sourceIds` of a funding draw, so the
- * Home Purchase down payment uses it today and One-Time Spend (#154) uses the same control
- * for the same question. It renders no policy of its own — the pool it lists and the
- * coverage it states both come from the engine's `fundingLookup`, the very function
- * `addEvent` gates on, so the form can never promise what the engine will refuse.
- *
- * Order is the drain order: the first selected account empties before the next is touched,
- * which is why selecting appends rather than sorting. That makes the numbered badge the
- * control's real content — a checkbox says *whether*, the number says *when*.
- *
- * An account with nothing in it is shown, greyed and unpickable, rather than dropped from the
- * list. Dropping it made the pool's membership move with the month, so an account chosen when
- * it held money could disappear from the list at a later month while its id stayed in the
- * selection — no row rendered as checked, yet the coverage line and the submitted event were
- * still counting it. Every account the pool knows about is on screen, and what changes between
- * months is only whether a row can be picked.
+ * Order is drain order, so selecting APPENDS rather than sorts. An empty account is greyed
+ * and unpickable, never dropped: dropping it let an account chosen while funded vanish at a
+ * later month with its id still selected, uncheckable yet still counted.
  */
 
 import type { FundingAvailability, FundingSourceBalance } from "@finley/engine";
@@ -33,14 +22,14 @@ export function FundingSourcePicker({
   label = "Paid from",
 }: {
   /**
-   * Every account that could fund the event, with what it holds AT THE EVENT MONTH — possibly
-   * nothing — largest first (engine-ordered). The empty ones are rendered unpickable, not hidden.
+   * Every account that could fund the event, with what it holds AT THE EVENT MONTH (possibly
+   * nothing), largest first (engine-ordered).
    */
   pool: readonly FundingSourceBalance[];
   /**
-   * The chosen ids IN DRAIN ORDER — the value this control edits. Every id here must name a
-   * pool entry that can actually pay; the caller drops any that cannot, so this control never
-   * has to render a checked row it also has to disable.
+   * The chosen ids IN DRAIN ORDER — the value this control edits. Every id must name a pool
+   * entry that can pay; the caller drops any that cannot, so no row is ever both checked and
+   * disabled.
    */
   selected: readonly string[];
   /** What the event needs, for the coverage line. */
@@ -50,13 +39,13 @@ export function FundingSourcePicker({
   onChange: (ids: readonly string[]) => void;
   label?: string;
 }) {
-  // Selecting APPENDS (it becomes the last to be drained); deselecting closes the gap, so the
-  // remaining numbers stay 1..n with no hole. Order is meaning here, not presentation.
+  // Selecting APPENDS (drained last); deselecting closes the gap so the numbers stay 1..n
+  // with no hole.
   const toggle = (id: string) =>
     onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
 
-  // Whether ANY listed account can pay at this month. Distinct from an empty pool: a plan can
-  // own three funding accounts and have all three at $0 by the month in question.
+  // Whether ANY listed account can pay at this month — distinct from an empty pool: a plan
+  // can own three funding accounts and have all three at $0 by that month.
   const anyFunds = pool.some((source) => source.balanceCents > 0);
 
   return (
@@ -70,8 +59,6 @@ export function FundingSourcePicker({
         <ul className={styles.sourceList}>
           {pool.map((source) => {
             const order = selected.indexOf(source.id);
-            // Nothing in it, nothing to take from it. Muted and disabled rather than absent, so
-            // the reason a selection went away at this month is on screen instead of implied.
             const empty = source.balanceCents <= 0;
             return (
               <li key={source.id}>
@@ -87,7 +74,7 @@ export function FundingSourcePicker({
                         : `${source.label} — ${formatDollars(source.balanceCents)} available`
                     }
                   />
-                  {/* The drain position, shown only once chosen — an unchosen account has none. */}
+                  {/* Drain position — an unchosen account has none. */}
                   <span className={styles.sourceOrder} aria-hidden="true">
                     {order >= 0 ? order + 1 : ""}
                   </span>
@@ -110,9 +97,9 @@ export function FundingSourcePicker({
 }
 
 /**
- * What the selection actually buys. `availableCents` is the engine's own after-tax figure, so
- * a shortfall here is exactly the shortfall `addEvent` would block on — the user learns it
- * while editing rather than from a red alert after submitting.
+ * What the selection buys. `availableCents` is the engine's after-tax figure, so a shortfall
+ * here is exactly the one `addEvent` would block on — learned while editing, not after
+ * submitting.
  */
 function Coverage({
   amountCents,
@@ -123,11 +110,11 @@ function Coverage({
   amountCents: number;
   availability: FundingAvailability;
   selected: readonly string[];
-  /** Whether anything in the pool holds money at this month — see the picker. */
+  /** Whether anything in the pool holds money at this month. */
   anyFunds: boolean;
 }) {
   // Checked first: with every account empty, "choose at least one" is advice the user cannot
-  // take. Say what is actually wrong — the money isn't there yet at this month.
+  // take.
   if (!anyFunds) {
     return (
       <p className={`hint ${styles.sourceShort}`} role="status">
@@ -138,9 +125,8 @@ function Coverage({
   if (selected.length === 0) {
     return <p className="hint">Choose at least one account to pay from.</p>;
   }
-  // Selling an appreciated investment realizes a capital gain, so part of what the account
-  // holds goes to tax rather than to the purchase. Naming the amount is the whole reason a
-  // balance and an "available" can differ.
+  // Selling an appreciated investment realizes a capital gain, so part of the balance goes
+  // to tax rather than the purchase — why a balance and an "available" differ.
   const taxNote = availability.taxed
     ? ` (after ${formatDollars(availability.taxCents)} of capital-gains tax on selling the investments)`
     : "";

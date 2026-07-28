@@ -1,10 +1,8 @@
 /**
  * @vitest-environment node
  *
- * Render coverage for the Retirement panel using the server renderer (this repo's
- * jsdom is unavailable here). The headline/target math is covered by
- * retirementView.test.ts; these pin the wiring — the headline age surfaced and the
- * Medicare early-retiree health nudge shown (and hidden) per the honesty flag.
+ * Render coverage for the Retirement panel via the server renderer (jsdom is unavailable
+ * here). The headline/target math lives in retirementView.test.ts; these pin the wiring.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,9 +26,9 @@ describe("RetirementPanel", () => {
   });
 
   it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction", () => {
-    // The default plan pinned at 65 is infeasible (feasible floor 71 — the home goal is
-    // now a drawable `retain` reserve, #150) but its net worth stays positive throughout —
-    // the shape that used to print the self-contradicting "100% of the way there".
+    // The default plan pinned at 65 is infeasible (floor 71 — the home goal is a drawable
+    // `retain` reserve) yet net worth stays positive throughout: the shape that printed the
+    // self-contradicting "100% of the way there".
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");
     expect(html).toContain("of the way there");
@@ -47,7 +45,6 @@ describe("RetirementPanel", () => {
     const html = render(budget);
     expect(html).toContain("Medicare");
     expect(html).toContain("self-funded");
-    // Estimates-not-advice framing is visible on the nudge.
     expect(html).toContain("not advice");
   });
 
@@ -66,7 +63,7 @@ describe("RetirementPanel", () => {
   });
 
   it("shows the authored Medicare residual step at 65 when enrolling", () => {
-    // Retiring at 65 has no pre-65 gap, but the downward step at 65 is still surfaced.
+    // No pre-65 gap when retiring at 65, but the downward step at 65 is still surfaced.
     const html = render({ ...PLAN_DEFAULTS, retirementAge: 65 });
     expect(html).not.toContain("self-funded"); // the pre-65 nudge is hidden
     expect(html).toContain("From 65"); // the authored residual step is shown

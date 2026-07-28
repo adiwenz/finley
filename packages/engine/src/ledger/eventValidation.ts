@@ -1,13 +1,10 @@
 /**
  * Two-tier event validation:
- *  - {@link validateEventData}: pure, stateless structural checks on an event's
- *    own fields (nonnegative money, valid APR, integer months/terms). Enforced
- *    at append time.
+ *  - {@link validateEventData}: stateless structural checks on an event's own fields,
+ *    enforced at append time.
  *  - {@link validateEventPreconditions}: checks against replay state (referenced
- *    owners/series/liabilities exist and are active, ids are unique, no double
- *    separation). Run during undo and available for pre-append validation.
- *
- * Both return messages naming the event id, type, and failed requirement.
+ *    owners/series/liabilities exist and are active, ids unique, no double separation). Run
+ *    during undo and available for pre-append validation.
  */
 
 import type { ValidationResult } from "./ledger";
@@ -39,7 +36,6 @@ function positiveInteger(
   return null;
 }
 
-/** Stateless structural validation of an event's own fields. */
 export function validateEventData(event: NewLifeEvent): ValidationResult {
   if (!Number.isInteger(event.month)) {
     return bad(event, `month must be an integer (got ${event.month})`);
@@ -62,8 +58,8 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
           : bad(event, `alimonyDurationMonths must be a nonnegative integer (got ${event.alimonyDurationMonths})`))
       );
     case "LoanEvent": {
-      // The union already guarantees which of the two fields is present (a card has a
-      // limit, a term loan a term), so each arm validates its own without a null check.
+      // The union guarantees which field is present, so each arm validates its own
+      // without a null check.
       const money =
         nonNegative(event, "openingBalanceCents", event.openingBalanceCents) ??
         (event.apr >= 0 ? null : bad(event, `apr must be ≥ 0 (got ${event.apr})`));
@@ -78,8 +74,8 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
         nonNegative(event, "downPaymentCents", event.downPaymentCents) ??
         (event.mortgageApr >= 0 ? null : bad(event, `mortgageApr must be ≥ 0 (got ${event.mortgageApr})`));
       if (money) return money;
-      // An ordered, non-empty list of distinct funding sources — a zero-source purchase
-      // has nothing to drain, and a repeated id would double-drain one account.
+      // Distinct, non-empty: a zero-source purchase has nothing to drain, and a repeated id
+      // would double-drain one account.
       if (!Array.isArray(event.downPaymentSourceIds) || event.downPaymentSourceIds.length === 0) {
         return bad(event, `downPaymentSourceIds must list at least one funding source`);
       }
@@ -99,7 +95,6 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
   }
 }
 
-/** Preconditions for `event` against the state accumulated so far. */
 export function validateEventPreconditions(
   event: LifeEvent,
   state: InterpretState,

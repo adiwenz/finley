@@ -6,9 +6,7 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---------------------------------------------------------------------------
-// Original tests (preserved verbatim — these are behavioral anchors)
-// ---------------------------------------------------------------------------
+// Original tests, preserved verbatim as behavioral anchors.
 
 test("cumulative rounding: 12 months sum exactly to an awkward annual total", () => {
   const annual = dollarsToCents(100000.37); // not evenly divisible by 12
@@ -22,7 +20,6 @@ test("cumulative rounding spreads error, doesn't dump it all in one month", () =
   const annual = dollarsToCents(50000.01);
   const months = splitAnnualToMonths(annual);
   const naive = Math.round((annual / 12) * 100) / 100;
-  // No single month should be wildly different from the naive even split.
   for (const m of months) {
     assert.ok(Math.abs(m - naive) <= 1, `month value ${m} too far from naive ${naive}`);
   }
@@ -55,9 +52,7 @@ test("querying a later month first still gives the same result as sequential que
   const sA = new SimCashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
   const sB = new SimCashFlowSeries(0, annualStart, { type: "salaryCompound", annualRate: rate });
 
-  // sA: query in order
   for (let m = 0; m <= 71; m++) sA.getMonthlyCents(m);
-  // sB: jump straight to a late month
   const lateValue = sB.getMonthlyCents(70);
   const lateValueFromOrdered = sA.getMonthlyCents(70);
   assert.strictEqual(lateValue, lateValueFromOrdered);
@@ -68,20 +63,17 @@ test("fromHereForward override: prior months untouched, future months rebase", (
   const before = s.getMonthlyCents(5);
   assert.strictEqual(before, dollarsToCents(100));
 
-  // At month 10, user edits the value to $150/mo, going forward.
   s.addOverride(10, dollarsToCents(150), "fromHereForward");
 
-  // Months before the override are untouched.
   assert.strictEqual(s.getMonthlyCents(5), dollarsToCents(100));
   assert.strictEqual(s.getMonthlyCents(9), dollarsToCents(100));
-  // From the override month forward, it's rebased.
   assert.strictEqual(s.getMonthlyCents(10), dollarsToCents(150));
   assert.strictEqual(s.getMonthlyCents(11), dollarsToCents(150));
 });
 
 test("thisMonthOnly override: affects exactly one month, neighbors unaffected", () => {
   const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" }); // $100/mo
-  s.addOverride(6, dollarsToCents(500), "thisMonthOnly"); // e.g. one-off bonus expense
+  s.addOverride(6, dollarsToCents(500), "thisMonthOnly");
 
   assert.strictEqual(s.getMonthlyCents(5), dollarsToCents(100));
   assert.strictEqual(s.getMonthlyCents(6), dollarsToCents(500));
@@ -99,7 +91,7 @@ test("budget item growth is independent of a separate salary series (no auto-shr
   });
 
   const rentBefore = rent.getMonthlyCents(24);
-  // Simulate a pay cut on the salary series — rent series is never touched or referenced.
+  // A pay cut on the salary series; the rent series is never touched or referenced.
   salary.addOverride(12, dollarsToCents(4000), "fromHereForward");
   const rentAfter = rent.getMonthlyCents(24);
 
@@ -112,11 +104,6 @@ test("preciseMonthlyRate compounds to the annual rate over 12 months", () => {
   const compounded = Math.pow(1 + monthlyRate, 12) - 1;
   assert.ok(Math.abs(compounded - annualRate) < 1e-9);
 });
-
-// ---------------------------------------------------------------------------
-// Additions: baselineUnit, growthAnchor, endMonth, resetAnchor,
-//            taxCategory, history correction
-// ---------------------------------------------------------------------------
 
 test("monthly-native: $150 repeats exactly — zero rounding drift over 36 months", () => {
   const s = new SimCashFlowSeries(0, dollarsToCents(150), { type: "fixed" }, {
@@ -138,16 +125,13 @@ test("monthly-native growth: compounds the monthly value once per year, not per 
     baselineUnit: "monthly",
   });
 
-  // Year 0: all 12 months at 150
   for (let m = 0; m < 12; m++) {
     assert.strictEqual(s.getMonthlyCents(m), monthlyBase, `year0 month ${m}`);
   }
-  // Year 1: compounded monthly value
   const year1 = Math.round(monthlyBase * (1 + rate));
   for (let m = 12; m < 24; m++) {
     assert.strictEqual(s.getMonthlyCents(m), year1, `year1 month ${m}`);
   }
-  // Year 2: compounded again
   const year2 = Math.round(year1 * (1 + rate));
   for (let m = 24; m < 36; m++) {
     assert.strictEqual(s.getMonthlyCents(m), year2, `year2 month ${m}`);
@@ -173,22 +157,18 @@ test("endMonth: getMonthlyCents returns 0 after endMonth", () => {
 });
 
 test("growthAnchor=calendar: growth fires at simulation year boundaries (month 12, 24, ...)", () => {
-  // Series starts at month 3 (i.e. April of year 0)
-  // With calendar anchor, growth fires at month 12 regardless of start month
+  // Series starts at month 3; with the calendar anchor, growth still fires at month 12.
   const rate = 0.05;
   const s = new SimCashFlowSeries(3, dollarsToCents(1000), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
     growthAnchor: "calendar",
   });
 
-  // months 3-11: year 0 value
   assert.strictEqual(s.getMonthlyCents(3), dollarsToCents(1000));
   assert.strictEqual(s.getMonthlyCents(11), dollarsToCents(1000));
-  // month 12+: year 1 value
   const year1 = Math.round(dollarsToCents(1000) * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(12), year1);
   assert.strictEqual(s.getMonthlyCents(23), year1);
-  // month 24+: year 2 value
   const year2 = Math.round(year1 * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(24), year2);
 });
@@ -201,11 +181,9 @@ test("growthAnchor=ownCycle (default): growth fires on the series own anniversar
     growthAnchor: "ownCycle",
   });
 
-  // months 3-14: year 0 value
   for (let m = 3; m < 15; m++) {
     assert.strictEqual(s.getMonthlyCents(m), dollarsToCents(1000), `month ${m}`);
   }
-  // months 15-26: year 1 value
   const year1 = Math.round(dollarsToCents(1000) * (1 + rate));
   for (let m = 15; m < 27; m++) {
     assert.strictEqual(s.getMonthlyCents(m), year1, `month ${m}`);
@@ -213,58 +191,49 @@ test("growthAnchor=ownCycle (default): growth fires on the series own anniversar
 });
 
 test("ownCycle with anchorMonth < startMonth: backdated series fires at next anniversary", () => {
-  // A rent series that started 6 months before the sim. Anchor = -6.
-  // Next anniversary = month 6 (6 months into the sim).
+  // A rent series that started 6 months before the sim: anchor -6, next anniversary month 6.
   const rate = 0.03;
   const s = new SimCashFlowSeries(0, dollarsToCents(150), { type: "inflationLinked", annualRate: rate }, {
     baselineUnit: "monthly",
     anchorMonth: -6,
   });
 
-  // months 0-5: still in year 0 (anchor=-6, so year 0 spans month -6 to 5)
+  // Year 0 spans months -6..5.
   for (let m = 0; m <= 5; m++) {
     assert.strictEqual(s.getMonthlyCents(m), dollarsToCents(150), `month ${m}`);
   }
-  // month 6 onward: year 1 (first anniversary since anchor)
   const year1 = Math.round(dollarsToCents(150) * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(6), year1);
   assert.strictEqual(s.getMonthlyCents(17), year1);
-  // month 18: year 2
   const year2 = Math.round(year1 * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(18), year2);
 });
 
 test("resetAnchor=true on fromHereForward: growth clock restarts from override month", () => {
-  // Start at month 0, override at month 10 with resetAnchor=true.
-  // New growth clock starts at 10 → next escalation at month 22.
+  // The new growth clock starts at the override month 10 → next escalation at month 22.
   const rate = 0.10;
   const s = new SimCashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
   });
   s.addOverride(10, dollarsToCents(200), "fromHereForward", { resetAnchor: true });
 
-  // month 10: $200 (override value)
   assert.strictEqual(s.getMonthlyCents(10), dollarsToCents(200));
-  // month 21: still $200 (haven't hit new anchor+12=22 yet)
   assert.strictEqual(s.getMonthlyCents(21), dollarsToCents(200));
-  // month 22: compounded to $220 (year 1 from new anchor at month 10)
+  // month 22: compounded to $220.
   const year1 = Math.round(dollarsToCents(200) * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(22), year1);
 });
 
 test("resetAnchor=false (default): growth clock continues from original anchor", () => {
-  // Start at month 0, override at month 10. Anchor stays at 0.
-  // Growth already fired at month 12 and 24 etc.
+  // The anchor stays at 0, so growth still fires at month 12 despite the month-10 override.
   const rate = 0.10;
   const s = new SimCashFlowSeries(0, dollarsToCents(100), { type: "customRate", annualRate: rate }, {
     baselineUnit: "monthly",
   });
-  s.addOverride(10, dollarsToCents(200), "fromHereForward"); // no resetAnchor
+  s.addOverride(10, dollarsToCents(200), "fromHereForward");
 
-  // month 10-11: $200
   assert.strictEqual(s.getMonthlyCents(10), dollarsToCents(200));
   assert.strictEqual(s.getMonthlyCents(11), dollarsToCents(200));
-  // month 12: growth fires (anchor=0, so year 1 starts at month 12)
   const year1 = Math.round(dollarsToCents(200) * (1 + rate));
   assert.strictEqual(s.getMonthlyCents(12), year1);
 });
@@ -283,10 +252,9 @@ test("taxCategory is stored as-is (v1-ignored seam)", () => {
 
 test("correctHistory: editing a prior segment's value in-place recomputes forward", () => {
   const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
-  // Pre-correction: $100/month
   assert.strictEqual(s.getMonthlyCents(0), dollarsToCents(100));
 
-  // Correct the baseline — it was $1800/year ($150/mo), not $1200
+  // The baseline was $1800/year ($150/mo), not $1200.
   s.correctHistory(0, dollarsToCents(1800));
   assert.strictEqual(s.getMonthlyCents(0), dollarsToCents(150));
   assert.strictEqual(s.getMonthlyCents(11), dollarsToCents(150));
@@ -296,10 +264,9 @@ test("correctHistory: does not affect a fromHereForward segment that follows", (
   const s = new SimCashFlowSeries(0, dollarsToCents(1200), { type: "fixed" });
   s.addOverride(12, dollarsToCents(200), "fromHereForward"); // $200/mo from month 12
 
-  s.correctHistory(0, dollarsToCents(1800)); // fix the old segment value
+  s.correctHistory(0, dollarsToCents(1800)); // $150/mo
 
-  // Old segment now $150/mo
   assert.strictEqual(s.getMonthlyCents(0), dollarsToCents(150));
-  // New segment at month 12 is independent — user typed $200
+  // The month-12 segment is independent of the correction.
   assert.strictEqual(s.getMonthlyCents(12), dollarsToCents(200));
 });

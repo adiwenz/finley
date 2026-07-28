@@ -4,14 +4,12 @@ import type { SimState } from "./runState";
 import type { LiabilityPaymentRecord } from "./simulate.types";
 
 /**
- * Step 4: this month's payment for every liability, computed on beginning-of-month
- * balances. Returned so advanceLiabilities applies the exact same figure — keeping
- * the cash outflow (step 5) and the balance update consistent.
+ * Step 4: this month's payment for every liability, on beginning-of-month balances. Returned
+ * so advanceLiabilities applies the exact same figure, keeping the cash outflow (step 5) and
+ * the balance update consistent.
  *
- * Each liability computes its own payment polymorphically ({@link SimLiability.monthlyPaymentCents}):
- * a revolving card returns its balance-driven minimum, a term loan its scheduled
- * amortization payment — both capped at the payoff so a small balance is never
- * over-charged. A paid-off (≤ 0) balance is skipped: it owes nothing.
+ * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}), capped
+ * at the payoff so a small balance is never over-charged.
  */
 export function computeLiabilityPayments(state: SimState, month: number): Map<string, Cents> {
   const payments = new Map<string, Cents>();
@@ -24,15 +22,12 @@ export function computeLiabilityPayments(state: SimState, month: number): Map<st
 }
 
 /**
- * Build this month's per-liability payment records from the computed payments.
- * One entry per liability with a payment due (exactly the `payments` map, which
- * already skips paid-off / not-yet-originated / origination-month liabilities).
+ * One record per entry in `payments`, which already skips paid-off, not-yet-originated and
+ * origination-month liabilities.
  *
- * v1-seam: `amountApplied` and `expected` are the same figure today — the
- * payoff-capped payment the engine both intends to charge and actually applies —
- * so every record is `full` / `current`. When a future underpayment channel
- * applies less than expected, it passes a smaller `amountApplied` here and
- * `partial`/`missed`/`delinquent` surface automatically (see derivePaymentStatus).
+ * v1-seam: `amountApplied` and `expected` are the same payoff-capped figure today, so every
+ * record is `full` / `current`. A future underpayment channel passes a smaller
+ * `amountApplied` and `partial`/`missed`/`delinquent` surface automatically.
  */
 export function buildLiabilityPaymentRecords(
   payments: ReadonlyMap<string, Cents>,
@@ -51,23 +46,15 @@ export function buildLiabilityPaymentRecords(
 }
 
 /**
- * Step 7: shortfall cascade. If the liquid account went negative, zero it and
- * route the deficit onto credit cards lowest-APR-first, each up to its limit (a null
- * limit is unbounded; the synthetic shortfall card carries a finite default limit, so
- * it too can be exhausted).
+ * Step 7: shortfall cascade. If the liquid account went negative, zero it and route the
+ * deficit onto credit cards lowest-APR-first, each up to its limit (a null limit is
+ * unbounded; the synthetic shortfall card has a finite default limit, so it too can be
+ * exhausted).
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
- * amount the household genuinely could not pay. Zero is the common case: the month was
- * paid for, whether out of take-home, by drawing savings down, or on credit.
- *
- * The distinction it draws is what makes a non-zero return meaningful. A budget squeezed
- * by a bad month is meant to be absorbed — by savings first, then by credit — and the
- * household still spent every dollar it budgeted. Only when there is nothing left to
- * absorb it with has the plan actually failed, and that is what this reports: the
- * terminal condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line
- * is derived from it (see {@link
- * import("./spendingItems").buildSpendingItems} for why spending is reported as
- * authored rather than rationed).
+ * terminal failure condition, surfaced as `isInsolvent` and a null net worth. Nothing
+ * per-line is derived from it (see {@link import("./spendingItems").buildSpendingItems} for
+ * why spending is reported as authored rather than rationed).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -78,8 +65,7 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
   state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
-    // A card that hasn't originated yet (opened in advanceLiabilities at its
-    // startMonth) can't absorb a shortfall — borrowing onto it would be lost.
+    // A card not yet originated can't absorb a shortfall — borrowing onto it would be lost.
     if (month <= card.startMonth) continue;
     const currentBal = state.liabilityBalances.get(card.id) ?? 0;
     const limit = card.creditLimitCents;
@@ -92,18 +78,15 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
 }
 
 /**
- * Step 10: advance every liability. One-time principal adjustments (lump-sum
- * payments — the future DebtPayoffEvent) land FIRST, before interest — the
- * liability analogue of step 8 preceding step 9 for assets — so a lump sum reduces
- * the interest charged that month. Then accrue interest and apply the pre-computed
- * `payments` figure.
+ * Step 10: advance every liability. One-time principal adjustments (lump-sum payments) land
+ * FIRST, before interest — the liability analogue of step 8 preceding step 9 for assets — so
+ * a lump sum reduces that month's interest.
  *
- * A transfer only moves the owed balance; the paired cash outflow (from a liquid
- * account) is the caller's responsibility, exactly as with asset-to-asset transfers
- * — the engine does not auto-fund it, so pairing a Liability payoff with an
- * Account outflow is what keeps net worth conserved. A lump sum can drive the balance
- * below the precomputed schedule; the payoff cap in computeLiabilityPayments keeps
- * that safe and yields shorten-term behavior (loan retires early, payment unchanged).
+ * A transfer only moves the owed balance; the engine does not auto-fund it, so pairing a
+ * liability payoff with an account outflow is the caller's job and is what conserves net
+ * worth. A lump sum can drive the balance below the precomputed schedule; the payoff cap in
+ * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
+ * early, payment unchanged).
  */
 export function advanceLiabilities(
   state: SimState,
@@ -113,8 +96,8 @@ export function advanceLiabilities(
   for (const liab of state.liabilities) {
     if (month < liab.startMonth) continue; // not originated yet — stays at 0
     if (month === liab.startMonth) {
-      // Origination: the balance appears with no interest or payment this month,
-      // mirroring an account's opening balance at month 0.
+      // Origination: balance appears with no interest or payment, mirroring an account's
+      // opening balance at month 0.
       state.liabilityBalances.set(liab.id, liab.openingBalanceCents);
       continue;
     }

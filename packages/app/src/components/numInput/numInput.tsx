@@ -35,10 +35,9 @@ export function NumInput({
             if (!Number.isNaN(raw)) onChange(raw);
           }}
           onBlur={() => {
-            // The min/max HTML attributes only bound the spinner arrows, and we let
-            // typing flow through freely above so intermediate digits aren't fought.
-            // Clamp to any explicit bound once the field is committed (on blur);
-            // unbounded dollar fields keep their current behaviour.
+            // The min/max attributes bound only the spinner arrows, and typing flows
+            // through freely above so intermediate digits aren't fought. Clamp to any
+            // explicit bound on commit; unbounded fields are unaffected.
             let next = value;
             if (min !== undefined) next = Math.max(min, next);
             if (max !== undefined) next = Math.min(max, next);

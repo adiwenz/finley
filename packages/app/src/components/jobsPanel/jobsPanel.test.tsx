@@ -1,11 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * Jobs panel — the authoring surface for earned income. Pins that a
- * person can hold ANY number of jobs (none privileged, several possibly open-ended),
- * that add / edit / delete are direct value-plane edits to `plan.jobs`, and that the
- * 401(k) elective-limit nudge (which left the Budget editor with the deferral) fires
- * here across all jobs.
+ * Jobs panel. Pins that a person can hold any number of jobs (none privileged, several
+ * possibly open-ended), that add/edit/delete are value-plane edits to `plan.jobs`, and that
+ * the 401(k) elective-limit nudge fires here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { useMemo, useRef, useState } from "react";
@@ -34,9 +32,8 @@ import { JobsPanel } from "./jobsPanel";
 afterEach(cleanup);
 
 /**
- * Controlled harness so edits round-trip through real state, plus probes for each plane
- * a job can live on: the primary person's jobs on the plan, a partner's on their
- * `RelationshipEvent`. Stands in for `App`, which owns both.
+ * Controlled harness standing in for `App`, with a probe for each plane a job can live on: the
+ * primary person's on the plan, a partner's on their `RelationshipEvent`.
  */
 function Harness({
   initial = PLAN_DEFAULTS,
@@ -58,8 +55,8 @@ function Harness({
     [budget],
   );
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // The ledger, readable synchronously — `onReviseEvents` answers whether it committed
-  // before the panel writes the plan side, exactly as `useLedger` does.
+  // Readable synchronously: `onReviseEvents` answers whether it committed before the panel
+  // writes the plan side, as `useLedger` does.
   const ledgerRef = useRef(ledger);
   ledgerRef.current = ledger;
   const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
@@ -86,21 +83,20 @@ function Harness({
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
-      {/* Both planes as the panel actually left them, so a test can project the real
-          pair (plan + ledger) rather than a hand-built stand-in for it. */}
+      {/* Both planes as the panel left them, so a test can project the real pair rather
+          than a hand-built stand-in. */}
       <output data-testid="plan">{JSON.stringify(budget)}</output>
       <output data-testid="ledger">{JSON.stringify(ledger)}</output>
     </>
   );
 }
 
-/** The jobs currently authored on the partner's RelationshipEvent — the ledger plane. */
+/** The ledger plane: jobs authored on the partner's RelationshipEvent. */
 function partnerJobsOf(ledger: Ledger): readonly Job[] {
   for (const e of ledger.events) if (e.type === "RelationshipEvent") return e.person.jobs;
   return [];
 }
 
-/** A partner joining at month 0 with `jobs` of their own. */
 const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
   id: "r1",
   type: "RelationshipEvent",
@@ -115,7 +111,7 @@ const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
   },
 });
 
-/** One open-ended partner job paying `monthlyDollars`, started at their age 40 ("now"). */
+/** Open-ended, started at the partner's age 40 ("now"). */
 const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   id: "p-1-job-1",
   ...(name ? { name } : {}),
@@ -131,7 +127,7 @@ const partnerJobs = (): readonly Job[] =>
   JSON.parse(screen.getByTestId("partner-jobs").textContent || "[]") as Job[];
 const partnerMonthlyDollars = (i = 0): number =>
   Math.round((partnerJobs()[i]?.salary.startingSalaryCents ?? 0) / 12 / 100);
-/** The plan and the ledger as the panel left them — what the app itself would project. */
+/** Both planes as the panel left them — what the app itself would project. */
 const authored = (): { plan: Plan; ledger: Ledger } => ({
   plan: JSON.parse(screen.getByTestId("plan").textContent || "{}") as Plan,
   ledger: JSON.parse(screen.getByTestId("ledger").textContent || "{}") as Ledger,
@@ -173,14 +169,13 @@ describe("JobsPanel — add / edit / delete", () => {
     fireEvent.blur(deferral); // NumInput clamps to its max on blur
     expect(Number(deferral.value)).toBe(100);
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    // Saved at the cap — the row shows 100% to 401(k), not 1000%.
+    // Saved at the cap, not the typed 1000%.
     expect(within(screen.getByLabelText("Job 1")).getByText(/100% to 401\(k\)/i)).toBeTruthy();
   });
 
   it("turns an open-ended job into a fixed-term one via the end-age control", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    // Uncheck "open-ended" to reveal the end-age field, then set a fixed end.
     fireEvent.click(screen.getByLabelText(/Open-ended/i));
     fireEvent.change(spin(/End age/i), { target: { value: "50" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
@@ -188,8 +183,8 @@ describe("JobsPanel — add / edit / delete", () => {
   });
 
   it("remembers the entered end age across an open-ended toggle instead of resetting it", () => {
-    // endAge:null IS open-ended, but the last finite value is kept so ticking the box on
-    // then off restores the user's number rather than snapping back to the 65 default.
+    // Open-ended keeps the last finite value, so toggling the box on then off restores the
+    // user's number rather than the 65 default.
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     fireEvent.click(screen.getByLabelText(/Open-ended/i)); // reveal the end-age field
@@ -201,7 +196,6 @@ describe("JobsPanel — add / edit / delete", () => {
     fireEvent.click(screen.getByLabelText(/Open-ended/i)); // fixed-term again
     expect(Number(spin(/End age/i).value)).toBe(52); // the user's 52, not the default
 
-    // And it saves as the restored value.
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–52/)).toBeTruthy();
   });
@@ -221,10 +215,9 @@ describe("JobsPanel — add / edit / delete", () => {
       target: { value: "Software Engineer" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    // The row header now reads the human title, not the positional "Job 1".
+    // Titled by the name now, not the positional "Job 1".
     const row = screen.getByLabelText("Software Engineer");
     expect(within(row).getByText("$5,000/mo")).toBeTruthy();
-    // And the name is seeded back when the form re-opens.
     fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
     expect((screen.getByRole("textbox", { name: /Job name/i }) as HTMLInputElement).value).toBe(
       "Software Engineer",
@@ -244,13 +237,12 @@ describe("JobsPanel — every member's jobs", () => {
   const withPartner = (jobs: readonly Job[] = [partnerJob(2000)]) => [partnerJoining(jobs)];
 
   it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
-    // A partner's jobs used to be invisible here — authored at the moment they joined
-    // and unreachable afterwards. Now both earners' jobs are one list.
+    // Both earners' jobs are one list; a partner's used to be reachable only as they joined.
     render(<Harness events={withPartner()} />);
     expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
     const partnerRow = screen.getByLabelText("Sam · Job 1");
     expect(within(partnerRow).getByText("$2,000/mo")).toBeTruthy();
-    // Spans read in the OWNER's age, not the primary person's: Sam is 40, not 35.
+    // Spans read in the owner's age, not the primary person's: Sam is 40, not 35.
     expect(within(partnerRow).getByText(/from age 40/)).toBeTruthy();
   });
 
@@ -293,19 +285,17 @@ describe("JobsPanel — every member's jobs", () => {
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    // It left the plan for the partner's event, keeping its pay.
     expect(jobCount()).toBe(0);
     expect(partnerJobs()).toHaveLength(1);
     expect(partnerMonthlyDollars()).toBe(5000);
-    // The start age is unchanged as a NUMBER (18), but now it is Sam's 18.
+    // The start age is unchanged as a number (18), but now it is Sam's 18.
     expect(within(screen.getByLabelText("Sam · Job 1")).getByText(/from age 18/)).toBeTruthy();
     expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
   });
 
   it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
-    // Reassignment used to remove the job and MINT a new one from the form draft, which
-    // holds none of this: the job arrived with a fresh id, no bonus, no raise, no match.
-    // Fields and owner are one edit applied to the existing job, so all of it rides along.
+    // One edit to the existing job, so all of it rides along; minting from the form draft
+    // instead loses id, bonus, raise and match.
     const rich = addJobPayChange(
       setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.1),
       "job-1",
@@ -337,9 +327,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("writes neither plane when the ledger refuses the revision", () => {
-    // The two halves of a transfer sit on different planes. A conflict rejecting the
-    // ledger half after the plan half had been written would lose the job outright — so
-    // the ledger goes first and the plan only follows if it was accepted.
+    // Ledger first, plan only if accepted: the reverse order loses the job outright when the
+    // ledger half is refused.
     render(<Harness events={withPartner([])} rejectRevisions />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
@@ -353,9 +342,7 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("removes a pay change from a partner's job, on their own plane", () => {
-    // A partner's job can carry one now that Base + Adjustments reaches every earner, so
-    // the Remove button has to route by owner — it used to be a plan-only edit and did
-    // nothing at all here.
+    // Base + Adjustments reaches every earner, so Remove must route by owner.
     const raised: Job = {
       ...partnerJob(2000),
       payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
@@ -378,14 +365,10 @@ describe("JobsPanel — every member's jobs", () => {
 });
 
 describe("JobsPanel — handing a whole job to a partner, end to end", () => {
-  // The regression this guards: reassignment used to be two unrelated writes — the job
-  // dropped from `Plan.jobs` and a NEW one minted on the partner from the form draft, which
-  // carries none of a job's other state. It came back with a fresh id, no employer match, no
-  // pay change, no bonus, and its ages re-read against the WRONG person's birth year.
-  //
-  // Driven entirely through the panel, and asserted on the real pair of planes plus the
-  // projection compiled from them — no helper is called directly here, so the seam between
-  // `Plan.jobs`, the `RelationshipEvent`, and `compilePersonIncomeSeries` is under test too.
+  // Guards the regression where reassignment was two unrelated writes — dropped from
+  // `Plan.jobs`, a fresh job minted on the partner from the draft: new id, no match, no pay
+  // change, no bonus, ages against the wrong birth year. Asserted on both planes and the
+  // projection, covering the `Plan.jobs` / `RelationshipEvent` / `compilePersonIncomeSeries` seam.
   const PRIMARY_BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now
   const PARTNER_BIRTH_YEAR = START_YEAR - 40; // Sam, 40 now, retiring at 65
   const JOIN_MONTH = 60; // Sam arrives five years in
@@ -421,7 +404,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
   it("moves the job itself — id, match, pay change and bonus — and the projection follows", () => {
     render(<Harness initial={planWithRichJob} events={[samJoinsAt(JOIN_MONTH)]} />);
 
-    // ── One submission: a different owner AND a different salary and start age ──
+    // One submission: a different owner, and a different salary and start age.
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Software Engineer/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "6000" } });
@@ -430,7 +413,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 
     const { plan, ledger } = authored();
 
-    // ── It left the plan, and landed on the partner exactly once ──
+    // It left the plan, and landed on the partner exactly once.
     expect(plan.jobs).toEqual([]);
     expect(jobCount()).toBe(0);
     const moved = partnerJobs();
@@ -440,14 +423,14 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(screen.queryByLabelText("Alex · Software Engineer")).toBeNull();
     expect(screen.getByLabelText("Sam · Software Engineer")).toBeTruthy();
 
-    // ── The same job, edited — not a new one built from the draft ──
+    // The same job, edited — not a new one built from the draft.
     const job = moved[0];
     expect(job.id).toBe("job-1"); // a minted id would read "p-1-job-2"
     expect(job.ownerId).toBe("p-1");
     expect(job.name).toBe("Software Engineer");
     expect(job.salary.startingSalaryCents).toBe(dollarsToCents(72_000)); // $6,000/mo, edited
     expect(job.endYear).toBeNull();
-    // Ages resolve against the TARGET owner: Sam's 32, five years earlier than Alex's would be.
+    // Ages resolve against the target owner: Sam's 32, five years earlier than Alex's would be.
     expect(job.startYear).toBe(PARTNER_BIRTH_YEAR + NEW_START_AGE);
     expect(job.startYear).not.toBe(PRIMARY_BIRTH_YEAR + NEW_START_AGE);
     // Everything the form never shows rode along untouched.
@@ -459,26 +442,23 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(job.payChanges).toEqual([PAY_CHANGE]);
     expect(job.incomeOverrides).toEqual([BONUS]);
 
-    // ── The projection compiled from that pair of planes ──
     const series = projectScenario(
       { plan, ledger },
       { jurisdiction: usJurisdiction, startYear: START_YEAR },
     );
-    // The income is the PARTNER's now — the primary person has no job left to pay them.
+    // The income is the partner's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
-    // And none of it lands before Sam is in the household — the job started in 2018, but a
-    // member's jobs are only paid from the month they join (the membership window).
+    // The job started in 2018, but a member's jobs pay only from the month they join.
     expect(wagesFor(series, "p-1", 1)).toBe(0);
     expect(wagesFor(series, "p-1", JOIN_MONTH - 1)).toBe(0);
-    // It stops at the boundary its OWNER carries: open-ended, so Sam's retirement age.
+    // It stops at the boundary its owner carries: open-ended, so Sam's retirement age.
     expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBeGreaterThan(0);
     expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH)).toBe(0);
   });
 
   it("stops the moved job's income at a separation, not at the partner's retirement", () => {
-    // The other boundary: leaving the household ends the income the same way, since the
-    // window that clips it is the MEMBERSHIP's, not the job's.
+    // The other boundary: the window that clips the income is the membership's, not the job's.
     const separation: NewLifeEvent = {
       id: "s1",
       type: "SeparationEvent",
@@ -509,15 +489,13 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 });
 
 describe("JobsPanel — permanent pay changes", () => {
-  // A pay change lands on the job's `payChanges`, not its starting salary — so the job
-  // headline stays $5,000/mo while the change is what actually moves pay. (A past bug: the
-  // panel used to show only the starting figure, hiding the change entirely.)
+  // A pay change lands on `payChanges`, not the starting salary, so the headline stays
+  // $5,000/mo while the change moves pay — showing only the headline hides it.
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
     render(<Harness initial={withSetToZero} />);
     const row = screen.getByLabelText("Job 1");
-    // Headline is the starting salary, now flagged as such since a change follows it.
     expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
     // The change itself is listed in full — age 36 = current 35 + month 12.
     expect(within(row).getByText(/Pay set to \$0\/mo from age 36/)).toBeTruthy();
@@ -525,7 +503,7 @@ describe("JobsPanel — permanent pay changes", () => {
 
   it("does not conflate a permanent pay change with a one-off (single-month) adjustment", () => {
     render(<Harness initial={withSetToZero} />);
-    // The pay change must NOT be counted as a one-off adjustment (the old mislabel).
+    // The old mislabel counted it as a one-off adjustment.
     expect(screen.queryByText(/one-off/i)).toBeNull();
   });
 
@@ -558,9 +536,8 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
     render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
-    // Phrased as the user's own on a single-earner plan — no name, as before.
+    // Phrased as the user's own on a single-earner plan — no name.
     expect(screen.getByText(/Across your jobs/i)).toBeTruthy();
-    // The row also surfaces the elected rate.
     expect(within(screen.getByLabelText("Job 1")).getByText(/50% to 401\(k\)/i)).toBeTruthy();
   });
 
@@ -570,16 +547,15 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
   });
 
   it("names the PARTNER when the crossing is theirs", () => {
-    // The limit is individual: the primary person defers nothing, Sam defers $30k of a
-    // $60k job. Scanning only `Plan.jobs` missed this entirely.
+    // Individual limit: the primary defers nothing, Sam $30k of a $60k job. Scanning only
+    // `Plan.jobs` misses it.
     render(<Harness events={[partnerDeferring(5000, 50)]} />);
     expect(screen.getByText(/Across Sam’s jobs/i)).toBeTruthy();
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
   });
 
   it("does not pool two earners into one limit", () => {
-    // $20k + $20k across the household tops a single $24,500 limit, but neither person is
-    // over their own — so there is nothing to disclose.
+    // $20k + $20k tops a single $24,500 limit, but neither person is over their own.
     render(
       <Harness
         initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.3334)}

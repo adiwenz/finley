@@ -1,14 +1,8 @@
 /**
- * Simulation report — the engine's complete, self-describing, JSON-serializable
- * account of a single run. This is the "headless Finley" output: hand it a
- * {@link HouseholdSimInput} and a {@link Jurisdiction} and get back everything the
- * simulator knows — the resolved inputs echoed for the record, plus a per-month
- * table carrying ages, balances (stocks), and cash flows (rates), including derived
- * government retirement benefit income. A consumer needs no engine internals to render, export,
- * or diff a run; the app's debug panel is just one such consumer.
+ * Simulation report: a {@link HouseholdSimInput} plus a {@link Jurisdiction} in, resolved inputs
+ * echoed back and a per-month table of ages, balances and cash flows out.
  *
- * Everything here is plain data (no class instances, no functions), so
- * `JSON.stringify(report)` round-trips losslessly.
+ * All plain data (no class instances, no functions), so `JSON.stringify` round-trips losslessly.
  */
 
 import type { Cents } from "../money";
@@ -25,25 +19,23 @@ import type {
 } from "./simulate.types";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 
-/** A household member as echoed in the report. `birthYear`/`benefitClaimingAge` null when unmodelled. */
+/** Null fields are unmodelled. */
 export interface ReportPerson {
   readonly id: string;
   readonly name: string;
   readonly birthYear: number | null;
   readonly benefitClaimingAge: number | null;
-  /** Age at the run's start year (startYear − birthYear); null without a birth year. */
+  /** startYear − birthYear; null without a birth year. */
   readonly ageAtStart: number | null;
 }
 
-/** An asset account's opening configuration (the rate is the one in effect at month 0). */
 export interface ReportAccount {
   readonly id: string;
   readonly ownerId: string;
   readonly liquid: boolean;
-  /** The {@link TaxCategory} withdrawals produce — the neutral tax-behavior echo. */
   readonly withdrawalCategory: string;
   readonly openingBalanceCents: Cents;
-  /** Annual return in force at month 0. See {@link rateSchedule} for later changes. */
+  /** Annual return in force at month 0; see {@link rateSchedule} for later changes. */
   readonly annualRate: number;
   /** Every rate change over the run, ascending by `startMonth`; one entry for a flat rate. */
   readonly rateSchedule: readonly { readonly startMonth: number; readonly annualRate: number }[];
@@ -70,14 +62,12 @@ export interface ReportProperty {
 }
 
 /**
- * An income source as echoed in the report. Series are sampled — not fully
- * serialized — because the authoritative month-by-month figures live in each
- * {@link ReportMonth}'s `incomeByCategoryCents`; `monthlyCentsAtStart` is a
- * convenience sample of the source at month 0.
+ * Series are sampled, not serialized: the authoritative month-by-month figures live in each
+ * {@link ReportMonth}'s `incomeByCategoryCents`; `monthlyCentsAtStart` samples month 0.
  */
 export interface ReportIncomeSource {
   readonly ownerId: string;
-  /** Human-facing name of the stream ("Income", "Income · job-1"); null when unnamed. */
+  /** Human-facing name ("Income · job-1"); null when unnamed. */
   readonly label: string | null;
   readonly taxCategory: string;
   /** Pre-tax deferral fraction if this source carries a retirement plan, else null. */
@@ -86,45 +76,37 @@ export interface ReportIncomeSource {
   readonly employerMatchFraction: number | null;
   readonly fundAccountId: string | null;
   readonly monthlyCentsAtStart: Cents;
-  /**
-   * The RAISE RATE: annual growth in force at month 0 (0 for a `fixed` stream).
-   * See {@link growthSchedule} for changes later in the run.
-   */
+  /** Annual growth in force at month 0 (0 for a `fixed` stream). */
   readonly annualGrowthRate: number;
   /** How that rate is derived — `fixed`, `inflationLinked`, `customRate`, `salaryCompound`. */
   readonly growthMode: string;
-  /** Every growth change over the run, ascending by `startMonth`; one entry for a flat rate. */
+  /** Every growth change, ascending by `startMonth`; one entry for a flat rate. */
   readonly growthSchedule: readonly GrowthSegmentView[];
 }
 
 export interface ReportExpenseSource {
   readonly ownerId: string;
-  /** Human-facing name of the line ("Expenses", "Healthcare", a budget line's label); null when unnamed. */
+  /** Human-facing name ("Healthcare", a budget line's label); null when unnamed. */
   readonly label: string | null;
   readonly monthlyCentsAtStart: Cents;
   /** Annual escalation in force at month 0 — general CPI, or a line's own rate (e.g. health). */
   readonly annualGrowthRate: number;
-  /** How that rate is derived — `fixed`, `inflationLinked`, `customRate`, `salaryCompound`. */
+  /** As {@link ReportIncomeSource.growthMode}. */
   readonly growthMode: string;
-  /** Every growth change over the run, ascending by `startMonth`; one entry for a flat rate. */
+  /** As {@link ReportIncomeSource.growthSchedule}. */
   readonly growthSchedule: readonly GrowthSegmentView[];
 }
 
-/** The resolved inputs the run consumed, echoed back for the record. */
 export interface ReportInputs {
   readonly horizonMonths: number;
-  /** `horizonMonths / 12` — the run length in years, for a human-facing config view. */
+  /** `horizonMonths / 12`. */
   readonly horizonYears: number;
   readonly startYear: number;
   /** Calendar year of the final simulated month (`startYear + ⌊horizonMonths/12⌋`). */
   readonly endYear: number;
   /** General CPI: the rate that drives inflation-linked series and the real/nominal split. */
   readonly annualInflationRate: number;
-  /**
-   * The COLA rate actually applied to the government retirement benefit —
-   * the plan's `benefitColaRate` when set, else general CPI. RESOLVED, so a reader
-   * never has to re-apply the fallback; `benefitColaRateIsExplicit` says which it was.
-   */
+  /** Already resolved (`benefitColaRate` ?? general CPI) — do not re-apply the fallback. */
   readonly benefitColaRate: number;
   /** Whether {@link benefitColaRate} was authored rather than inherited from CPI. */
   readonly benefitColaRateIsExplicit: boolean;
@@ -139,11 +121,6 @@ export interface ReportInputs {
   readonly goals: readonly SimGoal[];
 }
 
-/**
- * One row of the accumulation table: the household's stocks and flows at `month`.
- * `year` and `ageByPerson` are the human-facing time axes derived from the run's
- * `startYear` and each person's birth year.
- */
 export interface ReportMonth {
   readonly month: number;
   readonly year: number;
@@ -159,20 +136,13 @@ export interface ReportMonth {
   readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
   readonly totalIncomeCents: Cents;
   readonly governmentRetirementBenefitCents: Cents;
-  /** Tax charged this month through the jurisdiction seam, all persons summed. */
+  /** Tax charged through the jurisdiction seam, summed over persons. */
   readonly taxCents: Cents;
-  /**
-   * This month's tax broken out by {@link TaxCategory} — the tax analog of
-   * `incomeByCategoryCents`. Present for every flowed month (`{}` when no tax, otherwise Σ
-   * === `taxCents`); absent only for the flow-free opening month (month 0), which carries
-   * no flows at all.
-   */
+  /** `{}` when no tax, else Σ === `taxCents`; absent only for the flow-free month 0. */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
-   * This month's tax broken out by income SOURCE — the finer
-   * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
-   * tax is named rather than collapsed into `wages`. Present for every flowed month (`{}`
-   * when no tax, otherwise Σ === `taxCents`); absent only for the flow-free month 0.
+   * Keyed by each source's reporting id, so a job's tax is named rather than collapsed into
+   * `wages`. Same presence rule and Σ invariant as {@link taxByCategoryCents}.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source; absent when none deferred. */
@@ -184,9 +154,8 @@ export interface ReportMonth {
 }
 
 /**
- * The union of keys that appear across the run, so a consumer can lay out table
- * columns without scanning every row. Each list is stable-ordered by first
- * appearance.
+ * Every key appearing anywhere in the run, ordered by first appearance, so a consumer can lay
+ * out table columns without scanning every row.
  */
 export interface ReportColumns {
   readonly personIds: readonly string[];
@@ -194,17 +163,9 @@ export interface ReportColumns {
   readonly liabilityIds: readonly string[];
   readonly propertyIds: readonly string[];
   readonly incomeCategories: readonly string[];
-  /**
-   * The union of tax categories that appear across the run, so a consumer
-   * can lay out the stacked tax chart's bands. Empty when the jurisdiction reports no
-   * per-category breakdown anywhere (a single-band tax chart).
-   */
+  /** The stacked tax chart's bands. Empty when the jurisdiction reports no per-category breakdown. */
   readonly taxCategories: readonly string[];
-  /**
-   * The union of income-source ids that ever bore tax across the run, so a consumer
-   * can lay out a per-source (per-job) stacked tax chart. Empty
-   * when the jurisdiction reports no per-source breakdown anywhere.
-   */
+  /** Source ids that ever bore tax — the per-job chart's bands. */
   readonly taxSources: readonly string[];
 }
 
@@ -212,33 +173,18 @@ export interface SimulationReport {
   readonly inputs: ReportInputs;
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
-  /**
-   * Model simplifications worth disclosing to the end user — the engine's own
-   * neutral ones ({@link MODEL_ASSUMPTIONS}) followed by the jurisdiction's own
-   * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}, e.g. US tax-
-   * threshold forward indexing), so a consumer can render an "assumptions &
-   * simplifications" surface rather than re-deriving them. Each is declared where it is
-   * embodied. Stable across a run.
-   */
+  /** Engine {@link MODEL_ASSUMPTIONS} then the jurisdiction's, each declared where embodied. */
   readonly assumptions: readonly ModelAssumption[];
   /**
-   * Caller-supplied configuration echoed back verbatim (see the `meta` argument of
-   * {@link summarizeSimulation}). The engine treats it as an opaque bag — it stays
-   * app-agnostic — while giving a consumer one place to round-trip the higher-level,
-   * human-authored knobs that its own inputs compiled away (e.g. the app records the
-   * full value-editing surface here: life expectancy, retirement age, health config).
-   * Absent when the caller supplies none.
+   * Echoed back verbatim, opaque to the engine — the one place to round-trip knobs its inputs
+   * compiled away (the app records life expectancy, retirement age, health config here).
    */
   readonly meta?: Readonly<Record<string, unknown>>;
 }
 
 const DEFAULT_START_YEAR = 2026;
 
-/**
- * The growth-rate echo shared by income and expense sources: the rate in force at
- * month 0, the mode that produced it, and the full schedule. One helper so the two
- * source shapes cannot drift in how they report a rate.
- */
+/** Shared by income and expense sources so the two cannot drift. */
 function growthEcho(series: SimCashFlowSeries): {
   annualGrowthRate: number;
   growthMode: string;
@@ -287,8 +233,7 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       openingBalanceCents: l.openingBalanceCents,
       startMonth: l.startMonth,
       apr: l.apr,
-      // The DTO stays flat with explicit nulls (a greppable wire format the debug
-      // export echoes verbatim); the kind-split lives only in the derived classes.
+      // Flat DTO with explicit nulls; the kind-split lives only in the derived classes.
       termMonths: l instanceof AmortizingLoan ? l.termMonths : null,
       creditLimitCents: l instanceof RevolvingCard ? l.creditLimitCents : null,
     })),
@@ -339,16 +284,8 @@ function unionKeys(
 }
 
 /**
- * Assemble a {@link SimulationReport} from a run's resolved input and its
- * {@link ProjectionSeries}. Exposed alongside {@link buildSimulationReport} so a
- * caller that has *already* simulated (the app draws the same series for its chart)
- * can build the report without paying for a second simulation.
- *
- * `meta` is echoed verbatim onto {@link SimulationReport.meta} — the seam for a
- * consumer's higher-level config that the engine's own inputs don't carry. Pass the
- * `jurisdiction` so its own disclosures ({@link
- * import("../jurisdiction").Jurisdiction.modelAssumptions}) join the engine's on the
- * report; omit it (the standalone path) and the report carries only the engine's.
+ * Exposed alongside {@link buildSimulationReport} so a caller that already simulated avoids a
+ * second run. Pass `jurisdiction` to add its disclosures to the engine's.
  */
 export function summarizeSimulation(
   input: HouseholdSimInput,
@@ -404,18 +341,12 @@ export function summarizeSimulation(
     inputs: echoInputs(input),
     columns,
     months,
-    // Engine's neutral simplifications first, then the jurisdiction's own: the
-    // US-specific caveats (e.g. tax-threshold forward indexing) ride the jurisdiction.
     assumptions: [...MODEL_ASSUMPTIONS, ...(jurisdiction?.modelAssumptions ?? [])],
     ...(meta !== undefined ? { meta } : {}),
   };
 }
 
-/**
- * Run the simulator and produce the complete {@link SimulationReport} — the
- * headless entry point: inputs in, everything out. Prefer {@link summarizeSimulation}
- * when you already hold the run's {@link ProjectionSeries}. `meta` is echoed verbatim.
- */
+/** Prefer {@link summarizeSimulation} when you already hold the run's {@link ProjectionSeries}. */
 export function buildSimulationReport(
   input: HouseholdSimInput,
   jurisdiction: Jurisdiction,

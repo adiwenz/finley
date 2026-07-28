@@ -45,8 +45,8 @@ const loan = (dollars: number) =>
   });
 
 /**
- * A minimal series fixture: month 0 is the flow-free opening snapshot, then one flowed
- * month per item list, carrying the engine's itemized spending and its total.
+ * A minimal series fixture: month 0 is the flow-free opening snapshot, then one flowed month
+ * per item list, carrying the engine's itemized spending and its total.
  */
 function seriesOf(months: SpendingItem[][], insolventFrom?: number): ProjectionSeries {
   const all = [
@@ -75,8 +75,8 @@ describe("buildPerLineBudgetData — the spending graph reads the engine's items
   });
 
   it("bands every kind of spending, tagged for drawing and for editability", () => {
-    // Budget lines are the only editable ones; health and debt are drawn but not
-    // offered as lines to edit — the flag comes from the engine, not a guess here.
+    // Budget lines are the only editable ones; health and debt are drawn but not offered
+    // for editing — the flag comes from the engine, not a guess here.
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000), health(450), loan(500)]]));
     expect(data.lines).toEqual([
       { id: "line:rent", label: "Rent", kind: "line", editable: true },
@@ -87,8 +87,8 @@ describe("buildPerLineBudgetData — the spending graph reads the engine's items
   });
 
   it("draws every line at its full amount even in a month the plan cannot afford", () => {
-    // The engine reports spending as authored; a tight month is absorbed by savings
-    // and then credit, so nothing is rationed away behind the user's back.
+    // The engine reports spending as authored; a tight month is absorbed by savings then
+    // credit, so nothing is rationed away behind the user's back.
     const data = buildPerLineBudgetData(
       seriesOf([[rent(4_000), fun(2_000)], [rent(4_000), fun(2_000)]], 2),
     );

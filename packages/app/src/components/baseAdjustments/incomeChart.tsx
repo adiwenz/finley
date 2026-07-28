@@ -22,46 +22,28 @@ import {
 } from "./incomeByCategory";
 
 /**
- * Monthly cash-flows-vs.-spending chart — the cash-flow companion to the per-line budget
- * chart. It stacks every cash source the household actually sees — earned income,
- * the government benefit, savings interest, and savings/asset withdrawals — against the
- * spending it has to cover, so it is deliberately broader than "income" alone. It gets its
- * own graph stacked directly above the budget, sharing the same x-axis, the same
- * click-to-select gesture, and the same selection marker: two views of one timeline.
+ * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
+ * click-to-select gesture and marker. Stacks every cash source — wages, benefit, interest,
+ * asset and savings draws — broader than "income". Simple (default) folds every draw into
+ * one "Living off savings" band; Advanced splits each source out.
  *
- * Two views of those cash flows, switched by the Advanced toggle:
- *   - **Simple** (default) — three ideas: wages (per job), Social Security, and one
- *     "Living off savings" band that folds in every asset-sale draw and the cash
- *     drawdown. A dashed spending-need line says whether it's enough, and a "broke"
- *     marker names the month the plan runs out.
- *   - **Advanced** — every source as its own band (which job, which account draining,
- *     the benefit, savings interest, the cash drawdown), for the reader who wants the full
- *     breakdown. The gain-vs-principal split of the drawdown lands later.
+ * Bands are take-home by default (after the source's own tax and pre-tax deferral); gross
+ * would show money that never reaches the checking account, overstating headroom.
  *
- * Bands are drawn on a **take-home** basis by default: each source's
- * cash after its own tax and pre-tax deferral — the money actually available to meet the
- * spending-need line. Gross would draw the cash flow *above* the tax and 401(k) money that
- * never reach the checking account, overstating the headroom against spending. The
- * "Show gross cash flows" toggle switches the bands back to gross for reading raw earning power.
- *
- * As with the budget chart, the summary and hidden data mirrors render independently of
- * Recharts so the behaviour is assertable without SVG layout (Recharts needs a real
- * width, absent in jsdom).
+ * The summary and data mirrors render outside Recharts (jsdom gives no real width).
  */
 
-// Wages: a cool blue family, one step per job. Cooler than the budget's earth tones, so
-// the two charts read as different quantities.
+// Wages: one blue step per job, cooler than the budget chart's earth tones so the two charts
+// read as different quantities.
 const WAGE_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd"];
-// The government benefit: a teal family, one step per CLAIMANT — two people claim on
-// their own records at their own ages, so "whose benefit starts when" is the thing to
-// read off the chart. It left the blue family deliberately: the old single steel blue
-// (#6b93b8) sat ΔE 4.0 from the second job's wage band (validated with the dataviz
-// palette checker), so a benefit was already near-indistinguishable from a paycheck.
-// The two steps separate at ΔE 17.9 normal / 17.8 CVD — comfortably past the ≥15 / ≥8
-// floors — while staying inside the chart's muted register.
+// The government benefit: one teal step per CLAIMANT, so "whose benefit starts when" is
+// readable off the chart. Out of the blue family: the old steel blue (#6b93b8) sat ΔE 4.0 from
+// the second job's wage band (dataviz palette checker), near-indistinguishable from a paycheck.
+// These two steps separate at ΔE 17.9 normal / 17.8 CVD — past the ≥15 / ≥8 floors — while
+// staying inside the chart's muted register.
 const BENEFIT_COLORS = ["#2f6b66", "#5aa39a"];
-// Living off savings is NOT income — a muted earth family (tan first), one step per draw,
-// set apart from the cool income bands above it.
+// Living off savings is NOT income — a muted earth family, set apart from the cool income
+// bands above it.
 const DRAW_COLORS = ["#c6b784", "#b08968", "#9c8459", "#d8c79a"];
 const SPENDING_NEED_COLOR = "#9c5b39"; // the dashed "is it enough" line
 const BROKE_COLOR = "#b23a2e"; // the "plan runs out" marker
@@ -69,16 +51,15 @@ const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e"; // the selected-month rule
 
-/** The recharts dataKey of the spending-need line — namespaced so it can't clash with a source id. */
+/** Namespaced so the dataKey can't clash with a source id. */
 const SPENDING_NEED_KEY = "__spendingNeed";
 
 /**
- * Clamp each band's value to ≥ 0 for the STACKED area chart. The engine reports a signed
- * per-source net cash flow ({@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents}) —
- * a source whose tax + deferral exceed its cash inflow is honestly negative — but recharts
- * stacks these areas, and a negative segment would render below the axis and distort the
- * stack. This is the ONLY place the clamp lives: the engine and the chart's data model keep
- * the honest signed figures. On the gross basis the values are already ≥ 0, so this is a no-op.
+ * The engine reports a signed per-source net cash flow
+ * ({@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents}) — negative when a
+ * source's tax + deferral exceed its cash inflow — but a negative segment renders below the
+ * axis and distorts the stack. This is the ONLY place the clamp lives; the engine and the
+ * chart's data model keep the honest signed figures. No-op on the gross basis.
  */
 function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Record<string, number> {
   const out: Record<string, number> = {};
@@ -87,10 +68,8 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
 }
 
 /**
- * A colour per band id: wages step through the blue family, benefits through the teal
- * family (one step per claimant), draws through the earth family. Each family is walked
- * in the band order, which is stable across the Simple/Advanced toggle — so a person's
- * benefit keeps its colour when the view changes.
+ * Each family is walked in band order, which is stable across the Simple/Advanced toggle — so a
+ * person's benefit keeps its colour when the view changes.
  */
 function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
@@ -106,7 +85,7 @@ function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, strin
   return colors;
 }
 
-/** "69¾" — the household's age at `month`, to the nearest quarter-year, for the broke marker. */
+/** The household's age at `month`, to the nearest quarter-year: "69¾". */
 const QUARTERS = ["", "¼", "½", "¾"] as const;
 function formatBrokeAge(currentAge: number, month: number): string {
   const wholeYears = Math.floor(month / 12);
@@ -117,17 +96,15 @@ function formatBrokeAge(currentAge: number, month: number): string {
 
 export interface IncomeChartProps {
   readonly data: IncomeChartData;
-  /** The household's age at month 0 — turns the broke marker's month into an age. */
+  /** The household's age at month 0, which turns the broke marker's month into an age. */
   readonly currentAge: number;
-  /** The month the editor is pointed at — marked with a vertical rule. */
+  /** The month the editor is pointed at, marked with a vertical rule. */
   readonly selectedMonth: number;
   /**
-   * Household member names by person id, for bands whose label names a kind of income
-   * rather than an earner — two people's government benefits are otherwise one legend
-   * entry repeated. Only consulted when two of them are actually on the chart.
+   * Names bands whose label is a kind of income rather than an earner — two people's benefits
+   * are otherwise one legend entry repeated. Only consulted when both are on the chart.
    */
   readonly personNames: ReadonlyMap<string, string>;
-  /** Called with the clicked month, so the panel can move the editor there. */
   readonly onSelectMonth: (month: number) => void;
 }
 
@@ -141,10 +118,8 @@ export function IncomeChart({
   const [mode, setMode] = useState<IncomeMode>("simple");
   const [basis, setBasis] = useState<IncomeBasis>("takeHome");
   const summary = describeIncomeGap(data);
-  // The banded view, its colour map, and the recharts rows depend only on `data`, `mode`,
-  // `basis` and the roster — not on `selectedMonth`. Memoize them so scrubbing the selected
-  // month (a frequent re-render) doesn't recompute the band collapse or remap every month
-  // row.
+  // None of this depends on `selectedMonth`, so scrubbing the selection — a frequent re-render
+  // — doesn't recompute the band collapse or remap every month row.
   const view = useMemo(
     () => incomeBandsForMode(data, mode, basis, personNames),
     [data, mode, basis, personNames],
@@ -155,8 +130,6 @@ export function IncomeChart({
       view.rows.map((r) => ({
         month: r.month,
         [SPENDING_NEED_KEY]: r.spendingNeedCents,
-        // Clamp band values ≥ 0 for the stack — the engine's signed net is honest, but a
-        // stacked area can't render a negative segment (see clampBandsForStack).
         ...clampBandsForStack(r.centsBySource),
       })),
     [view],
@@ -174,14 +147,13 @@ export function IncomeChart({
       }
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-        {/* Informational, not a warning: a retirement income gap is expected, and the
-            plan-is-broken case is the broke marker + the budget chart's amber band below. */}
+        {/* Informational, not a warning: a retirement income gap is expected. The
+            plan-is-broken case is the broke marker plus the budget chart's amber band. */}
         <p className="hint" data-testid="income-summary">
           {summary ?? "Cash flow continues across the whole horizon."}
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
-          {/* Take-home cash flows are the default (bands = cash after tax + deferral); this
-              toggle switches to gross cash flows for reading raw earning power. */}
+          {/* Gross reads raw earning power. */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"
@@ -190,7 +162,7 @@ export function IncomeChart({
             />
             Show gross cash flows
           </label>
-          {/* Simple is the default; Advanced reveals every source separately. */}
+          {/* Advanced splits every source into its own band. */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"
@@ -202,16 +174,15 @@ export function IncomeChart({
         </div>
       </div>
 
-      {/* Hidden data mirrors for tests / screen readers: the active view's first-row
-          income per band, and the band labels currently shown. */}
+      {/* Hidden data mirrors for tests / screen readers. */}
       <output data-testid="income-first-row" hidden>
         {JSON.stringify(view.rows[0]?.centsBySource ?? {})}
       </output>
       <output data-testid="income-bands" hidden>
         {JSON.stringify(view.sources.map((s) => s.label))}
       </output>
-      {/* What that income has to cover in the first flowed month — expenses plus
-          scheduled liability payments (the loan on the timeline is part of the need). */}
+      {/* The spending need is expenses plus scheduled liability payments — a loan on the
+          timeline is part of what income has to cover. */}
       <output data-testid="income-first-spending-need" hidden>
         {view.rows[0]?.spendingNeedCents ?? 0}
       </output>
@@ -270,10 +241,9 @@ export function IncomeChart({
               dataKey={source.id}
               name={source.label}
               stackId="income"
-              // The band's own colour, NOT a surface-coloured separator hairline: Recharts
-              // keys the legend swatch and the tooltip entry to `stroke`, so a surface
-              // stroke erases both. The full-opacity stroke over the 0.6 fill is what
-              // gives each band its darker edge.
+              // Not a surface-coloured separator hairline: Recharts keys the legend swatch and
+              // tooltip entry to `stroke`, so a surface stroke erases both. The full-opacity
+              // stroke over the 0.6 fill gives each band its darker edge.
               stroke={colors.get(source.id)}
               fill={colors.get(source.id)}
               fillOpacity={0.6}

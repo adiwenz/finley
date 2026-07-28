@@ -13,12 +13,6 @@ import {
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 
-/**
- * Net-worth chart — renders the engine's projection series.
- * Plots the nominal and real net-worth curves from the {@link ProjectionSeries}
- * contract with Recharts. Real charting/design polish is still to come; this
- * proves the engine → app wire on the app's charting stack.
- */
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
 const AXIS = "#6b6552";
@@ -26,18 +20,13 @@ const GRID = "#e3dcc6";
 
 type Point = {
   month: number;
-  // Null from the first insolvent month on: the engine reports net worth as
-  // unknown once the money runs out, and Recharts breaks the line at the null — so
-  // the curves simply END at insolvency rather than flatlining as if stable.
+  // Null from the first insolvent month on. Recharts breaks the line at the null, so the
+  // curves END at insolvency rather than flatlining as if stable.
   nominalCents: number | null;
   realCents: number | null;
 };
 
-/**
- * `retirementMonth`: the solved Mode-1 retirement age as a month offset. When
- * present, a labelled vertical reference line marks where retirement begins on the
- * net-worth curve.
- */
+/** `retirementMonth`: the solved Mode-1 retirement age as a month offset. */
 export function NetWorthChart({
   series,
   retirementMonth,
@@ -51,9 +40,8 @@ export function NetWorthChart({
     realCents: m.netWorthRealCents,
   }));
 
-  // Where the net-worth curve ends: the last month with a real (non-null) value.
-  // Net worth goes null once the plan is insolvent, so for a failed plan this
-  // is the "money runs out" point; for a surviving plan it is the horizon.
+  // Where the curve ends: the last month with a non-null value — the "money runs out" point
+  // for a failed plan, the horizon for a surviving one.
   const horizonMonth = series.months[series.months.length - 1]?.month ?? 0;
   const insolvent = series.months.some((m) => m.isInsolvent);
   let lastMeaningfulMonth = horizonMonth;
@@ -66,19 +54,17 @@ export function NetWorthChart({
       break;
     }
   }
-  // Zoom the x-axis to just past where the curve ends, so an early failure is legible
-  // instead of an unreadable spike against decades of empty chart. A surviving plan
-  // ends at the horizon, so this stays the full width; a 2-year floor keeps a very
-  // early failure from being cramped.
+  // Zoom the x-axis just past where the curve ends, so an early failure is legible instead
+  // of a spike against decades of empty chart. The 2-year floor keeps a very early failure
+  // roomy.
   const xMaxMonth = Math.min(
     horizonMonth,
     Math.max(24, Math.ceil((lastMeaningfulMonth + 6) / 12) * 12),
   );
 
-  // Ticks pinned to whole-year boundaries (multiples of 12 months). Letting Recharts
-  // auto-place them lands ticks on fractional-year months that round to the same
-  // label (e.g. two "yr 1"s). Space them so a zoomed-in failure shows every year and
-  // the full horizon shows every 5th/10th, keeping the axis uncluttered.
+  // Ticks pinned to whole-year boundaries (multiples of 12). Recharts' auto-placement
+  // lands them on fractional-year months that round to the same label (two "yr 1"s).
+  // Spacing shows every year when zoomed in, every 5th/10th across a full horizon.
   const spanYears = Math.max(1, xMaxMonth / 12);
   const stepYears = spanYears <= 6 ? 1 : spanYears <= 15 ? 2 : spanYears <= 35 ? 5 : 10;
   const yearTicks: number[] = [];

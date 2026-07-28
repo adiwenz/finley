@@ -2,9 +2,9 @@
  * @vitest-environment node
  *
  * Render coverage for the net-worth breakdown chart via the server renderer (this repo's
- * jsdom is unavailable). Recharts needs a real width so the SVG itself does not lay out
- * here; these pin the wiring around it — the heading, the summary, the hidden band mirror,
- * and the view toggle appearing only when there is more than one view to offer.
+ * jsdom is unavailable). Recharts needs a real width, so the SVG does not lay out here;
+ * these pin the wiring around it — heading, summary, hidden band mirror, and the view
+ * toggle appearing only when there is more than one view to offer.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -80,7 +80,7 @@ describe("NetWorthBreakdownChart", () => {
     expect(html).toContain("Accounts");
     expect(html).toContain("Assets");
     expect(html).toContain("Net worth");
-    // Defaults to the Accounts view: only account bands are stacked, and its button is pressed.
+    // Defaults to Accounts: only account bands are stacked, and its button is pressed.
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("Cash savings");
     expect(html).not.toContain("Mortgage"); // liability band hidden in the default Accounts view

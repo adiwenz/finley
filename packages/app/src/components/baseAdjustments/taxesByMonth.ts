@@ -1,78 +1,58 @@
 /**
- * Monthly tax-paid graph data — the third companion to the income ({@link
- * import("./incomeByCategory")}) and per-line budget ({@link import("./perLineBudget")})
- * charts, sharing their x-axis and month-selection gesture.
+ * Monthly tax-paid graph data, sharing the income and per-line budget charts' x-axis and
+ * month-selection gesture. Tax is never a budget line — it is netted out of every drawdown at
+ * the chokepoint, leaving it implicit in those charts.
  *
- * Tax is the household's least visible outflow: it never appears as a budget line and it
- * is netted out of every drawdown at the chokepoint, so the two charts above it show
- * gross income and gross spending while the tax that sits between them stays implicit.
- * This graph makes it explicit — how much tax the plan pays each month, and how that
- * shape moves as earned income gives way to withdrawals and the government benefit.
+ * It STACKS BY INCOME SOURCE: US tax is not linearly separable, so the jurisdiction owns
+ * category attribution and the engine splits each category's tax across its sources by taxable
+ * weight into `ProjectionMonthFlows.taxBySourceCents`. Attribution is required of every
+ * jurisdiction and enforced to reconcile; a zero-tax plan has no bands.
  *
- * It STACKS BY INCOME SOURCE, mirroring the income chart exactly:
- * the engine now reports the tax broken out per source (`ProjectionMonthFlows
- * .taxBySourceCents`) — which JOB, which account draw bore it — because the JURISDICTION
- * owns the category attribution (US tax is not linearly separable — progressive brackets,
- * the capital-gains preference, benefit inclusion) and the engine then splits each
- * category's tax across the sources in it by taxable weight. So a two-earner household sees
- * *which job* is taxed, not a single lumped `wages` band. Bands are coloured and ordered by
- * each source's provenance category (wages first, then the benefit, then the drawdown-side
- * categories) so the tax chart reads consistently with the income chart. Attribution is
- * required of every jurisdiction and enforced to reconcile, so a plan that pays tax always
- * stacks per source; a zero-tax plan simply has no bands.
+ * ⚠ The per-source split is proportional (average-rate), not marginal — disclosed as
+ * `taxAttributionProportional`.
  *
- * ⚠ The per-source split is proportional (average-rate), not marginal — the caveat the
- * report discloses as `taxAttributionProportional`. Adding a second job really costs more
- * tax than its average share, so a band shows a source's *average* share of the bill.
- *
- * Pure: the app passes the series in and this derives the chart shape, with no charting
- * library dependency (so it is unit-testable in node).
+ * Pure — no charting-library dependency, so unit-testable in node.
  */
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
 
-/** One tax band on the stacked chart: a source, how to name it, and its provenance. */
 export interface TaxSourceBand {
   /** The engine's stable source id (a job's id, an account draw, or a category fallback). */
   readonly id: string;
   readonly label: string;
-  /** Provenance category, driving band colour and stacking order (as on the income chart). */
+  /** Provenance category — drives band colour and stacking order. */
   readonly category: string;
 }
 
-/** One month's tax row for the chart. */
 export interface TaxMonthRow {
   readonly month: number;
-  /** Total tax this month — the sum of the per-source bands (and the value drawn for a zero-tax month). */
+  /** Total tax this month — Σ of the per-source bands. */
   readonly taxCents: number;
-  /** This month's tax keyed by source id; empty when no per-source breakdown is reported. */
+  /** Empty when no per-source breakdown is reported. */
   readonly centsBySource: Readonly<Record<string, number>>;
 }
 
 export interface TaxChartData {
   readonly rows: readonly TaxMonthRow[];
   /**
-   * The income sources that carry tax somewhere, in stable stacking order.
-   * Empty only when the plan pays no tax at all (a zero-tax plan attributes
-   * nothing). Sources that are zero across the whole horizon are dropped, so there is no
-   * empty legend entry.
+   * Income sources carrying tax somewhere, in stable stacking order. A source zero across
+   * the whole horizon is dropped, so no legend entry is empty.
    */
   readonly sources: readonly TaxSourceBand[];
-  /** True when any tax was attributed to a source (i.e. the plan pays tax); false for a zero-tax plan. */
+  /** False for a zero-tax plan, which attributes nothing. */
   readonly hasSourceBreakdown: boolean;
-  /** Total nominal tax paid across the whole horizon (the sum of every month). */
+  /** Total nominal tax across the whole horizon. */
   readonly totalCents: number;
-  /** The largest single month's tax, and the month it falls in — the visible peak. */
+  /** The largest single month's tax and the month it falls in. */
   readonly peakMonthlyCents: number;
   readonly peakMonth: number;
-  /** False when the plan pays no tax anywhere (a null jurisdiction, or an all-exempt plan). */
+  /** False for a null jurisdiction, or an all-exempt plan. */
   readonly hasAnyTax: boolean;
 }
 
 /**
- * Human labels for a source keyed only by its tax CATEGORY (the fallback key the engine
- * uses for an untitled source — e.g. a wage stream with no job id). A real job bands under
- * its own name; these cover the fallback so a category-keyed band still reads in English.
+ * Labels for a source keyed only by its tax CATEGORY — the engine's fallback key for an
+ * untitled source (e.g. a wage stream with no job id).
  */
 const TAX_CATEGORY_LABELS: Readonly<Record<string, string>> = {
   wages: "Wages",
@@ -82,11 +62,7 @@ const TAX_CATEGORY_LABELS: Readonly<Record<string, string>> = {
   taxExempt: "Tax-exempt",
 };
 
-/**
- * Stable stacking order (bottom → top) by provenance category, matching the income chart
- * so the two line up: earned **wages** at the base, then the **government benefit**, then
- * the drawdown-side categories. Anything unrecognised sorts to the end.
- */
+/** Stacking order (bottom → top) by provenance category, matching the income chart. */
 const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
   "governmentRetirementBenefit",
@@ -103,13 +79,11 @@ function categoryRank(category: string): number {
 }
 
 /**
- * Name a tax source that has no income band to borrow a label from — an untitled stream the
- * engine keyed by its bare tax category (a source with real provenance, e.g. a job or savings
- * interest, always appears on the income side and lends its own label and category via the
- * registry). Read the tax category off the key so the anonymous bucket at least reads in
- * English and sorts/colours with its category. This is a display fallback only — it assigns
- * NO business meaning (it does not, for instance, decide what counts as "savings interest";
- * that is the engine's explicit provenance). Anything unrecognised keeps its id and sorts last.
+ * Name a tax source with no income band to borrow a label from — an untitled stream the
+ * engine keyed by its bare tax category. (A source with real provenance, e.g. a job or
+ * savings interest, appears on the income side and lends its label via the registry.)
+ * Display fallback only: it assigns no business meaning — what counts as "savings
+ * interest" is the engine's provenance. Unrecognised keeps its id, sorts last.
  */
 function bandForTaxOnlyKey(id: string): TaxSourceBand {
   const trailing = id.split(":").pop() ?? id;
@@ -119,14 +93,11 @@ function bandForTaxOnlyKey(id: string): TaxSourceBand {
 }
 
 /**
- * Build the tax chart data from a projection series. One row per *flowed* month (month 0
- * is the flow-free opening snapshot, so it is skipped), mirroring the income chart
- * exactly so the two line up point-for-point on the shared axis.
- *
- * Each row keeps the per-source split from the required `taxBySourceCents` (whose Σ equals
- * `taxCents`, by the seam's enforced contract); the union of sources that ever carry tax
- * becomes the stacked bands, named from the month's `incomeSources` where available. A
- * zero-tax plan attributes nothing, so `sources` is empty and each row's `taxCents` is 0.
+ * Tax chart data from a projection series. One row per *flowed* month — month 0 is the
+ * flow-free opening snapshot and is skipped — mirroring the income chart so the two line
+ * up point-for-point on the shared axis. Σ `taxBySourceCents` equals `taxCents` by enforced
+ * contract; the union of sources that ever carry tax becomes the bands, named from the
+ * month's `incomeSources` where available.
  */
 export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   const rows: TaxMonthRow[] = [];
@@ -134,18 +105,15 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   let peakMonthlyCents = 0;
   let peakMonth = 0;
   let hasSourceBreakdown = false;
-  // Label/category per source id, learned from the income-source flows (the income side names
-  // each job, and savings interest as its own "Savings interest" band); a source with no
+  // Label/category per source id, learned from the income-source flows; a source with no
   // income band falls back to a category label below.
   const registry = new Map<string, { label: string; category: string }>();
-  // Which sources ever carried a positive tax — drives the (dropped-if-empty) bands, in
-  // first-appearance order (a Map preserves insertion order).
+  // Sources that ever carried positive tax, in first-appearance order (Map insertion order).
   const sourceTotals = new Map<string, number>();
 
   for (const m of series.months) {
     const flows = m.flows;
     if (flows === undefined) continue; // month 0 / any flow-free snapshot
-    // Learn each income source's name/provenance so a tax band can label its job.
     for (const s of flows.incomeSources ?? []) {
       if (!registry.has(s.sourceId)) registry.set(s.sourceId, { label: s.label, category: s.category });
     }
@@ -157,8 +125,7 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
       peakMonth = m.month;
     }
 
-    // The per-source breakdown is always present (the seam is required; `{}` in a
-    // zero-tax month). A source appears here only for the tax it actually bore.
+    // The breakdown is always present (`{}` in a zero-tax month).
     const centsBySource: Record<string, number> = {};
     for (const [sourceId, cents] of Object.entries(flows.taxBySourceCents ?? {})) {
       const value = Math.max(0, cents ?? 0);
@@ -174,12 +141,9 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
     .map((id) => {
       const known = registry.get(id);
       if (known !== undefined) return { id, label: known.label, category: known.category };
-      // No income band to borrow a name from — an untitled stream the engine keyed by its
-      // bare tax category. (Savings interest is NOT this case: it has an income band and is
-      // named there.) Name it from its tax category.
       return bandForTaxOnlyKey(id);
     })
-    // Sort by category order, ties broken by first-appearance (the Map's insertion order).
+    // Ties keep first-appearance order — sort is stable.
     .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
 
   return {
@@ -193,20 +157,17 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   };
 }
 
-/** Year (1-based) of an absolute month, for a human-facing "Year N" label. */
+/** 1-based year of an absolute month. */
 function yearOf(month: number): number {
   return Math.floor(month / 12) + 1;
 }
 
-/** Whole dollars, grouped — for the summary line (the chart axis uses `formatDollars`). */
+/** Whole dollars, grouped — the chart axis uses `formatDollars` instead. */
 function dollars(cents: number): string {
   return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
 }
 
-/**
- * A one-line summary for the a11y label / status line: the lifetime total and where the
- * monthly bill peaks, or `null` when the plan pays no tax at all (nothing to describe).
- */
+/** One-line summary for the a11y label / status line. `null` when the plan pays no tax. */
 export function describeTaxes(data: TaxChartData): string | null {
   if (!data.hasAnyTax) return null;
   return (

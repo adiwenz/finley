@@ -14,7 +14,7 @@ import { nullJurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// ─── updateEvent — revising an event already in the ledger ────────────────────
+// updateEvent — revising an event already in the ledger
 
 describe("updateEvent", () => {
   const cfg: LedgerBaseConfig = {
@@ -43,9 +43,9 @@ describe("updateEvent", () => {
     add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 0, person: partnerEarning(2000) });
 
   it("revises a partner's jobs in place — the pay change drives the projection", () => {
-    // The write that was missing: a partner's jobs live on their RelationshipEvent, so
-    // without this the only way to change their salary was to remove the partner
-    // entirely (taking every dependent event with them).
+    // A partner's jobs live on their RelationshipEvent, so without this write the only way
+    // to change their salary is to remove the partner entirely, taking every dependent
+    // event with them.
     const result = updateEvent(
       partnered(),
       "r1",
@@ -94,8 +94,8 @@ describe("updateEvent", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Replay runs in (month, sequence) order, so the separation would now come first —
-    // and the conflict names the event the revision stranded, not just "invalid".
+    // Replay runs in (month, sequence) order, so the separation would now come first — and
+    // the conflict names the stranded event, not just "invalid".
     expect(result.conflict).toMatch(/sep1/);
     expect(result.conflict).toMatch(/cannot separate/);
   });
@@ -151,7 +151,7 @@ describe("updateEvent", () => {
   });
 });
 
-// ─── Sequence number + same-month ordering ────────────────────────────────────
+// Sequence number + same-month ordering
 
 describe("addEvent — sequence numbers", () => {
   it("assigns monotonically increasing sequence numbers", () => {
@@ -217,7 +217,7 @@ describe("addEvent — sequence numbers", () => {
   });
 });
 
-// ─── removeEvent — base replay context ────────────────────────────────────────
+// removeEvent — base replay context
 
 describe("removeEvent — replays against base-seeded people", () => {
   it("succeeds when a remaining event's owner is a base person; fails without that person", () => {
@@ -257,7 +257,7 @@ describe("removeEvent — replays against base-seeded people", () => {
   });
 });
 
-// ─── computeDependents — transitive cascade ───────────────────────────────────
+// computeDependents — transitive cascade
 
 describe("computeDependents — transitive cascade", () => {
   it("returns the whole causedBy chain, and removeEvent cascades all of it", () => {
@@ -302,7 +302,7 @@ describe("computeDependents — transitive cascade", () => {
   });
 });
 
-// ─── Undo: Strategy A (precondition check) ───────────────────────────────────
+// Undo: Strategy A (precondition check)
 
 describe("removeEvent — Strategy A", () => {
   it("blocks removing a RelationshipEvent if a SeparationEvent depends on the person", () => {
@@ -375,7 +375,7 @@ describe("removeEvent — Strategy A", () => {
   });
 });
 
-// ─── Undo: Strategy B (computeDependents cascade) ─────────────────────────────
+// Undo: Strategy B (computeDependents cascade)
 
 describe("computeDependents", () => {
   it("returns just the event id when there are no dependents", () => {

@@ -150,8 +150,8 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     );
     expect(series.months[3].accountBalancesCents["investment"]).toBeGreaterThanOrEqual(0);
     expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeGreaterThan(0);
-    // A modest shortfall stays well under the synthetic card's finite limit, so the
-    // plan is still financeable (not yet insolvent).
+    // A modest shortfall stays under the synthetic card's finite limit, so the plan is
+    // still financeable.
     expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThan(
       SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
     );
@@ -159,10 +159,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
   });
 
   it("isInsolvent=true once a sustained shortfall exhausts the synthetic card's limit", () => {
-    // No user card entered → synthetic card with a finite default limit. A large
-    // monthly deficit ($30k/mo) with no liquid assets overruns the limit within a
-    // few months, tripping the terminal HARD-INFEASIBILITY flag instead of
-    // borrowing without bound.
+    // No user card → synthetic card with a finite default limit. A $30k/mo deficit with no
+    // liquid assets overruns it within months, tripping the terminal HARD-INFEASIBILITY
+    // flag instead of borrowing without bound.
     const acc = makeInvestmentAccount(0, 0);
     const series = simulateHousehold(
       {
@@ -176,9 +175,8 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       },
       nullJurisdiction,
     );
-    // New borrowing is capped at the limit; the balance stays bounded near it
-    // (interest can accrue on top, but it never runs away to millions the way an
-    // unlimited card would).
+    // New borrowing is capped at the limit; the balance stays bounded near it — interest
+    // accrues on top, but never runs away to millions the way an unlimited card would.
     for (const m of series.months) {
       expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBeLessThan(
         SYNTHETIC_CARD_CREDIT_LIMIT_CENTS * 1.1,
@@ -215,11 +213,11 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
   });
 
   it("net worth is null for every month AFTER the first insolvent one; the first keeps its value", () => {
-    // A modest starting balance funds a couple of months, then a large sustained
-    // deficit runs the plan insolvent — so there are solvent months, a first
-    // insolvent month, and months beyond it. Net worth is a real number up to and
-    // INCLUDING the first insolvent month (the honest "money runs out" point), then
-    // null thereafter (the model has no fidelity once unfunded spending is dropped).
+    // A modest starting balance funds a couple of months, then a sustained deficit runs the
+    // plan insolvent — so there are solvent months, a first insolvent month, and months
+    // beyond it. Net worth is real up to and INCLUDING the first insolvent month (the honest
+    // "money runs out" point), then null — the model has no fidelity once unfunded spending
+    // is dropped.
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
     const series = simulateHousehold(
       {
@@ -290,9 +288,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
   });
 
   it("liability lump-sum transfer reduces the owed balance in its month (before interest)", () => {
-    // Two identical $10k / 5% / 60mo loans; one gets a −$3,000 payoff at month 12.
-    // A big non-liquid asset keeps every scheduled payment financeable, so the
-    // only difference between the runs is the transfer.
+    // Two identical $10k / 5% / 60mo loans; one gets a −$3,000 payoff at month 12. A big
+    // asset keeps every scheduled payment financeable, so the transfer is the only
+    // difference between the runs.
     const makeLoan = (id: string) =>
       new AmortizingLoan({
         id,
@@ -323,8 +321,8 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       nullJurisdiction,
     );
 
-    // At month 12 the with-transfer balance is ~$3,000 lower (plus one month's
-    // interest on the $3,000, since the transfer lands before interest accrues).
+    // ~$3,000 lower at month 12, plus one month's interest on it — the transfer lands
+    // before interest accrues.
     const delta =
       without.months[12].liabilityBalancesCents["auto"] -
       withTransfer.months[12].liabilityBalancesCents["auto"];
@@ -371,11 +369,10 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
   });
 
   it("paired transfer (Account outflow + Liability payoff) conserves net worth — no free debt reduction", () => {
-    // A DebtPayoffEvent is modeled as two transfers: cash leaves a liquid account
-    // AND the owed balance drops by the same amount. At 0% APR, both the paired
-    // lump sum AND the ordinary scheduled payments are net-worth-neutral (cash
-    // becomes debt reduction, dollar for dollar), so net worth is EXACTLY constant
-    // — the $4k payoff at month 6 does not create value out of thin air.
+    // A DebtPayoffEvent is two transfers: cash leaves a liquid account AND the owed balance
+    // drops by the same amount. At 0% APR both the paired lump sum and the ordinary
+    // scheduled payments are net-worth-neutral (cash becomes debt reduction, dollar for
+    // dollar), so net worth is EXACTLY constant — the $4k payoff creates no value.
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
     acc.addTransfer({ month: 6, amountCents: -dollarsToCents(4_000) });
     const loan = new AmortizingLoan({
@@ -476,8 +473,8 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
         loanStatus: "current",
       });
 
-      // Across the whole run, nothing is ever partial/missed/delinquent, and every
-      // record carries a positive applied amount (a real payment occurred).
+      // Nothing is ever partial/missed/delinquent, and every record carries a positive
+      // applied amount (a real payment occurred).
       for (const month of series.months) {
         for (const rec of Object.values(month.liabilityPaymentRecords)) {
           expect(rec.paymentStatus).toBe("full");

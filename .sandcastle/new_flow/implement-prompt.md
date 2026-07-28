@@ -36,6 +36,19 @@ Pay extra attention to existing test files that touch the relevant parts of the 
 
 ---
 
+### ✍️ Comment Style
+
+Comments must be dense, not merely short. Explain why, plus any cases, constraints, or invariants not evident from the code. Never restate the code. Never reference issue or PR numbers.
+
+Density is a budget, not a licence to expand. A comment earns its length only by carrying facts:
+
+* **Prefer one line.** If it fits in a single `/** … */`, write it that way.
+* **A paragraph needs a reason.** Multi-paragraph comments are for genuinely layered rationale — a contract plus its failure mode, or a decision plus the alternative that broke. Not for restating one idea three ways.
+* **Cut on sight:** throat-clearing ("the whole point of this is…", "it is worth noting that…"), re-explanation of a point already made in the same comment, narrative history of the code ("this replaced the old…") unless the old behaviour explains a live constraint, repeated boilerplate prefixes on sibling members, and decorative banners (`// ─── Label ───`) — keep the label as plain text when it states a fact, delete it when it is pure separation.
+* **Never pad to look thorough.** A fact stated once beats a fact stated well.
+
+---
+
 ### 🔍 Verification & Feedback Loops
 Before declaring your work complete, you must ensure the entire workspace is healthy:
 * Run `npm run typecheck` to verify complete type safety.

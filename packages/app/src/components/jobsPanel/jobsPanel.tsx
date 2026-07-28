@@ -1,26 +1,15 @@
 /**
- * Jobs panel — the single authoring surface for earned income. Lists
- * **every household member's** {@link Job}s and lets the user add, edit, and delete them,
- * each re-running the projection so net worth and the retirement solver move live. A
- * person may hold any number of jobs, several possibly open-ended; none is privileged —
- * there is no "career job". Dated changes — a one-off single month (a bonus, or $0 for a
- * missed paycheck) and a permanent pay change (a raise or a cut) — are authored against the
- * income graph in Base + Adjustments, where a month is selected. This panel is standing job
- * data, but it *lists* each job's permanent pay changes (which move what the job pays,
- * unlike the headline starting salary) and lets them be removed here.
+ * Every household member's {@link Job}s; none is privileged — there is no "career job".
+ * Dated changes are authored in Base + Adjustments; permanent pay changes are only listed
+ * and removable here, since the headline shows starting salary.
  *
- * **Two planes, one list.** The primary person's jobs are standing plan data
- * (a value-plane edit — never a timeline event); a partner's ride the
- * `RelationshipEvent` that brought them into the household, so editing those revises that
- * event ({@link import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the
- * difference behind one owner list, and each row's owner decides which plane its edit is
- * written to. Without this a partner's jobs were write-once: authored at the moment they
- * joined and unchangeable short of removing the partner outright.
+ * The primary person's jobs are standing plan data; a partner's ride the `RelationshipEvent`
+ * that brought them in, so editing those revises that event ({@link
+ * import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the difference behind one
+ * owner list; without it a partner's jobs are write-once.
  *
- * The 401(k) elective-limit nudge lives here now (it left the Budget editor with the
- * deferral): a deferral summed across jobs that tops the year's IRS limit is not an
- * error — contributions stop at the cap and the overflow is paid as taxable income. The
- * limit is per person, so the nudge speaks for the primary earner's own jobs.
+ * Topping the per-person 401(k) elective limit is not an error: contributions stop at the cap
+ * and the overflow is paid as taxable income.
  */
 
 import { useMemo, useState } from "react";
@@ -49,19 +38,17 @@ import styles from "./jobsPanel.module.css";
 interface JobsPanelProps {
   budget: Plan;
   setBudget: Dispatch<SetStateAction<Plan>>;
-  /** The interpreted household — the roster whose members can hold jobs. */
+  /** The roster whose members can hold jobs. */
   household: Household;
   /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
   /**
    * Revise ledger events in one all-or-nothing write — how a partner's jobs are written
-   * back. Returns `false` if the revision was rejected, in which case the
-   * ledger is untouched and the panel writes nothing else either.
+   * back. `false` means rejected: the ledger is untouched and the panel writes nothing else.
    */
   onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
 }
 
-/** Which authoring form, if any, is disclosed: a job id (edit), "new" (add), or none. */
 type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
 
 /** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
@@ -83,9 +70,9 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
 
 export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
-  // One list across the household, in join order — the primary person's jobs first, then
-  // each partner's. Every row carries its owner, which is what routes its edits, and the
-  // label the whole app names that job by (owner-qualified once a second earner exists).
+  // One list across the household in join order, primary person first. Every row carries
+  // its owner (which routes its edits) and the label the app names that job by
+  // (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   // Per PERSON, not per household: the elective limit belongs to the earner.
@@ -93,9 +80,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
     () => firstDeferralLimitCrossing(owners, budget.inflationPct),
     [owners, budget.inflationPct],
   );
-  /** More than one member can earn, so the form offers an owner picker. */
   const severalOwners = owners.length > 1;
-  /** The picker's options — the form needs only who they are, not where their jobs live. */
+  /** The picker's options — the form needs who they are, not where their jobs live. */
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
   /** Route every rewrite to its owner's plane, atomically ({@link commitJobWrites}). */
@@ -115,10 +101,9 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
   /**
    * Save an edit — fields and owner together, as one operation ({@link editJob}). Picking a
-   * different owner *moves* the job: the same job, keeping its id, its one-month overrides,
-   * its pay changes and its employer match, leaves one member's list and joins the other's,
-   * its ages now read against the new owner's birth year (an age means the same thing to
-   * whoever holds the job). Nothing is written unless the whole edit resolves.
+   * different owner *moves* the job: same id, overrides, pay changes and employer match,
+   * its ages now read against the new owner's birth year. Nothing is written unless the
+   * whole edit resolves.
    */
   function edit(owner: JobOwner, id: string, draft: JobDraft) {
     const result = editJob(owners, owner.id, id, draft);
@@ -132,8 +117,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
   }
 
   function removePayChange(id: string, month: number) {
-    // Any member's job can carry one now that the Base + Adjustments pay-change control
-    // reaches every earner, so this routes by owner like every other job write.
+    // Any member's job can carry one, so this routes by owner like every other job write.
     const result = reviseJob(owners, id, (job) => withoutPayChange(job, month));
     if (result.ok) commit(result.writes);
   }
@@ -154,9 +138,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
           {rows.map(({ owner, job, label }) => {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
             const overrideCount = job.incomeOverrides?.length ?? 0;
-            // Permanent pay changes, oldest first — listed in full below (not just counted),
-            // since a raise/cut moves what the job actually pays and the headline shows only
-            // the STARTING salary.
+            // Permanent pay changes, oldest first — listed in full, not just counted.
             const payChanges = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
             return (
               <li key={job.id} className={styles.row} aria-label={label}>
@@ -227,9 +209,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
       {deferralCrossing && (
         <p className="hint">
-          {/* Whose limit it is, once the household has a second earner: the limit is per
-              person, so "your jobs" would misattribute a partner's crossing to the user —
-              and imply the two are pooled, which they are not. */}
+          {/* The limit is per person: "your jobs" would misattribute a partner's crossing
+              and imply the two are pooled. */}
           {deferralCrossing.personId === PRIMARY_PERSON_ID
             ? `Across your jobs, your yearly 401(k) contribution tops the elective limit`
             : `Across ${deferralCrossing.personName}’s jobs, their yearly 401(k) contribution tops the elective limit`}{" "}
@@ -241,8 +222,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
       {authoring?.kind === "new" && owners.length > 0 ? (
         <JobForm
-          // A new job starts on the primary person (first in join order); the picker
-          // above moves it to a partner before it is added.
+          // A new job starts on the primary person (first in join order); the picker moves
+          // it to a partner before it is added.
           initial={blankJobDraftFor(owners[0].id, ownerAgeAtMonth(owners[0].birthYear, 0))}
           submitLabel="Add"
           owners={pickableOwners}

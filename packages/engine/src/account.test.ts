@@ -1,13 +1,11 @@
 /**
- * Per-person account ownership + household net worth.
- *
- * The standing authoring account carries `owners: PersonId[]` — `[p]` is an
- * individual account, `[p1, p2]` a joint one. The pins here:
+ * Per-person account ownership + household net worth. An account carries
+ * `owners: PersonId[]` — `[p]` individual, `[p1, p2]` joint. The pins:
  *   - retirement accounts refuse more than one owner (`makeAccount`);
- *   - `personalAccounts` / `jointAccounts` / `accounts` partition a person's
- *     holdings correctly (personal ∪ joint = accounts, personal ∩ joint = ∅);
- *   - household net worth sums the canonical list ONCE, so a joint account owned
- *     by two people is not double-counted (the headline aggregate rule).
+ *   - `personalAccounts` / `jointAccounts` / `accounts` partition a person's holdings
+ *     (personal ∪ joint = accounts, personal ∩ joint = ∅);
+ *   - household net worth sums the canonical list ONCE, so a joint account is never
+ *     double-counted.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -97,8 +95,7 @@ describe("standing account ownership", () => {
   });
 
   it("sums household net worth once — joint accounts are NOT double-counted", () => {
-    // 100 + 400 + 250 + 150 = 900. If the joint 400 were counted per-owner it
-    // would inflate to 1300; the canonical single-list sum is the guard.
+    // 100 + 400 + 250 + 150 = 900. Counting the joint 400 per-owner inflates it to 1300.
     expect(householdNetWorthCents(household)).toBe(900_00);
 
     const perPersonSum = [p1, p2].reduce(

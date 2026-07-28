@@ -1,8 +1,7 @@
 /**
- * The first-class Job/Person standing model — the sole source of
- * truth for earned income now that the scalar `incomeCents` path is deleted. These
- * pin the open-ended-job semantics and that the pre-"now" covered-earnings
- * record falls directly out of the jobs.
+ * The Job/Person standing model — the sole source of truth for earned income. Pins
+ * open-ended-job semantics and that the pre-"now" covered-earnings record falls out of
+ * the jobs.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
@@ -30,8 +29,8 @@ const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 
 describe("Job/Person standing model — additive compilation", () => {
   it("allows any number of open-ended (null-end) jobs — no elevated career job", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
-    // Two open-ended jobs is legal now: neither is elevated over the other, and both
-    // compile to forward income ending at the owner's retirementTargetAge.
+    // Two open-ended jobs is legal: neither is elevated, and both compile to forward
+    // income ending at the owner's retirementTargetAge.
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
@@ -62,8 +61,8 @@ describe("Job/Person standing model — additive compilation", () => {
         START_YEAR,
         samplePlan.inflationPct / 100,
       )[0].series.endMonth;
-    // The open-ended (null-end) job's forward income stops the month before the owner
-    // turns `retirementTargetAge` — the input alone moves the end; nothing else changes.
+    // Forward income stops the month before the owner turns `retirementTargetAge` — that
+    // input alone moves the end.
     expect(openEndedEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
     expect(openEndedEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
     expect(openEndedEndMonth(65)).toBeGreaterThan(openEndedEndMonth(60) as number);
@@ -71,8 +70,8 @@ describe("Job/Person standing model — additive compilation", () => {
 
   it("computes pre-'now' earnings directly from the jobs", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
-    // The roster holds authoring Persons; the pre-"now" covered-earnings record is
-    // derived from their jobs (the sim boundary does the same via compilePerson).
+    // The pre-"now" record derives from the roster's authoring Persons, as the sim
+    // boundary does via compilePerson.
     const prior = compilePersonPriorEarnings(
       base.initialPersons![0],
       START_YEAR,
@@ -107,8 +106,7 @@ describe("Job/Person standing model — one-month income overrides", () => {
   const base: Job = salariedJob(dollarsToCents(6000));
 
   it("leaves every other month untouched (override is one month only)", () => {
-    // Months 0–11 are year 0, so baseline pay is a round $6,000 (a real-flat salary
-    // grows at CPI, so later years are not round).
+    // Months 0–11 are year 0; a real-flat salary grows at CPI, so later years are not round.
     const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "setTo", cents: 0 }] };
     expect(monthly(job, 5)).toBe(dollarsToCents(6000));
     expect(monthly(job, 6)).toBe(0);
@@ -134,8 +132,8 @@ describe("Job/Person standing model — one-month income overrides", () => {
   });
 
   it("taxes a bonus as wages through the projection, not as untaxed cash", () => {
-    // A large one-month bonus raises that month's gross wages, so the projection's
-    // income flow for the month reflects base + bonus (the series feeds the waterfall).
+    // A one-month bonus raises that month's gross wages, so the income flow reads
+    // base + bonus.
     const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
     const series = project({ ...samplePlan, jobs: [job] }).months;
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // 6000 + 3000
@@ -229,15 +227,15 @@ describe("Job — human name drives the income band label (display only)", () =>
   });
 
   it("falls back to the owner's name when the job has none (or only whitespace)", () => {
-    // Not the id: ids are minted, not written — a partner's are generated from their
-    // person id ("p-0-job-1"), which says nothing to whoever reads the legend.
+    // Not the id: ids are minted, not written — a partner's comes from their person id
+    // ("p-0-job-1"), which says nothing to whoever reads the legend.
     expect(labelOf(salariedJob(dollarsToCents(6000)))).toBe("Income · P's job");
     expect(labelOf({ ...salariedJob(dollarsToCents(6000)), name: "   " })).toBe("Income · P's job");
   });
 
   it("numbers a person's untitled jobs only when they hold more than one", () => {
-    // One name for two bands identifies neither; a lone untitled job needs no ordinal,
-    // so its label can't shift as other jobs come and go.
+    // One name for two bands identifies neither; a lone untitled job needs no ordinal, so
+    // its label can't shift as other jobs come and go.
     const two = compilePersonIncomeSeries(
       {
         ...personWith(salariedJob(dollarsToCents(6000))),

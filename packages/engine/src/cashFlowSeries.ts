@@ -1,20 +1,17 @@
 /**
- * CashFlowSeries
- * --------------
- * The single reusable primitive for any recurring dollar amount that changes
- * over time: salary, rent, groceries, debt payments, support obligations.
+ * CashFlowSeries — the one primitive for any recurring dollar amount that changes over
+ * time: salary, rent, groceries, debt payments, support obligations.
  *
- * Design rules:
- *  1. All math is done in integer CENTS. Never floats for money.
- *  2. Annual-native amounts: split via cumulative rounding so 12 months sum
- *     exactly to the annual total.
+ * Rules:
+ *  1. All math in integer CENTS, never floats.
+ *  2. Annual-native amounts: split via cumulative rounding, so 12 months sum exactly to
+ *     the annual total.
  *  3. Monthly-native amounts: repeat exactly each month — no split, no drift.
- *  4. Year-over-year growth compounds iteratively from the prior year's actual
- *     cents value (cached per segment), never re-derived from the baseline.
- *  5. Three edit operations:
- *     - thisMonthOnly: perturbs exactly one month.
- *     - fromHereForward: starts a new segment (optionally with resetAnchor).
- *     - correctHistory: edits a prior segment's baseCents in-place; no new segment.
+ *  4. Year-over-year growth compounds iteratively from the prior year's actual cents value
+ *     (cached per segment), never re-derived from the baseline.
+ *  5. Three edits: `thisMonthOnly` perturbs one month; `fromHereForward` starts a new
+ *     segment (optionally with resetAnchor); `correctHistory` edits a prior segment's
+ *     baseCents in-place, creating no segment.
  *  6. Recompute is lazy and cached; an override invalidates from that month forward.
  */
 
@@ -27,10 +24,9 @@ export type GrowthMode =
 export type OverrideScope = "thisMonthOnly" | "fromHereForward";
 
 /**
- * One entry of a series' growth schedule: the annual rate in force from
- * `startMonth`, plus the {@link GrowthMode} that produced it (`fixed` reads 0, and
- * the mode is what distinguishes "pinned flat" from "0% inflation this run").
- * Plain data, so a report can echo it straight to JSON.
+ * The annual rate in force from `startMonth`, plus the {@link GrowthMode} that produced it:
+ * `fixed` reads 0, and only the mode distinguishes "pinned flat" from "0% inflation this
+ * run".
  */
 export interface GrowthSegmentView {
   readonly startMonth: number;
@@ -39,11 +35,9 @@ export interface GrowthSegmentView {
 }
 
 /**
- * v1-ignored seam: tax routing category for income series — the engine-owned
- * flow-provenance vocabulary (the engine is the only thing that can label where a
- * flow originated). Brand-neutral: no jurisdiction program names. A government
- * retirement benefit (US: Social Security) is `governmentRetirementBenefit`; the
- * jurisdiction's tax seam decides how much of each category is taxed.
+ * The engine-owned flow-provenance vocabulary: the engine labels where a flow originated, the
+ * jurisdiction's tax seam decides how much of each category is taxed. Brand-neutral — no
+ * jurisdiction program names, so US Social Security is `governmentRetirementBenefit`.
  */
 export type TaxCategory =
   | "wages"
@@ -54,10 +48,8 @@ export type TaxCategory =
 
 export interface SimCashFlowSeriesOptions {
   /**
-   * "annual" (default): baseCents is the annual amount; monthly via cumulative
-   * rounding. Use for salary, annual subscriptions.
-   * "monthly": baseCents is the monthly amount; repeats exactly — no rounding
-   * drift. Use for rent, groceries, fixed debt payments.
+   * "annual" (default): baseCents is annual, split monthly via cumulative rounding.
+   * "monthly": baseCents is the monthly amount, repeated exactly with no rounding drift.
    */
   baselineUnit?: "annual" | "monthly";
   /**
@@ -66,24 +58,19 @@ export interface SimCashFlowSeriesOptions {
    */
   growthAnchor?: "ownCycle" | "calendar";
   /**
-   * Absolute month (from sim start) where the growth clock started.
-   * May be negative for backdated streams. Defaults to startMonth.
-   * Ignored for "calendar" anchor (always anchors to month 0).
+   * Absolute month (from sim start) the growth clock started; may be negative for backdated
+   * streams. Defaults to startMonth. Ignored for "calendar", which anchors to month 0.
    */
   anchorMonth?: number;
   /** Inclusive end month; getMonthlyCents returns 0 for month > endMonth. */
   endMonth?: number;
-  /** v1-ignored seam: category for future tax routing. */
+  /** Tax-routing provenance for this stream; defaults to `ordinaryIncome` downstream. */
   taxCategory?: TaxCategory;
 }
 
 interface Segment {
   startMonth: number;
-  /**
-   * Annual cents when baselineUnit="annual"; monthly cents when
-   * baselineUnit="monthly". The iteration cache preserves the actual
-   * compounded value at each year to avoid re-deriving from the baseline.
-   */
+  /** Annual cents when baselineUnit="annual", monthly cents when "monthly". */
   baseCents: number;
   growthMode: GrowthMode;
   /** The month from which this segment's growth clock counts (ownCycle only). */
@@ -102,10 +89,8 @@ function rateFor(mode: GrowthMode): number {
 }
 
 /**
- * The annual growth rate a {@link GrowthMode} implies — 0 for `fixed`, the
- * carried `annualRate` otherwise. Exposed so growth-bearing stocks that aren't
- * cash-flow series (a property's appreciating value) can compound at the
- * same rate the series machinery uses, without duplicating the switch.
+ * Exposed so growth-bearing stocks that aren't cash-flow series (a property's appreciating
+ * value) compound at the same rate.
  */
 export function growthAnnualRate(mode: GrowthMode): number {
   return rateFor(mode);
@@ -123,7 +108,6 @@ export function splitAnnualToMonths(annualCents: number): number[] {
   return months;
 }
 
-/** Precise monthly compounding rate from an annual rate: (1+r)^(1/12) - 1 */
 export function preciseMonthlyRate(annualRate: number): number {
   return Math.pow(1 + annualRate, 1 / 12) - 1;
 }
@@ -148,7 +132,6 @@ export class SimCashFlowSeries {
 
   /** Per-segment cache: yearsElapsed → compounded baseCents at that year. */
   private yearlyBaseCache: Map<Segment, Map<number, number>> = new Map();
-  /** Final monthly cents cache, keyed by absolute month. */
   private monthlyCache: Map<number, number> = new Map();
 
   constructor(
@@ -196,10 +179,7 @@ export class SimCashFlowSeries {
     this.invalidateFrom(month, false);
   }
 
-  /**
-   * History correction: edit a prior segment's base value in-place.
-   * No new segment is created; the boundary stays where it is.
-   */
+  /** Edits a prior segment's base in-place; no new segment, boundary stays. */
   correctHistory(segmentStartMonth: number, newBaseCents: number): void {
     const segment = this.segments.find((s) => s.startMonth === segmentStartMonth);
     if (!segment) return;
@@ -218,19 +198,13 @@ export class SimCashFlowSeries {
     }
   }
 
-  /**
-   * The annual growth rate in force at `month` — the "raise rate" for a salary
-   * stream, the escalation rate for an expense. 0 for a `fixed` series.
-   */
   growthAnnualRateAt(month: number): number {
     return rateFor(this.segmentFor(month).growthMode);
   }
 
   /**
-   * The whole growth schedule, one entry per segment, in ascending `startMonth`.
-   * A series edited `fromHereForward` with a new growth mode (a promotion, a job
-   * change) carries more than one — reporting only the rate at month 0 would
-   * silently hide every later change.
+   * One entry per segment, ascending by `startMonth`. A series edited `fromHereForward` with
+   * a new growth mode carries more than one, so month 0's rate alone would hide later changes.
    */
   growthSchedule(): readonly GrowthSegmentView[] {
     return this.segments.map((s) => ({

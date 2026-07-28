@@ -1,29 +1,16 @@
 /**
- * Direct-manipulation budget editing.
- *
- * The user picks a **point on the budget** — a month on the chart — sees what every
- * row actually resolves to *at that month*, types a new number, and then answers one
- * question: **just this month**, or **from here forward**? There is no separate
- * "adjustment" form and still no `Adjustment` entity. The gesture is
- * `(row, month, new amount, scope)`; this module is the total function from that
- * gesture to the primitive the write actually lands on.
- *
- * The routing table falls out of the two axes rather than being a menu the user
- * has to navigate:
+ * Direct-manipulation budget editing. No `Adjustment` entity: this module is the pure total
+ * function from a `(row, month, new amount, scope)` gesture to the one primitive the write
+ * lands on.
  *
  * |            | just this month                  | from here forward             |
  * |------------|----------------------------------|-------------------------------|
  * | spend line | `thisMonthOnly` line override    | `fromHereForward` line override |
  * | income     | **ledger transaction** (the delta) | job/stream income override    |
  *
- * The income column is the interesting one. A one-month income change *is* a discrete
- * cash event — a bonus, a missed paycheck — so it routes to the ledger as a **delta**
- * against what that month already resolved to, not as an override that would
- * imply a standing change. A permanent income change is a raise, and rides the
- * job/stream — income is never modelled as a budget line.
- *
- * Pure and jurisdiction-agnostic: the app resolves the "before" amounts, calls
- * {@link routeMonthEdit}, and applies exactly one primitive.
+ * A one-month income change is a discrete cash event (bonus, missed paycheck), so it lands as
+ * a DELTA against what the month already resolved to, not an override implying a standing
+ * change. Income is never a budget line.
  */
 
 import {
@@ -36,43 +23,32 @@ import {
 const EDITOR_OWNER = "editor";
 
 /**
- * The environment an edit resolves against — the price growth the editor shows rows in.
- * Routing itself needs no conversion (an override stores the typed figure as that
- * month's dollars), so this is only what {@link resolveRowsAtMonth} reads.
+ * The price growth the editor shows rows in. Routing needs no conversion, so only
+ * {@link resolveRowsAtMonth} reads this.
  */
 export interface MonthEditContext {
   /** Annual price growth, e.g. `0.03` — the plan's CPI. */
   readonly annualInflationRate: number;
 }
 
-/**
- * The user's answer to "how long does this change last?" — the only question the
- * gesture asks. These are the engine's own {@link BudgetLineOverride} scopes, so
- * a spend edit routes to an override with no translation.
- */
+/** The engine's own {@link BudgetLineOverride} scopes, so a spend edit routes untranslated. */
 export type EditScope = "thisMonthOnly" | "fromHereForward";
 
-/** Which row of the month editor was edited: a standing spend line, or income. */
 export type EditRow =
   | { readonly kind: "line"; readonly lineId: string }
   | { readonly kind: "income" };
 
-/** One direct edit, as the UI collects it before routing. */
 export interface MonthEdit {
   readonly row: EditRow;
-  /** The month being edited (0 = "now") — the point clicked on the chart. */
+  /** The month being edited, 0 = "now". */
   readonly month: number;
   /** What the row resolved to at `month` before the edit — the delta's baseline. */
   readonly priorAmountCents: number;
-  /** The amount the user typed. */
   readonly newAmountCents: number;
   readonly scope: EditScope;
 }
 
-/**
- * The canonical primitive an edit lands on. Exactly one of these is applied —
- * never a fourth "adjustment" record.
- */
+/** The primitive an edit lands on — exactly one, never a fourth "adjustment" record. */
 export type MonthEditRoute =
   | {
       readonly kind: "lineOverride";
@@ -92,17 +68,14 @@ export type MonthEditRoute =
     };
 
 /**
- * Route a direct edit to its primitive. Total over the two axes — every
- * (row, scope) pair has exactly one home, so the UI never has to ask the user which
- * kind of thing they are creating. Needs no inflation context: the typed figure is
- * stored as that month's dollars and the engine grows it from there.
+ * Total over the two axes — every (row, scope) pair has exactly one home, so the UI never
+ * asks what kind of thing is being created. No inflation context needed: the typed figure
+ * is stored as that month's dollars and the engine grows it from there.
  */
 export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
   if (edit.row.kind === "line") {
-    // Both spend scopes store the typed figure verbatim: an override means "from this
-    // month the amount is X", in that month's dollars. `compileBudget` resets the
-    // growth clock to the override's month, so X is charged there and grows from
-    // there — no conversion, and nothing to keep in sync with the engine's compounding.
+    // `compileBudget` resets the growth clock to the override's month, so the typed figure
+    // is charged there and grows from there.
     return {
       kind: "lineOverride",
       lineId: edit.row.lineId,
@@ -111,8 +84,6 @@ export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
   }
 
   if (edit.scope === "thisMonthOnly") {
-    // A single month of extra (or missing) income is a discrete cash event, so it is
-    // a ledger transaction for the *difference* — leaving the standing income alone.
     return {
       kind: "ledgerTransaction",
       month: edit.month,
@@ -120,16 +91,13 @@ export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
     };
   }
 
-  // A permanent income change is a raise: it rides the job/stream, not a budget line.
-  // Stored the same way as a spend override — that month's dollars, growing from there.
   return { kind: "incomeOverride", month: edit.month, monthlyCents: edit.newAmountCents };
 }
 
 /**
- * Grow an amount authored at `fromMonth` to `toMonth`. Display-only: income overrides
- * live in panel state and never reach the projection (they land on jobs later), so
- * this is an approximation for the editor's own row rather than something the engine
- * has to agree with to the cent.
+ * Grow an amount authored at `fromMonth` to `toMonth`. Display-only: income overrides live
+ * in panel state and never reach the projection, so this approximation need not agree with
+ * the engine to the cent.
  */
 export function inflateFromTo(
   cents: number,
@@ -141,29 +109,21 @@ export function inflateFromTo(
   return Math.round(cents * Math.pow(1 + ctx.annualInflationRate, years));
 }
 
-/** One row of the month editor: what this line resolves to at the selected month. */
 export interface ResolvedRow {
   readonly lineId: string;
   readonly label: string;
   readonly category: BudgetLine["category"];
-  /**
-   * The line's amount at the selected month in THAT month's dollars — the same figure
-   * the projection charges and the graph draws, inflation included.
-   */
+  /** In the selected month's dollars — the figure the projection charges and the graph draws. */
   readonly monthlyCents: number;
   /** True when a dated override — not the base amount — is what is showing here. */
   readonly overridden: boolean;
 }
 
 /**
- * Resolve every standing line to what it actually is **at `month`**: the base amount,
- * any dated override layered on, and the price growth that has accrued by then.
- * This is what makes the editor a view of a *point on the budget* — scrub to year 30 and
- * the rows show year-30 dollars, matching the graph directly above them.
- *
- * It reads the amounts off the very series the simulator runs
- * ({@link compileExpenseBudgetLines}) rather than recomputing growth here, so the editor
- * and the projection cannot drift apart.
+ * Resolve every standing line to what it is **at `month`**: base amount, any dated override
+ * layered on, and the price growth accrued by then — so scrubbing to year 30 shows year-30
+ * dollars, matching the graph above. Reads amounts off the very series the simulator runs
+ * instead of recomputing growth, so editor and projection cannot drift apart.
  */
 export function resolveRowsAtMonth(
   lines: readonly BudgetLine[],
@@ -193,18 +153,14 @@ export function resolveRowsAtMonth(
 }
 
 /**
- * Apply a routed line override to the standing lines — the one mutation the panel
- * performs on its own state. An override *replaces* any existing override of the same
- * scope at the same month, so repeated edits to the same point don't stack up.
+ * Apply a routed line override to the standing lines. An override *replaces* any existing
+ * one of the same scope at the same month, so repeated edits to a point don't stack up.
  *
- * **A `fromHereForward` override supersedes every later one on that line.** Overrides
- * are replayed in array order by `compileBudget`, and `SimCashFlowSeries.addOverride`
- * drops the segments at or after the month it lands on — so editing month 100 after
- * having edited month 300 leaves the line at the month-100 amount for the rest of the
- * horizon. That is the intended reading of the gesture: "from here forward" means from
- * here forward, and a later edit the user made earlier in the session does not get to
- * outrank the more recent, earlier-in-time decision. The superseded entry stays in the
- * array but no longer resolves anywhere, so it cannot resurrect.
+ * **A `fromHereForward` override supersedes every later one on that line.** `compileBudget`
+ * replays overrides in array order and `SimCashFlowSeries.addOverride` drops segments at or
+ * after the month it lands on, so editing month 100 after month 300 holds the month-100
+ * amount for the rest of the horizon — intended, the more recent decision wins. The
+ * superseded entry stays in the array but resolves nowhere, so it cannot resurrect.
  */
 export function applyLineOverride(
   lines: readonly BudgetLine[],

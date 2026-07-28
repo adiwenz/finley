@@ -1,10 +1,9 @@
 /**
- * The unified spending read model. The load-bearing property is
- * the invariant: the itemized list IS the month's spending, so its sum must equal the
- * rollups the simulator reports independently (`expensesCents + liabilityPaymentsCents`).
- * Anything that spends money without producing an item — a new expense channel, a
- * liability kind, an authoring model added later — breaks that sum here rather than
- * quietly under-reporting in every chart downstream.
+ * The unified spending read model. Load-bearing invariant: the itemized list IS the month's
+ * spending, so its sum must equal the rollups the simulator reports independently
+ * (`expensesCents + liabilityPaymentsCents`). Anything that spends money without producing
+ * an item — a new expense channel, a liability kind, a later authoring model — breaks that
+ * sum here rather than quietly under-reporting in every chart downstream.
  */
 
 import { describe, it, expect } from "vitest";
@@ -114,9 +113,9 @@ describe("spendingItems — the invariant", () => {
       ["line:housing", "Housing", "needs", true],
       ["line:dining", "Dining & fun", "wants", true],
     ]);
-    // Health, the loan payment, and the event's expense are all real spending — and none
-    // of them is an editable line. That distinction is the point of the `editable` flag:
-    // a UI offers an edit exactly where an authored line exists.
+    // Health, the loan payment, and the event's expense are all real spending, and none is
+    // an editable line — the point of the `editable` flag: a UI offers an edit exactly where
+    // an authored line exists.
     expect(byKind("healthcare").map((i) => [i.label, i.category, i.editable])).toEqual([
       ["Healthcare", "healthcare", false],
     ]);
@@ -130,8 +129,8 @@ describe("spendingItems — the invariant", () => {
   });
 
   it("keeps the per-line report as the budget-line slice of the same items", () => {
-    // `lineMonthlyCents` is derived from the items rather than computed beside them, so
-    // the itemized view and the per-line view are one computation, two shapes.
+    // `lineMonthlyCents` is derived from the items rather than computed beside them, so the
+    // itemized and per-line views are one computation, two shapes.
     const flows = project(LINED_PLAN, [LOAN]).months[1]!.flows!;
     const fromItems = Object.fromEntries(
       flows.spendingItems

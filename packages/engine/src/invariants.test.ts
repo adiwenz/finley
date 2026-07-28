@@ -1,18 +1,14 @@
 /**
- * INVARIANT TEST SUITE
- * ====================
- * Whole-system property tests that must hold after ANY operation. Run these every
- * loop iteration during autonomous implementation — they catch wrong financial math,
- * which is SILENT (plausible-but-wrong numbers) rather than a crash.
+ * INVARIANT TEST SUITE — whole-system property tests that must hold after ANY operation.
+ * Run every loop iteration during autonomous implementation: they catch wrong financial
+ * math, which fails SILENTLY (plausible-but-wrong numbers) rather than crashing.
  *
- * Tests against the already-built CashFlowSeries and the
- * known-value anchors are IMPLEMENTED and pass now. Tests for not-yet-built components
- * (Account, Simulator, Goals, Recommendations) are marked `todo(...)` — they are concrete
- * targets: fill in the body when the component's build step lands, keeping the assertion.
+ * Invariants for not-yet-built components are `todo(...)` targets: fill in the body when
+ * that build step lands, keeping the assertion.
  *
- * DO NOT let the implementing loop rewrite the known-value anchors. Those assert against
- * external truth (published amortization, closed-form compounding); they are the backstop
- * that stops code + tests converging on the same wrong answer.
+ * DO NOT let the implementing loop rewrite the known-value anchors. They assert against
+ * external truth (published amortization, closed-form compounding) and are the backstop
+ * against code and tests converging on the same wrong answer.
  */
 
 import { assert, it } from "vitest";
@@ -23,17 +19,11 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---- harness ---------------------------------------------------------------
-// Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
-// `test(...)` registers a real Vitest case (a thrown assertion fails it); a
-// `todo(...)` is a not-yet-implementable invariant recorded as a pending target
-// for a later build step — DO NOT delete these or change the anchor numbers.
+// Thin adapters onto Vitest so the invariant bodies below stay verbatim.
+// DO NOT delete these or change the anchor numbers.
 const test = (name: string, fn: () => void) => it(name, fn);
 const todo = (name: string) => it.todo(name);
 
-// ===========================================================================
-// 1. MONEY INTEGRITY
-// ===========================================================================
 console.log("\n1. Money integrity");
 
 test("all monetary state is integer cents (CashFlowSeries)", () => {
@@ -41,7 +31,6 @@ test("all monetary state is integer cents (CashFlowSeries)", () => {
     type: "salaryCompound",
     annualRate: 0.037,
   });
-  // sample 5 years of months; every value must be an integer number of cents
   for (let m = 0; m <= 60; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
 });
 
@@ -58,7 +47,6 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
     annualRate: 0.05,
   });
   s.addOverride(18, dollarsToCents(6500), "fromHereForward"); // typed monthly
-  // the 12 months of the year following the override must sum to a whole-cent annual total
   const year = s.getRangeCents(18, 29).reduce((a, b) => a + b, 0);
   assert.ok(Number.isInteger(year));
   for (let m = 18; m <= 29; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
@@ -67,18 +55,12 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
 todo("net worth = Σassets − Σliabilities, every month; property contributes equity value−mortgage (needs Account + Property)");
 todo("one-time transfer conserves money: between-account transfer leaves total unchanged; influx/outflow moves exactly one balance");
 
-// ===========================================================================
-// 2. COMPOUNDING DISCIPLINE
-// ===========================================================================
 console.log("\n2. Compounding discipline");
 todo("growth happens in exactly one place: disable compound step -> balances flat (needs Simulator)");
 todo("each account compounds at most once per month (needs Account + Simulator)");
 todo("one-time transfers never compound: transfer moves at its month; growth only from compounding step, post-transfer balance");
 todo("account rate is a segment series not a scalar: a fromHereForward rate change applies only from its month");
 
-// ===========================================================================
-// 3. DETERMINISM & REPLAY
-// ===========================================================================
 console.log("\n3. Determinism & replay");
 
 test("CashFlowSeries is query-order independent (cache determinism)", () => {
@@ -89,8 +71,8 @@ test("CashFlowSeries is query-order independent (cache determinism)", () => {
     });
   const a = mk();
   const b = mk();
-  for (let m = 0; m <= 60; m++) a.getMonthlyCents(m); // sequential
-  const late = b.getMonthlyCents(60); // jump straight to late month
+  for (let m = 0; m <= 60; m++) a.getMonthlyCents(m);
+  const late = b.getMonthlyCents(60); // jump straight to the late month
   assert.strictEqual(late, a.getMonthlyCents(60));
 });
 
@@ -98,17 +80,11 @@ todo("replaying the same ledger twice yields byte-identical output (needs Simula
 todo("remove-then-readd the same event returns identical state (needs events)");
 todo("no operation mutates a stored event/edit in place (needs ledger)");
 
-// ===========================================================================
-// 4. ALLOCATION & SHORTFALL
-// ===========================================================================
 console.log("\n4. Allocation & shortfall");
 todo("no impossible move: never transfer cash an account lacks (needs allocation)");
 todo("shortfalls route through cascade, never a silent negative cash balance (needs allocation)");
 todo("credit-covered shortfall raises card liability by exactly the deficit (conservation)");
 
-// ===========================================================================
-// 5. STREAMS & LIFECYCLE
-// ===========================================================================
 console.log("\n5. Streams & lifecycle");
 
 test("independent series do not couple: a salary edit never changes a rent series", () => {
@@ -121,7 +97,7 @@ test("independent series do not couple: a salary edit never changes a rent serie
     annualRate: 0.025,
   });
   const rentBefore = rent.getMonthlyCents(30);
-  salary.addOverride(12, dollarsToCents(3000), "fromHereForward"); // pay cut
+  salary.addOverride(12, dollarsToCents(3000), "fromHereForward");
   assert.strictEqual(rent.getMonthlyCents(30), rentBefore, "rent must not react to salary changes");
 });
 
@@ -149,16 +125,11 @@ todo("backdated event reconstructs structure not past finances: child born 2y pr
 todo("financial accumulation starts at now: net-worth curve begins at the now marker from entered balances; no values before now");
 todo("backdated in-flight state uses entered current values: 3y-old mortgage uses entered current balance + remaining term, not re-amortized from origin");
 
-// ===========================================================================
-// 6. GOALS & RETIREMENT
-// ===========================================================================
 console.log("\n6. Goals & retirement");
 todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
-// Solve mode and target mode both read one survival signal off the real
-// projection now (the standalone accumulation solver was retired); their
-// agreement at a pinned age is covered app-side in retirementView.test.ts, where
-// the projection they share actually lives.
+// Agreement at a pinned age is covered app-side in retirementView.test.ts, where the
+// projection the two modes share actually lives.
 todo("solve mode and target mode agree at the same pinned age off the shared projection");
 todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross");
 todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account");
@@ -175,16 +146,10 @@ todo("Benefit claiming age monotonicity: later claiming (<=70) => higher monthly
 todo("Medicare step lowers health cost at 65; pre-65 early-retiree health cost modeled elevated");
 todo("RMDs force taxable withdrawals from pre-tax accounts past RMD age regardless of need");
 
-// ===========================================================================
-// 7. RECOMMENDATIONS
-// ===========================================================================
 console.log("\n7. Recommendations");
 todo("apply then un-apply returns to identical pre-apply state (tagged remove-then-replay)");
 todo("applied recommendation's realized effect matches its preview vs the same plan state");
 
-// ===========================================================================
-// 8. DERIVED REPORTING
-// ===========================================================================
 console.log("\n8. Derived reporting");
 
 test("real-dollar conversion is a pure function of nominal/inflation/horizon", () => {
@@ -193,13 +158,9 @@ test("real-dollar conversion is a pure function of nominal/inflation/horizon", (
   const a = toReal(dollarsToCents(100000), 0.03, 10);
   const b = toReal(dollarsToCents(100000), 0.03, 10);
   assert.strictEqual(a, b, "same inputs must give same output");
-  // sanity: real < nominal when inflation positive
   assert.ok(a < dollarsToCents(100000));
 });
 
-// ===========================================================================
-// 9. KNOWN-VALUE ANCHORS  — PIN THESE BY HAND, do not let the loop rewrite them
-// ===========================================================================
 console.log("\n9. Known-value anchors (external truth)");
 
 test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {

@@ -27,9 +27,9 @@ const personLit = (id: string, name: string): Person => ({
 });
 
 const primary = [personLit("p1", "Alex")];
-// Validation base for fixtures — includes a liquid account so DebtPayoff
-// fixtures (which require an account to draw from) pass. Used only to validate
-// fixture events; each test still snapshots/replays against its own base.
+// Validation base for fixtures — carries a liquid account so DebtPayoff fixtures (which
+// need one to draw from) pass. Validates fixture events only; each test still
+// snapshots/replays against its own base.
 const addBase: LedgerBaseConfig = {
   horizonMonths: 360,
   annualInflationRate: 0,
@@ -113,8 +113,8 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
   });
 
   it("a partner's own job income appears in the snapshot while they are a member", () => {
-    // The snapshot and the projection read the SAME household, so a partner's job income
-    // must surface in the cross-section exactly as it drives net worth.
+    // Snapshot and projection read the SAME household, so a partner's job income must
+    // surface in the cross-section exactly as it drives net worth.
     const base: LedgerBaseConfig = {
       horizonMonths: 360,
       annualInflationRate: 0,
@@ -134,8 +134,8 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       ],
     };
     const ledger = add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 36, person: partner });
-    // Build the snapshot from the SAME household the projection reads (the app's path:
-    // interpretLedger + buildSnapshot), so the calendar "now" (startYear) is honoured.
+    // Snapshot from the SAME household the projection reads (the app's path: interpretLedger
+    // + buildSnapshot), so the calendar "now" (startYear) is honoured.
     const household = interpretLedger(ledger, base);
     const incomeAt = (m: number) =>
       buildSnapshot(household, m).income.filter((s) => s.ownerId === "p2");
@@ -264,8 +264,8 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 
     const snap = snapshotAt(emptyLedger, 12, { initialPersons: primary, projection });
     expect(snap.balances?.accounts).toEqual([{ id: "savings", balanceCents: opening }]);
-    // Balances mirror the projection month exactly — including the shortfall
-    // cascade's synthetic credit card, present at $0 until drawn on.
+    // Balances mirror the projection month exactly — including the shortfall cascade's
+    // synthetic credit card, present at $0 until drawn on.
     expect(snap.balances?.liabilities).toEqual([
       { id: SYNTHETIC_CARD_ID, balanceCents: 0 },
     ]);
@@ -299,7 +299,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
   });
 });
 
-// ─── One replay-derived model feeds both snapshot and projection ──────────────
+// One replay-derived model feeds both snapshot and projection
 
 describe("buildSnapshot — the shared replay-derived model", () => {
   function liquid(id = "checking", openingCents = 0): SimAccount {
@@ -401,7 +401,7 @@ describe("buildSnapshot — the shared replay-derived model", () => {
   });
 });
 
-// ─── Properties (equity = value − mortgage) ───────────────────────────────────
+// Properties (equity = value − mortgage)
 
 const PROPERTY_PRICE = 30_000_000; // $300k
 const PROPERTY_DOWN = 6_000_000; // $60k

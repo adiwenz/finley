@@ -1,12 +1,9 @@
 /**
- * Job authoring form — the disclosed add/edit surface for one job on
- * the value-editing plane: a direct edit to `plan.jobs`, never a timeline
- * event. Speaks the user's terms (a monthly salary, the age they started, whether it
- * runs to retirement) and folds them into a {@link JobDraft} on submit. Progressive
- * disclosure: the 401(k) deferral and above-inflation raises live behind an
- * "Advanced" details, like the account-return knobs in the Budget editor.
- *
- * The same form backs both add and edit — `initial` seeds it.
+ * Add/edit surface for one job on the value-editing plane: a direct edit to `plan.jobs`,
+ * never a timeline event. Speaks the user's terms (monthly salary, start age, whether it
+ * runs to retirement) and folds them into a {@link JobDraft} on submit. 401(k) deferral
+ * and above-inflation raises hide behind an "Advanced" details, like the account-return
+ * knobs in the Budget editor. One form backs both add and edit — `initial` seeds it.
  */
 
 import { useRef, useState } from "react";
@@ -27,9 +24,8 @@ interface JobFormProps {
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
   /**
-   * Who could own this job. With a second earner in the household the form
-   * discloses a picker, so a job can be authored for — or reassigned to — either of
-   * them; with only the primary person there is nothing to choose and none is shown.
+   * Who could own this job. A second earner discloses a picker so the job can be
+   * authored for — or reassigned to — either; with only the primary person, none shows.
    */
   owners?: readonly JobFormOwner[];
   onSubmit: (draft: JobDraft) => void;
@@ -37,10 +33,10 @@ interface JobFormProps {
 }
 
 /**
- * The form's live state, in the terms the fields speak — one object, not a hook per field.
- * `endAge: null` IS "open-ended": the checkbox is derived from it rather than tracked
- * separately, so the two can never disagree. (Salary is held in whole dollars, the unit the
- * input edits; it's converted to cents on submit.)
+ * The form's live state in the fields' own terms — one object, not a hook per field.
+ * `endAge: null` IS "open-ended"; the checkbox derives from it rather than being tracked
+ * separately, so the two cannot disagree. Salary is held in whole dollars (the unit the
+ * input edits) and converted to cents on submit.
  */
 interface JobFormDraft {
   readonly name: string;
@@ -71,10 +67,9 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
     realGrowthPct: initial.realGrowthPct,
   }));
 
-  // The last finite end age the user had, remembered across "open-ended" toggles: ticking
-  // the box sets `endAge` to null (the field disappears), and unticking restores THIS value
-  // rather than snapping back to a default. Not part of the draft — it's a UX memory, not
-  // domain state — so `endAge` stays a single source of truth.
+  // Last finite end age, remembered across "open-ended" toggles: ticking the box nulls
+  // `endAge` (field disappears), unticking restores THIS rather than a default. Kept out
+  // of the draft — UX memory, not domain state — so `endAge` stays the single truth.
   const lastFiniteEndAge = useRef(initial.endAge ?? defaultEndAge(initial.startAge));
 
   const patch = (fields: Partial<JobFormDraft>) => setDraft((d) => ({ ...d, ...fields }));
@@ -83,8 +78,8 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
 
   const pickableOwners = owners ?? NO_OWNERS;
   /**
-   * The name to phrase the age copy in when the job belongs to someone other than the
-   * primary person (always first in the list) — "the ages above are Sam's", not "your
+   * Name to phrase the age copy in when the job belongs to someone other than the primary
+   * person (always first in the list) — "the ages above are Sam's", not "your
    * Social-Security-covered years". `null` means the job is the user's own.
    */
   const otherOwnerName =
@@ -113,9 +108,8 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
         submit();
       }}
     >
-      {/* Whose job. Shown only once the household holds a second earner —
-          with one member there is nothing to pick. Changing it on an existing job
-          reassigns the job to that member. */}
+      {/* Shown only once the household holds a second earner. Changing it on an
+          existing job reassigns the job to that member. */}
       {pickableOwners.length > 1 && (
         <label className="field">
           <span className="field-label">Whose job</span>
@@ -128,8 +122,8 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
           </select>
         </label>
       )}
-      {/* Optional human title. Blank leaves the job unnamed — reports fall back to its
-          stable id — so it never forces a name on a quick add. */}
+      {/* Blank leaves the job unnamed and reports fall back to its stable id, so a quick
+          add is never forced to name it. */}
       <label className="field">
         <span className="field-label">Job name (optional)</span>
         <span className="field-input-wrap">
@@ -141,8 +135,8 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
           />
         </span>
       </label>
-      {/* step=1: salary is free-form dollars — a larger spinner step would make the
-          browser reject an off-step value (e.g. $5,250) on submit (HTML5 validity). */}
+      {/* step=1: salary is free-form dollars — a larger step makes HTML5 validity reject
+          an off-step value (e.g. $5,250) on submit. */}
       <NumInput
         label="Monthly salary"
         value={draft.monthlyDollars}
@@ -188,9 +182,9 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
 
       <details className="advanced">
         <summary>Advanced</summary>
-        {/* Capped at 100%: you can't defer more than your whole paycheck. The annual
-            DOLLAR elective limit is enforced separately by the engine — deferral
-            past it is paid as taxable income, disclosed by the nudge on the Jobs panel. */}
+        {/* Capped at 100% — you can't defer more than your whole paycheck. The annual
+            DOLLAR elective limit is enforced by the engine instead: deferral past it is
+            paid as taxable income, disclosed by the nudge on the Jobs panel. */}
         <NumInput
           label="401(k) contribution"
           value={draft.deferralPct}

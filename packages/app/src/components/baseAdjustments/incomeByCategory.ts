@@ -1,119 +1,69 @@
 /**
- * Monthly income graph data — the income-side companion to {@link
- * import("./perLineBudget")} ("Base + Adjustments"), reporting income
- * **by source**.
+ * Monthly income graph data, the income-side companion to {@link import("./perLineBudget")}.
  *
- * Income is deliberately NOT a budget line: spending is authored as `Plan.budgetLines`,
- * while income rides jobs and passive streams. So it gets its own graph rather
- * than a band on the budget chart — and that graph is what makes the shape of a
- * retirement legible: earnings stop at the last paycheck, there is a gap until the
- * claiming age, and the government benefit picks up from there.
- *
- * Bands are the engine's per-source flows (`ProjectionMonthFlows.incomeSources`), not
- * tax-category buckets, so each band names its own source: *which* job pays, *which*
- * account a decumulation draw drains. The previous version banded by {@link
- * import("@finley/engine").ProjectionMonthFlows.incomeByCategoryCents} — a tax
- * classification — which forced hedged labels ("Pre-tax withdrawals" covered every
- * pre-tax account) and collapsed two jobs into one band; banding by source replaced that.
- *
- * It also surfaces the **savings drawdown**: while cash savings cover the retirement
- * gap the engine reports a `savingsDrawdown` source rather than nothing, so "living off
- * savings" reads as its own band instead of a misleading flat zero.
- *
- * Pure: the app passes the series in and this derives the chart shape, with no charting
- * library dependency (so it is unit-testable in node).
+ * Bands are the engine's per-source flows (`ProjectionMonthFlows.incomeSources`), not tax
+ * buckets, so each band names *which* job pays and *which* account a draw drains. Banding by
+ * `incomeByCategoryCents` (a tax classification) collapsed two jobs into one band.
  */
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
 
-/** One income band on the chart: a source, how to name it, and its provenance. */
 export interface IncomeSourceBand {
-  /** The engine's stable `sourceId` — the band's identity across months. */
   readonly id: string;
   readonly label: string;
-  /** Provenance category, driving band colour and display order. */
+  /** Drives band colour and display order. */
   readonly category: IncomeSourceCategory;
   /**
-   * The household member this band pays, when it pays one (the savings drawdown pays
-   * the household). Two people's government benefits carry the *same* label — the kind
-   * of income, not the earner — so the owner is what tells the bands apart.
+   * Which member this band pays — the label names the kind of income, not the earner, so
+   * two people's benefits are otherwise indistinguishable. Absent on household sources.
    */
   readonly ownerId?: string;
 }
 
-/** One month's income row for the chart. */
 export interface IncomeMonthRow {
   readonly month: number;
-  /** Cash inflow this month, keyed by source id (realized cash, pre-tax, pre-deferral). */
+  /** Realized cash, pre-tax and pre-deferral. */
   readonly centsBySource: Readonly<Record<string, number>>;
   /**
-   * Take-home cash this month, keyed by source id — the engine's per-source
-   * {@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents} (cash inflow
-   * minus the pre-tax deferral it made and the tax it bore), read straight through. This is
-   * the money actually available to cover the month's spending — the honest quantity to read
-   * against `spendingNeedCents`. The engine owns this arithmetic: the
-   * app no longer re-derives cash-inflow − tax − deferral, which had silently dropped
-   * savings-interest's tax. It is SIGNED — a source whose deductions exceed its cash inflow is
-   * genuinely negative; the chart clamps at 0 only for the stacked band (see `incomeChart`),
-   * never here. A source with no deferral or tax (a cash drawdown) equals its cash inflow.
+   * The engine's per-source `netCashFlowCents` (cash inflow − deferral − tax) read straight
+   * through; re-deriving it in the app silently dropped savings-interest's tax. SIGNED — a
+   * source whose deductions exceed its inflow is genuinely negative; only the stacked band
+   * clamps at 0, never here.
    */
   readonly netCentsBySource: Readonly<Record<string, number>>;
   readonly totalCents: number;
-  /** Σ of `netCentsBySource` — total take-home (after tax and deferral) this month. */
+  /** Σ of `netCentsBySource`. */
   readonly takeHomeCents: number;
   /**
-   * The month's spending need — the obligations the income (and any drawdown) has to
-   * cover: non-liability expenses + scheduled liability payments (the exact
-   * `sharedObligationCents` the waterfall and the decumulation gap use). Drawn as a
-   * reference line so the chart reads "is what's coming in enough". 0 when flows are
-   * absent (month 0).
+   * Obligations the income must cover: expenses + scheduled liability payments (the
+   * waterfall's `sharedObligationCents`). 0 when flows are absent (month 0).
    */
   readonly spendingNeedCents: number;
 }
 
 export interface IncomeChartData {
   readonly rows: readonly IncomeMonthRow[];
-  /** Only the sources that actually carry money somewhere, in display order. */
+  /** Only the sources that carry money somewhere, in display order. */
   readonly sources: readonly IncomeSourceBand[];
-  /**
-   * First month with no income AND no savings drawdown — a genuine nothing, which under
-   * a solvent plan should not happen (the gap is now a drawdown band). `null` otherwise.
-   */
+  /** First month with no income AND no savings drawdown, which a solvent plan never hits. */
   readonly firstMonthWithNoIncome: number | null;
-  /** First month funded by drawing down cash savings, or `null` if that never happens. */
   readonly firstSavingsDrawdownMonth: number | null;
-  /**
-   * First month the shortfall cascade ran out of credit and the plan stopped being
-   * financeable ({@link import("@finley/engine").ProjectionMonth.isInsolvent}) — the
-   * "broke" marker. `null` if the plan stays solvent across the whole horizon.
-   */
+  /** First `ProjectionMonth.isInsolvent` month. */
   readonly firstInsolventMonth: number | null;
 }
 
-/** Which view of the income chart is showing. */
 export type IncomeMode = "simple" | "advanced";
 
 /**
- * Which dollar basis the income bands are drawn on:
- *   - `takeHome` (the honest default) — each source's cash after its own tax and pre-tax
- *     deferral, i.e. what's actually available to cover the month's spending. Read this
- *     against the spending-need line: gross would overstate the headroom by the tax and
- *     the 401(k) money that never reaches the checking account.
- *   - `gross` — the pre-tax, pre-deferral paycheck, for reading raw earning power / the
- *     shape of when jobs stop and the benefit starts.
+ * `takeHome` (default) is each source's cash after its own tax and pre-tax deferral, the
+ * only basis comparable to the spending-need line; `gross` is the pre-tax paycheck.
  */
 export type IncomeBasis = "takeHome" | "gross";
 
 /**
- * Stable stacking order by provenance category (bottom of the stack → top). The genuine
- * income kinds sit at the base — earned **wages**, the **government benefit**, then
- * **savings interest** (money the savings earn, still income) — and the whole "living off
- * savings" family stacks *above* them as one contiguous group: every account draw (by tax
- * friction) and the cash `savingsDrawdown` last. Grouping all the drawdown categories after
- * the income is what keeps Simple and Advanced consistent: Simple's single "Living off
- * savings" band and Advanced's several draw bands both read as a cap above the income,
- * rather than some draws below it and the cash drawdown above. Anything unrecognised sorts
- * to the very end.
+ * Stacking order (bottom → top): genuine income kinds at the base, then the "living off
+ * savings" family as one contiguous group, so Simple's one collapsed band and Advanced's
+ * several read the same way. Unrecognised categories sort to the end.
  */
 const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "wages",
@@ -131,14 +81,11 @@ function categoryRank(category: string): number {
 }
 
 /**
- * Build the income chart data from a projection series. One row per *flowed* month
- * (month 0 is the flow-free opening snapshot, so it is skipped). Sources that
- * carry nothing across the whole horizon are dropped, so a plan with no benefit or no
- * drawdown does not carry an empty band and an unexplained legend entry.
+ * One row per *flowed* month (month 0 is the flow-free opening snapshot, skipped). Sources
+ * carrying nothing across the whole horizon are dropped rather than shown as empty bands.
  */
 export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData {
   const rows: IncomeMonthRow[] = [];
-  // First-seen label/category per source id, and whether it ever carried money.
   const seen = new Map<string, IncomeSourceBand>();
   const order: string[] = [];
   let firstMonthWithNoIncome: number | null = null;
@@ -157,8 +104,6 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
       if (s.cashInflowCents === 0) continue;
       centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.cashInflowCents;
       totalCents += s.cashInflowCents;
-      // Take-home is the engine's per-source net cash flow (cash inflow − deferral − tax),
-      // read straight through — the engine owns this arithmetic so the two can't drift.
       netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + s.netCashFlowCents;
       takeHomeCents += s.netCashFlowCents;
       if (!seen.has(s.sourceId)) {
@@ -176,46 +121,30 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     }
     if (totalCents === 0 && firstMonthWithNoIncome === null) firstMonthWithNoIncome = m.month;
     if (m.isInsolvent && firstInsolventMonth === null) firstInsolventMonth = m.month;
-    // Obligations = expenses + scheduled liability payments (the waterfall's
-    // `sharedObligationCents`, the same figure the decumulation gap covers).
     const spendingNeedCents = (m.flows?.expensesCents ?? 0) + (m.flows?.liabilityPaymentsCents ?? 0);
     rows.push({ month: m.month, centsBySource, netCentsBySource, totalCents, takeHomeCents, spendingNeedCents });
   }
 
   const sources = order
     .map((id) => seen.get(id)!)
-    // Sort by category order, ties broken by first-appearance (already in `order`).
+    // Ties broken by first appearance (already in `order`).
     .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
 
   return { rows, sources, firstMonthWithNoIncome, firstSavingsDrawdownMonth, firstInsolventMonth };
 }
 
-/** The stable band ids the Simple view collapses onto (asymmetric — wages stay per job). */
+/** Band ids the Simple view collapses onto; wages stay per job. */
 const SIMPLE_SOCIAL_SECURITY_ID = "social-security";
 const SIMPLE_SAVINGS_INTEREST_ID = "savings-interest";
 const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
 
 /**
- * The Simple-view band a source folds into. Wages keep their own identity (each job is
- * its own band — "which job pays" is what a person recognises); **savings interest keeps its
- * own "Savings interest" band** — it is income the savings EARN, not principal being spent,
- * so it must not read as "living off savings"; the government benefit collapses to one
- * "Social Security" band **per person**, since two members claim on their own records at
- * their own ages and a household reading this needs to see whose benefit starts when; and
- * EVERY drawdown — the liquid-buffer `savingsDrawdown` and every
- * asset-sale draw (capital-gains / ordinary / tax-exempt) — folds into a single "Living off
- * savings" band. The Advanced view keeps every source separate, and a later change will
- * split that drawdown into gain vs. returned principal.
+ * Wages stay per job; savings interest keeps its own band (income the savings EARN, not
+ * principal spent); the government benefit collapses per person, since two members claim at
+ * their own ages; every drawdown folds into one "Living off savings" band.
  *
- * Savings interest is recognised by the engine's explicit `"savingsInterest"` provenance
- * category, NOT by parsing its id: interest is *taxed* as `ordinaryIncome` (which it shares
- * with pre-tax account draws), but the engine reports it under this distinct provenance so
- * the app groups only genuine savings-account interest here — future interest kinds
- * (brokerage/bond/money-market) will carry their own provenance and won't fold in.
- *
- * Collapsing the benefit per person rather than outright is what keeps Simple consistent
- * with itself: it already bands a two-earner household's *wages* per person, so folding
- * their two benefits into one would have hidden exactly what the wage bands show.
+ * Interest is matched on the `"savingsInterest"` provenance category, not its id: it is
+ * *taxed* as `ordinaryIncome`, shared with pre-tax account draws.
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
@@ -233,20 +162,13 @@ function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   return { id: SIMPLE_LIVING_OFF_SAVINGS_ID, label: "Living off savings", category: "savingsDrawdown" };
 }
 
-/** The per-source cash for a row on the chosen {@link IncomeBasis} — net (take-home) or gross. */
 function rowCentsFor(row: IncomeMonthRow, basis: IncomeBasis): Readonly<Record<string, number>> {
   return basis === "gross" ? row.centsBySource : row.netCentsBySource;
 }
 
 /**
- * Name the earner on bands that would otherwise be indistinguishable — the government
- * benefit, whose label says what kind of income it is and never whose ("Government
- * benefit", "Social Security" — one legend entry per person, identical). Applied only
- * when two or more of them are actually on the chart, so a single-earner plan reads
- * exactly as before rather than gaining a redundant "· Alex" everywhere.
- *
- * Wage bands are left alone: each job is already its own band and its label carries the
- * job's own name.
+ * Only when two or more benefit bands are on the chart, so a single-earner plan gains no
+ * redundant "· Alex". Wage bands already carry the job's own name.
  */
 function withEarnerNames(
   sources: readonly IncomeSourceBand[],
@@ -267,14 +189,9 @@ function withEarnerNames(
 }
 
 /**
- * Qualify the Advanced view's savings-interest bands so each reads under its own account.
- * The engine reports one interest band per cash account, labelled by the account's own name
- * ("Cash savings", a goal fund's name). In the Advanced view we prefix them with the kind
- * of income they are — `Savings interest: Cash savings`, `Savings interest: Emergency fund`
- * — but ONLY when two or more are on the chart: a single cash account needs no
- * disambiguation, so it reads as the plain "Savings interest" band the Simple view also
- * shows. This mirrors {@link withEarnerNames}: qualify a band by whose/what it is only when
- * an identical-kind sibling would otherwise be indistinguishable.
+ * The engine reports one interest band per cash account, labelled by the account's name.
+ * Prefix it (`Savings interest: Cash savings`) only when two or more are on the chart, so a
+ * single account reads as the plain band Simple shows.
  */
 function qualifySavingsInterestNames(
   sources: readonly IncomeSourceBand[],
@@ -290,19 +207,9 @@ function qualifySavingsInterestNames(
 }
 
 /**
- * The bands and per-month rows to draw for a given {@link IncomeMode} and {@link
- * IncomeBasis}. `advanced` keeps every source its own band (every job, every account draw,
- * the benefit, the drawdown); `simple` collapses via {@link simpleBandOf} — re-keying each
- * row's cash onto the collapsed band ids and summing — so "most people" see three ideas
- * (wages, Social Security, living off savings) instead of seven. The `basis` selects each
- * row's dollar figures — `takeHome` (default) draws the cash left after tax and deferral,
- * the honest read against the spending-need line; `gross` draws the pre-tax paycheck. The
- * returned rows' `centsBySource` carries whichever basis was chosen, so the chart renders
- * it without knowing which. Pure: the spending-need line rides through untouched, and
- * `totalCents` is recomputed for the chosen basis.
- *
- * Bands naming a KIND of income rather than an earner are qualified by whose they are
- * ({@link withEarnerNames}), so two people's benefits are not one legend entry repeated.
+ * `advanced` keeps every source its own band; `simple` collapses via {@link simpleBandOf}.
+ * The returned rows' `centsBySource` carries whichever {@link IncomeBasis} was chosen, so
+ * the chart renders it without knowing which; `totalCents` is recomputed to match.
  */
 export function incomeBandsForMode(
   data: IncomeChartData,
@@ -348,17 +255,12 @@ export function incomeBandsForMode(
   return { sources, rows };
 }
 
-/** Year (1-based) of an absolute month, for a human-facing "Year N" label. */
+/** 1-based, for a human-facing "Year N" label. */
 function yearOf(month: number): number {
   return Math.floor(month / 12) + 1;
 }
 
-/**
- * A one-line summary for the a11y label / status line, or `null` when cash flow runs
- * continuously with no savings drawdown. Names the retirement gap for what it actually
- * is — a stretch lived off savings, drawn as its own band — rather than the old,
- * misleading "no income" framing.
- */
+/** A one-line summary for the a11y label, or `null` when income covers spending throughout. */
 export function describeIncomeGap(data: IncomeChartData): string | null {
   if (data.firstSavingsDrawdownMonth !== null) {
     return (

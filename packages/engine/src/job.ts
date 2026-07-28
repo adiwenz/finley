@@ -1,52 +1,35 @@
 /**
- * The first-class `Job` standing authoring model — the *new* source of truth for
- * earned income. Pure types plus one salary-entry converter; a job is held by a
- * {@link import("./person").Person}, and the standing model compiles into the
- * simulator via {@link import("./compilePerson")}.
+ * The `Job` standing authoring model — the sole source of truth for earned income. A job is
+ * held by a {@link import("./person").Person} and compiles into the simulator via
+ * {@link import("./compilePerson")}.
  *
- * This module imports nothing from `projection/*`, so the standing types stay
- * clear of the simulator core (the sim dependency lives in `compilePerson`).
- * This is now the **sole** source of truth for earned income —
- * the scalar `Plan.incomeCents` / `careerStartAge` / `JobChangeEvent` path it
- * was built alongside has been deleted.
+ * Must not import from `projection/*`; that dependency lives in `compilePerson`.
  */
 
 import type { Cents } from "./money";
 
-/** Stable id of a household member — a job's owner references one of these. */
+/** Stable id of a household member. */
 export type PersonId = string;
 
 /**
- * A job's salary path. Canonical form: a single starting salary in *today's
- * dollars* anchored at the job's `startYear`, plus a *real* growth rate (growth
- * above CPI). The engine layers CPI on top — CPI-indexing backward for the
- * covered-wage record and nominal growth forward for the projected income series
- * — so the same authored pair drives both. A single forward rate for v1.
+ * A job's salary path: a starting salary in *today's dollars* anchored at the job's
+ * `startYear`, plus a *real* (above-CPI) growth rate. The engine layers CPI on top —
+ * indexing backward for the covered-wage record, nominal growth forward for the projected
+ * income series.
  */
 export interface SalaryTrajectory {
-  /** Annual salary in today's dollars, as of the owning job's `startYear`. */
+  /** Annual, as of the owning job's `startYear`. */
   readonly startingSalaryCents: Cents;
-  /**
-   * Real (above-CPI) annual growth as a whole-number percent. 0 = flat in real
-   * terms (income holds constant against inflation), which reproduces the scalar
-   * model's inflation-linked, real-flat salary exactly.
-   */
+  /** Whole-number percent; 0 = flat in real terms. */
   readonly realGrowthPct: number;
 }
 
 /**
- * A one-month perturbation of a job's earned income — a bonus, a missed
- * paycheck, or a one-off "this month I actually earned X" correction. Keyed by the
- * absolute simulation `month` (relative to "now"), like the plan's expense overrides.
- * It is a **value edit on the standing job**, never a timeline life event: the same
- * job pays a different amount for exactly one month.
+ * A one-month perturbation of a job's earned income — a bonus, a missed paycheck, a one-off
+ * correction. A value edit on the standing job, never a timeline life event.
  *
- *   - `setTo` overrides the month's pay to an absolute figure — `cents: 0` is a missed
- *     paycheck, any other value is a one-month salary correction.
- *   - `addBonus` adds `cents` on top of what the job would otherwise pay that month.
- *
- * Both ride the job's own income series, so they are taxed as `wages` and flow through
- * the job's 401(k) deferral exactly as regular pay does — a bonus is not tax-free cash.
+ * Rides the job's own income series, so it is taxed as `wages` and flows through the job's
+ * 401(k) deferral like regular pay.
  */
 export interface JobIncomeOverride {
   /** Absolute simulation month (from "now") the override applies to. */
@@ -57,34 +40,24 @@ export interface JobIncomeOverride {
 }
 
 /**
- * A **permanent** step change to a job's pay from a given month onward — a
- * raise OR a pay cut (the reason this is a *pay change*, not a "raise": the new pay can be
- * lower than before). Where a {@link JobIncomeOverride} perturbs a single month, a pay
- * change opens a new salary segment: the new pay is in force from `month` and then keeps
- * growing at the job's own real-plus-CPI rate. It is a value edit on the standing job (the
- * same job now pays differently), never a timeline life event — and it is what lets a pay
- * change ride ONE continuous job instead of forcing a job to be split in two.
+ * A raise or a cut. Where a {@link JobIncomeOverride} perturbs one month, a pay change opens a
+ * new salary segment: in force from `month`, then growing at the job's own real-plus-CPI rate.
+ * A value edit, so it rides ONE continuous job instead of splitting it in two.
  *
- *   - `setTo` sets pay to an absolute monthly figure from `month` on (a new salary).
- *   - `changeBy` adds `cents` on top of what the job would otherwise pay that month, from
- *     `month` on (a delta). A negative `cents` is a pay cut.
- *
- * Like overrides, a pay change rides the job's own series, so the new pay is taxed as
- * `wages` and flows through the 401(k) deferral. `cents` is nominal at `month` (the actual
- * paycheck that month), matching the one-month `setTo`.
+ * Taxed as `wages` and flows through the 401(k) deferral, like overrides. `cents` is nominal at
+ * `month` (the actual paycheck), matching the one-month `setTo`.
  */
 export interface JobPayChange {
   /** Absolute simulation month (from "now") the new pay takes effect and holds from. */
   readonly month: number;
   readonly kind: "setTo" | "changeBy";
-  /** For `setTo`, the new absolute monthly pay; for `changeBy`, the monthly amount added on. */
+  /** For `setTo`, the new monthly pay; for `changeBy`, the amount added on — negative is a cut. */
   readonly cents: Cents;
 }
 
 /**
- * The pre-tax 401(k)-style deferral a job carries. Deferral lives on the
- * **job**, not the person, because the employer match and the elected fraction
- * are a property of that employment. Compiles to the income source's
+ * Lives on the **job**, not the person, because the employer match and elected fraction are
+ * properties of that employment. Compiles to the income source's
  * {@link import("./projection/waterfall").PlanDescriptor}.
  */
 export interface JobDeferral {
@@ -97,53 +70,40 @@ export interface JobDeferral {
 }
 
 /**
- * A job: an earned, covered income stream owned by exactly one person, with
- * a calendar span and a salary trajectory. Employment is per-person — a
- * two-earner household is two jobs, not one job with two owners — which is what
- * lets an open-ended job resolve its stop year against *the* owner's
- * `retirementTargetAge` without ambiguity.
- *
- * `endYear === null` marks an **open-ended** job — it has no authored stop date, so
- * it runs until the owner's `retirementTargetAge` (the person's default stop age),
- * which the retirement solver varies. A person may hold **any number** of open-ended
- * jobs — none is elevated over the others. An explicit `endYear` is a fixed-term job
- * (past, straddling, or future); the year is exclusive — the job is worked in calendar
- * years `[startYear, endYear)`.
+ * An earned, covered income stream owned by exactly one person. Employment is per-person — a
+ * two-earner household is two jobs, not one job with two owners — so an open-ended job
+ * resolves its stop year against *the* owner's `retirementTargetAge` without ambiguity. A
+ * person may hold any number of open-ended jobs; none is elevated over the others.
  */
 export interface Job {
   readonly id: string;
   /**
-   * Optional human-facing job title (e.g. "Software Engineer"). Display-only: reports
-   * and the income graph show it in place of the stable `id` when set (see
-   * {@link import("./compilePerson").compilePerson}). Never an identity — the `id` keys
-   * the job and its income band's `sourceId`, so two jobs may share a name or have none.
+   * Display-only: reports and the income graph show it in place of the `id` when set. Never
+   * an identity — the `id` keys the job and its income band's `sourceId`, so two jobs may
+   * share a name or have none.
    */
   readonly name?: string;
   readonly ownerId: PersonId;
   readonly startYear: number;
-  /** `null` = open-ended (ends at the owner's `retirementTargetAge`); else the exclusive stop year. */
+  /**
+   * `null` = open-ended: runs until the owner's `retirementTargetAge`, which the retirement
+   * solver varies. Otherwise exclusive — worked in calendar years `[startYear, endYear)`.
+   */
   readonly endYear: number | null;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
-  /**
-   * One-month pay perturbations (bonuses, missed paychecks, single-month corrections),
-   * each keyed by simulation month. Optional — a job with none omits it. See
-   * {@link JobIncomeOverride}.
-   */
   readonly incomeOverrides?: readonly JobIncomeOverride[];
   /**
-   * Permanent step changes to pay (raises / cuts), each keyed by simulation month and in
-   * force from that month forward. Optional. See {@link JobPayChange}. Applied BEFORE the
-   * one-month {@link incomeOverrides}, so a later bonus adds on top of the changed pay.
+   * Applied BEFORE the one-month {@link incomeOverrides}, so a bonus adds on top of the
+   * changed pay.
    */
   readonly payChanges?: readonly JobPayChange[];
 }
 
 /**
- * Derive a real growth rate (whole-number percent) from two salary points in
- * today's dollars — the default "two salary points" entry mode. Both points
- * are real (today's dollars), so the derived rate is the real, above-CPI slope.
- * Returns 0 when the span is a single year or the earlier salary is zero.
+ * Real growth rate (whole-number percent) between two salary points. Both are in today's
+ * dollars, so the slope is real (above-CPI). Returns 0 for a non-positive span or a
+ * non-positive earlier salary.
  */
 export function deriveRealGrowthPct(
   earlierCents: Cents,

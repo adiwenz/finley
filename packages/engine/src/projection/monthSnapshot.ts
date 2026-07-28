@@ -16,11 +16,10 @@ function toRealCents(
 }
 
 /**
- * Step 11: snapshot net worth = Σassets + Σproperties − Σliabilities; real = nominal
- * / (1+infl)^yrs. When `netWorthTerminated` (a PRIOR month already went
- * insolvent) both net-worth figures are reported as `null` — the model can no
- * longer say what net worth is once unfunded spending has been dropped. The balances
- * themselves are still emitted (diagnostic), only the aggregate net worth is nulled.
+ * Step 11: net worth = Σassets + Σproperties − Σliabilities; real = nominal / (1+infl)^yrs.
+ * Under `netWorthTerminated` (a PRIOR month went insolvent) both figures are `null` — once
+ * unfunded spending has been dropped the model can no longer say what net worth is. Balances
+ * are still emitted for diagnosis; only the aggregate is nulled.
  */
 export function snapshotMonth(
   state: SimState,
@@ -38,8 +37,8 @@ export function snapshotMonth(
   for (const acc of state.accounts) {
     const bal = state.assetBalances.get(acc.id) ?? 0;
     accountBalancesCents[acc.id] = bal;
-    // Basis rides alongside the balance (never nets into net worth) so an affordability
-    // check can read the still-untaxed gain `balance − basis` of a would-be liquidation.
+    // Basis rides alongside the balance and never nets into net worth, so an affordability
+    // check can read a would-be liquidation's untaxed gain `balance − basis`.
     accountBasisCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
     nominalNetWorth += bal;
   }

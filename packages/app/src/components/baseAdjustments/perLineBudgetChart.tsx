@@ -14,44 +14,26 @@ import { formatDollars } from "../../format";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Monthly spending chart ("Base + Adjustments"). Draws each of
- * the engine's spending items as a stacked area — spending **as authored**, with span,
- * dated overrides, and price growth applied — so each band is one thing the money goes
- * to and the total is what the month costs. Bands are coloured by kind ({@link
- * BAND_PALETTE}): the budget the user edits here, other obligations carried, debt
- * service owed.
+ * Monthly spending chart: each engine spending item a stacked area, coloured by kind
+ * ({@link BAND_PALETTE}).
  *
- * A tight month does NOT pinch the low-priority bands. The simulator never skips
- * spending: an uncovered obligation is charged against the liquid account and cascades
- * onto credit, so drawing a band below its amount would depict money the household did
- * in fact spend. What a shortfall produces instead is the terminal case — savings and
- * credit both exhausted — and *that* is what the amber {@link ReferenceArea} shades,
- * from the first insolvent month onward, with a plain-language summary above the chart
- * (which doubles as the figure's accessible description). Which spending to give up
- * once a plan stops working is the user's decision, not one this chart makes for them.
+ * Bands are never pinched short in a tight month — the simulator never skips spending, so a
+ * short band would misreport money actually spent. A shortfall shows as the terminal case,
+ * savings and credit exhausted: shaded amber from the first insolvent month, with a summary
+ * that doubles as the figure's accessible description.
  *
- * The chart is also the **month picker**: clicking a point selects that month, marked
- * with a vertical rule, and the editor below re-resolves every budget row to it. That
- * is the whole "adjustment" gesture — pick a point, change a number, say how long.
- * Selection is a controlled prop so the panel owns the month; the keyboard path to the
- * same state lives beside the editor heading (Recharts clicks are pointer-only).
- *
- * Hovering a month reads out every band *and their total* ({@link BudgetTooltip}) — the
- * stack's height is the question the chart is usually asked ("what does this month
- * cost?"), and a default tooltip leaves the reader to add the bands up by eye.
- *
- * The summary and a hidden per-line data mirror are rendered independently of Recharts
- * so the behaviour is assertable without depending on SVG layout (Recharts needs a
- * real width, absent in jsdom).
+ * Month selection is a controlled prop, so the panel owns the month, and the
+ * keyboard path lives beside the editor heading since Recharts clicks are pointer-only. The
+ * summary and the hidden data mirror render outside Recharts, which needs a real width, absent
+ * in jsdom.
  */
 
 // Category-tiered palette (needs → wants → savings), on the ledger ink/amber system.
 const TIER_COLORS = ["#1f3a2e", "#3f7d5f", "#b5761f", "#c99a3f", "#8a8570"];
-// Spending the budget doesn't author (health, a child's cost, an expense event) — a
-// muted slate family: carried, not chosen line by line.
+// Spending the budget doesn't author (health, a child's cost, an expense event) — muted slate.
 const OTHER_COLORS = ["#5c6b73", "#7d8f96", "#95a3a8"];
-// Debt service — a rust family set apart from the budget's greens and ambers: money
-// owed, not money chosen. Matches the income graph's spending-need line.
+// Debt service — rust, set apart from the budget's greens and ambers, and matching the income
+// graph's spending-need line.
 const DEBT_COLORS = ["#9c5b39", "#b23a2e", "#7d4a30"];
 const BAND_PALETTE: Record<ChartBand["kind"], readonly string[]> = {
   line: TIER_COLORS,
@@ -63,17 +45,14 @@ const GRID = "#e3dcc6";
 const INSOLVENT = "#b5761f";
 const MARKER = "#1f3a2e";
 
-/**
- * A band's colour, from its kind's family ({@link BAND_PALETTE}). Each family is
- * indexed within itself, so a new debt never re-colours the budget beneath it.
- */
+/** Each family is indexed within itself, so a new debt never re-colours the budget beneath it. */
 function colorOf(band: ChartBand, index: number, bands: readonly ChartBand[]): string {
   const nth = bands.slice(0, index).filter((b) => b.kind === band.kind).length;
   const palette = BAND_PALETTE[band.kind];
   return palette[nth % palette.length]!;
 }
 
-/** One series' entry in a Recharts tooltip payload — the slice of it this chart reads. */
+/** The slice of a Recharts tooltip payload entry this chart reads. */
 export interface BudgetTooltipEntry {
   readonly name?: string | number;
   readonly value?: string | number;
@@ -87,11 +66,10 @@ export interface BudgetTooltipProps {
 }
 
 /**
- * The hover readout for a stacked month: every line's amount, then their **total**.
- * The stack's height is the number the reader is actually after — "what does this month
- * cost?" — but a default tooltip lists the bands and leaves them to add five numbers up
- * by eye. Summing the payload (rather than re-deriving from the data) keeps the total
- * exactly the height drawn, whatever bands the tooltip is showing.
+ * Hover readout for a stacked month: every line's amount, then their total — the number a
+ * default tooltip leaves the reader adding up by eye. Summing the payload rather than
+ * re-deriving from the data keeps the total exactly the height drawn, whatever bands the
+ * tooltip is showing.
  */
 export function BudgetTooltip({ active, payload, label }: BudgetTooltipProps) {
   if (active !== true || payload === undefined || payload.length === 0) return null;
@@ -131,7 +109,7 @@ export interface PerLineBudgetChartProps {
   readonly data: PerLineBudgetData;
   /** The month the editor is pointed at — marked with a vertical rule. */
   readonly selectedMonth: number;
-  /** Called with the clicked month, so the panel can move the editor there. */
+  /** Called with the clicked month, so the panel can move the editor. */
   readonly onSelectMonth: (month: number) => void;
 }
 
@@ -141,17 +119,15 @@ export function PerLineBudgetChart({
   onSelectMonth,
 }: PerLineBudgetChartProps) {
   const summary = describeInsolvency(data);
-  // Recharts wants one flat object per point, with a key per band. That is a full pass
-  // over the horizon (660+ months on a default plan) building an object each — worth
-  // holding across the re-renders that only move the selection marker or restage an
-  // edit, since the rows themselves change only when the projection does.
+  // Recharts wants one flat object per point, keyed per band: a full pass over the horizon
+  // (660+ months). Memoized because rows change only when the projection does, not when the
+  // selection marker moves or an edit restages.
   const rows = useMemo(
     () => data.rows.map((r) => ({ month: r.month, ...r.centsByLine })),
     [data.rows],
   );
-  // The horizon runs to life expectancy. Pin the axis to it: left to itself the
-  // domain stretches past the last month to accommodate the selection rule and the
-  // open-ended insolvency band, drawing empty years the plan never reaches.
+  // Pin the axis to the horizon: left to itself the domain stretches past the last month to
+  // fit the selection rule and open-ended insolvency band, drawing years the plan never reaches.
   const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
 
   return (
@@ -166,7 +142,7 @@ export function PerLineBudgetChart({
       <p className={summary ? "alert alert-amber" : "hint"} data-testid="perline-summary">
         {summary ?? "This budget is financed across the whole horizon."}
       </p>
-      {/* Hidden data mirror for tests / screen readers: first row's amount per line. */}
+      {/* Data mirror for tests / screen readers: first row's amount per line. */}
       <output data-testid="perline-first-row" hidden>
         {JSON.stringify(data.rows[0]?.centsByLine ?? {})}
       </output>

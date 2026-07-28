@@ -1,22 +1,17 @@
 /**
- * Money is integer cents, never floats. Every monetary value in the
- * engine — balances, series values, transfers, projection points — is an
- * integer number of cents. Floating-point drift compounds over a 40-year
- * horizon, so a float must never leak into a monetary quantity.
+ * Money is integer cents, never floats: floating-point drift compounds over a 40-year
+ * horizon.
  *
- * `Cents` is a documentation alias over `number`, not a nominal brand: it makes
- * the shared type contract read as money without forcing constructors through
- * the codebase. The invariant that these are whole integers is enforced by the
- * tests (see the "money integrity" section of the invariant suite).
+ * `Cents` is a documentation alias over `number`, not a nominal brand, so the contract reads
+ * as money without forcing constructors through the codebase. The whole-integer invariant is
+ * enforced by the "money integrity" section of the invariant suite.
  */
 export type Cents = number;
 
 /**
- * Split a total across `n` slots as evenly as possible in whole cents, with the
- * slices summing to exactly `totalCents` — cumulative rounding absorbs the
- * remainder so no fraction of a cent is created or lost. Used wherever an
- * integer-cents amount must be divided without drift (e.g. the even shared-split
- * scheme).
+ * Split a total across `n` slots as evenly as possible in whole cents, summing to exactly
+ * `totalCents` — cumulative rounding absorbs the remainder, so no fraction of a cent is
+ * created or lost.
  */
 export function splitEven(totalCents: Cents, n: number): Cents[] {
   const out: Cents[] = [];
@@ -30,18 +25,15 @@ export function splitEven(totalCents: Cents, n: number): Cents[] {
 }
 
 /**
- * Split `totalCents` across the keyed `weights` in whole cents, in proportion to each
- * key's weight, with the shares summing to EXACTLY `totalCents` — a largest-remainder
- * (Hamilton) apportionment: floor every exact share, then hand the leftover cents out
- * one at a time to the biggest fractional remainders. Zero/negative total or a
- * non-positive weight sum yields an empty map (nothing to split); a key that rounds to
+ * Split `totalCents` across the keyed `weights` proportionally in whole cents, summing to
+ * EXACTLY `totalCents` — largest-remainder (Hamilton) apportionment: floor every exact share,
+ * then hand leftover cents out one at a time to the biggest fractional remainders.
+ * Zero/negative total or a non-positive weight sum yields an empty map; a key that rounds to
  * 0 is omitted, so the caller never sees an empty band.
  *
- * The keyed sibling of {@link splitEven} (which splits evenly across positions). Used to
- * attribute an already-decided total down to the sources that bore it — e.g. splitting a
- * tax category's tax across the individual jobs/accounts in that category by their taxable
- * weight, where the split must reconcile to the total to the cent. Weights that
- * repeat a key are summed first, so two contributions from the same source band collapse.
+ * Attributes an already-decided total down to the sources that bore it — e.g. a tax
+ * category's tax across the jobs/accounts in it by taxable weight. Repeated keys are summed
+ * first, so two contributions from the same source band collapse.
  */
 export function apportionByWeight(
   totalCents: Cents,
@@ -65,7 +57,6 @@ export function apportionByWeight(
     allocated += whole;
     shares.push({ key, whole, remainder: exact - whole });
   }
-  // Hand out the leftover cents, biggest fractional remainder first.
   let leftover = totalCents - allocated;
   shares.sort((a, b) => b.remainder - a.remainder);
   for (let i = 0; leftover > 0; i = (i + 1) % shares.length, leftover--) shares[i]!.whole += 1;

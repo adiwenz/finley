@@ -1,10 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * Coverage for the Budget/Accounts editor's Social Security claiming-age control.
- * The claiming age is a pinned retirement input the solver reads (benefits
- * begin at that age); this pins the app-side lever that edits it, its 62–70 bound,
- * and the estimates-not-advice disclaimer shown alongside it.
+ * The Budget/Accounts editor's Social Security claiming-age control. The claiming age is a
+ * pinned retirement input the solver reads (benefits begin at that age); this pins the
+ * app-side lever, its 62–70 bound, and the estimates-not-advice disclaimer beside it.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { useState } from "react";
@@ -71,7 +70,7 @@ describe("BudgetEditor — Social Security claiming age", () => {
 
   it("carries an estimates-not-advice disclaimer for the Social Security figure", () => {
     render(<Harness />);
-    // Several fields carry the disclaimer (SS and health); at least one is present.
+    // Several fields carry it (SS and health); at least one is present.
     expect(screen.getAllByText(/not advice/i).length).toBeGreaterThan(0);
   });
 });
@@ -146,8 +145,7 @@ describe("BudgetEditor — retirement age", () => {
   });
 
   it("clamps retirement age up to current age (can't retire in the past)", () => {
-    // Current age 50 sits above the static 40 floor, so it becomes the binding
-    // lower bound: a retirement age below it is nonsensical and clamps up to 50.
+    // Current age 50 sits above the static 40 floor, so it becomes the binding lower bound.
     render(<Harness initial={{ ...PLAN_DEFAULTS, currentAge: 50 }} />);
     const input = screen.getByLabelText(/Retirement age/i);
     fireEvent.change(input, { target: { value: "45" } });

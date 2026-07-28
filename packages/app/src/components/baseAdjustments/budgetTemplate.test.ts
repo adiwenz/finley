@@ -18,8 +18,8 @@ describe("defaultBudgetTemplate — the prepopulated Base", () => {
   it("prepopulates a non-empty set of standing expense lines with stable ids", () => {
     const lines = defaultBudgetTemplate();
     expect(lines.length).toBeGreaterThan(0);
-    // Every template line is a cash-outflow expense line with an id (so the chart /
-    // overrides can key on it), spanning the needs → wants tiers.
+    // Every line is a cash-outflow expense with an id for the chart/overrides to key on,
+    // spanning the needs → wants tiers.
     expect(lines.every((l) => l.target.kind === "expense")).toBe(true);
     expect(lines.every((l) => typeof l.id === "string" && l.id.length > 0)).toBe(true);
     expect(new Set(lines.map((l) => l.id)).size).toBe(lines.length); // ids unique
@@ -33,8 +33,8 @@ describe("defaultBudgetTemplate — the prepopulated Base", () => {
       0,
     );
     expect(total).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
-    // The scalar field the line-item budget replaced. If someone retunes the template
-    // without retuning this, the app's default retirement age moves silently.
+    // The scalar field the line-item budget replaced. Retuning the template without
+    // retuning this moves the app's default retirement age silently.
     expect(total).toBe(PLAN_DEFAULTS.expenseCents);
   });
 });
@@ -71,8 +71,8 @@ describe("redistributeToTiers — the non-destructive 50/30/20 quickstart", () =
   });
 
   it("seeds a real savings CONTRIBUTION line for an empty savings tier", () => {
-    // The default template has no savings-tier line, so the 20% is seeded — and as a
-    // funded contribution into an account (not a vanishing expense).
+    // The default template has no savings-tier line, so the 20% is seeded as a funded
+    // contribution into an account, not a vanishing expense.
     const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income, 240);
     const savings = after.filter((l) => l.category === "savings");
     expect(savings.length).toBe(1);

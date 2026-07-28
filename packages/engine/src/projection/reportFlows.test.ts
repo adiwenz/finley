@@ -69,8 +69,8 @@ describe("buildFlows", () => {
     };
     const items = [line("rent", 2_000_00), line("fun", 100_00), debt];
     const flows = buildFlows([], 0, 2_100_00, 1_800_00, items);
-    // The per-line view is the budget-line slice of the one itemized list — a debt
-    // payment is real spending but is not a line, and must not leak into it.
+    // The per-line view is the budget-line slice of the itemized list: a debt payment is
+    // real spending but not a line, and must not leak in.
     expect(flows.lineMonthlyCents).toEqual({ "line:rent": 2_000_00, "line:fun": 100_00 });
     expect(flows.spendingItems).toEqual(items);
     expect(flows.totalSpendingCents).toBe(3_900_00);
@@ -88,11 +88,9 @@ describe("buildFlows", () => {
     expect(flows.incomeSources).toEqual([]);
   });
 
-  // ── Per-source reporting ──────────────────────────────────────────────────────
-
   it("reports income by source, keeping distinct sources in one tax bucket apart", () => {
-    // Two jobs both taxed as `wages` — the category rollup collapses them, the source
-    // list keeps them apart so a chart can name which paycheck is which.
+    // Two jobs both taxed as `wages`: the category rollup collapses them, the source list
+    // keeps them apart so a chart can name which paycheck is which.
     const flows = buildFlows(
       [
         src("p1", 5_000_00, "wages", { sourceId: "job:a", label: "Job A" }),
@@ -122,7 +120,7 @@ describe("buildFlows", () => {
       0,
       [],
     );
-    // Each band also names WHOSE income it is (the owner rides through from the source).
+    // Each band names WHOSE income it is — the owner rides through from the source.
     expect(flows.incomeSources).toEqual([
       { sourceId: "rmd:p1", label: "RMD", category: "ordinaryIncome", ownerId: "p1", cashInflowCents: 1_500_00, netCashFlowCents: 1_500_00 },
       {
@@ -137,9 +135,9 @@ describe("buildFlows", () => {
   });
 
   it("bands accrued interest by its cash inflow (waterfallInflowCents 0, but real household cash)", () => {
-    // An interest booking places nothing in the ALLOCATION waterfall (waterfallInflowCents 0 — the cash
-    // is already in the balance), yet it IS real cash: it reports its interest as a cash inflow
-    // so the cash-flow view shows it instead of dropping it.
+    // An interest booking places nothing in the ALLOCATION waterfall (waterfallInflowCents
+    // 0 — the cash already sits in the balance), yet it IS real cash, so it reports its
+    // interest as a cash inflow rather than being dropped from the cash-flow view.
     const flows = buildFlows(
       [src("p1", 0, "ordinaryIncome", { cashInflowCents: 40_00, taxableCents: 40_00, sourceId: "interest:p1", label: "Savings interest" })],
       0,
@@ -155,9 +153,9 @@ describe("buildFlows", () => {
   });
 
   it("nets savings interest's tax off its cash inflow (the $500/$100/$400 reconciliation)", () => {
-    // $500 of interest, $100 of attributed tax: cash inflow $500, net cash flow $400. The
-    // engine is the source of truth for net (cashInflow − deferral − tax); the balance credit
-    // ($500, from compounding) is a separate fact this booking never re-injects.
+    // $500 of interest, $100 of attributed tax: cash inflow $500, net $400. The engine owns
+    // net (cashInflow − deferral − tax); the $500 balance credit from compounding is a
+    // separate fact this booking never re-injects.
     const flows = buildFlows(
       [src("p1", 0, "ordinaryIncome", { cashInflowCents: 500_00, taxableCents: 500_00, sourceId: "interest:p1:ordinaryIncome", label: "Savings interest" })],
       100_00, // household tax
@@ -190,7 +188,7 @@ describe("buildFlows", () => {
       [],
       1_000_00, // savings covered the $1,000 gap this month
     );
-    // The drawdown is NOT taxable income: absent from the category rollup and the total…
+    // NOT taxable income: absent from the category rollup and the total…
     expect(flows.incomeByCategoryCents).toEqual({ governmentRetirementBenefit: 2_000_00 });
     expect(flows.totalIncomeCents).toBe(2_000_00);
     // …but present as its own band, so "living off savings" is visible, not zero income.

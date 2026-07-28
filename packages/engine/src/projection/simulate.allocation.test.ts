@@ -15,8 +15,7 @@ describe("simulateHousehold — allocation waterfall", () => {
   const person: SimPerson = { id: "p1", name: "Alice" };
 
   function retirementAccount(): SimAccount {
-    // A non-liquid pre-tax account — deferrals land here, but the surplus/idle
-    // step never does (it targets the liquid account).
+    // Non-liquid pre-tax: deferrals land here, the surplus/idle step never does.
     return new SimAccount({
       id: "401k",
       ownerId: "p1",
@@ -52,8 +51,7 @@ describe("simulateHousehold — allocation waterfall", () => {
   });
 
   it("the annual deferral cap is enforced across the calendar year", () => {
-    // Wants to defer $5000/mo but the annual limit is $12,000 → capped mid-year,
-    // and reset the next calendar year.
+    // Wants $5000/mo against a $12,000 annual limit → capped mid-year, reset next year.
     const cappingJurisdiction = {
       id: "cap-test",
       computeTaxCents: () => 0,
@@ -78,17 +76,16 @@ describe("simulateHousehold — allocation waterfall", () => {
       },
       cappingJurisdiction,
     );
-    // Calendar year one is months 0–11 (ctx.year = startYear + floor(month/12));
-    // deferrals in months 1–11 cap at $12,000 (vs. an uncapped 11×$5000 = $55,000).
+    // Year one is months 0–11 (ctx.year = startYear + floor(month/12)); deferrals in
+    // months 1–11 cap at $12,000, against an uncapped 11×$5000 = $55,000.
     expect(series.months[11].accountBalancesCents["401k"]).toBe(dollarsToCents(12000));
-    // Month 12 opens the next calendar year → the room resets; by month 23 a second
-    // full $12,000 has been deferred → $24,000 cumulative.
+    // Month 12 opens the next calendar year and the room resets → $24,000 cumulative.
     expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(24000));
   });
 
   it("the deferral cap is age-aware: an over-50 catch-up raises one person's limit", () => {
-    // Base annual limit $12,000, plus a $3,000 catch-up from age 50. The seam is
-    // called per person with that person's age, so only the older partner's cap lifts.
+    // $12,000 base plus a $3,000 catch-up from age 50. The seam is called per person
+    // with that person's age, so only the older partner's cap lifts.
     const catchUpJurisdiction = {
       id: "catchup-test",
       computeTaxCents: () => 0,
@@ -144,8 +141,8 @@ describe("simulateHousehold — allocation waterfall", () => {
   });
 
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
-    // With no goals, no plan, and idle surplus, the waterfall must reproduce the
-    // old 'net flow into the liquid account' behavior exactly (backward compat).
+    // With no goals, no plan, and idle surplus, the waterfall must reproduce plain net
+    // flow into the liquid account exactly.
     const checking = makeInvestmentAccount(dollarsToCents(1000), 0);
     const series = simulateHousehold(
       {
@@ -201,11 +198,9 @@ describe("simulateHousehold — allocation waterfall", () => {
   }
 
   describe("a matured goal never fires — the fund simply stays put (#150)", () => {
-    // $2000/mo income, no expenses; the goal is funded $2000/mo and reaches its
-    // $4000 target exactly at month 2 (its target date). A goal never moves its own
-    // money out — only a timeline event does — so nothing happens at maturity: the
-    // fund stays in the account and in net worth, drawable like any other, whatever
-    // its (purely descriptive) disposition.
+    // $2000/mo income, no expenses; the goal funds $2000/mo and hits its $4000 target
+    // exactly at month 2, its target date. A goal never moves its own money out — only a
+    // timeline event does — so maturity is a no-op whatever the descriptive disposition.
     const goalScenario = (disposition: "retain" | "drawDown") => ({
       horizonMonths: 4,
       annualInflationRate: 0,
@@ -231,11 +226,11 @@ describe("simulateHousehold — allocation waterfall", () => {
       "a `%s` goal's fund stays in the account and in net worth past its target date",
       (disposition) => {
         const series = simulateHousehold(goalScenario(disposition), nullJurisdiction);
-        // Month 2 (target): the fund is shown AT target — the goal reads as achieved.
+        // Month 2 (target): the fund shows AT target — the goal reads as achieved.
         expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
         expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
-        // Month 3: the fund is unchanged (nothing fired, no equity synthesized), plus
-        // this month's $2000 income idling in the liquid account. Net worth = $6000.
+        // Month 3: fund unchanged (nothing fired, no equity synthesized), plus this month's
+        // $2000 idling in the liquid account → $6000.
         expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
         expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
         expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
@@ -280,14 +275,14 @@ describe("simulateHousehold — allocation waterfall", () => {
     // Months 1–2 fill the goal to $5000 ($2000 + $2000 + $1000), then surplus idles.
     expect(series.months[3].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
     expect(series.months[6].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
-    // After the goal is capped, the rest idles in checking: month 3 gets $1000, 4–6 get $2000.
+    // Once capped, the rest idles in checking: $1000 in month 3, $2000 in months 4–6.
     expect(series.months[6].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
   });
 
   describe("dated goals amortize to their deadline", () => {
-    // Two goals well within budget: $6k by month 6 and $12k by month 12. A $3k/mo
-    // income more than covers both paces ($1k + $1k), so the outcome must not depend
-    // on priority order and each fund must track an amortized path, not fill-then-idle.
+    // Two goals well within budget: $6k by month 6, $12k by month 12. $3k/mo income covers
+    // both paces ($1k + $1k), so the outcome must not depend on priority order and each
+    // fund must track an amortized path, not fill-then-idle.
     const near = (priority: number) => ({
       id: "near",
       name: "Near goal",
@@ -328,7 +323,7 @@ describe("simulateHousehold — allocation waterfall", () => {
       const far6 = series.months[6].accountBalancesCents["far-fund"];
       const far12 = series.months[12].accountBalancesCents["far-fund"];
       // Fill-then-idle would land the full $12k in month 1; a paced path starts small,
-      // climbs monotonically, and only reaches the target at the month-12 deadline.
+      // climbs monotonically, and reaches the target only at the month-12 deadline.
       expect(far0).toBeGreaterThan(0);
       expect(far0).toBeLessThan(dollarsToCents(2000));
       expect(far6).toBeGreaterThan(far0);

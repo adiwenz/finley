@@ -1,10 +1,9 @@
 /**
  * @vitest-environment node
  *
- * Render coverage for the Goals + Budget panels using the server renderer, since
- * this repo's jsdom is unavailable here. Interaction (reorder) and the
- * priority tradeoff are covered by goalsView.test.ts; these pin the wiring —
- * on-track % surfaced, the honesty flag shown, and the person-partitioned
+ * Render coverage for the Goals + Budget panels via the server renderer (jsdom is
+ * unavailable here). Interaction and the priority tradeoff live in goalsView.test.ts; these
+ * pin the wiring — on-track % surfaced, honesty flag shown, and the person-partitioned
  * Budget/Accounts panel with its Shared section and four exposed levers.
  */
 import { describe, it, expect } from "vitest";
@@ -47,7 +46,7 @@ describe("GoalsPanel", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
-    // Both default goals are `retain` savings reserves (planDefaults, #150).
+    // Both default goals are `retain` savings reserves (planDefaults).
     expect(html).toContain("Kept as a reserve");
   });
 
@@ -70,8 +69,8 @@ describe("GoalsPanel", () => {
       <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} />,
     );
     expect(html).toContain("Funded");
-    // Funded is terminal: the pacing %, which only answers "am I on pace to get there",
-    // is dropped so it can't contradict the badge (e.g. a drained fund's low %).
+    // Funded is terminal: the pacing % ("am I on pace to get there") is dropped so it can't
+    // contradict the badge — e.g. a drained fund's low %.
     expect(html).not.toContain("on track");
   });
 
@@ -95,7 +94,7 @@ describe("GoalsPanel", () => {
     );
     expect(html).toContain("In progress");
     expect(html).toContain("Behind pace");
-    // The on-track % is the pacing signal, shown precisely while a goal is still In progress.
+    // The on-track % is the pacing signal, shown while a goal is still In progress.
     expect(html).toContain("on track");
   });
 
@@ -167,15 +166,15 @@ describe("BudgetEditor — person-partitioned panel with the four levers", () =>
 
   it("discloses advanced controls behind a summary", () => {
     expect(html).toContain("<summary>Advanced</summary>");
-    // The account-return knobs are the disclosed levers; the 401(k) deferral moved onto
-    // jobs, so it is no longer a Budget-editor field.
+    // The account-return knobs are the disclosed levers; the 401(k) deferral lives on jobs,
+    // not here.
     expect(html).toContain("Retirement return");
     expect(html).not.toContain("401(k) contribution");
   });
 
   it("exposes the shared-scheme lever", () => {
-    // The surplus-destination lever is gone with the jobs hinge: leftover cash idles, and
-    // investing it is authored as a brokerage contribution line, not a scalar toggle.
+    // No surplus-destination lever: leftover cash idles, and investing it is authored as a
+    // brokerage contribution line, not a scalar toggle.
     expect(html).toContain("Shared expenses split");
     expect(html).toContain("Split evenly");
   });

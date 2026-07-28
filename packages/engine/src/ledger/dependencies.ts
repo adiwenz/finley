@@ -1,20 +1,17 @@
 /**
- * Dependent-event resolution for undo.
- *
- * A dependent points at its producer through `causedByEventId`. Removing a
- * producer removes the *transitive closure* of everything it caused — a
- * dependent may itself have dependents. Resolved by breadth-first traversal of
- * the causedBy graph rather than a single ad-hoc filter pass.
+ * Dependent-event resolution for undo. A dependent points at its producer through
+ * `causedByEventId`; removing a producer removes the *transitive closure* of what it
+ * caused, since a dependent may have dependents of its own. Breadth-first over the causedBy
+ * graph, not a single ad-hoc filter pass.
  */
 
 import type { Ledger } from "./ledger";
 import { causedByEventId } from "./eventTypes";
 
 /**
- * Ids removed when event `id` is removed: `id` first, then every event
- * transitively caused by it, each once. Returns just `[id]` when `id` has no
- * dependents (and when `id` is absent, callers treat the lone result as a
- * no-op / not-found).
+ * Ids removed when event `id` is removed: `id` first, then every event transitively caused
+ * by it, each once. Just `[id]` when it has no dependents — including when `id` is absent,
+ * where callers treat the lone result as a no-op / not-found.
  */
 export function computeDependents(ledger: Ledger, id: string): string[] {
   const dependentsByCause = new Map<string, string[]>();

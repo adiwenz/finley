@@ -6,7 +6,7 @@ import { NumInput } from "../numInput/numInput";
 import { MonthSelect, OwnerSelect, type FormProps } from "./formControls";
 
 /** The form's live state — one draft, not a hook per field. The owner *shown* is derived
- *  from this (see below), never stored separately. */
+ *  from this, never stored separately. */
 interface ExpenseDraft {
   readonly month: number;
   readonly amount: number;
@@ -23,10 +23,9 @@ export function ExpenseForm({
   const [draft, setDraft] = useState<ExpenseDraft>(() => ({ month: defaultMonth, amount: 2000, ownerId: "p1" }));
   const patch = (fields: Partial<ExpenseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
-  // Attribute the expense to someone in the household when it starts. Derived
-  // during render so it tracks the month picker; falls back to you if the
-  // selected owner isn't present at the chosen month. Not draft state — it's
-  // computed from the draft, so it can never drift out of sync.
+  // Attribute the expense to someone in the household when it starts. Derived during render
+  // so it tracks the month picker and can never drift out of sync; falls back to you if the
+  // selected owner isn't present at the chosen month.
   const owners = membersAt(household, draft.month).map((p) =>
     p.id === "p1" ? { ...p, name: "You" } : p,
   );

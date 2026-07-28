@@ -1,20 +1,17 @@
 /**
  * Net-worth breakdown chart — the stacked companion to the total-only {@link
- * import("./netWorthChart").NetWorthChart}. It draws one Area per component of net worth
- * from {@link NetWorthBreakdownData}, and toggles between three views the user picks with a
- * button row:
+ * import("./netWorthChart").NetWorthChart}, drawing one Area per component of {@link
+ * NetWorthBreakdownData} in one of three user-picked views:
  *
- *  - **Accounts** — the asset accounts only (cash, brokerage, retirement, each goal fund).
- *  - **Assets** — accounts + property values (shown only when the plan owns property).
- *  - **Net worth** — assets stacked above zero, liabilities stacked below it, so the stack
- *    reads as the balance sheet and its signed total is the nominal net worth the sibling
- *    chart draws (shown only when there is property or debt to make it differ from Assets).
+ *  - **Accounts** — the asset accounts only.
+ *  - **Assets** — accounts + property values (offered only when the plan owns property).
+ *  - **Net worth** — assets stacked above zero, liabilities below, so the signed total is
+ *    the nominal net worth the sibling chart draws (offered only when property or debt
+ *    makes it differ from Assets).
  *
- * Bands are coloured by kind: a green family for accounts (stepping one shade per account so
- * siblings stay distinct), a gold for property, and a rust "money owed" family for
- * liabilities — matching the tax chart's rust for money leaving. Like the other charts, a
- * summary line and a hidden data mirror render independently of Recharts so the behaviour is
- * assertable without SVG layout (Recharts needs a real width, absent in jsdom).
+ * As in the other charts, the summary line and hidden data mirror render independently of
+ * Recharts so behaviour is assertable without SVG layout (Recharts needs a real width,
+ * absent in jsdom).
  */
 
 import { useMemo, useState } from "react";
@@ -55,7 +52,7 @@ function dollars(cents: number): string {
   return `${sign}$${Math.round(Math.abs(cents) / 100).toLocaleString("en-US")}`;
 }
 
-/** A colour per band, stepping shades within each kind so sibling accounts stay distinct. */
+/** A colour per band, stepping shades within each kind. */
 function colorsForBands(bands: readonly BreakdownBand[]): Map<string, string> {
   const colors = new Map<string, string>();
   let account = 0;
@@ -84,9 +81,9 @@ interface TooltipEntry {
 }
 
 /**
- * Sum a month's tooltip entries into balance-sheet totals. Liability values arrive already
- * signed (negative in the net-worth view), so net worth is a plain sum: assets + signed
- * liabilities. `liabilitiesCents` is that signed figure (≤ 0 when debt is shown).
+ * A month's tooltip entries summed into balance-sheet totals. Liability values arrive
+ * already signed (negative in the net-worth view), so net worth is a plain sum and
+ * `liabilitiesCents` is ≤ 0 when debt is shown.
  */
 export function tooltipTotals(
   entries: readonly TooltipEntry[],
@@ -134,8 +131,8 @@ function BreakdownTooltip({
   bands,
 }: {
   active?: boolean;
-  // Recharts' own payload shape (dataKey can be a function) — kept loose here; the exported
-  // `tooltipTotals` is what's strictly typed and unit-tested.
+  // Recharts' own payload shape (dataKey can be a function), kept loose; the exported
+  // `tooltipTotals` is the strictly typed, unit-tested part.
   payload?: readonly { dataKey?: unknown; value?: number | null; name?: string; color?: string }[];
   label?: string | number;
   bands: readonly BreakdownBand[];
@@ -242,8 +239,7 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
       <p className="hint" data-testid="breakdown-summary">
         {summary}
       </p>
-      {/* Hidden data mirror for tests / screen readers: the bands currently stacked and the
-          first row's values. */}
+      {/* Hidden data mirror for tests / screen readers. */}
       <output data-testid="breakdown-bands" hidden>
         {JSON.stringify(visibleBands.map((b) => b.label))}
       </output>
@@ -296,10 +292,9 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
                 type="monotone"
                 dataKey={band.id}
                 name={band.label}
-                // Assets and liabilities live in SEPARATE stacks so each accumulates from the
-                // zero line — assets upward, liabilities (negative) downward — instead of the
-                // debt stacking off the top of the assets and drifting above zero. Reads as a
-                // simultaneous rise in assets and fall in liabilities across the crossing.
+                // SEPARATE stacks so each accumulates from the zero line — assets upward,
+                // liabilities (negative) downward — instead of debt stacking off the top
+                // of the assets and drifting above zero.
                 stackId={band.kind === "liability" ? "liabilities" : "assets"}
                 stroke={colors.get(band.id)}
                 fill={colors.get(band.id)}

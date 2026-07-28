@@ -7,7 +7,7 @@ import { monthLabel } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
 
 /** The form's live state — one draft, not a hook per field. The eligible-partner list and
- *  the resolved selection are derived from `month`/`partnerId`, never stored. */
+ *  resolved selection derive from `month`/`partnerId`, never stored. */
 interface SeparationDraft {
   readonly month: number;
   readonly partnerId: string;
@@ -30,10 +30,9 @@ export function SeparationForm({
   }));
   const patch = (fields: Partial<SeparationDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
-  // Only partners actually in the household by the chosen separation month —
-  // you can't separate from someone you haven't partnered with yet. Derived
-  // during render so it tracks the month picker without a reset effect (not draft
-  // state — computed from it, so the selection can't drift out of sync).
+  // Only partners in the household by the chosen separation month — you can't separate
+  // from someone you haven't partnered with yet. Derived during render so it tracks the
+  // month picker without a reset effect, and the selection can't drift out of sync.
   const eligible = membersAt(household, draft.month).filter((p) => p.id !== "p1");
   const noPartners = eligible.length === 0;
   const selectedId = eligible.some((p) => p.id === draft.partnerId)
@@ -47,8 +46,8 @@ export function SeparationForm({
       month: draft.month,
       partnerPersonId: selectedId,
       alimonyMonthlyCents: dollarsToCents(draft.alimony),
-      // The years field is only offered once there's an alimony amount to time, so a
-      // zero amount means no duration regardless of any stale years value behind it.
+      // The years field appears only once there's an alimony amount to time, so a zero
+      // amount means no duration whatever stale years value sits behind it.
       alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
       childSupportMonthlyCents: 0,
     });
