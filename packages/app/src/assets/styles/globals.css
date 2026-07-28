@@ -187,6 +187,12 @@ select,
   color: var(--color-warn);
 }
 
+/* The goal-deletion refusal is a heading plus one `\n`-joined line per blocking event;
+   preserve those newlines so the list reads as a list. */
+.alert-list {
+  white-space: pre-line;
+}
+
 /* Budget/Accounts panel — person-partitioned sections (§4.2) */
 .budget-member,
 .budget-shared {

@@ -8,6 +8,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
+import { monthLabel } from "./format";
 import {
   goalRows,
   reorderGoal,
@@ -17,9 +18,11 @@ import {
   removeGoal,
   freshGoalId,
   goalDisposal,
+  goalFundingBlocks,
+  goalDeletionBlockMessage,
 } from "./goalsView";
 import { goalFundAccountId } from "@finley/engine";
-import type { Plan, GoalPlan } from "@finley/engine";
+import type { Plan, GoalPlan, Ledger, LifeEvent } from "@finley/engine";
 
 const baseBudget: Plan = {
   name: "Alex",
@@ -306,6 +309,82 @@ describe("removeGoal", () => {
     const afterSeries = project(after);
     expect(afterSeries.months[0].accountBalancesCents).not.toHaveProperty(
       goalFundAccountId(goalA),
+    );
+  });
+});
+
+/**
+ * A home purchase drawing its down payment from `sourceIds`, in drain order. Today's only
+ * event type that names a fund account as a funding source — the single real path to a
+ * dangling reference a deleted goal would leave.
+ */
+function homePurchase(
+  id: string,
+  month: number,
+  sequenceNumber: number,
+  sourceIds: readonly string[],
+): LifeEvent {
+  return {
+    type: "HomePurchaseEvent",
+    id,
+    sequenceNumber,
+    month,
+    propertyId: `${id}-house`,
+    ownerId: "p1",
+    purchasePriceCents: dollarsToCents(500000),
+    downPaymentCents: dollarsToCents(100000),
+    downPaymentSourceIds: sourceIds,
+    mortgageLiabilityId: `${id}-mtg`,
+    mortgageApr: 0,
+    mortgageTermMonths: 360,
+  };
+}
+
+function ledgerOf(...events: LifeEvent[]): Ledger {
+  return { events, nextSequenceNumber: events.length };
+}
+
+describe("goalFundingBlocks — events naming a goal's fund account as a funding source", () => {
+  it("names the event blocking a goal whose fund account it draws from", () => {
+    // The home purchase at month 72 funds its down payment from Goal A's derived account.
+    const buy = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
+    const blocks = goalFundingBlocks([goalA, goalB], "a", ledgerOf(buy));
+    expect(blocks).toEqual([{ label: "Bought a home", month: 72 }]);
+  });
+
+  it("returns nothing when no event references the goal's fund account", () => {
+    const buy = homePurchase("buy1", 72, 0, ["savings"]);
+    expect(goalFundingBlocks([goalA, goalB], "a", ledgerOf(buy))).toEqual([]);
+  });
+
+  it("unblocks once the referencing event is removed from the ledger", () => {
+    const referenced = goalFundingBlocks([goalA], "a", ledgerOf(homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)])));
+    expect(referenced).toHaveLength(1);
+    // The event gone from the log, nothing points at the fund account any more.
+    expect(goalFundingBlocks([goalA], "a", emptyLedger)).toEqual([]);
+  });
+
+  it("lists every blocking event, sorted by (month, sequence)", () => {
+    const later = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
+    const earlier = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
+    const blocks = goalFundingBlocks([goalA], "a", ledgerOf(later, earlier));
+    expect(blocks).toEqual([
+      { label: "Bought a home", month: 72 },
+      { label: "Bought a home", month: 90 },
+    ]);
+  });
+});
+
+describe("goalDeletionBlockMessage — the refuse-to-delete text", () => {
+  it("is null when the goal's fund account is unreferenced (deletion may proceed)", () => {
+    const buy = homePurchase("buy1", 72, 0, ["savings"]);
+    expect(goalDeletionBlockMessage([goalA], "a", ledgerOf(buy))).toBeNull();
+  });
+
+  it("names each blocking event by label and month", () => {
+    const buy = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
+    expect(goalDeletionBlockMessage([goalA], "a", ledgerOf(buy))).toBe(
+      `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(72)}`,
     );
   });
 });

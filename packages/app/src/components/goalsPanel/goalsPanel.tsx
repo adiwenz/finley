@@ -13,7 +13,7 @@
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { ProjectionSeries } from "@finley/engine";
-import type { Plan } from "@finley/engine";
+import type { Plan, Ledger } from "@finley/engine";
 import {
   goalRows,
   reorderGoal,
@@ -21,6 +21,7 @@ import {
   addGoal,
   updateGoal,
   removeGoal,
+  goalDeletionBlockMessage,
   type GoalDraft,
 } from "../../goalsView";
 import { GoalForm } from "./goalForm";
@@ -31,14 +32,26 @@ interface GoalsPanelProps {
   budget: Plan;
   series: ProjectionSeries;
   setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * The event ledger, read only to guard deletion: a goal's derived fund account may be
+   * named as an event's funding source, and dropping the goal would strand that reference.
+   */
+  ledger: Ledger;
 }
 
 /** Which authoring form, if any, is disclosed: a goal id (edit), "new" (add), or none. */
 type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
 
-export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
+export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProps) {
   const rows = goalRows(budget, series);
   const [authoring, setAuthoring] = useState<Authoring>(null);
+  // The goal whose delete was last refused. Only the id is stored; the refusal text is
+  // derived from the current ledger below, so removing or re-pointing the blocking events
+  // clears the message live rather than leaving stale text behind.
+  const [refusedDeleteId, setRefusedDeleteId] = useState<string | null>(null);
+  const refusalMessage = refusedDeleteId
+    ? goalDeletionBlockMessage(budget.goals, refusedDeleteId, ledger)
+    : null;
 
   function move(id: string, direction: "up" | "down") {
     setBudget((current) => ({ ...current, goals: reorderGoal(current.goals, id, direction) }));
@@ -59,6 +72,13 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
   }
 
   function remove(id: string) {
+    // Refuse while the goal's fund account funds an event — deleting it strands that funding
+    // reference. The user edits or re-points the named events first.
+    if (goalDeletionBlockMessage(budget.goals, id, ledger)) {
+      setRefusedDeleteId(id);
+      return;
+    }
+    setRefusedDeleteId(null);
     setBudget((current) => ({ ...current, goals: removeGoal(current.goals, id) }));
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
@@ -150,6 +170,13 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
                     Delete
                   </button>
                 </div>
+                {refusedDeleteId === row.id && refusalMessage && (
+                  // Heading + one `\n`-joined line per blocking event; `.alert-list`
+                  // preserves the newlines so it reads as a list.
+                  <p className="alert alert-amber alert-list" role="alert">
+                    {refusalMessage}
+                  </p>
+                )}
                 {authoring?.kind === "edit" && authoring.id === row.id && (
                   <GoalForm
                     initial={budget.goals.find((g) => g.id === row.id)}
