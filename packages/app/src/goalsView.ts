@@ -9,7 +9,7 @@ import {
   computeGoalProgress,
   buildPlanAccounts,
   buildPlanGoals,
-  goalFundAccountId,
+  eventsFundedByGoal,
   type ProjectionSeries,
 } from "@finley/engine";
 import type {
@@ -20,7 +20,6 @@ import type {
   GoalAccountType,
   GoalCompletion,
   Ledger,
-  LifeEvent,
 } from "@finley/engine";
 import { summarizeEvent } from "./ledgerView";
 import { monthLabel } from "./format";
@@ -166,39 +165,26 @@ export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
   return goals.filter((g) => g.id !== id);
 }
 
-/**
- * The account ids an event names as funding sources, in drain order. Today only a home
- * purchase's ordered down-payment sources reference an account by id; every other event
- * type funds nothing, so it can never block a goal deletion.
- */
-function eventFundingSourceIds(event: LifeEvent): readonly string[] {
-  return event.type === "HomePurchaseEvent" ? event.downPaymentSourceIds : [];
-}
-
-/** One event that names a goal's fund account, in the shape the block message renders. */
+/** One event that blocks a goal's deletion, in the shape the block message renders. */
 export interface GoalFundingBlock {
   readonly label: string;
   readonly month: number;
 }
 
 /**
- * Events whose funding sources name the goal's derived `goal-<id>` account, sorted by
- * (month, sequence) so the block list reads in timeline order. Empty when the account is
- * unreferenced — deletion is then free. Reads the ledger directly rather than the
- * projection: the reference is an authoring fact, present whether or not the draw resolves.
+ * The blocking events in the words a person reads. Which events block is the engine's
+ * question ({@link eventsFundedByGoal} — already in timeline order); this only names them,
+ * with the same labels the timeline shows.
  */
 export function goalFundingBlocks(
   goals: readonly GoalPlan[],
   id: string,
   ledger: Ledger,
 ): GoalFundingBlock[] {
-  const goal = goals.find((g) => g.id === id);
-  if (!goal) return [];
-  const fundAccountId = goalFundAccountId(goal);
-  return [...ledger.events]
-    .filter((e) => eventFundingSourceIds(e).includes(fundAccountId))
-    .sort((a, b) => a.month - b.month || a.sequenceNumber - b.sequenceNumber)
-    .map((e) => ({ label: summarizeEvent(e).label, month: e.month }));
+  return eventsFundedByGoal(goals, id, ledger).map((e) => ({
+    label: summarizeEvent(e).label,
+    month: e.month,
+  }));
 }
 
 /**

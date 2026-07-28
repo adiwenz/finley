@@ -9,6 +9,10 @@ import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
+import { goalFundAccountId } from "./projectionBase";
+import { withLedger } from "./scenario";
+import { emptyLedger } from "./ledger/ledger";
+import type { LifeEvent } from "./ledger/eventTypes";
 import type { PersonId } from "./job";
 
 const P1 = "p1" as PersonId;
@@ -181,6 +185,94 @@ describe("Projection root — one root for standing + ledger writes", () => {
     ).toThrow();
     expect(p.state).toBe(before);
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+  });
+});
+
+describe("Projection root — removing a goal guards its fund account", () => {
+  const carGoal = {
+    name: "Car",
+    targetCents: dollarsToCents(30000),
+    targetDate: 36,
+    disposition: "retain",
+    annualReturnPct: 3,
+  } as const;
+
+  /**
+   * A ledger whose home purchase spends from the goal's fund account. Written straight into
+   * the state rather than through `buyHome`, so the removal guard is tested on its own and
+   * not through the down-payment affordability gate.
+   */
+  function withPurchaseFundedBy(p: Projection, goalId: string): Projection {
+    const s = p.state;
+    const goal = s.scenario.plan.goals.find((g) => g.id === goalId);
+    if (!goal) throw new Error(`test setup: no goal "${goalId}"`);
+    const purchase: LifeEvent = {
+      id: "e1",
+      type: "HomePurchaseEvent",
+      month: 24,
+      sequenceNumber: 1,
+      propertyId: "home-1",
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(300000),
+      downPaymentCents: dollarsToCents(60000),
+      downPaymentSourceIds: [goalFundAccountId(goal)],
+      mortgageLiabilityId: "mortgage-home-1",
+      mortgageApr: 0.065,
+      mortgageTermMonths: 360,
+    };
+    return Projection.fromJSON({
+      ...s,
+      scenario: withLedger(s.scenario, { events: [purchase], nextSequenceNumber: 2 }),
+    });
+  }
+
+  it("removes a goal no event funds", () => {
+    const p = freshProjection();
+    const goalId = p.addGoal(carGoal);
+    p.removeGoal(goalId);
+    expect(p.plan.goals.map((g) => g.id)).not.toContain(goalId);
+  });
+
+  it("leaves the other goals alone", () => {
+    const p = freshProjection();
+    const keep = p.addGoal({ ...carGoal, id: "keep" });
+    p.removeGoal(p.addGoal({ ...carGoal, id: "drop" }));
+    expect(p.plan.goals.map((g) => g.id)).toEqual([...samplePlan.goals.map((g) => g.id), keep]);
+  });
+
+  it("refuses while an event spends from the goal's fund account", () => {
+    const p0 = freshProjection();
+    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const p = withPurchaseFundedBy(p0, goalId);
+    const before = p.state;
+
+    expect(() => p.removeGoal(goalId)).toThrow(
+      /cannot remove goal — Cannot remove goal "house-fund": its fund account "goal-house-fund" funds "e1" \(HomePurchaseEvent, month 24\)/,
+    );
+    // Refused means untouched, not partially applied.
+    expect(p.state).toBe(before);
+    expect(p.plan.goals.map((g) => g.id)).toContain(goalId);
+  });
+
+  it("allows the removal once the referencing event leaves the ledger", () => {
+    const p0 = freshProjection();
+    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const blocked = withPurchaseFundedBy(p0, goalId);
+    expect(() => blocked.removeGoal(goalId)).toThrow();
+
+    const s = blocked.state;
+    const unblocked = Projection.fromJSON({
+      ...s,
+      scenario: withLedger(s.scenario, emptyLedger),
+    });
+    unblocked.removeGoal(goalId);
+    expect(unblocked.plan.goals.map((g) => g.id)).not.toContain(goalId);
+  });
+
+  it("treats an id that is not a goal as a no-op rather than an error", () => {
+    const p = freshProjection();
+    expect(() => p.removeGoal("no-such-goal")).not.toThrow();
+    expect(p.plan.goals).toEqual(samplePlan.goals);
   });
 });
 

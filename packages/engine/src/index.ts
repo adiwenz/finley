@@ -100,6 +100,9 @@ export { Projection } from "./projectionRoot";
 // from a projection.
 export * from "./scenario";
 export * from "./projectionBase";
+// Which events spend from a goal's fund account — the integrity question behind removing a
+// goal, since the account is derived from the goal and falls away with it.
+export * from "./goalFunding";
 // The per-mode retirement searches stay module-internal; `solveRetirement` returns all three
 // ages at once. `projectScenario` + `planSurvives` are public because the app's acceptance
 // tests use them as an independent survival oracle (panel age == first surviving age).

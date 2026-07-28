@@ -25,6 +25,7 @@ import type { ProjectionSeries } from "./projection/simulate";
 import type { LiabilityKind } from "./liability";
 import type { GrowthMode } from "./cashFlowSeries";
 import { addEvent } from "./ledger/addEvent";
+import { validateGoalRemoval } from "./goalFunding";
 import { projectScenario } from "./retirementSolver";
 import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
@@ -202,6 +203,24 @@ export class Projection {
     const plan = s.scenario.plan;
     this.commitPlan({ ...plan, goals: [...plan.goals, newGoal] }, nextSeq);
     return id;
+  }
+
+  /**
+   * Drop a goal and, with it, the derived fund account that is its balance. REFUSED while
+   * any event still spends from that account: the account would vanish out from under a
+   * reference the ledger keeps, so the removal is a no-op and this throws with the state
+   * untouched — the same contract {@link commitEvent} gives a refused transaction.
+   *
+   * Removing a goal that no event funds, or an id that is not a goal, is a plain no-op-safe
+   * plan swap. Callers wanting to ask before acting call {@link validateGoalRemoval}.
+   */
+  removeGoal(id: string): void {
+    const plan = this.state.scenario.plan;
+    const check = validateGoalRemoval(plan.goals, id, this.state.scenario.ledger);
+    if (!check.ok) {
+      throw new Error(`Projection: cannot remove goal — ${check.reason}`);
+    }
+    this.commitPlan({ ...plan, goals: plan.goals.filter((g) => g.id !== id) });
   }
 
   setRetirementTarget(age: number): void {
