@@ -22,23 +22,15 @@ import {
 } from "./incomeByCategory";
 
 /**
- * Monthly cash-flows-vs.-spending chart, drawn directly above the per-line budget chart and
- * sharing its x-axis, click-to-select gesture and selection marker. It stacks every cash source
- * the household sees — earned income, the government benefit, savings interest, and
- * savings/asset withdrawals — so it is broader than "income" alone.
+ * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
+ * click-to-select gesture and marker. Stacks every cash source — wages, benefit, interest,
+ * asset and savings draws — broader than "income". Simple (default) folds every draw into
+ * one "Living off savings" band; Advanced splits each source out.
  *
- * Two views, switched by the Advanced toggle:
- *   - **Simple** (default) — wages per job, Social Security, and one "Living off savings" band
- *     folding in every asset-sale draw and the cash drawdown.
- *   - **Advanced** — every source as its own band.
+ * Bands are take-home by default (after the source's own tax and pre-tax deferral); gross
+ * would show money that never reaches the checking account, overstating headroom.
  *
- * Bands are drawn **take-home** by default: each source's cash after its own tax and pre-tax
- * deferral. Gross would draw the cash flow *above* the tax and 401(k) money that never reach
- * the checking account, overstating the headroom; the toggle switches back to it for reading
- * raw earning power.
- *
- * As with the budget chart, the summary and hidden data mirrors render independently of
- * Recharts, which needs a real width that jsdom does not provide.
+ * The summary and data mirrors render outside Recharts (jsdom gives no real width).
  */
 
 // Wages: one blue step per job, cooler than the budget chart's earth tones so the two charts

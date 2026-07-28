@@ -32,7 +32,14 @@ walkthrough; tests keep arithmetic pins and why-this-case-matters notes but lose
 mechanics narration. Files already lean were left alone. Files under 1.2 comment
 words per line of code were excluded from the sweep entirely.
 
-Measured: **96,044 → 56,517 comment words (−41%)**, 10,179 → 6,630 comment lines
+4. **Long-block pass.** A final sweep over every comment block still 120+ words —
+   mostly module headers. A header earns its length only by stating what the
+   exports cannot: the layering constraint, the invariant, the rejected
+   alternative, the footgun. Export enumerations and motivational framing went;
+   the longest block in the tree is now 182 words (the decumulation channel's
+   gross-up contract, which covers four distinct topics), down from 276.
+
+Measured: **96,044 → 55,097 comment words (−43%)**, 10,179 → 6,503 comment lines
 (26% of all lines → 18%).
 
 Kept throughout: invariants and runtime-enforced contracts, JS footguns

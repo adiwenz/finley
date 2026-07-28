@@ -1,18 +1,12 @@
 /**
- * The **pay change at this month** control. Owns the disclosed form — whether it is open,
- * its live contents, and the confirmation note — so {@link BaseAdjustmentsPanel} carries
- * none of that transient state.
+ * The **pay change at this month** control. Owns the disclosed form's transient state, so
+ * {@link BaseAdjustmentsPanel} carries none of it. It never sees `Plan` or `setBudget`; it
+ * hands the parent a finished {@link JobIncomeOverride} or {@link JobPayChange} to apply,
+ * against a month the parent selects.
  *
- * The change is made against a month the parent selects. Two kinds are one-month
- * perturbations (a bonus on top, or an absolute figure — a {@link JobIncomeOverride}); two
- * are permanent step changes holding from the month forward (a new ongoing pay, or a delta —
- * a {@link JobPayChange}). All ride the job's own income series, so all are taxed as wages
- * and run through its 401(k): a bonus is not tax-free cash, a raise not a magic influx.
- *
- * No separate "missed paycheck" kind — that is "Set pay this month" to $0.
- *
- * This component never sees `Plan` or `setBudget`; it hands the parent a finished
- * {@link JobIncomeOverride} or {@link JobPayChange} to apply.
+ * Every kind rides the job's own income series, so all are taxed as wages and run through
+ * its 401(k) — a bonus is not tax-free cash. No separate "missed paycheck" kind: that is
+ * "Set pay this month" to $0.
  */
 
 import { useState } from "react";

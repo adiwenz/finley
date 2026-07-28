@@ -1,19 +1,12 @@
 /**
- * The unified **spending read model**: everything a month costs, itemized, from one place.
+ * The unified spending **read** model: one flat, labelled, categorized list of everything a
+ * month costs. No new source of truth — spending still reaches the simulator through four
+ * unrelated authoring models, rightly so (a loan payment is not an expense line, and making it
+ * one would invent an editable fact the model lacks), but re-deriving the list downstream from
+ * four shapes made each consumer get it subtly differently and miss whole categories.
  *
- * Spending reaches the simulator through unrelated authoring models — a standing
- * {@link import("../budgetLine").BudgetLine}, the plan's health line, an expense series a
- * life event created, a liability's payment computed from balance/rate/term. They are
- * *right* to be separate: a loan payment is not an expense line, and making it one would
- * invent an editable fact the model lacks. But re-deriving one list downstream from four
- * shapes means each consumer gets it subtly differently — the app did, and missed whole
- * categories of spending.
- *
- * So the engine reports {@link SpendingItem}s: one flat, labelled, categorized list per
- * month, summing to the month's whole obligation ({@link sumSpendingItems} ==
- * `expensesCents + liabilityPaymentsCents`, pinned by test). A **read** model — no new
- * source of truth. Each item points back at its authoring fact and states whether that
- * fact is editable as a line, so a UI offers an edit exactly where one exists.
+ * {@link sumSpendingItems} == `expensesCents + liabilityPaymentsCents`, pinned by test. Each
+ * item points back at its authoring fact and states whether that fact is editable as a line.
  */
 
 import type { Cents } from "../money";

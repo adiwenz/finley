@@ -1,22 +1,15 @@
 /**
- * Editing the household's jobs — **owner-aware, as one domain operation**.
+ * Owner-aware job editing. `Plan.jobs` holds only the primary person's jobs; a partner's ride
+ * the `RelationshipEvent` that brought them into the household, so reaching for `Plan.jobs`
+ * directly misses partners.
  *
- * Jobs live on two authoring planes: `Plan.jobs` holds only *the primary person's*, while a
- * partner's ride the `RelationshipEvent` that brought them into the household. Callers that
- * reached for `Plan.jobs` directly therefore missed partners entirely.
- * {@link ownedJobsOf} lists every member's jobs as one roster and {@link reviseJob} rewrites
- * any of them without the caller knowing which plane it lives on.
+ * One form submission can change fields *and* hand the job to another member, as one edit:
+ * splitting them minted a *new* job, losing its id, one-month overrides, permanent pay changes
+ * and employer match. {@link editJob} works from the existing {@link Job}, keeps its id, and
+ * resolves the draft's ages against the new owner.
  *
- * One submission of the job form can change fields *and* hand the job to another member —
- * one edit, not two. Splitting them broke reassignment: the job was removed from one member
- * and a *new* one minted on the other, losing its id, one-month overrides, permanent pay
- * changes and employer match. So {@link editJob} works from the **existing full
- * {@link Job}** ({@link applyJobDraft}), keeps its id, and resolves the draft's ages against
- * whichever owner now holds it.
- *
- * Nothing is written here: all checks run first and a failure returns no writes, so a
- * rejected edit cannot leave a job removed from one member and missing from the other. The
- * caller (the Jobs panel) commits them, since that is where the two planes are known.
+ * Nothing is written here: checks run first and a failure returns no writes, so a rejected
+ * edit cannot leave a job in neither list. The caller commits.
  */
 
 import type { Job, PersonId } from "@finley/engine";

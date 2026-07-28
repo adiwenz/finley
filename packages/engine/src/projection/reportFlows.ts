@@ -20,19 +20,17 @@ export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
 
 /**
- * Two income views from one pass: the `incomeByCategoryCents` tax-category rollup (retained
- * for compatibility) and the finer `incomeSources` list keeping each source distinct, so two
- * jobs or two pre-tax accounts no longer collapse into one bucket. `sourceId`/`label` ride
- * through from the builders; a source lacking them falls back to its tax category.
+ * Two income views from one pass: the `incomeByCategoryCents` tax-category rollup (kept for
+ * compatibility) and the finer per-source `incomeSources`. `sourceId`/`label` ride through;
+ * a source lacking them falls back to its tax category.
  *
- * `liquidDrawdownCents` (the gap cash savings covered, from the withdrawal channel) is
- * appended as its own `savingsDrawdown` source so "living off savings" is visible, but stays
- * OUT of the category rollup and total: a drawdown is spending an asset, not income.
+ * `liquidDrawdownCents` (the gap cash savings covered) is appended as its own
+ * `savingsDrawdown` source but stays OUT of the rollup and total: a drawdown is spending an
+ * asset, not income.
  *
- * `taxByCategoryCents`, `taxBySourceCents` and `deferralBySourceCents` ride straight through,
- * pre-computed because attribution is the jurisdiction's call, not the report layer's. The
- * per-source maps are keyed by the SAME `sourceId ?? taxCategory` the income side bands on,
- * so a consumer can line each income band up with the tax it bore and the deferral it made.
+ * `taxByCategoryCents`, `taxBySourceCents` and `deferralBySourceCents` ride through
+ * pre-computed — attribution is the jurisdiction's call. The per-source maps are keyed by
+ * the SAME `sourceId ?? taxCategory` the income side bands on.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],

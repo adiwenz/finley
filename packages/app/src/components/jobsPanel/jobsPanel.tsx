@@ -1,22 +1,15 @@
 /**
- * Jobs panel — the single authoring surface for earned income, listing **every household
- * member's** {@link Job}s. A person may hold any number of jobs, several possibly
- * open-ended; none is privileged — there is no "career job". Dated changes (a one-off
- * month, a permanent raise or cut) are authored against the income graph in Base +
- * Adjustments, where a month is selected; this panel holds standing job data but *lists*
- * each job's permanent pay changes and lets them be removed here, since those move what
- * the job pays and the headline shows only the starting salary.
+ * Every household member's {@link Job}s; none is privileged — there is no "career job".
+ * Dated changes are authored in Base + Adjustments; permanent pay changes are only listed
+ * and removable here, since the headline shows starting salary.
  *
- * **Two planes, one list.** The primary person's jobs are standing plan data (a value-plane
- * edit, never a timeline event); a partner's ride the `RelationshipEvent` that brought them
- * into the household, so editing those revises that event ({@link
- * import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the difference behind
- * one owner list, and each row's owner routes its edit — without it a partner's jobs are
- * write-once, unchangeable short of removing the partner outright.
+ * The primary person's jobs are standing plan data; a partner's ride the `RelationshipEvent`
+ * that brought them in, so editing those revises that event ({@link
+ * import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the difference behind one
+ * owner list; without it a partner's jobs are write-once.
  *
- * The 401(k) elective-limit nudge lives here with the deferral: topping the year's IRS
- * limit is not an error — contributions stop at the cap and the overflow is paid as
- * taxable income. The limit is per person, so the nudge speaks for one earner's own jobs.
+ * Topping the per-person 401(k) elective limit is not an error: contributions stop at the cap
+ * and the overflow is paid as taxable income.
  */
 
 import { useMemo, useState } from "react";

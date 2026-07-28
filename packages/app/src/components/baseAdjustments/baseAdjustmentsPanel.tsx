@@ -1,21 +1,16 @@
 /**
- * The **Base + Adjustments** budget editor. Click the graph to pick a month, every row
- * resolves *at that month*; type a number and answer "just this month, or from here
- * forward?". {@link routeMonthEdit} routes to the right primitive — line override, ledger
- * transaction, or job income override. There is no `Adjustment` entity underneath.
- *
- * The graph is the engine's itemized spending report — authored lines, spending they don't
- * author (health, timeline expenses), and each debt's payment — so the stack totals the
- * month's whole obligation. Spending is never rationed away behind the user's back.
+ * The **Base + Adjustments** budget editor. Every row resolves *at the selected month*; typing
+ * a number asks "just this month, or from here forward?", and {@link routeMonthEdit}
+ * decomposes the answer into existing primitives — there is no `Adjustment` entity underneath.
  *
  * A non-empty `Plan.budgetLines` replaces the scalar `expenseCents` series outright
  * (`projectionBase.ts`) — hence no separate scalar monthly-expenses control.
  *
- * The children own no state; what stays here spans them: the selected month, the staged
- * edit, which line form is disclosed (one at a time across both lists), and plan mutations.
+ * The children own no state: the selected month, the staged edit and the open line form (one
+ * at a time across both lists) live here.
  *
- * Standing pay lives on the person's jobs, authored in the Jobs panel. The exception is a
- * one-off single-month change, which writes a per-job
+ * Standing pay lives on the person's jobs, authored in the Jobs panel; only a one-off
+ * single-month change is written here, as a per-job
  * {@link import("@finley/engine").JobIncomeOverride}.
  */
 

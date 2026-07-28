@@ -14,19 +14,15 @@ import { formatDollars } from "../../format";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
- * Monthly tax-paid chart — below the income and per-line budget charts, sharing their
- * x-axis, click-to-select gesture, and selection marker. Read with the two above it, it
- * shows the wedge the tax seam takes out between gross income and gross spending.
+ * Monthly tax-paid chart — below the income and budget charts, sharing their x-axis,
+ * click-to-select gesture, and selection marker.
  *
- * It STACKS BY INCOME SOURCE, matching the income chart: the engine splits tax down to the
- * job / account draw that bore it, so each band names its source and is coloured by that
- * source's provenance category — a "money leaving" rust family, distinct from the income
- * blues and budget greens, one tone per category so a household's jobs read as sibling
- * shades. Attribution is required of every jurisdiction and enforced to reconcile, so a
- * plan that pays tax always stacks per source; a zero-tax plan draws a flat-zero line.
+ * STACKS BY INCOME SOURCE, like the income chart: the engine splits tax down to the job or
+ * account draw that bore it, coloured by that source's provenance category — a "money
+ * leaving" rust family, distinct from income blues and budget greens. Attribution is
+ * required of every jurisdiction and enforced to reconcile; a zero-tax plan draws flat zero.
  *
- * The summary and a hidden data mirror render independently of Recharts, so behaviour is
- * assertable without SVG layout (Recharts needs a real width, absent in jsdom).
+ * The summary and data mirror render outside Recharts (jsdom gives no real width).
  */
 
 // Single-band fallback colour, plus a rust "money leaving" family set apart from the

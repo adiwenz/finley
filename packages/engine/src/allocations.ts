@@ -1,18 +1,14 @@
 /**
- * The unified `allocations()` view — one ordered list folding together the three claims on
- * a month's cash: per-job pre-tax deferrals, budget line items, and goals. Reads unify
- * here, but each entry points at its **canonical home**, so a write lands where the fact
- * lives (deferral → job, expense/contribution → budget, goal semantics → goal). One home
- * per fact, so reads never contradict and undo/override ride on that home.
+ * One ordered list folding the three claims on a month's cash: per-job pre-tax deferrals,
+ * budget lines, goals. Each points at its **canonical home** (deferral → job,
+ * expense/contribution → budget, goal semantics → goal), so writes land where the fact lives.
  *
- * **Merge order mirrors cash flow:** pre-tax deferrals come off gross above the tax line
- * and sort first; everything else is post-tax, ordered by flat waterfall priority, with the
- * category tier supplying the default when a line names none. Goals fold in as computed
- * goal-paced line items — a sinking-fund contribution to the goal's fund account, with
- * target/deadline/disposition still owned by the goal.
+ * **Merge order mirrors cash flow:** pre-tax deferrals sort first (off gross, above the tax
+ * line); the rest is post-tax, by flat waterfall priority, the category tier defaulting when
+ * a line names none. Goals fold in as goal-paced sinking-fund contributions to their fund
+ * account.
  *
- * Pure and jurisdiction-agnostic: imports only the standing authoring types and nothing
- * from `projection/*`.
+ * Pure and jurisdiction-agnostic: imports nothing from `projection/*`.
  */
 
 import type { Cents } from "./money";

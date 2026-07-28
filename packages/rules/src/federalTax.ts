@@ -20,32 +20,20 @@ export {
 } from "./federalTaxAttribution";
 
 /**
- * US federal income tax for a SINGLE FILER (seam 1) — the `rules`-side plug behind the
- * engine's {@link import("@finley/engine").Jurisdiction.computeTaxCents} seam, called once
- * per person. Four things make it not-a-flat-rate:
+ * US federal income tax, SINGLE FILER (seam 1): {@link computeFederalTaxCents} is the
+ * `rules`-side plug behind the engine's
+ * {@link import("@finley/engine").Jurisdiction.computeTaxCents} seam, called once per person.
  *
- *   1. **Progressive ordinary brackets** — `wages` and `ordinaryIncome` (plus the taxable
- *      slice of the government benefit) climb the 10→37% stack.
- *   2. **Standard deduction** — off ordinary income first, then any unused remainder off
- *      capital gains (it "stacks down").
- *   3. **Capital-gains preference** — `capitalGains` taxed at 0/15/20%, STACKED on top of
- *      ordinary taxable income (gains fill the brackets left above it, not from zero).
- *   4. **Government-benefit inclusion** — only a portion of a `governmentRetirementBenefit`
- *      (US: Social Security) is taxable, set by the provisional-income formula (0 /
- *      up-to-50% / up-to-85%). `taxExempt` income is never taxed but DOES count toward
- *      provisional income, so it can pull the benefit into range.
+ * Ordinary brackets 10→37%; the standard deduction off ordinary income first, its
+ * remainder stacking down onto gains; `capitalGains` at 0/15/20% stacked ON TOP of
+ * ordinary taxable income; only part of a `governmentRetirementBenefit` (US: Social Security)
+ * taxable, by provisional income (0 / up-to-50% / up-to-85%). `taxExempt` income is untaxed
+ * but raises provisional income, pulling the benefit into range.
  *
- * {@link computeFederalTaxCents} is the only thing `index.ts` wires into the jurisdiction.
+ * NEUTRALITY: every US constant lives in ./federalTaxTables, never in `packages/engine/src`.
  *
- * NEUTRALITY: every US constant — brackets, deduction, cap-gains tops, inclusion
- * thresholds — lives in ./federalTaxTables, never in `packages/engine/src`.
- *
- * Filing status is fixed to SINGLE; MFJ/MFS/HoH tables would layer a status parameter on
- * top.
- *
- * ⚠ Estimates, not advice. All dollar figures are the pinned
- * {@link FEDERAL_TAX_BASE_YEAR} base; later years index forward, earlier years return the
- * base unchanged.
+ * ⚠ Estimates, not advice. Dollar figures are the pinned {@link FEDERAL_TAX_BASE_YEAR} base;
+ * later years index forward, earlier years return the base unchanged.
  */
 
 /**

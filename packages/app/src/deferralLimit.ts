@@ -1,16 +1,13 @@
 /**
- * App-side 401(k) deferral-limit disclosure. The waterfall silently caps a pre-tax deferral
- * at the year's IRS elective limit and pays the overflow as taxable income (the engine's
- * `applyDeferrals`); this surfaces that so the cap isn't invisible in the editor.
+ * App-side 401(k) deferral-limit disclosure: the waterfall (`applyDeferrals`) silently caps
+ * a pre-tax deferral at the year's IRS elective limit, paying overflow as taxable income.
  *
- * A per-year scan, not a current-year check: income grows with CPI while the limit indexes
- * at its own lower rate AND steps with the age-banded catch-ups (up at 50, higher at 60–63,
- * back down at 64), so only walking each working year finds the first crossing.
+ * Income grows with CPI while the limit indexes lower AND steps at the age-banded catch-ups
+ * (50, higher 60–63, back down at 64), so the first crossing needs every working year
+ * walked.
  *
- * And **per person** — the elective limit belongs to the earner, not the household: two
- * people each deferring $20k both sit inside a $24,500 limit, while one person deferring
- * $20k across two jobs is over it. Summing the household would invent a crossing for a
- * couple who has none; folding a partner's jobs in at the primary earner's age would read
+ * And **per person** — the limit belongs to the earner: summing the household invents
+ * crossings a couple lacks; folding a partner's jobs in at the primary earner's age reads
  * the wrong catch-up band.
  */
 

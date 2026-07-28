@@ -1,24 +1,17 @@
 import type { Cents, DeferralLimitContext } from "@finley/engine";
 
 /**
- * US retirement-account contribution limits — the structured cap set governing how much
- * may go into tax-advantaged accounts in a year.
- *
- * The `rules`-side plug for
+ * US retirement-account contribution limits — the `rules`-side plug for
  * {@link import("@finley/engine").Jurisdiction.retirementDeferralLimitCents}. The engine
- * owns the deferral *channel* (the waterfall caps each person's summed 401(k)-style
- * deferrals against this figure and redirects overflow to the next priority destination);
- * this module owns the *dollar values* and age bands.
+ * owns the deferral *channel*; this module owns the *dollar values* and age bands.
  *
- * The caps are NOT one number: the 401(k) employee elective-deferral limit is separate
- * from the total-additions ceiling (employee + employer match) and from the much lower
- * IRA limit; catch-up is age-banded and per-account-type. The full set is modelled here so
- * the values index together, though v1 wires only the elective-deferral limit (+ catch-up)
- * into its single deferral channel; total-additions and IRA caps are authored and indexed
- * but await engine channels to enforce them.
+ * The caps are NOT one number: elective deferral, the total-additions ceiling (employee +
+ * employer match) and the much lower IRA limit are separate, catch-up age-banded per
+ * account type. All are modelled here so the values index together; v1 wires only elective
+ * deferral (+ catch-up).
  *
- * ⚠ Estimates, not advice. US legislation changes yearly; forward years are INDEXED, not
- * authoritative. Figures below are the pinned {@link CONTRIBUTION_LIMITS_BASE_YEAR} base.
+ * ⚠ Estimates, not advice. Forward years are INDEXED from the pinned
+ * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base below, not authoritative.
  */
 
 /** The calendar year the pinned dollar figures below are authoritative for. */

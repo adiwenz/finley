@@ -1,23 +1,17 @@
 import type { Cents, HealthCostContext } from "@finley/engine";
 
 /**
- * US health-cost benchmarks — the monthly figures behind the Medicare step (shape 2).
- * Medicare eligibility at 65 steps health cost DOWNWARD: before it an early retiree
- * self-funds coverage at an elevated rate; at/after it a residual (premiums / Part B /
- * supplements / out-of-pocket) remains — the step does not go to zero.
+ * US health-cost benchmarks behind the Medicare step. Eligibility at 65 steps cost DOWNWARD
+ * but not to zero: a residual (premiums / Part B / supplements / out-of-pocket) remains.
  *
- * The `rules`-side plug for the engine's
- * {@link import("@finley/engine").Jurisdiction.healthCostBenchmarkMonthlyCents} seam. The
- * engine owns the pure early-retiree honesty flag
- * ({@link import("@finley/engine").assessEarlyRetireeHealthCost}); this module owns the
- * eligibility age and the two dollar figures.
- *
- * The app pre-fills the stepped segment and the early-retirement nudge from these; the sim
- * never steps silently, since health is an authored budget item.
+ * The `rules` half of the engine's
+ * {@link import("@finley/engine").Jurisdiction.healthCostBenchmarkMonthlyCents} seam — this
+ * module owns the eligibility age and the two dollar figures, the engine the early-retiree
+ * honesty flag ({@link import("@finley/engine").assessEarlyRetireeHealthCost}). The sim never
+ * steps silently: health is an authored budget item.
  *
  * ⚠ Estimates, not advice. The pre-65 figure is UNSUBSIDISED (v1 conservative — real ACA
- * subsidies would lower it). Forward years are indexed at a health-specific rate, since
- * medical inflation runs above CPI.
+ * subsidies would lower it).
  */
 
 /** The calendar year the pinned dollar figures below are authoritative for. */

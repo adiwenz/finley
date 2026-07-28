@@ -1,18 +1,14 @@
 /**
- * Monthly spending graph data ("Base + Adjustments"): a projection series turned into one band
- * per thing the household's money goes to.
+ * Monthly spending graph data: one band per thing the household's money goes to.
  *
  * Bands are the engine's {@link SpendingItem}s, read straight off each month's flows, already
- * labelled, categorized and tagged with provenance. No reassembly here: stitching the picture
- * from three shapes (per-line map, household series, liability labels) is how whole categories
- * of real spending went missing from the chart.
+ * labelled, categorized and tagged with provenance — no reassembly from the per-line map,
+ * household series and liability labels, which is how whole categories of real spending went
+ * missing from the chart.
  *
- * A month's stack totals exactly the obligation the income graph's spending-need line plots. A
- * tight month is not rationed across the priority order: the simulator never skips spending, so
- * a shortened band would depict money the household did spend. Insolvency is reported as its
- * own fact ({@link insolventFromMonth}) instead.
- *
- * Pure, with no charting-library dependency, so it is unit-testable in node.
+ * A month's stack totals exactly the obligation the income graph's spending-need line plots;
+ * the simulator never skips spending, so a band is never shortened to ration a tight month.
+ * Insolvency is its own fact ({@link insolventFromMonth}).
  */
 
 import type { ProjectionSeries, SpendingItem } from "@finley/engine";

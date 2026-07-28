@@ -14,23 +14,18 @@ import { formatDollars } from "../../format";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Monthly spending chart ("Base + Adjustments"). Each engine spending item is a stacked area —
- * spending as authored, with span, dated overrides and price growth applied — coloured by kind
- * ({@link BAND_PALETTE}): budget, other obligations carried, debt service.
+ * Monthly spending chart: each engine spending item a stacked area, coloured by kind
+ * ({@link BAND_PALETTE}).
  *
- * A tight month does not pinch the low-priority bands: the simulator never skips spending, so a
- * short band would depict money the household did in fact spend. A shortfall shows instead as
- * the terminal case — savings and credit both exhausted — which the amber {@link ReferenceArea}
- * shades from the first insolvent month, with a plain-language summary above the chart that
- * doubles as the figure's accessible description.
+ * Bands are never pinched short in a tight month — the simulator never skips spending, so a
+ * short band would misreport money actually spent. A shortfall shows as the terminal case,
+ * savings and credit exhausted: shaded amber from the first insolvent month, with a summary
+ * that doubles as the figure's accessible description.
  *
- * Also the month picker: clicking a point selects that month, marked with a vertical rule, and
- * the editor below re-resolves every budget row to it. Selection is a controlled prop so the
- * panel owns the month; the keyboard path lives beside the editor heading, since Recharts
- * clicks are pointer-only.
- *
- * The summary and the hidden per-line data mirror render independently of Recharts so behaviour
- * is assertable without SVG layout (Recharts needs a real width, absent in jsdom).
+ * Month selection is a controlled prop, so the panel owns the month, and the
+ * keyboard path lives beside the editor heading since Recharts clicks are pointer-only. The
+ * summary and the hidden data mirror render outside Recharts, which needs a real width, absent
+ * in jsdom.
  */
 
 // Category-tiered palette (needs → wants → savings), on the ledger ink/amber system.

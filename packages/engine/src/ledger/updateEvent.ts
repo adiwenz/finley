@@ -1,22 +1,16 @@
 /**
- * Revise an event already in the ledger — the third write alongside `addEvent` (grow)
- * and `removeEvent` (undo). Without it, anything authored *on* an event is write-once:
- * a partner's jobs live on their `RelationshipEvent`, so changing a partner's salary
- * meant removing the partner and every event depending on them. An update is a
- * *replacement* that must leave a ledger which still replays cleanly.
+ * Without this, anything authored *on* an event is write-once — a partner's jobs live on
+ * their `RelationshipEvent`.
  *
- * Fixed, and why:
- *   - **id and type** — dependencies are tracked by id and interpreted by type
- *     (`computeDependents`, the handler table), so changing either would be a different
- *     event wearing an existing one's name. Use add + remove for that.
- *   - **sequence number** — the ledger's tie-breaker for same-month ordering, never
- *     recycled; a revision keeps its place rather than jumping to the end of the log.
+ * Fixed: **id and type**, since dependencies are tracked by id and interpreted by type
+ * (`computeDependents`, the handler table) — changing either means a different event, so use
+ * add + remove. And the **sequence number**, the never-recycled same-month tie-breaker, so a
+ * revision keeps its place rather than jumping to the end.
  *
- * Everything else, including the month, is revisable, so validation is the same
- * whole-ledger replay `removeEvent` runs: check every remaining event against the
- * base-seeded state in interpretation order and block the edit, naming the offender, if a
- * precondition now fails. Like undo, this runs the pure replay context — the affordability
- * gate needs a projection and fires only on `addEvent`'s authoring path.
+ * Everything else, the month included, is revisable, so validation is the whole-ledger replay
+ * `removeEvent` runs: every remaining event rechecked against the base-seeded state in
+ * interpretation order, blocking the edit and naming the offender. No affordability gate
+ * here — it needs a projection and fires only on `addEvent`.
  */
 
 import type { Ledger } from "./ledger";

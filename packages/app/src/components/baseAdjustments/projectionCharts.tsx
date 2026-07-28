@@ -1,16 +1,11 @@
 /**
- * The graphs at the top of Base + Adjustments: cash flows vs. spending, spending by line,
- * and tax paid — three views of one projected scenario sharing an x-axis, a selection
- * marker, and the click-to-select gesture.
+ * The three graphs at the top of Base + Adjustments, sharing an x-axis, a selection marker
+ * and the click-to-select gesture. Stateless: the selected month is the panel's, since the
+ * editor below points at the same month.
  *
- * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} to keep state +
- * plan mutation apart from presentation. It owns no state: the selected month is the panel's,
- * since the editor below points at the same month.
- *
- * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points on a
- * default plan, one area per band) are the most expensive thing this panel draws, and the
- * panel re-renders on every keystroke in a spending row. Nothing here reads that staging
- * state, so with the data memoized upstream and both callbacks stable, typing skips them.
+ * `memo`ized because the panel re-renders on every keystroke in a spending row while these
+ * Recharts subtrees (660+ points on a default plan, one area per band) are the most expensive
+ * thing it draws — so keep the data memoized upstream and both callbacks stable.
  */
 
 import { memo } from "react";

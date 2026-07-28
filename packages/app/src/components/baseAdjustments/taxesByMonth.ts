@@ -1,21 +1,17 @@
 /**
- * Monthly tax-paid graph data — third companion to the income ({@link
- * import("./incomeByCategory")}) and per-line budget ({@link import("./perLineBudget")})
- * charts, sharing their x-axis and month-selection gesture. Tax is never a budget line and
- * is netted out of every drawdown at the chokepoint, so those charts leave it implicit
- * between gross income and gross spending; this makes it explicit.
+ * Monthly tax-paid graph data, sharing the income and per-line budget charts' x-axis and
+ * month-selection gesture. Tax is never a budget line — it is netted out of every drawdown at
+ * the chokepoint, leaving it implicit in those charts.
  *
- * It STACKS BY INCOME SOURCE, mirroring the income chart: the jurisdiction owns category
- * attribution (US tax is not linearly separable — progressive brackets, the capital-gains
- * preference, benefit inclusion) and the engine splits each category's tax across its
- * sources by taxable weight into `ProjectionMonthFlows.taxBySourceCents`, so a two-earner
- * household sees *which job* is taxed, not one lumped `wages` band. Attribution is required
- * of every jurisdiction and enforced to reconcile; a zero-tax plan has no bands.
+ * It STACKS BY INCOME SOURCE: US tax is not linearly separable, so the jurisdiction owns
+ * category attribution and the engine splits each category's tax across its sources by taxable
+ * weight into `ProjectionMonthFlows.taxBySourceCents`. Attribution is required of every
+ * jurisdiction and enforced to reconcile; a zero-tax plan has no bands.
  *
  * ⚠ The per-source split is proportional (average-rate), not marginal — disclosed as
- * `taxAttributionProportional`. A second job really costs more than its average share.
+ * `taxAttributionProportional`.
  *
- * Pure, with no charting-library dependency, so it is unit-testable in node.
+ * Pure — no charting-library dependency, so unit-testable in node.
  */
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";

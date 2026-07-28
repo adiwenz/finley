@@ -1,20 +1,16 @@
 /**
- * Direct-manipulation budget editing. The gesture is `(row, month, new amount, scope)`.
- * No `Adjustment` entity; this module is the total function from gesture to the primitive
- * the write lands on:
+ * Direct-manipulation budget editing. No `Adjustment` entity: this module is the pure total
+ * function from a `(row, month, new amount, scope)` gesture to the one primitive the write
+ * lands on.
  *
  * |            | just this month                  | from here forward             |
  * |------------|----------------------------------|-------------------------------|
  * | spend line | `thisMonthOnly` line override    | `fromHereForward` line override |
  * | income     | **ledger transaction** (the delta) | job/stream income override    |
  *
- * A one-month income change is a discrete cash event (bonus, missed paycheck), so it routes
- * to the ledger as a DELTA against what the month already resolved to, not an override
- * implying a standing change. A permanent one is a raise and rides the job/stream — income
- * is never a budget line.
- *
- * Pure: the app resolves the "before" amounts, calls {@link routeMonthEdit}, and applies
- * exactly one primitive.
+ * A one-month income change is a discrete cash event (bonus, missed paycheck), so it lands as
+ * a DELTA against what the month already resolved to, not an override implying a standing
+ * change. Income is never a budget line.
  */
 
 import {

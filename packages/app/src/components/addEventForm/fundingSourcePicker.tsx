@@ -1,19 +1,12 @@
 /**
- * The ordered funding-source picker — which accounts pay for a money-out event, and in
- * what order they are drained.
+ * Which accounts pay for a money-out event, and in what order they drain.
+ * Event-neutral: it edits a funding draw's `sourceIds`. Pool and
+ * coverage both come from the engine's `fundingLookup`, the function `addEvent` gates on,
+ * so the form cannot promise what the engine will refuse.
  *
- * Event-neutral: it edits the `sourceIds` of a funding draw, so the Home Purchase down
- * payment and a one-time spend use the same control. It holds no policy — pool and coverage
- * both come from the engine's `fundingLookup`, the function `addEvent` gates on, so the form
- * cannot promise what the engine will refuse.
- *
- * Order is drain order: the first selected account empties before the next is touched, so
- * selecting APPENDS rather than sorts. The checkbox says *whether*, the number says *when*.
- *
- * An empty account is shown greyed and unpickable, not dropped: dropping it made pool
- * membership move with the month, so an account chosen while funded could vanish at a later
- * month with its id still in the selection, uncheckable yet still counted. Only pickability
- * changes between months.
+ * Order is drain order, so selecting APPENDS rather than sorts. An empty account is greyed
+ * and unpickable, never dropped: dropping it let an account chosen while funded vanish at a
+ * later month with its id still selected, uncheckable yet still counted.
  */
 
 import type { FundingAvailability, FundingSourceBalance } from "@finley/engine";

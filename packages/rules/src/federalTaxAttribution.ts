@@ -36,21 +36,17 @@ function apportionByWeight(
 }
 
 /**
- * Split a `totalCents` federal-tax figure across the {@link TaxCategory} buckets that bore
- * it, given the computed {@link FederalTaxParts}. Regime-aware proportional-to-taxable:
+ * Split `totalCents` across the {@link TaxCategory} buckets that bore it, given the computed
+ * {@link FederalTaxParts}. Proportional-to-taxable, per regime:
  *
- *   • The preferential capital-gains tax rides `capitalGains` alone: gains keep their own
- *     0/15/20% rates rather than an averaged blend.
- *   • The progressive ordinary tax splits among `wages`, `ordinaryIncome`, and
- *     `governmentRetirementBenefit` by ordinary-taxable weight (the benefit weighted by
- *     its INCLUDED portion only), sharing the standard deduction and bracket climb
- *     pro-rata.
- *   • `taxExempt` never bears tax — it is only counted for the benefit test.
+ *   • Gains tax rides `capitalGains` alone, keeping its own 0/15/20% rates.
+ *   • Ordinary tax splits among `wages`, `ordinaryIncome` and `governmentRetirementBenefit`
+ *     by ordinary-taxable weight (the benefit by its INCLUDED portion only).
+ *   • `taxExempt` never bears tax; it counts only for the benefit test.
  *
- * ⚠ LIMITATION: an average-rate attribution WITHIN the ordinary regime. It cannot capture
- * that a category's LAST dollar sits in a higher bracket than its first, nor notch/inclusion
- * effects (a marginal ordinary dollar can raise the taxable benefit or push gains out of the
- * 0% band). Exact in TOTAL, not a marginal-incidence decomposition.
+ * ⚠ LIMITATION: average-rate within the ordinary regime, not marginal incidence — it misses
+ * notch/inclusion effects (an ordinary dollar can raise the taxable benefit or push gains out
+ * of the 0% band). Exact in TOTAL only.
  */
 function attributeFederalTax(
   totalCents: Cents,

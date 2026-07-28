@@ -143,7 +143,6 @@ export function buildProjection(
   return simulateHousehold(buildHouseholdSimInput(household, base), jurisdiction);
 }
 
-/** Replay the ledger and project in one call, through a single interpreter. */
 export function replayLedger(
   ledger: Ledger,
   base: LedgerBaseConfig,

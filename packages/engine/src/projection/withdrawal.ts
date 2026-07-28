@@ -107,33 +107,24 @@ function estimateNetIncome(
 
 /**
  * Result of the decumulation channel, which runs BEFORE the waterfall alongside {@link
- * import("./rmd").buildRmdSources}: it pulls cash out of investment accounts (mutating
- * `assetBalances`) and re-injects it as income, so the withdrawal is taxed once at the tax
- * chokepoint.
+ * import("./rmd").buildRmdSources}: it pulls cash from investment accounts (mutating
+ * `assetBalances`) and re-injects it as income, taxed once at the chokepoint.
  *
- * The amount is NEED-based, not a safe-withdrawal rate: `gap = obligations −
- * non-withdrawal net income`, less the liquid buffer spent first. Every draw injects at its
- * account's own withdrawal category, grossed up to the least fixed point of `gross = need +
- * inducedTax(gross)`. This nets the need EXACTLY, where inverting an implied rate (`need /
- * (1 − rate)`) assumes tax scales proportionally and falls short against a real bracket,
- * which sits at `offset + rate × draw`.
+ * NEED-based, not a safe-withdrawal rate: `gap = obligations − non-withdrawal net income`,
+ * less the liquid buffer spent first. Each draw is grossed up to the least fixed point of
+ * `gross = need + inducedTax(gross)`, netting the need exactly — inverting an implied rate
+ * (`need / (1 − rate)`) assumes tax scales proportionally and falls short against a bracket at
+ * `offset + rate × draw`.
  *
- * Two latent limits, neither binding on `usJurisdiction` but both reachable by a new
- * jurisdiction:
+ * Two limits, latent under `usJurisdiction`. The climb assumes MONOTONICITY, so an EITC-shaped
+ * credit phasing in over the draw leaves it returning whatever it held at the iteration
+ * budget. And it only sizes UP: under a notch (Australia's Medicare Levy Surcharge taxes the
+ * whole return once crossed) drawing LESS can be better, but this channel crosses it and may
+ * empty the account.
  *
- * 1. The climb assumes the seam is MONOTONE — a larger draw never owes less tax — so a
- *    rising sequence stops at the cheapest solution rather than oscillating. A refundable
- *    credit phasing IN over the draw (EITC-shaped) breaks it, and the loop returns whatever
- *    it held when the iteration budget ran out.
- * 2. The draw is only sized UP from `need`. Under a notch — a threshold taxing the whole
- *    return more once crossed, not just the excess, as Australia's Medicare Levy Surcharge
- *    does — drawing LESS and carrying a small shortfall can leave the household better off.
- *    This channel will cross the notch, and if the lump outruns the balance it empties the
- *    account.
- *
- * No double-withdraw against RMDs: their sources are already in `nonWithdrawalSources`, so
- * their income shrinks the gap and their forced draw already reduced these balances —
- * total pre-tax drawn settles at `max(desired, required)`.
+ * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
+ * their forced draw already reduced these balances, so total pre-tax drawn settles at
+ * `max(desired, required)`.
  */
 export interface WithdrawalPlan {
   readonly sources: IncomeSourceMonth[];
