@@ -1,25 +1,24 @@
 /**
  * The **Base + Adjustments** budget editor. Direct manipulation, not a form: click the graph
- * to pick a month, every row shows what it resolves to *at that month*; type a number and
- * answer "just this month, or from here forward?". {@link routeMonthEdit} routes to the
- * right primitive — line override, ledger transaction, or job income override. There is no
- * `Adjustment` entity underneath.
+ * to pick a month, every row resolves *at that month*; type a number and answer "just this
+ * month, or from here forward?". {@link routeMonthEdit} routes to the right primitive — line
+ * override, ledger transaction, or job income override. There is no `Adjustment` entity
+ * underneath.
  *
- * The graph is the engine's itemized spending report: authored lines, the spending they
- * don't author (health, timeline expenses), and each debt's payment, so the stack totals the
+ * The graph is the engine's itemized spending report — authored lines, spending they don't
+ * author (health, timeline expenses), and each debt's payment — so the stack totals the
  * month's whole obligation. Spending is never rationed away behind the user's back; an
  * unfinanceable plan says so outright.
  *
- * The budget lives on `Plan.budgetLines`, so editing here drives net worth, the retirement
- * solver, everything. A non-empty `budgetLines` replaces the scalar `expenseCents` series
- * outright (`projectionBase.ts`) — hence no separate scalar monthly-expenses control.
+ * A non-empty `Plan.budgetLines` replaces the scalar `expenseCents` series outright
+ * (`projectionBase.ts`) — hence no separate scalar monthly-expenses control.
  *
  * The children own no state; what stays here spans them: the selected month, the staged
  * edit, which line form is disclosed (one at a time across both lists), and plan mutations.
  *
  * Standing pay is NOT edited here — it lives on the person's jobs, authored in the Jobs
- * panel. The exception is a one-off single-month change (bonus, missed paycheck), which
- * writes a per-job {@link import("@finley/engine").JobIncomeOverride} taxed as wages.
+ * panel. The exception is a one-off single-month change, which writes a per-job
+ * {@link import("@finley/engine").JobIncomeOverride}.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -73,7 +72,7 @@ import styles from "./baseAdjustments.module.css";
 
 /**
  * Module-level, not a `?? []` fallback: a fresh literal each render is a new identity, so
- * every memo keyed on the line list would recompute for a plan authoring no lines at all.
+ * every memo keyed on the line list would recompute.
  */
 const NO_BUDGET_LINES: readonly BudgetLine[] = [];
 
@@ -88,9 +87,8 @@ export interface BaseAdjustmentsPanelProps {
   readonly plan: Plan;
   readonly setBudget: Dispatch<SetStateAction<Plan>>;
   /**
-   * Passed in, not re-projected: projecting the bare plan drops every life event, so a
-   * household paying a student loan saw a chart disagreeing with the net-worth graph beside
-   * it.
+   * Passed in, not re-projected: projecting the bare plan drops every life event, so the
+   * chart disagreed with the net-worth graph beside it.
    */
   readonly series: ProjectionSeries;
   /**
@@ -175,8 +173,8 @@ export function BaseAdjustmentsPanel({
     setLineAuthoring(null);
   }
   /**
-   * Expense rows and the contributions list open into the same slot, so the one-at-a-time
-   * toggle is arbitrated here, not in either list.
+   * Expense rows and the contributions list share one slot, so the toggle is arbitrated
+   * here, not in either list.
    */
   function toggleLineForm(id: string): void {
     setLineAuthoring((a) => (a?.kind === "edit" && a.id === id ? null : { kind: "edit", id }));
@@ -196,9 +194,8 @@ export function BaseAdjustmentsPanel({
   /** Display only: the compiled total across every job, so no row has to pick *the* income. */
   const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
 
-  // The form and its transient state live in {@link PayChangeEditor}; the panel keeps only
-  // the mutation, so the child never touches `Plan`, the ledger, or their setters. EVERY
-  // earner's jobs, not just the primary person's — the picker names whose job each one is.
+  // EVERY earner's jobs, not just the primary person's — the picker names whose job each
+  // one is.
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   const jobOptions = useMemo(
     () => ownedJobsOf(owners).map(({ job, label }) => ({ id: job.id, label })),
@@ -235,8 +232,8 @@ export function BaseAdjustmentsPanel({
   }
 
   /**
-   * Answer the how-long question — the one gesture that commits a spending change. Only
-   * budget *lines* are edited in place here, so a staged edit is always a line override.
+   * Only budget *lines* are edited in place here, so a staged edit is always a line
+   * override.
    */
   function commit(scope: EditScope): void {
     if (pending === null) return;
@@ -266,7 +263,6 @@ export function BaseAdjustmentsPanel({
 
   const horizonMonths = spendingChartData.rows.length;
 
-  /** The edit gesture, and what a line list may do to the authored budget. */
   const editActions: SpendingEditActions = {
     onStage: stageEdit,
     onCommit: commit,
@@ -279,13 +275,13 @@ export function BaseAdjustmentsPanel({
     onDelete: deleteLine,
   };
 
-  // No `card` class: `main.tsx` wraps every panel in one. Carrying one here too drew a box
-  // in a box.
+  // No `card` class: `main.tsx` already wraps every panel in one — a second drew a box in a
+  // box.
   return (
     <section>
       <h2>Base + Adjustments</h2>
 
-      {/* Graph: click a point to move the editor there — the edit gesture. */}
+      {/* Click a point to move the editor to that month. */}
       <ProjectionCharts
         incomeData={incomeChartData}
         spendingData={spendingChartData}
@@ -321,10 +317,9 @@ export function BaseAdjustmentsPanel({
           below. This shows the total your jobs pay at the selected month.
         </p>
 
-        {/* Pay change against the selected month: one-month perturbations (bonus, corrected
-            month, $0 for a missed paycheck — a per-job {@link JobIncomeOverride}) and
-            PERMANENT changes from this month forward (a {@link JobPayChange}). All taxed as
-            wages through the job's series. The form owns its transient state. */}
+        {/* One-month perturbations (bonus, $0 for a missed paycheck — a per-job
+            {@link JobIncomeOverride}) and PERMANENT changes from the selected month forward
+            (a {@link JobPayChange}). Both taxed as wages through the job's series. */}
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={incomeMonth}
@@ -343,15 +338,14 @@ export function BaseAdjustmentsPanel({
           form={lineFormActions}
         />
 
-        {/* Savings & contributions: money paid into an account each month. Unlike
-            spending, these accumulate in net worth — funded by the sim. */}
+        {/* Unlike spending, these accumulate in net worth. */}
         <ContributionsEditor
           lines={contributionLines}
           authoring={lineAuthoring}
           form={lineFormActions}
         />
 
-        {/* Add a new budget item (expense or contribution). */}
+        {/* Expense or contribution. */}
         {lineAuthoring?.kind === "new" ? (
           <BudgetLineForm
             initial={blankLineDraft("expense")}

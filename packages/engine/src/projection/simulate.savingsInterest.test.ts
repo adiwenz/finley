@@ -24,8 +24,7 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
       }
       return out;
     },
-    // The same split the US jurisdiction makes; the deferral is the jurisdiction's call,
-    // not a default.
+    // The same split the US jurisdiction makes; the deferral is the jurisdiction's call.
     returnTaxTreatment: (kind) =>
       kind === "interest"
         ? { taxAtAccrual: true, category: "ordinaryIncome" }
@@ -84,9 +83,8 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
 
   it("taxes EVERY cash account's interest, not only the liquid shortfall sink", () => {
     // Accrual tax is keyed on the account's `returnKind`, not on the single liquid sink.
-    // Only the second account varies — brokerage (deferred to a withdrawal that never
-    // happens) vs cash reserve — at equal balance and rate, so the tax gap is exactly the
-    // reserve's interest tax.
+    // Only the second account varies — brokerage (deferred) vs cash reserve — at equal
+    // balance and rate, so the tax gap is exactly the reserve's interest tax.
     const brokerage = new SimAccount({
       id: "brokerage",
       ownerId: "p1",
@@ -144,8 +142,7 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
 
   it("reports credited interest as a cash inflow and nets its tax off (cash flow ≠ zero)", () => {
     const series = run(0.12);
-    // The source is identified by its explicit `savingsInterest` provenance, never by
-    // parsing its id.
+    // Identified by explicit `savingsInterest` provenance, never by parsing the id.
     const interest = series.months[2].flows?.incomeSources.find((s) => s.category === "savingsInterest");
     expect(interest).toBeDefined();
     expect(interest!.label).toBe("Cash savings");
@@ -164,8 +161,8 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
 
   it("credits the account exactly once — the interest cash is never re-deposited", () => {
     // No income or expenses: only compounding and the interest tax (drawn from the balance
-    // via the shortfall cascade) move the balance. Re-injecting the booking's cash would
-    // jump month 2 by roughly a second interest payment.
+    // via the shortfall cascade) move it. Re-injecting the booking's cash would jump month
+    // 2 by roughly a second interest payment.
     const series = simulateHousehold(
       {
         horizonMonths: 4,
@@ -291,7 +288,6 @@ describe("Already-credited savings interest funds spending without double-counti
 
     const m2 = series.months[2];
     const interest = m2.flows!.incomeSources.find((s) => s.category === "savingsInterest")!;
-    // The already-credited interest is reported as real household cash.
     expect(interest.cashInflowCents).toBe(dollarsToCents(500));
     // $100 tax (flat 20%), attributed to the interest source → $400 net.
     expect(m2.flows!.taxBySourceCents![interest.sourceId]).toBe(dollarsToCents(100));

@@ -1,13 +1,9 @@
 /**
- * The `Projection` root — the npm API surface. Pins:
- *   1. standing-edit + ledger-transaction methods on ONE root;
- *   2. creating writes mint deterministic sequence ids and return them; `{ id }` overrides;
- *   3. the id counter round-trips through serialization (reload continues, no collision);
- *   4. `run(jurisdiction)` returns an immutable `ProjectionResult`; two jurisdictions,
- *      one plan, no mutation;
- *   5. writes swap in a new immutable state and are NOT reversible by the root — no undo
- *      stack, reversal is addressable removal.
- * Barrel/purity is covered elsewhere.
+ * The `Projection` root — the npm API surface: standing edits and ledger transactions on ONE
+ * object, creating writes minting deterministic sequence ids (`{ id }` overrides, counter
+ * round-trips through serialization), each write swapping in new immutable state with no undo
+ * stack, and `run(jurisdiction)` leaving the plan untouched. Barrel/purity is covered
+ * elsewhere.
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "./projectionRoot";
@@ -20,8 +16,7 @@ import type { PersonId } from "./job";
 const P1 = "p1" as PersonId;
 
 function freshProjection(): Projection {
-  // Empty job list so minted ids and roster lengths reflect only the jobs added under
-  // test, not the fixture's job.
+  // Empty job list so minted ids and roster lengths reflect only jobs added under test.
   return Projection.create({ plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR });
 }
 
@@ -105,35 +100,34 @@ describe("Projection root — one root for standing + ledger writes", () => {
 
     expect(p.state.scenario.plan.retirementAge).toBe(55);
     expect(p.state.scenario.ledger.events).toHaveLength(1);
-    // The previously-read state is untouched by either write.
     expect(before.scenario.plan.retirementAge).toBe(baseRetirement);
     expect(before.scenario.ledger.events).toHaveLength(0);
     expect(p.state).not.toBe(before);
   });
 
   it("keeps plan and ledger coupled as one Scenario across both kinds of write", () => {
-    // The state holds one projectable unit, not two sibling fields: a standing edit
-    // carries the timeline through (withPlan), a transaction carries the standing numbers
-    // through (withLedger), so no spread can drop half. That is why `Scenario` exists.
+    // `Scenario` is one projectable unit, not two sibling fields: a standing edit carries
+    // the timeline through (withPlan), a transaction carries the standing numbers through
+    // (withLedger), so no spread can drop half.
     const p = freshProjection();
     p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
     p.setRetirementTarget(55); // a standing edit AFTER a transaction
 
-    expect(p.state.scenario.ledger.events).toHaveLength(1); // survived the standing edit
+    expect(p.state.scenario.ledger.events).toHaveLength(1);
     expect(p.state.scenario.plan.retirementAge).toBe(55);
 
     p.addJob(P1, openEndedJob); // another standing edit
-    expect(p.state.scenario.ledger.events).toHaveLength(1); // still there
+    expect(p.state.scenario.ledger.events).toHaveLength(1);
 
     p.marry({ month: 24, name: "Partner", birthYear: 1988 }); // a transaction AFTER standing edits
-    expect(p.state.scenario.plan.retirementAge).toBe(55); // standing numbers survived
+    expect(p.state.scenario.plan.retirementAge).toBe(55);
     expect(p.state.scenario.plan.jobs).toHaveLength(1);
   });
 
   it("has no undo — writes are reversed by addressable removal, not a stack", () => {
-    // Deliberate: reversal names the thing to drop (a future `removeTransaction(id)`), so
-    // a UI can delete row 3 without knowing creation order, and nothing pretends to offer
-    // cross-session undo. See the module doc.
+    // Reversal names the thing to drop (a future `removeTransaction(id)`), so a UI can
+    // delete row 3 without knowing creation order, and nothing pretends to offer
+    // cross-session undo.
     const p = freshProjection();
     expect("undo" in p).toBe(false);
     expect("depth" in p).toBe(false);
@@ -147,9 +141,8 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("takeLoan() carries the kind-determined field for each arm of the union", () => {
-    // The payload is discriminated on `kind`: a card takes a credit limit and never a
-    // term, a term loan the reverse — so neither arm can be authored with the other's
-    // field, and each lands without an `undefined` placeholder.
+    // Discriminated on `kind`: a card takes a credit limit and never a term, a term loan
+    // the reverse — each lands without an `undefined` placeholder.
     const p = freshProjection();
     p.takeLoan({
       month: 6,
@@ -213,7 +206,6 @@ describe("Projection root — id counter round-trips through serialization", () 
       disposition: "retain",
       annualReturnPct: 2,
     })).toBe("goal-3");
-    // Standing data survived too.
     expect(reloaded.state.scenario.plan.jobs).toHaveLength(1);
     expect(reloaded.state.scenario.plan.budgetLines).toHaveLength(1);
   });

@@ -22,16 +22,14 @@ export interface IncomeSourceMonth {
   /**
    * Cash this source injects INTO the allocation waterfall. The whole payment for wages,
    * benefit, RMD, and draws; 0 for an accrued-interest booking, whose cash already sits in
-   * the balance (re-placing it would double-credit the account). Distinct from the realized
-   * cash reported — see {@link cashInflowCents}.
+   * the balance (re-placing it would double-credit the account).
    */
   readonly waterfallInflowCents: Cents;
   readonly taxCategory: TaxCategory;
   /**
-   * Reporting provenance: it never affects allocation or how much tax is owed, only how
-   * results are keyed and named. `sourceId` is a stable machine key (job id, draw's account
-   * id, `benefit:<person>`) naming *which* job or account a flow came from — it keys
-   * {@link WaterfallResult.taxBySourceCents} and the flow view
+   * Reporting provenance: never affects allocation or tax owed, only how results are keyed
+   * and named. `sourceId` is a stable machine key (job id, draw's account id,
+   * `benefit:<person>`) keying {@link WaterfallResult.taxBySourceCents} and the flow view
    * ({@link import("./reportFlows").buildFlows}); `label` is its human name. Absent →
    * keyed/named by tax category.
    */
@@ -47,10 +45,9 @@ export interface IncomeSourceMonth {
    */
   readonly taxableCents?: Cents;
   /**
-   * The realized cash this source pays the household, for the cash-flow report. Differs from
+   * Realized cash paid to the household, for the cash-flow report. Differs from
    * `waterfallInflowCents` only for an accrued-interest booking, where this is the interest
-   * — money genuinely received — and the waterfall inflow is 0. Absent → defaults to
-   * `waterfallInflowCents`.
+   * genuinely received and the inflow is 0. Absent → `waterfallInflowCents`.
    */
   readonly cashInflowCents?: Cents;
   /**
@@ -80,11 +77,10 @@ export interface WaterfallInput {
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
   /**
-   * Standing account-contribution lines for this month, already in waterfall priority order
-   * and post-tax. A COMMITTED outflow: the full amount always lands (from the discretionary
-   * pool after dated goal paces, before `asap` goals), and whatever the pool cannot cover is
-   * borrowed — so an unaffordable contribution makes the plan unfinanceable rather than
-   * being silently shrunk to fit. Absent → none.
+   * Standing contribution lines, already in priority order and post-tax. A COMMITTED outflow:
+   * the full amount always lands (from the pool after dated goal paces, before `asap` goals),
+   * and what the pool cannot cover is borrowed — so an unaffordable contribution makes the plan
+   * unfinanceable rather than silently shrinking. Absent → none.
    */
   readonly contributions?: readonly { readonly accountId: string; readonly monthlyCents: Cents }[];
   /**
@@ -102,9 +98,8 @@ export interface WaterfallInput {
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**
-   * seam 1: per-{@link TaxCategory} taxable amounts in → tax owed out. Called once per
-   * person with that person's full map, so the jurisdiction (not the waterfall) decides
-   * how each category is taxed.
+   * Per-{@link TaxCategory} taxable amounts in → tax owed out. Called once per person with
+   * their full map, so the jurisdiction — not the waterfall — decides how each is taxed.
    */
   readonly computeTaxCents: (taxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
   /**
@@ -132,13 +127,12 @@ export interface WaterfallResult {
    */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
   /**
-   * Tax per income SOURCE, keyed by each source's reporting id (`sourceId`, falling back to
-   * its tax category). Each category's tax is apportioned across its sources by taxable
-   * weight, PER PERSON (so two earners in different brackets never cross-subsidise), then
-   * summed to the household. `{}` in a zero-tax month, otherwise Σ === `taxCents` (enforced
-   * — see {@link assertTaxAttributionReconciles}) and Σ within a category === that
-   * category's `taxByCategoryCents`. Attribution is proportional (average-rate), not
-   * marginal — disclosed as `taxAttributionProportional`.
+   * Tax per income SOURCE, keyed by `sourceId` (falling back to its tax category). Each
+   * category's tax is apportioned by taxable weight PER PERSON, so two earners in different
+   * brackets never cross-subsidise, then summed to the household. `{}` in a zero-tax month,
+   * else Σ === `taxCents` (see {@link assertTaxAttributionReconciles}) and Σ within a category
+   * === its `taxByCategoryCents`. Proportional (average-rate), not marginal — disclosed as
+   * `taxAttributionProportional`.
    */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**

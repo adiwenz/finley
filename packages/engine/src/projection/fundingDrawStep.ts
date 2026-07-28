@@ -6,10 +6,10 @@
  * import("../ledger/funding").drainSources} and the pro-rata basis accounting of {@link
  * import("./withdrawal").buildWithdrawalSources}.
  *
- * Capital-gains tax is REAL: the draw is GROSSED UP so what remains after tax still covers
- * the payment, and the gain routes through the single tax chokepoint (`allocateMonth`) as a
- * net-neutral source. So a purchase funded from an appreciated source does not conserve net
- * worth — it falls by the tax paid. A cash source (basis == balance) conserves.
+ * The draw is GROSSED UP so what remains after capital-gains tax still covers the payment,
+ * and the gain routes through the single tax chokepoint (`allocateMonth`) as a net-neutral
+ * source. A purchase funded from an appreciated source therefore lowers net worth by the
+ * tax paid; a cash source (basis == balance) conserves it.
  */
 
 import type { Cents } from "../money";
@@ -29,8 +29,8 @@ const GROSS_UP_ITERATIONS = 1_000;
 /**
  * Reporting-provenance prefix per {@link FundingReason}, stamped on the `sourceId` of its
  * draw's bands: `<prefix>:<accountId>` for the realized-gain band, `<prefix>-tax:<accountId>`
- * for the net-neutral tax source. Exhaustive by type: a reason without a prefix fails the
- * typecheck rather than going unnamed.
+ * for the net-neutral tax source. Exhaustive by type, so a reason without a prefix fails
+ * the typecheck.
  */
 const REPORT_PREFIX: Record<FundingReason, string> = {
   homeDownPayment: "downpayment",
@@ -100,7 +100,7 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * top of the first — hence this MUTATES `taxableByOwner` (pass a copy to probe).
  *
  * Shared with the §4.5 affordability gate, so the gate blocks exactly when the sim would
- * fall short — under any tax regime.
+ * fall short.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -144,8 +144,7 @@ export function resolveOrderedFundingDraw(
     let gross = Math.min(balance, remaining);
     for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
       const wanted = remaining + inducedTax(gross);
-      // Cannot cover its own gross-up: take what is there, let the rest fall to the next
-      // source in the order.
+      // Cannot cover its own gross-up: take what is there, the rest falls to the next source.
       if (wanted >= balance) {
         gross = balance;
         break;
@@ -188,9 +187,9 @@ export function resolveOrderedFundingDraw(
  *   contributes its whole draw), folded into the `savingsDrawdown` band;
  * - `taxSources` — net-neutral sources routing each realized gain through the tax
  *   chokepoint, folded into `incomeSources` BEFORE `allocateMonth`;
- * - `taxableByOwnerAfter` — the per-owner taxable base with THIS MONTH'S DRAWS STACKED IN.
- *   The authoring gate reads it (via `flows`) so a second money-out event in the same month
- *   is priced over its sibling's realized gain, exactly as the simulator prices it.
+ * - `taxableByOwnerAfter` — the per-owner taxable base with THIS MONTH'S DRAWS STACKED IN,
+ *   read by the authoring gate (via `flows`) so a second money-out event in the same month
+ *   is priced over its sibling's realized gain.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
@@ -256,8 +255,8 @@ export function resolveFundingDraws(
       );
       principalDrawdownCents += s.principalCents;
 
-      // A zero-gain (cash) source books no band — it is pure returned principal, surfacing
-      // solely through the savings drawdown.
+      // A zero-gain (cash) source books no band: pure returned principal, surfacing solely
+      // through the savings drawdown.
       if (s.gainCents > 0) {
         gainSources.push({
           ownerId: s.ownerId,
@@ -271,8 +270,8 @@ export function resolveFundingDraws(
         });
       }
       // Net-neutral: carries the tax slice as cash and books the gain as taxable, so
-      // `allocateMonth` charges exactly `tax` and nets zero. `cashInflowCents` 0 keeps it out
-      // of the income view — the gain is reported via the band above.
+      // `allocateMonth` charges exactly `tax` and nets zero. `cashInflowCents` 0 keeps it
+      // out of the income view; the gain is reported via the band above.
       if (s.taxCents > 0) {
         taxSources.push({
           ownerId: s.ownerId,

@@ -8,9 +8,8 @@ import type { LiabilityPaymentRecord } from "./simulate.types";
  * so advanceLiabilities applies the exact same figure, keeping the cash outflow (step 5) and
  * the balance update consistent.
  *
- * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}): a
- * revolving card its balance-driven minimum, a term loan its scheduled amortization — both
- * capped at the payoff so a small balance is never over-charged.
+ * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}), capped
+ * at the payoff so a small balance is never over-charged.
  */
 export function computeLiabilityPayments(state: SimState, month: number): Map<string, Cents> {
   const payments = new Map<string, Cents>();
@@ -28,8 +27,7 @@ export function computeLiabilityPayments(state: SimState, month: number): Map<st
  *
  * v1-seam: `amountApplied` and `expected` are the same payoff-capped figure today, so every
  * record is `full` / `current`. A future underpayment channel passes a smaller
- * `amountApplied` and `partial`/`missed`/`delinquent` surface automatically (see
- * derivePaymentStatus).
+ * `amountApplied` and `partial`/`missed`/`delinquent` surface automatically.
  */
 export function buildLiabilityPaymentRecords(
   payments: ReadonlyMap<string, Cents>,
@@ -53,11 +51,10 @@ export function buildLiabilityPaymentRecords(
  * unbounded; the synthetic shortfall card has a finite default limit, so it too can be
  * exhausted).
  *
- * Returns the deficit still UNCOVERED once savings and every card are exhausted — usually
- * zero, since a squeezed month is meant to be absorbed. Anything left is the terminal
- * failure condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line is
- * derived from it (see {@link import("./spendingItems").buildSpendingItems} for why spending
- * is reported as authored rather than rationed).
+ * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
+ * terminal failure condition, surfaced as `isInsolvent` and a null net worth. Nothing
+ * per-line is derived from it (see {@link import("./spendingItems").buildSpendingItems} for
+ * why spending is reported as authored rather than rationed).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -88,7 +85,7 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
  * A transfer only moves the owed balance; the engine does not auto-fund it, so pairing a
  * liability payoff with an account outflow is the caller's job and is what conserves net
  * worth. A lump sum can drive the balance below the precomputed schedule; the payoff cap in
- * computeLiabilityPayments makes that safe and yields shorten-term behavior (loan retires
+ * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
  * early, payment unchanged).
  */
 export function advanceLiabilities(

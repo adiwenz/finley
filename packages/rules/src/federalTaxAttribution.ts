@@ -70,10 +70,9 @@ function attributeFederalTax(
 }
 
 /**
- * The ANNUAL single-filer federal income tax broken out per {@link TaxCategory}, the
- * per-category analog of {@link federalAnnualTaxCents}. Σ of the returned map equals
- * {@link federalAnnualTaxCents} exactly. See {@link attributeFederalTax} for the
- * attribution method and its limitation. Empty map when no tax is owed.
+ * The ANNUAL single-filer federal income tax broken out per {@link TaxCategory}. Σ of the
+ * returned map equals {@link federalAnnualTaxCents} exactly. Method and limitation:
+ * {@link attributeFederalTax}. Empty map when no tax is owed.
  */
 export function federalAnnualTaxByCategoryCents(
   annualByCategory: Partial<Record<TaxCategory, Cents>>,

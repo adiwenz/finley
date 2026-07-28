@@ -2,8 +2,7 @@ import type { Cents, ModelAssumption } from "@finley/engine";
 
 /**
  * Legislated single-filer federal-tax tables behind {@link federalTax}. Every US constant
- * lives HERE: brackets, deduction, cap-gains tops, Social Security inclusion thresholds,
- * and the forward-indexing knobs; the engine only ever states neutral per-category gross.
+ * lives HERE; the engine only ever states neutral per-category gross.
  *
  * ⚠ Estimates, not advice. Dollar figures are the pinned {@link FEDERAL_TAX_BASE_YEAR}
  * base; later years are indexed forward, earlier years return the base unchanged.
@@ -36,9 +35,8 @@ const BASE_LTCG_FIFTEEN_TOP_CENTS: Cents = 545_050_00;
 export const LTCG_RATE_15 = 0.15;
 export const LTCG_RATE_20 = 0.2;
 
-// Social Security inclusion thresholds (single) are NOT indexed by law: the $25,000 /
-// $34,000 provisional-income thresholds have been fixed in statute since 1984/1993, so
-// unlike the brackets they are held flat across all years.
+// Social Security inclusion thresholds (single) are NOT indexed by law: fixed in statute
+// since 1984/1993, so unlike the brackets they are held flat across all years.
 
 /** Below it, no benefit is taxable. */
 export const SS_TIER_1_THRESHOLD_CENTS: Cents = 25_000_00;
@@ -108,9 +106,8 @@ export function federalTaxTables(year: number): FederalTaxTables {
 /**
  * User-facing disclosures for this module's federal-tax simplifications — the `rules` side
  * of {@link import("@finley/engine").Jurisdiction.modelAssumptions}, co-located by `id`
- * with the code they describe ({@link indexForward} /
- * {@link taxableSocialSecurityCents}). `usJurisdiction` hands these to the report's
- * "assumptions & simplifications" surface. ⚠ Estimates, not advice.
+ * with the code they describe ({@link indexForward} / {@link taxableSocialSecurityCents}).
+ * `usJurisdiction` hands these to the report's "assumptions & simplifications" surface.
  */
 export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
   {

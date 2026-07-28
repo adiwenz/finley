@@ -3,7 +3,7 @@
  * time: salary, rent, groceries, debt payments, support obligations.
  *
  * Rules:
- *  1. All math in integer CENTS. Never floats for money.
+ *  1. All math in integer CENTS, never floats.
  *  2. Annual-native amounts: split via cumulative rounding, so 12 months sum exactly to
  *     the annual total.
  *  3. Monthly-native amounts: repeat exactly each month — no split, no drift.
@@ -48,9 +48,8 @@ export type TaxCategory =
 
 export interface SimCashFlowSeriesOptions {
   /**
-   * "annual" (default): baseCents is annual, split monthly via cumulative rounding — for
-   * salary, annual subscriptions. "monthly": baseCents is the monthly amount, repeated
-   * exactly with no rounding drift — for rent, groceries, fixed debt payments.
+   * "annual" (default): baseCents is annual, split monthly via cumulative rounding.
+   * "monthly": baseCents is the monthly amount, repeated exactly with no rounding drift.
    */
   baselineUnit?: "annual" | "monthly";
   /**
@@ -59,9 +58,8 @@ export interface SimCashFlowSeriesOptions {
    */
   growthAnchor?: "ownCycle" | "calendar";
   /**
-   * Absolute month (from sim start) the growth clock started; may be negative for
-   * backdated streams. Defaults to startMonth. Ignored for "calendar" anchor, which always
-   * anchors to month 0.
+   * Absolute month (from sim start) the growth clock started; may be negative for backdated
+   * streams. Defaults to startMonth. Ignored for "calendar", which anchors to month 0.
    */
   anchorMonth?: number;
   /** Inclusive end month; getMonthlyCents returns 0 for month > endMonth. */
@@ -92,7 +90,7 @@ function rateFor(mode: GrowthMode): number {
 
 /**
  * Exposed so growth-bearing stocks that aren't cash-flow series (a property's appreciating
- * value) compound at the same rate without duplicating the switch.
+ * value) compound at the same rate.
  */
 export function growthAnnualRate(mode: GrowthMode): number {
   return rateFor(mode);

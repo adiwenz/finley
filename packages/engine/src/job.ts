@@ -40,13 +40,12 @@ export interface JobIncomeOverride {
 }
 
 /**
- * A permanent step change to a job's pay from a given month onward — a raise or a cut. Where
- * a {@link JobIncomeOverride} perturbs one month, a pay change opens a new salary segment:
- * in force from `month`, then growing at the job's own real-plus-CPI rate. A value edit on
- * the standing job, so it rides ONE continuous job instead of splitting it in two.
+ * A raise or a cut. Where a {@link JobIncomeOverride} perturbs one month, a pay change opens a
+ * new salary segment: in force from `month`, then growing at the job's own real-plus-CPI rate.
+ * A value edit, so it rides ONE continuous job instead of splitting it in two.
  *
- * Taxed as `wages` and flows through the 401(k) deferral, like overrides. `cents` is nominal
- * at `month` (the actual paycheck that month), matching the one-month `setTo`.
+ * Taxed as `wages` and flows through the 401(k) deferral, like overrides. `cents` is nominal at
+ * `month` (the actual paycheck), matching the one-month `setTo`.
  */
 export interface JobPayChange {
   /** Absolute simulation month (from "now") the new pay takes effect and holds from. */

@@ -1,11 +1,10 @@
 /**
  * Net-worth *breakdown* data — companion to the total-only {@link
  * import("./netWorthChart").NetWorthChart}. One band per account, plus property values and
- * the debts owed against them. The chart's three views are all cuts of this one dataset:
- *  - **accounts** — asset accounts only;
- *  - **assets**   — accounts + property values;
- *  - **networth** — assets stacked up, liabilities stacked *down*, so the stack's signed
- *    total equals the nominal net worth the other chart draws.
+ * the debts owed against them. The chart's three views are cuts of this one dataset:
+ * **accounts** (asset accounts only), **assets** (+ property values), **networth** (assets
+ * stacked up, liabilities *down*, so the signed total equals the nominal net worth the other
+ * chart draws).
  *
  * A band's KIND comes from which series map its id sits in (`accountBalancesCents` /
  * `propertyValuesCents` / `liabilityBalancesCents`); names and order arrive as plain metadata
@@ -24,9 +23,9 @@ export interface BandMeta {
 }
 
 /**
- * Names and order for the breakdown. `accounts` is ordered — its sequence is the stacking
- * order. `propertyLabels` / `liabilityLabels` are id→label lookups (order insignificant);
- * an id missing a label falls back to a humanized form of the id.
+ * `accounts` is ordered — its sequence is the stacking order. `propertyLabels` /
+ * `liabilityLabels` are id→label lookups (order insignificant); an id missing a label falls
+ * back to a humanized form of the id.
  */
 export interface BreakdownMeta {
   readonly accounts: readonly BandMeta[];
@@ -44,8 +43,8 @@ export interface BreakdownMonthRow {
   readonly month: number;
   /**
    * Cents by band id — a positive magnitude for every kind, INCLUDING a liability's owed
-   * balance. The chart negates liabilities for the net-worth view; keeping them positive
-   * lets the same rows serve the assets-only view unchanged.
+   * balance; the chart negates those for the net-worth view, so the same rows serve the
+   * assets-only view unchanged.
    */
   readonly centsById: Readonly<Record<string, number>>;
 }
@@ -73,8 +72,8 @@ export interface NetWorthBreakdownData {
 
 /**
  * Fallback label for an id with no metadata. The app mints property/liability ids as
- * `home-<n>` / `mortgage-<n>` (see the home-purchase form), so Title-case the leading
- * token: `home-3` → "Home". Accounts always carry a label via the meta.
+ * `home-<n>` / `mortgage-<n>` (see the home-purchase form), so Title-case the leading token:
+ * `home-3` → "Home".
  */
 function humanizeId(id: string): string {
   const head = id.split("-")[0] ?? id;

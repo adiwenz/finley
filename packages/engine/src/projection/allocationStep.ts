@@ -29,15 +29,14 @@ export function buildIncomeSources(
 }
 
 /**
- * Step 3/6: route this month's income through the allocation waterfall, applying the
- * per-account deposits to asset balances, then charge any uncovered obligation as a
- * deficit on the first liquid account so the cascade (next) drains liquid assets before
- * reaching for credit. Updates the per-person annual deferral accumulator so caps hold
- * across the year, and returns the tax charged this month, already reflected in take-home.
+ * Step 3/6: route this month's income through the allocation waterfall, apply the
+ * per-account deposits, then charge any uncovered obligation as a deficit on the first
+ * liquid account so the cascade (next) drains liquid assets before reaching for credit.
+ * Updates the per-person annual deferral accumulator so caps hold across the year.
  *
- * The waterfall's pre-cascade shortfall is NOT surfaced: it is a cash-flow gap, not a
- * funding failure, since it is posted against the liquid account for savings to absorb.
- * Only the shortfall surviving {@link applyShortfallCascade} means anything to a caller.
+ * The waterfall's pre-cascade shortfall is NOT surfaced: it is a cash-flow gap posted
+ * against the liquid account, not a funding failure. Only the shortfall surviving
+ * {@link applyShortfallCascade} means anything to a caller.
  */
 export function allocateMonth(
   state: SimState,
@@ -53,16 +52,13 @@ export function allocateMonth(
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
-  // The deferral cap is per person, not per household: the limit (with any age-banded
-  // catch-up) depends on the individual's age this year. Resolved lazily in the room
-  // callback below; no birth year → the base limit.
+  // Per person, not per household: the limit (with any age-banded catch-up) depends on
+  // the individual's age. Resolved in the room callback below; no birth year → base limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
-  // Sinking-fund pace is growth-aware: a goal leaning on its fund's return needs a
-  // smaller monthly contribution. Unknown account → rate 0, a flat even spread.
+  // Sinking-fund pace is growth-aware; unknown account → rate 0, a flat even spread.
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
-  // Resolved in waterfall priority order, so funding draws from discretionary in the
-  // order the tiers imply.
+  // In waterfall priority order, so funding draws from discretionary as the tiers imply.
   const contributions = orderBudgetLines(state.contributionLines).flatMap((line) => {
     if (line.target.kind !== "account") return [];
     const accountId = line.target.accountId;
@@ -104,10 +100,8 @@ export function allocateMonth(
 
   for (const [id, amount] of result.accountDepositsCents) {
     state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
-    // Post-tax deposits (surplus sweep, goal funding) add cost basis — already-taxed
-    // dollars. Pre-tax deposits (deferrals + employer match into a tax-deferred
-    // account) add none: taxed on the way OUT, so basis stays 0 and the whole draw is
-    // taxable.
+    // Post-tax deposits add cost basis; pre-tax deposits (deferrals, employer match) add
+    // none — taxed on the way OUT, so basis stays 0 and the whole draw is taxable.
     const acc = accountsById.get(id);
     if (acc !== undefined && !acc.taxProfile.contributionsPreTax) {
       state.basisByAccount.set(id, (state.basisByAccount.get(id) ?? 0) + amount);
@@ -124,8 +118,7 @@ export function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  // Resolved contributions go back so the caller can unwind any unfundable slice once
-  // the cascade has decided how much of the shortfall genuinely couldn't be met.
+  // Contributions go back so the caller can unwind any unfundable slice after the cascade.
   return {
     taxCents: result.taxCents,
     taxByCategoryCents: result.taxByCategoryCents,
@@ -138,12 +131,10 @@ export function allocateMonth(
 /**
  * Undo the phantom part of a COMMITTED contribution. A contribution deposits its FULL
  * amount and returns the unfunded remainder as a shortfall (see
- * {@link import("./waterfall").runWaterfall}). If neither savings nor any credit card
- * covers that shortfall — an insolvent month — the uncovered slice was still deposited,
- * booking an asset the household never funded and spiking net worth by a contribution
- * it could not make. Reverse exactly that slice, lowest-priority contribution first, so
- * net worth reflects only what moved and the insolvency isn't masked. Removes the
- * unfundable part of both the amount and the cost basis `allocateMonth` added.
+ * {@link import("./waterfall").runWaterfall}); if neither savings nor credit covers that
+ * shortfall, the uncovered slice was still deposited, booking an asset the household
+ * never funded. Reverse exactly that slice, lowest-priority contribution first, removing
+ * both the amount and the cost basis `allocateMonth` added.
  */
 export function unwindUnfundedContributions(
   state: SimState,
@@ -167,35 +158,27 @@ export function unwindUnfundedContributions(
 }
 
 /**
- * Last month's credited interest as this month's taxable income. `compoundAssets`
- * already credited the cash to each buffer's balance, so these carry
- * `waterfallInflowCents` 0 — the allocation waterfall places nothing (re-injecting
- * would double-credit) and the interest is taxed via `taxableCents`. It IS real
- * household cash, so it also reports {@link IncomeSourceMonth.cashInflowCents}: the
- * cash-flow view shows $500 of interest and its tax netting to $400 while the balance
- * still shows $500 — counted once as a balance credit and once as a cash flow, never
- * twice as a balance. Empty in month 1 (nothing has compounded) and whenever every
- * buffer's return was zero. Interest is ordinary income, so it enters the
- * provisional-income formula and can pull a government benefit into taxability.
+ * Last month's credited interest as this month's taxable income. `compoundAssets` already
+ * credited the cash to each buffer's balance, so these carry `waterfallInflowCents` 0 —
+ * re-injecting would double-credit — and are taxed via `taxableCents`. It IS real
+ * household cash, so it also reports {@link IncomeSourceMonth.cashInflowCents}: counted
+ * once as a balance credit and once as a cash flow, never twice as a balance. Empty in
+ * month 1 and whenever every buffer's return was zero. Interest is ordinary income, so it
+ * enters the provisional-income formula and can pull a benefit into taxability.
  */
 export function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
   // One source PER ACCOUNT, in the plan's account order (stable, so the cash-flow chart
-  // keeps each band's identity across months). A band per cash account is the honest
-  // read: an emptied buffer stops booking interest entirely (accrued 0, skipped below)
-  // while a still-funded reserve or cash goal keeps earning under its OWN name — one
-  // merged "Savings interest" line made a drained account look like it was still
-  // earning. The app's Simple view re-collapses every `savingsInterest` band into one
-  // (keyed on reportCategory, not the id); Advanced shows them per account.
+  // keeps each band's identity across months). An emptied buffer then stops booking
+  // interest entirely while a still-funded reserve keeps earning under its OWN name; one
+  // merged "Savings interest" line made a drained account look like it was still earning.
+  // The app's Simple view re-collapses `savingsInterest` bands (keyed on reportCategory).
   for (const acc of state.accounts) {
     const accrued = state.accruedReturnByAccount.get(acc.id);
     if (accrued === undefined || accrued.cents <= 0) continue;
-    // Zero allocation-gross (cash already in the balance) but a real cash inflow for
-    // the flow view, under a stable per-account id so the chart bands it and deducts
-    // its tax. `reportCategory: "savingsInterest"` lets the UI group it without parsing
-    // the id, while `taxCategory` keeps it taxed and rolled up as ordinary income. The
-    // label is the account's human name (a goal fund reads as its goal), else the id.
-    // Other interest kinds (brokerage/bond) will later carry their own provenance.
+    // `reportCategory` lets the UI group these without parsing the id; `taxCategory`
+    // keeps them taxed and rolled up as ordinary income. Other interest kinds
+    // (brokerage/bond) will later carry their own provenance.
     sources.push({
       ownerId: acc.ownerId,
       waterfallInflowCents: 0,

@@ -1,14 +1,12 @@
 /**
- * Pure compilation from the standing line-item {@link BudgetLine} model into simulator
- * inputs. Expense lines compile to forward expense {@link SimOwnedSeries} (spans → the
- * series' start/end months, dated overrides → its override edits), driving the *existing*
- * waterfall/simulator unchanged.
+ * Pure compilation from the standing line-item {@link BudgetLine} model into simulator inputs:
+ * expense lines become forward expense {@link SimOwnedSeries} (spans → the series' start/end
+ * months, dated overrides → its override edits), driving the *existing* waterfall unchanged.
  *
  * The one budget-model module depending on the simulator (`SimOwnedSeries`) and the
  * jurisdiction seam; isolating it keeps {@link import("./budgetLine")}'s pure types free of
- * any `projection/*` import, mirroring the {@link import("./compilePerson")} seam. Inflation
- * arrives from the caller, the legislated fill-to-limit cap through the jurisdiction
- * interface — never imported.
+ * any `projection/*` import. Inflation arrives from the caller, the legislated fill-to-limit
+ * cap through the jurisdiction interface — never imported.
  *
  * Additive alongside the scalar `Plan.expenseCents` path; both compile into the same
  * `initialExpenseSeries`.
@@ -65,15 +63,14 @@ function compileExpenseLine(
   // Carry the source line's label and id so the simulator reports each line's monthly amount
   // without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority is NOT carried:
   // nothing downstream ranks lines, since a tight month is absorbed by savings and credit
-  // rather than by starving low-priority ones. `budgetLinePriority` stays the ordering source
-  // of truth for the authoring view (`allocations.ts`).
+  // rather than by starving low-priority ones. `budgetLinePriority` is the ordering source of
+  // truth for the authoring view (`allocations.ts`).
   return {
     series,
     ownerId,
     label: line.label,
     lineId: line.id,
-    // The only spending stream a user edits directly, read off here by the unified
-    // spending report.
+    // The only spending stream a user edits directly; the unified spending report reads it.
     spendingSource: {
       kind: "budgetLine",
       id: line.id,
@@ -86,8 +83,7 @@ function compileExpenseLine(
 /**
  * One forward expense {@link SimOwnedSeries} per expense line, owned by `ownerId`.
  * Contribution lines (targets other than `expense`) are skipped — they route to the
- * contribution channels. Order is preserved so the caller can keep it aligned with the
- * prioritized budget.
+ * contribution channels. Order is preserved, aligned with the prioritized budget.
  */
 export function compileExpenseBudgetLines(
   lines: readonly BudgetLine[],

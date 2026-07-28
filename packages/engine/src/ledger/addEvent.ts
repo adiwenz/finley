@@ -25,17 +25,14 @@ import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from ".
 const DEFAULT_START_YEAR = 2026;
 
 /**
- * The two funding questions an authoring surface asks of the ledger *so far*, both answered
- * from ONE projection:
+ * Two funding questions about the ledger *so far*, answered from ONE projection: `sourcesAt`
+ * gives the POOL, `availabilityAt` the VERDICT for a selection. Both read the same projected
+ * `balanceCents`, so a picker and a gate can never tell the user different stories; the only
+ * gap is tax, which the verdict reports separately (`taxed`).
  *
- * - `sourcesAt(month)` — the POOL: every liquid account that could fund a draw (cash goal
- *   fund included, retirement excluded, credit never — a liability, not an asset), largest
- *   first: a default drain order the user can reorder. Membership is a property of the
- *   ACCOUNT, not the month, so an emptied account is listed at $0 rather than vanishing.
- * - `availabilityAt(sourceIds, amountCents, month)` — the VERDICT for a chosen selection.
- *
- * Both read the same projected `balanceCents`, so a picker and a gate can never tell the user
- * different stories; the only gap is tax, which the verdict reports separately (`taxed`).
+ * The pool is every liquid account that could fund a draw (cash goal fund included,
+ * retirement excluded, credit never — a liability, not an asset), largest first. Membership
+ * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
   readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
@@ -54,12 +51,10 @@ export interface FundingLookup {
  * (`flows.taxableByOwnerAfterFundingCents`) — so the gate blocks exactly when the sim would
  * fall short.
  *
- * It asks about a {@link import("./transfers").FundingDraw}, not any one event: the Home
- * Purchase §4.5 gate asks it of a down payment, One-Time Spend of a spend, both get the
- * identical answer. A selected id that is not a positive-balance liquid account contributes 0
- * yet is still named at balance 0. The month is clamped into the horizon. Balances are
- * positive-only: the cascade floors the liquid sink to zero before each snapshot and every
- * other account is drawn through `Math.max(0, …)` guards.
+ * Event-neutral, a question about a {@link import("./transfers").FundingDraw}: the Home
+ * Purchase §4.5 down-payment gate and One-Time Spend get the identical answer. The month is
+ * clamped into the horizon. Balances are positive-only: the cascade floors the liquid sink to
+ * zero before each snapshot and every other account is drawn through `Math.max(0, …)` guards.
  */
 export function fundingLookup(
   ledger: Ledger,

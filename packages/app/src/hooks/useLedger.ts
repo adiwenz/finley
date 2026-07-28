@@ -55,9 +55,9 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
 
   function recordEvent(event: NewLifeEvent) {
     setLedger((current) => {
-      // An event whose preconditions fail (e.g. separating before partnering) never enters the
-      // ledger. Same jurisdiction as the displayed projection, so the down-payment
-      // affordability check sees the same liquid balances.
+      // Preconditions (e.g. separating before partnering) are enforced here. Same jurisdiction
+      // as the displayed projection, so the down-payment affordability check sees the same
+      // liquid balances.
       const result = addEvent(current, baseRef.current, event, usJurisdiction);
       setConflict(result.ok ? null : result.conflict);
       return result.ok ? result.ledger : current;
@@ -83,7 +83,7 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
   function removeEvent(id: string) {
     setLedger((current) => {
       // Resolve against the latest ledger, not the render closure, so batched removals
-      // can't discard each other. A blocked removal keeps the ledger and shows the conflict.
+      // can't discard each other.
       const result = removeLedgerEvent(current, id, baseRef.current);
       setConflict(result.ok ? null : result.conflict);
       return result.ok ? result.ledger : current;

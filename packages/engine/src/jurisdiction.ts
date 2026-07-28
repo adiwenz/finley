@@ -84,15 +84,15 @@ export interface Jurisdiction {
   ): Cents;
 
   /**
-   * The SAME total as {@link computeTaxCents}, broken out per {@link TaxCategory} — the
-   * jurisdiction's call, since US tax is not linearly separable by category (progressive
-   * brackets, the deduction stacking onto gains).
+   * {@link computeTaxCents} broken out per {@link TaxCategory} — the jurisdiction's call,
+   * since US tax is not linearly separable by category (progressive brackets, the deduction
+   * stacking onto gains).
    *
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
    * enforced at runtime to the exact cent (`assertTaxAttributionReconciles`).
    *
-   * Required; a jurisdiction charging no tax returns `{}`. Reporting only — the scalar
-   * {@link computeTaxCents} stays the marginal-tax probe the gross-up loop uses.
+   * Required; no tax → `{}`. Reporting only — the scalar {@link computeTaxCents} stays the
+   * gross-up loop's marginal-tax probe.
    */
   computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -112,9 +112,9 @@ export interface Jurisdiction {
    * average-cost); the engine reduces basis by `grossCents − taxable`, so the state update
    * stays method-agnostic.
    *
-   * Probed for many amounts inside the withdrawal gross-up loop, so it MUST be pure and
-   * monotone non-decreasing in `grossCents`, which lets the loop climb to its least fixed
-   * point. Absent → the whole `grossCents` is taxable.
+   * The gross-up loop probes it repeatedly, so it MUST be pure and monotone non-decreasing
+   * in `grossCents` — that is what lets the loop climb to its least fixed point. Absent →
+   * the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
 
@@ -134,10 +134,9 @@ export interface Jurisdiction {
   isCoveredEarnings?(taxCategory: TaxCategory): boolean;
 
   /**
-   * A person's annual employee pre-tax deferral limit (401k-style), including the
-   * age-banded catch-up when {@link DeferralLimitContext.age} is supplied. The waterfall
-   * caps combined deferral here and redirects overflow to the next destination; the
-   * employer match does NOT share the cap. Absent → uncapped.
+   * A person's annual employee pre-tax deferral limit (401k-style). The waterfall caps
+   * combined deferral here and redirects overflow to the next destination; the employer
+   * match does NOT share the cap. Absent → uncapped.
    */
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
@@ -183,8 +182,8 @@ export interface Jurisdiction {
    * and out-of-pocket remain).
    *
    * NOT a silent auto-step: the app pre-fills an authored, disclaimed budget item from it,
-   * and {@link import("./earlyRetireeHealthCheck").assessEarlyRetireeHealthCost} compares an
-   * authored expense against the pre-eligibility figure. Absent → no benchmark (0).
+   * and {@link import("./earlyRetireeHealthCheck").assessEarlyRetireeHealthCost} measures an
+   * authored expense against it. Absent → no benchmark (0).
    */
   healthCostBenchmarkMonthlyCents?(ctx: HealthCostContext): Cents;
 }

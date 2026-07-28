@@ -148,9 +148,8 @@ export interface InterpretContext {
   readonly annualInflationRate: number;
   /**
    * The affordability check every money-out event's gate shares, resolved against a projection
-   * of the ledger *so far*. Runs the SAME ordered gross-up as the simulator ({@link
-   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), differencing each
-   * sale's tax marginally over the owner's projected other income that month, so a gate blocks
+   * of the ledger *so far* by the SAME ordered gross-up the simulator runs ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), so a gate blocks
    * exactly when the sim would fall short.
    *
    * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
