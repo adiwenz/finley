@@ -1,5 +1,3 @@
-/** Event-ledger state: record, revise, and remove — all guarded by the conflict rules. */
-
 import { useRef, useState } from "react";
 import {
   addEvent,
@@ -12,7 +10,6 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 
-/** One event to replace, by id — the unit {@link UseLedger.reviseEvents} commits. */
 export interface EventRevision {
   readonly id: string;
   readonly next: NewLifeEvent;
@@ -59,9 +56,9 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
 
   function recordEvent(event: NewLifeEvent) {
     setLedger((current) => {
-      // An event whose preconditions fail (e.g. separating before partnering) never
-      // enters the ledger. Same jurisdiction as the displayed projection, so the
-      // down-payment affordability check sees the same liquid balances.
+      // An event whose preconditions fail (e.g. separating before partnering) never enters
+      // the ledger. Same jurisdiction as the displayed projection, so the down-payment
+      // affordability check sees the same liquid balances.
       const result = addEvent(current, baseRef.current, event, usJurisdiction);
       setConflict(result.ok ? null : result.conflict);
       return result.ok ? result.ledger : current;
@@ -69,8 +66,6 @@ export function useLedger(base: LedgerBaseConfig): UseLedger {
   }
 
   function reviseEvents(revisions: readonly EventRevision[]): boolean {
-    // One ledger value, committed only once every revision is accepted: a batch that
-    // fails part-way leaves the ledger as it was, and the conflict names the blocker.
     let next = ledgerRef.current;
     for (const revision of revisions) {
       const result = updateLedgerEvent(next, revision.id, revision.next, baseRef.current);

@@ -1,13 +1,9 @@
 /**
  * Liability — amortizing loan or revolving credit account.
  *
- * Amortizing (mortgage, auto, studentLoan): the monthly payment is COMPUTED from
- * balance/rate/term, not entered as an expense line. Nominal monthly rate (APR / 12)
- * matches published amortization tables.
- *
- * Credit cards: revolving balance, APR, credit limit, minimum payment (greater of 2%
- * of balance or $25). With no card entered, the simulator uses a synthetic 22% APR
- * card as the shortfall sink.
+ * For amortizing kinds (mortgage, auto, studentLoan) the monthly payment is COMPUTED
+ * from balance/rate/term, not entered as an expense line. With no card entered, the
+ * simulator uses a synthetic card as the shortfall sink.
  */
 
 import type { Cents } from "./money";
@@ -15,7 +11,6 @@ import type { SimOneTimeTransfer } from "./simAccount";
 
 export type LiabilityKind = "mortgage" | "auto" | "studentLoan" | "creditCard";
 
-/** Human-facing labels per {@link LiabilityKind}, so a UI can name a debt by its kind. */
 const LIABILITY_KIND_LABELS: Readonly<Record<LiabilityKind, string>> = {
   mortgage: "Mortgage",
   auto: "Auto loan",
@@ -23,39 +18,27 @@ const LIABILITY_KIND_LABELS: Readonly<Record<LiabilityKind, string>> = {
   creditCard: "Credit card",
 };
 
-/** Display label for a liability kind — e.g. `"studentLoan"` → "Student loan". */
 export function liabilityKindLabel(kind: LiabilityKind): string {
   return LIABILITY_KIND_LABELS[kind];
 }
 
 /**
- * How a scheduled payment was serviced this month.
- *
- * v1-seam: only `full` is reachable — the projection always applies the exact
- * scheduled (payoff-capped) payment, so nothing comes in short. `partial`/`missed`
- * pre-exist so a future underpayment channel (forbearance, missed-payment event)
- * needs no data-shape migration. See derivePaymentStatus.
+ * v1-seam: only `full` is reachable — the projection always applies the exact scheduled
+ * (payoff-capped) payment. `partial`/`missed` pre-exist so a future underpayment channel
+ * needs no data-shape migration.
  */
 export type PaymentStatus = "full" | "partial" | "missed";
 
-/**
- * A loan's servicing state for a month.
- *
- * v1-seam: only `current` is reachable (every payment is `full`); room is left for
- * future `forbearance`/`default`. Delinquency is derived fresh each month from that
- * month's payment status — no arrearage/past-due memory. See deriveLoanStatus.
- */
+/** v1-seam: only `current` is reachable; room is left for future `forbearance`/`default`. */
 export type LoanStatus = "current" | "delinquent";
 
 /**
- * Classify a payment: applied vs. what the engine intended to charge.
- * `expectedCents` is the payoff-capped scheduled payment, NOT the raw
- * amortization-table level payment — so a legitimately smaller final payoff payment
- * reads as `full`, not `partial`.
+ * `expectedCents` is the payoff-capped scheduled payment, NOT the raw amortization-table
+ * level payment — so a legitimately smaller final payoff payment reads as `full`, not
+ * `partial`.
  *
  * v1-seam: the call site passes the same figure for both arguments, so the result is
- * always `full`. A future underpayment channel surfaces `partial`/`missed` with no
- * change here.
+ * always `full`.
  */
 export function derivePaymentStatus(
   amountAppliedCents: Cents,
@@ -67,17 +50,16 @@ export function derivePaymentStatus(
 }
 
 /**
- * Servicing status for a month, derived purely from that month's payment status —
- * no cross-month state. `full` → `current`, anything short → `delinquent`, recovering
- * the next month a full payment lands.
+ * Derived purely from that month's payment status — no arrearage or past-due memory, so
+ * a loan recovers the month a full payment lands.
  */
 export function deriveLoanStatus(paymentStatus: PaymentStatus): LoanStatus {
   return paymentStatus === "full" ? "current" : "delinquent";
 }
 
 /**
- * Amortizing monthly payment using nominal monthly rate (APR / 12).
- * Matches the convention used in published mortgage/loan amortization tables.
+ * Amortizing monthly payment using nominal monthly rate (APR / 12), the convention of
+ * published mortgage/loan amortization tables.
  */
 export function computeAmortizingPaymentCents(
   principalCents: Cents,
@@ -85,9 +67,8 @@ export function computeAmortizingPaymentCents(
   termMonths: number,
 ): Cents {
   if (termMonths <= 0) return 0;
-  // Round the level payment UP so it fully amortizes within the term; rounding down
-  // leaves a residual that spills into an extra month. The projection caps the final
-  // payment to the remaining balance, as lenders do.
+  // Rounded UP so it fully amortizes within the term; rounding down leaves a residual
+  // that spills into an extra month. The final payment is capped to the balance.
   if (apr === 0) return Math.ceil(principalCents / termMonths);
   const r = apr / 12;
   const factor = Math.pow(1 + r, termMonths);
@@ -95,16 +76,9 @@ export function computeAmortizingPaymentCents(
 }
 
 /**
- * Exact payment for each of the `termMonths` months: the level payment
- * (computeAmortizingPaymentCents) every month, reduced in the final month to retire
- * the remaining balance — so the schedule ALWAYS pays off to exactly 0, no rounding
- * residual.
- *
- * The amortization analogue of splitAnnualToMonths: an exact per-month breakdown
- * rather than one rounded figure applied N times (which drifts). Because each month
- * accrues interest on the running balance, the correction lands in the final payment
- * instead of being spread. The accrual (`round(bal * (1 + r))`) mirrors the
- * projection loop, so the schedule matches what a simulation charges.
+ * The level payment every month, reduced in the final month, so the schedule ALWAYS pays
+ * off to exactly 0 with no rounding residual. The accrual (`round(bal * (1 + r))`) mirrors
+ * the projection loop, so the schedule matches what a simulation charges.
  */
 export function amortizationScheduleCents(
   principalCents: Cents,
@@ -117,65 +91,55 @@ export function amortizationScheduleCents(
   const schedule: Cents[] = [];
   let bal = principalCents;
   for (let m = 0; m < termMonths; m++) {
-    const owed = Math.round(bal * (1 + r)); // balance after this month's interest
+    const owed = Math.round(bal * (1 + r));
     const payment = Math.min(level, owed); // final month: pay exactly what's owed
     schedule.push(payment);
-    bal = owed - payment; // reaches exactly 0 on the last payment
+    bal = owed - payment;
   }
   return schedule;
 }
 
-/** Minimum credit card payment: greater of 2% of balance or $25. Returns 0 if balance is 0. */
+/** The greater of 2% of the balance or a $25 floor. */
 export function minCreditCardPaymentCents(balanceCents: Cents): Cents {
   if (balanceCents <= 0) return 0;
   return Math.max(Math.round(balanceCents * 0.02), 2500);
 }
 
-/** APR of the synthetic credit card used when no real card is entered. */
 export const SYNTHETIC_CREDIT_CARD_APR = 0.22;
 
 /**
- * Default credit limit of the synthetic shortfall card. Finite by design: an
- * unlimited card can never be exhausted, so `isInsolvent` would never fire and a plan
- * financing itself on unbounded revolving debt would read as solvent. $50,000 is a
- * plausible aggregate unsecured revolving limit — enough to absorb a real
- * month-to-month crunch, low enough that indefinite borrowing runs out and is flagged.
+ * Finite by design: an unlimited card can never be exhausted, so `isInsolvent` would never
+ * fire. $50,000 is a plausible aggregate unsecured revolving limit — enough to absorb a
+ * real month-to-month crunch, low enough that indefinite borrowing runs out and is flagged.
  */
 export const SYNTHETIC_CARD_CREDIT_LIMIT_CENTS: Cents = 50_000_00;
 
-/** ID used in liabilityBalancesCents for the synthetic credit card. */
+/** Key for the synthetic card in `liabilityBalancesCents`. */
 export const SYNTHETIC_CARD_ID = "synthetic-credit-card";
 
 /**
- * Behaviour shared by every liability: identity, owed balance/rate/origination,
- * one-time principal adjustments, and the polymorphic monthly-payment hook.
- *
- * A liability is genuinely one of two things — an {@link AmortizingLoan} over a fixed
- * term or a {@link RevolvingCard} with a credit limit. Separate classes off this base
- * remove the impossible states (a card with a term, a loan with a limit, a liability
- * with neither) and let the sim loop call one method instead of branching on kind.
+ * Separate {@link AmortizingLoan} and {@link RevolvingCard} subclasses remove the
+ * impossible states (a card with a term, a loan with a limit, a liability with neither) and
+ * let the sim loop call one method instead of branching on kind.
  */
 abstract class SimLiabilityBase {
   readonly id: string;
   readonly ownerId: string;
   readonly kind: LiabilityKind;
-  /** Amount owed when the loan originates (positive = owed). */
+  /** Positive = owed. */
   readonly openingBalanceCents: Cents;
   /**
-   * Absolute simulation month of origination: balance 0 before it, the opening
-   * balance at it, amortizing after. Defaults to 0 (present from simulation start).
+   * Absolute simulation month of origination: balance 0 before it, the opening balance at
+   * it, amortizing after. Defaults to 0, present from simulation start.
    */
   readonly startMonth: number;
   readonly apr: number;
   readonly liquid: false = false;
 
   /**
-   * One-time principal adjustments — a future DebtPayoffEvent lands here as a
-   * lump sum. Applied by the projection in step 10, before that month's interest
-   * accrues. Mirrors Account's one-time-transfer primitive; see addTransfer for the
-   * sign convention. v1-seam: the paired cash outflow is the caller's job — the
-   * engine only moves the owed balance, so net-worth conservation needs an Account
-   * outflow attached too.
+   * Applied by the projection in step 10, before that month's interest accrues; see
+   * addTransfer for the sign convention. v1-seam: the engine only moves the owed balance,
+   * so net-worth conservation needs the caller to attach the paired Account outflow.
    */
   private transfers: SimOneTimeTransfer[] = [];
 
@@ -196,9 +160,8 @@ abstract class SimLiabilityBase {
   }
 
   /**
-   * This month's payment given the current balance. Both kinds cap it at the payoff
-   * amount (balance + this month's interest) so a small balance is never
-   * over-charged; a paid-off (≤ 0) balance pays nothing.
+   * Both kinds cap the payment at the payoff amount (balance + this month's interest); a
+   * balance ≤ 0 pays nothing.
    */
   abstract monthlyPaymentCents(balanceCents: Cents, month: number): Cents;
 
@@ -208,32 +171,27 @@ abstract class SimLiabilityBase {
   }
 
   /**
-   * Schedule a one-time principal adjustment at `month`. Sign convention matches
-   * Account.addTransfer: the amount is ADDED to the owed balance, so a lump-sum
-   * PAYMENT is NEGATIVE (a new draw positive), and proportionalFraction -0.5 settles
-   * half the balance.
+   * Sign convention matches Account.addTransfer: the amount is ADDED to the owed balance,
+   * so a lump-sum PAYMENT is NEGATIVE (a new draw positive), and proportionalFraction -0.5
+   * settles half.
    */
   addTransfer(transfer: SimOneTimeTransfer): void {
     this.transfers.push(transfer);
     this.transfers.sort((a, b) => a.month - b.month);
   }
 
-  /** All one-time transfers scheduled at exactly `month`. */
   getTransfersAt(month: number): SimOneTimeTransfer[] {
     return this.transfers.filter((t) => t.month === month);
   }
 }
 
 /**
- * A term loan (mortgage, auto, student loan) amortizing to exactly 0 over a fixed
- * term. The per-month schedule is computed once at origination; the monthly payment
- * is a lookup into it, capped at the actual payoff so a lump-sum paydown that drops
- * the balance below the schedule's trajectory retires the loan early.
+ * The schedule is computed once at origination and the monthly payment is a lookup into it,
+ * capped at the actual payoff so a lump-sum paydown retires the loan early.
  */
 export class AmortizingLoan extends SimLiabilityBase {
   readonly kind: Exclude<LiabilityKind, "creditCard">;
   readonly termMonths: number;
-  /** Exact payment for each month of the term (final payment reduced to the payoff). */
   private readonly schedule: readonly Cents[];
 
   constructor(params: {
@@ -264,15 +222,10 @@ export class AmortizingLoan extends SimLiabilityBase {
   }
 }
 
-/**
- * A revolving credit account that never amortizes: balance, APR, credit limit
- * (null = unbounded). Pays the balance-driven minimum, capped at the payoff so a
- * near-zero balance is retired rather than over-charged. The synthetic shortfall card
- * is one of these, with a finite default limit.
- */
+/** Never amortizes; pays the balance-driven minimum. The synthetic shortfall card is one. */
 export class RevolvingCard extends SimLiabilityBase {
   readonly kind = "creditCard";
-  /** Credit limit in cents; null = unbounded. */
+  /** null = unbounded. */
   readonly creditLimitCents: Cents | null;
 
   constructor(params: {
@@ -296,5 +249,4 @@ export class RevolvingCard extends SimLiabilityBase {
   }
 }
 
-/** A liability in the simulator is exactly one of the two kinds. */
 export type SimLiability = AmortizingLoan | RevolvingCard;

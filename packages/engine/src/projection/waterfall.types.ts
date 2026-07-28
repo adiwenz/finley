@@ -5,14 +5,13 @@ import type { SimGoal } from "../goal";
 
 /** The 401(k)-style plan a job carries — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
-  /** Fraction of THIS job's gross deferred pre-tax (0..1) — the exposed % lever. */
+  /** Fraction of THIS job's gross deferred pre-tax (0..1). */
   readonly deferralFraction: number;
   /** Person-owned account the deferral (and any match) funds. */
   readonly fundAccountId: string;
   /**
-   * Employer match as a fraction of the amount actually deferred (e.g. 0.5 = a
-   * 50% match). Employer money — it never comes out of take-home and does NOT
-   * share the employee-deferral cap.
+   * Fraction of the amount actually deferred (0.5 = a 50% match). Employer money: never out
+   * of take-home, and does NOT share the employee-deferral cap.
    */
   readonly employerMatchFraction?: number;
 }
@@ -21,50 +20,45 @@ export interface PlanDescriptor {
 export interface IncomeSourceMonth {
   readonly ownerId: string;
   /**
-   * Cash this source injects INTO the allocation waterfall — what still needs placing.
-   * The whole payment for wages, benefit, RMD, and draws; 0 for an accrued-interest
-   * booking, whose cash already sits in the balance (re-placing it would double-credit
-   * the account). Distinct from realized cash for reporting — see {@link cashInflowCents}.
+   * Cash this source injects INTO the allocation waterfall. The whole payment for wages,
+   * benefit, RMD, and draws; 0 for an accrued-interest booking, whose cash already sits in
+   * the balance (re-placing it would double-credit the account). Distinct from the realized
+   * cash reported — see {@link cashInflowCents}.
    */
   readonly waterfallInflowCents: Cents;
   readonly taxCategory: TaxCategory;
   /**
-   * Reporting provenance, consumed ONLY by the diagnostic flow view
-   * ({@link import("./reportFlows").buildFlows}), never by the waterfall's allocation
-   * or tax math. `sourceId` is a stable machine key (job id, draw's account id,
-   * `benefit:<person>`) naming *which* job or account a flow came from; `label` is its
-   * human name. Absent → the flow view keys/names by tax category.
+   * Reporting provenance: it never affects allocation or how much tax is owed, only how
+   * results are keyed and named. `sourceId` is a stable machine key (job id, draw's account
+   * id, `benefit:<person>`) naming *which* job or account a flow came from — it keys
+   * {@link WaterfallResult.taxBySourceCents} and the flow view
+   * ({@link import("./reportFlows").buildFlows}); `label` is its human name. Absent →
+   * keyed/named by tax category.
    */
   readonly sourceId?: string;
   readonly label?: string;
   /** Present → eligible for pre-tax deferral (step 1). Absent → post-deferral. */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * The taxable base when it is NOT the full gross. Two uses:
-   *  - a returned-basis fund withdrawal books only its **gain** (< gross) — the whole
-   *    gross still pays out as take-home, only the taxable base shrinks;
-   *  - an accrued-interest booking (savings) books its interest here with
-   *    `waterfallInflowCents` 0 — taxed without re-injecting cash the balance already
-   *    holds, yet still reported as real household cash via {@link cashInflowCents}.
-   * Absent → the full gross is taxable (wages, benefit, RMD, pre-tax draws).
+   * The taxable base when it is NOT the full gross: a returned-basis fund withdrawal books
+   * only its **gain** (the whole gross still pays out as take-home), and an accrued-interest
+   * booking books its interest here with `waterfallInflowCents` 0. Absent → the full gross
+   * is taxable (wages, benefit, RMD, pre-tax draws).
    */
   readonly taxableCents?: Cents;
   /**
-   * The **realized cash this source pays the household**, for the cash-flow report
-   * ({@link import("./reportFlows").buildFlows}) — distinct from `waterfallInflowCents`,
-   * the cash the ALLOCATION waterfall must place. They differ only for an accrued-interest
-   * booking: `waterfallInflowCents` 0 (allocating again would double-credit the account)
-   * while `cashInflowCents` is the interest, money the household genuinely received.
-   * Absent → defaults to `waterfallInflowCents` (wages, benefit, RMD, returned-basis
-   * draws all pay their whole gross as cash).
+   * The realized cash this source pays the household, for the cash-flow report. Differs from
+   * `waterfallInflowCents` only for an accrued-interest booking, where this is the interest
+   * — money genuinely received — and the waterfall inflow is 0. Absent → defaults to
+   * `waterfallInflowCents`.
    */
   readonly cashInflowCents?: Cents;
   /**
-   * Reporting provenance that OVERRIDES the tax-category axis for display/grouping
+   * OVERRIDES the tax-category axis for display/grouping
    * ({@link import("./simulate.types").ProjectionIncomeSource.category}). Savings interest
-   * sets `"savingsInterest"` so the UI groups it without parsing source ids, even though
-   * it is taxed as `ordinaryIncome` (where it still buckets in the taxable rollup).
-   * Absent → reports under its {@link taxCategory}.
+   * sets `"savingsInterest"` so the UI groups it without parsing source ids, even though it
+   * is taxed as `ordinaryIncome` (where it still buckets in the taxable rollup). Absent →
+   * reports under its {@link taxCategory}.
    */
   readonly reportCategory?: IncomeSourceCategory;
 }
@@ -86,23 +80,21 @@ export interface WaterfallInput {
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
   /**
-   * Standing account-contribution lines for this month — "put $X into this account",
-   * already in waterfall priority order and post-tax. A COMMITTED outflow: the full
-   * amount always lands (funded from the discretionary pool after dated goal paces,
-   * before `asap` goals), and whatever the pool cannot cover is borrowed — a shortfall
-   * the cascade meets from savings then credit, so an unaffordable contribution makes the
-   * plan unfinanceable rather than being silently shrunk to fit. Absent → none.
+   * Standing account-contribution lines for this month, already in waterfall priority order
+   * and post-tax. A COMMITTED outflow: the full amount always lands (from the discretionary
+   * pool after dated goal paces, before `asap` goals), and whatever the pool cannot cover is
+   * borrowed — so an unaffordable contribution makes the plan unfinanceable rather than
+   * being silently shrunk to fit. Absent → none.
    */
   readonly contributions?: readonly { readonly accountId: string; readonly monthlyCents: Cents }[];
   /**
    * The absolute month being allocated (0 = "now"). Sets each dated goal's
-   * `monthsRemaining = targetDate − nowMonth` for the sinking-fund pace. Absent
-   * → 0.
+   * `monthsRemaining = targetDate − nowMonth` for the sinking-fund pace. Absent → 0.
    */
   readonly nowMonth?: number;
   /**
-   * A goal fund account's monthly growth rate, for the growth-aware pace. Absent
-   * (or returning 0) → a flat even spread over the months remaining.
+   * A goal fund account's monthly growth rate, for the growth-aware pace. Absent (or
+   * returning 0) → a flat even spread over the months remaining.
    */
   readonly goalFundMonthlyRate?: (accountId: string) => number;
   /** Current (beginning-of-step) balance of any account — goal need is target − this. */
@@ -118,10 +110,8 @@ export interface WaterfallInput {
   /**
    * The per-{@link TaxCategory} breakdown of the SAME tax `computeTaxCents` returns.
    * REQUIRED — every jurisdiction owns its attribution; a zero-tax one returns `{}`,
-   * otherwise Σ per person equals that person's `computeTaxCents`. Called once per person;
-   * the per-person maps are summed into one household map, so the household breakdown sums
-   * to household `taxCents` (runtime-enforced — see
-   * {@link assertTaxAttributionReconciles}). Additive only: take-home still uses the
+   * otherwise Σ per person MUST equal that person's `computeTaxCents` (runtime-enforced —
+   * see {@link assertTaxAttributionReconciles}). Additive only: take-home still uses the
    * scalar total.
    */
   readonly computeTaxByCategoryCents: (
@@ -137,28 +127,24 @@ export interface WaterfallInput {
 export interface WaterfallResult {
   readonly taxCents: Cents;
   /**
-   * Household tax per {@link TaxCategory} — the tax analog of `incomeByCategoryCents`,
-   * summed across persons. Always present (the breakdown seam is required); `{}` in a
-   * zero-tax month, otherwise Σ === `taxCents`.
+   * Household tax per {@link TaxCategory}, summed across persons. `{}` in a zero-tax month,
+   * otherwise Σ === `taxCents`.
    */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
   /**
-   * Tax per income SOURCE — the finer sibling of {@link taxByCategoryCents}, keyed by
-   * each source's reporting id (`sourceId`, falling back to its tax category) so a chart
-   * can name *which job* bore the tax. Each category's tax is apportioned across its
-   * sources by taxable weight, PER PERSON (so two earners in different brackets never
-   * cross-subsidise), then summed to the household. Always present; `{}` in a zero-tax
-   * month, otherwise Σ === `taxCents` (enforced — see
-   * {@link assertTaxAttributionReconciles}) and Σ within a category === that category's
-   * `taxByCategoryCents`. Attribution is proportional (average-rate), not marginal —
-   * disclosed as `taxAttributionProportional`.
+   * Tax per income SOURCE, keyed by each source's reporting id (`sourceId`, falling back to
+   * its tax category). Each category's tax is apportioned across its sources by taxable
+   * weight, PER PERSON (so two earners in different brackets never cross-subsidise), then
+   * summed to the household. `{}` in a zero-tax month, otherwise Σ === `taxCents` (enforced
+   * — see {@link assertTaxAttributionReconciles}) and Σ within a category === that
+   * category's `taxByCategoryCents`. Attribution is proportional (average-rate), not
+   * marginal — disclosed as `taxAttributionProportional`.
    */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
-   * Pre-tax deferral per income SOURCE (keyed like {@link taxBySourceCents}), summed
-   * across the household, so a consumer can compute a source's take-home
-   * (gross − deferral − tax). Always present (deferral is jurisdiction-independent); a
-   * source that defers nothing is absent. Σ === Σ `deferredByPersonCents`.
+   * Pre-tax deferral per income SOURCE (keyed like {@link taxBySourceCents}), summed across
+   * the household, so a consumer can compute a source's take-home (gross − deferral − tax).
+   * A source that defers nothing is absent. Σ === Σ `deferredByPersonCents`.
    */
   readonly deferralBySourceCents: Readonly<Record<string, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */

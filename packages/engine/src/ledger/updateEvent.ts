@@ -2,8 +2,8 @@
  * Revise an event already in the ledger — the third write alongside `addEvent` (grow)
  * and `removeEvent` (undo). Without it, anything authored *on* an event is write-once:
  * a partner's jobs live on their `RelationshipEvent`, so changing a partner's salary
- * meant removing the partner and every event depending on them. An update is not a free
- * rewrite but a *replacement* that must leave a ledger which still replays cleanly.
+ * meant removing the partner and every event depending on them. An update is a
+ * *replacement* that must leave a ledger which still replays cleanly.
  *
  * Fixed, and why:
  *   - **id and type** — dependencies are tracked by id and interpreted by type
@@ -14,9 +14,9 @@
  *
  * Everything else, including the month, is revisable, so validation is the same
  * whole-ledger replay `removeEvent` runs: check every remaining event against the
- * base-seeded state in interpretation order and block the edit, naming the offender, if
- * a precondition now fails. Like undo, this runs the pure replay context — the
- * affordability gate needs a projection and fires on `addEvent`'s authoring path.
+ * base-seeded state in interpretation order and block the edit, naming the offender, if a
+ * precondition now fails. Like undo, this runs the pure replay context — the affordability
+ * gate needs a projection and fires only on `addEvent`'s authoring path.
  */
 
 import type { Ledger } from "./ledger";
@@ -26,7 +26,6 @@ import { validateEventData } from "./eventValidation";
 import { contextFrom, seedState, sortedEvents } from "./interpret";
 import type { LedgerBaseConfig } from "./ledgerBase";
 
-/** Success carries the revised ledger; failure carries a human-readable conflict. */
 export type UpdateResult =
   | { ok: true; ledger: Ledger }
   | { ok: false; conflict: string };
@@ -57,7 +56,6 @@ export function updateEvent(
   const data = validateEventData(next);
   if (!data.ok) return { ok: false, conflict: data.reason };
 
-  // The revision keeps its place in the ledger's order.
   const revised = { ...next, sequenceNumber: existing.sequenceNumber } as LifeEvent;
   const events = ledger.events.map((e) => (e.id === id ? revised : e));
 

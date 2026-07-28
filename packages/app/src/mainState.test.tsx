@@ -110,7 +110,7 @@ describe("App — event ledger", () => {
     fireEvent.click(screen.getByText("Add event"));
 
     // Back to the default "Added an expense": its month defaults to Year 0, before the
-    // partnership, so there's no one but you to attribute it to.
+    // partnership, so only you can own it.
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "BudgetItemStartEvent" },
     });
@@ -177,13 +177,11 @@ describe("App — event ledger", () => {
   it("blocks a removal whose dependent would fail, and surfaces the conflict", () => {
     render(<App />);
 
-    // Partner joins the household…
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "RelationshipEvent" },
     });
     fireEvent.click(screen.getByText("Add event"));
 
-    // …then a separation from that partner.
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "SeparationEvent" },
     });
@@ -203,11 +201,9 @@ describe("App — event ledger", () => {
 describe("App — starter simulations", () => {
   it("loads a scenario's plan and its seed timeline together", () => {
     render(<App />);
-    // Opens on the healthy default with an empty timeline.
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Alex");
     expect(screen.getByText(/No life events yet/)).toBeTruthy();
 
-    // The student-loan scenario's plan AND its seed loan event load at once.
     fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
       target: { value: "student-loan" },
     });
@@ -244,8 +240,8 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Servicing the loan is spending, so it belongs in the graph of what the month
-    // costs, beside the budget lines it is not one of.
+    // Servicing the loan is spending, so it belongs in the graph of what the month costs
+    // — beside the budget lines, not as one of them.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
@@ -290,10 +286,9 @@ describe("App — budget edits", () => {
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
-  // The scalar monthly-expenses control is gone; the line-item budget (Base +
-  // Adjustments) is the single source of truth for spending. Its guard — overrides
-  // accumulate rather than replace — lives in `baseAdjustments/monthEdit.test.ts`
-  // (applyLineOverride) and the panel's own tests.
+  // The line-item budget (Base + Adjustments) is the single source of truth for spending.
+  // Its guard — overrides accumulate rather than replace — lives in
+  // `baseAdjustments/monthEdit.test.ts` (applyLineOverride).
 
   it("drives the whole projection from a line-item budget edit", () => {
     // Guards a regression: the panel once held the budget in its own state and projected

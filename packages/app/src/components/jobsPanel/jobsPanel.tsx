@@ -1,13 +1,11 @@
 /**
- * Jobs panel — the single authoring surface for earned income. Lists **every household
- * member's** {@link Job}s and lets the user add, edit, and delete them, each re-running the
- * projection so net worth and the retirement solver move live. A person may hold any number
- * of jobs, several possibly open-ended; none is privileged — there is no "career job".
- * Dated changes (a one-off month — a bonus, or $0 for a missed paycheck — and a permanent
- * raise or cut) are authored against the income graph in Base + Adjustments, where a month
- * is selected. This panel holds standing job data, but *lists* each job's permanent pay
- * changes and lets them be removed here, since those move what the job pays and the
- * headline shows only the starting salary.
+ * Jobs panel — the single authoring surface for earned income, listing **every household
+ * member's** {@link Job}s. A person may hold any number of jobs, several possibly
+ * open-ended; none is privileged — there is no "career job". Dated changes (a one-off
+ * month, a permanent raise or cut) are authored against the income graph in Base +
+ * Adjustments, where a month is selected; this panel holds standing job data but *lists*
+ * each job's permanent pay changes and lets them be removed here, since those move what
+ * the job pays and the headline shows only the starting salary.
  *
  * **Two planes, one list.** The primary person's jobs are standing plan data (a value-plane
  * edit, never a timeline event); a partner's ride the `RelationshipEvent` that brought them
@@ -16,10 +14,9 @@
  * one owner list, and each row's owner routes its edit — without it a partner's jobs are
  * write-once, unchangeable short of removing the partner outright.
  *
- * The 401(k) elective-limit nudge lives here with the deferral: a deferral summed across
- * jobs that tops the year's IRS limit is not an error — contributions stop at the cap and
- * the overflow is paid as taxable income. The limit is per person, so the nudge speaks for
- * one earner's own jobs.
+ * The 401(k) elective-limit nudge lives here with the deferral: topping the year's IRS
+ * limit is not an error — contributions stop at the cap and the overflow is paid as
+ * taxable income. The limit is per person, so the nudge speaks for one earner's own jobs.
  */
 
 import { useMemo, useState } from "react";
@@ -48,7 +45,7 @@ import styles from "./jobsPanel.module.css";
 interface JobsPanelProps {
   budget: Plan;
   setBudget: Dispatch<SetStateAction<Plan>>;
-  /** The interpreted household — the roster whose members can hold jobs. */
+  /** The roster whose members can hold jobs. */
   household: Household;
   /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
@@ -59,7 +56,6 @@ interface JobsPanelProps {
   onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
 }
 
-/** Which authoring form, if any, is disclosed: a job id (edit), "new" (add), or none. */
 type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
 
 /** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
@@ -81,9 +77,9 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
 
 export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
-  // One list across the household, in join order — primary person first, then each
-  // partner. Every row carries its owner (which routes its edits) and the label the whole
-  // app names that job by (owner-qualified once a second earner exists).
+  // One list across the household in join order, primary person first. Every row carries
+  // its owner (which routes its edits) and the label the app names that job by
+  // (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   // Per PERSON, not per household: the elective limit belongs to the earner.
@@ -91,9 +87,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
     () => firstDeferralLimitCrossing(owners, budget.inflationPct),
     [owners, budget.inflationPct],
   );
-  /** More than one member can earn, so the form offers an owner picker. */
   const severalOwners = owners.length > 1;
-  /** The picker's options — the form needs only who they are, not where their jobs live. */
+  /** The picker's options — the form needs who they are, not where their jobs live. */
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
   /** Route every rewrite to its owner's plane, atomically ({@link commitJobWrites}). */
@@ -113,9 +108,9 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
   /**
    * Save an edit — fields and owner together, as one operation ({@link editJob}). Picking a
-   * different owner *moves* the job: same id, one-month overrides, pay changes and employer
-   * match, from one member's list to the other's, its ages now read against the new owner's
-   * birth year. Nothing is written unless the whole edit resolves.
+   * different owner *moves* the job: same id, overrides, pay changes and employer match,
+   * its ages now read against the new owner's birth year. Nothing is written unless the
+   * whole edit resolves.
    */
   function edit(owner: JobOwner, id: string, draft: JobDraft) {
     const result = editJob(owners, owner.id, id, draft);
@@ -150,9 +145,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
           {rows.map(({ owner, job, label }) => {
             const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
             const overrideCount = job.incomeOverrides?.length ?? 0;
-            // Permanent pay changes, oldest first — listed in full, not just counted, since
-            // a raise/cut moves what the job pays and the headline shows only the STARTING
-            // salary.
+            // Permanent pay changes, oldest first — listed in full, not just counted.
             const payChanges = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
             return (
               <li key={job.id} className={styles.row} aria-label={label}>
@@ -223,8 +216,8 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
 
       {deferralCrossing && (
         <p className="hint">
-          {/* The limit is per person: "your jobs" would misattribute a partner's crossing to
-              the user, and imply the two are pooled, which they are not. */}
+          {/* The limit is per person: "your jobs" would misattribute a partner's crossing
+              and imply the two are pooled. */}
           {deferralCrossing.personId === PRIMARY_PERSON_ID
             ? `Across your jobs, your yearly 401(k) contribution tops the elective limit`
             : `Across ${deferralCrossing.personName}’s jobs, their yearly 401(k) contribution tops the elective limit`}{" "}

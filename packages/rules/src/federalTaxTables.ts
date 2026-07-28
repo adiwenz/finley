@@ -3,29 +3,22 @@ import type { Cents, ModelAssumption } from "@finley/engine";
 /**
  * Legislated single-filer federal-tax tables behind {@link federalTax}. Every US constant
  * lives HERE: brackets, deduction, cap-gains tops, Social Security inclusion thresholds,
- * and the forward-indexing knobs. `federalTax.ts` and `federalTaxAttribution.ts` import
- * these; the engine only ever states neutral per-category gross.
+ * and the forward-indexing knobs; the engine only ever states neutral per-category gross.
  *
  * ⚠ Estimates, not advice. Dollar figures are the pinned {@link FEDERAL_TAX_BASE_YEAR}
  * base; later years are indexed forward, earlier years return the base unchanged.
  */
 
-// Single-filer figures pinned to 2026 (projected inflation-adjusted brackets, standard
-// deduction, long-term capital-gains tops), from the published IRS inflation adjustments
-// and Tax Foundation 2026 projections. Every dollar figure below is authoritative for
-// {@link FEDERAL_TAX_BASE_YEAR}, indexed forward by
-// {@link ASSUMED_ANNUAL_INDEXING_RATE}.
+// Single-filer dollar figures below come from the published IRS inflation adjustments and
+// Tax Foundation 2026 projections.
 
-/** The calendar year the pinned dollar figures below are authoritative for. */
 export const FEDERAL_TAX_BASE_YEAR = 2026;
 
-/** Single-filer standard deduction, 2026 base. */
 const BASE_STANDARD_DEDUCTION_CENTS: Cents = 16_100_00;
 
 /**
- * Single-filer ordinary-income brackets, 2026 base: LOWER edge (cents) plus the marginal
- * `rate` above it, ascending; the last entry has no upper edge. Rates are TCJA-era and
- * legislation-set — only the thresholds index forward.
+ * LOWER edge (cents) plus the marginal `rate` above it, ascending; the last entry has no
+ * upper edge. Rates are TCJA-era and legislation-set — only the thresholds index forward.
  */
 const BASE_ORDINARY_BRACKETS: readonly OrdinaryBracket[] = [
   { lowerCents: 0, rate: 0.1 },
@@ -37,35 +30,31 @@ const BASE_ORDINARY_BRACKETS: readonly OrdinaryBracket[] = [
   { lowerCents: 640_600_00, rate: 0.37 },
 ];
 
-/** Top of the 0% long-term capital-gains bracket (single), 2026 base. */
 const BASE_LTCG_ZERO_TOP_CENTS: Cents = 49_450_00;
-/** Top of the 15% long-term capital-gains bracket (single), 2026 base; above it is 20%. */
+/** Above this top, the 20% rate. */
 const BASE_LTCG_FIFTEEN_TOP_CENTS: Cents = 545_050_00;
-/** Preferential long-term capital-gains rates for the two taxed bands. */
 export const LTCG_RATE_15 = 0.15;
 export const LTCG_RATE_20 = 0.2;
 
-// Social Security inclusion thresholds (single), NOT indexed by law: the $25,000 /
+// Social Security inclusion thresholds (single) are NOT indexed by law: the $25,000 /
 // $34,000 provisional-income thresholds have been fixed in statute since 1984/1993, so
-// unlike the brackets they are held flat across all years. The share caps (50% / 85%)
-// are the two inclusion ceilings the formula steps between.
+// unlike the brackets they are held flat across all years.
 
-/** First provisional-income threshold: below it, no benefit is taxable (single). */
+/** Below it, no benefit is taxable. */
 export const SS_TIER_1_THRESHOLD_CENTS: Cents = 25_000_00;
-/** Second provisional-income threshold: above it, up to 85% is taxable (single). */
+/** Above it, up to 85% is taxable. */
 export const SS_TIER_2_THRESHOLD_CENTS: Cents = 34_000_00;
-/** Lower inclusion share, applied in the first tier and to the tier gap. */
+/** Applied in the first tier and to the tier gap. */
 export const SS_TIER_1_SHARE = 0.5;
-/** Upper inclusion ceiling — the most of a benefit that can ever be taxed. */
+/** The most of a benefit that can ever be taxed. */
 export const SS_MAX_SHARE = 0.85;
 
 // Forward indexing (mirrors contributionLimits / healthCosts).
 
 /**
- * Assumed forward CPI indexing rate for the brackets, standard deduction, and cap-gains
- * tops. Real figures index to inflation and round to a legislated increment; the seam
- * context has no year-by-year rate, so this stands in. ⚠ Actual indexing is published
- * yearly.
+ * Assumed forward CPI indexing rate. Real figures index to inflation and round to a
+ * legislated increment; the seam context has no year-by-year rate, so this stands in.
+ * ⚠ Actual indexing is published yearly.
  */
 const ASSUMED_ANNUAL_INDEXING_RATE = 0.025;
 
@@ -76,7 +65,7 @@ const ROUND_50_CENTS: Cents = 50_00;
  * Index a base-year figure forward to `year`, rounded DOWN to `incrementCents`. Years at
  * or before the base year return it UNCHANGED — no backward indexing, so the pinned
  * anchors stay cent-exact. Rounding down keeps the result monotonically non-decreasing as
- * the year advances (mirrors `contributionLimits` / `healthCosts`).
+ * the year advances.
  */
 function indexForward(baseCents: Cents, year: number, incrementCents: Cents): Cents {
   const years = year - FEDERAL_TAX_BASE_YEAR;
@@ -85,28 +74,23 @@ function indexForward(baseCents: Cents, year: number, incrementCents: Cents): Ce
   return Math.floor(indexed / incrementCents) * incrementCents;
 }
 
-/** A single ordinary-income bracket: the lower edge (cents) and its marginal rate. */
 export interface OrdinaryBracket {
   readonly lowerCents: Cents;
   readonly rate: number;
 }
 
-/** The full structured single-filer tax tables for a year. */
+/** Single-filer tables for one year; every dollar figure below is indexed to `year`. */
 export interface FederalTaxTables {
   readonly year: number;
-  /** Standard deduction (single), indexed to `year`. */
   readonly standardDeductionCents: Cents;
-  /** Ordinary brackets (single), lower-edge + marginal rate, ascending, indexed to `year`. */
   readonly ordinaryBrackets: readonly OrdinaryBracket[];
-  /** Top of the 0% long-term capital-gains bracket, indexed to `year`. */
   readonly capitalGainsZeroTopCents: Cents;
-  /** Top of the 15% long-term capital-gains bracket, indexed to `year`. */
   readonly capitalGainsFifteenTopCents: Cents;
 }
 
 /**
- * Single-filer tax tables for `year`: {@link FEDERAL_TAX_BASE_YEAR} figures indexed
- * forward. Rates are held; only the dollar thresholds move.
+ * {@link FEDERAL_TAX_BASE_YEAR} figures indexed forward to `year`. Rates are held; only
+ * the dollar thresholds move.
  */
 export function federalTaxTables(year: number): FederalTaxTables {
   return {
@@ -122,12 +106,11 @@ export function federalTaxTables(year: number): FederalTaxTables {
 }
 
 /**
- * User-facing disclosures for this module's federal-tax simplifications — the `rules`
- * side of {@link import("@finley/engine").Jurisdiction.modelAssumptions}, co-located by
- * `id` with the code they describe ({@link indexForward} /
- * {@link taxableSocialSecurityCents}), as the engine co-locates its own
- * {@link import("@finley/engine").MODEL_ASSUMPTIONS}. `usJurisdiction` hands these to the
- * report's "assumptions & simplifications" surface. ⚠ Estimates, not advice.
+ * User-facing disclosures for this module's federal-tax simplifications — the `rules` side
+ * of {@link import("@finley/engine").Jurisdiction.modelAssumptions}, co-located by `id`
+ * with the code they describe ({@link indexForward} /
+ * {@link taxableSocialSecurityCents}). `usJurisdiction` hands these to the report's
+ * "assumptions & simplifications" surface. ⚠ Estimates, not advice.
  */
 export const FEDERAL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
   {

@@ -5,18 +5,15 @@
  * {@link import("../budgetLine").BudgetLine}, the plan's health line, an expense series a
  * life event created, a liability's payment computed from balance/rate/term. They are
  * *right* to be separate: a loan payment is not an expense line, and making it one would
- * invent an editable fact the model lacks. But a reader — a chart, a tooltip — wants one
- * list, and re-deriving it downstream from four shapes means each consumer gets it subtly
- * differently. That is what happened: the app assembled bands from `lineMonthlyCents`,
- * household series objects and payment records, and missed whole categories of spending.
+ * invent an editable fact the model lacks. But re-deriving one list downstream from four
+ * shapes means each consumer gets it subtly differently — the app did, and missed whole
+ * categories of spending.
  *
  * So the engine reports {@link SpendingItem}s: one flat, labelled, categorized list per
  * month, summing to the month's whole obligation ({@link sumSpendingItems} ==
  * `expensesCents + liabilityPaymentsCents`, pinned by test). A **read** model — no new
- * source of truth. Each item points back at its authoring fact
- * ({@link SpendingItem.sourceKind} / {@link SpendingItem.sourceId}) and states whether
- * that fact is editable as a line ({@link SpendingItem.editable}), so a UI offers an edit
- * exactly where one exists.
+ * source of truth. Each item points back at its authoring fact and states whether that
+ * fact is editable as a line, so a UI offers an edit exactly where one exists.
  */
 
 import type { Cents } from "../money";
@@ -26,8 +23,7 @@ import type { SimOwnedSeries } from "./simulate.types";
 
 /**
  * Which authoring model an item's money comes from. Provenance, not presentation: it says
- * where to go to change the number (or that there is nowhere), and lets one list be
- * re-grouped without re-deriving it.
+ * where to go to change the number, or that there is nowhere.
  */
 export type SpendingSourceKind =
   /** A standing budget line the user authors and edits. */
@@ -43,8 +39,8 @@ export type SpendingSourceKind =
 
 /**
  * How to *read* an item, as distinct from where it came from. Authored lines carry their
- * own priority tier; the rest carry the kind of obligation they are, since "need or want?"
- * is not a question a mortgage payment answers.
+ * own priority tier; the rest carry the kind of obligation they are — "need or want?" is
+ * not a question a mortgage payment answers.
  */
 export type SpendingCategory = BudgetCategory | "healthcare" | "debtService" | "other";
 
@@ -56,9 +52,7 @@ export type SpendingCategory = BudgetCategory | "healthcare" | "debtService" | "
 export interface SpendingItem {
   /** Stable id, unique within a month and constant across months (a chart band key). */
   readonly id: string;
-  /** Human-facing name ("Housing", "Healthcare", "Student loan payment"). */
   readonly label: string;
-  /** What it cost this month. */
   readonly amountCents: Cents;
   readonly category: SpendingCategory;
   readonly sourceKind: SpendingSourceKind;
@@ -67,7 +61,7 @@ export interface SpendingItem {
   /**
    * Editable *as itself* — true only for an authored budget line. A health line is edited
    * on the plan, an event's expense through its event, a loan payment not at all (change
-   * the loan). A UI reads this instead of guessing from the kind.
+   * the loan).
    */
   readonly editable: boolean;
 }
@@ -92,7 +86,7 @@ const UNTAGGED: SpendingSource = {
   editable: false,
 };
 
-/** Plain-language name for a debt's payment, from the only human fact a liability has. */
+/** A debt's payment named from its kind — the only human fact a liability has. */
 const LIABILITY_LABEL: Record<LiabilityKind, string> = {
   mortgage: "Mortgage payment",
   auto: "Auto loan payment",
@@ -106,12 +100,9 @@ export function liabilitySpendingId(liabilityId: string): string {
 }
 
 /**
- * Every {@link SpendingItem} for one simulated month: each expense series at the amount it
- * charges, then each liability at the payment applied against it.
- *
- * Series are reported even at 0 — a dormant line still exists, and a band vanishing
- * mid-chart reads as deleted rather than paused. Liabilities appear only with a payment
- * due, exactly the set `payments` holds.
+ * Every {@link SpendingItem} for one simulated month. Series are reported even at 0 — a
+ * dormant line still exists, and a band vanishing mid-chart reads as deleted rather than
+ * paused. Liabilities appear only with a payment due.
  */
 export function buildSpendingItems(
   expenseSeries: readonly SimOwnedSeries[],
@@ -149,7 +140,6 @@ export function buildSpendingItems(
   return items;
 }
 
-/** What the month costs in total — the sum every consumer would otherwise recompute. */
 export function sumSpendingItems(items: readonly SpendingItem[]): Cents {
   return items.reduce((total, item) => total + item.amountCents, 0);
 }

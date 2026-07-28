@@ -5,24 +5,22 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson } from "./simulate.types";
 
 /**
- * The slice of simulator state RMD bookkeeping reads and mutates. Declaring this
- * structural view rather than importing the mutable `SimState` keeps that object private
- * to the simulator while this module stays independently testable, as `EarningsState` does.
+ * A structural view rather than the mutable `SimState`, so that object stays private to the
+ * simulator while this module stays independently testable (as `EarningsState` does).
  */
 export interface RmdState {
-  /** Every asset account — filtered here to forced-distribution-eligible holdings. */
+  /** Every asset account; filtered here to forced-distribution-eligible holdings. */
   readonly accounts: readonly SimAccount[];
   /** Authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
-  /** Every person by id — an RMD needs the holder's birth year for age/start age. */
+  /** Read for the holder's birth year (age, start age). */
   readonly personsById: ReadonlyMap<string, SimPerson>;
 }
 
 /**
- * Whether this month carries the year's single RMD event — its first PROCESSED month.
- * Month 0 is the opening snapshot (never processed) and months 1–11 are the start year,
- * so month 1 carries it; every 12th month opens a new calendar year. Keeps the forced
- * withdrawal annual rather than compounding it twelve times.
+ * The year's single RMD event lands on its first processed month: month 0 is the opening
+ * snapshot and months 1–11 are the start year, so month 1 carries it, and every 12th month
+ * opens a new calendar year. Keeps the forced withdrawal annual rather than twelvefold.
  */
 function isRmdTriggerMonth(month: number): boolean {
   return month > 0 && (month === 1 || month % 12 === 0);
@@ -30,17 +28,15 @@ function isRmdTriggerMonth(month: number): boolean {
 
 /**
  * This year's Required Minimum Distributions — one income source per person with a pre-tax
- * balance who has reached the jurisdiction's start age. On a trigger month the seam prices
- * the requirement off their aggregate pre-tax balance; that amount is forced out of their
- * pre-tax accounts sequentially (`required ≤ balance`, so it always fully draws) and
- * re-enters as `ordinaryIncome` with NO planDescriptor. That routing is deliberate: the
- * single tax chokepoint is inside the waterfall, so the gross is taxed once there and the
- * remainder lands in the surplus (taxable) destination; and since it is not earned wages
- * it enters POST-deferral and can never be re-deferred.
+ * balance who has reached the jurisdiction's start age. The seam prices the requirement off
+ * their aggregate pre-tax balance; that amount is forced out of their pre-tax accounts
+ * sequentially (`required ≤ balance`, so it always fully draws) and re-enters as
+ * `ordinaryIncome` with no planDescriptor: the waterfall is the single tax chokepoint, so the
+ * gross is taxed once there and the remainder lands in the surplus (taxable) destination, and
+ * entering post-deferral it can never be re-deferred.
  *
- * The withdrawal binds as `max(desired, required)`; the base sim has no desired draw, so
- * `required` binds. Absent seam (null jurisdiction) → no RMD. Mutates `assetBalances`, as
- * `buildGovernmentBenefitSources` does.
+ * The withdrawal binds as `max(desired, required)`; the base sim has no desired draw. No seam →
+ * no RMD. Mutates `assetBalances`, as `buildGovernmentBenefitSources` does.
  */
 export function buildRmdSources(
   state: RmdState,
@@ -83,8 +79,8 @@ export function buildRmdSources(
       ownerId: person.id,
       waterfallInflowCents: required,
       taxCategory: "ordinaryIncome",
-      // Its own source, so a forced distribution reads apart from an elective pre-tax
-      // draw even though both are `ordinaryIncome`.
+      // Own id, so a forced distribution reads apart from an elective pre-tax draw even
+      // though both are `ordinaryIncome`.
       sourceId: `rmd:${person.id}`,
       label: "Required distribution",
     });

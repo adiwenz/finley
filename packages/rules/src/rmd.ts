@@ -4,18 +4,14 @@ import type { Cents, RmdContext, ModelAssumption } from "@finley/engine";
  * US Required Minimum Distributions — the age-triggered forced withdrawal from pre-tax
  * retirement accounts. The `rules`-side plug for the engine's
  * {@link import("@finley/engine").Jurisdiction.requiredMinimumDistributionCents} seam: the
- * engine owns and aggregates the pre-tax balance (pure bookkeeping); this module decides
- * the start age (birth-year-dependent) and the required withdrawal = balance ÷
- * life-expectancy divisor at/after that age.
+ * engine owns and aggregates the pre-tax balance; this module decides the start age
+ * (birth-year-dependent) and the withdrawal = balance ÷ life-expectancy divisor.
  *
  * ⚠ Estimates, not advice. The start ages and the Uniform Lifetime Table below are current
- * US law and change with legislation; they live here, in one place, behind the pluggable
- * jurisdiction concept, never hardcoded in the engine. The IRS mechanic uses the
- * PRIOR-year-end balance; the engine supplies the balance at RMD time — a documented
- * forward-projection simplification.
+ * US law and change with legislation; they live here, never hardcoded in the engine. The
+ * IRS mechanic uses the PRIOR-year-end balance; the engine supplies the balance at RMD
+ * time — a documented forward-projection simplification.
  */
-
-// Legislated constants, one place, disclaimed.
 
 /**
  * SECURE 2.0 RMD start age by birth year: 73 for 1951–1959, 75 for 1960 and later. Cohorts
@@ -27,11 +23,10 @@ function rmdStartAge(birthYear: number): number {
 }
 
 /**
- * User-facing disclosure for the RMD start-age rule — the `rules` side of the engine's
+ * The `rules` side of the engine's
  * {@link import("@finley/engine").Jurisdiction.modelAssumptions} seam, co-located by `id`
- * with the code it describes ({@link rmdStartAge}), as `federalTax.ts` co-locates its own.
- * `usJurisdiction` concatenates these onto its federal-tax disclosures, so the "assumptions
- * & simplifications" surface explains when forced withdrawals begin. ⚠ Estimates, not advice.
+ * with the code it describes ({@link rmdStartAge}). `usJurisdiction` concatenates these
+ * onto its federal-tax disclosures.
  */
 export const RMD_ASSUMPTIONS: readonly ModelAssumption[] = [
   {
@@ -104,16 +99,13 @@ const UNIFORM_LIFETIME_DIVISOR: Readonly<Record<number, number>> = {
 
 const OLDEST_TABLE_AGE = 120;
 
-/** Distribution-period divisor for `age`, clamped to the oldest tabulated age. */
 function uniformLifetimeDivisor(age: number): number {
   return UNIFORM_LIFETIME_DIVISOR[Math.min(age, OLDEST_TABLE_AGE)];
 }
 
 /**
- * The required minimum distribution (nominal cents) for the year. 0 before the
- * birth-year-dependent start age or for an empty balance; otherwise the pre-tax balance ÷
- * the Uniform Lifetime divisor for the holder's age, rounded to the cent. Monotonic in both
- * age and balance, and never exceeds the balance (the smallest divisor is 2.0).
+ * The year's required distribution in nominal cents. Monotonic in both age and balance,
+ * and never exceeds the balance (the smallest divisor is 2.0).
  */
 export function requiredMinimumDistributionCents(
   preTaxBalanceCents: Cents,

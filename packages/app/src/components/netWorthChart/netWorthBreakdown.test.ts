@@ -3,9 +3,9 @@ import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 import { buildNetWorthBreakdown, type BreakdownMeta } from "./netWorthBreakdown";
 
 /**
- * A hand-built projection: one month per spec, only the balance maps moving. Mirrors the
- * engine's minimal-series test helper, so these pin the breakdown logic alone (band
- * selection, ordering, sign, insolvency truncation) with no simulator in the loop.
+ * A hand-built projection: one month per spec, only the balance maps moving, so these pin
+ * the breakdown logic alone (band selection, ordering, sign, insolvency truncation) with
+ * no simulator in the loop.
  */
 interface MonthSpec {
   readonly accounts?: Readonly<Record<string, number>>;
@@ -106,7 +106,7 @@ describe("buildNetWorthBreakdown", () => {
   });
 
   it("reports the peak net worth over the charted period, not just the terminal", () => {
-    // Accumulate to 300, then decumulate to 50 — the peak is the headline, the terminal isn't.
+    // Accumulate to 300, then decumulate to 50 — the peak is the headline, not the terminal.
     const data = buildNetWorthBreakdown(
       series([{ accounts: { savings: 100 } }, { accounts: { savings: 300 } }, { accounts: { savings: 50 } }]),
       META,
@@ -130,8 +130,7 @@ describe("buildNetWorthBreakdown", () => {
 
   it("charts the synthetic last-resort card as a labelled debt, not a truncation point", () => {
     // The synthetic card is the engine's borrow-of-last-resort; labelled, it charts below
-    // zero like any liability, so a plan living on borrowed money shows the debt piling up
-    // rather than the chart stopping where it starts.
+    // zero like any liability, so a plan living on borrowed money shows the debt piling up.
     const meta: BreakdownMeta = { ...META, liabilityLabels: { [SYNTHETIC_CARD_ID]: "Credit card" } };
     const data = buildNetWorthBreakdown(
       series([
@@ -150,8 +149,8 @@ describe("buildNetWorthBreakdown", () => {
   });
 
   it("renders an UNLABELLED real liability normally (a missing label never truncates)", () => {
-    // A real debt with no entry in liabilityLabels still charts across all its months, banded
-    // with a humanized fallback name — only the synthetic card ends the self-funded run.
+    // A real debt with no entry in liabilityLabels still charts across all its months,
+    // banded with a humanized fallback name.
     const data = buildNetWorthBreakdown(
       series([
         { accounts: { savings: 100 }, liabilities: { "mortgage-1": 800 } },

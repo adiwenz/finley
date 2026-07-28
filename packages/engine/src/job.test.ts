@@ -1,7 +1,7 @@
 /**
- * The Job/Person standing model — the sole source of truth for earned income now that
- * the scalar `incomeCents` path is gone. Pins open-ended-job semantics and that the
- * pre-"now" covered-earnings record falls out of the jobs.
+ * The Job/Person standing model — the sole source of truth for earned income. Pins
+ * open-ended-job semantics and that the pre-"now" covered-earnings record falls out of
+ * the jobs.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
@@ -70,8 +70,8 @@ describe("Job/Person standing model — additive compilation", () => {
 
   it("computes pre-'now' earnings directly from the jobs", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
-    // The roster holds authoring Persons; the pre-"now" record derives from their jobs
-    // (the sim boundary does the same via compilePerson).
+    // The pre-"now" record derives from the roster's authoring Persons, as the sim
+    // boundary does via compilePerson.
     const prior = compilePersonPriorEarnings(
       base.initialPersons![0],
       START_YEAR,
@@ -106,8 +106,7 @@ describe("Job/Person standing model — one-month income overrides", () => {
   const base: Job = salariedJob(dollarsToCents(6000));
 
   it("leaves every other month untouched (override is one month only)", () => {
-    // Months 0–11 are year 0, so baseline pay is a round $6,000; a real-flat salary grows
-    // at CPI, so later years are not round.
+    // Months 0–11 are year 0; a real-flat salary grows at CPI, so later years are not round.
     const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "setTo", cents: 0 }] };
     expect(monthly(job, 5)).toBe(dollarsToCents(6000));
     expect(monthly(job, 6)).toBe(0);
@@ -133,8 +132,8 @@ describe("Job/Person standing model — one-month income overrides", () => {
   });
 
   it("taxes a bonus as wages through the projection, not as untaxed cash", () => {
-    // A one-month bonus raises that month's gross wages, so the projection's income flow
-    // reads base + bonus (the series feeds the waterfall).
+    // A one-month bonus raises that month's gross wages, so the income flow reads
+    // base + bonus.
     const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
     const series = project({ ...samplePlan, jobs: [job] }).months;
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // 6000 + 3000

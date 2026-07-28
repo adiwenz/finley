@@ -48,20 +48,17 @@ function household(jobs: readonly Job[] = [richJob], samJobs: readonly Job[] = [
       birthYear: SAM_BIRTH_YEAR,
       jobs: samJobs,
       startMonth: 0,
-      // Stands for the partner's plane; `editJob` is plane-agnostic, so a stub event
-      // suffices — the Jobs panel is where the two planes are actually written.
+      // `editJob` is plane-agnostic, so a stub event suffices.
       writeTarget: { kind: "event", event: { id: "r1" } as never },
     }),
   ];
 }
 
-/** The draft the edit form would submit for `job`, with `over` typed into its fields. */
 const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): JobDraft => ({
   ...jobToDraftFor(birthYear, job),
   ...over,
 });
 
-/** Apply an edit's writes to the owners it names, giving each member's resulting job list. */
 function applied(result: ReturnType<typeof editJob>): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
   const lists = new Map<string, readonly Job[]>();
@@ -121,12 +118,11 @@ describe("editJob — changing the owner", () => {
     );
 
     const lists = applied(result);
-    // Gone from Alex, on Sam — one job in the household, not zero and not two.
+    // One job in the household, not zero and not two.
     expect(lists.get(PRIMARY_PERSON_ID)).toEqual([]);
     const moved = lists.get("p-1")!;
     expect(moved).toHaveLength(1);
     expect(moved[0].ownerId).toBe("p-1");
-    // The salary edited in the same submission landed with the move.
     expect(moved[0].salary.startingSalaryCents).toBe(9_000_00 * 12);
   });
 

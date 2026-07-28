@@ -2,19 +2,14 @@
  * Funding draws — simulation-time resolution of an ordered, cross-account money-out draw.
  *
  * The ledger records only the INTENT — drain `amountCents` from these sources, in this order
- * — because the split is balance-dependent and balances exist only once the projection runs.
- * Here the split is taken, mirroring {@link import("../ledger/funding").drainSources} and the
- * pro-rata basis accounting of {@link import("./withdrawal").buildWithdrawalSources}.
+ * — because the split is balance-dependent. Here it is taken, mirroring {@link
+ * import("../ledger/funding").drainSources} and the pro-rata basis accounting of {@link
+ * import("./withdrawal").buildWithdrawalSources}.
  *
  * Capital-gains tax is REAL: the draw is GROSSED UP so what remains after tax still covers
  * the payment, and the gain routes through the single tax chokepoint (`allocateMonth`) as a
- * net-neutral source. Consequence: funded from an appreciated source a purchase does not
- * conserve net worth, it falls by the tax paid. A cash source (basis == balance) conserves.
- *
- * The realized GAIN reports as capital-gains income, the returned PRINCIPAL as savings
- * drawdown. The gain band is reporting-only (`cashInflowCents` the gain,
- * `waterfallInflowCents` 0); its tax rides the net-neutral source, whose `cashInflowCents`
- * is 0 so it never double-counts.
+ * net-neutral source. So a purchase funded from an appreciated source does not conserve net
+ * worth — it falls by the tax paid. A cash source (basis == balance) conserves.
  */
 
 import type { Cents } from "../money";
@@ -28,17 +23,14 @@ export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
 export type TaxableByOwner = Map<string, TaxableByCategory>;
 
-/**
- * Backstop on the gross-up climb: a non-converging seam must stop rather than spin. A
- * realistic draw converges in about a dozen steps.
- */
+/** Backstop on the gross-up climb; a realistic draw converges in about a dozen steps. */
 const GROSS_UP_ITERATIONS = 1_000;
 
 /**
  * Reporting-provenance prefix per {@link FundingReason}, stamped on the `sourceId` of its
  * draw's bands: `<prefix>:<accountId>` for the realized-gain band, `<prefix>-tax:<accountId>`
- * for the net-neutral tax source. Resolution is otherwise reason-blind. Exhaustive by type:
- * a reason without a prefix fails the typecheck rather than going unnamed.
+ * for the net-neutral tax source. Exhaustive by type: a reason without a prefix fails the
+ * typecheck rather than going unnamed.
  */
 const REPORT_PREFIX: Record<FundingReason, string> = {
   homeDownPayment: "downpayment",
@@ -74,7 +66,7 @@ export interface OrderedFundingDrawResult {
   readonly perSource: readonly ResolvedFundingSource[];
   /** Σ `netDeliveredCents`. */
   readonly netDeliveredCents: Cents;
-  /** `max(0, amount − netDelivered)`. Positive means the sources fall short. */
+  /** `max(0, amount − netDelivered)`. */
   readonly shortfallCents: Cents;
 }
 
@@ -107,8 +99,8 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * and each gain STACKED onto it, so a second taxable source from the same owner is taxed on
  * top of the first — hence this MUTATES `taxableByOwner` (pass a copy to probe).
  *
- * Shared with the §4.5 affordability gate, which runs it against the projected month state,
- * so the gate blocks exactly when the sim would fall short — under any tax regime.
+ * Shared with the §4.5 affordability gate, so the gate blocks exactly when the sim would
+ * fall short — under any tax regime.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -131,8 +123,8 @@ export function resolveOrderedFundingDraw(
     const basis = Math.max(0, source.basisCents);
     const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
     // Taxable gain of a `gross` draw: the jurisdiction owns return-of-capital policy; absent
-    // the seam, fall back to the pro-rata basis split — exactly the reporting split, so a
-    // no-tax run grosses up by nothing. Monotone non-decreasing, which lets the loop climb.
+    // the seam, fall back to the pro-rata basis split. Must stay monotone non-decreasing —
+    // the climb below relies on it.
     const gainOf = (gross: Cents): Cents =>
       jurisdiction.taxableWithdrawalCents?.(
         { grossCents: gross, basisCents: basis, balanceCents: balance, category },
@@ -147,15 +139,13 @@ export function resolveOrderedFundingDraw(
     const baseTax = computeTaxCents(base);
     const inducedTax = (gross: Cents): Cents => computeTaxCents(withGain(gross)) - baseTax;
 
-    // Gross up: sell enough that `gross − inducedTax(gross)` still covers `remaining`. Least
-    // fixed point of `gross = remaining + inducedTax(gross)`, climbed from `remaining` and
-    // capped at the balance — the same solve as the decumulation withdrawal (a rising
-    // sequence stops at the cheapest liquidation that nets the need).
+    // Gross up: least fixed point of `gross = remaining + inducedTax(gross)`, climbed from
+    // `remaining` and capped at the balance — the same solve as the decumulation withdrawal.
     let gross = Math.min(balance, remaining);
     for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
       const wanted = remaining + inducedTax(gross);
-      // The account cannot cover its own gross-up: take what is there and let the rest of the
-      // amount fall to the next source in the order.
+      // Cannot cover its own gross-up: take what is there, let the rest fall to the next
+      // source in the order.
       if (wanted >= balance) {
         gross = balance;
         break;
@@ -166,8 +156,6 @@ export function resolveOrderedFundingDraw(
 
     const gain = gainOf(gross);
     const tax = computeTaxCents(withGain(gross)) - baseTax;
-    // Stack this gain onto the owner base so the next source from the same owner is taxed on
-    // top of it — the marginal context the simulator threads through its own draws.
     taxableByOwner.set(ownerId, withGain(gross));
     const netDelivered = gross - tax;
     remaining -= netDelivered;
@@ -193,19 +181,16 @@ export function resolveOrderedFundingDraw(
 
 /**
  * The diagnostic bands and tax routing one month's funding draws produce:
- * - `gainSources` — one capital-gains income band per source that realized a gain
- *   (reporting-only: `waterfallInflowCents` 0, `cashInflowCents` the gain), for {@link
+ * - `gainSources` — one capital-gains income band per source that realized a gain,
+ *   reporting-only (`waterfallInflowCents` 0), for {@link
  *   import("./reportFlows").buildFlows};
  * - `principalDrawdownCents` — returned principal across all sources (a cash source
  *   contributes its whole draw), folded into the `savingsDrawdown` band;
  * - `taxSources` — net-neutral sources routing each realized gain through the tax
- *   chokepoint. Folded into `incomeSources` BEFORE `allocateMonth`; each carries
- *   `waterfallInflowCents` equal to the tax it induces and `cashInflowCents` 0, so it
- *   charges exactly its tax, nets zero, and never shows as income.
- * - `taxableByOwnerAfter` — the per-owner taxable base with THIS MONTH'S DRAWS STACKED IN:
- *   what a further draw at this month would be taxed on top of. The authoring gate reads it
- *   (via `flows`) so a second money-out event in the same month is priced over its sibling's
- *   realized gain, exactly as the simulator prices it.
+ *   chokepoint, folded into `incomeSources` BEFORE `allocateMonth`;
+ * - `taxableByOwnerAfter` — the per-owner taxable base with THIS MONTH'S DRAWS STACKED IN.
+ *   The authoring gate reads it (via `flows`) so a second money-out event in the same month
+ *   is priced over its sibling's realized gain, exactly as the simulator prices it.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
@@ -215,16 +200,13 @@ export interface FundingDrawReport {
 }
 
 /**
- * Resolve every funding draw scheduled at `month` against the live `SimState`, draining the
- * sources in order and applying the balance/basis moves in place; returns the reporting
- * bands plus the net-neutral tax sources the caller folds into the chokepoint. The gross-up
- * is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so an
- * accepted purchase never lands short here.
+ * Resolve every funding draw scheduled at `month` against the live `SimState`, applying the
+ * balance/basis moves in place; returns the reporting bands plus the net-neutral tax sources
+ * the caller folds into the chokepoint. The gross-up is {@link resolveOrderedFundingDraw},
+ * the one definition the §4.5 gate shares — so an accepted purchase never lands short here.
  *
- * `taxableByOwner` is the month's already-resolved (non-funding) taxable base — the marginal
- * context the gain's tax is differenced over. NOT mutated: a working copy is threaded across
- * draws, stacking each draw's gain onto the next, and comes back as `taxableByOwnerAfter`,
- * what a LATER draw at this month must be priced over.
+ * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each
+ * draw's gain onto the next, and comes back as `taxableByOwnerAfter`.
  */
 export function resolveFundingDraws(
   state: SimState,
@@ -237,14 +219,11 @@ export function resolveFundingDraws(
   const taxSources: IncomeSourceMonth[] = [];
   let principalDrawdownCents = 0;
 
-  // A private working copy so consecutive draws stack their gains (as the sim's tax does)
-  // while the caller's base map stays pristine for reuse.
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
   for (const draw of state.fundingDraws) {
     if (draw.month !== month) continue;
-    // Resolve the ordered draw against the live balances/basis, then apply what it took.
     const sources: FundingSourceState[] = [];
     for (const sourceId of draw.sourceIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
@@ -265,7 +244,7 @@ export function resolveFundingDraws(
       ctx,
       working,
     );
-    // What this draw's bands call themselves — its reason, not the caller's event.
+    // Bands are named for the draw's reason, not the caller's event.
     const prefix = REPORT_PREFIX[draw.reason];
 
     for (const s of perSource) {
@@ -277,8 +256,8 @@ export function resolveFundingDraws(
       );
       principalDrawdownCents += s.principalCents;
 
-      // Only a positive gain books a capital-gains band — a cash / zero-gain source is pure
-      // returned principal, surfacing solely through the savings drawdown.
+      // A zero-gain (cash) source books no band — it is pure returned principal, surfacing
+      // solely through the savings drawdown.
       if (s.gainCents > 0) {
         gainSources.push({
           ownerId: s.ownerId,
@@ -291,10 +270,9 @@ export function resolveFundingDraws(
           label: s.label ?? s.id,
         });
       }
-      // Route the gain through the tax chokepoint, net-neutral: carries the liquidation's tax
-      // slice as cash (`waterfallInflowCents`) and books the gain as taxable, so
+      // Net-neutral: carries the tax slice as cash and books the gain as taxable, so
       // `allocateMonth` charges exactly `tax` and nets zero. `cashInflowCents` 0 keeps it out
-      // of the income view (the gain is reported via the band above).
+      // of the income view — the gain is reported via the band above.
       if (s.taxCents > 0) {
         taxSources.push({
           ownerId: s.ownerId,

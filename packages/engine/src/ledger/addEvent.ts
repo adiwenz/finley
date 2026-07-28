@@ -1,12 +1,8 @@
 /**
- * addEvent — the safe, base-aware way to grow the ledger; the write-path twin of
- * `removeEvent`.
- *
- * `addEvent`/`validateNewEvent` validate a candidate's own fields and its preconditions
- * against the interpreted state before appending. Unlike the pure interpret path, they can
- * run *affordability* preconditions needing a projection (the down-payment block reads
- * projected liquid balances). That projection is why they live here: this module sits above
- * the projection layer, keeping `interpret.ts` free of any projection dependency.
+ * Unlike the pure interpret path, the validators here can run *affordability*
+ * preconditions needing a projection (the down-payment block reads projected liquid
+ * balances). That projection is why they sit above the projection layer, keeping
+ * `interpret.ts` free of any projection dependency.
  */
 
 import type { Ledger, ValidationResult } from "./ledger";
@@ -25,24 +21,23 @@ import {
 } from "../projection/fundingDrawStep";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction";
 
-// The projection's default start year (simulate.ts / report.ts hold the same local
-// constant): only bracket indexing reads it, so an off-by-a-year here is immaterial.
+// simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
+// an off-by-a-year here is immaterial.
 const DEFAULT_START_YEAR = 2026;
 
 /**
  * The two funding questions an authoring surface asks of the ledger *so far*, both answered
  * from ONE projection so a caller pays for it once:
  *
- * - `sourcesAt(month)` — the POOL: every account that could ever fund a draw, with what it
- *   holds at that month (WHICH MAY BE NOTHING), largest first. Only liquid accounts qualify:
- *   a cash goal fund included, retirement excluded, credit never (a liability, not an asset),
- *   so "credit is not a funding source" holds by construction. Membership is a property of the
- *   ACCOUNT, not the month — only `balanceCents` varies, so an emptied account goes to $0
- *   rather than disappearing between months.
+ * - `sourcesAt(month)` — the POOL: every liquid account that could fund a draw (a cash goal
+ *   fund included, retirement excluded, credit never — a liability, not an asset), with what
+ *   it holds that month, largest first: a default drain order the user can reorder.
+ *   Membership is a property of the ACCOUNT, not the month, so an emptied account is listed
+ *   at $0 rather than vanishing between months.
  * - `availabilityAt(sourceIds, amountCents, month)` — the VERDICT for a chosen selection.
  *
  * Both read the same projected `balanceCents`, so a picker and a gate can never tell the user
- * different stories; the only gap is the tax, which the verdict reports separately (`taxed`).
+ * different stories; the only gap is tax, which the verdict reports separately (`taxed`).
  */
 export interface FundingLookup {
   readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
@@ -54,27 +49,19 @@ export interface FundingLookup {
 }
 
 /**
- * The funding-availability check for the ledger *so far*, from one projection. Given the
- * SELECTED sources (in drain order), the amount, and the month, it runs the SAME ordered
- * gross-up the simulator uses ({@link resolveOrderedFundingDraw}) against the projected month
- * state — each source grossed up over the capital-gains tax its sale induces, differenced
- * marginally over the owner's projected other income that month PLUS any draw already authored
- * at that month (`flows.taxableByOwnerAfterFundingCents`) — and reports whether the net covers
- * the amount. Same resolution as the sim, so the gate blocks exactly when the sim would fall
- * short, under any tax regime.
+ * The funding-availability check for the ledger *so far*, from one projection. Each source is
+ * grossed up over the capital-gains tax its sale induces by the SAME ordered resolution the
+ * simulator uses ({@link resolveOrderedFundingDraw}), differenced marginally over the owner's
+ * projected other income that month PLUS any draw already authored at that month
+ * (`flows.taxableByOwnerAfterFundingCents`) — so the gate blocks exactly when the sim would
+ * fall short, under any tax regime.
  *
  * It is a question about a {@link import("./transfers").FundingDraw}, not about any one event:
  * the Home Purchase §4.5 gate asks it of a down payment, One-Time Spend of a spend, both get
- * the identical answer. Only liquid accounts fund a draw (cash goal funds included; credit
- * never, being a liability), so a selected id that is not a positive-balance liquid account
+ * the identical answer. A selected id that is not a positive-balance liquid account
  * contributes 0 yet is still named at balance 0. The month is clamped into the horizon.
- * Balances are positive-only and still faithful to the full liquid position: the cascade
- * floors the liquid sink to zero before each snapshot and every other account is drawn through
- * `Math.max(0, …)` guards, so there is no hidden negative.
- *
- * Exported because the authoring UI must get the same answers the gate does: the down-payment
- * picker lists `sourcesAt(month)` and previews the block with `availabilityAt(...)`, so what
- * it shows IS what `addEvent` will decide.
+ * Balances are positive-only: the cascade floors the liquid sink to zero before each snapshot
+ * and every other account is drawn through `Math.max(0, …)` guards.
  */
 export function fundingLookup(
   ledger: Ledger,
@@ -82,10 +69,9 @@ export function fundingLookup(
   jurisdiction: Jurisdiction = nullJurisdiction,
 ): FundingLookup {
   const startYear = base.startYear ?? DEFAULT_START_YEAR;
-  // Label and withdrawal category of each LIQUID account. The label names a counted source,
-  // falling back to the id — `||`, not `??`, so an empty-string label falls back too rather
-  // than printing a nameless "()". The category prices each sale's tax under its own
-  // provenance (tax-exempt cash reserve untaxed; a taxable brokerage bears its gain).
+  // `||`, not `??`, so an empty-string label falls back to the id too rather than printing a
+  // nameless "()". The category prices each sale's tax under its own provenance (a tax-exempt
+  // cash reserve untaxed; a taxable brokerage bears its gain).
   const liquidAccounts = (base.initialAccounts ?? []).filter((a) => a.liquid);
   const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
   const ownerById = new Map(liquidAccounts.map((a) => [a.id, a.ownerId]));
@@ -94,12 +80,8 @@ export function fundingLookup(
   const last = projection.months.length - 1;
   const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
 
-  // EVERY liquid account with what it holds at the month, largest first — a stable default
-  // drain order for a picker (biggest bucket first), which the user then reorders. An empty
-  // account is listed at $0 rather than omitted so membership does not shift as the month
-  // moves: a picker can grey it out instead of having it vanish while an id the user chose
-  // earlier stays selected behind the scenes. Whether a listed account can actually pay is
-  // `balanceCents > 0`, the same test `availabilityAt` applies below.
+  // Whether a listed account can actually pay is `balanceCents > 0`, the same test
+  // `availabilityAt` applies below.
   const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
@@ -116,18 +98,14 @@ export function fundingLookup(
   ): FundingAvailability => {
     const m = monthAt(month);
     const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
-    // The owner's projected taxable base for this month with any already-authored draw
-    // stacked in — the marginal context the sale's tax is differenced over, and the map the
-    // sim exposed from this same projection. A candidate appended now is last in ledger
-    // order, so the sim resolves it against exactly this base.
+    // A candidate appended now is last in ledger order, so the sim resolves it against
+    // exactly this base.
     const taxableByOwner: TaxableByOwner = new Map();
     const baseRecord = m?.flows?.taxableByOwnerAfterFundingCents ?? {};
     for (const [ownerId, byCategory] of Object.entries(baseRecord)) {
       taxableByOwner.set(ownerId, { ...(byCategory as TaxableByCategory) });
     }
 
-    // Name every selected source (balance 0 if not a positive-balance liquid account), but
-    // fund only from those that genuinely can.
     const named: FundingSourceBalance[] = [];
     const fundingSources: FundingSourceState[] = [];
     for (const id of sourceIds) {
@@ -154,9 +132,9 @@ export function fundingLookup(
       ctx,
       taxableByOwner,
     );
-    // Tax actually induced, summed over the sources touched — NOT inferred from "delivered
-    // less than the sources hold", true of any draw smaller than its sources and so would
-    // call an untaxed cash draw taxed.
+    // Summed over the sources touched, NOT inferred from "delivered less than the sources
+    // hold" — that is true of any draw smaller than its sources, and would call an untaxed
+    // cash draw taxed.
     const taxCents = perSource.reduce((sum, s) => sum + s.taxCents, 0);
     return {
       shortfallCents,
@@ -171,8 +149,7 @@ export function fundingLookup(
 }
 
 /**
- * The add-event replay context: base facts plus `fundingAvailabilityAt` (can these sources net
- * this amount at this month, after tax?), from one projection of the pre-candidate ledger.
+ * Base facts plus `fundingAvailabilityAt`, from one projection of the pre-candidate ledger.
  * Every money-out event's affordability gate fires only through this.
  */
 function addEventContext(
@@ -187,9 +164,8 @@ function addEventContext(
 }
 
 /**
- * Validate a would-be appended event against the current ledger+base: its own fields, then its
- * preconditions against the replayed state (including the affordability gate, evaluated with
- * `jurisdiction`). A standalone pre-check; {@link addEvent} runs it before appending.
+ * Its own fields first, then its preconditions against the replayed state (including the
+ * affordability gate). A standalone pre-check; {@link addEvent} runs it before appending.
  */
 export function validateNewEvent(
   ledger: Ledger,
@@ -207,16 +183,12 @@ export function validateNewEvent(
   );
 }
 
-/** Success carries the grown ledger; failure carries a human-readable conflict. */
 export type AddResult =
   | { ok: true; ledger: Ledger }
   | { ok: false; conflict: string };
 
 /**
- * Grow the ledger — symmetric with `removeEvent`. On success appends the event stamped with
- * the next sequence number; on failure returns the conflict and leaves the ledger untouched.
- * `jurisdiction` feeds the affordability projection, defaulting to the null jurisdiction so
- * existing callers stay source-compatible.
+ * On failure the ledger is left untouched. `jurisdiction` feeds the affordability projection.
  */
 export function addEvent(
   ledger: Ledger,

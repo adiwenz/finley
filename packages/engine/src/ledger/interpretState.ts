@@ -1,9 +1,8 @@
 /**
- * Interpret state — the engine's *internal*, mutable accumulator: indexed maps the event
- * handlers push into as they interpret the ledger, avoiding linear `.find`/`.some` scans.
- * Never externally observable — `interpret.ts` converts it to the immutable, array-shaped
- * {@link Household} at the public boundary. Maps preserve insertion order, so that
- * conversion is deterministic.
+ * The engine's *internal*, mutable accumulator: indexed maps the event handlers push into,
+ * avoiding linear `.find`/`.some` scans. Never externally observable — `interpret.ts`
+ * converts it to the immutable, array-shaped {@link Household} at the public boundary.
+ * Maps preserve insertion order, so that conversion is deterministic.
  */
 
 import type { Cents } from "../money";
@@ -21,7 +20,6 @@ import type {
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
-/** Membership as an explicit interval: durable authoring person, active window. */
 export interface PersonMembership {
   readonly person: Person;
   /** Month the person joined; `-Infinity` for base (pre-event) household. */
@@ -30,7 +28,6 @@ export interface PersonMembership {
   endMonth: number | null;
 }
 
-/** An event-derived income/expense series, described as data until materialized. */
 export interface SeriesDef {
   readonly id: SeriesId;
   readonly causedByEventId: string;
@@ -45,7 +42,6 @@ export interface SeriesDef {
   readonly taxCategory?: TaxCategory;
 }
 
-/** The fields an event-derived liability carries whatever its kind. */
 interface LiabilityDefCommon {
   readonly id: LiabilityId;
   readonly causedByEventId: string;
@@ -57,10 +53,9 @@ interface LiabilityDefCommon {
 }
 
 /**
- * An event-derived liability as immutable data (instantiated at the sim boundary).
- * Discriminated on `kind`, mirroring {@link LoanEvent}: a revolving card carries a credit
- * limit and never amortizes; a term loan amortizes over a term and has no limit. Each field
- * is unrepresentable where it does not apply — a card with a term will not typecheck.
+ * Immutable data, instantiated at the sim boundary. Mirrors {@link LoanEvent}: a revolving
+ * card carries a credit limit and never amortizes; a term loan amortizes over a term and has
+ * no limit.
  */
 export type LiabilityDef =
   | (LiabilityDefCommon & {
@@ -73,10 +68,8 @@ export type LiabilityDef =
     });
 
 /**
- * An event-derived {@link Property} — a durable, appreciating asset stock. Value grows by
- * its `appreciationMode` (default `inflationLinked`), stops contributing after `endMonth`
- * (a sale), and associates the mortgage whose balance nets against value to give equity.
- * Immutable data, instantiated at the sim boundary like liabilities.
+ * Value grows by its `appreciationMode` (default `inflationLinked`); the associated
+ * mortgage's balance nets against value to give equity.
  */
 export interface PropertyDef {
   readonly id: PropertyId;
@@ -87,7 +80,7 @@ export interface PropertyDef {
   endMonth: number | null;
   readonly openingValueCents: Cents;
   readonly appreciationMode: GrowthMode;
-  /** The mortgage liability associated with this property; `null` if paid cash. */
+  /** `null` if paid cash. */
   readonly mortgageLiabilityId: LiabilityId | null;
 }
 
@@ -99,9 +92,9 @@ export interface InterpretState {
   readonly propertiesById: Map<PropertyId, PropertyDef>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
   /**
-   * Ordered, cross-account down-payment / spend draws, appended in event order. The
-   * simulator resolves each against the sources' month-M balances; they cannot be pre-split
-   * here, since the split is balance-dependent and replay carries no balances.
+   * Cross-account down-payment / spend draws, appended in event order. The simulator
+   * resolves each against the sources' month-M balances; they cannot be pre-split here,
+   * since the split is balance-dependent and replay carries no balances.
    */
   readonly fundingDraws: FundingDraw[];
 }
@@ -119,11 +112,9 @@ export function freshState(): InterpretState {
 }
 
 /**
- * One selected funding source as the availability check saw it: reporting label and liquid
- * balance at the month. A conflict message enumerates these so it names exactly which
- * sources it counted (a liquid cash goal fund included), rather than claiming goal funds
- * never count. A selected id that is not a liquid account (or holds nothing) is carried at
- * balance 0 so it still names itself.
+ * One selected funding source as the availability check saw it. A selected id that is not a
+ * liquid account (or holds nothing) is carried at balance 0 so a conflict message still
+ * names it, rather than silently dropping it.
  */
 export interface FundingSourceBalance {
   readonly id: string;
@@ -132,49 +123,37 @@ export interface FundingSourceBalance {
 }
 
 /**
- * The affordability verdict for selected funding sources at a month — whether they can net a
- * wanted amount once the capital-gains tax on liquidating them is paid. Event-neutral: the
- * Home Purchase §4.5 down-payment gate reads it today, and any other event funding a fixed
- * amount from an ordered source list (One-Time Spend) reads the same shape. A gate
- * hard-blocks on a positive `shortfallCents`.
+ * Whether selected funding sources can net a wanted amount at a month once the
+ * capital-gains tax on liquidating them is paid. Event-neutral: the Home Purchase §4.5
+ * down-payment gate reads it today, One-Time Spend reads the same shape.
  */
 export interface FundingAvailability {
   /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
   readonly shortfallCents: Cents;
-  /** What the selected sources genuinely net toward the wanted amount, after that tax. */
   readonly availableCents: Cents;
   /**
-   * The capital-gains tax the liquidation induces — the wedge between what the sources hold
-   * and what they deliver. Zero for cash sources (no gain over basis) and under a no-tax
-   * jurisdiction. A picker states it so the user sees why $60,500 of balances only sometimes
-   * buys a $60,000 house.
+   * The wedge between what the sources hold and what they deliver. Zero for cash sources (no
+   * gain over basis) and under a no-tax jurisdiction.
    */
   readonly taxCents: Cents;
-  /** True when that tax is non-zero — the flag a message reads to add "after tax". */
   readonly taxed: boolean;
   /** The selected sources in drain order, for the conflict message. */
   readonly sources: readonly FundingSourceBalance[];
 }
 
-/** Read-only context available to handlers during interpretation (base-provided facts). */
+/** Base-provided facts, read-only to handlers during interpretation. */
 export interface InterpretContext {
   /** Account ids known to exist (from base config) — validates payoff targets. */
   readonly accountIds: ReadonlySet<AccountId>;
-  /** Base annual inflation rate — the default rate for `inflationLinked` growth. */
+  /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The funding-availability check every money-out event's affordability gate shares: given
-   * the SELECTED sources (in drain order), the amount wanted, and the month, resolve —
-   * against a projection of the ledger *so far* — whether they can net that amount once the
-   * capital-gains tax on liquidating them is paid. Runs the SAME ordered gross-up as the
-   * simulator ({@link import("../projection/fundingDrawStep").resolveOrderedFundingDraw}) on
-   * the same {@link import("./transfers").FundingDraw} shape, differencing each sale's tax
-   * marginally over the owner's projected other income that month, so a gate blocks exactly
-   * when the sim would fall short — under any tax regime, no standalone-rate estimate.
+   * The affordability check every money-out event's gate shares, resolved against a
+   * projection of the ledger *so far*. Runs the SAME ordered gross-up as the simulator
+   * ({@link import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), differencing
+   * each sale's tax marginally over the owner's projected other income that month, so a gate
+   * blocks exactly when the sim would fall short.
    *
-   * Event-neutral: the Home Purchase §4.5 gate is its first caller, One-Time Spend gates on
-   * the identical question. Only liquid accounts fund a draw (a cash goal fund included;
-   * credit never, being a liability), so an illiquid or empty selected source contributes 0.
    * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
    * interpretation and undo, when handlers skip projection-dependent checks.
    */

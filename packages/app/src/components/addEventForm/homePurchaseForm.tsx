@@ -15,10 +15,7 @@ import { MonthSelect, type FormProps } from "./formControls";
 import { assessHomePurchaseDti } from "./homePurchaseDti";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
-/**
- * Opening values — a plausible starter purchase to edit, not a recommendation. Dollars
- * and percent, matching the inputs; cents conversion happens at the engine boundary.
- */
+/** Opening values — a plausible starter purchase to edit, not a recommendation. */
 const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
   price: 300_000,
   down: 60_000,
@@ -27,9 +24,8 @@ const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
 };
 
 /**
- * The form's live state — one draft in the units the fields edit, not a hook per field.
- * Cents/fraction conversion happens at the engine boundary on submit; the DTI advisory
- * derives from this each render, never stored.
+ * One draft in the units the fields edit, not a hook per field. Cents/fraction conversion
+ * happens at the engine boundary on submit; the DTI advisory derives from this each render.
  */
 interface HomePurchaseDraft {
   readonly month: number;
@@ -59,25 +55,24 @@ export function HomePurchaseForm({
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
 }) {
-  // Accounts that can actually pay at `month`, largest-first (drain-order friendly). The
-  // pool also lists accounts holding nothing — the picker greys those out.
+  // Accounts that can actually pay at `month`, largest-first (drain-order friendly); the
+  // pool itself also lists accounts holding nothing, which the picker greys out.
   const fundableAt = (month: number) =>
     funding.sourcesAt(month).filter((s) => s.balanceCents > 0).map((s) => s.id);
 
   const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({
     month: defaultMonth,
     ...DEFAULTS,
-    // Open on the largest account that can pay that month, so the form is usable without
-    // a choice — a visible, editable default rather than a hardcoded one.
+    // The largest account that can pay that month: a visible, editable default rather than
+    // a hardcoded one.
     sourceIds: fundableAt(defaultMonth).slice(0, 1),
   }));
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   /**
-   * Moving the purchase re-prices every account, so one picked while it held money may
-   * hold nothing at the new month. Drop it: a selection the user can no longer see is one
-   * they no longer have. Nothing takes its place — quietly substituting an account would
-   * spend money they did not choose to spend.
+   * Moving the purchase re-prices every account, so one picked while it held money may hold
+   * nothing at the new month. Drop it, and put nothing in its place — quietly substituting
+   * an account would spend money the user did not choose to spend.
    */
   const setMonth = (month: number) =>
     setDraft((d) => {
@@ -85,14 +80,12 @@ export function HomePurchaseForm({
       return { ...d, month, sourceIds: d.sourceIds.filter((id) => fundable.has(id)) };
     });
 
-  // Pool and verdict for the CURRENT month/selection/amount, both from one projection
-  // inside `funding`, so edits re-derive without re-simulating the plan.
+  // Both read one projection inside `funding`, so edits re-derive without re-simulating.
   const pool = useMemo(() => funding.sourcesAt(draft.month), [funding, draft.month]);
-  // The selection actually in play. `setMonth` prunes on the path a user takes, but the
-  // pool also moves when `funding` changes (an event elsewhere redraws the same month's
-  // balances) and that path has no setter to hook. Filtering here makes it an invariant:
-  // what the picker checks, what the coverage line counts, and what `submit` records are
-  // one list.
+  // The selection actually in play. `setMonth` prunes on the path a user takes, but the pool
+  // also moves when `funding` changes (an event elsewhere redraws the same month's balances)
+  // and that path has no setter to hook. Filtering here makes it an invariant: what the
+  // picker checks, what the coverage line counts, and what `submit` records are one list.
   const sourceIds = useMemo(
     () => draft.sourceIds.filter((id) => pool.some((s) => s.id === id && s.balanceCents > 0)),
     [draft.sourceIds, pool],
@@ -102,9 +95,8 @@ export function HomePurchaseForm({
     [funding, sourceIds, draft.down, draft.month],
   );
 
-  // SOFT warning: advisory only, recomputed each render so it tracks live inputs. Never
-  // gates `submit` — the only hard block, down-payment coverage, is enforced in the
-  // engine event handler.
+  // SOFT warning: never gates `submit`. The only hard block, down-payment coverage, is
+  // enforced in the engine event handler.
   const dti = assessHomePurchaseDti(household, series, {
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),
@@ -122,9 +114,7 @@ export function HomePurchaseForm({
       ownerId: "p1",
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
-      // Chosen accounts in chosen order — the drain order the simulator resolves the
-      // down payment against. Pruned, so an account emptied by a month change cannot
-      // ride onto the event unseen.
+      // Chosen order = the drain order the simulator resolves the down payment against.
       downPaymentSourceIds: sourceIds,
       mortgageLiabilityId: `mortgage-${nextId}`,
       mortgageApr: draft.apr / 100,
@@ -159,12 +149,7 @@ export function HomePurchaseForm({
   );
 }
 
-/**
- * Affordability advisory — amber, and does NOT block, unlike the red hard-block alert. It
- * names the ratio that fired *and* its downstream consequence: an over-guideline mortgage
- * leaves less for everything else, so the plan leans harder on credit and reaches
- * insolvency sooner.
- */
+/** Affordability advisory — amber, and does NOT block, unlike the red hard-block alert. */
 function DtiWarning({ dti }: { dti: ReturnType<typeof assessHomePurchaseDti> }) {
   const { assessment, monthlyMortgageCents } = dti;
   const frontPct = Math.round(assessment.frontEndRatio * 100);

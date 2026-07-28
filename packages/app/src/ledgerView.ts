@@ -1,11 +1,8 @@
 /**
  * Ledger presentation for the life-event timeline. Pure functions over the engine's event
- * ledger — no React, no I/O — so they unit-test in isolation. The household cross-section
- * ("what is active at month M") is the engine's job; see `snapshotAt` in @finley/engine.
- * This only turns ledger data into plain language:
- *  - {@link timelineMarkers}: markers on the shared time axis, one label per event;
- *  - {@link seriesLabel}: the engine's machine-readable series role → snapshot-panel text;
- *  - {@link splitMarkers}: markers partitioned passed/upcoming around the scrubbed month.
+ * ledger — no React, no I/O — so they unit-test in isolation. This only turns ledger data
+ * into plain language; the household cross-section ("what is active at month M") is the
+ * engine's job, see `snapshotAt` in @finley/engine.
  */
 
 import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";

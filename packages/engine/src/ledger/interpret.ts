@@ -29,7 +29,6 @@ import type {
   HouseholdSeries,
 } from "./household";
 
-/** Materialize a series descriptor into the one shared calculation primitive. */
 function materializeSeries(def: SeriesDef): SimCashFlowSeries {
   const initialBaseCents =
     def.baseline.unit === "annual" ? def.baseline.annualCents : def.baseline.monthlyCents;
@@ -94,9 +93,8 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
 }
 
 /**
- * Plain-language name for an event-created expense series: a base series carries its label
- * authored, an event-created one must be given one, and its {@link SeriesRole} is the only
- * human fact available.
+ * An event-created expense series has no authored label, and its {@link SeriesRole} is the
+ * only human fact available to name it by.
  */
 const ROLE_LABEL: Record<SeriesRole, string> = {
   base: "Expense",
@@ -114,9 +112,8 @@ function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index:
 /**
  * A partner's own jobs compiled into forward income series, clipped to the membership window
  * (join → separation). The primary earner's jobs are already in `base.initialIncomeSeries`; a
- * partner joins via a RelationshipEvent, so their jobs live on the membership and compile here
- * into `household.series` — projection and snapshot then read identical income (the
- * single-interpreter invariant). Derived from the membership, so removing the
+ * partner joins via a RelationshipEvent, so their jobs live on the membership and compile
+ * here into `household.series`. Derived from the membership, so removing the
  * RelationshipEvent drops the income with it: hence `causedByEventId: null`, recomputed each
  * interpretation like the base series.
  */
@@ -216,7 +213,6 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
   };
 }
 
-/** The single derive-from-ledger entry point. */
 export function interpretLedger(ledger: Ledger, base: LedgerBaseConfig): Household {
   return toHousehold(interpretToState(ledger, base), base);
 }

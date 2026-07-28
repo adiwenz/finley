@@ -168,7 +168,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
   });
 
   it("grows every row with inflation as you move along the budget", () => {
-    // Rows must show that month's dollars, not today's.
     renderPanel(PLAN_DEFAULTS);
     const today = Number(spin(/Housing/).value);
     selectMonth(360);
@@ -179,8 +178,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
   });
 
   it("shows income stopping at retirement and the benefit picking up at the claiming age", () => {
-    // The figure is the income the projection actually pays, not a salary compounding
-    // forever.
     renderPanel(PLAN_DEFAULTS);
     const monthAtAge = (age: number) => (age - PLAN_DEFAULTS.currentAge) * 12;
 
@@ -208,10 +205,9 @@ describe("BaseAdjustmentsPanel — Base", () => {
   });
 
   it("counts income authored on the timeline — a partner's own jobs", () => {
-    // Regression: the panel used to run its OWN plan-only projection, whose ledger is
-    // empty, so a partner's $2,000/mo job moved the net-worth chart and snapshot while the
-    // income graph below showed only the primary's $5,000. One projection (plan + ledger)
-    // now feeds every surface.
+    // Regression: the panel used to run its OWN plan-only projection, whose ledger is empty, so
+    // a partner's $2,000/mo job moved the net-worth chart while the income graph below showed
+    // only the primary's $5,000.
     renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(2000));
 
     // Month 6: the partner has joined (month 0) and no CPI step has landed yet, so both
@@ -225,8 +221,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
   });
 
   it("defaults to the Simple income view and reveals every source under Advanced", () => {
-    // Simple: wages per job, one "Social Security" band, and one "Living off savings"
-    // band folding in the benefit-gap drawdown and any asset sale.
     renderPanel(PLAN_DEFAULTS);
     const bands = (): string[] =>
       JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
@@ -237,7 +231,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
     expect(bands()).not.toContain("Government benefit");
     expect(bands()).not.toContain("Savings drawdown");
 
-    // Flip to Advanced: the collapsed bands split back into their real sources.
     fireEvent.click(screen.getByRole("checkbox", { name: /Advanced view/i }));
     expect(bands()).toContain("Government benefit");
     expect(bands()).toContain("Savings drawdown");
@@ -246,9 +239,7 @@ describe("BaseAdjustmentsPanel — Base", () => {
   });
 
   it("draws take-home cash flows by default and switches to gross on the toggle", () => {
-    // Take-home is the honest read against the spending-need line — bands are cash after
-    // tax and deferral. "Show gross cash flows" raises them by exactly the tax the wages
-    // bore, so gross > take-home while the household is earning and taxed.
+    // Take-home is the honest read against the spending-need line: cash after tax and deferral.
     renderPanel(PLAN_DEFAULTS);
     const cashFlowTotal = () =>
       Object.values(
@@ -262,10 +253,9 @@ describe("BaseAdjustmentsPanel — Base", () => {
 
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
     renderPanel(PLAN_DEFAULTS);
-    // Housing is a named line before quickstart…
     expect(spin(/Housing/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Quickstart/i }));
-    // …and still is after (the budget was rebalanced, not replaced by 3 buckets).
+    // Still a named line after: the budget was rebalanced, not replaced by 3 buckets.
     expect(spin(/Housing/)).toBeTruthy();
     expect(screen.queryByRole("spinbutton", { name: /Needs \(50%\)/ })).toBeNull();
     // A real savings contribution line is seeded for the empty savings tier.
@@ -290,11 +280,11 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(103);
     editRow(/Housing/, 2400);
-    // The field must hold the typed value while the how-long question is open; it used
-    // to snap back on every keystroke, so a backspace on "1600" left the box reading
-    // 1600 while staging an edit to $160.
+    // The field must hold the typed value while the how-long question is open. It used to snap
+    // back on every keystroke, so a backspace on "1600" left the box reading 1600 while staging
+    // an edit to $160.
     expect(Number(spin(/Housing/).value)).toBe(2400);
-    // The "before" figure is that month's dollars, not today's — the row inflates.
+    // The prompt's figures are that month's dollars, not today's — the row inflates.
     expect(screen.getByTestId("scope-prompt").textContent).toMatch(/→ \$2,400/);
   });
 
@@ -339,10 +329,9 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     expect(screen.getByTestId("adjustment-route").textContent).toMatch(/dated override/i);
     // Typed at month 14, so month 14 charges exactly that — no inflation jump on commit.
     expect(Number(spin(/Housing/).value)).toBe(2400);
-    // Later months carry the change AND keep growing with prices from there.
+    // Later months carry the change and keep growing with prices from there.
     selectMonth(200);
     expect(Number(spin(/Housing/).value)).toBeGreaterThan(2400);
-    // Earlier months are untouched.
     selectMonth(13);
     expect(Number(spin(/Housing/).value)).toBe(beforeEdit);
   });
@@ -392,8 +381,8 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
   });
 
   it("applies a one-off bonus on top of the selected month's pay, taxed through the sim", () => {
-    // A bonus is a per-job JobIncomeOverride taxed as wages, so that month's read-only
-    // income rises by exactly the bonus — the projection moves, not just the label.
+    // A bonus is a per-job JobIncomeOverride taxed as wages, so the projection moves, not just
+    // the label.
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6); // year 0, base $5,000/mo
     expect(incomeReadonlyDollars()).toBe(5000);
@@ -405,9 +394,8 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
   });
 
   it("stacks the monthly-tax chart by job, matching the income chart", () => {
-    // The US jurisdiction reports tax per category and the engine splits it to the job
-    // that bore it, so the chart bands by source: the default plan's one job draws its own
-    // wage-tax band (named like its income band), and the split's Σ equals the row total.
+    // The US jurisdiction reports tax per category and the engine splits it to the job that bore
+    // it, so each job draws its own wage-tax band and the split's Σ equals the row total.
     renderPanel(PLAN_DEFAULTS);
     const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
     // Named after its owner, not its minted id: an untitled job reads "Alex's job".
@@ -421,9 +409,9 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
   });
 
   it("sets pay to $0 for one month (a missed paycheck), taxed on $0 wages that month", () => {
-    // There is no dedicated "missed paycheck" kind: a missed month is "Set pay this month"
-    // to $0. It must zero BOTH the income and the wage tax — you are not taxed on a
-    // paycheck you did not receive.
+    // There is no dedicated "missed paycheck" kind: a missed month is "Set pay this month" to
+    // $0. It must zero BOTH the income and the wage tax — you are not taxed on a paycheck you
+    // did not receive.
     renderPanel(PLAN_DEFAULTS);
     const monthOneTax = () =>
       (JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}").taxCents as number) ?? 0;
@@ -437,9 +425,9 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     applyOneOff();
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$0/i);
     expect(incomeReadonlyDollars()).toBe(0);
-    // Taxed on $0 wages, not the full salary: month 1's tax falls to $0.
+    // Taxed on $0 wages, not the full salary.
     expect(monthOneTax()).toBe(0);
-    // The next month is untouched — the override is a single month.
+    // The override is a single month, so the next one is untouched.
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(5000);
   });
@@ -455,8 +443,8 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
   });
 
   it("applies a permanent pay change that holds from the selected month forward", () => {
-    // A permanent change rides a JobPayChange, so the new pay persists: unlike "set pay
-    // this month", the next month changes too, and the month before is untouched.
+    // A permanent change rides a JobPayChange, so unlike "set pay this month" the next month
+    // changes too, while the month before is untouched.
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
     expect(incomeReadonlyDollars()).toBe(5000);
@@ -487,9 +475,8 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
 });
 
 describe("PayChangeEditor — every earner's jobs, not just the primary person's", () => {
-  // A partner's jobs ride the RelationshipEvent they joined with, not `Plan.jobs`. The
-  // control once listed only the plan's jobs, so a partner's bonus, missed paycheck, raise
-  // or cut had nowhere to land — the picker never offered their job.
+  // A partner's jobs ride the RelationshipEvent they joined with, not `Plan.jobs`. The control
+  // once listed only the plan's jobs, so a partner's pay change had nowhere to land.
   const pickJob = (id: string) =>
     fireEvent.change(screen.getByLabelText("Job"), { target: { value: id } });
 
@@ -523,14 +510,12 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
       { month: 6, kind: "setTo", cents: dollarsToCents(4500) },
     ]);
     expect(jobsOn("primary-jobs")[0].payChanges).toBeUndefined();
-    // And the projection moves: the raise holds from month 6 forward.
     expect(incomeReadonlyDollars()).toBe(9500); // 5,000 + 4,500
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(9500); // PERSISTS — month 12 would also carry CPI
     selectMonth(5);
     expect(incomeReadonlyDollars()).toBe(8000); // before the raise, old pay
-    // The note names whose job it was.
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Sam/);
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Sam/); // names whose job
   });
 
   it("gives a partner's job a one-month bonus, then a missed paycheck", () => {
@@ -560,9 +545,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
   });
 
   it("cuts a partner's ongoing pay, and corrects a single month of it", () => {
-    // The remaining two kinds on a partner's job: a permanent CUT (a pay change can go
-    // down — hence "pay change", not "raise") and a one-month correction to a non-zero
-    // absolute figure.
+    // The remaining two kinds on a partner's job: a permanent CUT (a pay change can go down —
+    // hence "pay change", not "raise") and a one-month correction to a non-zero figure.
     withPartner();
     selectMonth(6);
     openOneOff();
@@ -648,7 +632,6 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
     setOneOffKind("setTo");
     setOneOffAmount(9000);
     cancel();
-    // The form is closed and nothing was applied — no confirmation note.
     expect(screen.queryByLabelText("Pay change kind")).toBeNull();
     expect(screen.queryByTestId("pay-change-route")).toBeNull();
   });
@@ -665,8 +648,6 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
   });
 
   it("defaults to the first job with several jobs, unless another is picked", () => {
-    // With a second open-ended job for the same person, the pay change targets Job 1 by
-    // default and honours an explicit pick otherwise.
     const twoJobs = addJobFromDraft(PLAN_DEFAULTS, blankJobDraft(PLAN_DEFAULTS));
     renderPanel(twoJobs);
     selectMonth(6);
@@ -707,24 +688,21 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   });
 
   it("toggling item type keeps name & amount and never mixes expense/contribution fields", () => {
-    // The form's draft is a discriminated union, so only ONE kind's extra field exists:
-    // expense shows Category (no account), contribution shows Into account (no category).
-    // Switching kind rebuilds that arm, carrying name and amount over.
+    // The form's draft is a discriminated union, so only ONE kind's extra field exists: expense
+    // shows Category, contribution shows Into account, and switching rebuilds that arm while
+    // carrying name and amount over.
     renderPanel(PLAN_DEFAULTS);
     openAdd();
     setName("Flex");
     setAmount(300);
 
-    // Expense arm: category present, account absent.
     expect(screen.getByLabelText("Category")).toBeTruthy();
     expect(screen.queryByLabelText("Into account")).toBeNull();
 
-    // → contribution: the fields swap, never coexist.
     setType("contribution");
     expect(screen.getByLabelText("Into account")).toBeTruthy();
     expect(screen.queryByLabelText("Category")).toBeNull();
 
-    // → back to expense: swaps back, and the shared fields survived the round trip.
     setType("expense");
     expect(screen.getByLabelText("Category")).toBeTruthy();
     expect(screen.queryByLabelText("Into account")).toBeNull();
@@ -733,8 +711,8 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
       Number((screen.getByRole("spinbutton", { name: /Monthly amount/ }) as HTMLInputElement).value),
     ).toBe(300);
 
-    // Submits as a plain expense: an editable spending SPINBUTTON (a contribution renders
-    // read-only instead), and not listed under Savings & contributions.
+    // Submits as a plain expense: an editable spending spinbutton, where a contribution would
+    // render read-only under Savings & contributions.
     submitAdd();
     expect(spin(/Flex/)).toBeTruthy();
     expect(screen.getByText(/No recurring contributions yet/i)).toBeTruthy();
@@ -742,14 +720,13 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
 
   it("adds a contribution line into an account, shown under Savings & contributions", () => {
     renderPanel(PLAN_DEFAULTS);
-    // No contributions to begin with.
     expect(screen.getByText(/No recurring contributions yet/i)).toBeTruthy();
     openAdd();
     setName("Auto-invest");
     setType("contribution"); // reveals the account picker; forces savings tier
     setAmount(500);
     submitAdd();
-    // Appears as a contribution row with its destination, not an editable spending row.
+    // A contribution row with its destination, not an editable spending row.
     const row = screen.getByText("Auto-invest").closest("div")!;
     expect(row.textContent).toMatch(/Brokerage/);
     expect(screen.getByLabelText(/Delete Auto-invest/i)).toBeTruthy();
@@ -765,8 +742,7 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   });
 
   it("keeps one disclosed form at a time, across spending AND contributions", () => {
-    // The two lists are separate components, so the single-form-at-a-time rule spans them
-    // and is arbitrated by the panel: opening one must close the other.
+    // The two lists are separate components, so the panel arbitrates the rule between them.
     const withContribution: Plan = {
       ...PLAN_DEFAULTS,
       budgetLines: [
@@ -859,9 +835,9 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
   });
 
   it("bands health care beside the budget lines, with nothing passed in but the series", () => {
-    // The panel takes a plan and a projected series — no label maps, no household series,
-    // no per-line map. Health is real spending the budget does not author; it reaches the
-    // graph because the ENGINE reports it, not because the panel reassembled it.
+    // The panel takes a plan and a projected series, nothing else. Health is real spending the
+    // budget does not author; it reaches the graph because the ENGINE reports it, not because
+    // the panel reassembled it.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
@@ -902,15 +878,15 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
-    // Servicing the loan is spending — banded like anything else the month costs, and the
-    // budget lines beside it are untouched by its arrival.
+    // Servicing the loan is spending, banded like anything else the month costs, and the budget
+    // lines beside it are untouched by its arrival.
     expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
     expect(firstRow["line:housing"]).toBeGreaterThan(0);
   });
 
   it("redraws when the budget changes — the memoized graphs must not go stale", () => {
-    // The graphs skip re-rendering while only the staged edit moves — they do not depend
-    // on it — but a committed edit changes the projection and they must follow.
+    // The graphs skip re-rendering while only the staged edit moves, but a committed edit
+    // changes the projection and they must follow.
     renderPanel(PLAN_DEFAULTS);
     const housingBand = () =>
       (
@@ -922,16 +898,14 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     const before = housingBand();
 
     editRow(/Housing/, 2_400);
-    // Staging alone changes nothing about the projection…
-    expect(housingBand()).toBe(before);
+    expect(housingBand()).toBe(before); // staging alone changes no projection
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
-    // …but committing does, and the graph shows it.
-    expect(housingBand()).toBeGreaterThan(before);
+    expect(housingBand()).toBeGreaterThan(before); // committing does
   });
 
   it("adds the stack up for the reader: the hover readout carries the month's total", () => {
-    // Recharts owns the hover and needs a layout jsdom lacks, so the readout is driven
-    // directly with the payload Recharts would hand it.
+    // Recharts owns the hover and needs a layout jsdom lacks, so the readout is driven directly
+    // with the payload Recharts would hand it.
     render(
       <BudgetTooltip
         active

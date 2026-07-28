@@ -26,10 +26,10 @@ export interface AccountTransfer {
 }
 
 /**
- * Why a {@link FundingDraw} exists — reporting provenance only: the simulator names the
- * draw's flow bands from it (`REPORT_PREFIX` in
- * {@link import("../projection/fundingDrawStep")}); nothing in the resolution reads it. A new
- * money-out event adds a reason here plus its prefix there and reuses the channel unchanged.
+ * Reporting provenance only: the simulator names the draw's flow bands from it
+ * (`REPORT_PREFIX` in {@link import("../projection/fundingDrawStep")}); nothing in the
+ * resolution reads it. A new money-out event adds a reason here plus its prefix there and
+ * reuses the channel unchanged.
  */
 export type FundingReason = "homeDownPayment";
 
@@ -42,9 +42,7 @@ export type FundingReason = "homeDownPayment";
  * projection runs. So the ledger records the intent (drain `amountCents` from `sourceIds`, in
  * order) and the simulator resolves it, taking as much as each source holds before moving to
  * the next — mirroring {@link import("./funding").drainSources}. Each contributing draw
- * reduces its account's balance, returns basis pro-rata, and surfaces in the diagnostic flow
- * view: an investment source's gain as capital-gains income, its returned principal (and any
- * cash source) as a savings drawdown.
+ * reduces its account's balance and returns basis pro-rata.
  */
 export interface FundingDraw {
   readonly month: number;

@@ -8,44 +8,42 @@ import type { SimOwnedSeries } from "./simulate";
 import type { SimPerson } from "./simulate.types";
 
 /**
- * The slice of `SimState` the government-benefit bookkeeping reads. A structural view
- * rather than an import of the whole mutable `SimState`, so that state stays private to
- * the simulator while this module stays independently testable.
+ * The slice of `SimState` the government-benefit bookkeeping reads. A structural view, not
+ * an import of the mutable `SimState`, so that state stays private to the simulator while
+ * this module stays independently testable.
  */
 export interface EarningsState {
   /** Per-person lifetime covered-earnings accumulator, seeded pre-now, folded monthly. */
   readonly earningsByPerson: Map<string, EarningsAccumulator>;
-  /** Every person by id — benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
+  /** Accumulation and claiming read `birthYear` + `benefitClaimingAge`. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
-   * The frozen BASE benefit per person (nominal cents, eligibility-age dollars): the
-   * seam's `PIA × claimingFactor`, OPAQUE — the engine never re-derives it. What is paid
-   * each year is this base run through {@link Jurisdiction.colaAdjustedBenefitCents}.
-   * Absent until claimed.
+   * The frozen BASE benefit per person (nominal cents, eligibility-age dollars): the seam's
+   * `PIA × claimingFactor`, OPAQUE — the engine never re-derives it. What is paid each year
+   * is this base run through {@link Jurisdiction.colaAdjustedBenefitCents}. Absent until
+   * claimed.
    */
   readonly governmentBenefitBaseByPerson: Map<string, Cents>;
   /**
    * The latest COMPLETED calendar year already folded into the cached base; drives
-   * recompute-while-working (see {@link buildGovernmentBenefitSources}). Absent until the
-   * first base is computed.
+   * recompute-while-working. Absent until the first base is computed.
    */
   readonly lastComputedThroughYear: Map<string, number>;
 }
 
 /**
- * Which income tax categories count toward the covered-earnings record is a jurisdiction
- * fact, carried on {@link Jurisdiction.isCoveredEarnings}. Without the predicate the engine
- * falls back to `wages` only. (US supplies `wages || ordinaryIncome`; the null jurisdiction
- * never reads the record, so the fallback is moot there.)
+ * Which tax categories count toward the covered-earnings record is a jurisdiction fact,
+ * carried on {@link Jurisdiction.isCoveredEarnings}; without it the engine falls back to
+ * `wages` only. (US supplies `wages || ordinaryIncome`; the null jurisdiction never reads
+ * the record, so the fallback is moot there.)
  */
 function coversEarnings(jurisdiction: Jurisdiction, taxCategory: TaxCategory): boolean {
   return jurisdiction.isCoveredEarnings?.(taxCategory) ?? taxCategory === "wages";
 }
 
 /**
- * Fold this month's covered income into each owner's lifetime accumulator. Bookkeeping over
- * the same per-source gross the waterfall sees, tagged by taxCategory (default
- * `ordinaryIncome`); {@link coversEarnings} decides which categories count.
+ * Fold this month's covered income into each owner's lifetime accumulator, over the same
+ * per-source gross the waterfall sees.
  */
 export function accumulateEarnings(
   earningsByPerson: Map<string, EarningsAccumulator>,
@@ -82,10 +80,9 @@ function benefitClaimStartMonth(
  * jurisdiction's base seam (0 when it supplies none or the eligibility gate fails), then
  * held OPAQUE; each year's paid benefit is that base run through the COLA seam. The engine
  * sees neither the COLA formula nor the eligibility age — `rules` owns the single
- * `(1 + colaRate)^(currentAge − eligibilityAge)` factor. Sources carry
- * `taxCategory:"governmentRetirementBenefit"` and NO planDescriptor, so they enter the
- * waterfall post-deferral at the FULL gross and are taxed at the chokepoint by the
- * jurisdiction's benefit-inclusion rule in `computeTaxCents`, never as wages.
+ * `(1 + colaRate)^(currentAge − eligibilityAge)` factor. Sources carry NO planDescriptor,
+ * so they enter the waterfall post-deferral at the FULL gross and are taxed by the
+ * jurisdiction's benefit-inclusion rule, never as wages.
  */
 export function buildGovernmentBenefitSources(
   state: EarningsState,
@@ -97,8 +94,8 @@ export function buildGovernmentBenefitSources(
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
   for (const person of state.personsById.values()) {
-    // The person's own pin, else the jurisdiction's default (full retirement age) — never
-    // a hardcoded engine age. With neither, the benefit simply isn't timed.
+    // The person's own pin, else the jurisdiction's default (full retirement age) — never a
+    // hardcoded engine age. With neither, the benefit isn't timed at all.
     const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;
     if (claimingAge === undefined) continue;
     const claimStart = benefitClaimStartMonth(person, startYear, claimingAge);
@@ -107,12 +104,9 @@ export function buildGovernmentBenefitSources(
 
     // Recompute-while-working: priced once at claim, then again only when a newer completed
     // year adds covered earnings — so claiming and working on bumps the benefit while a
-    // retire-then-claim base stays frozen. A recompute fires when `latestCompletedYear` (the
-    // last fully-elapsed calendar year) exceeds the per-person marker AND that year is on
-    // the record with covered earnings, so a static record never re-prices.
+    // retire-then-claim base stays frozen, and a static record never re-prices.
     // NOTE (Retirement Earnings Test): only the UPSIDE of working past claim is modelled;
-    //   the offsetting pre-FRA earnings-test withholding is out of scope and tracked
-    //   separately.
+    //   the offsetting pre-FRA earnings-test withholding is out of scope.
     const latestCompletedYear = year - 1;
     const marker = state.lastComputedThroughYear.get(person.id);
     const acc = state.earningsByPerson.get(person.id);
@@ -122,9 +116,8 @@ export function buildGovernmentBenefitSources(
       latestCompletedYear > marker &&
       (acc?.get(latestCompletedYear) ?? 0) > 0;
     if (base === undefined || recordGrew) {
-      // The seam input: the frozen record plus the who/when the jurisdiction's formula
-      // needs. `currentAge` advances on recompute so `rules` indexes the grown record to
-      // the same age-60 year.
+      // `currentAge` advances on recompute so `rules` indexes the grown record to the same
+      // age-60 year.
       const claim: GovernmentBenefitClaim = {
         record: toEarningsRecord(acc ?? new Map()),
         claimYear: year,
@@ -136,9 +129,7 @@ export function buildGovernmentBenefitSources(
       state.lastComputedThroughYear.set(person.id, latestCompletedYear);
     }
     if (base <= 0) continue;
-    // Grow the opaque base by the jurisdiction's COLA seam. That single factor folds in the
-    // eligibility-age→claim bridge, so the engine knows neither the eligibility age nor
-    // the bridge formula.
+    // The COLA factor also folds in the eligibility-age→claim bridge.
     const ctx: GovernmentBenefitContext = { year, currentAge, colaRate };
     const paid = jurisdiction.colaAdjustedBenefitCents?.(base, ctx) ?? base;
     sources.push({

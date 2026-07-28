@@ -24,9 +24,9 @@ export type GrowthMode =
 export type OverrideScope = "thisMonthOnly" | "fromHereForward";
 
 /**
- * One entry of a series' growth schedule: the annual rate in force from `startMonth`, plus
- * the {@link GrowthMode} that produced it (`fixed` reads 0, and only the mode distinguishes
- * "pinned flat" from "0% inflation this run"). Plain data, echoable straight to JSON.
+ * The annual rate in force from `startMonth`, plus the {@link GrowthMode} that produced it:
+ * `fixed` reads 0, and only the mode distinguishes "pinned flat" from "0% inflation this
+ * run".
  */
 export interface GrowthSegmentView {
   readonly startMonth: number;
@@ -35,11 +35,10 @@ export interface GrowthSegmentView {
 }
 
 /**
- * v1-ignored seam: tax-routing category for income series — the engine-owned
- * flow-provenance vocabulary (only the engine can label where a flow originated).
- * Brand-neutral: no jurisdiction program names, so a government retirement benefit (US:
- * Social Security) is `governmentRetirementBenefit`. The jurisdiction's tax seam decides
- * how much of each category is taxed.
+ * The engine-owned flow-provenance vocabulary: only the engine can label where a flow
+ * originated, and the jurisdiction's tax seam decides how much of each category is taxed.
+ * Brand-neutral — no jurisdiction program names, so a government retirement benefit (US:
+ * Social Security) is `governmentRetirementBenefit`.
  */
 export type TaxCategory =
   | "wages"
@@ -68,7 +67,7 @@ export interface SimCashFlowSeriesOptions {
   anchorMonth?: number;
   /** Inclusive end month; getMonthlyCents returns 0 for month > endMonth. */
   endMonth?: number;
-  /** v1-ignored seam: category for future tax routing. */
+  /** Tax-routing provenance for this stream; defaults to `ordinaryIncome` downstream. */
   taxCategory?: TaxCategory;
 }
 
@@ -96,9 +95,8 @@ function rateFor(mode: GrowthMode): number {
 }
 
 /**
- * The annual growth rate a {@link GrowthMode} implies — 0 for `fixed`, the carried
- * `annualRate` otherwise. Exposed so growth-bearing stocks that aren't cash-flow series (a
- * property's appreciating value) compound at the same rate without duplicating the switch.
+ * Exposed so growth-bearing stocks that aren't cash-flow series (a property's appreciating
+ * value) compound at the same rate without duplicating the switch.
  */
 export function growthAnnualRate(mode: GrowthMode): number {
   return rateFor(mode);
@@ -116,7 +114,6 @@ export function splitAnnualToMonths(annualCents: number): number[] {
   return months;
 }
 
-/** Precise monthly compounding rate from an annual rate: (1+r)^(1/12) - 1 */
 export function preciseMonthlyRate(annualRate: number): number {
   return Math.pow(1 + annualRate, 1 / 12) - 1;
 }
@@ -208,18 +205,14 @@ export class SimCashFlowSeries {
     }
   }
 
-  /**
-   * The annual growth rate in force at `month` — the "raise rate" for a salary stream, the
-   * escalation rate for an expense. 0 for a `fixed` series.
-   */
   growthAnnualRateAt(month: number): number {
     return rateFor(this.segmentFor(month).growthMode);
   }
 
   /**
-   * The whole growth schedule, one entry per segment, ascending by `startMonth`. A series
-   * edited `fromHereForward` with a new growth mode (a promotion, a job change) carries more
-   * than one — reporting only the rate at month 0 would hide every later change.
+   * One entry per segment, ascending by `startMonth`. A series edited `fromHereForward` with
+   * a new growth mode carries more than one — reporting only the rate at month 0 would hide
+   * every later change.
    */
   growthSchedule(): readonly GrowthSegmentView[] {
     return this.segments.map((s) => ({

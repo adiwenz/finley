@@ -3,10 +3,7 @@
  *
  * Home Purchase and One-Time Spend both fund an outflow from an ordered list of eligible
  * accounts (liquid non-retirement accounts + goal funds; retirement excluded in v1). The one
- * place deciding "take X from these accounts, in the order given": it walks the list,
- * drawing what each account holds until the amount is met, and reports what came out
- * (`drained`), what could not be covered (`shortfall`), and the per-account draws the caller
- * turns into transfers.
+ * place deciding "take X from these accounts, in the order given".
  *
  * Pure: it takes resolved balances (the caller resolves them at the event month) and an
  * amount, never a projection — which is what lets the §4.5 affordability gate and the event
@@ -15,7 +12,6 @@
 
 import type { Cents } from "../money";
 
-/** One account's contribution to a drain: the source it came from and how much. */
 export interface DrainDraw<S> {
   readonly source: S;
   readonly amountCents: Cents;
@@ -23,11 +19,9 @@ export interface DrainDraw<S> {
 
 /**
  * The outcome of draining `amountCents` from an ordered source list:
- * - `drained` — total taken out (= `min(amount, available)`);
- * - `shortfall` — the uncovered remainder (= `max(0, amount − available)`), what the §4.5
- *   gate hard-blocks on;
- * - `draws` — per-account amounts in source order, positive draws only, ready to become
- *   transfers.
+ * - `drained` = `min(amount, available)`;
+ * - `shortfall` = `max(0, amount − available)`, what the §4.5 gate hard-blocks on;
+ * - `draws` — per-account amounts in source order, positive draws only.
  * `drained` and `shortfall` always sum to `max(0, amountCents)`.
  */
 export interface DrainResult<S> {
@@ -39,7 +33,7 @@ export interface DrainResult<S> {
 /**
  * Drain `amountCents` from `sources` in order, exhausting each before the next. Available
  * balances are floored at zero, so a negative snapshot contributes nothing rather than
- * inflating the shortfall. A non-positive amount drains nothing.
+ * inflating the shortfall.
  */
 export function drainSources<S extends { readonly balanceCents: Cents }>(
   sources: readonly S[],

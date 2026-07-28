@@ -9,9 +9,8 @@ export { annualizeByCategory } from "./federalTaxCore";
  * Distribute integer-cents `totalCents` across `entries` (`[category, weight]` pairs) in
  * proportion to the weights, every share an integer cent and Σ shares === `totalCents`
  * exactly (largest-remainder: floor each share, then hand leftover cents to the largest
- * fractional remainders). Zero-weight and zero-share categories are omitted, so the map
- * carries only bands worth drawing. That exact-sum guarantee is what keeps the total
- * equal to `computeTaxCents`.
+ * fractional remainders). Zero-weight and zero-share categories are omitted. That exact-sum
+ * guarantee is what keeps the total equal to `computeTaxCents`.
  */
 function apportionByWeight(
   totalCents: Cents,
@@ -28,7 +27,6 @@ function apportionByWeight(
     allocated += whole;
     shares.push({ category, whole, remainder: exact - whole });
   }
-  // Hand out the leftover cents, biggest fractional remainder first.
   let leftover = totalCents - allocated;
   shares.sort((a, b) => b.remainder - a.remainder);
   for (let i = 0; leftover > 0; i = (i + 1) % shares.length, leftover--) shares[i]!.whole += 1;
@@ -42,8 +40,8 @@ function apportionByWeight(
  * Split a `totalCents` federal-tax figure across the {@link TaxCategory} buckets that bore
  * it, given the computed {@link FederalTaxParts}. Regime-aware proportional-to-taxable:
  *
- *   • The preferential capital-gains tax rides `capitalGains` alone, so the split respects
- *     that gains are taxed at their own 0/15/20% rates, not an averaged blend.
+ *   • The preferential capital-gains tax rides `capitalGains` alone: gains keep their own
+ *     0/15/20% rates rather than an averaged blend.
  *   • The progressive ordinary tax splits among `wages`, `ordinaryIncome`, and
  *     `governmentRetirementBenefit` by ordinary-taxable weight (the benefit weighted by
  *     its INCLUDED portion only), sharing the standard deduction and bracket climb
@@ -53,8 +51,8 @@ function apportionByWeight(
  * ⚠ LIMITATION: an average-rate attribution WITHIN the ordinary regime. It cannot capture
  * that a category's LAST dollar sits in a higher bracket than its first, nor the
  * notch/inclusion effects (a marginal ordinary dollar can raise the taxable benefit or
- * push gains out of the 0% band). Exact in TOTAL, defensible per bucket, but not a
- * marginal-incidence decomposition.
+ * push gains out of the 0% band). Exact in TOTAL, but not a marginal-incidence
+ * decomposition.
  */
 function attributeFederalTax(
   totalCents: Cents,
@@ -63,8 +61,6 @@ function attributeFederalTax(
   const w = parts.ordinaryWeights;
   const ordinaryWeightSum = w.wages + w.ordinaryIncome + w.governmentRetirementBenefit;
   const entries: [TaxCategory, number][] = [];
-  // Weight each category by the TAX it bore: ordinary tax pro-rata by ordinary-taxable
-  // weight, gains tax attributed whole to capital gains.
   if (ordinaryWeightSum > 0) {
     for (const category of ["wages", "ordinaryIncome", "governmentRetirementBenefit"] as const) {
       const taxBorne = (parts.ordinaryTaxCents * w[category]) / ordinaryWeightSum;
@@ -90,21 +86,20 @@ export function federalAnnualTaxByCategoryCents(
 }
 
 /**
- * The engine's per-category tax seam for the US single filer: MONTHLY per-category taxable
- * amounts in → this month's tax split per {@link TaxCategory} out. Σ equals
- * {@link computeFederalTaxCents} for the same slice EXACTLY — the monthly scalar total is
- * apportioned by the annual per-regime weights (identical ratios monthly vs. annual), so
- * the breakdown can never disagree with the total take-home already used. Method and
- * limitation: {@link attributeFederalTax}. The only per-category entry point `index.ts`
- * wires into {@link usJurisdiction}.
+ * The engine's per-category tax seam for the US single filer, taking MONTHLY amounts. Σ
+ * equals {@link computeFederalTaxCents} for the same slice EXACTLY, so the breakdown can
+ * never disagree with the total take-home already used. Method and limitation:
+ * {@link attributeFederalTax}. The only per-category entry point `index.ts` wires into
+ * {@link usJurisdiction}.
  */
 export function computeFederalTaxByCategoryCents(
   monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
   year: number,
 ): Partial<Record<TaxCategory, Cents>> {
   const parts = federalTaxParts(annualizeByCategory(monthlyByCategory), year);
-  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights, so
-  // Σ(breakdown) === the scalar the waterfall charged, not a separately-rounded figure.
+  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights — the
+  // ratios are identical monthly vs. annual — so Σ(breakdown) === the scalar the waterfall
+  // charged, not a separately-rounded figure.
   const monthlyTotal = Math.round(parts.totalCents / 12);
   return attributeFederalTax(monthlyTotal, parts);
 }

@@ -2,9 +2,8 @@
  * Integration demo: Social Security IS taxed — and the SS band's take-home reflects it —
  * once enough *other* taxable retirement income pushes the benefit over the standard
  * deduction. The default plan funds retirement from non-taxable savings drawdowns, so SS
- * sits below that threshold, take-home == gross, and the "Show gross cash flows" toggle
- * leaves the SS band still. This is the counter-example proving the pipeline handles a
- * taxed benefit end-to-end.
+ * sits below that threshold and take-home == gross; this is the counter-example proving
+ * the pipeline handles a taxed benefit end-to-end.
  */
 import { it, expect } from "vitest";
 import { Projection, RETIREMENT_ID, dollarsToCents, type Plan } from "@finley/engine";
@@ -13,8 +12,7 @@ import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 
 // A solvent retiree funded by pre-tax 401(k) withdrawals (taxable ordinary income) on top
-// of Social Security: a higher salary plus a 15% deferral build the pre-tax balance;
-// everything else is the default plan.
+// of Social Security: a higher salary plus a 15% deferral build the pre-tax balance.
 const DEMO_PLAN: Plan = {
   ...PLAN_DEFAULTS,
   jobs: [
@@ -33,8 +31,7 @@ it("taxes Social Security when 401(k) withdrawals accompany it, keyed to the ben
     const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
     return (byCat.governmentRetirementBenefit ?? 0) > 0;
   });
-  // The counter-example fires: SS is taxed across a run of retirement months, not zero as
-  // in the default plan.
+  // The counter-example fires: SS is taxed across a run of retirement months.
   expect(taxedSSMonths.length).toBeGreaterThan(0);
 
   const m = taxedSSMonths[0]!;

@@ -13,10 +13,6 @@ import {
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 
-/**
- * Plots the nominal and real net-worth curves from the {@link ProjectionSeries} contract
- * with Recharts. Design polish still to come; this proves the engine → app wire.
- */
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
 const AXIS = "#6b6552";
@@ -24,17 +20,13 @@ const GRID = "#e3dcc6";
 
 type Point = {
   month: number;
-  // Null from the first insolvent month on: the engine reports net worth as unknown
-  // once the money runs out, and Recharts breaks the line at the null — so the curves
-  // END at insolvency rather than flatlining as if stable.
+  // Null from the first insolvent month on. Recharts breaks the line at the null, so the
+  // curves END at insolvency rather than flatlining as if stable.
   nominalCents: number | null;
   realCents: number | null;
 };
 
-/**
- * `retirementMonth`: the solved Mode-1 retirement age as a month offset. When present, a
- * labelled vertical reference line marks where retirement begins.
- */
+/** `retirementMonth`: the solved Mode-1 retirement age as a month offset. */
 export function NetWorthChart({
   series,
   retirementMonth,
@@ -48,9 +40,8 @@ export function NetWorthChart({
     realCents: m.netWorthRealCents,
   }));
 
-  // Where the curve ends: the last month with a non-null value. Net worth goes null once
-  // insolvent, so this is the "money runs out" point for a failed plan, the horizon for
-  // a surviving one.
+  // Where the curve ends: the last month with a non-null value — the "money runs out" point
+  // for a failed plan, the horizon for a surviving one.
   const horizonMonth = series.months[series.months.length - 1]?.month ?? 0;
   const insolvent = series.months.some((m) => m.isInsolvent);
   let lastMeaningfulMonth = horizonMonth;
@@ -63,9 +54,9 @@ export function NetWorthChart({
       break;
     }
   }
-  // Zoom the x-axis just past where the curve ends, so an early failure is legible
-  // instead of a spike against decades of empty chart. A surviving plan ends at the
-  // horizon and keeps full width; the 2-year floor keeps a very early failure roomy.
+  // Zoom the x-axis just past where the curve ends, so an early failure is legible instead
+  // of a spike against decades of empty chart. The 2-year floor keeps a very early failure
+  // roomy.
   const xMaxMonth = Math.min(
     horizonMonth,
     Math.max(24, Math.ceil((lastMeaningfulMonth + 6) / 12) * 12),

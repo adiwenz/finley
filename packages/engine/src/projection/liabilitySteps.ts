@@ -10,8 +10,7 @@ import type { LiabilityPaymentRecord } from "./simulate.types";
  *
  * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}): a
  * revolving card its balance-driven minimum, a term loan its scheduled amortization — both
- * capped at the payoff so a small balance is never over-charged. A paid-off (≤ 0) balance is
- * skipped: it owes nothing.
+ * capped at the payoff so a small balance is never over-charged.
  */
 export function computeLiabilityPayments(state: SimState, month: number): Map<string, Cents> {
   const payments = new Map<string, Cents>();
@@ -24,8 +23,8 @@ export function computeLiabilityPayments(state: SimState, month: number): Map<st
 }
 
 /**
- * Per-liability payment records: one entry per liability with a payment due (exactly the
- * `payments` map, which already skips paid-off / not-yet-originated / origination-month ones).
+ * One record per entry in `payments`, which already skips paid-off, not-yet-originated and
+ * origination-month liabilities.
  *
  * v1-seam: `amountApplied` and `expected` are the same payoff-capped figure today, so every
  * record is `full` / `current`. A future underpayment channel passes a smaller
@@ -54,13 +53,11 @@ export function buildLiabilityPaymentRecords(
  * unbounded; the synthetic shortfall card has a finite default limit, so it too can be
  * exhausted).
  *
- * Returns the deficit still UNCOVERED once savings and every card are exhausted — what the
- * household genuinely could not pay. Zero is the common case: a squeezed month is meant to be
- * absorbed, by savings then credit, and the household still spent every dollar it budgeted.
- * Only with nothing left to absorb it has the plan failed, which is the terminal condition
- * this reports, surfaced as `isInsolvent` and a null net worth. Nothing per-line is derived
- * from it (see {@link import("./spendingItems").buildSpendingItems} for why spending is
- * reported as authored rather than rationed).
+ * Returns the deficit still UNCOVERED once savings and every card are exhausted — usually
+ * zero, since a squeezed month is meant to be absorbed. Anything left is the terminal
+ * failure condition, surfaced as `isInsolvent` and a null net worth. Nothing per-line is
+ * derived from it (see {@link import("./spendingItems").buildSpendingItems} for why spending
+ * is reported as authored rather than rationed).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -71,8 +68,7 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
   state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
-    // A card not yet originated (opened at its startMonth) can't absorb a shortfall —
-    // borrowing onto it would be lost.
+    // A card not yet originated can't absorb a shortfall — borrowing onto it would be lost.
     if (month <= card.startMonth) continue;
     const currentBal = state.liabilityBalances.get(card.id) ?? 0;
     const limit = card.creditLimitCents;
@@ -87,13 +83,11 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
 /**
  * Step 10: advance every liability. One-time principal adjustments (lump-sum payments) land
  * FIRST, before interest — the liability analogue of step 8 preceding step 9 for assets — so
- * a lump sum reduces that month's interest. Then accrue interest and apply the pre-computed
- * `payments` figure.
+ * a lump sum reduces that month's interest.
  *
- * A transfer only moves the owed balance; the paired cash outflow is the caller's
- * responsibility, as with asset-to-asset transfers — the engine does not auto-fund it, so
- * pairing a liability payoff with an account outflow is what conserves net worth. A lump sum
- * can drive the balance below the precomputed schedule; the payoff cap in
+ * A transfer only moves the owed balance; the engine does not auto-fund it, so pairing a
+ * liability payoff with an account outflow is the caller's job and is what conserves net
+ * worth. A lump sum can drive the balance below the precomputed schedule; the payoff cap in
  * computeLiabilityPayments makes that safe and yields shorten-term behavior (loan retires
  * early, payment unchanged).
  */

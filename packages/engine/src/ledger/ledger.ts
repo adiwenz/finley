@@ -5,18 +5,14 @@
 
 import type { LifeEvent } from "./eventTypes";
 
-/** Success, or a failure carrying a human-readable reason. */
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
 export interface Ledger {
   readonly events: readonly LifeEvent[];
   /**
-   * The sequence number the next appended event will receive.
-   *
-   * Invariant: strictly greater than every existing event's `sequenceNumber`. Increments by
-   * one on every append and is **never decremented** — removing an event does not recycle
-   * its number, so numbers stay globally unique and monotonic across the ledger's lifetime.
-   * It therefore does *not* in general equal `events.length` once anything is removed.
+   * Invariant: strictly greater than every existing event's `sequenceNumber`. **Never
+   * decremented** — removing an event does not recycle its number, so numbers stay unique
+   * and monotonic, and this does *not* equal `events.length` once anything is removed.
    */
   readonly nextSequenceNumber: number;
 }
@@ -24,9 +20,8 @@ export interface Ledger {
 export const emptyLedger: Ledger = { events: [], nextSequenceNumber: 0 };
 
 /**
- * Structural validation of a ledger's own invariants, independent of replay: unique event
- * ids, unique sequence numbers, and `nextSequenceNumber` monotonicity. Catches malformed or
- * hand-assembled ledgers.
+ * A ledger's own invariants, independent of replay: unique event ids, unique sequence
+ * numbers, and `nextSequenceNumber` monotonicity.
  */
 export function validateLedgerStructure(ledger: Ledger): ValidationResult {
   const seenIds = new Set<string>();

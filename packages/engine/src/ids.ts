@@ -1,8 +1,7 @@
 /**
  * Branded domain IDs — nominal `string` subtypes: a `PersonId` is a string at runtime, but
- * the compiler refuses to mix it with a `SeriesId` or a raw `string`. They make the replay
- * layer's indexed maps type-safe: keying `Map<PersonId, …>` by a `LiabilityId` is a
- * compile error.
+ * the compiler refuses to mix it with a `SeriesId` or a raw `string`, so keying
+ * `Map<PersonId, …>` by a `LiabilityId` is a compile error.
  *
  * Scope: the ledger/interpret boundary and the derived model. Public event objects keep
  * plain `string` ids so authoring stays ergonomic (`{ id: "e1", … }`); the replay boundary

@@ -35,13 +35,11 @@ function budget(opts: {
   return plan;
 }
 
-/** The crossing for a plan (and optionally a ledger), through the household roster. */
 function crossingFor(plan: Plan, ledger: Ledger = emptyLedger) {
   const base = createProjectionBase(plan, { jurisdiction: usJurisdiction, startYear: START_YEAR });
   return firstDeferralLimitCrossing(jobOwnersOf(interpretLedger(ledger, base), ledger), plan.inflationPct);
 }
 
-/** An open-ended job for `ownerId` paying `monthlyDollars`, deferring `deferralPct` of it. */
 const job = (
   id: string,
   ownerId: string,
@@ -138,8 +136,8 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
 
 describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
   it("aggregates one person's jobs before comparing with the limit", () => {
-    // Two jobs at $30k/yr, each deferring 50% = $30k, over the $24,500 limit. Neither job
-    // crosses alone; the person's total does, and the limit is on the total.
+    // Two jobs at $30k/yr, each deferring 50% = $30k total, over the $24,500 limit.
+    // Neither job crosses alone.
     const twoJobs: Plan = {
       ...budget({ monthlyIncome: 2500, deferralPct: 50 }),
       jobs: [

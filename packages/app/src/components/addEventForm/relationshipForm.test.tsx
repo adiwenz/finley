@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  *
  * RelationshipForm — a partner joins the household. Pins that a partner can be authored WITH
- * their own jobs (the same job model and form the primary earner uses), scoped to them, and
- * that a partner with no jobs joins as before, leaving single-earner plans unchanged.
+ * their own jobs (the same job model the primary earner uses), scoped to them, and that a
+ * partner with no jobs joins as before, leaving single-earner plans unchanged.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -11,7 +11,6 @@ import { RelationshipForm } from "./relationshipForm";
 
 afterEach(cleanup);
 
-/** Render the form with a spy for the emitted event, returning the spy. */
 function renderForm(defaultMonth = 0) {
   const onAdd = vi.fn();
   render(
@@ -38,18 +37,17 @@ describe("RelationshipForm — partner jobs", () => {
     fireEvent.click(btn(/Add a job/i));
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
     fireEvent.click(btn(/^Add$/)); // the JobForm's own submit
-    fireEvent.click(btn(/Add event/i)); // emit the RelationshipEvent
+    fireEvent.click(btn(/Add event/i));
     const event = onAdd.mock.calls[0][0];
     expect(event.person.jobs).toHaveLength(1);
     const job = event.person.jobs[0];
     expect(job.salary.startingSalaryCents).toBe(2000 * 12 * 100);
-    // The job belongs to the partner, not the primary earner.
     expect(job.ownerId).toBe(event.person.id);
   });
 
   it("takes the partner's age at the year they join, and stores it as their birth year", () => {
-    // The user thinks in an age at the moment the form describes; the engine reasons in a
-    // birth year, which drives when their jobs stop and their benefit starts.
+    // The user thinks in an age; the engine reasons in a birth year, which drives when
+    // their jobs stop and their benefit starts.
     const onAdd = renderForm(60); // joining in Year 5 → 2031
     expect(spin(/Their age in 2031/i)).toBeTruthy();
     fireEvent.change(spin(/Their age/i), { target: { value: "45" } });
@@ -68,7 +66,7 @@ describe("RelationshipForm — partner jobs", () => {
     const onAdd = renderForm(0);
     fireEvent.change(spin(/Their age/i), { target: { value: "30" } });
     fireEvent.click(btn(/Add a job/i));
-    // A fresh job is seeded at the age they join — it starts the year they arrive.
+    // A fresh job is seeded at the age they join.
     expect(Number(spin(/Start age/i).value)).toBe(30);
     fireEvent.change(spin(/Start age/i), { target: { value: "22" } });
     fireEvent.click(btn(/^Add$/));
@@ -89,8 +87,8 @@ describe("RelationshipForm — partner jobs", () => {
   });
 
   it("lets a partner who has already retired join — their own clock, not the household's", () => {
-    // Their retirement age is NOT chained to their current age (the primary earner's is): a
-    // 68-year-old partner who stopped working at 62 is a real scenario.
+    // Their retirement age is NOT chained to their current age (the primary earner's is):
+    // a 68-year-old who stopped working at 62 is a real scenario.
     const onAdd = renderForm(0);
     fireEvent.change(spin(/Their age/i), { target: { value: "68" } });
     fireEvent.change(spin(/Their retirement age/i), { target: { value: "62" } });
@@ -105,15 +103,12 @@ describe("RelationshipForm — partner jobs", () => {
 
   it("authors several jobs and can remove one before adding the partner", () => {
     const onAdd = renderForm();
-    // First job: $2,000/mo
     fireEvent.click(btn(/Add a job/i));
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
     fireEvent.click(btn(/^Add$/));
-    // Second job: $3,000/mo
     fireEvent.click(btn(/Add a job/i));
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "3000" } });
     fireEvent.click(btn(/^Add$/));
-    // Remove the first job
     fireEvent.click(btn(/Remove job 1/i));
     fireEvent.click(btn(/Add event/i));
     const event = onAdd.mock.calls[0][0];

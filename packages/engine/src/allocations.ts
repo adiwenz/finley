@@ -1,10 +1,9 @@
 /**
  * The unified `allocations()` view — one ordered list folding together the three claims on
- * a month's cash: per-job pre-tax deferrals, budget line items, and goals. A single-source
- * + derived selector, not a UI shim: reads unify here, but each entry points at its
- * **canonical home**, so a write lands where the fact lives (deferral → job,
- * expense/contribution → budget, goal semantics → goal). One home per fact, so reads never
- * contradict and undo/override ride on that home.
+ * a month's cash: per-job pre-tax deferrals, budget line items, and goals. Reads unify
+ * here, but each entry points at its **canonical home**, so a write lands where the fact
+ * lives (deferral → job, expense/contribution → budget, goal semantics → goal). One home
+ * per fact, so reads never contradict and undo/override ride on that home.
  *
  * **Merge order mirrors cash flow:** pre-tax deferrals come off gross above the tax line
  * and sort first; everything else is post-tax, ordered by flat waterfall priority, with the
@@ -12,8 +11,8 @@
  * goal-paced line items — a sinking-fund contribution to the goal's fund account, with
  * target/deadline/disposition still owned by the goal.
  *
- * Pure and jurisdiction-agnostic: imports only the standing authoring types ({@link Job},
- * {@link BudgetLine}, {@link SimGoal}) and nothing from `projection/*`.
+ * Pure and jurisdiction-agnostic: imports only the standing authoring types and nothing
+ * from `projection/*`.
  */
 
 import type { Cents } from "./money";
@@ -29,10 +28,7 @@ import {
 } from "./budgetLine";
 import type { GoalTargetDate, SimGoal } from "./goal";
 
-/**
- * The canonical home a unified {@link Allocation} writes back to. One home per fact: a
- * deferral on the job, a budget line on the budget, a goal's semantics on the goal.
- */
+/** The canonical home a unified {@link Allocation} writes back to. */
 export type AllocationHome =
   | { readonly kind: "job"; readonly jobId: string }
   | { readonly kind: "budgetLine"; readonly lineId: string }
@@ -41,9 +37,8 @@ export type AllocationHome =
 /**
  * How an {@link Allocation}'s amount is expressed — the shape follows the home. A deferral
  * is a fraction of the job's gross (pre-tax, off the top); a budget line or goal carries an
- * {@link AmountSource} (a goal always the `goalPaced` sinking-fund source). A read
- * projection: the per-month dollar figure is resolved by the budget resolver / waterfall,
- * never stored here.
+ * {@link AmountSource}. The per-month dollar figure is resolved by the budget resolver /
+ * waterfall, never stored here.
  */
 export type AllocationSource =
   | {
@@ -55,9 +50,8 @@ export type AllocationSource =
   | { readonly kind: "goal"; readonly amountSource: AmountSource };
 
 /**
- * One row of the unified view: a deferral, budget line, or goal, tagged with its canonical
- * {@link AllocationHome}, tax treatment, and flat waterfall priority. `id` is derived from
- * the home, so it is stable and unique across all three sources — a UI can key on it and a
+ * One row of the unified view: a deferral, budget line, or goal. `id` is derived from the
+ * home, so it is stable and unique across all three sources — a UI can key on it and a
  * resolved line maps back to its author.
  */
 export interface Allocation {
@@ -66,7 +60,7 @@ export interface Allocation {
   readonly home: AllocationHome;
   /** Pre-tax for a deferral; post-tax for expenses and goals. */
   readonly taxTreatment: TaxTreatment;
-  /** The account this funds (deferral fund / contribution target / goal fund); null for a plain expense. */
+  /** The account this funds; null for a plain expense. */
   readonly targetAccountId: string | null;
   /** Flat waterfall priority (lower = funded first) within the item's tax band. */
   readonly priority: number;
@@ -75,7 +69,6 @@ export interface Allocation {
   readonly source: AllocationSource;
 }
 
-/** The standing inputs the unified view reads across. */
 export interface AllocationsInput {
   readonly jobs?: readonly Job[];
   readonly budgetLines?: readonly BudgetLine[];
@@ -84,11 +77,9 @@ export interface AllocationsInput {
 
 /**
  * Compile a {@link SimGoal} into the goal-paced budget line it *is*: a contribution to the
- * goal's fund account paced as a deadline sinking fund. A dated goal becomes a `goalPaced`
- * line targeting its `targetDate`; an `asap` goal has no deadline to pace against, so it
- * gets a `literal` 0 marker and is never dated-paced (the waterfall fills asap goals
- * fill-order from the remainder). A derived read — the goal still owns
- * target/deadline/disposition.
+ * goal's fund account paced as a deadline sinking fund. An `asap` goal has no deadline to
+ * pace against, so it gets a `literal` 0 marker — the waterfall fills asap goals
+ * fill-order from the remainder.
  */
 export function goalToLineItem(goal: SimGoal): BudgetLine {
   const amountSource: AmountSource =
@@ -105,12 +96,9 @@ export function goalToLineItem(goal: SimGoal): BudgetLine {
   };
 }
 
-/** Stable unified id for a job deferral. */
 const deferralId = (jobId: string): string => `deferral:${jobId}`;
-/** Stable unified id for a budget line. */
 const lineId = (id: string): string => `line:${id}`;
 
-/** The pre-tax deferral rows — one per job that carries a deferral. */
 function deferralAllocations(jobs: readonly Job[]): Allocation[] {
   const out: Allocation[] = [];
   jobs.forEach((job, index) => {
@@ -121,8 +109,7 @@ function deferralAllocations(jobs: readonly Job[]): Allocation[] {
       home: { kind: "job", jobId: job.id },
       taxTreatment: "preTax",
       targetAccountId: job.deferral.fundAccountId,
-      // Deferrals sort above the tax line, ahead of every post-tax item; authored job
-      // order among them.
+      // Above the tax line, ahead of every post-tax item; authored job order among them.
       priority: index,
       source: {
         kind: "deferral",
@@ -136,14 +123,11 @@ function deferralAllocations(jobs: readonly Job[]): Allocation[] {
   return out;
 }
 
-/**
- * One post-tax row for a budget line or goal (a goal arrives compiled to a line via
- * {@link goalToLineItem}). `home` is what routes the write back correctly.
- */
+/** One post-tax row for a budget line or a goal compiled by {@link goalToLineItem}. */
 function postTaxAllocation(line: BudgetLine, home: AllocationHome): Allocation {
   const isGoal = home.kind === "goal";
-  // A goal line already carries its `goal:<id>` id from goalToLineItem; a budget line is
-  // prefixed here so its unified id never collides with a raw source id.
+  // A goal line already carries its `goal:<id>` id; a budget line is prefixed here so its
+  // unified id never collides with a raw source id.
   const id = home.kind === "budgetLine" ? lineId(home.lineId) : line.id;
   return {
     id,
@@ -160,17 +144,15 @@ function postTaxAllocation(line: BudgetLine, home: AllocationHome): Allocation {
 }
 
 /**
- * The unified, ordered allocation view. Deferrals first (off gross, above the tax line);
- * budget lines and goals merge into one post-tax band ordered by flat waterfall priority,
- * goals folded in as computed goal-paced line items. Every row carries a stable id and its
- * canonical home, so reads unify while writes stay routable ({@link routeAllocationWrite}).
+ * The unified, ordered allocation view: deferrals first, then budget lines and goals in
+ * one post-tax band ordered by flat waterfall priority.
  */
 export function allocations(input: AllocationsInput): Allocation[] {
   const deferrals = deferralAllocations(input.jobs ?? []);
 
-  // Budget lines and goals share one post-tax priority band: goals compile to lines, both
-  // sort by flat priority via `orderBudgetLines`, and the home is recovered from the id
-  // prefix so the two stay distinguishable.
+  // Budget lines and goals share one post-tax priority band: goals compile to lines and
+  // both sort by flat priority via `orderBudgetLines`, with `homeByLineId` keeping the two
+  // distinguishable afterwards.
   const budgetLines = input.budgetLines ?? [];
   const goalLines = (input.goals ?? []).map(goalToLineItem);
   const homeByLineId = new Map<string, AllocationHome>();
@@ -185,16 +167,15 @@ export function allocations(input: AllocationsInput): Allocation[] {
   return [...deferrals, ...postTax];
 }
 
-/** A stable id for a budget-line allocation (exported for callers keying the view). */
+/** The unified id for a budget-line allocation, for callers keying the view. */
 export function budgetLineAllocationId(id: string): string {
   return lineId(id);
 }
 
 /**
  * A proposed edit to one allocation, named for the fact being changed. Each kind belongs to
- * exactly one home — which is what makes routing total: `deferralFraction` is a job fact,
- * `monthlyCents`/`priority` budget-line facts, `goalTarget` a goal fact.
- * {@link routeAllocationWrite} validates the pairing.
+ * exactly one home, which is what makes routing total; {@link routeAllocationWrite}
+ * validates the pairing.
  */
 export type AllocationEdit =
   | { readonly kind: "deferralFraction"; readonly value: number }
@@ -206,13 +187,11 @@ export type AllocationEdit =
       readonly targetDate: GoalTargetDate;
     };
 
-/** A routed write: the canonical home the edit lands on, plus the edit itself. */
 export interface WriteRoute {
   readonly home: AllocationHome;
   readonly edit: AllocationEdit;
 }
 
-/** Which home a given edit kind is allowed to target — the routing table, in code. */
 const EDIT_HOME_KIND: Record<AllocationEdit["kind"], AllocationHome["kind"]> = {
   deferralFraction: "job",
   monthlyCents: "budgetLine",
@@ -221,11 +200,9 @@ const EDIT_HOME_KIND: Record<AllocationEdit["kind"], AllocationHome["kind"]> = {
 };
 
 /**
- * Route a write on an {@link Allocation} to its **canonical home**: a deferral edit to the
- * job, expense/contribution to the budget line, goal fields to the goal — never a fourth
- * "allocation" record, so reads never contradict and undo/override ride on the existing
- * home. Throws when the edit kind does not belong to the allocation's home (e.g. a
- * goal-target edit on a job deferral).
+ * Route a write on an {@link Allocation} to its canonical home — never a fourth
+ * "allocation" record. Throws when the edit kind does not belong to the allocation's home
+ * (e.g. a goal-target edit on a job deferral).
  */
 export function routeAllocationWrite(allocation: Allocation, edit: AllocationEdit): WriteRoute {
   const expected = EDIT_HOME_KIND[edit.kind];

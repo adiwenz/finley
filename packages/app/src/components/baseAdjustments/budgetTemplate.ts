@@ -1,17 +1,13 @@
 /**
- * The **Base** budget template. The Base is the user's standing recurring budget —
- * entered once, then edited. Rather than a blank list, two ways to prepopulate:
+ * The **Base** budget template — the user's standing recurring budget, prepopulated rather than
+ * blank so a new user edits a budget instead of authoring one:
  *
- *   - {@link defaultBudgetTemplate} — a starter set of lines across the needs → wants
- *     tiers, so a new user edits a budget rather than authoring one.
- *   - {@link redistributeToTiers} — 50/30/20 applied *non-destructively* to the existing
- *     budget: rebalance each tier's lines without discarding the user's named lines,
- *     seeding a real savings contribution if needed.
+ *   - {@link defaultBudgetTemplate} — a starter set of lines across the needs → wants tiers.
+ *   - {@link redistributeToTiers} — 50/30/20 applied non-destructively to the existing budget.
  *
- * Returns {@link BudgetLineInput}s, id-carrying so the chart, overrides and
- * `allocations()` can key on them. The simulator funds both expense and
- * account-contribution lines, so a seeded savings line is a real contribution into the
- * brokerage, not a vanishing expense. Pure and side-effect-free.
+ * Lines carry ids so the chart, overrides and `allocations()` can key on them. The simulator
+ * funds account-contribution lines as well as expenses, so a seeded savings line is a real
+ * contribution into the brokerage, not a vanishing expense.
  */
 
 import {
@@ -23,14 +19,13 @@ import {
 } from "@finley/engine";
 
 /**
- * Promote authoring inputs to standing {@link BudgetLine}s. Every template line already
- * carries an id; the label is a last-resort fallback so the cast is total, not hopeful.
+ * Promote authoring inputs to standing {@link BudgetLine}s. Template lines already carry an id;
+ * the label is a last-resort fallback so the cast is total.
  */
 export function toBudgetLines(inputs: readonly BudgetLineInput[]): BudgetLine[] {
   return inputs.map((input) => ({ ...input, id: input.id ?? input.label }) as BudgetLine);
 }
 
-/** A literal monthly expense line for the template — the only shape both helpers emit. */
 function expenseLine(
   id: string,
   label: string,
@@ -47,11 +42,9 @@ function expenseLine(
 }
 
 /**
- * A prepopulated starter budget: housing, groceries, transport as needs; dining and
- * subscriptions as wants. Amounts are round placeholders the user edits. Tiers only group
- * the budget as a user reads it (essentials apart from discretionary) — they ration
- * nothing: a tight month is absorbed by savings then credit, never by dropping a line
- * (see `perLineBudget.ts`).
+ * A starter budget with round placeholder amounts. Tiers only group the budget as a user reads
+ * it; they ration nothing — a tight month is absorbed by savings then credit, never by dropping
+ * a line (see `perLineBudget.ts`).
  */
 export function defaultBudgetTemplate(): BudgetLineInput[] {
   return [
@@ -64,21 +57,18 @@ export function defaultBudgetTemplate(): BudgetLineInput[] {
 }
 
 /**
- * The template's total monthly spend. Deliberately equals the scalar
- * `PLAN_DEFAULTS.expenseCents` it replaced: itemizing should change how spending is
- * *authored*, not how much a default household spends — otherwise wiring up the editor
- * would quietly move the app's headline retirement age. Pinned by a test against drift.
+ * Equals the scalar `PLAN_DEFAULTS.expenseCents` it replaced: itemizing changes how spending is
+ * authored, not how much a default household spends, which would otherwise move the app's
+ * headline retirement age. Pinned by a test against drift.
  */
 export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(3_500);
 
-/** The account a seeded savings line contributes into — the first post-tax target (brokerage). */
+/** The first post-tax contribution target (brokerage). */
 const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
 
-/** The 50/30/20 fractions the quickstart targets, by tier. */
 const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
 const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
 
-/** A literal contribution line into an account (the funded shape a savings line takes). */
 function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLine {
   const account = DEFAULT_CONTRIBUTION_ACCOUNT;
   const line: BudgetLine = {
@@ -88,12 +78,10 @@ function seedSavingsLine(monthlyCents: number, retirementMonth?: number): Budget
     amountSource: { kind: "literal", monthlyCents },
     category: "savings",
   };
-  // Saving comes out of a paycheck: stop at retirement, when the household draws savings
-  // down rather than adding to them. Needs/wants run on.
+  // Saving comes out of a paycheck, so it stops at retirement; needs/wants run on.
   return retirementMonth === undefined ? line : { ...line, span: { endMonth: retirementMonth } };
 }
 
-/** A seeded expense line for an empty needs/wants tier. */
 function seedExpenseLine(category: "needs" | "wants", monthlyCents: number): BudgetLine {
   const label = category === "needs" ? "Needs" : "Wants";
   return {
@@ -105,7 +93,7 @@ function seedExpenseLine(category: "needs" | "wants", monthlyCents: number): Bud
   };
 }
 
-/** A copy of a literal line with a new monthly amount (non-literal lines pass through). */
+/** Non-literal lines pass through unchanged. */
 function withMonthlyCents(line: BudgetLine, monthlyCents: number): BudgetLine {
   return line.amountSource.kind === "literal"
     ? { ...line, amountSource: { kind: "literal", monthlyCents } }
@@ -113,16 +101,15 @@ function withMonthlyCents(line: BudgetLine, monthlyCents: number): BudgetLine {
 }
 
 /**
- * The %-quickstart, **non-destructively**: rebalance the *existing* budget to 50% needs /
- * 30% wants / 20% savings of monthly income WITHOUT discarding the user's named lines.
- * Each tier's literal lines are scaled so the tier total lands on target, preserving every
- * line's share within the tier (even split when the tier currently sums to 0). A tier with
- * **no** lines gets one seed: needs/wants an expense line, savings a real contribution
- * into the brokerage so the 20% accumulates rather than vanishing. Non-`literal` lines
- * (goal-paced / fill-to-limit) are untouched — they compute their own amount.
+ * Rebalance the *existing* budget to 50% needs / 30% wants / 20% savings of monthly income
+ * without discarding the user's named lines. Each tier's literal lines are scaled so the tier
+ * total lands on target, preserving every line's share within the tier (even split when the
+ * tier currently sums to 0). A tier with **no** lines gets one seed: an expense line for
+ * needs/wants, a real brokerage contribution for savings so the 20% accumulates rather than
+ * vanishing. Non-`literal` lines compute their own amount and are untouched.
  *
- * `retirementMonth` ends a seeded savings line's span; omit it and the line runs
- * open-ended. Original order is preserved, with seeds appended.
+ * `retirementMonth` ends a seeded savings line's span; omit it and the line runs open-ended.
+ * Original order is preserved, with seeds appended.
  */
 export function redistributeToTiers(
   lines: readonly BudgetLine[],
@@ -131,7 +118,6 @@ export function redistributeToTiers(
 ): BudgetLine[] {
   const target = (tier: BudgetCategory) => Math.round(monthlyIncomeCents * TIER_FRACTION[tier]);
 
-  // Per-tier literal totals and counts, to scale each line to its share of the target.
   const literalTotal: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
   const literalCount: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
   for (const l of lines) {
@@ -150,7 +136,7 @@ export function redistributeToTiers(
     return withMonthlyCents(l, newCents);
   });
 
-  // Seed any tier with no lines at all — an empty tier can't be scaled into existence.
+  // An empty tier can't be scaled into existence, so seed it.
   const seeds: BudgetLine[] = [];
   for (const tier of TIERS) {
     if (lines.some((l) => l.category === tier)) continue;

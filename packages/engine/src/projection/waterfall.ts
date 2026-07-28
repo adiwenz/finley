@@ -1,22 +1,14 @@
 /**
  * Allocation waterfall — pipeline step 3 in detail.
  *
- * ONE opinionated, FIXED-structure waterfall, never user-rearrangeable. Exactly four
- * levers: each person's pre-tax deferral % (per source `planDescriptor`), the
- * shared-contribution scheme, the goal priority order, and the surplus-cash destination.
+ * ONE fixed-structure waterfall, never user-rearrangeable. Exactly four levers: each
+ * person's pre-tax deferral % (per source `planDescriptor`), the shared-contribution
+ * scheme, the goal priority order, and the surplus-cash destination.
  *
- * Per month, in strict order:
- *   1. Pre-tax deferrals come off each source's gross. Only sources with a
- *      `planDescriptor` defer; each person's combined deferral is capped at the annual
- *      limit, and overflow re-enters as taxable cash.
- *   2. gross − deferral = taxable → `computeTaxCents` → take-home. Non-wage income has no
- *      `planDescriptor`, so it enters POST-deferral yet still feeds the taxable pool —
- *      placement reads `planDescriptor`, taxation reads `taxCategory`, never conflated.
- *   3. Shared obligations split by the scheme. A share a person cannot cover is a
- *      shortfall, never silently absorbed by the other partner.
- *   4. Shared goals funded from the combined discretionary pool in priority order.
- *   5. Each person's remaining leftover funds their own personal goals.
- *   6. Whatever remains lands in the surplus destination.
+ * Per month, in strict order: deferrals → tax → shared obligations → shared goals →
+ * personal goals → surplus. Placement reads `planDescriptor`, taxation reads
+ * `taxCategory`, never conflated: non-wage income has no descriptor, so it enters
+ * POST-deferral yet still feeds the taxable pool.
  *
  * Pure: a month's resolved figures in, per-account deposits plus household shortfall out.
  * The simulator applies the deposits and routes the shortfall through the cascade.
@@ -38,10 +30,10 @@ import {
   assertTaxAttributionReconciles,
 } from "./waterfallInvariants";
 
-// Re-exported from ./waterfallInvariants so the engine barrel keeps exposing them.
+// Re-exported so the engine barrel keeps exposing them.
 export { assertPersonTaxBreakdownReconciles, assertTaxAttributionReconciles };
 
-// Re-exported from ./waterfall.types so existing importers keep resolving them here.
+// Re-exported so existing importers keep resolving them here.
 export type {
   PlanDescriptor,
   IncomeSourceMonth,
@@ -51,7 +43,6 @@ export type {
   WaterfallResult,
 } from "./waterfall.types";
 
-/** Add `amount` to `map[key]` (creating the entry at 0 first). */
 function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): void {
   if (amount === 0) return;
   map.set(accountId, (map.get(accountId) ?? 0) + amount);
@@ -59,8 +50,7 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 
 /**
  * Step 1 — per-source pre-tax deferrals, capped per person against the annual limit.
- * Writes each deferral plus its employer match into `deposits`. Overflow past the cap is
- * simply not deferred: it stays in the gross and re-enters as taxable take-home.
+ * Overflow past the cap is not deferred: it stays in the gross and re-enters as taxable.
  */
 function applyDeferrals(
   input: WaterfallInput,
@@ -77,8 +67,7 @@ function applyDeferrals(
 
   const grossByPerson = new Map<string, Cents>();
   const taxableByPerson = new Map<string, TaxableByCategory>();
-  // Each source's taxable weight (for the per-source tax split) and the household
-  // deferral, both keyed by `sourceId` ?? tax category — the key the income side bands on.
+  // Keyed by `sourceId` ?? tax category — the key the income side bands on.
   const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
@@ -108,13 +97,11 @@ function applyDeferrals(
       }
     }
 
-    // The source's gross — or its explicit `taxableCents` when taxable differs from cash,
-    // as for a returned-basis draw or accrued interest — booked under its own provenance
-    // category, less its deferral. The tax seam applies each category's inclusion %; the
-    // whole gross is still paid out as take-home below.
+    // `taxableCents` overrides the gross when taxable differs from cash (returned-basis
+    // draw, accrued interest). The whole gross is still paid out as take-home below.
     const sourceTaxable = Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferred);
     addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
-    // The weight is exactly what was added to the category total, so the per-source split
+    // The weight equals what was added to the category total, so the per-source split
     // reconciles to the category tax.
     if (sourceTaxable > 0) {
       let list = sourceTaxableByPerson.get(src.ownerId);
@@ -130,9 +117,9 @@ function applyDeferrals(
 
 /**
  * Step 2 — tax each person's taxable-by-category map through the single seam.
- * `computeTaxCents` is called ONCE per person and nowhere else: the point of the seam is
- * that no tax logic lives in allocation code. Take-home is charged against the FULL gross,
- * so a partially-taxed benefit still pays its whole check.
+ * `computeTaxCents` is called ONCE per person and nowhere else, so no tax logic lives in
+ * allocation code. Take-home is charged against the FULL gross, so a partially-taxed
+ * benefit still pays its whole check.
  */
 function computeTakeHome(
   input: WaterfallInput,
@@ -148,8 +135,7 @@ function computeTakeHome(
 } {
   const breakdownSeam = input.computeTaxByCategoryCents;
   let taxCents: Cents = 0;
-  // The breakdown seam is required (a zero-tax jurisdiction returns `{}`), so this is
-  // always accumulated — empty in a zero-tax month, reconciling otherwise.
+  // The breakdown seam is required; a zero-tax jurisdiction returns `{}`.
   const taxByCategoryCents: TaxableByCategory = {};
   const taxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
@@ -157,13 +143,13 @@ function computeTakeHome(
     const gross = grossByPerson.get(pid) ?? 0;
     const deferral = deferredByPerson.get(pid) ?? 0;
     const taxable = taxableByPerson.get(pid) ?? {};
-    // Always charged against the scalar total; the breakdown is a reporting re-description
-    // whose Σ equals this same figure.
+    // Charged against the scalar total; the breakdown is a reporting re-description whose
+    // Σ equals this same figure.
     const tax = input.computeTaxCents(taxable);
     taxCents += tax;
     const perCategory = breakdownSeam(taxable);
-    // Check per person BEFORE aggregating, so an offsetting pair of errors can't cancel in
-    // the household total and slip past the household check.
+    // Per person BEFORE aggregating, so offsetting errors can't cancel in the household
+    // total and slip past the household check.
     assertPersonTaxBreakdownReconciles(pid, tax, perCategory);
     for (const [category, cents] of Object.entries(perCategory)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
@@ -180,13 +166,11 @@ function computeTakeHome(
  * household shortfall, never silently absorbed by the other partner.
  *
  * A NEGATIVE take-home is a real cash need: deductions (`deferralCents + taxCents`)
- * exceeded the cash that reached the waterfall (`waterfallInflowCents`). Usually that is
- * tax on cash credited OUTSIDE the waterfall — savings interest taxes $X while
- * contributing $0 of inflow — but the treatment is deliberately cause-agnostic. It is the
- * HOUSEHOLD's to pay, so it comes from the combined discretionary pool first and only the
- * uncoverable part falls to the cascade. Clamping it to 0 silently dropped it: the
- * deduction was reported but never drawn, overstating the ending balance, and a genuinely
- * unpayable bill never surfaced as insolvency.
+ * exceeded the cash that reached the waterfall (`waterfallInflowCents`) — usually tax on
+ * cash credited OUTSIDE the waterfall, though the treatment is cause-agnostic. It is the
+ * HOUSEHOLD's to pay, so the combined discretionary pool covers it first and only the
+ * uncoverable part falls to the cascade. Clamping it to 0 overstated the ending balance
+ * and kept an unpayable bill from ever surfacing as insolvency.
  */
 function splitSharedObligation(
   input: WaterfallInput,
@@ -194,8 +178,6 @@ function splitSharedObligation(
 ): { leftoverByPerson: Map<string, Cents>; totalDiscretionary: Cents; shortfallCents: Cents } {
   const positiveTakeHome = new Map<string, Cents>();
   let totalPositive: Cents = 0;
-  // Household sum of take-home gone negative — deductions exceeding the cash that reached
-  // the waterfall. A real cash need, folded into the shortfall below.
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
     const rawTakeHomeCents = takeHomeByPerson.get(pid) ?? 0;
@@ -211,7 +193,7 @@ function splitSharedObligation(
     const shares = splitEven(input.sharedObligationCents, Math.max(1, input.personIds.length));
     input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
   } else if (totalPositive <= 0) {
-    // Short-circuit the 0/0: nobody can contribute, so the whole obligation is a shortfall.
+    // 0/0 guard: nobody can contribute, so the whole obligation is a shortfall.
     for (const pid of input.personIds) shareByPerson.set(pid, 0);
   } else {
     // Cumulative rounding so the shares sum to the obligation exactly.
@@ -225,7 +207,6 @@ function splitSharedObligation(
     }
   }
 
-  // Leftover per person after covering their share; unmet share → shortfall.
   let shortfallCents: Cents = 0;
   const leftoverByPerson = new Map<string, Cents>();
   let totalDiscretionary: Cents = 0;
@@ -238,12 +219,10 @@ function splitSharedObligation(
     leftoverByPerson.set(pid, leftover);
     totalDiscretionary += leftover;
   }
-  // Unassigned obligation is unmet. Only the zero-income short-circuit leaves any; every
-  // other branch sums the shares to the obligation, making this term 0.
+  // Unassigned obligation is unmet. Only the zero-income branch leaves any; elsewhere the
+  // shares sum to the obligation and this term is 0.
   const assignedShare = [...shareByPerson.values()].reduce((s, v) => s + v, 0);
   shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
-  // Unfunded deductions are the household's to pay: the discretionary pool covers them
-  // first, so shared cash is spent before savings, credit, or insolvency are touched.
   const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
   totalDiscretionary -= coveredByDiscretionary;
   shortfallCents += unfundedDeductionsCents - coveredByDiscretionary;
@@ -254,16 +233,13 @@ function splitSharedObligation(
 /**
  * Steps 4–6 — the deadline-paced (sinking-fund) goal loop, then the surplus.
  *
- * Two jobs pulled apart: the **deadline sets the pace**, **priority is scarcity triage**.
- * Each dated goal is funded to its {@link requiredContributionCents} pace and no more, so
- * when every pace fits, all goals amortize concurrently and the order is a no-op; only
- * when the paces exceed the month's cash does priority decide who falls behind. (The old
- * strict fill-order let each priority-0 goal soak up every dollar until full.)
+ * The deadline sets the pace, priority is scarcity triage: each dated goal is funded to its
+ * {@link requiredContributionCents} pace and no more, so when every pace fits the order is a
+ * no-op and only scarcity makes priority decide who falls behind. (Strict fill-order let
+ * each priority-0 goal soak up every dollar until full.)
  *
  * Standing contributions fund between the two goal passes — after every dated pace, before
- * the `asap` fill, so a fill-order goal cannot starve a standing saving. `asap` goals then
- * fund fill-order from the remainder. The exact leftover lands in the surplus destination,
- * the balancing figure that conserves every discretionary cent.
+ * the `asap` fill — so a fill-order goal cannot starve a standing saving.
  *
  * Returns the contribution shortfall for the caller to fold into the household shortfall.
  */
@@ -281,9 +257,7 @@ function fundGoalsAndContributions(
   const personalRemaining = new Map<string, Cents>(leftoverByPerson);
   let goalDepositsTotal: Cents = 0;
 
-  // Fund `goal` up to `cap` — its pace, or full need for an asap goal — from the shared
-  // discretionary pool, or for a personal goal the owner's leftover further capped by that
-  // pool. Never overfunds past target-minus-balance.
+  // A personal goal draws the owner's leftover, still capped by the shared pool.
   const fundGoalUpTo = (goal: SimGoal, cap: Cents): void => {
     if (cap <= 0) return;
     const current = input.accountBalanceCents(goal.fundAccountId);
@@ -323,24 +297,23 @@ function fundGoalsAndContributions(
   }
 
   // A COMMITTED monthly outflow, not a sweep of what's left: the full $X always lands in
-  // the account, and the part the pool cannot cover is BORROWED via the cascade, so
-  // over-saving breaks the plan exactly as unaffordable spending does rather than silently
-  // shrinking. Conserving: the borrowed part is both deposited and subtracted back, leaving
-  // `deposits − shortfall` unchanged.
+  // the account and the part the pool cannot cover is BORROWED via the cascade, so
+  // over-saving breaks the plan exactly as unaffordable spending does. Conserving: the
+  // borrowed part is both deposited and subtracted back.
   //
   // Disclosed simplification `contributionsNotAssetFunded` (projection/assumptions.ts): that
-  // shortfall reaches savings/credit only. Unlike unaffordable SPENDING, which `simulate.ts`
-  // funds by selling investments before this runs, a contribution never liquidates other
-  // holdings — so it can flip the plan insolvent while investment balances remain.
+  // shortfall reaches savings/credit only. Unaffordable SPENDING is funded by selling
+  // investments in `simulate.ts` before this runs; a contribution never liquidates holdings,
+  // so it can flip the plan insolvent while investment balances remain.
   let contributionShortfall: Cents = 0;
   for (const c of input.contributions ?? []) {
     const wanted = Math.max(0, c.monthlyCents);
     if (wanted <= 0) continue;
-    addDeposit(deposits, c.accountId, wanted); // the whole contribution lands in the account
-    const funded = Math.min(wanted, sharedPoolRemaining); // paid from discretionary cash…
+    addDeposit(deposits, c.accountId, wanted);
+    const funded = Math.min(wanted, sharedPoolRemaining);
     goalDepositsTotal += funded;
     sharedPoolRemaining -= funded;
-    contributionShortfall += wanted - funded; // …the rest is borrowed (a shortfall)
+    contributionShortfall += wanted - funded;
   }
 
   // Pass 2 — asap goals have no deadline and so no pace: fill-order from the remainder.
@@ -361,10 +334,7 @@ function fundGoalsAndContributions(
   return contributionShortfall;
 }
 
-/**
- * Run one month through the phases named in the module doc. Pure at the boundary: the
- * shared `deposits` map is the only mutable state, threaded through the phases.
- */
+/** Run one month through the phases named in the module doc. */
 export function runWaterfall(input: WaterfallInput): WaterfallResult {
   const deposits = new Map<string, Cents>();
 
@@ -381,8 +351,6 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     input,
     takeHomeByPerson,
   );
-  // A committed contribution the pool can't cover is borrowed; its shortfall joins the
-  // obligation shortfall for the cascade.
   const contributionShortfall = fundGoalsAndContributions(
     input,
     leftoverByPerson,
@@ -390,8 +358,8 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deposits,
   );
 
-  // Tax charged must be fully attributed, or the cash-flow chart silently overstates
-  // take-home. Fail loudly on an incomplete jurisdiction rather than falling back.
+  // Tax charged must be fully attributed, or the cash-flow chart overstates take-home.
+  // Fail loudly on an incomplete jurisdiction rather than falling back.
   assertTaxAttributionReconciles(taxCents, taxBySourceCents);
 
   return {

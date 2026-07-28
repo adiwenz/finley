@@ -1,20 +1,17 @@
 /**
- * App-side 401(k) deferral-limit disclosure. The waterfall silently caps a pre-tax
- * deferral at the year's IRS elective limit and pays the overflow as taxable income (see
- * the engine's `applyDeferrals`); this surfaces that so the cap isn't invisible in the
- * editor.
+ * App-side 401(k) deferral-limit disclosure. The waterfall silently caps a pre-tax deferral
+ * at the year's IRS elective limit and pays the overflow as taxable income (the engine's
+ * `applyDeferrals`); this surfaces that so the cap isn't invisible in the editor.
  *
  * A per-year scan, not a current-year check: income grows with CPI while the limit indexes
  * at its own lower rate AND steps with the age-banded catch-ups (up at 50, higher at 60–63,
- * back down at 64). A plan under the cap today can cross later, or a catch-up can lift the
- * person back under; only walking each working year finds the first crossing.
+ * back down at 64), so only walking each working year finds the first crossing.
  *
  * And **per person** — the elective limit belongs to the earner, not the household: two
  * people each deferring $20k both sit inside a $24,500 limit, while one person deferring
- * $20k across two jobs is over it. So each member's jobs are summed against their own
- * age-indexed limit over their own working years, and the crossing names whose it is.
- * Summing the household would invent a crossing for a couple who has none; folding a
- * partner's jobs in at the primary earner's age would read the wrong catch-up band.
+ * $20k across two jobs is over it. Summing the household would invent a crossing for a
+ * couple who has none; folding a partner's jobs in at the primary earner's age would read
+ * the wrong catch-up band.
  */
 
 import { retirementDeferralLimitCents } from "@finley/rules";
@@ -52,10 +49,9 @@ function membershipYears(owner: JobOwner): { first: number; lastExclusive: numbe
 /**
  * The first working year in which **any** member's pre-tax 401(k) deferral would exceed
  * that year's elective limit, else null. Each earner is scanned over the years they are
- * both in the household and still working (age &lt; their retirement age), their deferral
- * summed across every job held that year and compared with the limit read at *their* age
- * from the `rules` seam. Earliest crossing wins; ties go to the earlier member in join
- * order.
+ * both in the household and still working (age &lt; their retirement age), against the
+ * limit read at *their* age from the `rules` seam. Earliest crossing wins; ties go to the
+ * earlier member in join order.
  *
  * Nominal, annual granularity — close to the sim's inflation-linked income and indexed
  * limit, not the exact month-by-month cap the engine applies.
@@ -68,9 +64,7 @@ export function firstDeferralLimitCrossing(
   let earliest: DeferralLimitCrossing | null = null;
 
   for (const owner of owners) {
-    // The limit is per PERSON, across every plan they defer into — sum ALL their jobs, not
-    // one privileged job. Each defers only in the years worked, at its own elected
-    // fraction, on its own growing salary.
+    // Every plan the person defers into, not one privileged job.
     const deferringJobs = owner.jobs.filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
     if (deferringJobs.length === 0) continue;
 
@@ -86,8 +80,8 @@ export function firstDeferralLimitCrossing(
       for (const j of deferringJobs) {
         const endYearExclusive = j.endYear ?? retirementYear;
         if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
-        // Nominal salary this year: today's-dollars salary grown by its real slope since
-        // the job's start, then CPI-indexed — the same seam the engine compiles.
+        // Today's-dollars salary grown by its real slope since the job's start, then
+        // CPI-indexed — the same seam the engine compiles.
         const realCents =
           j.salary.startingSalaryCents *
           Math.pow(1 + j.salary.realGrowthPct / 100, year - j.startYear);

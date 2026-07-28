@@ -1,7 +1,6 @@
 /**
- * The **Spending** rows of Base + Adjustments: every expense line at what it resolves to
- * at the selected month, the one question an edit asks ("just this month, or from here
- * forward?"), and the echo of where that edit was routed.
+ * The **Spending** rows of Base + Adjustments: every expense line at what it resolves to at
+ * the selected month, the how-long question, and the echo of where that edit was routed.
  *
  * Stateless: the staged edit belongs to the panel (moving the month drops it), and the
  * disclosed form is single-at-a-time across this list and the contributions list.
@@ -25,7 +24,6 @@ export interface PendingEdit {
   readonly newAmountCents: number;
 }
 
-/** Staging an amount, then answering how long it lasts — the edit gesture. */
 export interface SpendingEditActions {
   readonly onStage: (row: EditRow, label: string, priorCents: number, dollars: number) => void;
   readonly onCommit: (scope: EditScope) => void;
@@ -33,9 +31,8 @@ export interface SpendingEditActions {
 }
 
 /**
- * What a row's input shows: the staged value while an edit awaits its how-long answer, the
- * resolved amount otherwise — a field snapping back to the stored value on every keystroke
- * would be unusable.
+ * The staged value while an edit awaits its how-long answer, the resolved amount otherwise
+ * — a field snapping back to the stored value on every keystroke would be unusable.
  */
 function getInputCents(
   lineId: string,
@@ -47,8 +44,8 @@ function getInputCents(
 }
 
 /**
- * Where an edit landed, in one line. Uses the row's `label` because the route carries only
- * the line's authoring `id` ("dining"), not what the row says ("Dining & fun").
+ * Takes the row's `label` because the route carries only the line's authoring `id`
+ * ("dining"), not what the row says ("Dining & fun").
  */
 function describeRoute(route: MonthEditRoute, label: string): string {
   switch (route.kind) {
@@ -73,7 +70,6 @@ interface SpendingRowProps {
   readonly form: LineFormActions;
 }
 
-/** One expense line: its amount at this month, its row actions, and its edit form. */
 function SpendingRow({ row, line, pending, formOpen, edit, form }: SpendingRowProps) {
   const editRow: EditRow = { kind: "line", lineId: row.lineId };
   return (
@@ -122,7 +118,6 @@ export interface SpendingEditorProps {
   readonly lines: readonly BudgetLine[];
   readonly selectedMonth: number;
   readonly pending: PendingEdit | null;
-  /** The last routed edit, with the row label it was made on (the route only has the id). */
   readonly lastRoute: { readonly route: MonthEditRoute; readonly label: string } | null;
   readonly authoring: LineAuthoring | null;
   readonly edit: SpendingEditActions;

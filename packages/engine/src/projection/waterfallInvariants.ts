@@ -6,8 +6,8 @@ import type { TaxCategory } from "../cashFlowSeries";
  * aggregation. The jurisdiction's contract: Σ of its per-category breakdown equals its own
  * scalar `computeTaxCents` for the SAME taxable input. Asserting per person, not only on
  * the household total, catches OFFSETTING errors — one person over-attributed and another
- * under by the same amount reconciles at household level yet each is wrong. Exact to the
- * cent; a zero-tax person passes trivially with a `{}` breakdown.
+ * under by the same amount reconciles at household level. Exact to the cent; a zero-tax
+ * person passes trivially with a `{}` breakdown.
  */
 export function assertPersonTaxBreakdownReconciles(
   personId: string,
@@ -29,13 +29,13 @@ export function assertPersonTaxBreakdownReconciles(
  * per-source breakdown MUST reconcile to the scalar `taxCents`. This keeps the take-home
  * cash-flow chart honest, since it derives each source's net as `cashInflow − deferral −
  * attributed tax`; a partial `taxBySourceCents` would leave tax un-subtracted and overstate
- * take-home. Fail loudly on an incomplete jurisdiction rather than render a misleading chart.
+ * take-home, so fail loudly on an incomplete jurisdiction.
  *
  * EXACT to the cent, no tolerance. Everything is integer cents: `attributeTaxToSources`
  * splits each category with {@link apportionByWeight} (largest-remainder, Σ shares === the
  * category tax), and {@link assertPersonTaxBreakdownReconciles} has already pinned each
- * person's breakdown to their scalar. Any deviation is a bug, not benign rounding. A
- * jurisdiction charging no tax (`taxCents` 0) is exempt.
+ * person's breakdown to their scalar. A jurisdiction charging no tax (`taxCents` 0) is
+ * exempt.
  */
 export function assertTaxAttributionReconciles(
   taxCents: Cents,

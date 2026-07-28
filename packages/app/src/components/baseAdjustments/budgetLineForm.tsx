@@ -1,9 +1,7 @@
 /**
- * Add/edit form for a budget {@link import("@finley/engine").BudgetLine} — the disclosed
- * authoring surface the Base + Adjustments panel opens to create or rename a line. A line
- * is an **expense** (a cash outflow, tiered needs/wants/savings) or a **contribution** into
- * a named account (recurring saving/investment). Speaks the user's terms and folds them
- * into a {@link BudgetLineDraft} on submit. Mirrors `jobForm`/`goalForm`.
+ * Add/edit form for a budget {@link import("@finley/engine").BudgetLine}, opened by the
+ * Base + Adjustments panel. Speaks the user's terms and folds them into a
+ * {@link BudgetLineDraft} on submit. Mirrors `jobForm`/`goalForm`.
  */
 
 import { useState } from "react";
@@ -21,11 +19,8 @@ const EXPENSE_CATEGORIES: readonly { value: BudgetCategory; label: string }[] = 
 const defaultAccountId = (): string => contributionTargets[0]?.accountId ?? "brokerage";
 
 /**
- * The form's live state, a discriminated union on `kind` — the same shape as the draft it
- * submits. `label`/`dollars` are shared; the kind-specific field (an expense's tier vs. a
- * contribution's target account) lives ONLY on its own arm, so the in-progress form can
- * never represent an impossible combination. Switching kind rebuilds the arm, keeping the
- * shared fields.
+ * The form's live state, shaped like the draft it submits. The kind-specific field lives ONLY
+ * on its own arm, so an in-progress form can never represent an impossible combination.
  */
 type FormState =
   | { readonly kind: "expense"; readonly label: string; readonly dollars: number; readonly category: BudgetCategory }
@@ -55,8 +50,8 @@ export function BudgetLineForm({ initial, submitLabel, onSubmit, onCancel }: Bud
   const setAccountId = (accountId: string) =>
     setState((s) => (s.kind === "contribution" ? { ...s, accountId } : s));
 
-  // Not a flag flip — the union carries different fields per arm, so rebuild the arm with a
-  // valid default for its own field, preserving name and amount.
+  // Not a flag flip: rebuild the arm with a valid default for its own field, preserving the
+  // shared name and amount.
   function setKind(kind: "expense" | "contribution") {
     setState((s) =>
       s.kind === kind

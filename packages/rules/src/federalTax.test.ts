@@ -14,9 +14,7 @@ function sumCents(byCategory: Partial<Record<string, number>>): number {
   return Object.values(byCategory).reduce((s: number, v) => s + (v ?? 0), 0);
 }
 
-// Figures are annual cents unless a test says otherwise. The engine-wired seam
-// (`computeFederalTaxCents`) takes MONTHLY per-category amounts; the pure bracket math is
-// exercised through the annual entry point `federalAnnualTaxCents`.
+// Figures are annual cents unless a test says otherwise.
 
 describe("federalTaxTables — the pinned single-filer base year", () => {
   it("pins the 2026 base-year figures exactly (no indexing at/before base)", () => {
@@ -26,7 +24,6 @@ describe("federalTaxTables — the pinned single-filer base year", () => {
     expect(t.ordinaryBrackets[0]).toEqual({ lowerCents: 0, rate: 0.1 });
     expect(t.ordinaryBrackets[2]).toEqual({ lowerCents: 50_400_00, rate: 0.22 });
     expect(t.ordinaryBrackets[6]).toEqual({ lowerCents: 640_600_00, rate: 0.37 });
-    // Preferential long-term capital-gains bracket tops.
     expect(t.capitalGainsZeroTopCents).toBe(49_450_00);
     expect(t.capitalGainsFifteenTopCents).toBe(545_050_00);
   });
@@ -113,7 +110,6 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
   });
 
   it("counts tax-exempt income toward provisional income for the SS test", () => {
-    // Tax-exempt other income still pushes SS into the taxable range, untaxed itself.
     const withTaxExempt = federalAnnualTaxCents(
       { taxExempt: 30_000_00, governmentRetirementBenefit: 30_000_00 },
       2026,

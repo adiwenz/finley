@@ -6,7 +6,6 @@ import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
-/** This month's income sources for the waterfall — one per active income series. */
 export function buildIncomeSources(
   incomeSeries: readonly SimOwnedSeries[],
   month: number,
@@ -30,18 +29,15 @@ export function buildIncomeSources(
 }
 
 /**
- * Step 3/6: route this month's income through the allocation waterfall. Applies the
- * per-account deposits (pre-tax deferrals + match, goal funding, surplus destination)
- * to asset balances, then charges any uncovered obligation as a deficit on the first
- * liquid account so the cascade (next) drains liquid assets before reaching for credit.
+ * Step 3/6: route this month's income through the allocation waterfall, applying the
+ * per-account deposits to asset balances, then charge any uncovered obligation as a
+ * deficit on the first liquid account so the cascade (next) drains liquid assets before
+ * reaching for credit. Updates the per-person annual deferral accumulator so caps hold
+ * across the year, and returns the tax charged this month, already reflected in take-home.
  *
- * Returns the tax charged this month (already reflected in take-home) — this
- * chokepoint is the only place to observe it. The waterfall's pre-cascade shortfall is
- * deliberately NOT surfaced: it is a cash-flow gap, not a funding failure, since it is
- * posted against the liquid account for savings to absorb. Only the shortfall
- * surviving {@link applyShortfallCascade} means anything to a caller.
- *
- * Updates the per-person annual deferral accumulator so caps hold across the year.
+ * The waterfall's pre-cascade shortfall is NOT surfaced: it is a cash-flow gap, not a
+ * funding failure, since it is posted against the liquid account for savings to absorb.
+ * Only the shortfall surviving {@link applyShortfallCascade} means anything to a caller.
  */
 export function allocateMonth(
   state: SimState,
@@ -57,21 +53,16 @@ export function allocateMonth(
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
-  // The deferral cap is per person, not per household: the annual limit (with any
-  // age-banded catch-up) depends on the individual's age this year. Resolved lazily in
-  // the room callback so each person's birth year drives their own catch-up; no birth
-  // year → the base limit (age omitted).
+  // The deferral cap is per person, not per household: the limit (with any age-banded
+  // catch-up) depends on the individual's age this year. Resolved lazily in the room
+  // callback below; no birth year → the base limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
   // Sinking-fund pace is growth-aware: a goal leaning on its fund's return needs a
-  // smaller monthly contribution. Rate looked up by account id (unknown → 0, a flat
-  // even spread).
+  // smaller monthly contribution. Unknown account → rate 0, a flat even spread.
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
-  // Standing account contributions: resolve each line's amount for THIS month
-  // (literal / fill-to-limit / goal-paced) against its target account's live balance
-  // and rate, in waterfall priority order, so funding draws from discretionary in the
-  // order the tiers imply. Zero-amount lines (out of span, or goal-paced past their
-  // deadline) drop out.
+  // Resolved in waterfall priority order, so funding draws from discretionary in the
+  // order the tiers imply.
   const contributions = orderBudgetLines(state.contributionLines).flatMap((line) => {
     if (line.target.kind !== "account") return [];
     const accountId = line.target.accountId;
@@ -97,9 +88,8 @@ export function allocateMonth(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
-    // Per-category breakdown is required of every jurisdiction (a zero-tax one returns
-    // `{}`), so always wired; `runWaterfall` enforces that a tax-charging month
-    // reconciles per source.
+    // Required of every jurisdiction (a zero-tax one returns `{}`), so always wired;
+    // `runWaterfall` enforces that a tax-charging month reconciles per source.
     computeTaxByCategoryCents: (taxableByCategory) =>
       jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
     remainingDeferralRoomCents: (pid) => {

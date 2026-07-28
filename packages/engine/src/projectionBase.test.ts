@@ -1,8 +1,8 @@
 /**
  * Engine-native wiring tests for the plan→projection mapping. {@link samplePlan} and
  * {@link mockJurisdiction} keep them standalone — no rules package, each test enabling
- * exactly the seam it exercises. These pin the mapping itself; the app keeps the
- * real-jurisdiction acceptance tests under `usJurisdiction`.
+ * exactly the seam it exercises. The app keeps the real-jurisdiction acceptance tests
+ * under `usJurisdiction`.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -47,7 +47,6 @@ function endingNetWorthCents(plan: Plan, jurisdiction = nullJurisdiction): numbe
   return known[known.length - 1];
 }
 
-/** Nominal net worth at a given age under a jurisdiction. */
 function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction): number {
   const series = project(plan, jurisdiction);
   return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
@@ -62,16 +61,14 @@ describe("createProjectionBase — retirement + government benefit wired into th
   });
 
   it("stops employment income at the retirement age — working longer ends richer", () => {
-    // Later retirement = more earning years + fewer drawdown years, so a strictly
-    // healthier terminal balance.
     const early = endingNetWorthCents({ ...samplePlan, retirementAge: 55 });
     const late = endingNetWorthCents({ ...samplePlan, retirementAge: 70 });
     expect(late).toBeGreaterThan(early);
   });
 
   it("pays a government retirement benefit from the claiming age — it appears in the series", () => {
-    // A jurisdiction modelling a flat monthly benefit (the null one does not); it shows
-    // up as `governmentRetirementBenefit` income from the claiming age (67).
+    // The null jurisdiction models no benefit; this one pays a flat monthly amount from
+    // the claiming age (67).
     const benefitJurisdiction = mockJurisdiction({
       governmentBenefitBaseMonthlyCents: () => dollarsToCents(2_500),
     });
@@ -80,7 +77,6 @@ describe("createProjectionBase — retirement + government benefit wired into th
       (m) => (m.flows?.incomeByCategoryCents["governmentRetirementBenefit"] ?? 0) > 0,
     );
     expect(paysBenefit).toBe(true);
-    // And it lifts late net worth versus the same plan with no benefit program.
     const withBenefit = netWorthAtAge(samplePlan, 80, benefitJurisdiction);
     const noBenefit = netWorthAtAge(samplePlan, 80, nullJurisdiction);
     expect(withBenefit).toBeGreaterThan(noBenefit);
@@ -96,8 +92,8 @@ describe("createProjectionBase — earned income before current age comes from t
   });
   const priorYears = (startAge: number) => {
     const base = createProjectionBase(planFromStartAge(startAge), ctx());
-    // initialPersons holds authoring Persons; derive the pre-"now" record from their
-    // jobs, exactly as the sim boundary does.
+    // Derive the pre-"now" record from the authoring Persons' jobs exactly as the sim
+    // boundary does.
     const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
     return Object.keys(prior)
       .map(Number)
@@ -111,17 +107,14 @@ describe("createProjectionBase — earned income before current age comes from t
     const from30 = priorYears(30);
     expect(from18).toHaveLength(40 - 18);
     expect(from30).toHaveLength(40 - 30);
-    // A later start seeds fewer years and pushes the earliest one later.
     expect(from30[0]).toBeGreaterThan(from18[0]);
-    // Both records still run up to the year before "now".
     expect(from18.at(-1)).toBe(START_YEAR - 1);
     expect(from30.at(-1)).toBe(START_YEAR - 1);
   });
 
   it("lowers the priced government benefit when the job started later (fewer covered years)", () => {
     // The US AIME divides a fixed 35-year window, so fewer pre-"now" years leaves more
-    // $0 slots and drags the benefit down. Pricing straight off the covered record
-    // surfaces the difference in late net worth.
+    // $0 slots and drags the benefit down.
     const priced = mockJurisdiction({
       governmentBenefitBaseMonthlyCents: (claim) => {
         const total = [...claim.record.annualWagesCents.values()].reduce((a, b) => a + b, 0);
@@ -138,13 +131,13 @@ describe("createProjectionBase — retirement decumulation liquidates instead of
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall
     // is met by SELLING assets (re-entering as capitalGains at the chokepoint), so the
-    // unlimited synthetic card stays flat at 0 the whole horizon.
+    // synthetic card stays flat at 0 the whole horizon.
     const series = project({ ...samplePlan, retirementAge: 63 }, mockJurisdiction());
     for (const m of series.months) {
       expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
     }
-    // Decumulation fires: some month liquidates a taxable investment, surfacing as
-    // capitalGains income (the plan has no other capitalGains source).
+    // The plan has no other capitalGains source, so any such income means a taxable
+    // investment was liquidated.
     const liquidated = series.months.some(
       (m) => (m.flows?.incomeByCategoryCents["capitalGains"] ?? 0) > 0,
     );
@@ -158,15 +151,13 @@ describe("createProjectionBase — income reported by source + savings drawdown"
     const working = series.months[12]!.flows!;
     const job = working.incomeSources.find((s) => s.category === "wages");
     expect(job).toBeDefined();
-    // A specific job's id, not the bare tax bucket.
     expect(job!.sourceId.startsWith("job:")).toBe(true);
-    // The rollup is retained and agrees with the source figure.
     expect(working.incomeByCategoryCents["wages"]).toBe(job!.cashInflowCents);
   });
 
   it("shows a retirement-gap month funded by savings as a drawdown source, not zero income", () => {
     // Retires at 60, no benefit modelled → months 240..323 earn nothing, yet savings pay
-    // every bill. It must read as a drawdown band, not $0.
+    // every bill.
     const series = project(samplePlan, mockJurisdiction());
     const gap = series.months.slice((60 - 40) * 12, (67 - 40) * 12);
     const drawdownMonth = gap.find((m) =>
@@ -181,7 +172,7 @@ describe("createProjectionBase — income reported by source + savings drawdown"
 
   it("names a goal-fund decumulation draw by the goal, not an anonymous capitalGains bucket", () => {
     // Once savings are spent, the retained 'Emergency fund' goal is the capital-gains
-    // asset the retiree liquidates. Per-source reporting names it; the tax bucket does not.
+    // asset the retiree liquidates.
     const series = project(samplePlan, mockJurisdiction());
     const named = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some((s) => s.label === "Emergency fund"),
@@ -206,12 +197,10 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
 });
 
 describe("createProjectionBase — a goal declares its account type", () => {
-  /** The `emergency` goal's derived fund account under a given account type. */
   function goalFund(plan: Plan) {
     return createProjectionBase(plan, ctx()).initialAccounts!.find((a) => a.id === "goal-emergency")!;
   }
 
-  /** samplePlan with the emergency goal's account type set. */
   function withEmergencyType(accountType: GoalPlan["accountType"]): Plan {
     return {
       ...samplePlan,
@@ -220,8 +209,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
   }
 
   it("derives a cash goal's fund into the cash-interest profile and marks it liquid", () => {
-    // An emergency fund is cash, not an investment: withdrawal tax-free (interest taxed
-    // at accrual), and reachable — the one goal whose purpose is to be liquid.
+    // An emergency fund exists to be reachable, so its fund stays liquid.
     const fund = goalFund(withEmergencyType("cash"));
     expect(fund.taxProfile).toEqual(CASH_INTEREST_TAX_PROFILE);
     expect(fund.taxProfile.withdrawalCategory).toBe("taxExempt");
@@ -230,8 +218,8 @@ describe("createProjectionBase — a goal declares its account type", () => {
   });
 
   it("derives a brokerage goal's fund into the capital-gains profile, liquid", () => {
-    // A taxable brokerage is sellable on demand, so its fund is reachable in
-    // decumulation, unlike the age/penalty-locked retirement vehicles.
+    // A brokerage is sellable on demand, unlike the age/penalty-locked retirement
+    // vehicles.
     const fund = goalFund(withEmergencyType("brokerage"));
     expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
     expect(fund.liquid).toBe(true);
@@ -250,16 +238,12 @@ describe("createProjectionBase — a goal declares its account type", () => {
   });
 
   it("defaults an unauthored account type to a liquid capital-gains brokerage", () => {
-    // No declared type falls back to `"brokerage"`: a taxable capital-gains investment,
-    // liquid because a brokerage is sellable.
     const fund = goalFund(samplePlan);
     expect(fund.taxProfile).toEqual(CAPITAL_GAINS_TAX_PROFILE);
     expect(fund.liquid).toBe(true);
   });
 
   it("does not report a cash goal's drawdown as capital-gains investment income", () => {
-    // A capitalGains draw would count toward provisional income and pull the benefit
-    // into tax.
     const plan: Plan = {
       ...samplePlan,
       goals: [
@@ -281,7 +265,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
       ),
     );
     expect(anyCapitalGainsFromGoal).toBe(false);
-    // And it is drawn down at all — tax-free, under the goal's name.
+    // Not vacuous: it IS drawn down, tax-free, under the goal's name.
     const drawnByName = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some(
         (s) => s.label === "Emergency fund" && s.category === "taxExempt",
@@ -298,7 +282,6 @@ describe("createProjectionBase — horizon spans to life expectancy", () => {
     // months are [0 … (life − now)*12] inclusive → +1.
     expect(horizon(35, 90)).toBe((90 - 35) * 12 + 1);
     expect(horizon(25, 95)).toBe((95 - 25) * 12 + 1);
-    // Longer life, longer projection — not clamped at 30 years.
     expect(horizon(35, 95)).toBeGreaterThan(horizon(35, 65));
   });
 });
@@ -327,7 +310,7 @@ describe("createProjectionBase — health as its own additive, growing expense",
   it("steps health down at the jurisdiction's public-coverage age when enrolling", () => {
     // A near-coverage saver puts the step (65) inside the horizon with income running
     // through it (retirementAge past life expectancy), so the difference shows in net
-    // worth rather than being masked by the synthetic-card insolvency floor.
+    // worth instead of being masked by the synthetic-card insolvency floor.
     const nearCoverage: Plan = {
       ...samplePlan,
       currentAge: 55,
@@ -343,7 +326,7 @@ describe("createProjectionBase — health as its own additive, growing expense",
     const covered = mockJurisdiction({ publicHealthCoverageAge: 65 });
     const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, covered);
     const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, covered);
-    // Enrolling drops health at 65 → less spent after 65 → more left in savings.
+    // Enrolling drops health at 65 → less spent after it → more left in savings.
     expect(enrolled).toBeGreaterThan(selfFunded);
   });
 
@@ -400,9 +383,8 @@ describe("planAccountDescriptors — presentation metadata that agrees with buil
     const plan: Plan = { ...samplePlan };
     const descriptors = planAccountDescriptors(plan);
     const accounts = buildPlanAccounts(plan);
-    // Same ids, same order.
     expect(descriptors.map((d) => d.id)).toEqual(accounts.map((a) => a.id));
-    // Same labels, so a name can't drift between the sim account and its descriptor.
+    // So a name can't drift between the sim account and its descriptor.
     for (const d of descriptors) {
       expect(d.label).toBe(accounts.find((a) => a.id === d.id)?.label);
     }

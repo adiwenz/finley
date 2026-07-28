@@ -3,8 +3,7 @@
  *
  * Two constraints govern a home purchase: a HARD BLOCK on down-payment coverage (in the event
  * handler, against liquid funds) and this SOFT WARNING on ongoing affordability. DTI never
- * blocks — it flags, and the app pairs the flag with the projected consequence. Pure ratio
- * functions, so the thresholds live in exactly one place.
+ * blocks — it flags, and the app pairs the flag with the projected consequence.
  */
 
 import type { Cents } from "./money";
@@ -29,8 +28,7 @@ export interface DtiAssessment {
 /**
  * Classify monthly housing and total-debt cost against the DTI guidelines; all figures monthly
  * cents. `monthlyTotalDebtCents` is housing plus every other recurring debt payment (auto,
- * student, card minimums). With zero gross income the ratios are 0 and nothing is flagged — a
- * soft warning must not fire on a divide-by-zero.
+ * student, card minimums).
  */
 export function assessDti(
   monthlyGrossCents: Cents,

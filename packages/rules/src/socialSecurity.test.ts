@@ -29,8 +29,8 @@ const claimAtFRA = (record: EarningsRecord, year: number): GovernmentBenefitClai
 describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
     // Age-60 indexing year is 2019 (claimYear 2026, currentAge 67 ⇒ 2026−67+60). All 35
-    // earnings years fall on/after 2019, so every EARNINGS index factor is 1.0; the bend
-    // points, based in 2026, scale DOWN to 2019:
+    // earnings years fall on/after 2019, so every earnings index factor is 1.0; the bend
+    // points, based in 2026, scale down to 2019:
     //   AIME  = 35 × $184,500 / 420 = $15,375.00
     //   scale = 1.035^(2019−2026) = 1.035^-7 = 0.785991
     //   bend1 = $1,286 × 0.785991 → whole $ = $1,011.00
@@ -72,7 +72,7 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   });
 
   it("eligibility gate: fewer than 40 credits (< 10 full-credit years) → 0", () => {
-    // Credits come from ANNUAL covered totals (max 4/yr); the fully-insured gate is 40. Nine
+    // Credits come from annual covered totals (max 4/yr); the fully-insured gate is 40. Nine
     // strong years earn 9 × 4 = 36 — under the gate — so the base benefit is 0 even though
     // the AIME would be positive.
     const record = levelRecord(2015, 9, 50_000_00);
@@ -173,10 +173,10 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62", () => {
   });
 
   it("parity: the single COLA factor matches the old bridge+forward split to ≤1¢", () => {
-    // Guardrail for collapsing two COLA steps into one. The old path grew the benefit in TWO
-    // rounded steps — age-62→claim eligibility bridge, then post-claim forward COLA — where
-    // the seam applies ONE factor from age 62. Algebraically identical, differing only in an
-    // intermediate rounding, so drift > 1¢ is a real regression; do not accept it blindly.
+    // The old path grew the benefit in two rounded steps — age-62→claim eligibility bridge,
+    // then post-claim forward COLA — where the seam applies one factor from age 62.
+    // Algebraically identical, differing only in an intermediate rounding, so drift > 1¢ is a
+    // real regression.
     const record = levelRecord(2019, 35, 85_000_00);
     const colaRate = 0.028;
     let maxDrift = 0;

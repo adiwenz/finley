@@ -3,9 +3,8 @@
  * Run every loop iteration during autonomous implementation: they catch wrong financial
  * math, which fails SILENTLY (plausible-but-wrong numbers) rather than crashing.
  *
- * The CashFlowSeries tests and the known-value anchors are implemented and pass. Invariants
- * for not-yet-built components (Account, Simulator, Goals, Recommendations) are `todo(...)`
- * targets: fill in the body when that build step lands, keeping the assertion.
+ * Invariants for not-yet-built components are `todo(...)` targets: fill in the body when
+ * that build step lands, keeping the assertion.
  *
  * DO NOT let the implementing loop rewrite the known-value anchors. They assert against
  * external truth (published amortization, closed-form compounding) and are the backstop
@@ -20,9 +19,7 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// Thin adapters onto Vitest so the invariant bodies below stay verbatim: `test(...)`
-// registers a real case (a thrown assertion fails it), `todo(...)` records a
-// not-yet-implementable invariant as a pending target for a later build step.
+// Thin adapters onto Vitest so the invariant bodies below stay verbatim.
 // DO NOT delete these or change the anchor numbers.
 const test = (name: string, fn: () => void) => it(name, fn);
 const todo = (name: string) => it.todo(name);
@@ -34,7 +31,6 @@ test("all monetary state is integer cents (CashFlowSeries)", () => {
     type: "salaryCompound",
     annualRate: 0.037,
   });
-  // sample 5 years of months; every value must be an integer number of cents
   for (let m = 0; m <= 60; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
 });
 
@@ -51,7 +47,6 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
     annualRate: 0.05,
   });
   s.addOverride(18, dollarsToCents(6500), "fromHereForward"); // typed monthly
-  // the 12 months of the year following the override must sum to a whole-cent annual total
   const year = s.getRangeCents(18, 29).reduce((a, b) => a + b, 0);
   assert.ok(Number.isInteger(year));
   for (let m = 18; m <= 29; m++) assert.ok(Number.isInteger(s.getMonthlyCents(m)));
@@ -76,8 +71,8 @@ test("CashFlowSeries is query-order independent (cache determinism)", () => {
     });
   const a = mk();
   const b = mk();
-  for (let m = 0; m <= 60; m++) a.getMonthlyCents(m); // sequential
-  const late = b.getMonthlyCents(60); // jump straight to late month
+  for (let m = 0; m <= 60; m++) a.getMonthlyCents(m);
+  const late = b.getMonthlyCents(60); // jump straight to the late month
   assert.strictEqual(late, a.getMonthlyCents(60));
 });
 
@@ -102,7 +97,7 @@ test("independent series do not couple: a salary edit never changes a rent serie
     annualRate: 0.025,
   });
   const rentBefore = rent.getMonthlyCents(30);
-  salary.addOverride(12, dollarsToCents(3000), "fromHereForward"); // pay cut
+  salary.addOverride(12, dollarsToCents(3000), "fromHereForward");
   assert.strictEqual(rent.getMonthlyCents(30), rentBefore, "rent must not react to salary changes");
 });
 
@@ -133,9 +128,8 @@ todo("backdated in-flight state uses entered current values: 3y-old mortgage use
 console.log("\n6. Goals & retirement");
 todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
-// Solve mode and target mode both read one survival signal off the real projection; their
-// agreement at a pinned age is covered app-side in retirementView.test.ts, where the
-// projection they share actually lives.
+// Agreement at a pinned age is covered app-side in retirementView.test.ts, where the
+// projection the two modes share actually lives.
 todo("solve mode and target mode agree at the same pinned age off the shared projection");
 todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross");
 todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account");
@@ -164,11 +158,9 @@ test("real-dollar conversion is a pure function of nominal/inflation/horizon", (
   const a = toReal(dollarsToCents(100000), 0.03, 10);
   const b = toReal(dollarsToCents(100000), 0.03, 10);
   assert.strictEqual(a, b, "same inputs must give same output");
-  // sanity: real < nominal when inflation positive
   assert.ok(a < dollarsToCents(100000));
 });
 
-// 9. KNOWN-VALUE ANCHORS — PIN THESE BY HAND, do not let the loop rewrite them
 console.log("\n9. Known-value anchors (external truth)");
 
 test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {

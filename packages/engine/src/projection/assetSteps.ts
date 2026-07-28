@@ -37,13 +37,11 @@ export function compoundAssets(
     const bal = state.assetBalances.get(acc.id) ?? 0;
     const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
     state.assetBalances.set(acc.id, grown);
-    // Interest accrual: the engine owns compounding and bookkeeping; the JURISDICTION owns
-    // whether this account's return is taxed at accrual and under which category
-    // (`returnTaxTreatment`). Only accounts declaring a neutral `returnKind` are
-    // considered, and the jurisdiction may still defer. The credited growth is recorded
-    // with the jurisdiction's category and taxed by next month's waterfall — this step
-    // runs after that seam, so it can only be taxed one month on. Every considered account
-    // is refreshed each month, cleared when deferred, so no figure goes stale.
+    // The engine owns compounding and bookkeeping; the JURISDICTION owns whether this
+    // account's return is taxed at accrual and under which category. The credited growth is
+    // taxed by next month's waterfall — this step runs after that seam, so it can only be
+    // taxed one month on. Refreshed every month, cleared when deferred, so no figure goes
+    // stale.
     if (acc.taxProfile.returnKind !== undefined) {
       const treatment = jurisdiction.returnTaxTreatment?.(acc.taxProfile.returnKind, ctx);
       if (treatment?.taxAtAccrual) {
@@ -59,17 +57,15 @@ export function compoundAssets(
 }
 
 /**
- * Advance every property's value one month. Not yet purchased → 0; at the purchase month
- * it opens at `openingValueCents` with no appreciation (mirroring an account opening or
- * loan origination); after a sale (`endMonth`) → 0, no longer in net worth; otherwise it
- * appreciates once at `preciseMonthlyRate(appreciationAnnualRate)`. Runs after the
- * liability step so a same-month sale (future) settles consistently.
+ * The purchase month opens at `openingValueCents` with no appreciation, mirroring an account
+ * opening or loan origination; a sold property (past `endMonth`) drops to 0 and leaves net
+ * worth. Runs after the liability step so a same-month sale (future) settles consistently.
  */
 export function advanceProperties(state: SimState, month: number): void {
   for (const p of state.properties) {
-    if (month < p.startMonth) continue; // not purchased yet — stays at 0
+    if (month < p.startMonth) continue;
     if (p.endMonth !== null && month > p.endMonth) {
-      state.propertyValues.set(p.id, 0); // sold — value gone
+      state.propertyValues.set(p.id, 0);
       continue;
     }
     if (month === p.startMonth) {

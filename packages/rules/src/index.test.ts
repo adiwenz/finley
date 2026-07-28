@@ -15,9 +15,8 @@ describe("usJurisdiction (US-2026)", () => {
   });
 
   it("exposes its federal-tax simplifications through the modelAssumptions seam", () => {
-    // The indexing / frozen-SS-threshold disclosures ride the jurisdiction, so the report
-    // surfaces them without the engine holding a US fact. Stable ids let a consumer key
-    // and style each.
+    // The disclosures ride the jurisdiction, so the report surfaces them without the
+    // engine holding a US fact. Stable ids let a consumer key and style each.
     const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
     expect(ids).toContain("taxThresholdForwardIndexing");
     expect(ids).toContain("socialSecurityThresholdsUnindexed");

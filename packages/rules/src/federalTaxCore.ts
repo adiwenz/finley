@@ -16,8 +16,8 @@ import {
  * {@link federalTaxParts} intermediate that BOTH the scalar seam
  * ({@link import("./federalTax").federalAnnualTaxCents}) and the per-category attribution
  * ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents}) read. Depends
- * only on the legislated tables and imports neither sibling, so the two seams share one
- * source of truth without depending on each other.
+ * only on the legislated tables and imports neither sibling, so both seams share one
+ * source of truth.
  */
 
 /**
@@ -49,8 +49,7 @@ export function taxableSocialSecurityCents(
     );
   }
 
-  // Above the second threshold: 85% of the excess over $34,000, plus the smaller of
-  // the tier-1 fill (½ of the $9,000 gap → $4,500) or 50% of the benefit.
+  // Tier-1 fill: ½ of the $9,000 gap → $4,500, or 50% of the benefit if smaller.
   const tierGapFill = Math.min(
     benefit * SS_TIER_1_SHARE,
     (SS_TIER_2_THRESHOLD_CENTS - SS_TIER_1_THRESHOLD_CENTS) * SS_TIER_1_SHARE,
@@ -90,8 +89,7 @@ function capitalGainsTaxCents(
   if (gains === 0) return 0;
   const top = ordinary + gains;
 
-  // Gains below the 0% top pay nothing, the 15% band runs to its top, the rest is 20%.
-  // Each band is the slice of [ordinary, top] inside it.
+  // Each band is the slice of [ordinary, top] inside it; below the 0% top pays nothing.
   const zeroBand = Math.max(0, Math.min(top, zeroTopCents) - ordinary);
   const fifteenBand = Math.max(0, Math.min(top, fifteenTopCents) - Math.max(ordinary, zeroTopCents));
   const twentyBand = gains - zeroBand - fifteenBand;
@@ -101,9 +99,9 @@ function capitalGainsTaxCents(
 /**
  * The two rate-regime pieces of a single-filer annual tax plus the per-category weights the
  * attribution ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents})
- * splits each across. ONE internal so the scalar seam and the by-category attribution can
- * never drift: the scalar is exactly `round(ordinaryTaxCents + gainsTaxCents)` and the
- * attribution reuses these same figures, so the split provably sums back to it.
+ * splits each across. ONE internal so the two seams cannot drift: the scalar is exactly
+ * `round(ordinaryTaxCents + gainsTaxCents)`, and the attribution reuses these same figures,
+ * so the split provably sums back to it.
  */
 export interface FederalTaxParts {
   /** Progressive ordinary tax on wages + other ordinary income + the included benefit slice (float). */
@@ -114,9 +112,7 @@ export interface FederalTaxParts {
   readonly totalCents: Cents;
   /**
    * Each ordinary category's contribution to ordinary taxable income BEFORE the standard
-   * deduction (which reduces every contributor's share proportionally). Weights how
-   * {@link ordinaryTaxCents} divides among wages, ordinaryIncome, and the benefit's
-   * taxable portion.
+   * deduction, which reduces every contributor's share proportionally.
    */
   readonly ordinaryWeights: {
     readonly wages: number;
@@ -126,9 +122,8 @@ export interface FederalTaxParts {
 }
 
 /**
- * Runs the pieces once — benefit inclusion → ordinary brackets (after the standard
- * deduction) → capital-gains preference — returning the two rate-regime figures, their
- * rounded sum, and the ordinary-taxable weights.
+ * Runs the pieces once: benefit inclusion → ordinary brackets (after the standard
+ * deduction) → capital-gains preference.
  */
 export function federalTaxParts(
   annualByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -170,12 +165,12 @@ export function federalTaxParts(
     gainsTaxCents: gainsTax,
     totalCents: Math.round(ordinaryTax + gainsTax),
     // Only the included benefit slice enters the ordinary base, so it — not the gross
-    // benefit — is the attribution weight.
+    // benefit — is the weight.
     ordinaryWeights: { wages, ordinaryIncome: ordinaryOther, governmentRetirementBenefit: taxableBenefit },
   };
 }
 
-/** Annualize a monthly per-category slice (×12) — the input the annual math expects. */
+/** Annualize a monthly per-category slice (×12). */
 export function annualizeByCategory(
   monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
 ): Partial<Record<TaxCategory, Cents>> {

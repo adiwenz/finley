@@ -5,15 +5,12 @@ import { dollarsToCents, type LiabilityKind } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, type FormProps } from "./formControls";
 
-/** Opening term for an amortizing loan (years) — the value the user edits from. */
 const DEFAULT_TERM_YEARS = 5;
 
 /**
- * The form's live state, a discriminated union on `kind` mirroring the engine's `LoanEvent`.
- * A term (in years) applies to every amortizing loan; a credit card is revolving and carries
- * a credit limit instead, so its arm has NO term. The union keeps the in-progress form from
- * ever holding a field its kind lacks (a credit card with a term, an auto loan with a limit)
- * — the same illegal-state guard the submitted event has.
+ * The form's live state, mirroring the engine's `LoanEvent`. A credit card is revolving and
+ * carries a credit limit instead of a term, so its arm has NO term — the union gives the
+ * in-progress form the same illegal-state guard the submitted event has.
  */
 type LoanCommon = { readonly month: number; readonly amount: number; readonly apr: number };
 type LoanDraft =
@@ -29,17 +26,16 @@ export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormPro
     termYears: DEFAULT_TERM_YEARS,
   }));
 
-  // The last term entered, remembered across a credit-card toggle: switching to a card drops
-  // the term arm, and switching back restores THIS value rather than the default. Kept out of
-  // the draft — UX memory, not domain state — so the active arm's `termYears` stays the single
-  // truth. (Mirrors `jobForm`'s open-ended `endAge` ref.)
+  // Switching to a credit card drops the term arm; switching back restores the last term
+  // entered rather than the default. UX memory, not domain state, so it stays out of the draft
+  // and the active arm's `termYears` remains the single truth. (Mirrors `jobForm`'s `endAge`.)
   const lastTermYears = useRef(DEFAULT_TERM_YEARS);
 
   // Shared fields live on every arm, so a spread patch preserves whichever arm is active.
   const patch = (fields: Partial<LoanCommon>) => setDraft((d) => ({ ...d, ...fields }));
 
-  // The arms carry different fields, so switching kind rebuilds the arm with a valid value
-  // for its own field, preserving the shared amount/apr/month.
+  // Switching kind rebuilds the arm with a valid value for its own field, preserving the
+  // shared amount/apr/month.
   function setKind(kind: LiabilityKind) {
     setDraft((d) => {
       if (d.kind === kind) return d;
@@ -56,8 +52,6 @@ export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormPro
   };
 
   function submit() {
-    // LoanEvent is discriminated on `kind`, so each arm carries only its own field — no
-    // `undefined` placeholder for the other's.
     const common = {
       id: `e${nextId}`,
       type: "LoanEvent",

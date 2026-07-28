@@ -1,8 +1,6 @@
 /**
- * The engine's primary input: the standing figures (income, expenses, per-account
- * returns, health-care lines, ages) describing a household's steady state, as opposed
- * to timeline events. `createProjectionBase` maps a `Plan` plus a `ProjectionContext`
- * into the ledger base the simulator runs.
+ * A household's standing figures, as opposed to timeline events. `createProjectionBase`
+ * maps a `Plan` plus a `ProjectionContext` into the ledger base the simulator runs.
  */
 
 import type { GoalDisposal } from "./goal";
@@ -18,35 +16,25 @@ export interface ValueOverride {
 }
 
 /**
- * The kind of account a goal's fund is held in — the thing a person actually knows
- * ("my emergency fund is in savings"). Source of truth for the fund account's
- * {@link import("./simAccount").SimAccountTaxProfile} and liquidity, rather than
- * hard-coding every goal to a capital-gains investment. Covers all four standing
- * vehicles:
- *  - `"cash"`      — cash/savings buffer: tax-free withdrawal (interest taxed at
- *                    accrual), liquid — a reserve exists to be reachable;
- *  - `"brokerage"` — taxable investment: post-tax in, capital-gains out, liquid
- *                    (sellable on demand);
- *  - `"taxExempt"` — Roth-like: post-tax in, tax-free out, growth untaxed, illiquid
- *                    (age/penalty rules);
- *  - `"preTax"`    — tax-deferred: pre-tax in, ordinary-income out, illiquid.
+ * A goal fund account's {@link import("./simAccount").SimAccountTaxProfile} and liquidity:
+ *  - `"cash"`      — tax-free withdrawal (interest taxed at accrual), liquid;
+ *  - `"brokerage"` — post-tax in, capital-gains out, liquid;
+ *  - `"taxExempt"` — post-tax in, tax-free out, growth untaxed, illiquid (age/penalty);
+ *  - `"preTax"`    — pre-tax in, ordinary-income out, illiquid.
  */
 export type GoalAccountType = "cash" | "brokerage" | "taxExempt" | "preTax";
 
 /**
- * Where each month's leftover cash — the residual after every goal and standing
- * contribution is funded — lands. `"savings"` (default) idles it in the liquid Cash
- * account earning {@link Plan.savingsReturnPct}; `"brokerage"` sweeps it into the
- * taxable brokerage earning {@link Plan.brokerageReturnPct}. Plan-authoring shape of
- * the engine's {@link import("./projection/waterfall").SurplusDestination}
- * (`idle` / `swept`); `createProjectionBase` maps the two, keeping the concrete
- * account id inside the engine.
+ * Where the residual after every goal and standing contribution is funded lands.
+ * `"savings"` (default) idles it in Cash at {@link Plan.savingsReturnPct}; `"brokerage"`
+ * sweeps it into the taxable brokerage at {@link Plan.brokerageReturnPct}. Maps to
+ * {@link import("./projection/waterfall").SurplusDestination} (`idle` / `swept`), keeping
+ * account ids inside the engine.
  */
 export type SurplusCashDestination = "savings" | "brokerage";
 
 /**
- * A funding goal. Priority is the goal's position in {@link Plan.goals}
- * (index 0 = funded first), so reordering the array IS reprioritizing. Each goal
+ * Priority is the goal's index in {@link Plan.goals} (0 = funded first). Each goal
  * accumulates into its own derived fund account (`goal-<id>`).
  */
 interface GoalPlanBase {
@@ -54,29 +42,23 @@ interface GoalPlanBase {
   readonly name: string;
   readonly targetCents: number;
   /**
-   * Annual return on this goal's fund account, whole-number percent. Drives projected
-   * growth and the short-horizon-risk flag (near-term goal in a market-risk account).
+   * Whole-number percent. Also drives the short-horizon-risk flag (near-term goal in a
+   * market-risk account).
    */
   readonly annualReturnPct: number;
-  /**
-   * The {@link GoalAccountType} the fund is held in; tax profile and liquidity derive
-   * from it. Optional — an undeclared type defaults to `"brokerage"` (capital-gains,
-   * liquid).
-   */
+  /** Defaults to `"brokerage"`. */
   readonly accountType?: GoalAccountType;
 }
 
 /**
- * A funding goal. The `disposition`/`targetDate` pairing is the engine's
- * {@link GoalDisposal}; both dispositions are purely descriptive, so either accepts a
- * concrete month or `"asap"`. Sharing the type keeps plan and sim goal from drifting.
+ * Both dispositions are purely descriptive, so either accepts a concrete month or
+ * `"asap"`.
  */
 export type GoalPlan = GoalPlanBase & GoalDisposal;
 
 /**
- * The household's steady-state numbers, no timeline events. One object so identity
- * changes only when a value does, letting consumers memoize the projection base on
- * `[plan]`. Immutable — replace it, never mutate in place.
+ * Immutable — replace it, never mutate in place. Identity changes only when a value does,
+ * so consumers can memoize the projection base on `[plan]`.
  */
 export interface Plan {
   readonly name: string;
@@ -84,90 +66,73 @@ export interface Plan {
   readonly expenseOverrides: readonly ValueOverride[];
   readonly openingBalanceCents: number;
   /**
-   * Per-account annual returns, whole-number percents — so a brokerage can out-earn
-   * idle savings. Goal fund accounts carry their own rate on {@link GoalPlan}.
+   * Per-account annual returns, whole-number percents. Goal fund accounts carry their own
+   * rate on {@link GoalPlan}.
    */
   readonly savingsReturnPct: number;
   readonly retirementReturnPct: number;
   readonly brokerageReturnPct: number;
-  /** How shared obligations are split between partners. */
   readonly sharedScheme: SharedContributionScheme;
-  /**
-   * Where the month's leftover cash lands. Optional — defaults to `"savings"` (idle in
-   * the liquid account), so no existing `Plan` literal needs editing. `"brokerage"`
-   * sweeps the surplus into the taxable brokerage to earn the brokerage return.
-   */
+  /** Defaults to `"savings"`. */
   readonly surplusCashTo?: SurplusCashDestination;
-  /** Funding goals in priority order (array index = priority). */
   readonly goals: readonly GoalPlan[];
   /**
-   * Monthly pre-public-coverage health expense, cents — the self-funded figure paid
-   * until public coverage begins (and for life when
-   * {@link enrollsInPublicHealthCoverage} is false). Separate from and ADDITIVE to
-   * {@link expenseCents} (non-health spend); a real expense in both projections,
-   * growing at {@link healthInflationPct}. The early-retiree honesty check compares
-   * it against the pre-coverage self-funded benchmark — understating it while retiring
-   * early trips a nudge.
+   * Monthly self-funded health expense paid until public coverage begins (and for life
+   * when {@link enrollsInPublicHealthCoverage} is false), cents. ADDITIVE to
+   * {@link expenseCents}, not a slice of it; grows at {@link healthInflationPct}.
+   * Understating it while retiring early trips the early-retiree honesty nudge.
    */
   readonly healthMonthlyCents: number;
   /**
-   * Monthly health expense from the public-coverage age onward — the residual
-   * (premiums/out-of-pocket) after coverage begins. Today's dollars, grown at
+   * Monthly health expense from the public-coverage age onward, today's dollars, grown at
    * {@link healthInflationPct}. 0 models forgoing coverage. Used only when
    * {@link enrollsInPublicHealthCoverage}.
    */
   readonly postCoverageHealthMonthlyCents: number;
   /**
    * True → health steps from {@link healthMonthlyCents} down to
-   * {@link postCoverageHealthMonthlyCents} at the coverage age. False → the
-   * self-funded line runs for life with no step.
+   * {@link postCoverageHealthMonthlyCents} at the coverage age; false → the self-funded
+   * line runs for life.
    */
   readonly enrollsInPublicHealthCoverage: boolean;
   /**
-   * Annual growth of the health lines, whole-number percent. The nominal projection
-   * compounds the health series by it; the real-dollars retirement drawdown compounds
-   * health net of {@link inflationPct}, so health rises in real terms only insofar as
-   * it outpaces general inflation.
+   * Annual growth of the health lines, whole-number percent. The real-dollars retirement
+   * drawdown compounds health net of {@link inflationPct}.
    */
   readonly healthInflationPct: number;
   /**
-   * General inflation (CPI), whole-number percent. Income and general expenses grow at
-   * it each year in the nominal projection (holding constant in real terms), and every
-   * nominal figure is de-inflated by it for the real net-worth line and the retirement
-   * drawdown.
+   * General inflation (CPI), whole-number percent. Grows income and general expenses in
+   * the nominal projection, and de-inflates every nominal figure for the real net-worth
+   * line and the retirement drawdown.
    */
   readonly inflationPct: number;
   /** Age at "now" — the base the retirement solver counts years from. */
   readonly currentAge: number;
   /** The pinned/desired retirement age; target mode reports on-track % against it. */
   readonly retirementAge: number;
-  /** Age the portfolio must last to — the retirement survival horizon. */
+  /** Age the portfolio must last to. */
   readonly lifeExpectancy: number;
   /** Pinned government-benefit claiming age — an input to the check, never searched. */
   readonly benefitClaimingAge: number;
   /**
    * Cost-of-living rate for the government retirement benefit, as a DECIMAL rate
-   * (e.g. `0.02`). Unset COUPLES the benefit COLA to general inflation
-   * ({@link inflationPct}); setting it DECOUPLES the two — a benefit indexing below or
-   * above general CPI.
+   * (e.g. `0.02`), unlike the whole-percent fields above. Unset couples the benefit COLA
+   * to {@link inflationPct}.
    */
   readonly benefitColaRate?: number;
   /**
    * Source of truth for earned income. `createProjectionBase` compiles these into the
    * base income series: the primary member's open-ended jobs end at
    * {@link retirementAge}, fixed-term jobs carry their own end. Covered SS earnings,
-   * including the pre-"now" record, derive from job spans and salaries — so when a
-   * person started working is the earliest job's `startYear`, not a separate field.
+   * including the pre-"now" record, derive from job spans and salaries — when a person
+   * started working is the earliest job's `startYear`, not a separate field.
    */
   readonly jobs: readonly Job[];
   /**
-   * Prioritized dollar line items — expenses and account contributions — each with a
-   * `{ literal, fill-to-limit, goal-paced }` amount source and optional spans + dated
-   * overrides. When present and non-empty, `createProjectionBase` compiles the
-   * *expense* lines into the base expense series in place of the scalar
-   * {@link expenseCents}; contribution lines resolve via
-   * {@link import("./budgetLine").resolveBudget}. Optional — engine-native fixtures may
-   * still author spending through the scalar {@link expenseCents} series.
+   * Prioritized expense and account-contribution line items. When present and non-empty,
+   * the *expense* lines replace the scalar {@link expenseCents} series in
+   * `createProjectionBase`; contribution lines resolve via
+   * {@link import("./budgetLine").resolveBudget}.
    */
   readonly budgetLines?: readonly BudgetLine[];
 }

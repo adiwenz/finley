@@ -1,30 +1,24 @@
 /**
  * Net-worth *breakdown* data — companion to the total-only {@link
- * import("./netWorthChart").NetWorthChart}. Splits the same nominal net worth into parts
- * over time: one band per account (cash savings, brokerage, retirement, each goal fund by
- * name), plus property values and the debts owed against them.
- *
- * The chart's three views are all cuts of this one dataset:
- *  - **accounts** — asset accounts only, the "savings accounts over time" view;
- *  - **assets**   — accounts + property values (still all added up);
+ * import("./netWorthChart").NetWorthChart}. One band per account, plus property values and
+ * the debts owed against them. The chart's three views are all cuts of this one dataset:
+ *  - **accounts** — asset accounts only;
+ *  - **assets**   — accounts + property values;
  *  - **networth** — assets stacked up, liabilities stacked *down*, so the stack's signed
  *    total equals the nominal net worth the other chart draws.
  *
  * A band's KIND comes from which series map its id sits in (`accountBalancesCents` /
  * `propertyValuesCents` / `liabilityBalancesCents`), so this is never told what an id is —
- * only how to NAME and ORDER it. Names/order arrive as plain metadata
- * ({@link BreakdownMeta}) assembled by the caller, so this module depends on neither the
- * `SimAccount` class nor any engine construction path — pure and unit-testable in node.
- * Balances stay raw magnitudes (a liability is its positive owed amount); the chart signs
- * liabilities negative for the net-worth view.
+ * only how to NAME and ORDER it. Names and order arrive as plain metadata
+ * ({@link BreakdownMeta}), so this module depends on neither the `SimAccount` class nor any
+ * engine construction path.
  */
 
 import type { ProjectionSeries } from "@finley/engine";
 
-/** Which side of the balance sheet a band sits on — drives colour, order, and sign. */
+/** Drives colour, stacking order, and sign. */
 export type BreakdownBandKind = "account" | "property" | "liability";
 
-/** Id + display label for one named entity (an account, property, or liability). */
 export interface BandMeta {
   readonly id: string;
   readonly label: string;
@@ -41,7 +35,6 @@ export interface BreakdownMeta {
   readonly propertyLabels?: Readonly<Record<string, string>>;
 }
 
-/** One stacked band: a component of net worth, how to name it, and its kind. */
 export interface BreakdownBand {
   /** The engine's stable id — an account id, a property id, or a liability id. */
   readonly id: string;
@@ -49,7 +42,6 @@ export interface BreakdownBand {
   readonly kind: BreakdownBandKind;
 }
 
-/** One month's row: every band's value in cents, keyed by band id. */
 export interface BreakdownMonthRow {
   readonly month: number;
   /**
@@ -64,8 +56,7 @@ export interface NetWorthBreakdownData {
   readonly rows: readonly BreakdownMonthRow[];
   /**
    * Every band non-zero at some month, ordered accounts (in the meta's order) →
-   * properties → liabilities. Always-zero bands are dropped so no dead legend entry
-   * appears, as the tax chart drops always-zero sources.
+   * properties → liabilities. Always-zero bands are dropped so no dead legend entry appears.
    */
   readonly bands: readonly BreakdownBand[];
   /** True when any property value is ever present — gates the "assets" view/button. */
@@ -76,8 +67,8 @@ export interface NetWorthBreakdownData {
   readonly terminalNetWorthCents: number | null;
   /**
    * Highest nominal net worth over the charted period; null if no rows. A better headline
-   * than the terminal value for a plan that accumulates then decumulates through
-   * retirement, whose last self-funded month can be near zero.
+   * than the terminal value for a plan that decumulates through retirement, whose last
+   * self-funded month can be near zero.
    */
   readonly peakNetWorthCents: number | null;
 }
@@ -92,7 +83,6 @@ function humanizeId(id: string): string {
   return head.charAt(0).toUpperCase() + head.slice(1);
 }
 
-/** Signed nominal net worth of a row: assets add, liabilities subtract. */
 function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): number {
   let total = 0;
   for (const band of bands) {
@@ -103,14 +93,13 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
 }
 
 /**
- * Build the breakdown from a projection series and naming metadata. Account vs. property
- * vs. liability, and presence at all, are read from the series' three balance maps — so an
- * account the plan defines but never funds is dropped, not drawn as a flat-zero band.
+ * Account vs. property vs. liability, and presence at all, are read from the series' three
+ * balance maps — so an account the plan defines but never funds is dropped, not drawn as a
+ * flat-zero band.
  *
- * Rows stop at the first insolvent month, as the total net-worth chart does. Every
- * liability is charted below zero as debt — including the engine's synthetic last-resort
- * borrowing once the caller labels it — so a plan living on borrowed money shows the debt
- * piling up rather than truncating where it starts.
+ * Rows stop at the first insolvent month, as the total net-worth chart does. Every liability
+ * charts below zero as debt — including the engine's synthetic last-resort borrowing once the
+ * caller labels it — so a plan living on borrowed money shows the debt piling up.
  */
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
@@ -127,7 +116,7 @@ export function buildNetWorthBreakdown(
   const nonZero = new Set<string>();
 
   for (const m of series.months) {
-    if (m.isInsolvent) break; // curves end at insolvency, as the total net-worth chart does
+    if (m.isInsolvent) break;
 
     const centsById: Record<string, number> = {};
     const collect = (source: Readonly<Record<string, number>>, into: Set<string>) => {
@@ -157,8 +146,6 @@ export function buildNetWorthBreakdown(
   const propertyBands: BreakdownBand[] = [...propertyIds]
     .filter((id) => nonZero.has(id))
     .map((id) => ({ id, label: meta.propertyLabels?.[id] ?? humanizeId(id), kind: "property" }));
-  // Every liability, labelled from the meta or humanized — a missing label affects only
-  // the name, never whether it charts.
   const liabilityBands: BreakdownBand[] = [...liabilityIds]
     .filter((id) => nonZero.has(id))
     .map((id) => ({ id, label: meta.liabilityLabels?.[id] ?? humanizeId(id), kind: "liability" }));

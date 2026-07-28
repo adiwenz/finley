@@ -109,7 +109,6 @@ describe("buildIncomeChartData", () => {
       ),
     );
     expect(data.firstSavingsDrawdownMonth).toBe(2);
-    // A month with a drawdown band is NOT a no-income month.
     expect(data.firstMonthWithNoIncome).toBeNull();
   });
 
@@ -174,8 +173,7 @@ describe("incomeBandsForMode", () => {
     );
 
   it("advanced keeps every source as its own band — real income at the base, drawdowns above", () => {
-    // Wages, then the benefit (both genuine income), then the living-off-savings family
-    // (asset draw, then cash drawdown) above — the same order Simple reads.
+    // The same order Simple reads: wages, the benefit, then the living-off-savings family.
     const { sources } = incomeBandsForMode(withEverySource(), "advanced");
     expect(sources.map((s) => s.label)).toEqual([
       "Income · Engineer",
@@ -197,9 +195,8 @@ describe("incomeBandsForMode", () => {
   });
 
   it("keeps savings interest its own band in both views — not folded into living off savings", () => {
-    // Savings interest is income the savings EARN (engine-tagged `savingsInterest`), so it
-    // stacks as its own band above the drawdowns rather than reading as spending savings
-    // down — and the app never parses the id to decide that.
+    // Savings interest is income the savings EARN (engine-tagged `savingsInterest`), not
+    // savings being spent down — and the app never parses the id to decide that.
     const data = buildIncomeChartData(
       seriesOf([
         source("job:a", dollarsToCents(5_000), "wages", "Job A"),
@@ -208,24 +205,19 @@ describe("incomeBandsForMode", () => {
         source("savings-drawdown", dollarsToCents(1_000), "savingsDrawdown", "Savings drawdown"),
       ]),
     );
-    // Advanced: every source distinct, interest sitting above wages and below the draws.
     expect(incomeBandsForMode(data, "advanced").sources.map((s) => s.label)).toEqual([
       "Job A",
       "Savings interest",
       "Brokerage draw",
       "Savings drawdown",
     ]);
-    // Simple: interest keeps its own band; the two draws still collapse into one.
     const simple = incomeBandsForMode(data, "simple");
     expect(simple.sources.map((s) => s.label)).toEqual(["Job A", "Savings interest", "Living off savings"]);
-    // Its cash rides through under the dedicated band, NOT the living-off-savings band.
     expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
     expect(simple.rows[0]!.centsBySource["living-off-savings"]).toBe(dollarsToCents(2_500));
   });
 
   it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
-    // Two cash accounts (or owners) each book `savingsInterest`; Simple folds them into one
-    // band, as it does for Social Security.
     const data = buildIncomeChartData(
       seriesOf([
         source("interest:p1:ordinaryIncome", dollarsToCents(30), "savingsInterest", "Savings interest"),
@@ -238,10 +230,9 @@ describe("incomeBandsForMode", () => {
   });
 
   it("breaks savings interest out per account in Advanced — 'Savings interest: <account>'", () => {
-    // The engine reports one interest band per cash account, labelled by the account's own
-    // name; Advanced qualifies each with the kind of income, so two accounts read as
-    // distinct self-explaining bands. A merged single line hid a drained buffer that
-    // looked like it was still earning its neighbour's interest.
+    // The engine reports one interest band per cash account; Advanced qualifies each with
+    // the kind of income. A merged single line hid a drained buffer that looked like it
+    // was still earning its neighbour's interest.
     const data = buildIncomeChartData(
       seriesOf([
         source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings"),
@@ -253,10 +244,9 @@ describe("incomeBandsForMode", () => {
       "Savings interest: Cash savings",
       "Savings interest: Emergency fund",
     ]);
-    // The per-account cash rides through under each account's own band id.
     expect(advanced.rows[0]!.centsBySource["interest:savings"]).toBe(dollarsToCents(30));
     expect(advanced.rows[0]!.centsBySource["interest:goal-emergency"]).toBe(dollarsToCents(20));
-    // A single cash account needs no disambiguation — it stays the plain "Savings interest".
+    // A single cash account needs no disambiguation.
     const one = buildIncomeChartData(
       seriesOf([source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings")]),
     );
@@ -288,7 +278,6 @@ describe("incomeBandsForMode", () => {
       "Social Security · Alex",
       "Social Security · Sam",
     ]);
-    // Each person's benefit keeps its own cash rather than being summed into one band.
     expect(rows[0]!.centsBySource["social-security:p1"]).toBe(dollarsToCents(2_000));
     expect(rows[0]!.centsBySource["social-security:p-1"]).toBe(dollarsToCents(1_400));
   });
@@ -303,7 +292,6 @@ describe("incomeBandsForMode", () => {
   });
 
   it("leaves a lone claimant's band unnamed — nothing to tell apart", () => {
-    // A single-earner plan reads exactly as before, with no redundant "· Alex".
     const { sources } = incomeBandsForMode(withEverySource(), "simple", "gross", names);
     expect(sources.map((s) => s.label)).toContain("Social Security");
   });
@@ -312,10 +300,8 @@ describe("incomeBandsForMode", () => {
     const { rows } = incomeBandsForMode(withEverySource(), "simple");
     // Brokerage draw ($1,500) + savings drawdown ($1,000) collapse onto one band's cash.
     expect(rows[0]!.centsBySource["living-off-savings"]).toBe(dollarsToCents(2_500));
-    // Wages stay split by job.
     expect(rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000));
     expect(rows[0]!.centsBySource["job:b"]).toBe(dollarsToCents(2_000));
-    // The spending-need line rides through untouched.
     expect(rows[0]!.spendingNeedCents).toBe(0);
   });
 });
@@ -323,9 +309,8 @@ describe("incomeBandsForMode", () => {
 describe("incomeBandsForMode — take-home vs gross basis", () => {
   /**
    * A month whose one source carries a cash inflow and the engine's already-netted
-   * take-home ({@link ProjectionIncomeSource.netCashFlowCents}). The app reads that net
-   * straight through; gross − tax − deferral lives in the engine's `buildFlows` and is
-   * covered there.
+   * take-home. The app reads that net straight through; gross − tax − deferral lives in
+   * the engine's `buildFlows` and is covered there.
    */
   function seriesWithNet(cashInflow: number, net: number): ProjectionSeries {
     const months = [
@@ -345,11 +330,9 @@ describe("incomeBandsForMode — take-home vs gross basis", () => {
   it("take-home (the default) draws the engine's per-source net cash flow", () => {
     // Engine net = 5000 gross − 800 tax − 1000 deferral = 3200; the app displays it as-is.
     const data = buildIncomeChartData(seriesWithNet(dollarsToCents(5_000), dollarsToCents(3_200)));
-    // The row keeps both bases: cash inflow retained, take-home is the engine's net.
     expect(data.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(5_000)); // cash inflow retained
     expect(data.rows[0]!.netCentsBySource["job:a"]).toBe(dollarsToCents(3_200));
     expect(data.rows[0]!.takeHomeCents).toBe(dollarsToCents(3_200));
-    // The default basis the chart draws is take-home.
     const takeHome = incomeBandsForMode(data, "advanced");
     expect(takeHome.rows[0]!.centsBySource["job:a"]).toBe(dollarsToCents(3_200));
   });
@@ -368,10 +351,8 @@ describe("incomeBandsForMode — take-home vs gross basis", () => {
   });
 
   it("draws the Social Security band's take-home from the engine's net when SS IS taxed", () => {
-    // Guards the `benefit:<person>` band end-to-end: the engine nets the benefit's tax off
-    // and the app draws that net (6000 inflow → 5100 take-home). In the default plan SS is
-    // below the taxable threshold (net == inflow), so this proves a taxed benefit is
-    // handled rather than silently dropped.
+    // 6000 inflow → 5100 take-home. In the default plan SS is below the taxable threshold
+    // (net == inflow), so only this case proves a taxed benefit is handled.
     const months = [
       { month: 0 },
       {
