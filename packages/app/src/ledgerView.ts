@@ -1,23 +1,15 @@
 /**
- * Ledger presentation for the life-event timeline. Pure
- * functions over the engine's event ledger — no React, no I/O — so they are
- * unit-testable in isolation.
- *
- * The household cross-section itself ("what is active at month M") is the
- * engine's job — see `snapshotAt` in @finley/engine. This module only turns
- * ledger data into plain language:
- *  - {@link timelineMarkers}: the ledger as plain-language markers on the
- *    shared time axis. Each event maps to exactly one label.
- *  - {@link seriesLabel}: the engine's machine-readable series role → the
- *    label shown in the snapshot panel.
- *  - {@link splitMarkers}: markers partitioned into passed/upcoming relative
- *    to the scrubbed month (peripheral hints).
+ * Ledger presentation for the life-event timeline. Pure functions over the engine's event
+ * ledger — no React, no I/O — so they unit-test in isolation. The household cross-section
+ * ("what is active at month M") is the engine's job; see `snapshotAt` in @finley/engine.
+ * This only turns ledger data into plain language:
+ *  - {@link timelineMarkers}: markers on the shared time axis, one label per event;
+ *  - {@link seriesLabel}: the engine's machine-readable series role → snapshot-panel text;
+ *  - {@link splitMarkers}: markers partitioned passed/upcoming around the scrubbed month.
  */
 
 import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
-
-// Plain-language event summaries (one label = one change)
 
 export interface EventSummary {
   /** Friendly label. Exactly one per structural change. */
@@ -75,8 +67,6 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
   }
 }
 
-// Series labels (engine role → snapshot-panel text)
-
 export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): string {
   switch (s.role) {
     case "primaryIncome":
@@ -92,8 +82,6 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
       return s.seriesType === "income" ? "Income" : "Expense";
   }
 }
-
-// Timeline markers
 
 export interface TimelineMarker extends EventSummary {
   readonly id: string;
@@ -114,8 +102,8 @@ export function timelineMarkers(ledger: Ledger): TimelineMarker[] {
 }
 
 /**
- * Markers partitioned around the scrubbed month, end-of-month convention:
- * an event at month M has already happened when viewing month M.
+ * Markers partitioned around the scrubbed month. End-of-month convention: an event at
+ * month M has already happened when viewing month M.
  */
 export function splitMarkers(
   ledger: Ledger,

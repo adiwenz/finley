@@ -11,22 +11,20 @@ import {
 } from "./federalTaxTables";
 
 /**
- * The neutral core of the single-filer federal tax computation: the shared low-level
- * rate math (government-benefit inclusion, ordinary brackets, capital-gains preference)
- * and the {@link federalTaxParts} intermediate that BOTH the scalar seam
+ * Neutral core of the single-filer federal tax computation: the shared rate math
+ * (government-benefit inclusion, ordinary brackets, capital-gains preference) and the
+ * {@link federalTaxParts} intermediate that BOTH the scalar seam
  * ({@link import("./federalTax").federalAnnualTaxCents}) and the per-category attribution
- * ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents}) read. This
- * module depends only on the legislated tables and imports neither sibling seam, so the
- * two seams share one source of truth without depending on each other.
+ * ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents}) read. Depends
+ * only on the legislated tables and imports neither sibling, so the two seams share one
+ * source of truth without depending on each other.
  */
 
 /**
- * The taxable portion of a US government retirement benefit (Social Security) for a
- * SINGLE filer, from the provisional-income formula. `benefitCents` is the annual
- * benefit; `otherProvisionalIncomeCents` is everything else that counts toward
- * provisional income (ordinary income + capital gains + tax-exempt income), NOT
- * including the benefit itself. Half the benefit is added here to form provisional
- * income, then:
+ * Taxable portion of a US government retirement benefit (Social Security) for a SINGLE filer,
+ * from the provisional-income formula. `otherProvisionalIncomeCents` is everything else
+ * counting toward provisional income (ordinary + capital gains + tax-exempt), NOT the benefit
+ * itself; half the benefit is added here to form provisional income, then:
  *
  *   • below $25,000  → 0 taxable
  *   • $25,000–$34,000 → min(50% of benefit, 50% of the excess over $25,000)
@@ -76,10 +74,10 @@ function ordinaryTaxCents(taxableCents: Cents, brackets: readonly OrdinaryBracke
 }
 
 /**
- * Preferential long-term capital-gains tax on `gainsTaxableCents`, STACKED on top
- * of `ordinaryTaxableCents`: the gains fill the 0/15/20% bands that remain ABOVE
- * ordinary taxable income, so a high ordinary income pushes gains into the 15/20%
- * bands even when the gains alone would sit in the 0% band.
+ * Preferential long-term capital-gains tax on `gainsTaxableCents`, STACKED on top of
+ * `ordinaryTaxableCents`: gains fill the 0/15/20% bands remaining ABOVE ordinary taxable
+ * income, so a high ordinary income pushes gains into 15/20% even when the gains alone
+ * would sit in the 0% band.
  */
 function capitalGainsTaxCents(
   ordinaryTaxableCents: Cents,
@@ -92,8 +90,8 @@ function capitalGainsTaxCents(
   if (gains === 0) return 0;
   const top = ordinary + gains;
 
-  // Gains sitting below the 0% top pay nothing; the 15% band runs to its top; the
-  // rest is 20%. Each band is the slice of [ordinary, top] inside that band.
+  // Gains below the 0% top pay nothing, the 15% band runs to its top, the rest is 20%.
+  // Each band is the slice of [ordinary, top] inside it.
   const zeroBand = Math.max(0, Math.min(top, zeroTopCents) - ordinary);
   const fifteenBand = Math.max(0, Math.min(top, fifteenTopCents) - Math.max(ordinary, zeroTopCents));
   const twentyBand = gains - zeroBand - fifteenBand;
@@ -101,12 +99,11 @@ function capitalGainsTaxCents(
 }
 
 /**
- * The two rate-regime pieces of a single-filer annual tax computation plus the
- * per-category weights the attribution ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents})
- * splits each piece across. Kept as ONE internal so {@link import("./federalTax").federalAnnualTaxCents}
- * (scalar) and the by-category attribution can never drift: the scalar is exactly
- * `round(ordinaryTaxCents + gainsTaxCents)` and the attribution reuses the same
- * intermediate figures, so the split provably sums back to the scalar.
+ * The two rate-regime pieces of a single-filer annual tax plus the per-category weights the
+ * attribution ({@link import("./federalTaxAttribution").federalAnnualTaxByCategoryCents})
+ * splits each across. ONE internal so the scalar seam and the by-category attribution can
+ * never drift: the scalar is exactly `round(ordinaryTaxCents + gainsTaxCents)` and the
+ * attribution reuses these same figures, so the split provably sums back to it.
  */
 export interface FederalTaxParts {
   /** Progressive ordinary tax on wages + other ordinary income + the included benefit slice (float). */
@@ -116,10 +113,10 @@ export interface FederalTaxParts {
   /** Rounded scalar total — identical to what {@link import("./federalTax").federalAnnualTaxCents} returns. */
   readonly totalCents: Cents;
   /**
-   * The ordinary-taxable weight each ordinary category contributed, BEFORE the
-   * standard deduction (which reduces every contributor's share proportionally):
-   * `wages`, `ordinaryIncome`, and the taxable portion of the government benefit.
-   * These weight how {@link ordinaryTaxCents} is divided among the three.
+   * Each ordinary category's contribution to ordinary taxable income BEFORE the standard
+   * deduction (which reduces every contributor's share proportionally). Weights how
+   * {@link ordinaryTaxCents} divides among wages, ordinaryIncome, and the benefit's
+   * taxable portion.
    */
   readonly ordinaryWeights: {
     readonly wages: number;
@@ -129,10 +126,9 @@ export interface FederalTaxParts {
 }
 
 /**
- * The shared core both the scalar seam and the per-category attribution read. Runs
- * the four pieces once — government-benefit inclusion → ordinary brackets (after the
- * standard deduction) → capital-gains preference — and returns the two rate-regime
- * tax figures, their rounded sum, and the ordinary-taxable weights.
+ * Runs the pieces once — benefit inclusion → ordinary brackets (after the standard
+ * deduction) → capital-gains preference — returning the two rate-regime figures, their
+ * rounded sum, and the ordinary-taxable weights.
  */
 export function federalTaxParts(
   annualByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -147,9 +143,9 @@ export function federalTaxParts(
 
   const ordinaryNonBenefit = wages + ordinaryOther;
 
-  // 1. Government-benefit inclusion. Provisional income is all other income that
-  //    reaches AGI (ordinary + capital gains) plus tax-exempt interest — the last
-  //    is never taxed itself but still counts toward the benefit test.
+  // 1. Government-benefit inclusion. Provisional income is all other income reaching AGI
+  //    (ordinary + capital gains) plus tax-exempt interest — never taxed itself, but it
+  //    still counts toward the benefit test.
   const taxableBenefit = taxableSocialSecurityCents(benefit, ordinaryNonBenefit + gains + taxExempt);
 
   // 2. Standard deduction: off ordinary income first, remainder off capital gains.
@@ -173,8 +169,8 @@ export function federalTaxParts(
     ordinaryTaxCents: ordinaryTax,
     gainsTaxCents: gainsTax,
     totalCents: Math.round(ordinaryTax + gainsTax),
-    // The included benefit slice — not the whole benefit — is what actually enters
-    // the ordinary base, so it (not the gross benefit) is the attribution weight.
+    // Only the included benefit slice enters the ordinary base, so it — not the gross
+    // benefit — is the attribution weight.
     ordinaryWeights: { wages, ordinaryIncome: ordinaryOther, governmentRetirementBenefit: taxableBenefit },
   };
 }

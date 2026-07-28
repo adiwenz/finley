@@ -1,16 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * Add-event sub-forms — the family of per-event authoring forms
- * now hold their fields in a single draft object (the standard form-state pattern), rather
- * than a `useState` per field. These pin the behaviour that the consolidation must keep:
- * the gates that reveal a field track their driving value, and the submitted event is
- * unchanged.
+ * Add-event sub-forms hold their fields in a single draft object rather than a `useState` per
+ * field. These pin what the consolidation must keep: field-revealing gates track their driving
+ * value, and the submitted event is unchanged.
  *
- * The loan form is the notable one: its `kind` gates the term field, so the draft is a
- * discriminated union on `kind` (mirroring the engine's `LoanEvent`). Because a credit
- * card drops the term arm entirely, the last-entered term is remembered across a toggle —
- * the same "restore my value" affordance `jobForm`'s open-ended `endAge` has.
+ * The loan form is the notable one: `kind` gates the term field, so the draft is a
+ * discriminated union on `kind` (mirroring the engine's `LoanEvent`). A credit card drops the
+ * term arm entirely, so the last-entered term is remembered across a toggle — the same
+ * "restore my value" affordance as `jobForm`'s open-ended `endAge`.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -21,8 +19,8 @@ import { ChildForm } from "./childForm";
 
 afterEach(cleanup);
 
-/** A minimal household with you plus a partner present from month 0 — enough for the
- *  separation form's `membersAt` read (it only touches `memberships[].person.{id,name}`). */
+/** You plus a partner from month 0 — all the separation form's `membersAt` read needs
+ *  (it touches only `memberships[].person.{id,name}`). */
 const withPartner = {
   memberships: [
     { person: { id: "p1", name: "You" }, startMonth: 0, endMonth: null },
@@ -50,7 +48,7 @@ describe("LoanForm — kind gates the term", () => {
     });
     expect(screen.queryByRole("spinbutton", { name: /Term/i })).toBeNull();
 
-    // Back to an amortizing loan: the field returns with the user's 7, not the default 5.
+    // Back to amortizing: the field returns with the user's 7, not the default 5.
     fireEvent.change(screen.getByRole("combobox", { name: /Type/i }), {
       target: { value: "auto" },
     });
@@ -93,7 +91,7 @@ describe("SeparationForm — alimony amount gates its duration", () => {
       />,
     );
 
-    // No alimony amount yet → no duration field (there's nothing to time).
+    // No alimony amount yet → nothing to time, so no duration field.
     expect(screen.queryByRole("spinbutton", { name: /Alimony years/i })).toBeNull();
 
     fireEvent.change(spin(/Alimony \/ mo/i), { target: { value: "500" } });

@@ -1,7 +1,7 @@
 /**
- * Direct-manipulation budget editing. Pins the routing table: the
- * (row, scope) gesture has exactly one home per fact, and the income "just this month"
- * case is a *delta* ledger transaction rather than a standing change.
+ * Direct-manipulation budget editing. Pins the routing table: each (row, scope) gesture has
+ * exactly one home, and income "just this month" is a *delta* ledger transaction rather than
+ * a standing change.
  */
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, type BudgetLine } from "@finley/engine";
@@ -128,8 +128,8 @@ describe("resolveRowsAtMonth", () => {
   });
 
   it("shows each row in the selected month's dollars, grown with inflation", () => {
-    // The editor sits under the graph and must agree with it: a $600 line authored
-    // today really does cost more in ten years, and the row has to say so.
+    // The editor sits under the graph and must agree with it: a $600 line authored today
+    // does cost more in ten years, and the row has to say so.
     const [, food] = resolveRowsAtMonth(lines, 120, CPI.annualInflationRate);
     expectCents(food?.monthlyCents, Math.round(dollarsToCents(600) * Math.pow(1.03, 10)));
     expect(resolveRowsAtMonth(lines, 0, CPI.annualInflationRate)[1]?.monthlyCents).toBe(
@@ -139,8 +139,8 @@ describe("resolveRowsAtMonth", () => {
 });
 
 describe("routeMonthEdit — what you type is what the month costs", () => {
-  // The round-trip that makes the editor trustworthy: type a number while looking at a
-  // month, and the projection charges exactly that number at exactly that month.
+  // The round-trip that makes the editor trustworthy: type a number while looking at a month
+  // and the projection charges exactly that number at exactly that month.
   const roundTrip = (scope: "thisMonthOnly" | "fromHereForward", month: number): number => {
     const base = line("housing", dollarsToCents(1_600));
     const route = routeMonthEdit(
@@ -156,8 +156,8 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
   });
 
   it("charges the typed amount at the edited month for a from-here-forward change", () => {
-    // Stored verbatim as that month's dollars — the engine resets the growth clock to
-    // the override's month, so it does NOT jump to an inflated $3,000 on landing.
+    // Stored verbatim as that month's dollars — the engine resets the growth clock to the
+    // override's month, so it does NOT jump to an inflated $3,000 on landing.
     expectCents(roundTrip("fromHereForward", 360), dollarsToCents(3_000));
   });
 
@@ -193,10 +193,9 @@ describe("applyLineOverride", () => {
   });
 
   it("lets a 'from here forward' edit supersede every later override on that line", () => {
-    // "From here forward" means from here forward. Editing month 300 and then going
-    // back to edit month 100 leaves the line at the month-100 amount for the whole
-    // rest of the horizon — the more recent decision, made at the earlier point,
-    // outranks the one it reaches over. Intended, and pinned so it stays a decision.
+    // "From here forward" means from here forward: editing month 300 then going back to edit
+    // month 100 leaves the line at the month-100 amount for the rest of the horizon — the
+    // more recent decision outranks the one it reaches over. Pinned so it stays a decision.
     let lines: readonly BudgetLine[] = [line("housing", dollarsToCents(1_600))];
     lines = applyLineOverride(lines, "housing", {
       month: 300,

@@ -4,7 +4,7 @@ import { buildNetWorthBreakdown, type BreakdownMeta } from "./netWorthBreakdown"
 
 /**
  * A hand-built projection: one month per spec, only the balance maps moving. Mirrors the
- * engine's own minimal-series test helper so these pin exactly the breakdown logic (band
+ * engine's minimal-series test helper, so these pin the breakdown logic alone (band
  * selection, ordering, sign, insolvency truncation) with no simulator in the loop.
  */
 interface MonthSpec {
@@ -129,9 +129,9 @@ describe("buildNetWorthBreakdown", () => {
   });
 
   it("charts the synthetic last-resort card as a labelled debt, not a truncation point", () => {
-    // The synthetic card is the engine's borrow-of-last-resort; when the caller labels it, it
-    // charts below zero as debt like any liability, so a plan living on borrowed money shows
-    // that debt piling up rather than the chart stopping where it starts.
+    // The synthetic card is the engine's borrow-of-last-resort; labelled, it charts below
+    // zero like any liability, so a plan living on borrowed money shows the debt piling up
+    // rather than the chart stopping where it starts.
     const meta: BreakdownMeta = { ...META, liabilityLabels: { [SYNTHETIC_CARD_ID]: "Credit card" } };
     const data = buildNetWorthBreakdown(
       series([
@@ -150,8 +150,8 @@ describe("buildNetWorthBreakdown", () => {
   });
 
   it("renders an UNLABELLED real liability normally (a missing label never truncates)", () => {
-    // A real debt with no entry in liabilityLabels must still chart across all its months and
-    // band with a humanized fallback name — only the synthetic card ends the self-funded run.
+    // A real debt with no entry in liabilityLabels still charts across all its months, banded
+    // with a humanized fallback name — only the synthetic card ends the self-funded run.
     const data = buildNetWorthBreakdown(
       series([
         { accounts: { savings: 100 }, liabilities: { "mortgage-1": 800 } },
@@ -169,8 +169,8 @@ describe("buildNetWorthBreakdown", () => {
   });
 
   it("charts a real debt and the synthetic card together, truncating only at insolvency", () => {
-    // A named mortgage and the synthetic card both chart below zero; the run ends at the first
-    // insolvent month, not where the synthetic borrowing began.
+    // Both chart below zero; the run ends at the first insolvent month, not where the
+    // synthetic borrowing began.
     const meta: BreakdownMeta = {
       ...META,
       liabilityLabels: { "mortgage-1": "Mortgage", [SYNTHETIC_CARD_ID]: "Credit card" },

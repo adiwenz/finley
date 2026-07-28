@@ -17,11 +17,10 @@ import { SeparationForm } from "./separationForm";
 import styles from "./addEventForm.module.css";
 
 /**
- * The engine `LifeEvent` types this menu can author — a subset of the full
- * union (`DebtPayoffEvent` and `BudgetItemEndEvent` are handled elsewhere).
- * Derived from `LifeEvent` so the menu stays in lockstep with the engine:
- * renaming or removing an event type makes the matching entry below a compile
- * error rather than silent drift. Labels stay decoupled from these ids.
+ * The `LifeEvent` types this menu authors — a subset (`DebtPayoffEvent` and
+ * `BudgetItemEndEvent` are handled elsewhere). Derived from `LifeEvent` so renaming or
+ * removing a type is a compile error here rather than silent drift. Labels stay decoupled
+ * from these ids.
  */
 type EventKind = Extract<
   LifeEvent["type"],
@@ -55,9 +54,9 @@ export function AddEventForm({
   /** The live projection — the home-purchase form reads it for the DTI warning. */
   series: ProjectionSeries;
   /**
-   * The engine's funding questions against the ledger so far — which accounts could pay
-   * for a money-out event at a month, and what a chosen set nets after tax. The
-   * home-purchase form's source picker reads it, as a future spend form will too.
+   * The engine's funding questions against the ledger so far: which accounts could pay for
+   * a money-out event at a month, and what a chosen set nets after tax. Read by the
+   * home-purchase form's source picker.
    */
   funding: FundingLookup;
   defaultMonth: number;

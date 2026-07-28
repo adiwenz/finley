@@ -1,11 +1,10 @@
 /**
  * Interpret — the one place event meaning becomes household state.
  *
- * `interpretLedger` folds the ledger over the handler registry and returns an
- * immutable {@link Household}. Both projection and snapshot consume
- * *that* object, so they can never interpret the ledger differently. Base
- * (value-editing surface) series are folded in here too, so they appear in the
- * projection and the snapshot identically.
+ * `interpretLedger` folds the ledger over the handler registry into an immutable
+ * {@link Household}. Projection and snapshot both consume *that* object, so they can never
+ * interpret the ledger differently. Base (value-editing surface) series fold in here too, so
+ * they appear identically in both.
  */
 
 import type { Ledger } from "./ledger";
@@ -95,9 +94,9 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
 }
 
 /**
- * Plain-language name for an expense series a life event created — the label a base
- * series carries authored, and an event-created one has to be given. Its {@link
- * SeriesRole} is the only human fact it has.
+ * Plain-language name for an event-created expense series: a base series carries its label
+ * authored, an event-created one must be given one, and its {@link SeriesRole} is the only
+ * human fact available.
  */
 const ROLE_LABEL: Record<SeriesRole, string> = {
   base: "Expense",
@@ -113,14 +112,13 @@ function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index:
 }
 
 /**
- * A partner's own jobs compiled into forward income series, clipped to the
- * membership window (join → separation). The primary earner's jobs are already compiled
- * into `base.initialIncomeSeries`; a partner joins via a RelationshipEvent, so their
- * jobs live on the membership and are compiled here — into `household.series`, so the
- * projection AND the snapshot read the identical income (the single-interpreter
- * invariant). These series are derived from the membership, so removing the
- * RelationshipEvent drops the membership and the income with it — hence `causedByEventId:
- * null` (recomputed each interpretation), exactly like the base series.
+ * A partner's own jobs compiled into forward income series, clipped to the membership window
+ * (join → separation). The primary earner's jobs are already in `base.initialIncomeSeries`; a
+ * partner joins via a RelationshipEvent, so their jobs live on the membership and compile here
+ * into `household.series` — projection and snapshot then read identical income (the
+ * single-interpreter invariant). Derived from the membership, so removing the
+ * RelationshipEvent drops the income with it: hence `causedByEventId: null`, recomputed each
+ * interpretation like the base series.
  */
 function partnerJobSeries(
   membership: PersonMembership,
@@ -141,8 +139,8 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
   const series: HouseholdSeries[] = [
     ...(base.initialIncomeSeries ?? []).map((os, i) => baseSeries(os, "income", i)),
     ...(base.initialExpenseSeries ?? []).map((os, i) => baseSeries(os, "expense", i)),
-    // Event-added members only (the base primary joins at `-Infinity` and is already
-    // compiled into `base.initialIncomeSeries`), so a partner's jobs never double-count.
+    // Event-added members only — the base primary joins at `-Infinity` and is already in
+    // `base.initialIncomeSeries` — so a partner's jobs never double-count.
     ...[...state.personsById.values()]
       .filter((m) => Number.isFinite(m.startMonth))
       .flatMap((m) => partnerJobSeries(m, nowYear, base.annualInflationRate)),
@@ -157,8 +155,8 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
         endMonth: def.endMonth,
         series: materializeSeries(def),
       };
-      // An event's expense reports as spending like any other, tagged back to the event
-      // series that authored it — edited through that event, never as a budget line.
+      // An event's expense reports as ordinary spending, tagged back to the event that
+      // authored it — edited through that event, never as a budget line.
       return def.seriesType === "income"
         ? common
         : {

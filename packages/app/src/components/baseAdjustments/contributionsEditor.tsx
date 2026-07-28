@@ -1,12 +1,12 @@
 /**
- * The **Savings & contributions** rows of Base + Adjustments: budget lines whose target
- * is an account rather than an expense. They are listed apart from spending
- * because they are a different kind of money — funded by the sim, they accumulate in
- * net worth instead of leaving it — and because they carry no month-resolved amount to
- * adjust: a contribution is a flat literal into an account, edited through its form.
+ * The **Savings & contributions** rows of Base + Adjustments: budget lines targeting an
+ * account rather than an expense. Listed apart from spending because they are a different
+ * kind of money — funded by the sim, they accumulate in net worth instead of leaving it —
+ * and because they carry no month-resolved amount to adjust: a contribution is a flat
+ * literal into an account, edited through its form.
  *
  * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} alongside
- * {@link import("./spendingEditor").SpendingEditor}; like it, it owns no state.
+ * {@link import("./spendingEditor").SpendingEditor}; like it, owns no state.
  */
 
 import { BudgetLineForm } from "./budgetLineForm";

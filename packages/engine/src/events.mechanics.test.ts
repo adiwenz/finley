@@ -43,9 +43,9 @@ describe("updateEvent", () => {
     add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 0, person: partnerEarning(2000) });
 
   it("revises a partner's jobs in place — the pay change drives the projection", () => {
-    // The write that was missing: a partner's jobs live on their RelationshipEvent, so
-    // without this the only way to change their salary was to remove the partner
-    // entirely (taking every dependent event with them).
+    // A partner's jobs live on their RelationshipEvent, so without this write the only way
+    // to change their salary is to remove the partner entirely, taking every dependent
+    // event with them.
     const result = updateEvent(
       partnered(),
       "r1",
@@ -94,8 +94,8 @@ describe("updateEvent", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Replay runs in (month, sequence) order, so the separation would now come first —
-    // and the conflict names the event the revision stranded, not just "invalid".
+    // Replay runs in (month, sequence) order, so the separation would now come first — and
+    // the conflict names the stranded event, not just "invalid".
     expect(result.conflict).toMatch(/sep1/);
     expect(result.conflict).toMatch(/cannot separate/);
   });

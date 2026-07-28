@@ -1,33 +1,27 @@
 /**
- * Early-retiree health-cost honesty check. The engine's contribution to
- * the Medicare picture: making the pre-eligibility health-cost gap visible for
- * someone who retires before Medicare kicks in.
+ * Early-retiree health-cost honesty check: makes the pre-eligibility health-cost gap visible
+ * for someone who retires before Medicare kicks in.
  *
- * This file is ONE check, not "the health module" — health-care logic is split by
- * layer on purpose: the US dollar figures + eligibility age live in `rules`
- * (`healthCosts.ts`, behind the `healthCostBenchmarkMonthlyCents` seam), the
- * projection's per-month health cost is an authored expense series the app builds
- * (`projectionBase.ts` `buildHealthSeries`), and the app owns the panel wiring. None
- * of those can collapse here without crossing a package or altitude boundary.
+ * ONE check, not "the health module" — health-care logic is split by layer on purpose: US
+ * dollar figures + eligibility age live in `rules` (`healthCosts.ts`, behind the
+ * `healthCostBenchmarkMonthlyCents` seam), the per-month health cost is an authored expense
+ * series the app builds (`projectionBase.ts` `buildHealthSeries`), and the app owns the panel
+ * wiring. None can collapse here without crossing a package or altitude boundary.
  *
- * Pure and jurisdiction-agnostic — every figure is supplied by the caller. The
- * Medicare-eligibility age and the elevated self-funded benchmark come from the
- * rules `healthCostBenchmarkMonthlyCents` seam; the authored health expense comes
- * from the plan. Taking resolved real cents rather than reaching for the
- * jurisdiction keeps the check testable standalone and the jurisdiction fact in
- * exactly one place.
+ * Pure and jurisdiction-agnostic: every figure is supplied by the caller. Taking resolved real
+ * cents rather than reaching for the jurisdiction keeps the check testable standalone and the
+ * jurisdiction fact in exactly one place.
  *
- * Medicare is deliberately NOT a silent auto-step in the sim:
- * health is an ordinary authored budget item. This helper does not synthesise a
- * cost — it flags when the authored one is missing the elevated pre-65 reality.
+ * Medicare is deliberately NOT a silent auto-step in the sim — health is an ordinary authored
+ * budget item. This synthesises no cost; it flags when the authored one misses the elevated
+ * pre-65 reality.
  */
 
 import type { Cents } from "./money";
 
 /**
- * Inputs to the early-retiree health-cost honesty check. The gap window is
- * `retirementAge … publicHealthCoverageAge`; a person retiring at/after the
- * coverage age has no self-funded window and is never flagged.
+ * The gap window is `retirementAge … publicHealthCoverageAge`; retiring at/after the coverage
+ * age leaves no self-funded window and is never flagged.
  */
 export interface EarlyRetireeHealthCheck {
   /** The age the person stops employment (and its employer coverage). */
@@ -41,9 +35,8 @@ export interface EarlyRetireeHealthCheck {
 }
 
 /**
- * The result of the honesty check. `flagged` is the headline "you retire before
- * Medicare but your plan doesn't reflect the elevated self-funded cost" nudge;
- * `gapYears` and `shortfallMonthlyCents` quantify it for the app's message.
+ * `flagged` is the headline "you retire before Medicare but your plan doesn't reflect the
+ * elevated self-funded cost" nudge; the other two quantify it for the app's message.
  */
 export interface EarlyRetireeHealthFlag {
   /** True when there is a pre-eligibility gap AND the authored cost falls short. */
@@ -55,12 +48,9 @@ export interface EarlyRetireeHealthFlag {
 }
 
 /**
- * Assess whether an early retirement is honestly costed for health care.
- * The flag fires only when both are true: the person retires before the Medicare-
- * eligibility age (a real self-funded gap exists), and their authored health
- * expense is below the elevated self-funded benchmark for that window (the plan
- * understates it). Retiring at/after eligibility, or already budgeting at least
- * the benchmark, does not flag.
+ * Fires only when BOTH hold: the person retires before Medicare eligibility (a real
+ * self-funded gap), and their authored health expense is below the benchmark for that window.
+ * Retiring at/after eligibility, or already budgeting the benchmark, does not flag.
  */
 export function assessEarlyRetireeHealthCost(
   check: EarlyRetireeHealthCheck,

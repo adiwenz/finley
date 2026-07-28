@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { drainSources } from "./funding";
 
-// drainSources — the shared ordered-drain funding primitive (§4.5)
-// Both money-out events (Home Purchase, One-Time Spend) fund from an ordered list of
-// eligible accounts. This pure helper resolves "take X from these accounts, in order"
-// into how much came out (`drained`), how much couldn't be covered (`shortfall`), and
-// the per-account draws the caller turns into transfers.
+// drainSources — the shared ordered-drain funding primitive (§4.5). Both money-out events
+// (Home Purchase, One-Time Spend) fund from an ordered list of eligible accounts. This
+// pure helper resolves "take X from these accounts, in order" into `drained`, `shortfall`,
+// and the per-account draws the caller turns into transfers.
 
 const src = (balanceCents: number) => ({ balanceCents });
 
@@ -17,7 +16,7 @@ describe("drainSources — full coverage", () => {
   });
 
   it("stops once the amount is met, leaving later sources untouched", () => {
-    // $60k drains fully from the first $30k + $40k of the second; the third is not reached.
+    // $60k drains the first $30k plus $30k of the second; the third is never reached.
     const result = drainSources([src(3_000_000), src(4_000_000), src(9_000_000)], 6_000_000);
     expect(result.draws.map((d) => d.amountCents)).toEqual([3_000_000, 3_000_000]);
     expect(result.drained).toBe(6_000_000);
@@ -41,7 +40,7 @@ describe("drainSources — partial shortfall", () => {
 
 describe("drainSources — ordering", () => {
   it("draws in the order given, not by balance size", () => {
-    // A smaller account listed first is drained first; ordering is the caller's choice.
+    // A smaller account listed first drains first — ordering is the caller's choice.
     const small = { id: "small", balanceCents: 1_000_000 };
     const large = { id: "large", balanceCents: 9_000_000 };
     const result = drainSources([small, large], 5_000_000);

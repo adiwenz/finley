@@ -31,18 +31,17 @@ function baseInput(person: SimPerson, overrides: Partial<HouseholdSimInput> = {}
 }
 
 /**
- * A stand-in COLA seam mirroring the `rules` formula: grow the opaque base by
- * `(1 + colaRate)^(currentAge − 62)`. The engine holds the base and calls this per
- * year; the single factor folds in both the old eligibility bridge and forward COLA.
+ * Stand-in COLA seam mirroring the `rules` formula: grow the opaque base by
+ * `(1 + colaRate)^(currentAge − 62)`. The engine holds the base and calls this per year; the
+ * single factor folds in both the eligibility bridge and forward COLA.
  */
 const colaFrom62: NonNullable<Jurisdiction["colaAdjustedBenefitCents"]> = (base, ctx) =>
   Math.round(base * Math.pow(1 + ctx.colaRate, ctx.currentAge - 62));
 
 describe("government-benefit accumulation + benefit seam", () => {
   it("null jurisdiction: the record accumulates but the benefit is 0", () => {
-    // Person already at full retirement age with seeded lifetime earnings, so a
-    // benefit *would* be claimed immediately — but the null jurisdiction supplies
-    // no seam, so benefit income is 0 and net worth stays flat.
+    // Already at full retirement age with seeded earnings, so a benefit *would* be claimed
+    // immediately — but the null jurisdiction supplies no seam.
     const person: SimPerson = {
       id: "p1",
       name: "You",
@@ -55,8 +54,8 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("derives the monthly benefit from the accumulated record and injects it post-claim", () => {
-    // Stub jurisdiction: benefit = 1% of total covered earnings on record. This
-    // proves the seeded EarningsRecord is threaded through to the seam.
+    // Benefit = 1% of total covered earnings, proving the seeded EarningsRecord reaches
+    // the seam.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
@@ -100,8 +99,8 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("live (post-now) wage earnings feed the record, not just the pre-now seed", () => {
-    // Capture the record the seam sees at the FIRST (claim-time) pricing; the base is
-    // re-priced later while working, so only the initial call is asserted.
+    // Capture the record at the FIRST (claim-time) pricing; the base is re-priced later
+    // while working, so only the initial call is asserted.
     let seenTotal: number | undefined;
     const stub: Jurisdiction = {
       id: "stub",
@@ -141,9 +140,8 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("consults the jurisdiction's isCoveredEarnings predicate for what feeds the record", () => {
-    // A jurisdiction that counts ONLY `wages` as covered — not `ordinaryIncome`.
-    // The engine must route the covered-earnings decision through the seam, so the
-    // ordinaryIncome stream is excluded and only the wages stream reaches the record.
+    // Counts ONLY `wages` as covered. The engine must route the covered-earnings decision
+    // through the seam, so only the wages stream reaches the record.
     let seenTotal: number | undefined;
     const stub: Jurisdiction = {
       id: "stub",
@@ -186,8 +184,8 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("falls back to wages-only covered earnings when the jurisdiction omits the predicate", () => {
-    // No isCoveredEarnings on the seam → the engine's documented bookkeeping default
-    // covers `wages` only. The ordinaryIncome stream is therefore not on the record.
+    // No isCoveredEarnings → the engine's documented default covers `wages` only, so the
+    // ordinaryIncome stream never reaches the record.
     let seenTotal = 0;
     const stub: Jurisdiction = {
       id: "stub",
@@ -218,15 +216,14 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("passes the full benefit gross to the seam, which owns the inclusion % (partial taxation)", () => {
-    // $1,000/mo benefit. The engine hands the FULL gross tagged
-    // `governmentRetirementBenefit`; the jurisdiction applies its own 50% inclusion
-    // then a 20% rate → taxable $500 → tax $100 → take-home $900 (not $800 if fully
-    // taxed). The untaxed half is still spendable cash and idles into net worth.
+    // The engine hands the FULL $1,000 gross tagged `governmentRetirementBenefit`; the
+    // jurisdiction applies its own 50% inclusion then 20% → tax $100 → take-home $900
+    // (not $800 if fully taxed). The untaxed half is still spendable cash.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) =>
         Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2),
-      // Matching per-source breakdown (attribution contract): single category, so exact.
+      // Attribution contract: single category, so the breakdown is exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.5 * 0.2);
         return t > 0 ? { governmentRetirementBenefit: t } : {};
@@ -244,12 +241,10 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("inflates the post-claim benefit by the COLA (CPI) rate each year", () => {
-    // Flat $1,000/mo base benefit, no tax, 10% CPI for clean arithmetic. Claiming
-    // at 62 (= eligibility) means no eligibility bridge, so this isolates the
-    // forward COLA: once claimed, the paid benefit rises by the COLA rate on each
-    // full year elapsed since the claim month (a step function, not monthly
-    // compounding). The cash account is non-compounding, so each month's net-worth
-    // delta *is* that month's paid benefit.
+    // Claiming at 62 (= eligibility) means no bridge, isolating the forward COLA: the paid
+    // benefit rises by the COLA rate on each full year elapsed since the claim month — a
+    // step function, not monthly compounding. The cash account is non-compounding, so each
+    // month's net-worth delta *is* that month's paid benefit.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
@@ -275,9 +270,9 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("COLA-bridges a delayed claim from age-62 eligibility to the claim year", () => {
-    // A benefit claimed after 62 must carry the COLAs accrued since eligibility,
-    // else delaying forfeits them. Stub PIA = $1,000 (age-62 dollars), 10% CPI,
-    // claim at 67 → 5 eligibility years bridged: first paid benefit = $1,000 × 1.1⁵.
+    // A benefit claimed after 62 must carry the COLAs accrued since eligibility, else
+    // delaying forfeits them. PIA $1,000 (age-62 dollars), 10% CPI, claim at 67 → 5 years
+    // bridged: first paid benefit = $1,000 × 1.1⁵.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
@@ -319,13 +314,12 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("a jurisdiction may tax the whole benefit (no inclusion cap)", () => {
-    // Same $1,000 benefit, but this jurisdiction includes 100% of the benefit
-    // category at a flat 20% → tax = $200 → take-home = $800/mo. Inclusion is the
-    // jurisdiction's call now, not an engine-side fraction.
+    // 100% inclusion at a flat 20% → tax $200 → take-home $800/mo. Inclusion is the
+    // jurisdiction's call, not an engine-side fraction.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
-      // Matching per-source breakdown (attribution contract): single category, so exact.
+      // Attribution contract: single category, so the breakdown is exact.
       computeTaxByCategoryCents: (byCat) => {
         const t = Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2);
         return t > 0 ? { governmentRetirementBenefit: t } : {};
@@ -397,10 +391,9 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("recomputes the base while the claimant keeps working", () => {
-    // Stub base scales with total covered earnings on the record. The person claims at
-    // 62 and keeps earning covered wages, so each completed year grows the record and
-    // the base is re-priced upward. No inflation, so any increase is the recompute,
-    // not COLA. The monthly deposit late in the run must exceed the deposit at claim.
+    // The stub base scales with the record, and the claimant keeps earning covered wages,
+    // so each completed year re-prices it upward. No inflation, so any increase is the
+    // recompute, not COLA.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,
@@ -440,14 +433,13 @@ describe("government-benefit accumulation + benefit seam", () => {
     );
     const paidInMonth = (m: number) =>
       series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
-    // Later paid benefit is strictly higher — the completed working years bumped it.
+    // Strictly higher later — the completed working years bumped it.
     expect(paidInMonth(40)).toBeGreaterThan(paidInMonth(1));
   });
 
   it("keeps the base frozen for a retire-then-claim record that never grows", () => {
-    // Same earnings-sensitive stub, but the person claims and does NOT keep working —
-    // no post-claim covered wages — so the record is static and the base is never
-    // re-priced. With no inflation the paid benefit is flat across the whole run.
+    // Same earnings-sensitive stub but no post-claim covered wages, so the record is static
+    // and the base never re-priced. With no inflation the paid benefit is flat.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: () => 0,

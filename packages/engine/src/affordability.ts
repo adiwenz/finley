@@ -1,11 +1,10 @@
 /**
  * Affordability — the soft-warning arithmetic (debt-to-income).
  *
- * Two constraints govern a home purchase: a HARD BLOCK on down-payment
- * coverage (enforced in the event handler against liquid funds) and this SOFT
- * WARNING on ongoing affordability. DTI never blocks — it flags, and the app
- * pairs the flag with the projected downstream consequence. These are pure
- * ratio functions so the thresholds live in exactly one place.
+ * Two constraints govern a home purchase: a HARD BLOCK on down-payment coverage (in the event
+ * handler, against liquid funds) and this SOFT WARNING on ongoing affordability. DTI never
+ * blocks — it flags, and the app pairs the flag with the projected consequence. Pure ratio
+ * functions, so the thresholds live in exactly one place.
  */
 
 import type { Cents } from "./money";
@@ -28,11 +27,10 @@ export interface DtiAssessment {
 }
 
 /**
- * Classify monthly housing and total-debt cost against the DTI guidelines. All
- * figures are monthly cents. `monthlyTotalDebtCents` is housing plus every other
- * recurring debt payment (auto, student, card minimums). With zero gross income
- * the ratios are 0 and nothing is flagged — a soft warning must not fire on a
- * divide-by-zero.
+ * Classify monthly housing and total-debt cost against the DTI guidelines; all figures monthly
+ * cents. `monthlyTotalDebtCents` is housing plus every other recurring debt payment (auto,
+ * student, card minimums). With zero gross income the ratios are 0 and nothing is flagged — a
+ * soft warning must not fire on a divide-by-zero.
  */
 export function assessDti(
   monthlyGrossCents: Cents,
@@ -50,10 +48,9 @@ export function assessDti(
 }
 
 /**
- * The level monthly mortgage payment a home purchase implies — the financed
- * amount (`purchasePriceCents − downPaymentCents`) amortized over the term. The
- * housing component of a front-end DTI check; property-tax/insurance/HOA streams
- * (deferred) would be added on top by the caller.
+ * The level monthly mortgage payment a purchase implies: `purchasePriceCents −
+ * downPaymentCents` amortized over the term. The housing component of a front-end DTI check;
+ * property-tax/insurance/HOA streams (deferred) are the caller's to add on top.
  */
 export function mortgagePaymentForPurchaseCents(
   purchasePriceCents: Cents,

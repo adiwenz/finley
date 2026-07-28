@@ -4,7 +4,7 @@ import { buildTaxChartData, describeTaxes } from "./taxesByMonth";
 
 /**
  * A minimal series fixture: month 0 has no flows; later months carry a tax figure and the
- * (now always-present) per-source breakdown, empty here since these fixtures test only the
+ * always-present per-source breakdown — empty here, since these fixtures test only the
  * total-tax aggregation.
  */
 function seriesOf(...taxCents: number[]): ProjectionSeries {
@@ -24,9 +24,8 @@ interface SrcSpec {
 }
 
 /**
- * A fixture whose flowed months carry a per-SOURCE tax breakdown,
- * plus the matching `incomeSources` so the chart can learn each source's label. Each month
- * is a list of tax-bearing sources.
+ * A fixture whose flowed months carry a per-SOURCE tax breakdown plus the matching
+ * `incomeSources`, so the chart can learn each source's label. One list per month.
  */
 function seriesWithBreakdown(...months: readonly SrcSpec[][]): ProjectionSeries {
   const rows = [
@@ -148,8 +147,8 @@ describe("buildTaxChartData — per-source stacking", () => {
   });
 
   it("labels a category-keyed fallback source (an untitled stream) in English", () => {
-    // The engine keys a source with no id by its tax category; with no income band to name
-    // it, the chart still reads it as a category label rather than the raw key.
+    // The engine keys an id-less source by its tax category; with no income band to name
+    // it, the chart still reads a category label rather than the raw key.
     const months = [
       { month: 0 },
       { month: 1, flows: { taxCents: dollarsToCents(300), taxBySourceCents: { wages: dollarsToCents(300) } } },
@@ -159,8 +158,8 @@ describe("buildTaxChartData — per-source stacking", () => {
   });
 
   it("labels the savings-interest tax band from its income source's explicit provenance", () => {
-    // Savings interest now appears on the income side too, so the tax band borrows its label
-    // and its explicit `savingsInterest` provenance from the registry — the chart never parses
+    // Savings interest appears on the income side too, so the tax band borrows its label
+    // and explicit `savingsInterest` provenance from the registry — the chart never parses
     // the `interest:` id to decide what the band is.
     const months = [
       { month: 0 },

@@ -1,8 +1,7 @@
 /**
- * Household — the immutable, array-shaped model that interpretation produces and
- * both consumers (projection and snapshot) read. Built once at the public
- * boundary from the internal {@link InterpretState} accumulator, so the two
- * consumers can never interpret the ledger differently.
+ * Household — the immutable, array-shaped model interpretation produces and both consumers
+ * (projection and snapshot) read. Built once at the public boundary from the internal
+ * {@link InterpretState} accumulator, so the two can never interpret the ledger differently.
  */
 
 import type { Cents } from "../money";
@@ -18,11 +17,11 @@ import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfer
 
 export interface HouseholdMembership {
   /**
-   * The household member as **authoring** {@link Person} data — identity, the
-   * retirement/benefit inputs, and their jobs. The lower-level {@link
-   * import("../projection/simulate").SimPerson} the sim consumes is *derived* from this
-   * at the sim boundary via {@link import("../compilePerson").compilePerson}; the roster
-   * the app holds and edits never touches it.
+   * The member as **authoring** {@link Person} data — identity, retirement/benefit inputs,
+   * jobs. The lower-level {@link import("../projection/simulate").SimPerson} the sim
+   * consumes is derived from this at the sim boundary via
+   * {@link import("../compilePerson").compilePerson}; the roster the app edits never
+   * touches it.
    */
   readonly person: Person;
   readonly startMonth: number;
@@ -30,9 +29,9 @@ export interface HouseholdMembership {
 }
 
 /**
- * A household income/expense series. Carries its own materialized
- * `SimCashFlowSeries` — built exactly once at interpretation — so projection and
- * snapshot read monthly amounts through the *same* instance and cannot disagree.
+ * A household income/expense series. Carries its own `SimCashFlowSeries`, materialized
+ * exactly once at interpretation, so projection and snapshot read monthly amounts through
+ * the *same* instance and cannot disagree.
  */
 export interface HouseholdSeries {
   readonly id: SeriesId;
@@ -45,38 +44,33 @@ export interface HouseholdSeries {
   readonly endMonth: number | null;
   readonly series: SimCashFlowSeries;
   /**
-   * Human-facing name carried over from the base series ("Income", "Healthcare", a
-   * budget line's label). Diagnostic only — nothing in the interpretation or the
-   * simulation reads it; it exists so a report can name a series instead of
-   * numbering it positionally.
+   * Human-facing name carried over from the base series ("Income", "Healthcare", a budget
+   * line's label). Diagnostic only — nothing in interpretation or simulation reads it; it
+   * lets a report name a series instead of numbering it positionally.
    */
   readonly label?: string;
   /**
-   * Stable per-source id carried over from the base series — a job's id, so
-   * per-source income reporting can name *which* job a paycheck came from. Diagnostic
-   * only; nothing in the interpretation or simulation reads it.
+   * Stable per-source id carried over from the base series — a job's id, so per-source
+   * reporting can name *which* job a paycheck came from. Diagnostic only.
    */
   readonly sourceId?: string;
   /**
-   * Retirement-plan descriptor for an income series funding a person-owned
-   * account. Presence makes the source eligible for pre-tax deferral in the
-   * waterfall. Only meaningful on income series; absent otherwise.
+   * Retirement-plan descriptor for an income series funding a person-owned account.
+   * Presence makes the source deferral-eligible in the waterfall. Income series only.
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * Provenance of an expense series compiled from a standing budget line: the
-   * source line's id. Carried through so the simulator can report each line's monthly
-   * amount ({@link
-   * import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Only set on
-   * budget-line expense series; absent on scalar/health/event-caused series.
+   * The source line's id, for an expense series compiled from a standing budget line, so
+   * the simulator can report each line's monthly amount
+   * ({@link import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}). Set
+   * only on budget-line expense series; absent on scalar/health/event-caused ones.
    */
   readonly lineId?: string;
   /**
-   * Provenance for the unified spending report: which authoring
-   * model this expense came from. Carried through from the base series, or derived from
-   * an event-created series' {@link SeriesRole}, and passed to the sim so a month's
-   * spending can be reported itemized. See {@link
-   * import("../projection/spendingItems").SpendingSource}.
+   * Which authoring model this expense came from, for the unified spending report. Carried
+   * from the base series or derived from an event-created series' {@link SeriesRole}, then
+   * passed to the sim so a month's spending reports itemized. See
+   * {@link import("../projection/spendingItems").SpendingSource}.
    */
   readonly spendingSource?: SpendingSource;
 }
@@ -93,11 +87,10 @@ interface HouseholdLiabilityCommon {
 }
 
 /**
- * A liability in the derived model. Discriminated on `kind`, mirroring
- * {@link LoanEvent} and {@link LiabilityDef}: a revolving card carries a credit
- * limit and never amortizes; a term loan amortizes over a term and has no limit.
- * Each field is required exactly where it applies — a card with a term, or a loan
- * with a credit limit, will not typecheck.
+ * A liability in the derived model, discriminated on `kind` like {@link LoanEvent} and
+ * {@link LiabilityDef}: a revolving card carries a credit limit and never amortizes; a
+ * term loan amortizes and has no limit. A card with a term, or a loan with a credit limit,
+ * will not typecheck.
  */
 export type HouseholdLiability =
   | (HouseholdLiabilityCommon & {
@@ -129,8 +122,8 @@ export interface Household {
   readonly properties: readonly HouseholdProperty[];
   readonly accountTransfers: readonly AccountTransfer[];
   /**
-   * Ordered, cross-account down-payment / spend draws — resolved against source
-   * balances at the sim boundary, not here (the split is balance-dependent).
+   * Ordered cross-account down-payment / spend draws — resolved against source balances at
+   * the sim boundary, not here, since the split is balance-dependent.
    */
   readonly fundingDraws: readonly FundingDraw[];
 }

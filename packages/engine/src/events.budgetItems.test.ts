@@ -4,8 +4,6 @@ import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// Income series (BudgetItemStartEvent)
-
 describe("income series (BudgetItemStartEvent)", () => {
   it("creates income series that increases the liquid account balance", () => {
     const cfg: LedgerBaseConfig = {
@@ -20,7 +18,7 @@ describe("income series (BudgetItemStartEvent)", () => {
       seriesId: "s1",
       ownerId: "p1",
       seriesType: "income",
-      monthlyCents: dollarsToCents(5_000), // $5000/mo
+      monthlyCents: dollarsToCents(5_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -43,7 +41,7 @@ describe("income series (BudgetItemStartEvent)", () => {
       seriesId: "s1",
       ownerId: "p1",
       seriesType: "income",
-      monthlyCents: dollarsToCents(3_000), // $3000/mo
+      monthlyCents: dollarsToCents(3_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -61,18 +59,16 @@ describe("income series (BudgetItemStartEvent)", () => {
       seriesId: "s2",
       ownerId: "p1",
       seriesType: "income",
-      monthlyCents: dollarsToCents(6_000), // $6000/mo
+      monthlyCents: dollarsToCents(6_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Old job ends at month 5 (endMonth = 6−1); new job starts at month 6.
-    // Months 1–5 at $3000 = $15,000; months 6–12 at $6000 = $42,000 → $57,000
+    // Old job ends at month 5 (endMonth = 6−1), new job starts at 6:
+    // 5 × $3000 + 7 × $6000 = $57,000
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(57_000));
   });
 });
-
-// BudgetItemStartEvent / BudgetItemEndEvent
 
 describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
   it("creates an expense series that reduces net worth", () => {
@@ -112,7 +108,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       monthlyCents: dollarsToCents(1_000),
       growthMode: { type: "fixed" },
     });
-    // End rent at month 6 (stops after month 5, last active = month 5)
+    // End at month 6: last active month is 5.
     ledger = add(ledger, {
       id: "b2",
       type: "BudgetItemEndEvent",
@@ -120,7 +116,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       seriesId: "rent",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Months 1–5 active: 5 × $1000 = $5000 spent → $7000 remaining
+    // 5 active months × $1000 → $7000 left
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(7_000));
   });
 });
@@ -165,7 +161,7 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       seriesId: "s1",
       ownerId: "p1",
       seriesType: "income",
-      monthlyCents: dollarsToCents(3_000), // $3000/mo
+      monthlyCents: dollarsToCents(3_000),
       growthMode: { type: "fixed" },
       taxCategory: "wages",
     });
@@ -181,17 +177,17 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       { type: "fixed" },
       { baselineUnit: "monthly" },
     );
-    // Value edit (override), NOT an event: expenses rise to $2000 from month 6.
+    // A value edit, NOT an event: expenses rise to $2000 from month 6.
     expense.addOverride(6, dollarsToCents(2_000), "fromHereForward");
     const cfg: LedgerBaseConfig = {
       ...baseConfig,
-      // Large opening balance so no shortfall cascade / interest muddies the math.
+      // Large opening balance so no cascade or interest muddies the math.
       initialAccounts: [makeLiquidAccount("checking", dollarsToCents(100_000))],
       initialExpenseSeries: [{ series: expense, ownerId: "p1" }],
     };
     const series = replayLedger(emptyLedger, cfg, nullJurisdiction);
-    // Flow lands months 1–12. Override at month 6 (fromHereForward) covers
-    // months 6–12: 5 months × $1000 + 7 months × $2000 = $19,000 spent.
+    // Flow lands months 1–12; the fromHereForward override covers 6–12:
+    // 5 × $1000 + 7 × $2000 = $19,000 spent.
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(81_000));
   });
 });

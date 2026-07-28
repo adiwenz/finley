@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Repo-wide guard for the comment style: no issue/PR references may survive in
- * a comment, and the implementation prompt must carry the rule that keeps it
- * that way. String and template literals are stripped before scanning so hex
- * colors and URLs living in code never register as comment text.
+ * Repo-wide comment-style guard: no comment may reference an issue or PR, and the
+ * implementation prompt must carry the rule keeping it that way. String and template
+ * literals are stripped first, so hex colors and URLs in code never read as comment text.
  */
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -24,9 +23,8 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-/** Extract only the comment text from a TypeScript source, dropping code and
- * string/template literals so their contents can never be mistaken for a
- * comment. */
+/** Comment text only: code and string/template literals are dropped so their contents can
+ * never be mistaken for a comment. */
 function commentsOf(src: string): string {
   const out: string[] = [];
   let i = 0;

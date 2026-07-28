@@ -1,18 +1,17 @@
 import type { Cents } from "./money";
 
 /**
- * A person's lifetime record of covered earnings — one
- * nominal wage total per calendar year. Pure engine-side bookkeeping: the
- * simulator ACCUMULATES it as the projection runs forward (every wage segment
- * contributes) and seeds it with the optional pre-"now" earnings summary,
- * but it holds NO jurisdiction knowledge.
+ * A person's lifetime covered earnings — one nominal wage total per calendar year. Pure
+ * engine-side bookkeeping: the simulator accumulates it as the projection runs forward
+ * (every wage segment contributes) from a seed of the optional pre-"now" summary, and
+ * holds NO jurisdiction knowledge.
  *
- * The full benefit formula lives entirely in `rules`, which reads this
- * record through the {@link Jurisdiction.governmentBenefitBaseMonthlyCents} seam —
- * the same engine-defines-socket / rules-fills-plug pattern as tax and RMDs, but
- * history-dependent, so the record is threaded through. The engine can only test
- * accumulation and the null-jurisdiction path (which returns 0 while the record
- * still accumulates); the benefit anchor + monotonicity tests live in `rules`.
+ * The benefit formula lives entirely in `rules`, which reads this through the
+ * {@link Jurisdiction.governmentBenefitBaseMonthlyCents} seam — the same
+ * engine-defines-socket / rules-fills-plug pattern as tax and RMDs, but
+ * history-dependent, hence the threading. The engine can only test accumulation and the
+ * null-jurisdiction path (0 while the record still accumulates); benefit anchor and
+ * monotonicity tests live in `rules`.
  */
 export interface EarningsRecord {
   /** Nominal covered wage earnings, keyed by calendar year. */
@@ -25,18 +24,17 @@ export const EMPTY_EARNINGS_RECORD: EarningsRecord = {
 };
 
 /**
- * The mutable per-year accumulator the simulator threads through its months.
- * Kept separate from the immutable {@link EarningsRecord} the seam consumes:
- * {@link addEarnings} folds a month's covered wages in, {@link toEarningsRecord}
- * freezes a snapshot to hand to `rules` at claiming age.
+ * The mutable per-year accumulator the simulator threads through its months, kept
+ * separate from the immutable {@link EarningsRecord} the seam consumes:
+ * {@link addEarnings} folds a month's covered wages in, {@link toEarningsRecord} freezes
+ * a snapshot for `rules` at claiming age.
  */
 export type EarningsAccumulator = Map<number, Cents>;
 
 /**
- * Seed a fresh accumulator from an optional pre-"now" earnings summary —
- * the one historical financial input (a mid-career record cannot be built
- * purely from post-"now" earnings). A
- * missing/empty seed yields an empty accumulator.
+ * Seed a fresh accumulator from an optional pre-"now" earnings summary — the one
+ * historical financial input, since a mid-career record cannot be built purely from
+ * post-"now" earnings. A missing or empty seed yields an empty accumulator.
  */
 export function seedEarnings(
   priorEarningsCents?: Readonly<Record<number, Cents>>,

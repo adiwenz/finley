@@ -14,9 +14,9 @@ function sumCents(byCategory: Partial<Record<string, number>>): number {
   return Object.values(byCategory).reduce((s: number, v) => s + (v ?? 0), 0);
 }
 
-// All figures are annual cents unless a test says otherwise. The seam the engine
-// wires (`computeFederalTaxCents`) receives MONTHLY per-category amounts; the pure
-// bracket math is exercised through the annual entry point `federalAnnualTaxCents`.
+// Figures are annual cents unless a test says otherwise. The engine-wired seam
+// (`computeFederalTaxCents`) takes MONTHLY per-category amounts; the pure bracket math is
+// exercised through the annual entry point `federalAnnualTaxCents`.
 
 describe("federalTaxTables — the pinned single-filer base year", () => {
   it("pins the 2026 base-year figures exactly (no indexing at/before base)", () => {
@@ -113,14 +113,13 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
   });
 
   it("counts tax-exempt income toward provisional income for the SS test", () => {
-    // Same benefit but the other income is tax-exempt: it still pushes SS into the
-    // taxable range even though it is not itself taxed.
+    // Tax-exempt other income still pushes SS into the taxable range, untaxed itself.
     const withTaxExempt = federalAnnualTaxCents(
       { taxExempt: 30_000_00, governmentRetirementBenefit: 30_000_00 },
       2026,
     );
-    // 13,850 of SS becomes taxable ordinary income; taxed after the std deduction.
-    // 13,850 − 16,100 < 0 → 0 tax, but the inclusion still happened (asserted via SS helper).
+    // 13,850 of SS becomes taxable ordinary income; 13,850 − 16,100 < 0 → 0 tax, but the
+    // inclusion still happened (asserted via the SS helper).
     expect(withTaxExempt).toBe(0);
     expect(taxableSocialSecurityCents(30_000_00, 30_000_00)).toBe(13_850_00);
   });
@@ -157,8 +156,8 @@ describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   });
 
   it("attributes the preferential capital-gains tax to the capitalGains bucket alone", () => {
-    // wages 50,000 + gains 20,000 → total 4,487.50 → 4,487 (rounded). The ordinary
-    // tax (3,820) rides `wages`; the gains tax (667.50) rides `capitalGains`.
+    // wages 50,000 + gains 20,000 → 4,487.50 total: the ordinary tax (3,820) rides `wages`,
+    // the gains tax (667.50) rides `capitalGains`.
     const input = { wages: 50_000_00, capitalGains: 20_000_00 };
     const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
     expect(sumCents(byCategory)).toBe(federalAnnualTaxCents(input, 2026));
@@ -175,8 +174,8 @@ describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   });
 
   it("attributes benefit tax only to the included portion of the government benefit", () => {
-    // Benefit 30,000 + wages 30,000: 13,850 of the benefit is taxable; the split
-    // shares the ordinary tax between wages and the benefit by their taxable weight.
+    // Benefit 30,000 + wages 30,000: 13,850 of the benefit is taxable, and the split shares
+    // the ordinary tax by taxable weight.
     const input = { wages: 30_000_00, governmentRetirementBenefit: 30_000_00 };
     const byCategory = federalAnnualTaxByCategoryCents(input, 2026);
     expect(sumCents(byCategory)).toBe(federalAnnualTaxCents(input, 2026));

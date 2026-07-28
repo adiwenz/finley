@@ -10,10 +10,9 @@ export function applyAssetTransfers(state: SimState, month: number): void {
       const fixed = t.amountCents ?? 0;
       const proportional = Math.round(prev * (t.proportionalFraction ?? 0));
       state.assetBalances.set(acc.id, prev + fixed + proportional);
-      // Keep cost basis coherent through transfers: a proportional move (a
-      // crash, say) scales basis with the balance; a fixed OUTFLOW returns basis
-      // pro-rata like a draw; a fixed post-tax INFLUX adds basis. Pre-tax accounts
-      // stay at basis 0 — an influx there is untaxed-in, fully taxable-out.
+      // Keep cost basis coherent: a proportional move (a crash, say) scales basis with
+      // the balance; a fixed OUTFLOW returns basis pro-rata like a draw; a fixed post-tax
+      // INFLUX adds basis. Pre-tax accounts stay at basis 0 — untaxed in, fully taxable out.
       const basis = Math.max(0, state.basisByAccount.get(acc.id) ?? 0);
       let nextBasis = basis + Math.round(basis * (t.proportionalFraction ?? 0));
       if (fixed < 0) {
@@ -38,14 +37,13 @@ export function compoundAssets(
     const bal = state.assetBalances.get(acc.id) ?? 0;
     const grown = Math.round(bal * (1 + acc.getMonthlyRateAt(month)));
     state.assetBalances.set(acc.id, grown);
-    // Interest accrual: the engine owns the compounding and the accrual
-    // bookkeeping; the JURISDICTION owns whether this account's return is taxed at
-    // accrual and under which category (`returnTaxTreatment`). Only an account that
-    // declares a neutral `returnKind` is considered — and the jurisdiction may still
-    // defer it. Record the credited growth with the jurisdiction-chosen category; the
-    // next month's waterfall taxes it through the single seam (this step runs after
-    // that seam, so it can only be taxed one month on). Refresh every considered account
-    // each month — clearing it when the return is deferred — so no figure carries stale.
+    // Interest accrual: the engine owns compounding and bookkeeping; the JURISDICTION owns
+    // whether this account's return is taxed at accrual and under which category
+    // (`returnTaxTreatment`). Only accounts declaring a neutral `returnKind` are
+    // considered, and the jurisdiction may still defer. The credited growth is recorded
+    // with the jurisdiction's category and taxed by next month's waterfall — this step
+    // runs after that seam, so it can only be taxed one month on. Every considered account
+    // is refreshed each month, cleared when deferred, so no figure goes stale.
     if (acc.taxProfile.returnKind !== undefined) {
       const treatment = jurisdiction.returnTaxTreatment?.(acc.taxProfile.returnKind, ctx);
       if (treatment?.taxAtAccrual) {
@@ -61,12 +59,11 @@ export function compoundAssets(
 }
 
 /**
- * Advance every property's value one month. A property not yet purchased stays
- * at 0; at its purchase month it opens at `openingValueCents` with no appreciation
- * (mirroring an account opening or a loan origination); after a sale (`endMonth`)
- * its value is 0 and stops contributing to net worth; otherwise it appreciates
- * once at `preciseMonthlyRate(appreciationAnnualRate)`. Runs after the liability
- * step so a same-month sale (future) settles consistently.
+ * Advance every property's value one month. Not yet purchased → 0; at the purchase month
+ * it opens at `openingValueCents` with no appreciation (mirroring an account opening or
+ * loan origination); after a sale (`endMonth`) → 0, no longer in net worth; otherwise it
+ * appreciates once at `preciseMonthlyRate(appreciationAnnualRate)`. Runs after the
+ * liability step so a same-month sale (future) settles consistently.
  */
 export function advanceProperties(state: SimState, month: number): void {
   for (const p of state.properties) {

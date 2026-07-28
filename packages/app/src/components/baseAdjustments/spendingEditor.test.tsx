@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  *
- * {@link SpendingEditor} in isolation. The gesture itself (stage → answer how long →
- * routed edit) is pinned end-to-end through the panel; what is worth testing directly
- * is the row's own contract — that it shows the staged value while an edit is pending,
- * and that a row whose authored line is missing still renders instead of throwing.
+ * {@link SpendingEditor} in isolation. The gesture (stage → answer how long → routed edit) is
+ * pinned end-to-end through the panel; here only the row's own contract — it shows the staged
+ * value while an edit is pending, and a row whose authored line is missing renders instead of
+ * throwing.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -96,8 +96,8 @@ describe("SpendingEditor — the row", () => {
   });
 
   it("renders a row whose authored line is gone, without its form and without throwing", () => {
-    // The row and the line come from the same budget, so this should not happen — but
-    // it is reachable only as a crash, so the form is simply not offered.
+    // Row and line come from the same budget, so this should not happen; it is reachable
+    // only as a crash, so the form is simply not offered.
     renderEditor({ lines: [], authoring: { kind: "edit", id: "housing" } });
     expect(housingInput().value).toBe("1600");
     expect(screen.queryByLabelText("Name")).toBeNull();

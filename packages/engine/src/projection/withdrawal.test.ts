@@ -147,8 +147,8 @@ describe("Desired-withdrawal decumulation channel", () => {
   });
 
   /**
-   * A goal fixture accumulating into `goal-<id>`. Takes the disposition/date as one
-   * {@link GoalDisposal} pair, mirroring how the plan→sim mapping carries them.
+   * A goal fixture accumulating into `goal-<id>`. Disposition/date arrive as one
+   * {@link GoalDisposal} pair, mirroring the plan→sim mapping.
    */
   function goal(id: string, disposal: GoalDisposal): SimGoal {
     return {
@@ -163,9 +163,8 @@ describe("Desired-withdrawal decumulation channel", () => {
   }
 
   it("draws a goal fund reaching its target month — no disposition earmarks or fires it (#150)", () => {
-    // A goal never moves its own money out: at its very target month the fund is neither
-    // earmarked out of the nest egg nor zeroed by a firing disposition. So a maturing
-    // goal fund is a valid withdrawal source, tapped for the shortfall like any other.
+    // A goal never moves its own money out: even at its target month the fund is neither
+    // earmarked out of the nest egg nor zeroed, so it stays a valid withdrawal source.
     const maturing = goal("home", { disposition: "retain", targetDate: 1 }); // target IS this month
     const series = simulateHousehold(
       baseInput(
@@ -185,8 +184,8 @@ describe("Desired-withdrawal decumulation channel", () => {
   });
 
   it("counts a future-dated `retain` goal fund toward the drawable nest egg", () => {
-    // A `retain` reserve (e.g. an emergency fund) stays in net worth and IS drawable
-    // in retirement — its fund funds the shortfall before other investments.
+    // A `retain` reserve (e.g. an emergency fund) stays in net worth and IS drawable in
+    // retirement, funding the shortfall before other investments.
     const reserve = goal("reserve", { disposition: "retain", targetDate: 24 }); // future-dated, yet drawable
     const series = simulateHousehold(
       baseInput(
@@ -206,10 +205,9 @@ describe("Desired-withdrawal decumulation channel", () => {
   });
 
   it("counts a future-dated `drawDown` goal fund toward the drawable nest egg", () => {
-    // A `drawDown` goal fund IS the nest egg (retirement / college) — the counterpart
-    // to the `retain` case above. Like `retain`, it is fully drawable in decumulation
-    // even before its target date, so it funds the shortfall rather than being borrowed
-    // against: a regression that held drawDown funds back would leave this on credit.
+    // A `drawDown` fund IS the nest egg (retirement / college) — counterpart to the
+    // `retain` case above, fully drawable even before its target date. A regression that
+    // held drawDown funds back would leave this on credit.
     const nestEgg = goal("nestegg", { disposition: "drawDown", targetDate: 24 }); // future-dated, yet drawable
     const series = simulateHousehold(
       baseInput(
@@ -304,9 +302,9 @@ describe("Desired-withdrawal decumulation channel", () => {
   });
 
   it("does NOT tax a tax-exempt draw: it comes out one-for-one, not grossed up (contrast with pre-tax)", () => {
-    // Same flat 25% tax on ordinary income as the pre-tax gross-up case — but a
-    // tax-exempt account's withdrawal produces the `taxExempt` category, which this
-    // jurisdiction never taxes, so exactly the $2k need leaves it (no gross-up).
+    // Same flat 25% on ordinary income as the pre-tax gross-up case, but a tax-exempt
+    // withdrawal books the `taxExempt` category, which this jurisdiction never taxes —
+    // so exactly the $2k need leaves it, no gross-up.
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
@@ -424,11 +422,10 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   }
 
   /**
-   * The household's actual after-tax income across ALL sources combined — the number
-   * the obligations are funded from. Sums the gross and subtracts each owner's tax on
-   * the COMBINED per-category map (tax is computed once at the tax chokepoint over the
-   * whole return, so category interactions — a draw pulling a benefit into taxability —
-   * are captured here exactly as the simulator would).
+   * After-tax income across ALL sources combined — what the obligations are funded
+   * from. Gross minus each owner's tax on the COMBINED per-category map, mirroring the
+   * chokepoint's once-over-the-whole-return computation, so category interactions (a
+   * draw pulling a benefit into taxability) are captured as the simulator would.
    */
   function householdNetCents(
     sources: readonly IncomeSourceMonth[],
@@ -448,9 +445,8 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   }
 
   /**
-   * A jurisdiction modelling the provisional-income trap: a
-   * capital-gains draw is taxed at 0% on its OWN, and the government benefit is taxed
-   * at 0% on its OWN, but the draw pulls the benefit into taxability — so tax lands on
+   * The provisional-income trap: the capital-gains draw and the government benefit each
+   * tax at 0% alone, but the draw pulls the benefit into taxability — tax lands on
    * income the household already had. A per-category own-rate gross-up (×0%) cannot see
    * this; only differencing the whole return can.
    */
@@ -474,9 +470,9 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   it("sizes a 0%-rate capital-gains draw that pulls a benefit into taxability to net the need", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
     const st = state(accounts, { brokerage: 100_000 });
-    // A $2k benefit already booked as income; obligations are $3k → a $1k net need must
-    // come from the brokerage. On its own the draw AND the benefit each tax at 0%, so a
-    // naive one-for-one draw under-delivers by exactly the tax it induces on the benefit.
+    // $2k benefit booked, $3k obligations → $1k net need from the brokerage. Draw and
+    // benefit each tax at 0% alone, so a naive one-for-one draw under-delivers by
+    // exactly the tax it induces on the benefit.
     const benefit: IncomeSourceMonth[] = [
       { ownerId: "p1", waterfallInflowCents: dollarsToCents(2_000), taxCategory: "governmentRetirementBenefit" },
     ];
@@ -496,8 +492,8 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need", () => {
-    // A flat 20% tax on the capitalGains category — the draw's own rate is non-zero
-    // here, but the point is the same: the sized draw must net the need, not the gross.
+    // Flat 20% on capitalGains — the draw's own rate is non-zero here, but the point
+    // holds: the sized draw must net the need, not the gross.
     const flatGains: Jurisdiction = {
       id: "flat-gains-20",
       computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
@@ -515,11 +511,11 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("sizes the draw to need + the LUMP when a cliff induces a fixed tax, not 100x the need", () => {
-    // A discontinuous seam: crossing $30k of non-benefit income makes the ENTIRE
-    // benefit taxable at 50% at once. The induced tax is a lump — the same $50k at any
-    // draw past the cliff — so the proportional model behind `need / (1 − rate)` does
-    // not apply. Sizing off the implied rate (50k tax on a 1k draw reads as 5000%,
-    // clamped to 99%) would draw 100 × the need; the fixed point lands on need + lump.
+    // Crossing $30k of non-benefit income makes the ENTIRE benefit taxable at 50% at
+    // once. The induced tax is a lump — the same $50k at any draw past the cliff — so
+    // the proportional model behind `need / (1 − rate)` does not apply. Sizing off the
+    // implied rate ($50k tax on a $1k draw reads as 5000%, clamped to 99%) would draw
+    // 100 × the need; the fixed point lands on need + lump.
     const cliff: Jurisdiction = {
       id: "cliff-50",
       computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
@@ -532,8 +528,8 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
     };
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
     const st = state(accounts, { brokerage: 500_000 });
-    // A $100k benefit plus $29.5k of gains sits just under the cliff, so the base tax
-    // is 0. Funding $1k more tips the household over it.
+    // $100k benefit plus $29.5k of gains sits just under the cliff (base tax 0);
+    // funding $1k more tips the household over it.
     const booked: IncomeSourceMonth[] = [
       { ownerId: "p1", waterfallInflowCents: dollarsToCents(100_000), taxCategory: "governmentRetirementBenefit" },
       { ownerId: "p1", waterfallInflowCents: dollarsToCents(29_500), taxCategory: "capitalGains" },
@@ -554,7 +550,7 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("spills to the next source when an account cannot cover its own gross-up", () => {
-    // A flat 20% on both categories. The brokerage holds $1k against a $10k need, so it
+    // Flat 20% on both categories. The brokerage holds $1k against a $10k need, so it
     // cannot fund even its own gross-up — it empties, delivers its $800 net, and the
     // REMAINING need (not the original) grosses up against the pre-tax account behind it.
     const flat20: Jurisdiction = {
@@ -579,11 +575,10 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("takes the LEAST draw that nets the need when two cliffs offer more than one", () => {
-    // Two cliffs stack two lumps. Both $3k and $45k are genuine solutions here — each
-    // nets exactly $1k — because a step tax makes `need + lump` a fixed point inside
-    // every region it lands in. Climbing from `need` finds the cheap one; descending
-    // from the closed-form guess ($100k, the clamp) would settle on the $45k one and
-    // liquidate 15x more than the household needs.
+    // Two cliffs stack two lumps, so $3k and $45k are both genuine solutions — each
+    // nets exactly $1k — because a step tax makes `need + lump` a fixed point in every
+    // region it lands in. Climbing from `need` finds the cheap one; descending from the
+    // closed-form guess ($100k, the clamp) would settle on $45k and liquidate 15x more.
     const twoCliffs: Jurisdiction = {
       id: "two-cliffs",
       computeTaxByCategoryCents: () => ({}), // gross-up probe (buildWithdrawalSources only; never reconciled)
@@ -625,9 +620,9 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
   }
 
   /**
-   * The household's after-tax income across all sources — but taxing each source's
-   * GAIN (`taxableCents`), not its full gross, exactly as the tax seam now does for a
-   * returned-basis fund draw. This is the number the obligations are funded from.
+   * After-tax income across all sources, taxing each source's GAIN (`taxableCents`)
+   * rather than its full gross — as the tax seam does for a returned-basis fund draw.
+   * This is what the obligations are funded from.
    */
   function householdNetCentsGain(
     sources: readonly IncomeSourceMonth[],
@@ -646,11 +641,11 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     return gross - tax;
   }
 
-  // The taxable-base policy now lives behind the jurisdiction seam, so a
-  // test that wants to observe the engine WIRING supplies a representative rule. This is
-  // the US pro-rata return-of-capital: only the gain of a draw is taxable, basis returned
-  // in proportion to how much of the balance is basis. (The rule's own arithmetic is
-  // covered in @finley/rules; here it verifies the engine passes basis and honors gain.)
+  // Taxable-base policy lives behind the jurisdiction seam, so observing the engine
+  // WIRING needs a representative rule. This is US pro-rata return-of-capital: only the
+  // gain is taxable, basis returned in proportion to how much of the balance is basis.
+  // The rule's own arithmetic is covered in @finley/rules; here it only shows the engine
+  // passes basis and honors gain.
   const proRata = (b: WithdrawalTaxBasis): Cents => {
     if (b.balanceCents <= 0 || b.basisCents <= 0) return b.grossCents;
     const frac = Math.min(1, b.basisCents / b.balanceCents);

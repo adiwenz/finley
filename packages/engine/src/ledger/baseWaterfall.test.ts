@@ -1,8 +1,8 @@
 /**
- * The waterfall config (goals + levers) and the income plan descriptor
- * live on the value-editing surface (LedgerBaseConfig), not the event ledger.
- * These tests pin that they survive the replay → simulate bridge, so the
- * app's Budget/Accounts + Goals panels actually reach the waterfall.
+ * The waterfall config (goals + levers) and the income plan descriptor live on the
+ * value-editing surface (LedgerBaseConfig), not the event ledger. These tests pin that they
+ * survive the replay → simulate bridge, so the app's Budget/Accounts + Goals panels reach
+ * the waterfall.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";

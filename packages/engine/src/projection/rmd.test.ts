@@ -76,10 +76,10 @@ describe("Required Minimum Distributions", () => {
       ]),
       rmdStub,
     );
-    // No further draw between the year's single trigger (month 1) and the next (month 12).
+    // No draw between the year's trigger (month 1) and the next (month 12).
     expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
     expect(series.months[11].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
-    // Month 12 (2027, age 74): a second RMD of 10% of the remaining $90k = $9k.
+    // Month 12 (2027, age 74): 10% of the remaining $90k = $9k.
     expect(series.months[12].accountBalancesCents["pretax"]).toBe(dollarsToCents(81_000));
     expect(series.months[12].accountBalancesCents["cash"]).toBe(dollarsToCents(19_000));
   });

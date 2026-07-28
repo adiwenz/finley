@@ -1,14 +1,11 @@
 /**
- * The soft debt-to-income assessment for a *prospective* home purchase —
- * the app-side glue that feeds the engine's pure affordability arithmetic
- * (`assessDti`, `mortgagePaymentForPurchaseCents`) the household's real numbers.
- *
- * The arithmetic already lived in the engine but had zero call
- * sites. This derives the three inputs it needs from the live household at the
- * purchase month — gross monthly income, the mortgage the purchase would imply,
- * and the debt already being serviced — and returns the classification plus the
- * mortgage figure the warning copy quotes. It NEVER blocks; the caller records
- * the event regardless and only renders an advisory when a guideline is crossed.
+ * The soft debt-to-income assessment for a *prospective* home purchase — the app-side glue
+ * feeding the engine's pure affordability arithmetic (`assessDti`,
+ * `mortgagePaymentForPurchaseCents`) the household's real numbers. Derives its three inputs
+ * from the live household at the purchase month — gross monthly income, the mortgage the
+ * purchase would imply, and the debt already being serviced — and returns the
+ * classification plus the mortgage figure the warning copy quotes. NEVER blocks: the caller
+ * records the event regardless and renders an advisory only when a guideline is crossed.
  */
 
 import {
@@ -52,10 +49,9 @@ function monthlyGrossCents(
 }
 
 /**
- * Debt already serviced at `month`, before this purchase — scheduled liability
- * payments (mortgages, loans, card minimums) from the projected month's flows.
- * Month 0 carries no flows, and an empty ledger none at all, so this is 0
- * when nothing is owed.
+ * Debt already serviced at `month`, before this purchase — scheduled liability payments
+ * (mortgages, loans, card minimums) from the projected month's flows. 0 when nothing is
+ * owed: month 0 carries no flows, and an empty ledger none at all.
  */
 function existingMonthlyDebtCents(series: ProjectionSeries, month: number): Cents {
   return series.months[month]?.flows?.liabilityPaymentsCents ?? 0;

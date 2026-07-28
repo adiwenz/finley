@@ -56,7 +56,7 @@ describe("LoanEvent + DebtPayoffEvent", () => {
     expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(20_000));
     expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
 
-    // Snapshot presence and projected balance now agree about when it starts.
+    // Snapshot presence and projected balance agree about when it starts.
     expect(snapshotAt(ledger, 11).liabilities).toHaveLength(0);
     expect(snapshotAt(ledger, 12).liabilities.map((l) => l.id)).toEqual(["car"]);
   });
@@ -88,8 +88,8 @@ describe("LoanEvent + DebtPayoffEvent", () => {
       amountCents: dollarsToCents(5_000),
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Net worth is conserved (cash out = debt reduced): stays at $10k every month
-    // (at 0% APR with no income/expense; scheduled payments also zero the gap)
+    // Net worth is conserved (cash out = debt reduced): $10k every month at 0% APR with no
+    // income/expense, since scheduled payments also zero the gap.
     expect(series.months[6].liabilityBalancesCents["car"]).toBeLessThan(
       dollarsToCents(10_000),
     );

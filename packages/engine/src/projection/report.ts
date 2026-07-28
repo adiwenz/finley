@@ -1,14 +1,13 @@
 /**
- * Simulation report — the engine's complete, self-describing, JSON-serializable
- * account of a single run. This is the "headless Finley" output: hand it a
- * {@link HouseholdSimInput} and a {@link Jurisdiction} and get back everything the
- * simulator knows — the resolved inputs echoed for the record, plus a per-month
- * table carrying ages, balances (stocks), and cash flows (rates), including derived
- * government retirement benefit income. A consumer needs no engine internals to render, export,
- * or diff a run; the app's debug panel is just one such consumer.
+ * Simulation report — the engine's self-describing, JSON-serializable account of one run.
+ * The "headless Finley" output: a {@link HouseholdSimInput} plus a {@link Jurisdiction} in,
+ * everything the simulator knows out — resolved inputs echoed for the record, plus a
+ * per-month table of ages, balances (stocks) and cash flows (rates), including derived
+ * government retirement benefit income. Rendering, exporting or diffing a run needs no
+ * engine internals; the app's debug panel is one such consumer.
  *
- * Everything here is plain data (no class instances, no functions), so
- * `JSON.stringify(report)` round-trips losslessly.
+ * All plain data (no class instances, no functions), so `JSON.stringify(report)`
+ * round-trips losslessly.
  */
 
 import type { Cents } from "../money";
@@ -70,10 +69,9 @@ export interface ReportProperty {
 }
 
 /**
- * An income source as echoed in the report. Series are sampled — not fully
- * serialized — because the authoritative month-by-month figures live in each
- * {@link ReportMonth}'s `incomeByCategoryCents`; `monthlyCentsAtStart` is a
- * convenience sample of the source at month 0.
+ * An income source as echoed in the report. Series are sampled, not serialized: the
+ * authoritative month-by-month figures live in each {@link ReportMonth}'s
+ * `incomeByCategoryCents`, and `monthlyCentsAtStart` samples the source at month 0.
  */
 export interface ReportIncomeSource {
   readonly ownerId: string;
@@ -121,9 +119,9 @@ export interface ReportInputs {
   /** General CPI: the rate that drives inflation-linked series and the real/nominal split. */
   readonly annualInflationRate: number;
   /**
-   * The COLA rate actually applied to the government retirement benefit —
-   * the plan's `benefitColaRate` when set, else general CPI. RESOLVED, so a reader
-   * never has to re-apply the fallback; `benefitColaRateIsExplicit` says which it was.
+   * COLA rate applied to the government retirement benefit: the plan's `benefitColaRate`
+   * when set, else general CPI. RESOLVED, so no reader re-applies the fallback;
+   * `benefitColaRateIsExplicit` says which it was.
    */
   readonly benefitColaRate: number;
   /** Whether {@link benefitColaRate} was authored rather than inherited from CPI. */
@@ -162,17 +160,16 @@ export interface ReportMonth {
   /** Tax charged this month through the jurisdiction seam, all persons summed. */
   readonly taxCents: Cents;
   /**
-   * This month's tax broken out by {@link TaxCategory} — the tax analog of
-   * `incomeByCategoryCents`. Present for every flowed month (`{}` when no tax, otherwise Σ
-   * === `taxCents`); absent only for the flow-free opening month (month 0), which carries
-   * no flows at all.
+   * This month's tax by {@link TaxCategory} — the tax analog of `incomeByCategoryCents`.
+   * Present for every flowed month (`{}` when no tax, otherwise Σ === `taxCents`); absent
+   * only for the flow-free opening month 0.
    */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
-   * This month's tax broken out by income SOURCE — the finer
-   * sibling of {@link taxByCategoryCents}, keyed by each source's reporting id so a job's
-   * tax is named rather than collapsed into `wages`. Present for every flowed month (`{}`
-   * when no tax, otherwise Σ === `taxCents`); absent only for the flow-free month 0.
+   * This month's tax by income SOURCE — the finer sibling of {@link taxByCategoryCents},
+   * keyed by each source's reporting id so a job's tax is named rather than collapsed into
+   * `wages`. Present for every flowed month (`{}` when no tax, otherwise Σ === `taxCents`);
+   * absent only for the flow-free month 0.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source; absent when none deferred. */
@@ -184,9 +181,8 @@ export interface ReportMonth {
 }
 
 /**
- * The union of keys that appear across the run, so a consumer can lay out table
- * columns without scanning every row. Each list is stable-ordered by first
- * appearance.
+ * The union of keys appearing across the run, so a consumer can lay out table columns
+ * without scanning every row. Each list is stable-ordered by first appearance.
  */
 export interface ReportColumns {
   readonly personIds: readonly string[];
@@ -195,15 +191,13 @@ export interface ReportColumns {
   readonly propertyIds: readonly string[];
   readonly incomeCategories: readonly string[];
   /**
-   * The union of tax categories that appear across the run, so a consumer
-   * can lay out the stacked tax chart's bands. Empty when the jurisdiction reports no
-   * per-category breakdown anywhere (a single-band tax chart).
+   * Tax categories appearing across the run — the stacked tax chart's bands. Empty when the
+   * jurisdiction reports no per-category breakdown anywhere (a single-band chart).
    */
   readonly taxCategories: readonly string[];
   /**
-   * The union of income-source ids that ever bore tax across the run, so a consumer
-   * can lay out a per-source (per-job) stacked tax chart. Empty
-   * when the jurisdiction reports no per-source breakdown anywhere.
+   * Income-source ids that ever bore tax — the per-source (per-job) stacked tax chart's
+   * bands. Empty when the jurisdiction reports no per-source breakdown anywhere.
    */
   readonly taxSources: readonly string[];
 }
@@ -213,20 +207,18 @@ export interface SimulationReport {
   readonly columns: ReportColumns;
   readonly months: readonly ReportMonth[];
   /**
-   * Model simplifications worth disclosing to the end user — the engine's own
-   * neutral ones ({@link MODEL_ASSUMPTIONS}) followed by the jurisdiction's own
-   * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}, e.g. US tax-
-   * threshold forward indexing), so a consumer can render an "assumptions &
-   * simplifications" surface rather than re-deriving them. Each is declared where it is
-   * embodied. Stable across a run.
+   * Model simplifications to disclose to the end user: the engine's neutral ones
+   * ({@link MODEL_ASSUMPTIONS}) then the jurisdiction's
+   * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}, e.g. US tax-threshold
+   * forward indexing), so a consumer renders an "assumptions & simplifications" surface
+   * rather than re-deriving it. Each is declared where it is embodied. Stable across a run.
    */
   readonly assumptions: readonly ModelAssumption[];
   /**
-   * Caller-supplied configuration echoed back verbatim (see the `meta` argument of
-   * {@link summarizeSimulation}). The engine treats it as an opaque bag — it stays
-   * app-agnostic — while giving a consumer one place to round-trip the higher-level,
-   * human-authored knobs that its own inputs compiled away (e.g. the app records the
-   * full value-editing surface here: life expectancy, retirement age, health config).
+   * Caller-supplied configuration echoed back verbatim (the `meta` argument of
+   * {@link summarizeSimulation}). An opaque bag to the engine, which stays app-agnostic,
+   * and one place for a consumer to round-trip the human-authored knobs its own inputs
+   * compiled away (the app records life expectancy, retirement age, health config here).
    * Absent when the caller supplies none.
    */
   readonly meta?: Readonly<Record<string, unknown>>;
@@ -235,9 +227,8 @@ export interface SimulationReport {
 const DEFAULT_START_YEAR = 2026;
 
 /**
- * The growth-rate echo shared by income and expense sources: the rate in force at
- * month 0, the mode that produced it, and the full schedule. One helper so the two
- * source shapes cannot drift in how they report a rate.
+ * The growth-rate echo shared by income and expense sources: rate in force at month 0, the
+ * mode that produced it, the full schedule. One helper so the two shapes cannot drift.
  */
 function growthEcho(series: SimCashFlowSeries): {
   annualGrowthRate: number;
@@ -287,8 +278,8 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
       openingBalanceCents: l.openingBalanceCents,
       startMonth: l.startMonth,
       apr: l.apr,
-      // The DTO stays flat with explicit nulls (a greppable wire format the debug
-      // export echoes verbatim); the kind-split lives only in the derived classes.
+      // Flat DTO with explicit nulls — a greppable wire format the debug export echoes
+      // verbatim; the kind-split lives only in the derived classes.
       termMonths: l instanceof AmortizingLoan ? l.termMonths : null,
       creditLimitCents: l instanceof RevolvingCard ? l.creditLimitCents : null,
     })),
@@ -340,15 +331,13 @@ function unionKeys(
 
 /**
  * Assemble a {@link SimulationReport} from a run's resolved input and its
- * {@link ProjectionSeries}. Exposed alongside {@link buildSimulationReport} so a
- * caller that has *already* simulated (the app draws the same series for its chart)
- * can build the report without paying for a second simulation.
+ * {@link ProjectionSeries}. Exposed alongside {@link buildSimulationReport} so a caller
+ * that already simulated (the app draws the same series for its chart) avoids a second run.
  *
- * `meta` is echoed verbatim onto {@link SimulationReport.meta} — the seam for a
- * consumer's higher-level config that the engine's own inputs don't carry. Pass the
- * `jurisdiction` so its own disclosures ({@link
- * import("../jurisdiction").Jurisdiction.modelAssumptions}) join the engine's on the
- * report; omit it (the standalone path) and the report carries only the engine's.
+ * `meta` is echoed verbatim onto {@link SimulationReport.meta} — the seam for consumer
+ * config the engine's inputs don't carry. Pass `jurisdiction` so its disclosures
+ * ({@link import("../jurisdiction").Jurisdiction.modelAssumptions}) join the engine's;
+ * omit it (the standalone path) and only the engine's appear.
  */
 export function summarizeSimulation(
   input: HouseholdSimInput,
@@ -404,17 +393,17 @@ export function summarizeSimulation(
     inputs: echoInputs(input),
     columns,
     months,
-    // Engine's neutral simplifications first, then the jurisdiction's own: the
-    // US-specific caveats (e.g. tax-threshold forward indexing) ride the jurisdiction.
+    // Engine's neutral simplifications first, then the jurisdiction's: US-specific caveats
+    // (e.g. tax-threshold forward indexing) ride the jurisdiction.
     assumptions: [...MODEL_ASSUMPTIONS, ...(jurisdiction?.modelAssumptions ?? [])],
     ...(meta !== undefined ? { meta } : {}),
   };
 }
 
 /**
- * Run the simulator and produce the complete {@link SimulationReport} — the
- * headless entry point: inputs in, everything out. Prefer {@link summarizeSimulation}
- * when you already hold the run's {@link ProjectionSeries}. `meta` is echoed verbatim.
+ * Run the simulator and produce the {@link SimulationReport} — the headless entry point:
+ * inputs in, everything out. Prefer {@link summarizeSimulation} when you already hold the
+ * run's {@link ProjectionSeries}. `meta` is echoed verbatim.
  */
 export function buildSimulationReport(
   input: HouseholdSimInput,

@@ -15,10 +15,9 @@ interface RelationshipDraft {
   readonly month: number;
   readonly name: string;
   /**
-   * The partner's age **in the year they join** — the moment this form describes, so it
-   * is the age the user actually has in mind ("they'll be 45 when we marry"). A birth
-   * year would make them do the arithmetic, and every other age in the app (yours, a
-   * retirement age, a job's start age) is an age too.
+   * The partner's age **in the year they join** — the moment this form describes, so the
+   * age the user has in mind ("they'll be 45 when we marry"). A birth year would make them
+   * do the arithmetic, and every other age in the app is an age too.
    */
   readonly age: number;
   /** The age their open-ended jobs stop — their own, not the household's. */
@@ -44,13 +43,12 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
   const partnerId = `p-${nextId}`;
   const joinYear = yearOfMonth(draft.month);
   /**
-   * Their birth year — what the engine actually reasons in. Derived from the age at the
-   * join year, so moving the wedding later keeps them the age the user entered and
-   * shifts the birth year, which is what "they'll be 45 when we marry" means. It drives
-   * their whole arc: when their open-ended jobs stop (birthYear + retirement age), when
-   * their Social Security starts (birthYear + claiming age), their RMDs, and the ages
-   * their authored jobs resolve against. A hardcoded 40 put every partner's benefit in
-   * the same calendar year whoever they were.
+   * Their birth year — what the engine reasons in. Derived from the age at the join year,
+   * so moving the wedding later keeps them the age entered and shifts the birth year, which
+   * is what "they'll be 45 when we marry" means. Drives their whole arc: when open-ended
+   * jobs stop (birthYear + retirement age), when Social Security starts (birthYear +
+   * claiming age), RMDs, and the ages their jobs resolve against. A hardcoded 40 would put
+   * every partner's benefit in the same calendar year.
    */
   const partnerBirthYear = joinYear - draft.age;
 
@@ -68,10 +66,8 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
       id: `e${nextId}`,
       type: "RelationshipEvent",
       month: draft.month,
-      // Authoring the Person: the partner joins with the name and any jobs the user
-      // authored. Their jobs — scoped to the partner as owner — drive their earned
-      // income, 401(k) deferral, and Social-Security-covered earnings exactly as the
-      // primary earner's do. With no jobs the partner joins as before.
+      // The partner's jobs — scoped to them as owner — drive their earned income, 401(k)
+      // deferral, and Social-Security-covered earnings just as the primary earner's do.
       person: {
         id: partnerId,
         name: draft.name || "Partner",
@@ -99,8 +95,8 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         />
       </label>
 
-      {/* Their age, anchored to the year they join so there is nothing to infer: at
-          month 0 that year IS now. Drives their retirement, benefit, and job ages. */}
+      {/* Anchored to the join year so there is nothing to infer: at month 0 that year IS
+          now. Drives their retirement, benefit, and job ages. */}
       <NumInput
         label={`Their age in ${joinYear}`}
         value={draft.age}
@@ -110,9 +106,8 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         step={1}
       />
 
-      {/* The partner's own jobs — the same job model and form the primary
-          earner uses, scoped to the partner. Authored up front; a partner with none
-          joins exactly as before. */}
+      {/* The partner's own jobs — the same model and form the primary earner uses, scoped
+          to them, authored up front. */}
       <div className="field">
         <span className="field-label">Jobs (optional)</span>
         {draft.jobs.length === 0 ? (
@@ -140,10 +135,9 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         )}
         {addingJob ? (
           <JobForm
-            // Scoped to the partner: no picker here (they are the only owner in this
-            // form), and the ages are theirs. Once they have joined, the Jobs panel
-            // lists these alongside everyone else's and can reassign them.
-            // Seeded at the age they join, so a fresh job starts the year they arrive.
+            // Scoped to the partner: no owner picker (they are the only one here) and the
+            // ages are theirs. Seeded at the join age, so a fresh job starts the year they
+            // arrive. Once joined, the Jobs panel lists and can reassign these.
             initial={blankJobDraftFor(partnerId, draft.age)}
             submitLabel="Add"
             onSubmit={addJob}
@@ -156,16 +150,14 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
         )}
       </div>
 
-      {/* Their two life-stage ages sit behind a disclosure — both have sensible
-          defaults, and a partner who retires and claims like anyone else needs neither.
-          Labelled "Their …" because the primary earner's own versions of both are on
-          screen at the same time, in the Budget editor. */}
+      {/* Two life-stage ages behind a disclosure — both default sensibly. Labelled
+          "Their …" because the primary earner's versions are on screen at the same time,
+          in the Budget editor. */}
       <details className="advanced">
         <summary>Advanced</summary>
-        {/* Not chained to their current age, unlike the primary earner's: a partner who
-            has ALREADY retired is a real thing to author (no earned income, a benefit at
-            their claiming age), and the household's own retirement age has no say over
-            when they stopped working. */}
+        {/* Not chained to their current age, unlike the primary earner's: an ALREADY
+            retired partner is a real thing to author (no earned income, a benefit at their
+            claiming age), and the household's retirement age has no say over it. */}
         <NumInput
           label="Their retirement age"
           value={draft.retirementAge}
@@ -174,8 +166,8 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
           max={80}
           step={1}
         />
-        {/* The pinned claiming age (62–70), theirs to set — their benefit rides
-            their own covered earnings, so it begins on their clock, not the household's. */}
+        {/* Claiming age 62–70, theirs to set — their benefit rides their own covered
+            earnings, so it begins on their clock, not the household's. */}
         <NumInput
           label="Their Social Security claiming age"
           value={draft.claimingAge}

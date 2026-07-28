@@ -3,7 +3,7 @@
  * at the selected month, the one question an edit asks ("just this month, or from here
  * forward?"), and the echo of where that edit was routed.
  *
- * Stateless: a staged edit belongs to the panel (moving the month drops it), and the
+ * Stateless: the staged edit belongs to the panel (moving the month drops it), and the
  * disclosed form is single-at-a-time across this list and the contributions list.
  */
 
@@ -33,9 +33,9 @@ export interface SpendingEditActions {
 }
 
 /**
- * What a row's input shows: the staged value while an edit awaits its how-long answer,
- * the resolved amount otherwise. A field that snapped back to the stored value on every
- * keystroke would be unusable.
+ * What a row's input shows: the staged value while an edit awaits its how-long answer, the
+ * resolved amount otherwise — a field snapping back to the stored value on every keystroke
+ * would be unusable.
  */
 function getInputCents(
   lineId: string,
@@ -47,8 +47,8 @@ function getInputCents(
 }
 
 /**
- * Where an edit landed, in one line. Named with the row's own `label`: the route carries
- * the line's authoring `id` ("dining"), not what the row above says ("Dining & fun").
+ * Where an edit landed, in one line. Uses the row's `label` because the route carries only
+ * the line's authoring `id` ("dining"), not what the row says ("Dining & fun").
  */
 function describeRoute(route: MonthEditRoute, label: string): string {
   switch (route.kind) {
@@ -157,7 +157,7 @@ export function SpendingEditor({
         />
       ))}
 
-      {/* ── The one question an edit asks: how long does this last? ── */}
+      {/* The one question an edit asks: how long does this last? */}
       {pending !== null && (
         <div
           className={styles.scopePrompt}

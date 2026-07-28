@@ -2,13 +2,12 @@ import type { Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
 
 /**
- * PER-PERSON attribution invariant, checked as each person is
- * taxed and BEFORE anything is aggregated. The jurisdiction's contract is that the Σ of its
- * per-category breakdown equals its own scalar `computeTaxCents` for the SAME taxable input —
- * so we assert it per person. Checking here, not only on the household total, catches
- * OFFSETTING errors: one person over-attributed and another under by the same amount would
- * reconcile at the household level yet each be wrong. Exact to the cent (integer cents; a
- * zero-tax person trivially passes with a `{}` breakdown).
+ * PER-PERSON attribution invariant, checked as each person is taxed and BEFORE
+ * aggregation. The jurisdiction's contract: Σ of its per-category breakdown equals its own
+ * scalar `computeTaxCents` for the SAME taxable input. Asserting per person, not only on
+ * the household total, catches OFFSETTING errors — one person over-attributed and another
+ * under by the same amount reconciles at household level yet each is wrong. Exact to the
+ * cent; a zero-tax person passes trivially with a `{}` breakdown.
  */
 export function assertPersonTaxBreakdownReconciles(
   personId: string,
@@ -26,19 +25,17 @@ export function assertPersonTaxBreakdownReconciles(
 }
 
 /**
- * HOUSEHOLD attribution invariant — the second check. When any
- * tax is charged, the per-source breakdown MUST reconcile to the scalar `taxCents`. This is
- * what keeps the take-home cash-flow chart honest: it derives each source's net as `cashInflow
- * − deferral − attributed tax`, so a partial `taxBySourceCents` would leave tax un-subtracted
- * and overstate take-home. An incomplete jurisdiction implementation is a bug we fail loudly
- * on, not a misleading chart we render.
+ * HOUSEHOLD attribution invariant — the second check: whenever tax is charged, the
+ * per-source breakdown MUST reconcile to the scalar `taxCents`. This keeps the take-home
+ * cash-flow chart honest, since it derives each source's net as `cashInflow − deferral −
+ * attributed tax`; a partial `taxBySourceCents` would leave tax un-subtracted and overstate
+ * take-home. Fail loudly on an incomplete jurisdiction rather than render a misleading chart.
  *
- * Reconciliation is EXACT to the cent — no tolerance. Everything here is integer cents:
- * `attributeTaxToSources` splits each category's tax with {@link apportionByWeight}
- * (largest-remainder, Σ shares === the category tax exactly), and the {@link
- * assertPersonTaxBreakdownReconciles} per-person invariant has already pinned each person's
- * breakdown to their scalar. So the household Σ equals `taxCents` on the nose; any deviation
- * is a bug, not benign rounding. A jurisdiction that charges NO tax (`taxCents` 0) is exempt.
+ * EXACT to the cent, no tolerance. Everything is integer cents: `attributeTaxToSources`
+ * splits each category with {@link apportionByWeight} (largest-remainder, Σ shares === the
+ * category tax), and {@link assertPersonTaxBreakdownReconciles} has already pinned each
+ * person's breakdown to their scalar. Any deviation is a bug, not benign rounding. A
+ * jurisdiction charging no tax (`taxCents` 0) is exempt.
  */
 export function assertTaxAttributionReconciles(
   taxCents: Cents,

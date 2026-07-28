@@ -1,10 +1,9 @@
 /**
- * Ledger transfers — the shared, immutable value descriptors for one-time money
- * movements. A payoff produces a matched pair: a {@link LiabilityTransfer}
- * that reduces the owed balance and an {@link AccountTransfer} for the funding
- * outflow. These sit on the boundary between the mutable interpret accumulator
- * ({@link InterpretState}) and the immutable {@link Household} it converts to, so
- * both depend on this module rather than on each other.
+ * Ledger transfers — immutable value descriptors for one-time money movements. A payoff
+ * produces a matched pair: a {@link LiabilityTransfer} reducing the owed balance and an
+ * {@link AccountTransfer} for the funding outflow. They sit between the mutable interpret
+ * accumulator ({@link InterpretState}) and the immutable {@link Household} it converts to,
+ * so both depend on this module rather than on each other.
  */
 
 import type { Cents } from "../money";
@@ -27,28 +26,25 @@ export interface AccountTransfer {
 }
 
 /**
- * Why a {@link FundingDraw} exists — drives its reporting provenance downstream: the
- * simulator names the draw's flow bands from it (`REPORT_PREFIX` in {@link
- * import("../projection/fundingDrawStep")}), and nothing else about the resolution reads it.
- * So a new money-out event (One-Time Spend) adds a reason here plus its prefix there,
- * and reuses the whole channel unchanged.
+ * Why a {@link FundingDraw} exists — reporting provenance only: the simulator names the
+ * draw's flow bands from it (`REPORT_PREFIX` in
+ * {@link import("../projection/fundingDrawStep")}); nothing in the resolution reads it. A new
+ * money-out event adds a reason here plus its prefix there and reuses the channel unchanged.
  */
 export type FundingReason = "homeDownPayment";
 
 /**
- * An ordered, cross-account outflow resolved at SIMULATION time — the money-out
- * primitive for events that fund a fixed amount from a user-ordered list of
- * sources (Home Purchase today; the One-Time Spend event next).
+ * An ordered, cross-account outflow resolved at SIMULATION time — the money-out primitive for
+ * events funding a fixed amount from a user-ordered source list (Home Purchase today).
  *
- * Unlike an {@link AccountTransfer}, whose per-account amount is fixed the moment
- * it is authored, a funding draw's split across its sources depends on each source's
- * BALANCE at `month` — which is only known once the projection runs. So the ledger
- * records the intent (drain `amountCents` from `sourceIds`, in order) and the
- * simulator resolves it: it takes as much as each source holds before moving to the
- * next, mirroring the shared {@link import("./funding").drainSources} helper. Each
- * contributing draw reduces its account's balance and returns basis pro-rata, and is
- * surfaced in the diagnostic flow view — an investment source's gain as capital-gains
- * income, its returned principal (and any cash source) as a savings drawdown.
+ * Unlike an {@link AccountTransfer}, whose per-account amount is fixed at authoring time, a
+ * funding draw's split depends on each source's BALANCE at `month`, known only once the
+ * projection runs. So the ledger records the intent (drain `amountCents` from `sourceIds`, in
+ * order) and the simulator resolves it, taking as much as each source holds before moving to
+ * the next — mirroring {@link import("./funding").drainSources}. Each contributing draw
+ * reduces its account's balance, returns basis pro-rata, and surfaces in the diagnostic flow
+ * view: an investment source's gain as capital-gains income, its returned principal (and any
+ * cash source) as a savings drawdown.
  */
 export interface FundingDraw {
   readonly month: number;

@@ -1,30 +1,26 @@
 import type { Cents, HealthCostContext } from "@finley/engine";
 
 /**
- * US health-cost benchmarks — the attributed monthly figures behind the Medicare
- * step (shape 2). Medicare is an eligibility age (65) that triggers a
- * DOWNWARD step in health cost: before it, an early retiree self-funds coverage
- * at an elevated rate; at/after it, Medicare replaces most of that but a residual
- * (premiums / Part B / supplements / out-of-pocket) remains — the step does not
- * go to zero.
+ * US health-cost benchmarks — the attributed monthly figures behind the Medicare step
+ * (shape 2). Medicare eligibility at 65 steps health cost DOWNWARD: before it an early
+ * retiree self-funds coverage at an elevated rate; at/after it Medicare replaces most of
+ * that, but a residual (premiums / Part B / supplements / out-of-pocket) remains — the step
+ * does not go to zero.
  *
- * This is the `rules`-side plug for the engine's
- * {@link import("@finley/engine").Jurisdiction.healthCostBenchmarkMonthlyCents}
- * seam. The engine owns the pure early-retiree honesty flag
- * ({@link import("@finley/engine").assessEarlyRetireeHealthCost}); this module
- * owns the eligibility age and the two dollar figures, in one place, behind the
- * pluggable jurisdiction concept.
+ * The `rules`-side plug for the engine's
+ * {@link import("@finley/engine").Jurisdiction.healthCostBenchmarkMonthlyCents} seam. The
+ * engine owns the pure early-retiree honesty flag
+ * ({@link import("@finley/engine").assessEarlyRetireeHealthCost}); this module owns the
+ * eligibility age and the two dollar figures.
  *
- * These make the pre-65 vs. post-65 gap VISIBLE — the decade between an early
- * retirement (say 55) and Medicare at 65 is expensive self-funded insurance the
- * retirement solver must reflect. The app pre-fills the attributed stepped
- * segment and the early-retirement nudge from these figures; it is NOT a silent
- * auto-step in the sim (health is an authored budget item).
+ * They make the pre-65 vs post-65 gap VISIBLE — the decade between retiring at, say, 55 and
+ * Medicare at 65 is expensive self-funded insurance the solver must reflect. The app
+ * pre-fills the stepped segment and the early-retirement nudge from these; it is NOT a
+ * silent auto-step in the sim (health is an authored budget item).
  *
- * ⚠ Estimates, not advice. These are current US costs and change yearly; the
- * pre-65 figure is UNSUBSIDISED (v1 conservative — real ACA subsidies would lower
- * it). Forward years are INDEXED at a health-specific inflation rate (medical
- * inflation runs above CPI), not held flat ("indexed forward").
+ * ⚠ Estimates, not advice. Current US costs, changing yearly; the pre-65 figure is
+ * UNSUBSIDISED (v1 conservative — real ACA subsidies would lower it). Forward years are
+ * indexed at a health-specific rate, since medical inflation runs above CPI.
  */
 
 // Legislated / benchmark base-year constants, one place, disclaimed.
@@ -41,10 +37,9 @@ const BASE_PRE65_SELF_FUNDED_MONTHLY_CENTS: Cents = 1_200_00;
 const BASE_MEDICARE_RESIDUAL_MONTHLY_CENTS: Cents = 500_00;
 
 /**
- * Assumed forward medical-inflation rate for the benchmarks. Health costs
- * historically outpace CPI; the projection has no year-by-year rate in the seam
- * context, so this rules-side estimate stands in.
- * ⚠ Estimate — actual medical inflation varies and is published in arrears.
+ * Assumed forward medical-inflation rate. Health costs historically outpace CPI, and the
+ * seam context carries no year-by-year rate, so this rules-side estimate stands in.
+ * ⚠ Actual medical inflation varies and is published in arrears.
  */
 const ASSUMED_ANNUAL_HEALTH_INFLATION_RATE = 0.05;
 
@@ -52,10 +47,9 @@ const ASSUMED_ANNUAL_HEALTH_INFLATION_RATE = 0.05;
 const ROUND_DOLLAR_CENTS: Cents = 1_00;
 
 /**
- * Index a base-year figure forward to `year`, rounded DOWN to `incrementCents`.
- * Years at or before the base year return the base unchanged — no backward
- * indexing. Rounding down keeps the result monotonically non-decreasing as the
- * year advances (mirrors `contributionLimits.indexForward`).
+ * Index a base-year figure forward to `year`, rounded DOWN to `incrementCents`. Years at or
+ * before the base year return the base unchanged — no backward indexing. Rounding down keeps
+ * the result monotonically non-decreasing (mirrors `contributionLimits.indexForward`).
  */
 function indexForward(baseCents: Cents, year: number, incrementCents: Cents): Cents {
   const years = year - HEALTH_COST_BASE_YEAR;
@@ -94,10 +88,9 @@ export function healthCostBenchmark(year: number): HealthCostBenchmark {
 }
 
 /**
- * The engine's health-cost benchmark seam: the attributed monthly health cost for
- * a person of `ctx.age` in `ctx.year` — the elevated self-funded figure below the
- * Medicare-eligibility age, the lower residual at/after it. This is the
- * "visible attributed step" (down at 65) and the benchmark the early-retiree
+ * The engine's health-cost benchmark seam: monthly health cost for a person of `ctx.age` in
+ * `ctx.year` — the elevated self-funded figure below the Medicare-eligibility age, the lower
+ * residual at/after it. The visible step down at 65, and the benchmark the early-retiree
  * honesty flag compares an authored health expense against.
  */
 export function healthCostBenchmarkMonthlyCents(ctx: HealthCostContext): Cents {

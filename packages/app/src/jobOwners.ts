@@ -1,15 +1,13 @@
 /**
  * Who in the household can own a job, and where that person's jobs are authored.
  *
- * Earned income is per-person: every household member holds their own `jobs` array. But
- * the two members' arrays live on different planes. The primary person's jobs are
- * standing plan data (`Plan.jobs`, the value-editing plane); a partner's ride the
- * `RelationshipEvent` that brought them into the household (the ledger). The Jobs panel
- * shouldn't have to know that: it asks for the household's job owners and gets one
- * uniform list — name, birth year, jobs, and a `writeTarget` saying which plane to write
- * back to.
+ * Earned income is per-person, but the two members' arrays live on different planes: the
+ * primary person's jobs are standing plan data (`Plan.jobs`, the value-editing plane), a
+ * partner's ride the `RelationshipEvent` that brought them into the household (the ledger).
+ * The Jobs panel shouldn't have to know that — it gets one uniform list of owners, each
+ * with a `writeTarget` naming the plane to write back to.
  *
- * Pure derivation over the already-interpreted {@link Household} plus the ledger, so it
+ * A pure derivation over the already-interpreted {@link Household} plus the ledger, so it
  * is unit-testable without React.
  */
 
@@ -30,8 +28,8 @@ export interface JobOwner {
   readonly birthYear: number;
   /**
    * The age their open-ended jobs stop at — *their* retirement, not the household's. It
-   * bounds how many years they can defer into a 401(k), and the elective limit is per
-   * person, so the deferral scan needs each earner's own working span.
+   * bounds their 401(k) deferral years, and the elective limit is per person, so the
+   * deferral scan needs each earner's own working span.
    */
   readonly retirementTargetAge: number;
   readonly jobs: readonly Job[];
@@ -43,9 +41,9 @@ export interface JobOwner {
 }
 
 /**
- * Every member of the household as a job owner, in join order (the primary person
- * first). A member added by an event but whose `RelationshipEvent` cannot be found is
- * omitted rather than listed unwritably — there is no plane to author their jobs on.
+ * Every household member as a job owner, in join order (primary first). A member added by
+ * an event whose `RelationshipEvent` can't be found is omitted rather than listed
+ * unwritably — there is no plane to author their jobs on.
  */
 export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobOwner[] {
   const relationshipFor = new Map<string, RelationshipEvent>();
@@ -55,8 +53,8 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
 
   const owners: JobOwner[] = [];
   for (const m of household.memberships) {
-    // The primary joins with the base household (`-Infinity`), so their jobs are plan
-    // data; anyone who joined at a real month arrived on an event.
+    // The primary joins with the base household (`-Infinity`) so their jobs are plan data;
+    // anyone joining at a real month arrived on an event.
     const joinedByEvent = Number.isFinite(m.startMonth);
     const event = relationshipFor.get(m.person.id);
     if (joinedByEvent && event === undefined) continue;

@@ -1,10 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * RelationshipForm — a partner joins the household. Pins that the partner
- * can be authored WITH their own jobs (the same job model and form the primary earner
- * uses), scoped to the partner, and that a partner with no authored jobs joins exactly
- * as before (single-earner plans unchanged).
+ * RelationshipForm — a partner joins the household. Pins that a partner can be authored WITH
+ * their own jobs (the same job model and form the primary earner uses), scoped to them, and
+ * that a partner with no jobs joins as before, leaving single-earner plans unchanged.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -49,8 +48,8 @@ describe("RelationshipForm — partner jobs", () => {
   });
 
   it("takes the partner's age at the year they join, and stores it as their birth year", () => {
-    // The age is what the user has in mind at the moment the form describes; the engine
-    // reasons in a birth year, which drives when their jobs stop and their benefit starts.
+    // The user thinks in an age at the moment the form describes; the engine reasons in a
+    // birth year, which drives when their jobs stop and their benefit starts.
     const onAdd = renderForm(60); // joining in Year 5 → 2031
     expect(spin(/Their age in 2031/i)).toBeTruthy();
     fireEvent.change(spin(/Their age/i), { target: { value: "45" } });
@@ -90,8 +89,8 @@ describe("RelationshipForm — partner jobs", () => {
   });
 
   it("lets a partner who has already retired join — their own clock, not the household's", () => {
-    // Their retirement age is deliberately NOT chained to their current age (the primary
-    // earner's is): a 68-year-old partner who stopped working at 62 is a real scenario.
+    // Their retirement age is NOT chained to their current age (the primary earner's is): a
+    // 68-year-old partner who stopped working at 62 is a real scenario.
     const onAdd = renderForm(0);
     fireEvent.change(spin(/Their age/i), { target: { value: "68" } });
     fireEvent.change(spin(/Their retirement age/i), { target: { value: "62" } });

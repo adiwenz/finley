@@ -1,17 +1,15 @@
 /**
- * Budget/Accounts panel — person-partitioned ongoing numbers plus a
- * Shared section, all edited directly (no timeline event). Advanced knobs
- * (account return, pre-tax deferral %) are progressively disclosed behind the
- * plain number. The Shared section carries two of the four waterfall
- * levers (split scheme, surplus destination); the deferral % is the third and
- * goal priority (the fourth) lives in the Goals panel.
+ * Budget/Accounts panel — person-partitioned ongoing numbers plus a Shared section, all
+ * edited directly (no timeline event). Advanced knobs (account return, pre-tax deferral %)
+ * are disclosed behind the plain number. Shared carries two of the four waterfall levers
+ * (split scheme, surplus destination); deferral % is the third and goal priority the
+ * fourth, in the Goals panel.
  *
- * Spending is NOT edited here. The line-item budget (Base + Adjustments) is the single
- * source of truth for expenses — a non-empty `Plan.budgetLines` replaces the scalar
- * `expenseCents` series outright (`projectionBase.ts`), so a second scalar control
- * would have been an editable field with no effect. Earned income is likewise NOT edited
- * here: the Jobs panel is the single authoring surface for jobs (salary, span, 401(k)),
- * so income, the age a career began, and the pre-tax deferral all live per-job there.
+ * Spending is NOT edited here: the line-item budget (Base + Adjustments) is the single
+ * source of truth, since a non-empty `Plan.budgetLines` replaces the scalar `expenseCents`
+ * series outright (`projectionBase.ts`) — a second scalar control would edit nothing.
+ * Earned income likewise: the Jobs panel is the single authoring surface, so salary, span,
+ * career start and 401(k) deferral all live per-job there.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -38,8 +36,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
       <h2>Budget &amp; accounts</h2>
       <p className="hint">Edit ongoing numbers directly — this doesn’t add a timeline event.</p>
 
-      {/* One section per household member. Today there is a single member; the
-          shape is partitioned so partners drop in as their own sections. */}
+      {/* One section per household member — a single member today, but partitioned so
+          partners drop in as their own sections. */}
       <section className="budget-member" aria-label={`${budget.name || "You"}’s budget`}>
         <label className="field name-field">
           <span className="field-label">Name</span>
@@ -105,11 +103,10 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           used to show today’s-dollars (real) figures. Estimate, not advice.
         </p>
 
-        {/* The life-stage ages the retirement solver counts from and reports
-            against — current age is "now", retirement age is the pinned target the
-            panel scores on-track %, life expectancy is how long the money must last.
-            The bounds chain them so the plan stays ordered (current ≤ retirement ≤
-            life expectancy); the fields clamp to these on blur. */}
+        {/* Life-stage ages the retirement solver counts from: current age is "now",
+            retirement age the pinned target the panel scores on-track %, life expectancy
+            how long the money must last. The bounds chain them so the plan stays ordered
+            (current ≤ retirement ≤ life expectancy); fields clamp on blur. */}
         <NumInput
           label="Current age"
           value={budget.currentAge}
@@ -135,9 +132,8 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           step={1}
         />
 
-        {/* The pinned Social Security claiming age (62–70). The retirement
-            solver reads it — benefits begin at this age, so delaying raises the
-            monthly benefit but pushes it later. An estimate, not advice. */}
+        {/* The pinned Social Security claiming age (62–70), read by the retirement solver:
+            delaying raises the monthly benefit but pushes it later. Estimate, not advice. */}
         <NumInput
           label="Social Security claiming age"
           value={budget.benefitClaimingAge}
@@ -159,8 +155,7 @@ export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
           step={1000}
         />
 
-        {/* The plain numbers are above; the rate and deferral lever are
-            disclosed on demand rather than shown by default. */}
+        {/* Plain numbers above; the rate and deferral levers disclose on demand. */}
         <details className="advanced">
           <summary>Advanced</summary>
           <NumInput

@@ -1,8 +1,7 @@
 /**
- * Who can own a job, and which plane their jobs are authored on. This is
- * the seam that lets one Jobs panel edit both the primary person's standing plan jobs
- * and a partner's, which ride the RelationshipEvent that brought them into the
- * household — so what it must never do is confuse the two.
+ * Who can own a job, and which plane their jobs are authored on. The seam that lets one Jobs
+ * panel edit both the primary person's standing plan jobs and a partner's, which ride the
+ * RelationshipEvent that brought them into the household — it must never confuse the two.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -91,8 +90,8 @@ describe("jobOwnersOf", () => {
   });
 
   it("omits a member with no event to write back to, rather than listing them unwritably", () => {
-    // A household member the ledger cannot account for has no authoring plane, so
-    // offering to edit their jobs would be offering an edit that goes nowhere.
+    // A member the ledger cannot account for has no authoring plane, so offering to edit
+    // their jobs would be offering an edit that goes nowhere.
     const household = interpretLedger(ledgerOf(joining(60, [partnerJob])), base);
     expect(jobOwnersOf(household, emptyLedger).map((o) => o.name)).toEqual([PLAN_DEFAULTS.name]);
   });

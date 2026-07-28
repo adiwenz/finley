@@ -1,10 +1,9 @@
 /**
- * Engine-native property tests for the retirement solver, run off the same real
- * projection the net-worth graph draws. Driven by the purpose-built
- * {@link samplePlan} fixture and {@link mockJurisdiction} so they run standalone
- * against the engine with no rules package. The app keeps the real-jurisdiction
- * acceptance tests (panel age == first surviving projection age on the default plan
- * under `usJurisdiction`); these pin the solver's behaviour itself.
+ * Engine-native property tests for the retirement solver, run off the same projection the
+ * net-worth graph draws. {@link samplePlan} and {@link mockJurisdiction} keep them
+ * standalone, with no rules package. The app holds the real-jurisdiction acceptance tests
+ * (panel age == first surviving projection age on the default plan under
+ * `usJurisdiction`); these pin the solver's own behaviour.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -36,7 +35,7 @@ function survivesAt(budget: Plan, age: number): boolean {
 describe("retirementSolver — survival off the real projection", () => {
   it("survival is monotonic in the retirement age (later never hurts)", () => {
     // Once an age survives, every later age must too — the property the binary search
-    // relies on. Walk the whole range and assert survival never flips true→false.
+    // relies on. Walk the range and assert survival never flips true→false.
     let seenSurviving = false;
     for (let age = samplePlan.currentAge; age <= samplePlan.lifeExpectancy; age++) {
       const ok = survivesAt(samplePlan, age);
@@ -59,13 +58,12 @@ describe("retirementSolver — survival off the real projection", () => {
   });
 
   it("counts a solvent household that is merely underwater as surviving", () => {
-    // A student loan (or a new mortgage) puts a household's net worth below zero for
-    // years while every bill is paid on time — the "negative but improving" case.
-    // Judging survival on the net-worth SIGN failed such a plan at month 0 and told the
-    // user no retirement age was feasible, while the graph beside it drew the plan
-    // sailing to life expectancy. Survival is insolvency, not the sign.
-    // Working to life expectancy — a plan that is unambiguously funded, so the ONLY
-    // thing under test is the loan pushing net worth below zero.
+    // A student loan (or new mortgage) puts net worth below zero for years while every
+    // bill is paid — the "negative but improving" case. Judging survival on the net-worth
+    // SIGN failed such a plan at month 0 and reported no feasible retirement age while the
+    // graph beside it sailed to life expectancy. Survival is insolvency, not the sign.
+    // Retiring at life expectancy makes the plan unambiguously funded, so the loan is the
+    // only thing under test.
     const funded: Plan = { ...samplePlan, retirementAge: samplePlan.lifeExpectancy };
     const withLoan = addEvent(emptyLedger, createProjectionBase(funded, CTX), {
       id: "loan-1",
@@ -88,8 +86,8 @@ describe("retirementSolver — survival off the real projection", () => {
   });
 
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
-    // Once insolvent, net worth is null. `null >= 0` is `true` in JS, so a
-    // naive survival check would wrongly pass those months — this pins the guard.
+    // Once insolvent, net worth is null — and `null >= 0` is `true` in JS, so a naive
+    // survival check would pass those months. This pins the guard.
     const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
     const series = projectScenario(scenarioOf(broke), CTX);
     // Precondition: the plan really does produce null net-worth months.
@@ -99,10 +97,10 @@ describe("retirementSolver — survival off the real projection", () => {
 });
 
 describe("retirementSolver — target mode", () => {
-  // evaluateAtAge reports only the at-that-age facts (feasible + on-track);
-  // nearestFeasibleAge is composed by retirementView from the headline (covered there).
+  // evaluateAtAge reports only at-that-age facts (feasible + on-track); nearestFeasibleAge
+  // is composed by retirementView from the headline, covered there.
   it("is 100% and feasible at a comfortably-fundable pinned age", () => {
-    // Work to life expectancy: the safest possible pin, always feasible if any age is.
+    // Life expectancy is the safest possible pin: feasible if any age is.
     const evaluation = evaluateAtAge(scenarioOf(samplePlan), samplePlan.lifeExpectancy, CTX);
     expect(evaluation.feasible).toBe(true);
     expect(evaluation.onTrackFraction).toBe(1);
@@ -119,8 +117,8 @@ describe("retirementSolver — target mode", () => {
 });
 
 describe("retirementSolver — partial vs full retirement", () => {
-  // The partial retirement solver varies the open-ended (null-end) jobs' ends and keeps
-  // the authored fixed-term + passive income; full retirement ceases every job.
+  // Partial retirement varies the open-ended (null-end) jobs' ends and keeps the authored
+  // fixed-term + passive income; full retirement ceases every job.
   it("full-retirement survival is monotonic in the cease-all-work age (later never hurts)", () => {
     let seenSurviving = false;
     for (let age = baristaPlan.currentAge; age <= baristaPlan.lifeExpectancy; age++) {
@@ -139,9 +137,9 @@ describe("retirementSolver — partial vs full retirement", () => {
     expect(evaluateFullRetirementAtAge(scenario, (age as number) - 1, CTX).feasible).toBe(false);
   });
 
-  // The acceptance heart: a barista plan — the open-ended job ends at target,
-  // the fixed-term job keeps paying — solves the two ages DISTINCTLY. Full retirement
-  // (drop the barista too) is strictly later than partial retirement (keep the barista).
+  // The acceptance heart: on a barista plan (open-ended job ends at target, fixed-term job
+  // keeps paying) the two ages solve DISTINCTLY — dropping the barista too is strictly
+  // later than keeping it.
   it("a barista-retirement plan solves both ages distinctly (partial < full)", () => {
     const solution = solveRetirement(scenarioOf(baristaPlan), CTX);
     expect(solution.partialRetirementAge).not.toBeNull();

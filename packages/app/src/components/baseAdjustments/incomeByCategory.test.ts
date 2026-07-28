@@ -43,10 +43,10 @@ const source = (
   cashInflowCents: number,
   category: ProjectionIncomeSource["category"],
   label = sourceId,
-  // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full cash
-  // inflow — the no-haircut case — so a test only names it when it wants a take-home < gross.
+  // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full
+  // inflow (no haircut), so a test names it only when it wants take-home < gross.
   netCashFlowCents = cashInflowCents,
-  // Whose income it is — only the tests about two claimants name it.
+  // Whose income it is — only the two-claimant tests name it.
   ownerId?: string,
 ): ProjectionIncomeSource => ({
   sourceId,
@@ -175,7 +175,7 @@ describe("incomeBandsForMode", () => {
 
   it("advanced keeps every source as its own band — real income at the base, drawdowns above", () => {
     // Wages, then the benefit (both genuine income), then the living-off-savings family
-    // (the asset draw, then the cash drawdown) stacked above — the same order Simple reads.
+    // (asset draw, then cash drawdown) above — the same order Simple reads.
     const { sources } = incomeBandsForMode(withEverySource(), "advanced");
     expect(sources.map((s) => s.label)).toEqual([
       "Income · Engineer",
@@ -197,9 +197,9 @@ describe("incomeBandsForMode", () => {
   });
 
   it("keeps savings interest its own band in both views — not folded into living off savings", () => {
-    // Savings interest is income the savings EARN (the engine tags it with the explicit
-    // `savingsInterest` provenance), so it stacks as its own band above the drawdowns rather
-    // than reading as spending down savings — and the app never parses the id to decide that.
+    // Savings interest is income the savings EARN (engine-tagged `savingsInterest`), so it
+    // stacks as its own band above the drawdowns rather than reading as spending savings
+    // down — and the app never parses the id to decide that.
     const data = buildIncomeChartData(
       seriesOf([
         source("job:a", dollarsToCents(5_000), "wages", "Job A"),
@@ -224,8 +224,8 @@ describe("incomeBandsForMode", () => {
   });
 
   it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
-    // Two cash accounts (or two owners) each book interest, tagged `savingsInterest`; Simple
-    // folds them into a single band, like it does for Social Security.
+    // Two cash accounts (or owners) each book `savingsInterest`; Simple folds them into one
+    // band, as it does for Social Security.
     const data = buildIncomeChartData(
       seriesOf([
         source("interest:p1:ordinaryIncome", dollarsToCents(30), "savingsInterest", "Savings interest"),
@@ -239,9 +239,9 @@ describe("incomeBandsForMode", () => {
 
   it("breaks savings interest out per account in Advanced — 'Savings interest: <account>'", () => {
     // The engine reports one interest band per cash account, labelled by the account's own
-    // name. Advanced qualifies each with the kind of income it is, so two cash accounts read
-    // as distinct, self-explaining bands (this is the read the merged single line hid — a
-    // drained buffer that looked like it was still earning its neighbour's interest).
+    // name; Advanced qualifies each with the kind of income, so two accounts read as
+    // distinct self-explaining bands. A merged single line hid a drained buffer that
+    // looked like it was still earning its neighbour's interest.
     const data = buildIncomeChartData(
       seriesOf([
         source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings"),
@@ -265,8 +265,7 @@ describe("incomeBandsForMode", () => {
     ]);
   });
 
-  // ── Two claimants: a benefit band names its kind, never its earner ──
-
+  // Two claimants: a benefit band names its kind, never its earner.
   const twoClaimants = () =>
     buildIncomeChartData(
       seriesOf([
@@ -281,8 +280,8 @@ describe("incomeBandsForMode", () => {
   ]);
 
   it("simple keeps a Social Security band per person, named — two people claim separately", () => {
-    // Folding both into one band hid exactly what a two-earner household needs to see:
-    // each claims on their own record, at their own age, so the two starts differ.
+    // One folded band hid what a two-earner household needs to see: each claims on their
+    // own record, at their own age, so the two starts differ.
     const { sources, rows } = incomeBandsForMode(twoClaimants(), "simple", "gross", names);
     expect(sources.map((s) => s.label)).toEqual([
       "Income · Engineer",
@@ -323,10 +322,10 @@ describe("incomeBandsForMode", () => {
 
 describe("incomeBandsForMode — take-home vs gross basis", () => {
   /**
-   * A month whose one source carries a cash inflow and the engine's already-netted take-home
-   * ({@link ProjectionIncomeSource.netCashFlowCents}) — the app reads that net straight
-   * through rather than re-deriving gross − tax − deferral itself (that arithmetic now lives
-   * in the engine's `buildFlows`, and is covered there).
+   * A month whose one source carries a cash inflow and the engine's already-netted
+   * take-home ({@link ProjectionIncomeSource.netCashFlowCents}). The app reads that net
+   * straight through; gross − tax − deferral lives in the engine's `buildFlows` and is
+   * covered there.
    */
   function seriesWithNet(cashInflow: number, net: number): ProjectionSeries {
     const months = [
@@ -369,10 +368,10 @@ describe("incomeBandsForMode — take-home vs gross basis", () => {
   });
 
   it("draws the Social Security band's take-home from the engine's net when SS IS taxed", () => {
-    // Guards the `benefit:<person>` band end-to-end: the engine already netted the benefit's
-    // tax off, and the app draws that net (6000 inflow → 5100 take-home). (In the default plan
-    // SS is below the taxable threshold, so net == inflow — this proves the pipeline still
-    // handles a taxed benefit, it isn't silently dropped.)
+    // Guards the `benefit:<person>` band end-to-end: the engine nets the benefit's tax off
+    // and the app draws that net (6000 inflow → 5100 take-home). In the default plan SS is
+    // below the taxable threshold (net == inflow), so this proves a taxed benefit is
+    // handled rather than silently dropped.
     const months = [
       { month: 0 },
       {

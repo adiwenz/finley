@@ -31,7 +31,7 @@ describe("apportionByWeight — keyed largest-remainder split that sums exactly"
     const out = apportionByWeight(1000, [["a", 1], ["b", 1], ["c", 1]]);
     const sum = [...out.values()].reduce((s, v) => s + v, 0);
     expect(sum).toBe(1000);
-    // Exact shares 333.33 each; the odd cent goes to the first (stable sort of equal remainders).
+    // Exact shares 333.33 each; the odd cent goes to the first (stable sort of ties).
     expect([...out.values()].sort((x, y) => y - x)).toEqual([334, 333, 333]);
   });
 

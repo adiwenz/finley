@@ -16,9 +16,8 @@ import { assessHomePurchaseDti } from "./homePurchaseDti";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
 /**
- * Opening values for the form — a plausible starter purchase the user edits, not
- * a recommendation. Dollars and percent, matching the inputs below; the cents
- * conversion happens at the engine boundary.
+ * Opening values — a plausible starter purchase to edit, not a recommendation. Dollars
+ * and percent, matching the inputs; cents conversion happens at the engine boundary.
  */
 const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
   price: 300_000,
@@ -28,9 +27,9 @@ const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
 };
 
 /**
- * The form's live state — one draft in the units the fields edit (dollars and percent),
- * not a hook per field. The cents/fraction conversion happens at the engine boundary on
- * submit; the DTI advisory is derived from this each render, never stored.
+ * The form's live state — one draft in the units the fields edit, not a hook per field.
+ * Cents/fraction conversion happens at the engine boundary on submit; the DTI advisory
+ * derives from this each render, never stored.
  */
 interface HomePurchaseDraft {
   readonly month: number;
@@ -39,9 +38,9 @@ interface HomePurchaseDraft {
   readonly apr: number;
   readonly termYears: number;
   /**
-   * The accounts the down payment drains, IN ORDER — the first empties before the next. What
-   * the user has picked; the render filters it to what can still pay at `month` before
-   * anything reads it, so treat this as the stored intent rather than the live selection.
+   * Accounts the down payment drains, IN ORDER — the first empties before the next.
+   * Stored intent, not the live selection: the render filters it to what can still pay at
+   * `month` before anything reads it.
    */
   readonly sourceIds: readonly string[];
 }
@@ -60,28 +59,25 @@ export function HomePurchaseForm({
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
 }) {
-  // The accounts that can actually pay at `month`, in the engine's drain-order-friendly
-  // largest-first order. The pool itself also lists accounts holding nothing (the picker greys
-  // those out); only these can be selected.
+  // Accounts that can actually pay at `month`, largest-first (drain-order friendly). The
+  // pool also lists accounts holding nothing — the picker greys those out.
   const fundableAt = (month: number) =>
     funding.sourcesAt(month).filter((s) => s.balanceCents > 0).map((s) => s.id);
 
   const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({
     month: defaultMonth,
     ...DEFAULTS,
-    // Open on the largest account that can pay at that month, so the form is usable without a
-    // choice — the same "it just funds from savings" default as before, but now visible and
-    // editable rather than hardcoded.
+    // Open on the largest account that can pay that month, so the form is usable without
+    // a choice — a visible, editable default rather than a hardcoded one.
     sourceIds: fundableAt(defaultMonth).slice(0, 1),
   }));
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   /**
-   * Moving the purchase re-prices every account: one the user picked while it held money may
-   * hold nothing at the new month. Drop it from the draft as the month moves — a selection the
-   * user can no longer see is a selection they no longer have. Nothing takes its place: which
-   * account pays is the user's call, and quietly substituting one would spend money they did
-   * not choose to spend.
+   * Moving the purchase re-prices every account, so one picked while it held money may
+   * hold nothing at the new month. Drop it: a selection the user can no longer see is one
+   * they no longer have. Nothing takes its place — quietly substituting an account would
+   * spend money they did not choose to spend.
    */
   const setMonth = (month: number) =>
     setDraft((d) => {
@@ -89,14 +85,14 @@ export function HomePurchaseForm({
       return { ...d, month, sourceIds: d.sourceIds.filter((id) => fundable.has(id)) };
     });
 
-  // The pool and the verdict for the CURRENT month/selection/amount. Both come from one
-  // projection inside `funding`, so this re-derives on edit without re-simulating the plan.
+  // Pool and verdict for the CURRENT month/selection/amount, both from one projection
+  // inside `funding`, so edits re-derive without re-simulating the plan.
   const pool = useMemo(() => funding.sourcesAt(draft.month), [funding, draft.month]);
-  // The selection that is actually in play. `setMonth` already prunes on the path a user
-  // takes, but the pool also moves when `funding` itself changes (a new event elsewhere
-  // redraws the same month's balances), and that path has no setter to hook. Filtering here
-  // makes it an invariant rather than a thing each caller must remember: what the picker shows
-  // checked, what the coverage line counts, and what `submit` records are one list.
+  // The selection actually in play. `setMonth` prunes on the path a user takes, but the
+  // pool also moves when `funding` changes (an event elsewhere redraws the same month's
+  // balances) and that path has no setter to hook. Filtering here makes it an invariant:
+  // what the picker checks, what the coverage line counts, and what `submit` records are
+  // one list.
   const sourceIds = useMemo(
     () => draft.sourceIds.filter((id) => pool.some((s) => s.id === id && s.balanceCents > 0)),
     [draft.sourceIds, pool],
@@ -106,9 +102,9 @@ export function HomePurchaseForm({
     [funding, sourceIds, draft.down, draft.month],
   );
 
-  // The SOFT warning: advisory only, recomputed each render so it tracks the
-  // live inputs. It never gates `submit` — the event records regardless (the only
-  // hard block, down-payment coverage, is enforced in the engine event handler).
+  // SOFT warning: advisory only, recomputed each render so it tracks live inputs. Never
+  // gates `submit` — the only hard block, down-payment coverage, is enforced in the
+  // engine event handler.
   const dti = assessHomePurchaseDti(household, series, {
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),
@@ -126,9 +122,9 @@ export function HomePurchaseForm({
       ownerId: "p1",
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
-      // The user's chosen accounts, in the order they chose them — the drain order the
-      // simulator resolves the down payment against. The pruned list, so an account
-      // that emptied under a month change cannot ride onto the event unseen.
+      // Chosen accounts in chosen order — the drain order the simulator resolves the
+      // down payment against. Pruned, so an account emptied by a month change cannot
+      // ride onto the event unseen.
       downPaymentSourceIds: sourceIds,
       mortgageLiabilityId: `mortgage-${nextId}`,
       mortgageApr: draft.apr / 100,
@@ -164,11 +160,10 @@ export function HomePurchaseForm({
 }
 
 /**
- * The affordability advisory — distinct from the red hard-block alert (this
- * is amber and does NOT block). It names the ratio that fired *and* its projected
- * downstream consequence: an over-guideline mortgage leaves less income for
- * everything else, so the plan leans harder on credit and reaches insolvency
- * sooner.
+ * Affordability advisory — amber, and does NOT block, unlike the red hard-block alert. It
+ * names the ratio that fired *and* its downstream consequence: an over-guideline mortgage
+ * leaves less for everything else, so the plan leans harder on credit and reaches
+ * insolvency sooner.
  */
 function DtiWarning({ dti }: { dti: ReturnType<typeof assessHomePurchaseDti> }) {
   const { assessment, monthlyMortgageCents } = dti;

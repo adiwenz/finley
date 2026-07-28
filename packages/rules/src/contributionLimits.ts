@@ -1,32 +1,27 @@
 import type { Cents, DeferralLimitContext } from "@finley/engine";
 
 /**
- * US retirement-account contribution limits — the structured set of caps that
- * govern how much may go into tax-advantaged accounts in a year.
+ * US retirement-account contribution limits — the structured cap set governing how much
+ * may go into tax-advantaged accounts in a year.
  *
- * This is the `rules`-side plug for the engine's
- * {@link import("@finley/engine").Jurisdiction.retirementDeferralLimitCents} seam.
- * The engine owns the deferral *channel* (the waterfall caps each person's summed
- * 401(k)-style deferrals against this figure and redirects the overflow to the
- * next priority destination); this module owns the *dollar values* and the age
- * bands, in one place, behind the pluggable jurisdiction concept.
+ * The `rules`-side plug for the engine's
+ * {@link import("@finley/engine").Jurisdiction.retirementDeferralLimitCents} seam. The
+ * engine owns the deferral *channel* (the waterfall caps each person's summed 401(k)-style
+ * deferrals against this figure and redirects overflow to the next priority destination);
+ * this module owns the *dollar values* and age bands.
  *
- * The caps are NOT one number: the 401(k) employee *elective-deferral*
- * limit is separate from the *total-additions* ceiling (employee + employer
- * match) and from the much lower, separate IRA limit; catch-up is age-banded and
- * per-account-type. The full structured set is modelled here so the values live
- * together and index together, even though the v1 engine wires only the 401(k)
- * elective-deferral limit (+ catch-up) into its single deferral channel — the
- * total-additions and IRA caps are authored and indexed but await the engine
- * channels that would enforce them (mirrors the RMD "binds as required" partial).
+ * The caps are NOT one number: the 401(k) employee elective-deferral limit is separate
+ * from the total-additions ceiling (employee + employer match) and from the much lower
+ * IRA limit; catch-up is age-banded and per-account-type. The full set is modelled here so
+ * the values live and index together, even though v1 wires only the elective-deferral
+ * limit (+ catch-up) into its single deferral channel — total-additions and IRA caps are
+ * authored and indexed but await engine channels to enforce them (like the RMD
+ * "binds as required" partial).
  *
- * ⚠ Estimates, not advice. These are current US legislation and change yearly;
- * forward years are INDEXED, not authoritative. All figures below are the pinned
- * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base; later years are indexed forward
- * ("future-year figures are indexed forward, not held flat").
+ * ⚠ Estimates, not advice. Current US legislation, which changes yearly; forward years are
+ * INDEXED, not authoritative. Figures below are the pinned
+ * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base.
  */
-
-// Legislated base-year constants, one place, disclaimed.
 
 /** The calendar year the pinned dollar figures below are authoritative for. */
 export const CONTRIBUTION_LIMITS_BASE_YEAR = 2026;
@@ -35,27 +30,24 @@ export const CONTRIBUTION_LIMITS_BASE_YEAR = 2026;
 const BASE_ELECTIVE_401K_CENTS: Cents = 24_500_00;
 /** Additional elective deferral allowed from age 50 (the standard catch-up). */
 const BASE_CATCH_UP_50_CENTS: Cents = 8_000_00;
-/** The larger SECURE 2.0 catch-up, available only in the 60–63 age band. Replaces (not adds to) the 50+ figure. */
+/** The larger SECURE 2.0 catch-up, 60–63 only. Replaces (not adds to) the 50+ figure. */
 const BASE_CATCH_UP_60_TO_63_CENTS: Cents = 11_250_00;
 /** Section 415(c) total-additions ceiling: employee deferral + employer match combined. */
 const BASE_TOTAL_ADDITIONS_CENTS: Cents = 72_000_00;
 /** Traditional/Roth IRA annual contribution limit (separate, much lower cap). */
 const BASE_IRA_CENTS: Cents = 7_500_00;
 /**
- * Additional IRA contribution allowed from age 50 — FLAT from 50 with no upper-age
- * cliff (post-SECURE, IRA contributions continue as long as there is earned income).
- * ⚠ Do NOT apply the 401(k) age banding to this: the IRA catch-up has no 60–63
- * super-catch-up and no drop at 64. Those are `retirementDeferralLimitCents`'s
- * 401(k)-only rules (catchUp60to63Cents); reusing that function for an IRA channel
- * would invent bands the IRA doesn't have.
+ * Additional IRA contribution from age 50 — FLAT, no upper-age cliff (post-SECURE, IRA
+ * contributions continue while there is earned income). ⚠ Do NOT apply the 401(k) age
+ * banding: the IRA catch-up has no 60–63 super-catch-up and no drop at 64. Reusing
+ * `retirementDeferralLimitCents` for an IRA channel would invent bands the IRA lacks.
  */
 const BASE_IRA_CATCH_UP_50_CENTS: Cents = 1_100_00;
 
 /**
- * Assumed forward CPI indexing rate for the caps. Real limits are indexed to
- * inflation and rounded down to the legislated increment; the projection has no
- * year-by-year rate in the seam context, so this rules-side estimate stands in.
- * ⚠ Estimate — the actual indexing is legislation-set and published yearly.
+ * Assumed forward CPI indexing rate. Real limits are indexed to inflation and rounded
+ * down to the legislated increment; the seam context carries no year-by-year rate, so this
+ * rules-side estimate stands in. ⚠ Actual indexing is legislation-set, published yearly.
  */
 const ASSUMED_ANNUAL_INDEXING_RATE = 0.025;
 
@@ -65,10 +57,9 @@ const ROUND_500_CENTS = 500_00;
 const ROUND_IRA_CENTS = 500_00;
 
 /**
- * Index a base-year figure forward to `year`, rounded DOWN to `incrementCents`
- * (how the IRS steps these caps). Years at or before the base year return the
- * base unchanged — no backward indexing. Rounding down keeps the result
- * monotonically non-decreasing as the year advances.
+ * Index a base-year figure forward to `year`, rounded DOWN to `incrementCents` (how the
+ * IRS steps these caps). Years at or before the base year return it unchanged — no
+ * backward indexing. Rounding down keeps the result monotonically non-decreasing.
  */
 function indexForward(baseCents: Cents, year: number, incrementCents: Cents): Cents {
   const years = year - CONTRIBUTION_LIMITS_BASE_YEAR;
@@ -90,7 +81,7 @@ export interface ContributionLimits {
   readonly totalAdditionsCents: Cents;
   /** Traditional/Roth IRA annual limit (separate, lower cap). */
   readonly iraCents: Cents;
-  /** IRA catch-up added from age 50 — flat, no 60–63 band and no age-64 drop (unlike the 401(k) catch-up). */
+  /** IRA catch-up from age 50 — flat: no 60–63 band, no age-64 drop, unlike the 401(k) one. */
   readonly iraCatchUp50Cents: Cents;
 }
 
@@ -111,11 +102,10 @@ export function contributionLimits(year: number): ContributionLimits {
 }
 
 /**
- * The engine's deferral-limit seam: a person's 401(k)-style elective-deferral cap
- * for the year, including the age-banded catch-up. With no age (or below
- * 50) it is the base elective limit; from 50 the standard catch-up is added, and
- * in the 60–63 band the larger SECURE 2.0 catch-up applies instead. The employer
- * match is separate and does NOT share this cap.
+ * The engine's deferral-limit seam: a person's 401(k)-style elective-deferral cap for the
+ * year, with age-banded catch-up. No age (or under 50) → the base limit; from 50 the
+ * standard catch-up is added; in 60–63 the larger SECURE 2.0 catch-up applies instead.
+ * The employer match is separate and does NOT share this cap.
  */
 export function retirementDeferralLimitCents(ctx: DeferralLimitContext): Cents {
   const limits = contributionLimits(ctx.year);

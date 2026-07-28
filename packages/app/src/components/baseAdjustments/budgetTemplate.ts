@@ -1,18 +1,17 @@
 /**
- * The **Base** budget template. The Base is the user's standing recurring
- * budget — entered once, then edited. Rather than start from a blank list, we
- * prepopulate two ways:
+ * The **Base** budget template. The Base is the user's standing recurring budget —
+ * entered once, then edited. Rather than a blank list, two ways to prepopulate:
  *
- *   - {@link defaultBudgetTemplate} — a sensible starter set of line items across the
- *     needs → wants tiers, so a new user has a budget to edit rather than author.
- *   - {@link redistributeToTiers} — the classic 50/30/20 rule applied *non-destructively*
- *     to the existing budget: rebalance each tier's lines to 50/30/20 of income without
- *     discarding the user's named lines, seeding a real savings contribution if needed.
+ *   - {@link defaultBudgetTemplate} — a starter set of lines across the needs → wants
+ *     tiers, so a new user edits a budget rather than authoring one.
+ *   - {@link redistributeToTiers} — 50/30/20 applied *non-destructively* to the existing
+ *     budget: rebalance each tier's lines without discarding the user's named lines,
+ *     seeding a real savings contribution if needed.
  *
- * The template returns {@link BudgetLineInput}s (id-carrying so the chart, overrides, and
- * the `allocations()` view can key on them). The simulator funds both
- * expense lines and account-contribution lines, so a seeded savings line is a real
- * contribution (into the brokerage), not a vanishing expense. Pure and side-effect-free.
+ * Returns {@link BudgetLineInput}s, id-carrying so the chart, overrides and
+ * `allocations()` can key on them. The simulator funds both expense and
+ * account-contribution lines, so a seeded savings line is a real contribution into the
+ * brokerage, not a vanishing expense. Pure and side-effect-free.
  */
 
 import {
@@ -24,9 +23,8 @@ import {
 } from "@finley/engine";
 
 /**
- * Promote authoring inputs to standing {@link BudgetLine}s. Every template line
- * already carries an id (the chart, overrides, and `allocations()` all key on it);
- * the label is a last-resort fallback so the cast is total rather than hopeful.
+ * Promote authoring inputs to standing {@link BudgetLine}s. Every template line already
+ * carries an id; the label is a last-resort fallback so the cast is total, not hopeful.
  */
 export function toBudgetLines(inputs: readonly BudgetLineInput[]): BudgetLine[] {
   return inputs.map((input) => ({ ...input, id: input.id ?? input.label }) as BudgetLine);
@@ -49,11 +47,11 @@ function expenseLine(
 }
 
 /**
- * A prepopulated starter budget: housing, groceries, and transport as needs;
- * dining and subscriptions as wants. Amounts are round placeholders the user edits;
- * the tiers group the budget the way a user reads it (essentials apart from
- * discretionary). They do not ration anything: a tight month is absorbed by savings and
- * then credit, never by dropping a line — see `perLineBudget.ts`.
+ * A prepopulated starter budget: housing, groceries, transport as needs; dining and
+ * subscriptions as wants. Amounts are round placeholders the user edits. Tiers only group
+ * the budget as a user reads it (essentials apart from discretionary) — they ration
+ * nothing: a tight month is absorbed by savings then credit, never by dropping a line
+ * (see `perLineBudget.ts`).
  */
 export function defaultBudgetTemplate(): BudgetLineInput[] {
   return [
@@ -66,11 +64,10 @@ export function defaultBudgetTemplate(): BudgetLineInput[] {
 }
 
 /**
- * The template's total monthly spend. It deliberately equals the scalar
- * `PLAN_DEFAULTS.expenseCents` the line-item budget replaced: itemizing the default
- * budget should change how spending is *authored*, not how much a default household
- * spends — otherwise wiring the editor up would quietly move the app's headline
- * retirement age. Pinned by a test so the two cannot drift apart.
+ * The template's total monthly spend. Deliberately equals the scalar
+ * `PLAN_DEFAULTS.expenseCents` it replaced: itemizing should change how spending is
+ * *authored*, not how much a default household spends — otherwise wiring up the editor
+ * would quietly move the app's headline retirement age. Pinned by a test against drift.
  */
 export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(3_500);
 
@@ -91,8 +88,8 @@ function seedSavingsLine(monthlyCents: number, retirementMonth?: number): Budget
     amountSource: { kind: "literal", monthlyCents },
     category: "savings",
   };
-  // Saving is done out of a paycheck: stop the contribution at retirement, when the
-  // household is drawing savings down rather than adding to it. Needs/wants run on.
+  // Saving comes out of a paycheck: stop at retirement, when the household draws savings
+  // down rather than adding to them. Needs/wants run on.
   return retirementMonth === undefined ? line : { ...line, span: { endMonth: retirementMonth } };
 }
 
@@ -116,18 +113,16 @@ function withMonthlyCents(line: BudgetLine, monthlyCents: number): BudgetLine {
 }
 
 /**
- * The %-quickstart, **non-destructively**: rebalance the *existing* budget so
- * each tier hits the 50/30/20 rule of monthly income — 50% needs, 30% wants, 20% savings
- * — WITHOUT discarding the user's named lines. Each tier's literal lines are scaled so the
- * tier total lands on its target, preserving every line's share within the tier (an
- * even split when the tier's lines currently sum to 0). A tier with **no** lines is seeded
- * one starter (needs/wants → an expense line; savings → a real contribution line into the
- * brokerage, so the 20% actually accumulates rather than vanishing). Non-`literal` lines
- * (goal-paced / fill-to-limit) are left untouched — they compute their own amount.
+ * The %-quickstart, **non-destructively**: rebalance the *existing* budget to 50% needs /
+ * 30% wants / 20% savings of monthly income WITHOUT discarding the user's named lines.
+ * Each tier's literal lines are scaled so the tier total lands on target, preserving every
+ * line's share within the tier (even split when the tier currently sums to 0). A tier with
+ * **no** lines gets one seed: needs/wants an expense line, savings a real contribution
+ * into the brokerage so the 20% accumulates rather than vanishing. Non-`literal` lines
+ * (goal-paced / fill-to-limit) are untouched — they compute their own amount.
  *
- * `retirementMonth` ends a seeded savings line's span (saving stops once the household is
- * drawing down); omit it and the line runs open-ended. Original line order is preserved;
- * seeds for empty tiers are appended.
+ * `retirementMonth` ends a seeded savings line's span; omit it and the line runs
+ * open-ended. Original order is preserved, with seeds appended.
  */
 export function redistributeToTiers(
   lines: readonly BudgetLine[],
@@ -155,8 +150,7 @@ export function redistributeToTiers(
     return withMonthlyCents(l, newCents);
   });
 
-  // Seed a starter for any tier the budget has no line in at all, so the rule is fully
-  // expressed (an empty tier can't be scaled into existence).
+  // Seed any tier with no lines at all — an empty tier can't be scaled into existence.
   const seeds: BudgetLine[] = [];
   for (const tier of TIERS) {
     if (lines.some((l) => l.category === tier)) continue;

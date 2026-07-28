@@ -1,12 +1,10 @@
 /**
- * Test-only jurisdiction factory. Builds a {@link Jurisdiction} on top of the
- * {@link nullJurisdiction} baseline (zero tax, no programs) so a test can enable
- * exactly the one seam it exercises via `overrides` — e.g. a fixed Social
- * Security benefit, or a `publicHealthCoverageAge` to assert the health step.
+ * Test-only {@link Jurisdiction} factory over the {@link nullJurisdiction} baseline (zero
+ * tax, no programs), so a test enables via `overrides` exactly the seam it exercises —
+ * a fixed Social Security benefit, a `publicHealthCoverageAge` for the health step.
  *
- * Pure (satisfies `check-engine-purity`) and deliberately NOT barrel-exported:
- * it is engine test scaffolding, not public API. Tests import it by relative
- * path (`../testing/mockJurisdiction`).
+ * Pure (satisfies `check-engine-purity`) and deliberately NOT barrel-exported — test
+ * scaffolding, not public API. Tests import it by relative path.
  */
 import type { Jurisdiction } from "../jurisdiction";
 import { nullJurisdiction } from "../jurisdiction";

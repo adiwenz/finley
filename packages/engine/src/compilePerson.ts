@@ -1,15 +1,13 @@
 /**
- * Pure compilation from the standing {@link Person}/{@link Job} authoring model into
- * the simulator's inputs: a forward income {@link SimOwnedSeries} per
- * still-paying job, plus the pre-"now"
- * covered-earnings record computed directly from the jobs (never simulated).
+ * Pure compilation from the standing {@link Person}/{@link Job} authoring model into the
+ * simulator's inputs: a forward income {@link SimOwnedSeries} per still-paying job, plus
+ * the pre-"now" covered-earnings record computed directly from the jobs (never simulated).
  *
- * This is the one module in the standing model that depends on the simulator
- * (`SimOwnedSeries`); isolating it here keeps the {@link Person}/{@link Job} *type*
- * modules free of any `projection/*` import, so the standing model and the sim
- * core cannot form an import cycle. Everything here is pure and
- * jurisdiction-agnostic: it needs only the calendar "now" (`nowYear`) and CPI
- * (`inflationRate`), which the caller supplies.
+ * The one standing-model module that depends on the simulator (`SimOwnedSeries`);
+ * isolating it here keeps the {@link Person}/{@link Job} *type* modules free of any
+ * `projection/*` import, so the standing model and the sim core cannot form an import
+ * cycle. Pure and jurisdiction-agnostic: it needs only the caller-supplied calendar "now"
+ * (`nowYear`) and CPI (`inflationRate`).
  */
 
 import type { Cents } from "./money";
@@ -20,13 +18,12 @@ import type { Job } from "./job";
 import type { Person } from "./person";
 
 /**
- * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson}
- * — the seam that keeps the authoring roster (identity + retirement
- * inputs + jobs) out of the pure sim core. The sim needs only identity, the benefit
- * basis (`birthYear` + `benefitClaimingAge`), and the pre-"now" covered-earnings record,
- * which is derived directly from the person's jobs (never simulated). `retirementTargetAge`
- * and `jobs` do not cross into the sim — they drive the forward income series
- * (compiled separately by {@link compilePersonIncomeSeries}) and the job spans.
+ * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
+ * seam keeping the authoring roster (identity + retirement inputs + jobs) out of the pure
+ * sim core. The sim needs only identity, the benefit basis (`birthYear` +
+ * `benefitClaimingAge`), and the pre-"now" covered-earnings record derived from the
+ * person's jobs. `retirementTargetAge` and `jobs` do not cross into the sim — they drive
+ * the forward income series ({@link compilePersonIncomeSeries}) and the job spans.
  */
 export function compilePerson(person: Person, nowYear: number, inflationRate: number): SimPerson {
   return {
@@ -54,12 +51,11 @@ function jobEndYearExclusive(job: Job, owner: Person): number {
 }
 
 /**
- * Nominal covered earnings this person's jobs imply for the working years
- * **before** "now", keyed by calendar year. Computed directly from the
- * jobs — never simulated, since the sim starts at "now". Each pre-"now" year's
- * covered wage is the real (today's-dollars) salary at that year, CPI-deflated
- * from now to that year (past years are worth fewer nominal dollars). Overlapping
- * jobs sum.
+ * Nominal covered earnings this person's jobs imply for the working years **before**
+ * "now", keyed by calendar year. Computed directly from the jobs — never simulated, since
+ * the sim starts at "now". Each year's covered wage is the real (today's-dollars) salary
+ * at that year, CPI-deflated from now back to it (past years are worth fewer nominal
+ * dollars). Overlapping jobs sum.
  */
 export function compilePersonPriorEarnings(
   person: Person,
@@ -78,19 +74,18 @@ export function compilePersonPriorEarnings(
 }
 
 /**
- * Compile one job into a forward income {@link SimOwnedSeries} covering "now" through
- * the job's end. The series starts at the later of month 0 and the
- * job's start, carries the salary at "now" as a monthly baseline, and grows
- * nominally (real growth compounded with CPI). A `null`-end (open-ended) job runs to
- * the owner's `retirementTargetAge`. Returns `null` for a job that has already
- * ended before "now" (its earnings are entirely in the prior-earnings record).
+ * Compile one job into a forward income {@link SimOwnedSeries} covering "now" through the
+ * job's end. The series starts at the later of month 0 and the job's start, carries the
+ * salary at "now" as a monthly baseline, and grows nominally (real growth compounded with
+ * CPI). An open-ended (`null`-end) job runs to the owner's `retirementTargetAge`. Returns
+ * `null` for a job that ended before "now" — its earnings are entirely in the
+ * prior-earnings record.
  *
- * `membership` clips the *paid* span to a household-membership interval: a
- * partner's job only pays the household while they are a member — from the month they
- * join, and stopping at a separation. It narrows where the series pays, never the
- * growth anchor, so the salary path (real+CPI compounding from the job's own start) is
- * unchanged — only earlier/later months are zeroed out. Absent (the primary earner,
- * always a member) it is a no-op and the series compiles byte-for-byte as before.
+ * `membership` clips the *paid* span to a household-membership interval: a partner's job
+ * only pays the household while they are a member — from the join month, stopping at a
+ * separation. It narrows where the series pays, never the growth anchor, so the salary
+ * path (real+CPI compounding from the job's own start) is unchanged; only outside months
+ * are zeroed. Absent (the primary earner, always a member) it is a no-op.
  */
 function compileJobIncome(
   job: Job,
@@ -104,9 +99,8 @@ function compileJobIncome(
   const endMonthExclusive = (endYearExclusive - nowYear) * 12;
   if (endMonthExclusive <= 0) return null; // wholly in the past
 
-  // The job's own start anchors salary growth; the paid span may start later when a
-  // membership window clips it (a partner joining after the job began). Keeping the
-  // anchor at the natural start preserves the today's-dollars salary at every month.
+  // The job's own start anchors salary growth even when a membership window clips the
+  // paid span later, preserving the today's-dollars salary at every month.
   const naturalStart = Math.max(0, (job.startYear - nowYear) * 12);
   const paidStart = membership ? Math.max(naturalStart, membership.startMonth) : naturalStart;
   const paidEndExclusive = membership
@@ -118,9 +112,9 @@ function compileJobIncome(
   const monthlyNowCents = Math.round(annualNowCents / 12);
 
   const realGrowth = job.salary.realGrowthPct / 100;
-  // Real-flat salary grows at exactly CPI nominally, so tag it `inflationLinked`
-  // to reproduce the scalar model's income series byte-for-byte; only a nonzero
-  // real slope needs the compounded nominal rate.
+  // Real-flat salary grows at exactly CPI nominally, so tag it `inflationLinked` to
+  // reproduce the scalar model's income series byte-for-byte; only a nonzero real slope
+  // needs the compounded nominal rate.
   const growthMode: GrowthMode =
     realGrowth === 0
       ? { type: "inflationLinked", annualRate: inflationRate }
@@ -129,33 +123,32 @@ function compileJobIncome(
   const series = new SimCashFlowSeries(paidStart, monthlyNowCents, growthMode, {
     baselineUnit: "monthly",
     endMonth: paidEndExclusive - 1,
-    // Anchor growth at the job's own start even when the paid span starts later, so a
-    // clipped partner job pays the correctly-grown salary from its join month.
+    // Anchored at the job's own start, so a clipped partner job pays the correctly-grown
+    // salary from its join month.
     anchorMonth: naturalStart,
     // A job pays `wages` — see the note in projectionBase's scalar income series.
     taxCategory: "wages",
   });
 
-  // Permanent pay changes: a step change to pay that holds from its month
-  // forward. Each opens a new salary segment via a `fromHereForward` override with
-  // `resetAnchor`, so the new pay compounds from here at the job's own real+CPI rate.
-  // `changeBy` reads the month's pre-change baseline and adds to it (a negative delta is a
-  // cut); `setTo` replaces it. Applied in month order (so successive changes compound) and
-  // BEFORE the one-month overrides below, so a bonus in a later month lands on top of the
-  // changed pay. Pay changes outside the paid span are ignored — a job cannot be repriced
-  // in a month it is not worked.
+  // Permanent pay changes hold from their month forward: each opens a new salary segment
+  // via a `fromHereForward` override with `resetAnchor`, so the new pay compounds from here
+  // at the job's own real+CPI rate. `changeBy` adds to the month's pre-change baseline (a
+  // negative delta is a cut); `setTo` replaces it. Applied in month order (so successive
+  // changes compound) and BEFORE the one-month overrides below, so a later bonus lands on
+  // top of the changed pay. Changes outside the paid span are ignored — a job cannot be
+  // repriced in a month it is not worked.
   for (const c of [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month)) {
     if (c.month < paidStart || c.month > paidEndExclusive - 1) continue;
     const newMonthly = c.kind === "setTo" ? c.cents : series.getMonthlyCents(c.month) + c.cents;
     series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
   }
 
-  // One-month pay perturbations: a bonus, missed paycheck, or single-month
-  // correction rides the job's own series as a `thisMonthOnly` override, so it is taxed
-  // as wages and runs through the 401(k) deferral like regular pay. `addBonus` reads the
-  // month's baseline (grown pay, before any override) and adds to it; `setTo` replaces
-  // it. Overrides outside the job's paid span are ignored — a job cannot pay in a month
-  // it is not worked. Applied in month order so two edits to one month compose predictably.
+  // One-month perturbations (bonus, missed paycheck, correction) ride the job's own series
+  // as `thisMonthOnly` overrides, so they are taxed as wages and run through the 401(k)
+  // deferral like regular pay. `addBonus` adds to the month's baseline (grown pay, before
+  // any override); `setTo` replaces it. Overrides outside the paid span are ignored — a job
+  // cannot pay in a month it is not worked. Applied in month order so two edits to one
+  // month compose predictably.
   for (const ov of [...(job.incomeOverrides ?? [])].sort((a, b) => a.month - b.month)) {
     if (ov.month < paidStart || ov.month > paidEndExclusive - 1) continue;
     const target = ov.kind === "setTo" ? ov.cents : series.getMonthlyCents(ov.month) + ov.cents;
@@ -165,13 +158,12 @@ function compileJobIncome(
   return {
     series,
     ownerId: owner.id,
-    // A household can hold several jobs, so name each by its human title when the user
-    // set one, else by its owner ({@link jobDisplayName}) — a legend entry is read by a
-    // person, and "p-0-job-1" tells them nothing. The band's stable identity is its
-    // `sourceId` below; this is display text.
+    // Display text only — the band's stable identity is `sourceId` below. Named by human
+    // title when the user set one, else by owner: a legend is read by a person, and
+    // "p-0-job-1" tells them nothing.
     label: `Income · ${displayName}`,
-    // Per-source income reporting keys each job's band by this stable id, so
-    // two jobs read apart on the income graph and one ending is legible as that job.
+    // Per-source income reporting keys each job's band by this stable id, so two jobs read
+    // apart on the income graph and one ending is legible as that job.
     sourceId: `job:${job.id}`,
     planDescriptor: job.deferral
       ? {
@@ -196,14 +188,14 @@ export interface MembershipWindow {
 }
 
 /**
- * Compile all of a person's jobs into forward income series. One
- * {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
- * contribute only to {@link compilePersonPriorEarnings}. Any number of jobs may be
- * open-ended (`null`-end); each simply ends at the owner's `retirementTargetAge`.
+ * Compile all of a person's jobs into forward income series. One {@link SimOwnedSeries}
+ * per job that still pays at or after "now"; wholly-past jobs contribute only to {@link
+ * compilePersonPriorEarnings}. Any number of jobs may be open-ended (`null`-end); each ends
+ * at the owner's `retirementTargetAge`.
  *
- * `membership` clips each job's paid span to a household-membership
- * interval, so a partner's jobs pay only while they are a member (from the join month,
- * stopping at a separation). Omit it for the primary earner, who is always present.
+ * `membership` clips each job's paid span to a household-membership interval, so a
+ * partner's jobs pay only while they are a member. Omit it for the primary earner, who is
+ * always present.
  */
 export function compilePersonIncomeSeries(
   person: Person,
@@ -221,18 +213,16 @@ export function compilePersonIncomeSeries(
 }
 
 /**
- * What to call each of a person's jobs in a report or a chart legend, by job id.
+ * What to call each of a person's jobs in a report or chart legend, by job id. Display
+ * names only — a band's stable identity is its `sourceId` throughout.
  *
- * A job the user titled is called that. An untitled one is called after its **owner**
- * ("Sam's job") rather than after its id: ids are minted, not written — the primary
- * earner's read tolerably (`job-1`) but a partner's are generated from their person id
- * (`p-0-job-1`), which is meaningless to the person reading the legend.
+ * A titled job is called that. An untitled one is named after its **owner** ("Sam's job")
+ * rather than its id: ids are minted, not written — a partner's are generated from their
+ * person id (`p-0-job-1`), meaningless to whoever reads the legend.
  *
- * Ordinals appear only where they must: a person holding SEVERAL untitled jobs gets
- * "Sam's job 1", "Sam's job 2", since one name for two bands identifies neither. With a
- * single untitled job there is nothing to disambiguate, so it stays unnumbered and the
- * label cannot shift as other jobs come and go. A band's stable identity is its
- * `sourceId` throughout; these are display names.
+ * Ordinals appear only where they must: SEVERAL untitled jobs get "Sam's job 1", "Sam's
+ * job 2", since one name for two bands identifies neither. A single untitled job stays
+ * unnumbered, so its label cannot shift as other jobs come and go.
  */
 function jobDisplayNames(person: Person): Map<string, string> {
   const titleOf = (job: Job): string | undefined => job.name?.trim() || undefined;

@@ -1,13 +1,12 @@
 /**
- * App-side add / rename / delete for line-item budget {@link BudgetLine}s — the
- * structural editing the Base + Adjustments panel lacked (it could only
- * override amounts). A line is either an **expense** (a cash outflow) or a **contribution**
- * into a named account (recurring saving/investment, now funded by the sim). These pure
- * list transforms mirror `goalsView`/`planPeople`: the panel calls them through `setLines`.
+ * App-side add / rename / delete for {@link BudgetLine}s — the structural editing beside the
+ * panel's amount overrides. A line is either an **expense** (cash outflow) or a
+ * **contribution** into a named account (recurring saving/investment, funded by the sim).
+ * Pure list transforms, like `goalsView`/`planPeople`; the panel calls them via `setLines`.
  *
  * Contribution targets are limited to the engine's post-tax {@link CONTRIBUTION_TARGETS}
- * (brokerage, cash savings) — a post-tax contribution into a pre-tax account would skip
- * the deduction; pre-tax saving is the job's 401(k) deferral, authored on the job.
+ * (brokerage, cash savings): a post-tax contribution into a pre-tax account would skip the
+ * deduction, and pre-tax saving is the job's 401(k) deferral, authored on the job.
  */
 
 import {
@@ -21,12 +20,11 @@ import {
 export const contributionTargets = CONTRIBUTION_TARGETS;
 
 /**
- * The editable shape of a budget line, in the terms the form speaks — a discriminated union
- * on `kind` so illegal combinations are unrepresentable: an **expense** carries a
- * needs/wants/savings `category` and no account; a **contribution** names its target
- * `accountId` (and is inherently the savings tier). Dollars are cents. Switching kind can
- * only ever produce one of these two shapes, never a mix (an expense with an account, or a
- * contribution with a "wants" category).
+ * The editable shape of a budget line, in the form's terms. Discriminated on `kind` so
+ * illegal combinations are unrepresentable: an **expense** carries a needs/wants/savings
+ * `category` and no account; a **contribution** names its target `accountId` and is
+ * inherently savings-tier. Amounts in cents. Switching kind can never produce a mix (an
+ * expense with an account, a contribution with a "wants" category).
  */
 export type BudgetLineDraft =
   | {
@@ -111,8 +109,8 @@ export function addLineFromDraft(lines: readonly BudgetLine[], draft: BudgetLine
 }
 
 /**
- * Rewrite the line with `id` from a form draft, preserving the parts the form doesn't
- * edit (span + dated overrides). Changing kind/target/label/category/base amount all ride.
+ * Rewrite the line with `id` from a form draft, preserving what the form doesn't edit (span,
+ * dated overrides, priority). Kind/target/label/category/base amount all ride.
  */
 export function updateLineFromDraft(
   lines: readonly BudgetLine[],

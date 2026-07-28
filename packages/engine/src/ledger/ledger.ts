@@ -1,6 +1,6 @@
 /**
- * The Ledger — the append-only event log that is the system's source of truth
- * Everything else (projection, snapshot) is a pure derivation.
+ * The Ledger — the append-only event log that is the system's source of truth. Everything
+ * else (projection, snapshot) is a pure derivation.
  */
 
 import type { LifeEvent } from "./eventTypes";
@@ -13,11 +13,10 @@ export interface Ledger {
   /**
    * The sequence number the next appended event will receive.
    *
-   * Invariant: strictly greater than every existing event's `sequenceNumber`.
-   * It increments by one on every append and is **never decremented** — removing
-   * an event does not recycle its number, so ids assigned to later appends stay
-   * globally unique and monotonic across the ledger's lifetime. (It therefore
-   * does *not* in general equal `events.length` once any event has been removed.)
+   * Invariant: strictly greater than every existing event's `sequenceNumber`. Increments by
+   * one on every append and is **never decremented** — removing an event does not recycle
+   * its number, so numbers stay globally unique and monotonic across the ledger's lifetime.
+   * It therefore does *not* in general equal `events.length` once anything is removed.
    */
   readonly nextSequenceNumber: number;
 }
@@ -25,9 +24,9 @@ export interface Ledger {
 export const emptyLedger: Ledger = { events: [], nextSequenceNumber: 0 };
 
 /**
- * Structural validation of a ledger's own invariants (independent of replay):
- * unique event ids, unique sequence numbers, and the `nextSequenceNumber`
- * monotonicity invariant. Catches malformed or hand-assembled ledgers.
+ * Structural validation of a ledger's own invariants, independent of replay: unique event
+ * ids, unique sequence numbers, and `nextSequenceNumber` monotonicity. Catches malformed or
+ * hand-assembled ledgers.
  */
 export function validateLedgerStructure(ledger: Ledger): ValidationResult {
   const seenIds = new Set<string>();

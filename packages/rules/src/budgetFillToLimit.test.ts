@@ -1,13 +1,11 @@
 /**
- * Integration test for the `fill-to-limit` amount source
- * against the REAL rules-side contribution caps. It proves the
- * end-to-end seam: a `fill-to-limit` budget line, resolved through the engine's
- * jurisdiction seam, tracks the legislated 401(k) elective-deferral limit AND
- * auto-follows the age-50 catch-up bump — with no authoring change to the line.
+ * The `fill-to-limit` amount source against the REAL rules-side contribution caps: a
+ * `fill-to-limit` budget line, resolved through the engine's jurisdiction seam, tracks the
+ * legislated 401(k) elective-deferral limit AND auto-follows the age-50 catch-up bump, with
+ * no authoring change to the line.
  *
- * The engine ships the resolver + the seam bridge (`fillToLimitSeamFor`); `rules`
- * supplies the actual `retirementDeferralLimitCents` plug. Wiring them here is the
- * one place the two halves meet, which is exactly the boundary that matters.
+ * The engine ships the resolver and seam bridge (`fillToLimitSeamFor`); `rules` supplies the
+ * `retirementDeferralLimitCents` plug. Here is the one place the two halves meet.
  */
 import { describe, it, expect } from "vitest";
 import {

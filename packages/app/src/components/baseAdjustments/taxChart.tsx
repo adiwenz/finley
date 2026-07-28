@@ -14,29 +14,26 @@ import { formatDollars } from "../../format";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
- * Monthly tax-paid chart — stacked below the income and per-line budget charts,
- * sharing the same x-axis, the same click-to-select gesture, and the same
- * selection marker. Read together with the two above it, it shows the wedge between gross
- * income and gross spending that the tax seam takes out each month.
+ * Monthly tax-paid chart — below the income and per-line budget charts, sharing their
+ * x-axis, click-to-select gesture, and selection marker. Read with the two above it, it
+ * shows the wedge the tax seam takes out between gross income and gross spending.
  *
- * It STACKS BY INCOME SOURCE, matching the income chart: the engine
- * splits the tax down to the job / account draw that bore it, so each band names its source
- * and is coloured by that source's provenance category — a "money leaving" rust family,
- * distinct from the income blues and the budget greens, with one tone per category so a
- * household's jobs read as sibling shades. Attribution is required of every jurisdiction and
- * enforced to reconcile, so a plan that pays tax always stacks per source; a zero-tax plan
- * has no bands (a flat-zero line). As with the
- * sibling charts, the summary and a hidden data mirror render independently of Recharts so
- * the behaviour is assertable without SVG layout (Recharts needs a real width, absent in
- * jsdom).
+ * It STACKS BY INCOME SOURCE, matching the income chart: the engine splits tax down to the
+ * job / account draw that bore it, so each band names its source and is coloured by that
+ * source's provenance category — a "money leaving" rust family, distinct from the income
+ * blues and budget greens, one tone per category so a household's jobs read as sibling
+ * shades. Attribution is required of every jurisdiction and enforced to reconcile, so a
+ * plan that pays tax always stacks per source; a zero-tax plan draws a flat-zero line.
+ *
+ * The summary and a hidden data mirror render independently of Recharts, so behaviour is
+ * assertable without SVG layout (Recharts needs a real width, absent in jsdom).
  */
 
-// The single-band fallback colour, plus a rust "money leaving" family set apart from the
-// income bands. Like the income chart, sibling sources in the SAME category STEP through
-// their family's shades (one per job, one per draw) so two jobs read as distinct bands
-// rather than one indistinguishable block. The government benefit is a single steady tone.
+// Single-band fallback colour, plus a rust "money leaving" family set apart from the
+// income bands. As on the income chart, siblings in the SAME category step through their
+// family's shades so two jobs read as distinct bands, not one block.
 const TAX_COLOR = "#8c3b3b";
-// Wages: one step per job, dark → light. Benefit: a single warm tone. Draws
+// Wages: one step per job, dark → light. Benefit: a single steady warm tone. Draws
 // (capital-gains / ordinary / tax-exempt / any drawdown): a second, earthier family.
 const WAGE_TONES = ["#8c3b3b", "#a85a4a", "#c17a5f", "#d5a084"];
 const BENEFIT_TONE = "#9c6b4a";
@@ -46,11 +43,10 @@ const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
 
 /**
- * A colour per tax band, stepping shades within a category so sibling jobs (and sibling
- * draws) are visually distinct — the analog of the income chart's `colorsForBands`. Wages
- * walk the rust family, the benefit is a single tone, everything else walks the earth
- * family; the order matches the bands' stacking order so shades progress cleanly up the
- * stack.
+ * A colour per tax band, stepping shades within a category so sibling jobs and draws stay
+ * distinct — the analog of the income chart's `colorsForBands`. Wages walk the rust
+ * family, the benefit is one tone, everything else walks the earth family. Input order is
+ * stacking order, so shades progress cleanly up the stack.
  */
 function colorsForBands(sources: readonly TaxSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
@@ -74,12 +70,11 @@ export interface TaxChartProps {
 
 export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) {
   const summary = describeTaxes(data);
-  // Stacked per-source view whenever the plan pays tax (attribution is always reported); a
-  // zero-tax plan has no sources, so the row carries the lone `taxCents` (a flat zero line).
+  // Stacked whenever the plan pays tax (attribution is always reported); a zero-tax plan
+  // has no sources, so the row carries the lone `taxCents`.
   const stacked = data.hasSourceBreakdown && data.sources.length > 0;
-  // Chart geometry depends only on `data` (stable while scrubbing) — memoize it so moving
-  // the selected month, which re-renders this component via `selectedMonth`, doesn't
-  // rebuild the colour map or remap every month row.
+  // Geometry depends only on `data`, stable while scrubbing — memoized so moving
+  // `selectedMonth` doesn't rebuild the colour map or remap every row.
   const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
   const rows = useMemo(
     () =>
@@ -102,8 +97,8 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
       <p className="hint" data-testid="tax-summary">
         {summary ?? "No income tax is paid over the horizon."}
       </p>
-      {/* Hidden data mirror for tests / screen readers: first row's tax (total + any
-          per-source split) and the band labels currently stacked. */}
+      {/* Hidden data mirror for tests / screen readers: the first row's tax (total plus
+          any per-source split) and the stacked band labels. */}
       <output data-testid="tax-first-row" hidden>
         {JSON.stringify(data.rows[0] ?? {})}
       </output>

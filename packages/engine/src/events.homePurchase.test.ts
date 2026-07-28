@@ -15,8 +15,6 @@ import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 
-// HomePurchaseEvent (property lifecycle)
-
 function savings(openingCents: number, rate = 0): SimAccount {
   return new SimAccount({
     id: "savings",
@@ -58,7 +56,7 @@ function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   } as NewLifeEvent;
 }
 
-/** Append a HomePurchase fixture against a per-test base, asserting it passes. */
+/** Appends a fixture, asserting it passes. */
 function addWithBase(ledger: Ledger, base: LedgerBaseConfig, event: NewLifeEvent): Ledger {
   const result = addEvent(ledger, base, event);
   if (!result.ok) throw new Error(`event rejected: ${result.conflict}`);
@@ -87,12 +85,10 @@ describe("HomePurchaseEvent", () => {
     const ledger = addWithBase(emptyLedger, base, purchase());
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
-    // Before purchase: just the liquid account.
     expect(series.months[2].netWorthNominalCents).toBe(10_000_000);
     expect(series.months[2].propertyValuesCents.house1 ?? 0).toBe(0);
 
-    // At purchase: down payment leaves savings; mortgage + property appear; the
-    // three moves cancel, so net worth is unchanged.
+    // The three moves cancel.
     const m3 = series.months[3];
     expect(m3.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
     expect(m3.liabilityBalancesCents.mtg1).toBe(FINANCED);
@@ -152,16 +148,12 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
   });
 
   it("hard-blocks on any shortfall — one cent short still fails the gate", () => {
-    // The gate drains the down payment from the sources and blocks on a positive
-    // shortfall, so exact coverage passes but a single-cent gap does not.
-    const base = baseWith(DOWN - 1); // one cent under the down payment
+    const base = baseWith(DOWN - 1);
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
     expect(result.ok).toBe(false);
   });
 
   it("quotes dollars, not raw cents, and says why other balances don't count", () => {
-    // The conflict is read by a person: "6000000¢ exceeds 5000000¢" left users
-    // comparing the shortfall against a net worth that already looked sufficient.
     const base = baseWith(5_000_000);
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
     expect(result.ok).toBe(false);
@@ -169,14 +161,13 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
       expect(result.conflict).toContain("$60,000");
       expect(result.conflict).toContain("$50,000");
       expect(result.conflict).not.toMatch(/¢|\d{7}/);
-      // Names the reason a larger net worth can still fail the gate.
       expect(result.conflict).toMatch(/goal funds|retirement|brokerage/);
     }
   });
 
   it("never counts credit as a down-payment source", () => {
     const base = baseWith(5_000_000);
-    // A credit card with a large limit is available, but credit is not liquid.
+    // Credit is not liquid.
     const withCard = addWithBase(emptyLedger, base, {
       id: "card",
       type: "LoanEvent",
@@ -193,12 +184,9 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
   });
 });
 
-// §4.5 gate — liquid goal funds (the cash emergency reserve) are sources
-// A goal held as cash lands in a liquid account, so it IS a sourced down-payment fund.
-// The gate must count it, and the block message must name which buckets it counted
-// rather than claiming "goal funds do not count" — false the moment a cash goal exists.
+// §4.5 gate: a goal held as cash lands in a liquid account, so the gate counts it and the
+// block message must name the buckets it counted.
 
-/** A goal's fund account; liquid when the goal is held as cash (the emergency reserve). */
 function goalFund(id: string, label: string, openingCents: number, liquid: boolean): SimAccount {
   return new SimAccount({
     id,
@@ -247,15 +235,13 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
     const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // A selected liquid goal fund WAS counted, so the message must name it.
       expect(result.conflict).toContain("Emergency fund");
       expect(result.conflict).toContain("$50,000"); // the counted selected total
     }
   });
 
   it("still excludes an illiquid goal fund even when it is selected", () => {
-    // $30k savings + $40k ILLIQUID goal fund → the illiquid one contributes 0, so only
-    // $30k counts and the gate blocks despite both being selected.
+    // The illiquid fund contributes 0: only $30k of the selected $70k counts.
     const base = baseWithGoalFund(3_000_000, {
       label: "Retirement top-up",
       cents: 4_000_000,
@@ -266,8 +252,7 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
   });
 
   it("falls back to the account id when a counted bucket has an empty label", () => {
-    // An empty-string label must fall back to the id ("goal-emergency"), not print a
-    // nameless "()". $30k savings + $15k = $45k < $60k, so the gate blocks and lists both.
+    // $30k + $15k = $45k < $60k, so the gate blocks and lists both.
     const base = baseWithGoalFund(3_000_000, { label: "", cents: 1_500_000, liquid: true });
     const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
     expect(result.ok).toBe(false);
@@ -278,9 +263,7 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
   });
 
   it("states a total that equals the sum of the buckets it lists", () => {
-    // The stated "$Y available" is derived from the same buckets the message itemises,
-    // so the two can never disagree. $30k savings + $15k emergency = $45k, and the
-    // message names each selected bucket at exactly the amounts that sum to $45k.
+    // $30k + $15k = $45k: the stated total derives from the buckets it itemises.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 1_500_000,
@@ -310,12 +293,8 @@ describe("removeEvent — HomePurchaseEvent", () => {
   });
 });
 
-// Ordered multi-source down payment
-// The down payment drains an ORDERED list of sources: the shared funding helper
-// takes as much as each holds before moving to the next, so an early source empties
-// before a later one is touched. Each contributing source receives its own outflow.
+// Sources drain in order, each taken to zero before the next is touched; each gets its own outflow.
 
-/** A liquid asset account with an id, opening balance, rate, and optional label. */
 function liquidAcct(id: string, openingCents: number, rate = 0, label?: string): SimAccount {
   return new SimAccount({
     id,
@@ -340,7 +319,6 @@ function baseWithAccounts(accounts: SimAccount[], inflation = 0): LedgerBaseConf
 describe("HomePurchaseEvent — ordered multi-source down payment", () => {
   it("drains sources in order: the first empties before the second is touched", () => {
     // $40k savings + $40k brokerage, $60k down, ordered [savings, brokerage].
-    // Savings empties ($40k), the remaining $20k comes from brokerage.
     const base = baseWithAccounts([
       liquidAcct("savings", 4_000_000),
       liquidAcct("brokerage", 4_000_000),
@@ -352,18 +330,14 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
     );
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
-    // Before the purchase: both accounts untouched, $80k liquid.
     expect(series.months[2].accountBalancesCents.savings).toBe(4_000_000);
     expect(series.months[2].accountBalancesCents.brokerage).toBe(4_000_000);
     const netBefore = series.months[2].netWorthNominalCents;
 
-    // At the purchase month: savings drained dry, brokerage down by the $20k remainder,
-    // so two distinct sources funded the down payment — not one over-drawn account.
     const m3 = series.months[3];
     expect(m3.accountBalancesCents.savings).toBe(0);
     expect(m3.accountBalancesCents.brokerage).toBe(2_000_000);
-    // The purchase conserves net worth (property + mortgage = price; the draws are the
-    // only net move, and they sum to the down payment across the two sources).
+    // Net worth conserved: the draws sum to the down payment.
     expect(m3.netWorthNominalCents).toBe(netBefore);
   });
 
@@ -379,14 +353,12 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
     );
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
     const m3 = series.months[3];
-    // Brokerage now drains first (empties); savings keeps the $20k remainder.
     expect(m3.accountBalancesCents.brokerage).toBe(0);
     expect(m3.accountBalancesCents.savings).toBe(2_000_000);
   });
 
   it("hard-blocks a multi-source shortfall, naming every selected source and the total", () => {
-    // $30k savings + $20k brokerage = $50k < $60k down: the combined selected balance
-    // falls short, so the gate blocks and itemises both selected sources.
+    // Combined selected balance $50k < $60k down, so the gate blocks and itemises both.
     const base = baseWithAccounts([
       liquidAcct("savings", 3_000_000),
       liquidAcct("brokerage", 2_000_000, 0, "Brokerage"),
@@ -406,17 +378,12 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
   });
 });
 
-// Down-payment draw reporting
-// The draw converts a liquid asset into home equity (net worth conserved), but it
-// still surfaces in the diagnostic flow view: a cash source's whole draw as a savings
-// drawdown, an investment source's realized GAIN as capital-gains income and its
-// returned PRINCIPAL as a savings drawdown.
+// A draw surfaces in the flow view: a cash source's whole draw as savings drawdown; an
+// investment source's realized gain as capital gains, its principal as drawdown.
 
 describe("HomePurchaseEvent — down-payment draw reporting", () => {
   it("reports a cash-funded draw as a savings drawdown, with no capital gain", () => {
-    // $80k cash savings (0% growth → basis == balance, no embedded gain). A $60k down
-    // payment is pure returned principal: it reports as a savings drawdown, nothing as
-    // capital gains.
+    // 0% growth → basis == balance, no embedded gain.
     const base = baseWithAccounts([liquidAcct("savings", 8_000_000)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -429,16 +396,13 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
 
     const drawdown = flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
     expect(drawdown?.cashInflowCents).toBe(DOWN);
-    // No capital-gains band — a zero-growth cash account has no gain to realize.
     expect(flows!.incomeSources.some((s) => s.category === "capitalGains")).toBe(false);
-    // A drawdown is spending an asset, not income: it stays out of the income total.
+    // A drawdown is spending an asset, not income.
     expect(flows!.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
   });
 
   it("splits an investment-funded draw into capital-gains income and returned principal", () => {
-    // A brokerage grown 12 months at 12%/yr carries an embedded gain over its cost
-    // basis (its $50k opening). A $40k draw realizes the gain as capital-gains income
-    // and returns the rest as principal (a savings drawdown); the two sum to the draw.
+    // A brokerage grown 12 months at 12%/yr carries an embedded gain over its $50k basis.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -452,8 +416,7 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
     );
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
-    // The balance the draw sees is the end-of-month-11 balance (the draw runs before
-    // month 12 compounds); basis is the untouched $50k opening (rate growth adds none).
+    // The draw runs before month 12 compounds, so it sees the end-of-month-11 balance.
     const balanceAtDraw = series.months[11].accountBalancesCents.brokerage;
     const basis = 5_000_000;
     const expectedPrincipal = Math.round(4_000_000 * (basis / balanceAtDraw));
@@ -471,21 +434,14 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
 
     // Conserved: the two bands sum to the whole draw.
     expect((gainBand?.cashInflowCents ?? 0) + (drawdown?.cashInflowCents ?? 0)).toBe(4_000_000);
-    // The gain is genuine capital-gains income in the rollup; the principal is not.
     expect(flows!.incomeByCategoryCents.capitalGains).toBe(expectedGain);
   });
 });
 
-// Down-payment capital-gains tax — accurate net worth
-// Liquidating an appreciated source to fund a down payment realizes a taxable gain. The
-// draw grosses up over that tax and net worth falls by exactly the tax paid; a cash source
-// (no gain) still conserves. The §4.5 gate sizes on the down payment PLUS the tax.
+// Liquidating an appreciated source realizes a taxable gain: the draw grosses up over the tax,
+// and the §4.5 gate sizes on the down payment PLUS the tax.
 
-/**
- * A flat capital-gains test jurisdiction: taxes the `capitalGains` category at `rate`,
- * returning basis pro-rata so only the gain over cost basis is taxable, everything else
- * untaxed. Monotone non-decreasing in the gross draw, as the gross-up loop requires.
- */
+/** Taxes `capitalGains` at `rate`, basis returned pro-rata. Monotone, as the gross-up requires. */
 function flatCapitalGains(rate: number): Jurisdiction {
   return {
     id: "test-capital-gains",
@@ -502,11 +458,8 @@ function flatCapitalGains(rate: number): Jurisdiction {
 }
 
 /**
- * A bracketed capital-gains test jurisdiction: a capital gain stacked ON TOP of the owner's
- * ordinary income is untaxed up to `thresholdCents` of total taxable income and taxed at
- * `rate` above it — so the gain's tax depends on the owner's OTHER income, the marginal
- * behavior a standalone (gain-alone) estimate cannot see. Ordinary income itself is untaxed
- * here, to isolate the gain. Monotone non-decreasing in the gain, as the gross-up requires.
+ * A gain stacked on ordinary income: untaxed up to `thresholdCents`, taxed at `rate` above, so
+ * its tax depends on the owner's OTHER income. Ordinary income is untaxed, to isolate the gain.
  */
 function bracketedCapitalGains(thresholdCents: number, rate: number): Jurisdiction {
   const gainTaxCents = (byCat: Partial<Record<string, number>>): number => {
@@ -533,9 +486,7 @@ function bracketedCapitalGains(thresholdCents: number, rate: number): Jurisdicti
 
 describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
   it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
-    // A brokerage grown 12 months carries an embedded gain over its $80k cost basis; its
-    // pre-tax balance amply covers the $60k down payment. Comparing a taxing run against an
-    // otherwise-identical no-tax run isolates the tax's effect from the month's growth.
+    // An otherwise-identical no-tax run isolates the tax from the month's growth.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -547,24 +498,19 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     const untaxed = buildProjection(household, base, nullJurisdiction);
 
     const at = taxed.months[12];
-    // A real gain was realized and taxed at the purchase month.
     expect(at.flows!.taxCents).toBeGreaterThan(0);
-    // Net worth is strictly LOWER than the untaxed run — the purchase now costs the tax.
     expect(at.netWorthNominalCents!).toBeLessThan(untaxed.months[12].netWorthNominalCents!);
-    // The draw was grossed up: taxation drained MORE from the brokerage than the bare down
-    // payment did, so less is left than in the untaxed run.
+    // Grossed up: taxation drained more than the bare down payment.
     expect(at.accountBalancesCents.brokerage).toBeLessThan(
       untaxed.months[12].accountBalancesCents.brokerage,
     );
-    // The tax is the household's loss, not the home's: property equity is still the down
-    // payment (price − financed), unchanged by the tax.
+    // The tax is the household's loss, not the home's: equity is still price − financed.
     expect(at.propertyValuesCents.house1).toBe(PRICE);
     expect(at.liabilityBalancesCents.mtg1).toBe(FINANCED);
   });
 
   it("conserves net worth for a cash-funded down payment (no gain → no tax)", () => {
-    // A 0%-growth cash account has basis == balance: no embedded gain, so nothing is taxed
-    // and the purchase conserves net worth even under a taxing jurisdiction.
+    // basis == balance → no embedded gain.
     const base = baseWithAccounts([liquidAcct("savings", 10_000_000, 0)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -587,8 +533,6 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     );
     const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
     const flows = series.months[12].flows!;
-    // The gain still surfaces as its own capital-gains band and the principal as a savings
-    // drawdown, and the tax charged is exactly 20% of that reported gain.
     const gainBand = flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
     expect(gainBand?.category).toBe("capitalGains");
     expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
@@ -599,12 +543,9 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
 
 describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
   it("blocks when a selected investment source covers the down payment but not the tax on it", () => {
-    // $50k basis grown 24 months at 10%/yr clears the $60k down payment pre-tax, but the
-    // capital-gains tax on liquidating its embedded gain leaves the after-tax proceeds
-    // short — so the purchase is not actually affordable and the gate blocks it.
+    // $50k basis grown 24 months at 10%/yr clears $60k pre-tax; the tax on the gain does not.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.1)]);
-    // Pre-tax, the brokerage clears the down payment (so the block is due to tax, not raw
-    // insufficiency): the same purchase is ALLOWED under a no-tax jurisdiction.
+    // Allowed with no tax: the block is the tax, not insufficiency.
     const allowed = addEvent(
       emptyLedger,
       base,
@@ -624,12 +565,9 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
   });
 
   it("prices the gain MARGINALLY over the owner's other income, not standalone", () => {
-    // The exactness proof: with a bracketed regime where a gain stacked on top of ordinary
-    // income above a threshold is taxed but below it is free, the SAME brokerage funding the
-    // SAME down payment is affordable with no other income (the gain sits under the
-    // threshold, untaxed) yet unaffordable once a wage that month pushes the whole gain into
-    // the taxed band. Only a gate that reads the owner's other income — as the sim does —
-    // can tell these apart; a standalone estimate would decide both identically.
+    // Same brokerage, same down payment: affordable with no other income, unaffordable once a
+    // wage pushes the gain into the taxed band. Only a gate reading the owner's other income
+    // can tell these apart.
     const wage = new SimCashFlowSeries(0, dollarsToCents(15_000), { type: "fixed" }, { baselineUnit: "monthly" });
     const accounts = () => [liquidAcct("savings", 0), liquidAcct("brokerage", 5_000_000, 0.1)];
     const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4); // $15k/mo threshold, 40% above
@@ -649,25 +587,20 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
 
     // No other income: the ~$10k gain sits below the $15k threshold → untaxed → affordable.
     expect(addEvent(emptyLedger, withoutWage, buy, jur).ok).toBe(true);
-    // A $15k wage that month stacks the whole gain above the threshold → taxed → the
-    // after-tax proceeds no longer cover the down payment, so the gate blocks.
+    // The wage stacks the gain above the threshold → taxed → proceeds no longer cover it.
     const blocked = addEvent(emptyLedger, withWage, buy, jur);
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
   });
 });
 
-// §4.5 gate — a SIBLING draw in the same month
-// Two money-out events in one month, same owner, both from taxable sources: the simulator
-// stacks the first draw's realized gain under the second (one working base threaded across
-// the month's draws), so the second owes tax the first did not. The gate must price the
-// candidate over that same stacked base — reading the pre-funding base instead would accept
-// a purchase the simulation then cannot fund.
+// §4.5 gate, sibling draws: the sim threads one working base across a month's draws, stacking
+// the first's realized gain under the second. The gate must price a candidate over that stacked
+// base, not the pre-funding one.
 
 describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same month", () => {
-  // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, carrying a ~$10,021
-  // embedded gain. Alone that gain sits under the $15k threshold and is untaxed, so the
-  // account exactly covers the $60,000 down payment.
+  // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain. Alone it
+  // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment.
   const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
   const twoBrokerages = () =>
     baseWithAccounts([
@@ -694,27 +627,22 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
-    // Standalone, this second purchase looks exactly like the first. But the sim will resolve
-    // it AFTER its sibling, stacking that ~$10k gain underneath — pushing this gain across the
-    // threshold, taxing it, and leaving the brokerage short of the $60,000.
+    // The sim resolves this AFTER its sibling, stacking that ~$10k gain underneath: this gain
+    // crosses the threshold and leaves the brokerage short of $60,000.
     const second = addEvent(first.ledger, base, secondPurchase, jur);
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.conflict).toMatch(/tax/i);
   });
 
   it("accepts that same second purchase when it has no sibling (the block IS the stacking)", () => {
-    // The control: identical account, identical purchase, identical jurisdiction — only the
-    // same-month sibling is gone. Affordable. So the block above is caused by the sibling's
-    // realized gain, not by the account being too small.
+    // The control: identical but for the sibling.
     expect(addEvent(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).ok).toBe(true);
   });
 });
 
-// fundingLookup.sourcesAt — the pool an authoring surface lists
-// The pool's MEMBERSHIP is a property of the account, not of the month: every liquid account
-// is listed at every month, and only `balanceCents` moves. A pool that omitted empty accounts
-// let a picker's rows appear and disappear as the month changed, so an account chosen while it
-// held money could vanish from the list while its id stayed selected behind the scenes.
+// Membership is a property of the account, not the month: every liquid account is listed at
+// every month and only `balanceCents` moves. Omitting empty ones let a picker row vanish while
+// its id stayed selected.
 
 describe("fundingLookup — the source pool", () => {
   // $40k savings + $40k brokerage, $60k down at month 3: savings empties, brokerage keeps $20k.
@@ -727,22 +655,17 @@ describe("fundingLookup — the source pool", () => {
     const ledger = addWithBase(emptyLedger, b, spendIt);
     const { sourcesAt } = fundingLookup(ledger, b, nullJurisdiction);
 
-    // Before the purchase both hold $40k; at it savings is spent to nothing — and is STILL in
-    // the pool, now carrying the zero that says why it cannot pay.
     expect(sourcesAt(2).map((s) => s.id).sort()).toEqual(["brokerage", "savings"]);
     expect(sourcesAt(3).map((s) => s.id).sort()).toEqual(["brokerage", "savings"]);
     expect(sourcesAt(2).find((s) => s.id === "savings")?.balanceCents).toBe(4_000_000);
     expect(sourcesAt(3).find((s) => s.id === "savings")?.balanceCents).toBe(0);
-    // The other source is untouched by the drain — this is the emptied account being reported,
-    // not the whole month going to zero.
     expect(sourcesAt(3).find((s) => s.id === "brokerage")?.balanceCents).toBe(2_000_000);
   });
 
   it("keeps the largest-first order, so the empty accounts sort to the bottom", () => {
     const b = base();
     const ledger = addWithBase(emptyLedger, b, spendIt);
-    // The order is the picker's default drain order: spend the biggest bucket first, and never
-    // offer an empty one ahead of an account that can actually pay.
+    // The picker's default drain order: biggest bucket first.
     expect(fundingLookup(ledger, b, nullJurisdiction).sourcesAt(3).map((s) => s.id)).toEqual([
       "brokerage",
       "savings",
@@ -750,9 +673,8 @@ describe("fundingLookup — the source pool", () => {
   });
 
   it("omits accounts that could never fund a draw, empty or not", () => {
-    // Membership is "liquid", not "has money": an illiquid retirement fund holding $50k is
-    // absent, while a liquid account holding nothing is present. Listing at $0 widens what the
-    // pool SHOWS, not what it considers spendable.
+    // Membership is "liquid", not "has money": the illiquid fund is absent, the empty liquid
+    // account present.
     const b = baseWithAccounts([liquidAcct("savings", 0), goalFund("retirement", "401(k)", 5_000_000, false)]);
     expect(fundingLookup(emptyLedger, b, nullJurisdiction).sourcesAt(6).map((s) => s.id)).toEqual([
       "savings",

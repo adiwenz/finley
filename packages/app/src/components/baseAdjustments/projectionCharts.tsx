@@ -1,18 +1,17 @@
 /**
  * The graphs at the top of Base + Adjustments: cash flows vs. spending, spending by line,
- * and tax paid — three views of one projected scenario, sharing an x-axis, a selection
+ * and tax paid — three views of one projected scenario sharing an x-axis, a selection
  * marker, and the click-to-select gesture.
  *
- * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} so the
- * panel reads as what it is (state + plan mutation) and the graphs as what they are
- * (presentation). It owns no state: the selected month is the panel's, because the
- * editor below is pointed at the same month — that shared cursor is the whole gesture.
+ * Split out of {@link import("./baseAdjustmentsPanel").BaseAdjustmentsPanel} to keep state
+ * + plan mutation apart from presentation. It owns no state: the selected month is the
+ * panel's, because the editor below points at the same month — that shared cursor is the
+ * whole gesture.
  *
- * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points
- * on a default plan, one area per band) are by far the most expensive thing this panel
- * draws, and the panel re-renders on every keystroke in a spending row. Nothing here
- * depends on that staging state, so with the projected data memoized upstream and the
- * two callbacks stable, typing now skips the graphs entirely.
+ * `memo`ized, and worth it: three Recharts subtrees over the whole horizon (660+ points on
+ * a default plan, one area per band) are the most expensive thing this panel draws, and the
+ * panel re-renders on every keystroke in a spending row. Nothing here reads that staging
+ * state, so with the data memoized upstream and both callbacks stable, typing skips them.
  */
 
 import { memo } from "react";
@@ -31,9 +30,9 @@ export interface ProjectionChartsProps {
   /** The household's age at month 0 — turns the income graph's broke marker into an age. */
   readonly currentAge: number;
   /**
-   * Household member names by person id — what lets the income graph say *whose*
-   * government benefit a band is. Two claimants otherwise draw two legend
-   * entries with the identical label, since the label names the kind of income.
+   * Household member names by person id — lets the income graph say *whose* government
+   * benefit a band is. The label names the kind of income, so two claimants would otherwise
+   * draw two identical legend entries.
    */
   readonly personNames: ReadonlyMap<string, string>;
   readonly selectedMonth: number;

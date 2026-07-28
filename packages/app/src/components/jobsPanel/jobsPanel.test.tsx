@@ -1,10 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * Jobs panel — the authoring surface for earned income. Pins that a
- * person can hold ANY number of jobs (none privileged, several possibly open-ended),
- * that add / edit / delete are direct value-plane edits to `plan.jobs`, and that the
- * 401(k) elective-limit nudge (which left the Budget editor with the deferral) fires
+ * Jobs panel — the authoring surface for earned income. Pins that a person can hold ANY
+ * number of jobs (none privileged, several possibly open-ended), that add / edit / delete are
+ * direct value-plane edits to `plan.jobs`, and that the 401(k) elective-limit nudge fires
  * here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
@@ -34,8 +33,8 @@ import { JobsPanel } from "./jobsPanel";
 afterEach(cleanup);
 
 /**
- * Controlled harness so edits round-trip through real state, plus probes for each plane
- * a job can live on: the primary person's jobs on the plan, a partner's on their
+ * Controlled harness so edits round-trip through real state, plus probes for each plane a job
+ * can live on: the primary person's jobs on the plan, a partner's on their
  * `RelationshipEvent`. Stands in for `App`, which owns both.
  */
 function Harness({
@@ -58,8 +57,8 @@ function Harness({
     [budget],
   );
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // The ledger, readable synchronously — `onReviseEvents` answers whether it committed
-  // before the panel writes the plan side, exactly as `useLedger` does.
+  // The ledger, readable synchronously — `onReviseEvents` answers whether it committed before
+  // the panel writes the plan side, as `useLedger` does.
   const ledgerRef = useRef(ledger);
   ledgerRef.current = ledger;
   const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
@@ -86,8 +85,8 @@ function Harness({
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
-      {/* Both planes as the panel actually left them, so a test can project the real
-          pair (plan + ledger) rather than a hand-built stand-in for it. */}
+      {/* Both planes as the panel left them, so a test can project the real pair
+          (plan + ledger) rather than a hand-built stand-in. */}
       <output data-testid="plan">{JSON.stringify(budget)}</output>
       <output data-testid="ledger">{JSON.stringify(ledger)}</output>
     </>
@@ -188,8 +187,8 @@ describe("JobsPanel — add / edit / delete", () => {
   });
 
   it("remembers the entered end age across an open-ended toggle instead of resetting it", () => {
-    // endAge:null IS open-ended, but the last finite value is kept so ticking the box on
-    // then off restores the user's number rather than snapping back to the 65 default.
+    // endAge:null IS open-ended, but the last finite value is kept, so toggling the box on
+    // then off restores the user's number rather than the 65 default.
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     fireEvent.click(screen.getByLabelText(/Open-ended/i)); // reveal the end-age field
@@ -244,8 +243,8 @@ describe("JobsPanel — every member's jobs", () => {
   const withPartner = (jobs: readonly Job[] = [partnerJob(2000)]) => [partnerJoining(jobs)];
 
   it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
-    // A partner's jobs used to be invisible here — authored at the moment they joined
-    // and unreachable afterwards. Now both earners' jobs are one list.
+    // Both earners' jobs are one list; a partner's used to be reachable only at the moment
+    // they joined.
     render(<Harness events={withPartner()} />);
     expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
     const partnerRow = screen.getByLabelText("Sam · Job 1");
@@ -303,9 +302,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
-    // Reassignment used to remove the job and MINT a new one from the form draft, which
-    // holds none of this: the job arrived with a fresh id, no bonus, no raise, no match.
-    // Fields and owner are one edit applied to the existing job, so all of it rides along.
+    // Fields and owner are ONE edit to the existing job, so all of it rides along.
+    // Minting a new job from the form draft instead loses id, bonus, raise and match.
     const rich = addJobPayChange(
       setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.1),
       "job-1",
@@ -337,9 +335,9 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("writes neither plane when the ledger refuses the revision", () => {
-    // The two halves of a transfer sit on different planes. A conflict rejecting the
-    // ledger half after the plan half had been written would lose the job outright — so
-    // the ledger goes first and the plan only follows if it was accepted.
+    // The two halves of a transfer sit on different planes. Rejecting the ledger half after
+    // the plan half was written would lose the job outright, so the ledger goes first and
+    // the plan follows only if it was accepted.
     render(<Harness events={withPartner([])} rejectRevisions />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
@@ -353,9 +351,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("removes a pay change from a partner's job, on their own plane", () => {
-    // A partner's job can carry one now that Base + Adjustments reaches every earner, so
-    // the Remove button has to route by owner — it used to be a plan-only edit and did
-    // nothing at all here.
+    // Base + Adjustments reaches every earner, so Remove must route by owner; a plan-only
+    // edit does nothing here.
     const raised: Job = {
       ...partnerJob(2000),
       payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
@@ -378,14 +375,13 @@ describe("JobsPanel — every member's jobs", () => {
 });
 
 describe("JobsPanel — handing a whole job to a partner, end to end", () => {
-  // The regression this guards: reassignment used to be two unrelated writes — the job
-  // dropped from `Plan.jobs` and a NEW one minted on the partner from the form draft, which
-  // carries none of a job's other state. It came back with a fresh id, no employer match, no
-  // pay change, no bonus, and its ages re-read against the WRONG person's birth year.
+  // Guards the regression where reassignment was two unrelated writes — dropped from
+  // `Plan.jobs`, a NEW job minted on the partner from the form draft: fresh id, no employer
+  // match, no pay change, no bonus, ages read against the WRONG birth year.
   //
-  // Driven entirely through the panel, and asserted on the real pair of planes plus the
-  // projection compiled from them — no helper is called directly here, so the seam between
-  // `Plan.jobs`, the `RelationshipEvent`, and `compilePersonIncomeSeries` is under test too.
+  // Driven entirely through the panel and asserted on the real pair of planes plus the
+  // projection compiled from them, so the seam between `Plan.jobs`, the `RelationshipEvent`,
+  // and `compilePersonIncomeSeries` is under test too.
   const PRIMARY_BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now
   const PARTNER_BIRTH_YEAR = START_YEAR - 40; // Sam, 40 now, retiring at 65
   const JOIN_MONTH = 60; // Sam arrives five years in
@@ -467,8 +463,8 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     // The income is the PARTNER's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
-    // And none of it lands before Sam is in the household — the job started in 2018, but a
-    // member's jobs are only paid from the month they join (the membership window).
+    // None of it lands before Sam is in the household — the job started in 2018, but a
+    // member's jobs are paid only from the month they join (the membership window).
     expect(wagesFor(series, "p-1", 1)).toBe(0);
     expect(wagesFor(series, "p-1", JOIN_MONTH - 1)).toBe(0);
     // It stops at the boundary its OWNER carries: open-ended, so Sam's retirement age.
@@ -477,8 +473,8 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
   });
 
   it("stops the moved job's income at a separation, not at the partner's retirement", () => {
-    // The other boundary: leaving the household ends the income the same way, since the
-    // window that clips it is the MEMBERSHIP's, not the job's.
+    // The other boundary: leaving the household ends the income too — the window that clips
+    // it is the MEMBERSHIP's, not the job's.
     const separation: NewLifeEvent = {
       id: "s1",
       type: "SeparationEvent",
@@ -509,9 +505,8 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 });
 
 describe("JobsPanel — permanent pay changes", () => {
-  // A pay change lands on the job's `payChanges`, not its starting salary — so the job
-  // headline stays $5,000/mo while the change is what actually moves pay. (A past bug: the
-  // panel used to show only the starting figure, hiding the change entirely.)
+  // A pay change lands on `payChanges`, not the starting salary, so the headline stays
+  // $5,000/mo while the change is what moves pay — showing only the headline hides it.
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
@@ -570,8 +565,8 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
   });
 
   it("names the PARTNER when the crossing is theirs", () => {
-    // The limit is individual: the primary person defers nothing, Sam defers $30k of a
-    // $60k job. Scanning only `Plan.jobs` missed this entirely.
+    // The limit is individual: the primary person defers nothing, Sam defers $30k of a $60k
+    // job. Scanning only `Plan.jobs` misses it.
     render(<Harness events={[partnerDeferring(5000, 50)]} />);
     expect(screen.getByText(/Across Sam’s jobs/i)).toBeTruthy();
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
@@ -579,7 +574,7 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
 
   it("does not pool two earners into one limit", () => {
     // $20k + $20k across the household tops a single $24,500 limit, but neither person is
-    // over their own — so there is nothing to disclose.
+    // over their own, so there is nothing to disclose.
     render(
       <Harness
         initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.3334)}

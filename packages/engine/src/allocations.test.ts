@@ -69,12 +69,12 @@ describe("allocations() — unified view", () => {
 
   it("orders pre-tax deferrals first (above the tax line), then post-tax in priority order", () => {
     const view = allocations({ jobs: [job], budgetLines: [rentLine, brokerageLine], goals: [houseGoal] });
-    // The deferral (pre-tax) is first; everything after it is post-tax.
+    // The pre-tax deferral is first; everything after it is post-tax.
     expect(view[0].home.kind).toBe("job");
     expect(view[0].taxTreatment).toBe("preTax");
     expect(view.slice(1).every((a) => a.taxTreatment === "postTax")).toBe(true);
-    // Post-tax band is sorted by effective priority: rent (needs, 0) < brokerage
-    // (savings, 2000)… but the house goal (explicit 1500) slots between them.
+    // Post-tax band sorts by effective priority: rent (needs, 0) < brokerage (savings,
+    // 2000), with the house goal (explicit 1500) between them.
     const postTaxIds = ids(view).slice(1);
     expect(postTaxIds).toEqual(["line:rent", "goal:house", "line:brokerage"]);
   });
@@ -107,8 +107,8 @@ describe("goalToLineItem() — a goal is a computed goal-paced line item", () =>
   it("an asap goal has no deadline, so it carries no goal-paced deadline (fills the remainder)", () => {
     const asap: SimGoal = { ...houseGoal, disposition: "retain", targetDate: "asap" };
     const line = goalToLineItem(asap);
-    // No dated pace — the sinking-fund source needs a numeric deadline, so an asap
-    // goal is not goalPaced (it fills fill-order from the remainder in the waterfall).
+    // The sinking-fund source needs a numeric deadline, so an asap goal is not goalPaced —
+    // it fills in fill-order from the waterfall's remainder.
     expect(line.amountSource.kind).not.toBe("goalPaced");
   });
 });

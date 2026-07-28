@@ -11,7 +11,7 @@ import {
   isCoveredEarnings,
 } from "./socialSecurity";
 
-/** Build an EarningsRecord with `wageCents` in each of `count` consecutive years from `startYear`. */
+/** `wageCents` in each of `count` consecutive years from `startYear`. */
 function levelRecord(startYear: number, count: number, wageCents: Cents): EarningsRecord {
   const map = new Map<number, Cents>();
   for (let i = 0; i < count; i++) map.set(startYear + i, wageCents);
@@ -28,10 +28,9 @@ const claimAtFRA = (record: EarningsRecord, year: number): GovernmentBenefitClai
 
 describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   it("cent-pinned anchor: 35 years at the wage-base cap, claimed at FRA", () => {
-    // Age-60 indexing year is 2019 (claimYear 2026, currentAge 67 ⇒ 2026−67+60).
-    // All 35 earnings years fall on/after 2019, so every EARNINGS index factor is
-    // 1.0; the bend points, based in 2026, scale DOWN to 2019. Still hand-derivable
-    // to the cent:
+    // Age-60 indexing year is 2019 (claimYear 2026, currentAge 67 ⇒ 2026−67+60). All 35
+    // earnings years fall on/after 2019, so every EARNINGS index factor is 1.0; the bend
+    // points, based in 2026, scale DOWN to 2019:
     //   AIME  = 35 × $184,500 / 420 = $15,375.00
     //   scale = 1.035^(2019−2026) = 1.035^-7 = 0.785991
     //   bend1 = $1,286 × 0.785991 → whole $ = $1,011.00
@@ -44,15 +43,15 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   });
 
   it("cent-pinned: bend points are re-indexed to a future cohort's age-60 year", () => {
-    // A worker turning 67 in 2054 (age-60 year = 2054−67+60 = 2047). Their earnings
-    // are indexed forward to 2047, so the bend points must move to that same era or
-    // the AIME would be sliced by present-day bend points and understate the benefit.
+    // A worker turning 67 in 2054 (age-60 year = 2054−67+60 = 2047). Earnings index forward
+    // to 2047, so the bend points must move to that era too — present-day bend points would
+    // slice the AIME and understate the benefit.
     //   bend-point scale = 1.035^(2047−2026) = 1.035^21 = 2.059431
     //   bend1 = $1,286 × 2.059431 → whole $ = $2,648.00
     //   bend2 = $7,749 × 2.059431 → whole $ = $15,959.00
-    // 35 level years at $100,000, all on/after 2047 ⇒ every earnings index factor
-    // is 1.0, so AIME = 35 × $100,000 / 420 = $8,333.33 → whole $ = $8,333.00.
-    // AIME sits in the middle (32%) tier, between the two indexed bend points:
+    // 35 level years at $100,000, all on/after 2047 ⇒ every earnings index factor is 1.0, so
+    // AIME = 35 × $100,000 / 420 = $8,333.33 → whole $ = $8,333.00 — in the middle (32%)
+    // tier, between the two indexed bend points:
     //   PIA = 0.90·$2,648 + 0.32·($8,333−$2,648)
     //       = $2,383.20 + $1,819.20 = $4,202.40 → dime → $4,202.40
     //   claim = FRA ⇒ ×1.0 ⇒ $4,202.40
@@ -73,24 +72,22 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
   });
 
   it("eligibility gate: fewer than 40 credits (< 10 full-credit years) → 0", () => {
-    // Credits come from ANNUAL covered totals (max 4/yr); the fully-insured gate is
-    // 40. Nine years of solidly-above-threshold earnings earn 9 × 4 = 36 credits —
-    // under the gate — so the base benefit is 0 even though the AIME would be positive.
+    // Credits come from ANNUAL covered totals (max 4/yr); the fully-insured gate is 40. Nine
+    // strong years earn 9 × 4 = 36 — under the gate — so the base benefit is 0 even though
+    // the AIME would be positive.
     const record = levelRecord(2015, 9, 50_000_00);
     expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBe(0);
   });
 
   it("eligibility gate: exactly 40 credits (10 full-credit years) → a benefit", () => {
-    // Ten full-credit years reach 40 credits — fully insured — so the same formula
-    // now returns a positive benefit.
+    // Ten full-credit years reach 40 — fully insured — so the same formula pays out.
     const record = levelRecord(2015, 10, 50_000_00);
     expect(governmentBenefitBaseMonthlyCents(claimAtFRA(record, 2026))).toBeGreaterThan(0);
   });
 
   it("eligibility gate: a low-earning year yields partial credits, not a free 4", () => {
-    // Credits are min(4, floor(wages / quarter-of-coverage)). One year barely over a
-    // single quarter of coverage earns 1 credit, not 4 — so nine strong years plus
-    // one weak year is 36 + 1 = 37 credits, still under the gate → 0.
+    // Credits are min(4, floor(wages / quarter-of-coverage)), so a year barely over one
+    // quarter earns 1, not 4: nine strong years plus one weak is 37, under the gate → 0.
     const map = new Map<number, Cents>();
     for (let i = 0; i < 9; i++) map.set(2015 + i, 50_000_00);
     map.set(2024, 2_000_00); // ~1 quarter of coverage in 2024 dollars → 1 credit
@@ -110,8 +107,8 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
 
   it("is monotonic in claiming age: earlier claims are reduced, later are credited", () => {
     const record = levelRecord(2019, 35, 80_000_00);
-    // Hold claimYear + currentAge fixed (same indexing year ⇒ same PIA base) and vary
-    // only the claiming age, to isolate the claiming-adjustment factor.
+    // claimYear + currentAge fixed (same indexing year ⇒ same PIA base), so only the
+    // claiming-adjustment factor varies.
     const at = (claimingAge: number): GovernmentBenefitClaim => ({
       record,
       claimYear: 2026,
@@ -158,8 +155,8 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62", () => {
   });
 
   it("bridges a delayed claim: age 67 at 10% CPI → base × 1.1^5", () => {
-    // The single (1+cola)^(currentAge−62) factor folds in the old eligibility
-    // bridge; claiming at 67 carries five years of COLA off the age-62 base.
+    // The single (1+cola)^(currentAge−62) factor folds in the eligibility bridge: claiming
+    // at 67 carries five years of COLA off the age-62 base.
     expect(colaAdjustedBenefitCents(100_000, ctx(67, 0.1))).toBe(
       Math.round(100_000 * Math.pow(1.1, 5)),
     );
@@ -176,12 +173,10 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62", () => {
   });
 
   it("parity: the single COLA factor matches the old bridge+forward split to ≤1¢", () => {
-    // Guardrail for collapsing the two COLA steps into one: the pre-change engine grew
-    // the benefit in TWO rounded steps — an age-62→claim eligibility bridge then a
-    // post-claim forward COLA — whereas the new seam applies ONE factor measured from
-    // age 62. Algebraically identical; the only difference is an intermediate
-    // rounding, so every figure must stay within 1¢. Any drift > 1¢ is a real
-    // regression — do not blindly accept it.
+    // Guardrail for collapsing two COLA steps into one. The old path grew the benefit in TWO
+    // rounded steps — age-62→claim eligibility bridge, then post-claim forward COLA — where
+    // the seam applies ONE factor from age 62. Algebraically identical, differing only in an
+    // intermediate rounding, so drift > 1¢ is a real regression; do not accept it blindly.
     const record = levelRecord(2019, 35, 85_000_00);
     const colaRate = 0.028;
     let maxDrift = 0;
@@ -192,7 +187,7 @@ describe("colaAdjustedBenefitCents — single COLA factor from age-62", () => {
         claimingAge,
         currentAge: claimingAge,
       });
-      // Old path: round the eligibility bridge, then round the forward COLA on top.
+      // Old path: round the bridge, then round the forward COLA on top.
       const bridged = Math.round(base * Math.pow(1 + colaRate, claimingAge - 62));
       for (let yearsSinceClaim = 0; yearsSinceClaim <= 25; yearsSinceClaim++) {
         const currentAge = claimingAge + yearsSinceClaim;

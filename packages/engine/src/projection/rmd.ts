@@ -5,45 +5,42 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson } from "./simulate.types";
 
 /**
- * The slice of the simulator's state the RMD bookkeeping reads and mutates. A
- * structural view over `SimState` — declaring it here (rather than importing the
- * whole mutable `SimState`) keeps that state object private to the simulator
- * while this module stays independently testable, mirroring `EarningsState`.
+ * The slice of simulator state RMD bookkeeping reads and mutates. Declaring this
+ * structural view rather than importing the mutable `SimState` keeps that object private
+ * to the simulator while this module stays independently testable, as `EarningsState` does.
  */
 export interface RmdState {
-  /** Every asset account — filtered here to a person's forced-distribution-eligible holdings. */
+  /** Every asset account — filtered here to forced-distribution-eligible holdings. */
   readonly accounts: readonly SimAccount[];
-  /** The authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
+  /** Authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
-  /** Every person by id — an RMD needs the holder's birth year to derive age/start age. */
+  /** Every person by id — an RMD needs the holder's birth year for age/start age. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
 }
 
 /**
- * Whether this month carries the year's single RMD event. Fires once per calendar
- * year, in that year's first PROCESSED month: month 0 is the opening snapshot
- * (never processed), months 1–11 are the start year (so month 1 carries it), and
- * every 12th month opens a new calendar year. This keeps the forced withdrawal
- * annual rather than compounding it twelve times.
+ * Whether this month carries the year's single RMD event — its first PROCESSED month.
+ * Month 0 is the opening snapshot (never processed) and months 1–11 are the start year,
+ * so month 1 carries it; every 12th month opens a new calendar year. Keeps the forced
+ * withdrawal annual rather than compounding it twelve times.
  */
 function isRmdTriggerMonth(month: number): boolean {
   return month > 0 && (month === 1 || month % 12 === 0);
 }
 
 /**
- * This year's Required Minimum Distributions — one income source per person
- * with a pre-tax balance who has reached the jurisdiction's start age. On a trigger
- * month, for each such person the seam is asked for the required amount from their
- * aggregate pre-tax balance; that amount is forced out of their pre-tax accounts
- * (sequentially — `required ≤ balance`, so it always fully draws) and re-enters as
- * `ordinaryIncome` with NO planDescriptor. That routing is deliberate: the single
- * tax chokepoint lives inside the waterfall, so the withdrawn gross is taxed
- * there once and its remainder lands in the surplus (taxable) destination; and
- * because it is not earned wages it enters POST-deferral and can never be re-deferred.
+ * This year's Required Minimum Distributions — one income source per person with a pre-tax
+ * balance who has reached the jurisdiction's start age. On a trigger month the seam prices
+ * the requirement off their aggregate pre-tax balance; that amount is forced out of their
+ * pre-tax accounts sequentially (`required ≤ balance`, so it always fully draws) and
+ * re-enters as `ordinaryIncome` with NO planDescriptor. That routing is deliberate: the
+ * single tax chokepoint is inside the waterfall, so the gross is taxed once there and the
+ * remainder lands in the surplus (taxable) destination; and since it is not earned wages
+ * it enters POST-deferral and can never be re-deferred.
  *
- * The withdrawal binds as `max(desired, required)`; the base sim has no
- * desired draw, so `required` binds. Absent seam (v1 null jurisdiction) → no RMD.
- * Mutates `assetBalances` as a side effect, as `buildGovernmentBenefitSources` does.
+ * The withdrawal binds as `max(desired, required)`; the base sim has no desired draw, so
+ * `required` binds. Absent seam (null jurisdiction) → no RMD. Mutates `assetBalances`, as
+ * `buildGovernmentBenefitSources` does.
  */
 export function buildRmdSources(
   state: RmdState,
@@ -86,8 +83,8 @@ export function buildRmdSources(
       ownerId: person.id,
       waterfallInflowCents: required,
       taxCategory: "ordinaryIncome",
-      // Reported as its own source — a forced distribution reads apart from
-      // an elective pre-tax draw even though both are `ordinaryIncome`.
+      // Its own source, so a forced distribution reads apart from an elective pre-tax
+      // draw even though both are `ordinaryIncome`.
       sourceId: `rmd:${person.id}`,
       label: "Required distribution",
     });

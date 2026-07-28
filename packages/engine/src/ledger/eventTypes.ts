@@ -1,8 +1,7 @@
 /**
- * Event types — the serializable data at the heart of the event-sourcing spine
- * Events are plain discriminated-union objects; they are never
- * classes and are never mutated. Their meaning is defined in exactly one place
- * (the handler registry consumed by `interpretLedger`), never re-interpreted.
+ * Event types — the serializable data at the heart of the event-sourcing spine. Plain
+ * discriminated-union objects: never classes, never mutated. Their meaning is defined in
+ * exactly one place (the handler registry `interpretLedger` consumes), never re-interpreted.
  */
 
 import type { Cents } from "../money";
@@ -35,10 +34,9 @@ export interface EventBase {
 }
 
 /**
- * Mixed into the event types that can be *auto-created as a consequence of*
- * another event. `causedByEventId` names the producer; removing the
- * producer transitively removes everything it caused. Producer-only events
- * (relationship, separation, series-end) do not carry it.
+ * Mixed into event types that can be *auto-created as a consequence of* another event.
+ * `causedByEventId` names the producer; removing the producer transitively removes
+ * everything it caused. Producer-only events (relationship, separation, series-end) omit it.
  */
 export interface CausedByFields {
   readonly causedByEventId?: string;
@@ -53,11 +51,10 @@ export interface RelationshipEvent extends EventBase {
 }
 
 /**
- * Records a child and its recurring cost. A positive `annualCostCents` spawns a
- * linked child-cost expense (role `childCost`) running from `birthMonth` for
- * exactly 18 years; the expense is tagged with this event's id, so undoing the
- * child removes it via the dependency machinery. A zero cost records the child
- * with no financial effect.
+ * Records a child and its recurring cost. A positive `annualCostCents` spawns a linked
+ * child-cost expense (role `childCost`) running from `birthMonth` for exactly 18 years,
+ * tagged with this event's id so undoing the child removes it via the dependency
+ * machinery. A zero cost records the child with no financial effect.
  */
 export interface ChildEvent extends EventBase, CausedByFields {
   readonly type: "ChildEvent";
@@ -69,10 +66,9 @@ export interface ChildEvent extends EventBase, CausedByFields {
 }
 
 /**
- * Records a separation: ends all income series owned by the departing partner,
- * and optionally creates alimony and child-support expense streams tagged with
- * this event's id. Never touches child-owned expenses, mortgages, or other
- * liabilities.
+ * Records a separation: ends all income series owned by the departing partner, and
+ * optionally creates alimony and child-support expense streams tagged with this event's
+ * id. Never touches child-owned expenses, mortgages, or other liabilities.
  */
 export interface SeparationEvent extends EventBase {
   readonly type: "SeparationEvent";
@@ -87,12 +83,11 @@ export interface SeparationEvent extends EventBase {
 }
 
 /**
- * Buys a house. Property-only: creates a durable {@link Property} entity
- * with its appreciating value, originates its mortgage liability, and drains the
- * down payment as one-time outflows from an ordered list of liquid sources. Does
- * NOT touch any budget item (ceasing to rent is a separate, user-authored
- * decision). Subject to the down-payment hard block. The financed mortgage balance
- * is `purchasePriceCents − downPaymentCents`.
+ * Buys a house. Property-only: creates a durable {@link Property} entity with its
+ * appreciating value, originates its mortgage liability, and drains the down payment as
+ * one-time outflows from an ordered list of liquid sources. Does NOT touch any budget item
+ * — ceasing to rent is a separate, user-authored decision. Subject to the down-payment hard
+ * block. Financed balance = `purchasePriceCents − downPaymentCents`.
  */
 export interface HomePurchaseEvent extends EventBase {
   readonly type: "HomePurchaseEvent";
@@ -103,10 +98,9 @@ export interface HomePurchaseEvent extends EventBase {
   /** Drained at the purchase month from `downPaymentSourceIds`, in order (hard block). */
   readonly downPaymentCents: Cents;
   /**
-   * The liquid accounts funding the down payment, in drain order: the
-   * shared funding helper takes as much as each holds before moving to the next, so
-   * an early source empties before a later one is touched. Each contributing source
-   * receives its own paired outflow. Credit is never eligible (a real mortgage rule).
+   * The liquid accounts funding the down payment, in drain order: each is emptied before
+   * the next is touched, and each contributing source receives its own paired outflow.
+   * Credit is never eligible (a real mortgage rule).
    */
   readonly downPaymentSourceIds: readonly string[];
   /** The mortgage liability this purchase originates (financed = price − down). */
@@ -132,11 +126,10 @@ interface LoanEventCommon extends EventBase, CausedByFields {
  * a revolving card has a credit limit and never amortizes, a term loan amortizes over a
  * term and has no limit. As a union each is required exactly where it applies and
  * unrepresentable where it does not — a card with a term will not typecheck, so replay
- * and validation need not re-check for the combination.
+ * and validation need not re-check the combination.
  *
- * One event `type` deliberately, not two: both arms originate a liability, replay
- * identically, and cascade identically on removal — only the shape differs, which is
- * exactly what a discriminated union is for.
+ * One event `type`, not two: both arms originate a liability, replay identically, and
+ * cascade identically on removal — only the shape differs.
  */
 export type LoanEvent =
   | (LoanEventCommon & {
@@ -149,9 +142,8 @@ export type LoanEvent =
     });
 
 /**
- * Applies a lump-sum principal paydown on a liability. Paired with an Account
- * outflow (same amount, same month) to conserve net worth. The engine
- * records both halves; callers must supply both transfers.
+ * Applies a lump-sum principal paydown on a liability. Paired with an Account outflow
+ * (same amount, same month) to conserve net worth; callers must supply both transfers.
  */
 export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly type: "DebtPayoffEvent";
@@ -207,9 +199,9 @@ export type SeriesRole =
   | "childCost";
 
 /**
- * How a series' baseline amount is expressed. Annual baselines stay the
- * source of truth and are distributed across the year deterministically (12
- * months sum exactly to the annual total); monthly baselines repeat exactly.
+ * How a series' baseline amount is expressed. Annual baselines stay the source of truth
+ * and are distributed deterministically (12 months sum exactly to the annual total);
+ * monthly baselines repeat exactly.
  */
 export type SeriesBaseline =
   | { readonly unit: "annual"; readonly annualCents: Cents }
@@ -223,7 +215,7 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   : never;
 
 /**
- * A life event ready to append: every field except the ledger-assigned
- * `sequenceNumber`. The caller supplies `id` (intentional, stable ids).
+ * A life event ready to append: every field except the ledger-assigned `sequenceNumber`.
+ * The caller supplies `id` — intentional, stable ids.
  */
 export type NewLifeEvent = DistributiveOmit<LifeEvent, "sequenceNumber">;

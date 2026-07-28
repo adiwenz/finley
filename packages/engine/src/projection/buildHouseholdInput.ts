@@ -1,10 +1,10 @@
 /**
  * Bridge the replay-derived household into the simulator's input, then run it.
  *
- * Series arrive already materialized (one `SimCashFlowSeries` each, built in
- * replay); liabilities and account outflows are instantiated *here*, at the
- * simulation boundary, from immutable data. Both projection and snapshot
- * read the same {@link Household}, so they cannot disagree.
+ * Series arrive already materialized (one `SimCashFlowSeries` each, built in replay);
+ * liabilities and account outflows are instantiated *here*, at the simulation boundary, from
+ * immutable data. Projection and snapshot read the same {@link Household}, so they cannot
+ * disagree.
  */
 
 import type { Jurisdiction } from "../jurisdiction";
@@ -32,8 +32,8 @@ export function buildHouseholdSimInput(
   const expenseSeries: SimOwnedSeries[] = [];
   for (const s of household.series) {
     if (s.seriesType === "income") {
-      // Preserve the plan descriptor so plan-bearing income defers pre-tax
-      // in the waterfall; expenses never carry one.
+      // Keep the plan descriptor so plan-bearing income defers pre-tax in the waterfall;
+      // expenses never carry one.
       incomeSeries.push({
         series: s.series,
         ownerId: s.ownerId,
@@ -42,24 +42,24 @@ export function buildHouseholdSimInput(
         planDescriptor: s.planDescriptor,
       });
     } else {
-      // Preserve the budget-line provenance so the simulator can report each
-      // line's monthly amount; a scalar/health expense series carries none.
+      // Keep the budget-line provenance so the simulator can report each line's monthly
+      // amount; a scalar/health expense series carries none.
       expenseSeries.push({
         series: s.series,
         ownerId: s.ownerId,
         label: s.label,
         ...(s.lineId !== undefined ? { lineId: s.lineId } : {}),
-        // …and its spending provenance, so the month's cost can be
-        // reported itemized without any consumer re-deriving where each stream came from.
+        // …and its spending provenance, so the month's cost is reported itemized without
+        // consumers re-deriving where each stream came from.
         ...(s.spendingSource !== undefined ? { spendingSource: s.spendingSource } : {}),
       });
     }
   }
 
   const liabilities = household.liabilities.map((def): SimLiability => {
-    // The derived liability is a discriminated union on kind, so each SimLiability
-    // subclass is constructed from exactly the fields its kind carries — no
-    // optional-field juggling, no null-bridging at the sim boundary.
+    // The derived liability is a discriminated union on kind, so each SimLiability subclass
+    // is built from exactly the fields its kind carries — no optional-field juggling, no
+    // null-bridging at the sim boundary.
     const liab: SimLiability =
       def.kind === "creditCard"
         ? new RevolvingCard({
@@ -93,9 +93,8 @@ export function buildHouseholdSimInput(
     return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
   });
 
-  // Properties: durable appreciating stocks. Resolve each growth mode to
-  // its annual rate here, at the sim boundary — the simulator compounds value at
-  // that rate exactly as it compounds accounts.
+  // Properties: durable appreciating stocks. Resolve each growth mode to its annual rate
+  // here, at the sim boundary — the simulator compounds value as it compounds accounts.
   const properties: SimProperty[] = household.properties.map((p) => ({
     id: p.id,
     ownerId: p.ownerId,
@@ -105,13 +104,12 @@ export function buildHouseholdSimInput(
     appreciationAnnualRate: growthAnnualRate(p.appreciationMode),
   }));
 
-  // Durable household roster: membership intervals govern each person's income
-  // series lifetime; the roster itself is the set of people who ever joined. The roster
-  // holds authoring {@link Person}s — compile each to the {@link SimPerson} the sim
-  // consumes here, at the boundary, so the pre-"now" covered-earnings record is
-  // derived from the jobs rather than baked into the roster. `startYear` is the frozen
-  // "now" the base was built against; the ambient default keeps a startYear-less test base
-  // (no benefit basis intended) from throwing.
+  // Household roster: everyone who ever joined; membership intervals govern each person's
+  // income series lifetime. The roster holds authoring {@link Person}s — compiled to
+  // {@link SimPerson} here, at the boundary, so the pre-"now" covered-earnings record is
+  // derived from the jobs rather than baked into the roster. `startYear` is the frozen "now"
+  // the base was built against; the default keeps a startYear-less test base (no benefit
+  // basis intended) from throwing.
   const nowYear = base.startYear ?? 0;
   const persons: SimPerson[] = household.memberships.map((m) =>
     compilePerson(m.person, nowYear, base.annualInflationRate),
@@ -128,14 +126,14 @@ export function buildHouseholdSimInput(
     expenseSeries,
     liabilities: liabilities.length > 0 ? liabilities : undefined,
     properties: properties.length > 0 ? properties : undefined,
-    // Ordered down-payment / spend draws — the simulator resolves each against the
-    // source balances at its month (the per-source split is balance-dependent).
+    // Ordered down-payment / spend draws — resolved against source balances at their month,
+    // since the per-source split is balance-dependent.
     fundingDraws: household.fundingDraws.length > 0 ? household.fundingDraws : undefined,
-    // Waterfall config lives on the value-editing surface, not the
-    // ledger, so it rides along on the base rather than being derived from events.
+    // Waterfall config lives on the value-editing surface, not the ledger, so it rides on
+    // the base rather than being derived from events.
     goals: base.goals,
-    // Standing account-contribution lines ride on the base like goals — value-plane
-    // data, not ledger-derived — and fund their accounts in the waterfall each month.
+    // Standing contribution lines ride on the base like goals — value-plane, not
+    // ledger-derived — and fund their accounts in the waterfall each month.
     contributionLines: base.contributionLines,
     sharedScheme: base.sharedScheme,
     surplusDestination: base.surplusDestination,

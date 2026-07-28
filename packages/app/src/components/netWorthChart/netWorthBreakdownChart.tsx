@@ -10,11 +10,11 @@
  *    reads as the balance sheet and its signed total is the nominal net worth the sibling
  *    chart draws (shown only when there is property or debt to make it differ from Assets).
  *
- * Bands are coloured by kind: a green family for accounts (stepping one shade per account so
- * siblings stay distinct), a gold for property, and a rust "money owed" family for
- * liabilities — matching the tax chart's rust for money leaving. Like the other charts, a
- * summary line and a hidden data mirror render independently of Recharts so the behaviour is
- * assertable without SVG layout (Recharts needs a real width, absent in jsdom).
+ * Bands are coloured by kind: green for accounts (one shade per account so siblings stay
+ * distinct), gold for property, rust "money owed" for liabilities — matching the tax chart's
+ * rust for money leaving. As in the other charts, the summary line and hidden data mirror
+ * render independently of Recharts so behaviour is assertable without SVG layout (Recharts
+ * needs a real width, absent in jsdom).
  */
 
 import { useMemo, useState } from "react";
@@ -84,9 +84,9 @@ interface TooltipEntry {
 }
 
 /**
- * Sum a month's tooltip entries into balance-sheet totals. Liability values arrive already
- * signed (negative in the net-worth view), so net worth is a plain sum: assets + signed
- * liabilities. `liabilitiesCents` is that signed figure (≤ 0 when debt is shown).
+ * A month's tooltip entries summed into balance-sheet totals. Liability values arrive
+ * already signed (negative in the net-worth view), so net worth is a plain sum.
+ * `liabilitiesCents` is that signed figure (≤ 0 when debt is shown).
  */
 export function tooltipTotals(
   entries: readonly TooltipEntry[],
@@ -134,8 +134,8 @@ function BreakdownTooltip({
   bands,
 }: {
   active?: boolean;
-  // Recharts' own payload shape (dataKey can be a function) — kept loose here; the exported
-  // `tooltipTotals` is what's strictly typed and unit-tested.
+  // Recharts' own payload shape (dataKey can be a function), kept loose; the exported
+  // `tooltipTotals` is the strictly typed, unit-tested part.
   payload?: readonly { dataKey?: unknown; value?: number | null; name?: string; color?: string }[];
   label?: string | number;
   bands: readonly BreakdownBand[];
@@ -296,10 +296,9 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
                 type="monotone"
                 dataKey={band.id}
                 name={band.label}
-                // Assets and liabilities live in SEPARATE stacks so each accumulates from the
-                // zero line — assets upward, liabilities (negative) downward — instead of the
-                // debt stacking off the top of the assets and drifting above zero. Reads as a
-                // simultaneous rise in assets and fall in liabilities across the crossing.
+                // SEPARATE stacks so each accumulates from the zero line — assets upward,
+                // liabilities (negative) downward — instead of debt stacking off the top of
+                // the assets and drifting above zero.
                 stackId={band.kind === "liability" ? "liabilities" : "assets"}
                 stroke={colors.get(band.id)}
                 fill={colors.get(band.id)}

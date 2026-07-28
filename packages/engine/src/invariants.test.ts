@@ -1,18 +1,15 @@
 /**
- * INVARIANT TEST SUITE
- * ====================
- * Whole-system property tests that must hold after ANY operation. Run these every
- * loop iteration during autonomous implementation — they catch wrong financial math,
- * which is SILENT (plausible-but-wrong numbers) rather than a crash.
+ * INVARIANT TEST SUITE — whole-system property tests that must hold after ANY operation.
+ * Run every loop iteration during autonomous implementation: they catch wrong financial
+ * math, which fails SILENTLY (plausible-but-wrong numbers) rather than crashing.
  *
- * Tests against the already-built CashFlowSeries and the
- * known-value anchors are IMPLEMENTED and pass now. Tests for not-yet-built components
- * (Account, Simulator, Goals, Recommendations) are marked `todo(...)` — they are concrete
- * targets: fill in the body when the component's build step lands, keeping the assertion.
+ * The CashFlowSeries tests and the known-value anchors are implemented and pass. Invariants
+ * for not-yet-built components (Account, Simulator, Goals, Recommendations) are `todo(...)`
+ * targets: fill in the body when that build step lands, keeping the assertion.
  *
- * DO NOT let the implementing loop rewrite the known-value anchors. Those assert against
- * external truth (published amortization, closed-form compounding); they are the backstop
- * that stops code + tests converging on the same wrong answer.
+ * DO NOT let the implementing loop rewrite the known-value anchors. They assert against
+ * external truth (published amortization, closed-form compounding) and are the backstop
+ * against code and tests converging on the same wrong answer.
  */
 
 import { assert, it } from "vitest";
@@ -23,11 +20,10 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// harness
-// Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
-// `test(...)` registers a real Vitest case (a thrown assertion fails it); a
-// `todo(...)` is a not-yet-implementable invariant recorded as a pending target
-// for a later build step — DO NOT delete these or change the anchor numbers.
+// Thin adapters onto Vitest so the invariant bodies below stay verbatim: `test(...)`
+// registers a real case (a thrown assertion fails it), `todo(...)` records a
+// not-yet-implementable invariant as a pending target for a later build step.
+// DO NOT delete these or change the anchor numbers.
 const test = (name: string, fn: () => void) => it(name, fn);
 const todo = (name: string) => it.todo(name);
 
@@ -137,10 +133,9 @@ todo("backdated in-flight state uses entered current values: 3y-old mortgage use
 console.log("\n6. Goals & retirement");
 todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
-// Solve mode and target mode both read one survival signal off the real
-// projection now (the standalone accumulation solver was retired); their
-// agreement at a pinned age is covered app-side in retirementView.test.ts, where
-// the projection they share actually lives.
+// Solve mode and target mode both read one survival signal off the real projection; their
+// agreement at a pinned age is covered app-side in retirementView.test.ts, where the
+// projection they share actually lives.
 todo("solve mode and target mode agree at the same pinned age off the shared projection");
 todo("multiple concurrent income sources: total income sums all active jobs; per-job pre-tax off each job's gross");
 todo("no plan descriptor => no contribution: only plan-bearing jobs feed a retirement account");

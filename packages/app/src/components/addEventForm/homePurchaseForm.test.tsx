@@ -3,11 +3,10 @@
  *
  * Home-purchase authoring form — the soft DTI warning.
  *
- * Rendered through the server renderer (this repo's jsdom is unavailable). The
- * arithmetic (`assessDti`, `mortgagePaymentForPurchaseCents`) is unit-tested in
- * the engine; these pin the *wiring*: that a purchase above the 28%/36% DTI
- * guidelines surfaces a NON-blocking advisory naming its downstream consequence,
- * and that a comfortably-affordable purchase stays silent.
+ * Rendered through the server renderer (this repo's jsdom is unavailable). The arithmetic
+ * (`assessDti`, `mortgagePaymentForPurchaseCents`) is unit-tested in the engine; these pin
+ * the *wiring*: a purchase above the 28%/36% DTI guidelines surfaces a NON-blocking advisory
+ * naming its downstream consequence, and an affordable one stays silent.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -41,8 +40,8 @@ function build(budget: Plan): {
   return {
     household: interpretLedger(emptyLedger, base),
     series: replayLedger(emptyLedger, base, nullJurisdiction),
-    // The picker's pool and coverage line come from the engine, under the SAME jurisdiction
-    // the app runs — so what it renders is what `addEvent` would decide.
+    // Pool and coverage line come from the engine under the SAME jurisdiction the app runs,
+    // so what it renders is what `addEvent` would decide.
     funding: fundingLookup(emptyLedger, base, usJurisdiction),
   };
 }
@@ -81,31 +80,31 @@ describe("HomePurchaseForm — soft DTI warning", () => {
   it("does not block: the Add event button stays enabled alongside the warning", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("soft-warning");
-    // The BUTTON specifically — not "the page contains no `disabled` anywhere", which the
-    // funding picker legitimately trips by disabling accounts that hold nothing at the chosen
-    // month. Whether an account can pay is a different question from whether the warning blocks.
+    // The BUTTON specifically — not "no `disabled` anywhere", which the funding picker
+    // legitimately trips by disabling accounts holding nothing at the chosen month. Whether
+    // an account can pay is a different question from whether the warning blocks.
     const button = html.match(/<button[^>]*>Add event<\/button>/)?.[0];
     expect(button).toBeDefined();
     expect(button).not.toContain("disabled");
   });
 
   it("stays silent when the purchase sits comfortably within the guideline", () => {
-    // The same default $300k / $60k down purchase against a $50,000/mo gross
-    // income: ≈$1,516/mo is ~3% front-end, well under 28%.
+    // The same $300k / $60k down purchase against $50,000/mo gross: ≈$1,516/mo is ~3%
+    // front-end, well under 28%.
     const html = render(setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(50_000)));
     expect(html).not.toContain("soft-warning");
   });
 });
 
-// The ordered down-payment source picker.
-// The down payment was hardcoded to drain "savings"; it now drains the accounts the
-// user picks, in the order picked. These pin what the control SHOWS — the engine's own
-// pool and after-tax coverage — so the form can never promise what §4.5 would refuse.
+// The ordered down-payment source picker: the payment drains the accounts the user picks,
+// in the order picked (it was once hardcoded to "savings"). These pin what the control
+// SHOWS — the engine's own pool and after-tax coverage — so the form can never promise what
+// §4.5 would refuse.
 
 describe("HomePurchaseForm — down-payment source picker", () => {
   it("lists each fundable account with what it holds at that month", () => {
-    // The default plan opens with $10,000 in cash savings; the goal funds are still
-    // empty at month 0, so they are not offered (an empty account funds nothing).
+    // The default plan opens with $10,000 cash savings; the goal funds are still empty at
+    // month 0, so they are not offered (an empty account funds nothing).
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Down payment paid from");
     expect(html).toContain("Cash savings");
@@ -113,8 +112,8 @@ describe("HomePurchaseForm — down-payment source picker", () => {
   });
 
   it("offers a goal fund by name once it holds money, largest first", () => {
-    // By month 60 the plan's two savings goals have accumulated, so all three liquid
-    // accounts are offered — a cash goal fund included, since it is genuinely reachable.
+    // By month 60 both savings goals have accumulated, so all three liquid accounts are
+    // offered — a cash goal fund included, since it is genuinely reachable.
     const html = render(PLAN_DEFAULTS, 60);
     expect(html).toContain("Emergency fund");
     expect(html).toContain("Home down payment");
@@ -123,8 +122,8 @@ describe("HomePurchaseForm — down-payment source picker", () => {
   });
 
   it("states the shortfall against the SELECTED accounts, not total net worth", () => {
-    // $10,000 of cash savings against a $60,000 down payment: the form says so while the
-    // user is still editing, rather than letting them submit into the §4.5 block.
+    // $10,000 cash savings against a $60,000 down payment: said while the user is still
+    // editing, rather than letting them submit into the §4.5 block.
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("$50,000 short");
   });

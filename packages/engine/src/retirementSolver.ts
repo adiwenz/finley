@@ -1,27 +1,17 @@
 /**
- * The retirement solver, run off the REAL projection: every mode uses the
- * same `simulateHousehold` the net-worth graph does, so the panel and graph can never
- * disagree. Each mode reads one survival signal off the real (today's-dollars)
- * net-worth curve, with a different retirement age pinned:
+ * The retirement solver, run off the REAL projection: every mode uses the same
+ * `simulateHousehold` the net-worth graph does, so panel and graph can never disagree. Each
+ * mode reads one survival signal off the real net-worth curve with a retirement age pinned —
+ * headline mode binary-searches the earliest surviving age; target mode pins the user's age
+ * and reports feasibility, on-track %, and the nearest feasible age.
  *
- *  - Headline ("when can we retire?"): binary-search the earliest surviving age.
- *    Survival is monotonic in the age — retiring later never hurts.
- *  - Target mode: pin the user's age; report feasibility, on-track %, and the honest
- *    nearest-feasible age when the pin is out of reach.
+ * The two outputs differ only in which jobs keep paying past the pinned age:
+ * {@link earliestPartialRetirementAge} ends the open-ended (`null`-end) jobs, keeping authored
+ * fixed-term jobs + passive income + government benefit; {@link earliestFullRetirementAge}
+ * ceases ALL jobs and is always ≥ the partial age.
  *
- * "Retire" splits into TWO distinct solver outputs off this same
- * substrate, differing only in which jobs keep paying past the pinned age:
- *
- *  - Partial retirement age ({@link earliestPartialRetirementAge}): vary the open-ended
- *    (`null`-end) jobs' ends; keep the authored fixed-term jobs + passive income + government benefit.
- *  - Full retirement age ({@link earliestFullRetirementAge}): cease ALL jobs; survive on
- *    passive income + government benefit + assets alone. Always ≥ the partial retirement age.
- *
- * {@link solveRetirement} returns both plus the derived latest-authored-work-stop age.
- *
- * The solver is pure and jurisdiction-agnostic: it is always handed a
- * {@link ProjectionContext} (the caller's frozen "now" plus the jurisdiction the
- * projection resolves against). There is no default jurisdiction — the app injects it.
+ * Pure and jurisdiction-agnostic: always handed a {@link ProjectionContext} (frozen "now" plus
+ * jurisdiction); there is no default.
  */
 
 import { interpretLedger } from "./ledger/interpret";
@@ -37,10 +27,9 @@ import type { Job } from "./job";
 import type { Plan } from "./plan";
 
 /**
- * Run the full projection for a {@link Scenario} — its plan's standing numbers with
- * the scenario's timeline events replayed on top. Same pipeline (and same events)
- * the net-worth chart uses, so the panel and graph draw from one model and genuinely
- * agree. The `ctx` supplies the frozen "now" (`startYear`) and the jurisdiction.
+ * Run the full projection for a {@link Scenario} — its plan's standing numbers with the
+ * scenario's timeline events replayed on top. `ctx` supplies the frozen "now" (`startYear`)
+ * and the jurisdiction.
  */
 export function projectScenario(scenario: Scenario, ctx: ProjectionContext): ProjectionSeries {
   const base = createProjectionBase(scenario.plan, ctx);
@@ -50,63 +39,36 @@ export function projectScenario(scenario: Scenario, ctx: ProjectionContext): Pro
 }
 
 /**
- * Does a single month survive? The signal is **insolvency** — the
- * terminal state where savings AND credit are both exhausted and spending genuinely
- * cannot be funded — not the sign of net worth.
+ * Authoritative per-month failure signal: **insolvency** — savings AND credit both exhausted —
+ * not the sign of net worth. Being underwater is not running out of money; judging on
+ * `netWorthRealCents >= 0` failed a new graduate with a student loan at month 0.
  *
- * Being underwater is not running out of money. A new graduate with a student loan, or
- * any household inside the first years of a mortgage, owes more than it owns and pays
- * every bill on time; that is the "negative but improving" case the model must
- * be able to show. Judging survival on `netWorthRealCents >= 0` failed those plans at
- * month 0 and reported "no retirement age is feasible" for a plan the graph beside it
- * drew comfortably reaching life expectancy — the exact panel/graph disagreement this
- * exists to prevent. It also matches how on-track magnitude is already measured (read
- * the failure signal, not the net-worth sign).
- *
- * The null guard stays load-bearing: net worth is null for every month after the first
- * insolvent one and `null >= 0` is true in JS, so a post-insolvency month must be
- * rejected on the null rather than trusted to still carry the insolvency flag.
- *
- * This is the authoritative per-month failure signal every mode reads; the whole-series
- * survival check and the on-track fraction both compose it, so they can never disagree
- * on what "failure" means.
+ * The null guard is load-bearing: net worth is null for every month after the first insolvent
+ * one, and `null >= 0` is true in JS.
  */
 function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
   return m.netWorthRealCents !== null && !m.isInsolvent;
 }
 
 /**
- * Does the plan fund itself all the way through life expectancy — no insolvent month,
- * no post-insolvency fiction? The single signal every mode reads, and the
- * same one the net-worth graph shades and the app's "plan becomes unfinanceable" alert
- * fires on.
+ * Does the plan fund itself through life expectancy? The signal every mode reads, and the one
+ * the net-worth graph shades and the "plan becomes unfinanceable" alert fires on.
  */
 export function planSurvives(series: ProjectionSeries): boolean {
   return series.months.every(monthSurvives);
 }
 
-/** Absolute simulation month a retirement `age` falls at, floored at 0. */
 function retirementMonth(budget: Plan, age: number): number {
   return Math.max(0, (age - budget.currentAge) * 12);
 }
 
 /**
- * On-track fraction for a plan that does NOT survive.
- *
- * The magnitude is read from the authoritative failure signal — WHEN the plan first
- * fails ({@link monthSurvives}: insolvency) — NOT from how far net worth dipped. Inferring the shortfall from the most-negative net worth was the
- * bug: insolvency nulls the curve rather than driving it negative, and an illiquid
- * holding (a property) keeps solvent months positive, so the deepest value the old
- * formula ever saw was a positive number → shortfall 0 → a flat, meaningless 1.0 for a
- * plan that has plainly run out of money. And a *magnitude* off the post-insolvency curve
- * would be fiction anyway (borrowing at 22% past an exhausted credit limit → a nonsense
- * −$3M); the honest, computable quantity is timing.
- *
- * So on-track is the fraction of the retirement-to-life-expectancy window the plan stays
- * solvent: fails the month after retiring → ~0 (nowhere near); fails just short of life
- * expectancy → ~1 (almost there). The denominator counts the window inclusively, so a
- * plan that fails even in its very last month is strictly < 1 — an infeasible plan is
- * never 100%. 0 when it fails at or before the retirement boundary.
+ * On-track fraction for a plan that does NOT survive: the fraction of the
+ * retirement-to-life-expectancy window it stays solvent. Read from WHEN it first fails, not
+ * from how far net worth dipped — insolvency nulls the curve rather than driving it negative,
+ * and an illiquid holding keeps solvent months positive, so the deepest value seen could be
+ * positive → a meaningless 1.0. The denominator counts the window inclusively, so an
+ * infeasible plan is never 100%.
  */
 function computeOnTrackFraction(
   budget: Plan,
@@ -115,30 +77,19 @@ function computeOnTrackFraction(
 ): number {
   const horizon = series.months.length - 1;
   const boundary = Math.min(retirementMonth(budget, age), horizon);
-  // The retirement window, counted inclusively (boundary … horizon). ≥ 1 after the clamp,
-  // so it is a safe denominator; = 1 only when the pin sits at life expectancy.
+  // Inclusive, so ≥ 1 after the clamp: a safe denominator.
   const retirementWindow = horizon - boundary + 1;
-  // First month that fails the survival test — the honest failure signal. A
-  // non-surviving series always has one; -1 is defensive (callers gate on `!feasible`).
+  // -1 is defensive; callers gate on `!feasible`.
   const firstFailureMonth = series.months.findIndex((m) => !monthSurvives(m));
   if (firstFailureMonth < 0) return 1;
-  // Solvent months lived in retirement before the failure; a pre-retirement failure is 0.
   const solventInRetirement = Math.max(0, firstFailureMonth - boundary);
-  // solventInRetirement ≤ horizon − boundary < retirementWindow, so this is always < 1.
   return Math.min(1, solventInRetirement / retirementWindow);
 }
 
 /**
- * Project the scenario with retirement pinned at `age` — its timeline events included —
- * and evaluate that one run: does it survive, and (if not) how on-track is it?
- * Both the headline search (which reads only `feasible`) and target mode (the panel, at
- * the user's pinned age) go through here — one projection, one evaluation.
- *
- * It returns the evaluation WITHOUT `nearestFeasibleAge`. That field is the earliest
- * surviving age — the result of {@link earliestPartialRetirementAge}, which calls THIS
- * function for every candidate age. Computing it here would make this function invoke
- * the search that invokes it: infinite recursion. The panel composes it once, after
- * the search finishes.
+ * Project with retirement pinned at `age` and evaluate that run. Omits `nearestFeasibleAge`:
+ * that is the result of {@link earliestPartialRetirementAge}, which calls this for every
+ * candidate age, so computing it here would recurse.
  */
 export function evaluateAtAge(
   scenario: Scenario,
@@ -155,11 +106,9 @@ export function evaluateAtAge(
 }
 
 /**
- * The earliest integer age in `[currentAge, lifeExpectancy]` at which `survives(age)`
- * holds, or null if even life expectancy fails. Survival is monotonic in the age
- * (working/holding jobs longer never hurts), so a binary search finds the threshold in
- * ~log2(range) projections. Shared by both solvers — they differ only in the
- * per-age projection `survives` runs, not the search.
+ * Earliest integer age in `[currentAge, lifeExpectancy]` at which `survives(age)` holds, else
+ * null. Survival is monotonic in the age (holding jobs longer never hurts), so a binary search
+ * finds the threshold in ~log2(range) projections.
  */
 function earliestSurvivingAge(
   budget: Plan,
@@ -168,7 +117,6 @@ function earliestSurvivingAge(
   const lo = budget.currentAge;
   const hi = budget.lifeExpectancy;
   if (lo > hi) return null;
-  // If even the latest age fails, nothing in range survives.
   if (!survives(hi)) return null;
   let a = lo;
   let b = hi;
@@ -181,27 +129,19 @@ function earliestSurvivingAge(
 }
 
 /**
- * The **partial retirement** solver output — the earliest integer age every **open-ended**
- * (`null`-end) job can end while the authored **fixed-term** jobs + passive income + government benefit
- * keep running and the plan still lasts to life expectancy, or null if even working to
- * life expectancy fails. Pinning the age moves every open-ended job's end (via
- * `retirementTargetAge`); fixed-term jobs keep their authored spans. Survival is monotonic
- * in the age, so a binary search over [currentAge, lifeExpectancy] finds the threshold in
- * ~log2(range) projections. The on-track % pairs with this age.
+ * **Partial retirement**: the earliest age every **open-ended** (`null`-end) job can end while
+ * the authored fixed-term jobs + passive income + government benefit keep running and the plan
+ * still lasts to life expectancy. Pinning the age moves every open-ended job's end (via
+ * `retirementTargetAge`); fixed-term jobs keep their authored spans.
  */
 export function earliestPartialRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   return earliestSurvivingAge(scenario.plan, (age) => evaluateAtAge(scenario, age, ctx).feasible);
 }
 
 /**
- * The plan's jobs with every job's end capped at `age` (full retirement): each job
- * stops no later than the calendar year the owner turns `age` — the age they become
- * work-optional. A `null`-end (open-ended) job is resolved to `age` itself (in
- * this mode the candidate age *is* the work-exit target — see {@link
- * projectFullRetirement}, which pins `retirementAge: age`), so working longer
- * genuinely earns more before the full stop. A fixed-term job that already ends before
- * `age` keeps its earlier end; nothing is extended past its authored stop. The result
- * has only explicit ends. Empty for a jobs-less plan.
+ * The plan's jobs with every end capped at the calendar year the owner turns `age`. An
+ * open-ended job resolves to `age` itself — here the candidate age *is* the work-exit target.
+ * A fixed-term job ending earlier keeps its authored end; nothing is extended.
  */
 function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): Job[] {
   const birthYear = ctx.startYear - budget.currentAge;
@@ -213,10 +153,9 @@ function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): J
 }
 
 /**
- * Run the projection with ALL jobs ceased at `age` (full retirement): every job
- * stops by `age`, leaving passive income + government benefit + assets to carry the plan to life
- * expectancy. For a scalar plan (no jobs) this collapses to a partial-retirement
- * projection at `age` (there is no supplemental income to drop).
+ * Run the projection with ALL jobs ceased at `age`, leaving passive income + government
+ * benefit + assets to carry the plan to life expectancy. For a scalar plan (no jobs) this
+ * collapses to a partial-retirement projection at `age` — nothing left to drop.
  */
 export function projectFullRetirement(
   scenario: Scenario,
@@ -234,10 +173,9 @@ export function projectFullRetirement(
 }
 
 /**
- * Evaluate the full-retirement scenario at `age`: cease all jobs at `age` and report
- * whether the plan survives (and, if not, how on-track it is). The full-retirement
- * counterpart of {@link evaluateAtAge}; like it, it omits `nearestFeasibleAge` (the
- * search that computes that calls this, so composing it here would recurse).
+ * Full-retirement counterpart of {@link evaluateAtAge}: cease all jobs at `age`, report
+ * survival and on-track %. Like it, omits `nearestFeasibleAge` — the search that computes
+ * that calls this, so composing it here would recurse.
  */
 export function evaluateFullRetirementAtAge(
   scenario: Scenario,
@@ -254,21 +192,20 @@ export function evaluateFullRetirementAtAge(
 }
 
 /**
- * The **full retirement** solver output: the earliest age at which ALL jobs (open-ended +
- * fixed-term) can cease and the plan still survive to life expectancy on passive
- * income + government benefit + assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping
- * the still-running income can only make survival harder. Null when no age survives.
+ * **Full retirement**: the earliest age at which ALL jobs (open-ended + fixed-term) can cease
+ * and the plan still survive to life expectancy on passive income + government benefit +
+ * assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping the still-running
+ * income can only make survival harder. Null when no age survives.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
 }
 
 /**
- * The derived latest-authored-work-stop age: `max(job endYears)` expressed as an
- * age — the latest any authored job is scheduled to stop. A `null`-end (open-ended) job
- * resolves to its `retirementTargetAge` end. Null when the plan has no jobs (a scalar
- * plan stops earned income at `retirementAge`, which the partial retirement age already
- * reports).
+ * `max(job endYears)` as an age — the latest any authored job is scheduled to stop. An
+ * open-ended job resolves to its `retirementTargetAge` end. Null when the plan has no jobs
+ * (a scalar plan stops earned income at `retirementAge`, already reported by the partial
+ * retirement age).
  */
 export function latestAuthoredWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   const { plan } = scenario;
@@ -282,10 +219,9 @@ export function latestAuthoredWorkStopAge(scenario: Scenario, ctx: ProjectionCon
 }
 
 /**
- * Both retirement solver outputs off one {@link Scenario}: the partial
- * retirement age, the full retirement age, and the derived latest-authored-work-stop
- * age. Every field runs off the same real projection substrate — the plan WITH
- * its timeline events — so the panel and the net-worth graph can never disagree.
+ * Both solver outputs off one {@link Scenario}, plus the derived latest-authored-work-stop
+ * age. Every field runs off the same real projection substrate — the plan WITH its timeline
+ * events — so the panel and net-worth graph can never disagree.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   return {

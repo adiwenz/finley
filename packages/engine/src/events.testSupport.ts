@@ -2,9 +2,9 @@ import { addEvent, type Ledger, type LedgerBaseConfig, type NewLifeEvent } from 
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import type { Person } from "./person";
 
-// Shared builders for the events.* test files. Co-located with the tests that use them,
-// mirroring engine/src/testing/. Kept behaviour-identical to the originals that lived at the
-// top of events.test.ts, so the partitioned sibling suites stay byte-for-byte green.
+// Shared builders for the events.* test files, co-located with them, mirroring
+// engine/src/testing/. Behaviour-identical to the originals from the top of events.test.ts,
+// so the partitioned sibling suites stay byte-for-byte green.
 
 export const personLit = (id: string, name: string): Person => ({
   id,
@@ -32,9 +32,9 @@ export const baseConfig: LedgerBaseConfig = {
   initialPersons: [personLit("p1", "Alice")],
 };
 
-// Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff
-// fixtures (which require an account to draw from) pass. Used only to validate
-// fixture events; each test still replays against its own base.
+// Validation base for fixtures — baseConfig plus a liquid account so DebtPayoff fixtures
+// (which need one to draw from) pass. Validates fixture events only; each test still
+// replays against its own base.
 export const addBase: LedgerBaseConfig = { ...baseConfig, initialAccounts: [makeLiquidAccount()] };
 
 /** Append a fixture event, asserting it passes validation. */

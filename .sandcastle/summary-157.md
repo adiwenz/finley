@@ -2,13 +2,29 @@
 
 ## Overview
 
-Comments across the codebase carried embedded issue/PR references (`#150`,
-`#129/#151`, `Issue #105`, `#122-consistent`, …) and decorative section
-banners (`// ─── Label ───────`). This branch sweeps every comment to the
-project's dense-but-succinct standard: issue/PR reference tokens are stripped
-while the domain rationale they sat inside is preserved, decorative banners are
-reduced to plain labels or deleted, and the same standard is encoded in the
-implementation prompt so future comments follow it.
+Comments across the codebase were **too long** — paragraph-length doc blocks that
+restated the code, re-explained one idea three ways, and narrated the history of
+each decision. They also carried embedded issue/PR references (`#150`,
+`#129/#151`, `Issue #105`, …) and decorative section banners (`// ─── Label ───`).
+
+This branch sweeps every comment to the project's dense-but-succinct standard, in
+two passes:
+
+1. **Reference and banner strip.** Issue/PR tokens removed while the domain
+   rationale they sat inside is preserved; decorative banners reduced to plain
+   labels or deleted.
+2. **Length sweep.** Paragraph-long comments compressed across the whole tree —
+   restatement of signatures and types deleted outright, duplicate explanations
+   collapsed to their clearest sentence, throat-clearing and code-history
+   narration cut, while every invariant, contract, footgun, legislated constant,
+   provenance URL, and `§` spec reference is kept.
+
+Measured: **96,044 → 76,946 comment words (−20%)**, 10,179 → 8,570 comment lines,
+across 196 of 213 source files.
+
+The standard is encoded in the implementation prompt so future comments follow it —
+now including an explicit length discipline (prefer one line; a paragraph must earn
+itself; never pad to look thorough), which the first version lacked.
 
 No behavior changed. Every source/JSX/signature/string-literal/test-description
 line is byte-identical; only comment text was edited.

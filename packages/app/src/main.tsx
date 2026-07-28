@@ -39,8 +39,8 @@ import "./assets/styles/globals.css";
 
 /**
  * The projection environment: the real US jurisdiction and the frozen "now"
- * (`START_YEAR`). Both are app-supplied constants, so a stable module-level object
- * keeps `createProjectionBase`'s memo keyed on `budget` alone.
+ * (`START_YEAR`). Both are app constants, so a stable module-level object keeps
+ * `createProjectionBase`'s memo keyed on `budget` alone.
  */
 const PROJECTION_CTX: ProjectionContext = {
   jurisdiction: usJurisdiction,
@@ -55,12 +55,10 @@ export function App() {
   const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
   const { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger } = useLedger(base);
 
-  // Load a starter simulation wholesale: swap in its plan AND its
-  // seed timeline together. The new ledger is built against the *incoming* plan's
-  // base (computed here, not the memoized one, which still reflects the old plan
-  // this render), so a preset's events are replayed against the numbers they were
-  // authored for. The scrub cursor snaps back to "now" so the fresh scenario reads
-  // from its opening month.
+  // Load a starter simulation wholesale: plan AND seed timeline together. The ledger is
+  // built against the *incoming* plan's base — computed here, since the memoized one still
+  // reflects the old plan this render — so a preset's events replay against the numbers
+  // they were authored for. The scrub cursor snaps back to "now".
   function loadPreset(preset: Preset) {
     const nextBase = createProjectionBase(preset.plan, PROJECTION_CTX);
     setPresetId(preset.id);
@@ -69,19 +67,19 @@ export function App() {
     setScrubMonth(DEFAULT_SCRUB_MONTH);
   }
 
-  // One replay-derived household feeds both the projection and the snapshot,
-  // so the two can never disagree about the ledger's meaning.
+  // One replay-derived household feeds both the projection and the snapshot, so the two
+  // can never disagree about the ledger's meaning.
   const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // Build the resolved simulator input once, then simulate — sharing that input
-  // lets the debug report reuse the very series the chart draws (no second run).
+  // Resolve the simulator input once: sharing it lets the debug report reuse the very
+  // series the chart draws, with no second run.
   const simInput = useMemo(() => buildHouseholdSimInput(household, base), [household, base]);
   const series = useMemo(
     () => simulateHousehold(simInput, usJurisdiction),
     [simInput],
   );
-  // Echo the complete authored config (the value-editing surface) into the report's
-  // meta, so knobs the engine input compiles away — life expectancy, retirement age,
-  // health lines — survive into the debug output and download.
+  // Echo the whole authored config into the report's meta, so knobs the engine input
+  // compiles away — life expectancy, retirement age, health lines — survive into the
+  // debug output and download.
   const report = useMemo(
     () =>
       summarizeSimulation(
@@ -99,17 +97,17 @@ export function App() {
     () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
     [household],
   );
-  // The funding questions the authoring forms ask about money-out events: which accounts
-  // could pay at a month, and what a chosen set nets after capital-gains tax. Built from the
-  // SAME ledger+base+jurisdiction `recordEvent` validates against, so the down-payment picker
-  // shows the numbers the §4.5 gate will decide on. Memoized because it projects the ledger
-  // once and then answers both questions cheaply.
+  // What the authoring forms ask about money-out events: which accounts could pay at a
+  // month, and what a chosen set nets after capital-gains tax. Built from the SAME
+  // ledger+base+jurisdiction `recordEvent` validates against, so the down-payment picker
+  // shows the numbers the §4.5 gate will decide on. Memoized: projects the ledger once,
+  // then answers both questions cheaply.
   const funding = useMemo(() => fundingLookup(ledger, base, usJurisdiction), [ledger, base]);
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
   const insolventMonth = firstInsolventMonth(series);
-  // The retirement panel reasons about the SAME scenario the graph draws — the plan
-  // plus the live ledger of timeline events — so "when can we retire?" reflects every
-  // event the user has added (a child, a new expense, a separation), not the bare plan.
+  // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
+  // live ledger — so "when can we retire?" reflects every event the user added (a child, a
+  // new expense, a separation), not the bare plan.
   const retirement = useMemo(
     () => retirementView({ plan: budget, ledger }, usJurisdiction),
     [budget, ledger],
@@ -117,13 +115,13 @@ export function App() {
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 
-  // The net-worth *breakdown* chart's data. Names/order come through supported engine seams —
-  // account descriptors and the household's liabilities (labelled by kind) — never the
+  // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
+  // — account descriptors and the household's liabilities, labelled by kind — never the
   // SimAccount class, so presentation stays off the sim-construction path.
   const breakdown = useMemo(() => {
-    // The engine's synthetic last-resort borrowing is a revolving credit card in the model, so
-    // it charts as "Credit card" debt below zero — a plan living on borrowed money (or one that
-    // runs dry in late retirement) shows that debt rather than the composition just stopping.
+    // The engine's synthetic last-resort borrowing is a revolving credit card in the model,
+    // so it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
+    // running dry in late retirement) shows that debt rather than the composition stopping.
     const liabilityLabels: Record<string, string> = {
       [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
     };
@@ -251,10 +249,10 @@ export function App() {
       </div>
 
       <div className="card">
-        {/* The panel charts the SAME series the net-worth graph draws — plan plus the
-            live timeline — so its spending need counts loan payments and every other
-            event, not just the standing budget. Everything it draws rides on that one
-            series (the engine itemizes the spending), so there is nothing else to pass. */}
+        {/* Charts the SAME series the net-worth graph draws — plan plus the live timeline
+            — so its spending need counts loan payments and every other event, not just the
+            standing budget. Everything rides on that one series (the engine itemizes the
+            spending), so there is nothing else to pass. */}
         <BaseAdjustmentsPanel
           plan={budget}
           setBudget={setBudget}

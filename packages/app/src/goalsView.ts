@@ -1,9 +1,8 @@
 /**
- * Pure presentation logic for the Goals panel. Scores each plan goal
- * against the projection via the engine's projection-based on-track math, and
- * reprioritizes the goal list. Reordering here changes who the waterfall funds
- * first, so the *other* goals' on-track numbers visibly move (tradeoff) —
- * the whole point of a shared priority list.
+ * Pure presentation logic for the Goals panel: scores each plan goal against the
+ * projection via the engine's on-track math, and reprioritizes the list. Reordering
+ * changes who the waterfall funds first, so the *other* goals' on-track numbers visibly
+ * move — the tradeoff a shared priority list exists to show.
  */
 
 import {
@@ -22,11 +21,9 @@ import type {
 } from "@finley/engine";
 
 /**
- * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the
- * accumulated money at target. The engine drives the money's actual
- * behavior off the disposition; this only names it for the user so the Goals
- * panel makes explicit *what becomes of it*, which the on-track %
- * alone never conveys.
+ * Plain-language rendering of a goal's {@link GoalDisposition} — the fate of the money at
+ * target. The engine drives actual behavior off the disposition; this only names it, so
+ * the panel says *what becomes of it*, which the on-track % never conveys.
  */
 export function dispositionLabel(disposition: GoalDisposition): string {
   switch (disposition) {
@@ -45,10 +42,9 @@ export interface GoalRow {
   /** 0-based priority (position in the funding order); 0 is funded first. */
   readonly priority: number;
   /**
-   * Projected fund at target ÷ target, as a whole-number percent, capped at 100.
-   * A funded goal keeps earning its account's return, so its raw fraction
-   * drifts past 1.0 — but the waterfall stops depositing once the target is met
-   * and the surplus flows on, so "done" is 100%, never more.
+   * Projected fund at target ÷ target, whole-number percent, capped at 100. A funded goal
+   * keeps earning its account's return so the raw fraction drifts past 1.0, but the
+   * waterfall stops depositing once the target is met — "done" is 100%, never more.
    */
   readonly onTrackPct: number;
   /** Annual return on this goal's fund account, whole-number percent. */
@@ -56,14 +52,14 @@ export interface GoalRow {
   /** True when a near-term goal accumulates into an equity-like account. */
   readonly shortHorizonRiskFlag: boolean;
   /**
-   * Derived, latched completion state from the projection series — In Progress until the
+   * Latched completion state derived from the projection series — In Progress until the
    * fund reaches target on/before the target date, then Funded for good. Never stored.
    */
   readonly completion: GoalCompletion;
   /**
-   * True when a still-In-Progress goal is not on pace to hit its target by the date
-   * (raw on-track fraction < 1). A Funded goal is never behind pace. Reuses the existing
-   * `onTrackFraction` — no separate state.
+   * True when a still-In-Progress goal is off pace for its date (raw on-track
+   * fraction < 1). A Funded goal is never behind pace. Derived from `onTrackFraction`,
+   * no separate state.
    */
   readonly behindPace: boolean;
   /** What becomes of the money at target — see {@link GoalDisposition}. */
@@ -73,15 +69,15 @@ export interface GoalRow {
 }
 
 /**
- * One row per goal, in priority order, each scored against the projection. The
- * projection must be the one built from the SAME `budget`, so the fund-account
- * balances it reports line up with the goals' `fundAccountId`s.
+ * One row per goal, in priority order, each scored against the projection. The projection
+ * MUST be built from the SAME `budget`, so its fund-account balances line up with the
+ * goals' `fundAccountId`s.
  */
 export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
   const goals = buildPlanGoals(budget);
   const accounts = buildPlanAccounts(budget);
-  // `goals` is `budget.goals` mapped in order, so the plan goal at the same index
-  // carries this row's editable rate.
+  // `goals` is `budget.goals` mapped in order, so the plan goal at the same index carries
+  // this row's editable rate.
   return goals.map((goal, i) => {
     const progress = computeGoalProgress(goal, projection, accounts);
     return {
@@ -111,27 +107,26 @@ export function setGoalRate(
 }
 
 /**
- * The user-authorable shape of a goal — every field on {@link GoalPlan} EXCEPT its
- * stable `id`, which the plan owns (add mints a fresh one; edit keeps the old). The
- * `disposition`/`targetDate` pair is carried as the engine's {@link GoalDisposal} so
- * the authoring form and the engine goal keep the two fields correlated.
+ * The user-authorable shape of a goal — every {@link GoalPlan} field EXCEPT the stable
+ * `id`, which the plan owns (add mints a fresh one; edit keeps the old). The
+ * `disposition`/`targetDate` pair rides as the engine's {@link GoalDisposal} so form and
+ * engine goal keep the two correlated.
  */
 export type GoalDraft = {
   readonly name: string;
   readonly targetCents: number;
   readonly annualReturnPct: number;
   /**
-   * The kind of account the goal's fund is held in. Optional so a draft
-   * that omits it keeps the engine's legacy default (a capital-gains investment); the
-   * authoring form always supplies one.
+   * The kind of account holding the goal's fund. Optional so a draft omitting it keeps
+   * the engine's legacy default (a capital-gains investment); the form always supplies one.
    */
   readonly accountType?: GoalAccountType;
 } & GoalDisposal;
 
 /**
- * The selectable goal account types, in the order the authoring form lists them, each
- * paired with a plain-language label. The default emergency-style goal is `"cash"`.
- * Kept here so the form never hardcodes the engine's account-type union.
+ * Selectable goal account types with plain-language labels, in the order the form lists
+ * them; the default emergency-style goal is `"cash"`. Here so the form never hardcodes
+ * the engine's account-type union.
  */
 export const GOAL_ACCOUNT_TYPES: readonly {
   readonly value: GoalAccountType;
@@ -145,9 +140,8 @@ export const GOAL_ACCOUNT_TYPES: readonly {
 
 /**
  * Build a {@link GoalDisposal} from an independently-held disposition and date — the
- * shape an authoring form keeps its two controls in. Every disposition is purely
- * descriptive and accepts either a concrete month or `"asap"`, so the pair is
- * assembled verbatim.
+ * shape a form keeps its two controls in. Every disposition is purely descriptive and
+ * accepts a concrete month or `"asap"`, so the pair is assembled verbatim.
  */
 export function goalDisposal(
   disposition: GoalDisposition,
@@ -157,9 +151,9 @@ export function goalDisposal(
 }
 
 /**
- * A goal id not already used by any goal in the list — deterministic (same list →
- * same id), so the transforms that mint it stay pure. Ids drive each goal's derived
- * `goal-<id>` fund account, so they only need to be unique, not meaningful.
+ * A goal id unused by any goal in the list — deterministic (same list → same id), so the
+ * transforms that mint it stay pure. Ids drive each goal's derived `goal-<id>` fund
+ * account, so they need only be unique, not meaningful.
  */
 export function freshGoalId(goals: readonly GoalPlan[]): string {
   const used = new Set(goals.map((g) => g.id));
@@ -169,19 +163,19 @@ export function freshGoalId(goals: readonly GoalPlan[]): string {
 }
 
 /**
- * Append a new goal at lowest priority (last position; priority is array index),
- * returning a new array. A direct value-plane override — no timeline event.
- * The id is minted from the current list so the transform stays pure.
+ * Append a goal at lowest priority (last position; priority is array index), returning a
+ * new array. A direct value-plane override — no timeline event. The id is minted from the
+ * current list so the transform stays pure.
  */
 export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[] {
   return [...goals, { id: freshGoalId(goals), ...draft }];
 }
 
 /**
- * Replace one goal's authorable fields with `draft`, keeping its id and list position
- * (so priority is unchanged), returning a new array. A no-op (still a fresh array) when
- * `id` matches nothing. Re-projecting the result moves this goal's on-track % — and,
- * where funding competes, the others' — the same live feedback loop reorder has.
+ * Replace one goal's authorable fields with `draft`, keeping its id and list position (so
+ * priority is unchanged), returning a new array — still a fresh array when `id` matches
+ * nothing. Re-projecting moves this goal's on-track % and, where funding competes, the
+ * others' — the same live feedback loop reorder has.
  */
 export function updateGoal(
   goals: readonly GoalPlan[],
@@ -193,17 +187,17 @@ export function updateGoal(
 
 /**
  * Drop a goal, returning a new array. Its derived `goal-<id>` fund account falls away
- * with it — `buildPlanAccounts` mints one account per remaining goal, so removing the
- * goal removes the account. A direct override — no timeline event.
+ * with it — `buildPlanAccounts` mints one account per remaining goal. A direct override,
+ * no timeline event.
  */
 export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
   return goals.filter((g) => g.id !== id);
 }
 
 /**
- * Move a goal one slot earlier ("up", funded sooner) or later ("down") in the
- * priority order, returning a new array. A no-op at the ends. Since priority is
- * array position, this is the only reprioritization primitive the panel needs.
+ * Move a goal one slot earlier ("up", funded sooner) or later ("down"), returning a new
+ * array; a no-op at the ends. Since priority is array position, this is the only
+ * reprioritization primitive the panel needs.
  */
 export function reorderGoal(
   goals: readonly GoalPlan[],

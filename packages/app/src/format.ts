@@ -11,10 +11,10 @@ export function formatDollars(cents: number): string {
 }
 
 /**
- * The plan-year a month falls in, 0-indexed: month 0–11 is Year 0 ("now"). Every
- * surface that names a year MUST go through this — the net-worth chart once did its
- * own `floor(month / 12) + 1`, which labelled the same insolvency month "year 45"
- * while the banner called it "Year 44".
+ * The plan-year a month falls in, 0-indexed: months 0–11 are Year 0 ("now"). Every surface
+ * naming a year MUST go through this — the net-worth chart once did its own
+ * `floor(month / 12) + 1` and called the same insolvency month "year 45" while the banner
+ * said "Year 44".
  */
 export function yearOf(month: number): number {
   return Math.floor(month / 12);

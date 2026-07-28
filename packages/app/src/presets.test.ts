@@ -1,10 +1,9 @@
 /**
- * The starter simulations a fresh session can load. Beyond the healthy
- * default, three teaching scenarios — living paycheck to paycheck, living on a credit
- * card, and carrying a student loan into negative net worth — each of which must
- * project to its intended financial *shape*, not merely exist. These tests pin that
- * shape so a future tweak to the numbers can't silently turn "living on credit" into a
- * plan that quietly accumulates wealth.
+ * The starter simulations a fresh session can load. Beyond the healthy default, three
+ * teaching scenarios — paycheck to paycheck, living on a credit card, and a student loan
+ * into negative net worth — each of which must project to its intended financial *shape*,
+ * not merely exist. These tests pin that shape so a tweak to the numbers can't turn
+ * "living on credit" into a plan that quietly accumulates wealth.
  */
 
 import { describe, it, expect } from "vitest";
@@ -62,15 +61,14 @@ describe("default simulations", () => {
   it("every preset opens on an editable line-item budget totalling its authored spend", () => {
     for (const preset of PRESETS) {
       const lines = preset.plan.budgetLines ?? [];
-      // A preset with no lines opens the Base + Adjustments editor onto an empty
-      // spending chart — nothing to read, nothing to click.
+      // No lines opens the Base + Adjustments editor onto an empty spending chart.
       expect(lines.length).toBeGreaterThan(0);
       const total = lines.reduce(
         (sum, line) => sum + (line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0),
         0,
       );
-      // Itemizing the spend must not move it: the lines replace the scalar series
-      // wholesale, so their total is what the scenario was tuned against.
+      // Itemizing must not move the spend: the lines replace the scalar series wholesale,
+      // so their total is what the scenario was tuned against.
       expect(total).toBe(preset.plan.expenseCents);
     }
   });
@@ -88,8 +86,7 @@ describe("default simulations", () => {
     const wealthy = project(presetById("default"));
     const paycheckMid = realNetWorthAt(paycheck, 120)!;
     const wealthyMid = realNetWorthAt(wealthy, 120)!;
-    // Stays afloat while earning — no debt spiral — but accumulates only a sliver of
-    // the default's wealth: the defining paycheck-to-paycheck signature.
+    // Afloat while earning — no debt spiral — but only a sliver of the default's wealth.
     expect(paycheckMid).toBeGreaterThan(0);
     expect(paycheckMid).toBeLessThan(wealthyMid * 0.25);
     // No emergency cushion means retirement is unfundable: insolvency lands around it.
@@ -111,24 +108,21 @@ describe("default simulations", () => {
   });
 
   it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {
-    // The scenario's whole point: taxable 401(k) withdrawals fund retirement (the spend is
-    // tuned high enough that cash doesn't pile up and cover it tax-free), so that ordinary
-    // income lifts the benefit over the standard deduction and the government-benefit
-    // category bears real tax across a run of retirement months.
+    // Taxable 401(k) withdrawals fund retirement — the spend is tuned high enough that cash
+    // can't pile up and cover it tax-free — so that ordinary income lifts the benefit over
+    // the standard deduction and the government-benefit category bears real tax for years.
     const series = project(presetById("taxed-in-retirement"));
     const ssTax = series.months.map((m) => {
       const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;
       return byCat.governmentRetirementBenefit ?? 0;
     });
     expect(ssTax.filter((c) => c > 0).length).toBeGreaterThan(24); // taxed across years, not a blip
-    // And meaningfully, not a rounding-scale $25/mo: it must clear a few hundred a month in
-    // some retirement month — the guard against regressing to a cash-funded retirement where
-    // SS is barely taxed.
+    // Meaningfully, not a rounding-scale $25/mo: it must clear a few hundred in some
+    // retirement month, guarding against a regression to cash-funded retirement.
     expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
-    // Contrast: the default plan taxes the benefit only trivially. Its home goal is now
-    // a drawable `retain` reserve, so a little taxable drawdown does reach the
-    // benefit — but nowhere near the sustained several-hundred-a-month scale the
-    // taxed-in-retirement preset is tuned for; the two regimes stay clearly distinct.
+    // Contrast: the default plan taxes the benefit only trivially. Its home goal is a
+    // drawable `retain` reserve, so a little taxable drawdown does reach the benefit — but
+    // nowhere near the sustained several-hundred-a-month scale here.
     const defaultMaxSSTax = Math.max(
       0,
       ...project(presetById("default")).months.map((m) => {
@@ -163,9 +157,9 @@ describe("the two graphs are one quantity", () => {
     "%s: every month's spending stack totals exactly the income graph's spending need",
     (id) => {
       const { series, data } = budgetChart(presetById(id));
-      // The spending graph splits the obligation by where the money goes; the income
-      // graph's dashed line is the same obligation, as one number. If the two ever
-      // disagree, some real spending is being drawn nowhere.
+      // The spending graph splits the obligation by destination; the income graph's dashed
+      // line is the same obligation as one number. Disagreement means real spending is
+      // drawn nowhere.
       for (const row of data.rows) {
         const flows = series.months[row.month]?.flows;
         const need = (flows?.expensesCents ?? 0) + (flows?.liabilityPaymentsCents ?? 0);
@@ -188,9 +182,9 @@ describe("the panel and the graph agree", () => {
       const scenario = { plan: preset.plan, ledger };
       const graphSurvives =
         firstInsolventMonth(projectScenario(scenario, CTX)) === null;
-      // Being underwater is not running out of money: the student-loan scenario opens
-      // with negative net worth and pays every bill, and the panel must not answer "no
-      // retirement age is feasible" for a plan the graph draws reaching age 90.
+      // Underwater is not out of money: the student-loan scenario opens negative yet pays
+      // every bill, so the panel must not call retirement infeasible for a plan the graph
+      // draws reaching age 90.
       const pinnedWorks = evaluateFullRetirementAtAge(scenario, preset.plan.retirementAge, CTX)
         .feasible;
       if (graphSurvives) expect(pinnedWorks).toBe(true);

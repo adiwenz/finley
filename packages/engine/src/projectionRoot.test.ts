@@ -1,15 +1,13 @@
 /**
- * The `Projection` root ("npm API surface").
- *
- * These tests pin the six acceptance criteria:
+ * The `Projection` root — the npm API surface. Pins:
  *   1. standing-edit + ledger-transaction methods on ONE root;
  *   2. creating writes mint deterministic sequence ids and return them; `{ id }` overrides;
  *   3. the id counter round-trips through serialization (reload continues, no collision);
  *   4. `run(jurisdiction)` returns an immutable `ProjectionResult`; two jurisdictions,
  *      one plan, no mutation;
- *   5. writes swap in a new immutable state and are NOT reversible by the root
- *      (no undo stack — reversal is addressable removal, landing in a later slice);
- *   6. (barrel/purity covered elsewhere.)
+ *   5. writes swap in a new immutable state and are NOT reversible by the root — no undo
+ *      stack, reversal is addressable removal.
+ * Barrel/purity is covered elsewhere.
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "./projectionRoot";
@@ -22,8 +20,8 @@ import type { PersonId } from "./job";
 const P1 = "p1" as PersonId;
 
 function freshProjection(): Projection {
-  // Start from an empty job list so the ids these tests mint (and the roster lengths
-  // they assert) reflect only the jobs added under test, not the fixture's job.
+  // Empty job list so minted ids and roster lengths reflect only the jobs added under
+  // test, not the fixture's job.
   return Projection.create({ plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR });
 }
 
@@ -96,8 +94,8 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("swaps in a new state rather than mutating the one already read out", () => {
-    // The immutable core: a caller holding a state from before a write — a React
-    // render closure, a serialized snapshot — must never see it change underfoot.
+    // A caller holding a pre-write state — a React render closure, a serialized
+    // snapshot — must never see it change underfoot.
     const p = freshProjection();
     const before = p.state;
     const baseRetirement = before.scenario.plan.retirementAge;
@@ -114,10 +112,9 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("keeps plan and ledger coupled as one Scenario across both kinds of write", () => {
-    // The state holds the projectable unit, not two sibling fields: a standing edit
-    // carries the timeline through (withPlan) and a transaction carries the standing
-    // numbers through (withLedger), so neither half can be dropped by a spread that
-    // forgot a field — which is the whole reason `Scenario` exists.
+    // The state holds one projectable unit, not two sibling fields: a standing edit
+    // carries the timeline through (withPlan), a transaction carries the standing numbers
+    // through (withLedger), so no spread can drop half. That is why `Scenario` exists.
     const p = freshProjection();
     p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
     p.setRetirementTarget(55); // a standing edit AFTER a transaction
@@ -134,9 +131,9 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("has no undo — writes are reversed by addressable removal, not a stack", () => {
-    // Deliberate: reversal names the thing to drop (a future `removeTransaction(id)`),
-    // so a UI can delete row 3 without knowing what order rows were created in, and
-    // nothing pretends to offer cross-session undo. See the module doc.
+    // Deliberate: reversal names the thing to drop (a future `removeTransaction(id)`), so
+    // a UI can delete row 3 without knowing creation order, and nothing pretends to offer
+    // cross-session undo. See the module doc.
     const p = freshProjection();
     expect("undo" in p).toBe(false);
     expect("depth" in p).toBe(false);
@@ -152,7 +149,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
   it("takeLoan() carries the kind-determined field for each arm of the union", () => {
     // The payload is discriminated on `kind`: a card takes a credit limit and never a
     // term, a term loan the reverse — so neither arm can be authored with the other's
-    // field, and each lands on the event without an `undefined` placeholder.
+    // field, and each lands without an `undefined` placeholder.
     const p = freshProjection();
     p.takeLoan({
       month: 6,
@@ -242,8 +239,8 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
       mockJurisdiction({
         id: "flat-tax",
         computeTaxCents: () => dollarsToCents(1500),
-        // Attribution contract: the flat tax must reconcile per source. Attribute it to
-        // the wage income the job produces (the fallback keys it there if no wage source exists).
+        // Attribution contract: the flat tax must reconcile per source, so key it to the
+        // job's wage income (the fallback keys it there if no wage source exists).
         computeTaxByCategoryCents: () => ({ wages: dollarsToCents(1500) }),
       }),
     );
@@ -321,14 +318,14 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     const months = p.run(nullJurisdiction).series.months;
 
-    // A squeezed month is absorbed by savings, then by credit — the household really
-    // did pay for all of it, so both lines report their full amount.
+    // A squeezed month is absorbed by savings, then credit — the household really did
+    // pay for all of it, so both lines report their full amount.
     expect(months[1]?.flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(2_000));
     expect(months[1]?.flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(4_000));
 
-    // And once even credit is exhausted, the budget is STILL reported as authored. The
-    // engine surfaces that the plan broke (`isInsolvent`); it does not decide on the
-    // user's behalf which spending they would have given up.
+    // Once even credit is exhausted the budget is STILL reported as authored: the engine
+    // surfaces that the plan broke (`isInsolvent`), it does not decide on the user's
+    // behalf which spending they would have given up.
     const broke = months.findIndex((m) => m.isInsolvent);
     expect(broke).toBeGreaterThan(1);
     const flows = months[broke]?.flows;
@@ -340,10 +337,9 @@ describe("Projection root — per-line monthly resolution in the result", () => 
   });
 
   it("keeps every line funded from savings between retirement and the first benefit", () => {
-    // The retirement gap: samplePlan retires at 60 and claims its benefit at 67, so
-    // ages 60–67 have NO income at all. A household with savings funds its budget by
-    // drawing them down — that is the plan working, not a starved budget, so the
-    // per-line map must stay at full intent throughout the gap.
+    // samplePlan retires at 60 and claims its benefit at 67, so ages 60–67 have NO income
+    // at all. Funding the budget by drawing savings down is the plan working, not a
+    // starved budget, so the per-line map must stay at full intent throughout the gap.
     const p = Projection.create({
       plan: {
         ...samplePlan,
@@ -376,8 +372,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     const flows = months[gapMonth]?.flows;
     expect(flows?.totalIncomeCents).toBe(0); // no paycheck, no benefit yet
 
-    // Fully funded = the funded lines add up to the month's whole intent. Asserted
-    // against the rollup rather than a literal, since a budget rises with prices.
+    // Fully funded = funded lines add up to the month's whole intent. Asserted against
+    // the rollup rather than a literal, since a budget rises with prices.
     const fundedTotal = (m: number): number =>
       Object.values(months[m]?.flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);

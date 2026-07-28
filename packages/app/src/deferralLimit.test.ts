@@ -1,9 +1,8 @@
 /**
  * The 401(k) elective-limit disclosure. The limit belongs to the **person**, not the
- * household: a person's own jobs are summed against their own age-indexed
- * limit, and two earners are never pooled. Driven through the real household roster
- * (`jobOwnersOf`), the same one the Jobs panel reads, so a partner's jobs reach the scan
- * exactly as they do in the app.
+ * household: each person's jobs sum against their own age-indexed limit, and two earners
+ * are never pooled. Driven through the real household roster (`jobOwnersOf`) that the Jobs
+ * panel reads, so a partner's jobs reach the scan exactly as they do in the app.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -24,10 +23,7 @@ import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { setJobDeferralFraction, setJobMonthlyIncome } from "./planPeople";
 
-/**
- * A budget built off the defaults with the default job's salary + deferral set — income
- * and the pre-tax deferral now ride the job, not scalar plan fields.
- */
+/** The defaults with the default job's salary + deferral set — both ride the job, not the plan. */
 function budget(opts: {
   monthlyIncome?: number;
   deferralPct?: number;
@@ -142,8 +138,8 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
 
 describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
   it("aggregates one person's jobs before comparing with the limit", () => {
-    // Two jobs at $30k/yr, each deferring 50% = $15k + $15k = $30k, over the $24,500 limit.
-    // Neither job crosses alone — only the person's total does, which is what the limit is on.
+    // Two jobs at $30k/yr, each deferring 50% = $30k, over the $24,500 limit. Neither job
+    // crosses alone; the person's total does, and the limit is on the total.
     const twoJobs: Plan = {
       ...budget({ monthlyIncome: 2500, deferralPct: 50 }),
       jobs: [
@@ -159,8 +155,7 @@ describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
   });
 
   it("counts only the years a job is actually worked", () => {
-    // A second $30k job that has not started yet: on its own the person is at $15k today,
-    // under the limit, and crosses only once the second job begins.
+    // The second $30k job hasn't started: $15k today, under the limit, crossing when it does.
     const later: Plan = {
       ...PLAN_DEFAULTS,
       inflationPct: 0,
@@ -177,8 +172,8 @@ describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
 
 describe("firstDeferralLimitCrossing — every earner, each against their own limit", () => {
   it("flags a partner who tops the limit on a job of their own", () => {
-    // The primary person defers nothing; Sam defers $30k on a $60k job. Reading only
-    // `Plan.jobs` — the primary's — this crossing was invisible.
+    // The primary defers nothing; Sam defers $30k on a $60k job — invisible to a scan that
+    // reads only `Plan.jobs`, the primary's.
     const crossing = crossingFor(
       budget({ deferralPct: 0 }),
       partnerWith([job("p-1-job-1", "p-1", 5000, 50)]),
@@ -187,8 +182,8 @@ describe("firstDeferralLimitCrossing — every earner, each against their own li
     expect(crossing!.personId).toBe("p-1");
     expect(crossing!.personName).toBe("Sam");
     expect(crossing!.annualDeferralCents).toBe(dollarsToCents(30_000));
-    // Read at SAM's age (40), not the primary person's (35) — the catch-up bands are
-    // age-indexed, so the wrong age can read the wrong limit.
+    // Read at SAM's age (40), not the primary's (35): catch-up bands are age-indexed, so
+    // the wrong age reads the wrong limit.
     expect(crossing!.age).toBe(40);
   });
 
@@ -203,9 +198,8 @@ describe("firstDeferralLimitCrossing — every earner, each against their own li
   });
 
   it("does NOT pool two people — each stays inside their own limit", () => {
-    // $20k + $20k = $40k across the household, well past a single $24,500 limit — but the
-    // limit is individual and neither person is over theirs, so there is no crossing.
-    // Summing the household would invent a warning for a couple who has none.
+    // $20k + $20k = $40k across the household, past a single $24,500 limit — but the limit
+    // is individual and neither person is over theirs. Summing would invent a warning.
     const plan: Plan = {
       ...PLAN_DEFAULTS,
       inflationPct: 0,
@@ -216,8 +210,8 @@ describe("firstDeferralLimitCrossing — every earner, each against their own li
   });
 
   it("reports the EARLIEST crossing when both people eventually cross", () => {
-    // The primary crosses today at 50% of $60k; Sam's smaller job only crosses later as
-    // CPI lifts it. The nudge names one person, so it must be the first.
+    // The primary crosses today at 50% of $60k; Sam's smaller job only later, as CPI lifts
+    // it. The nudge names one person, so it must be the first.
     const plan = budget({ monthlyIncome: 5000, deferralPct: 50, overrides: { inflationPct: 3 } });
     const crossing = crossingFor(plan, partnerWith([job("p-1-job-1", "p-1", 4000, 50)]));
     expect(crossing).not.toBeNull();

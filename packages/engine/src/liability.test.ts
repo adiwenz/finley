@@ -119,9 +119,9 @@ describe("AmortizingLoan / RevolvingCard split", () => {
       apr: 0.06,
       termMonths: 360,
     });
-    // Month 1 (startMonth 0 + 1) is the first scheduled payment: the level payment ≈ $1,199.10.
+    // Month 1 (startMonth 0 + 1) is the first scheduled payment: level ≈ $1,199.10.
     expect(Math.abs(loan.monthlyPaymentCents(dollarsToCents(200_000), 1) - 119_910)).toBeLessThanOrEqual(1);
-    // A tiny remaining balance is never over-charged — the payment caps at the payoff amount.
+    // A tiny remaining balance is never over-charged — payment caps at the payoff amount.
     expect(loan.monthlyPaymentCents(1_000, 5)).toBeLessThanOrEqual(Math.round(1_000 * (1 + 0.06 / 12)));
     expect(loan.kind).toBe("mortgage");
     expect(loan.termMonths).toBe(360);
@@ -195,8 +195,8 @@ describe("AmortizingLoan / RevolvingCard split", () => {
   });
 
   it("SYNTHETIC_CARD_CREDIT_LIMIT_CENTS is a finite, positive limit", () => {
-    // Must be finite (not null/unlimited) so the cascade can be exhausted and
-    // isInsolvent can fire; a whole number of cents.
+    // Finite (not null/unlimited) so the cascade can be exhausted and isInsolvent can fire;
+    // a whole number of cents.
     expect(Number.isFinite(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS)).toBe(true);
     expect(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS).toBeGreaterThan(0);
     expect(Number.isInteger(SYNTHETIC_CARD_CREDIT_LIMIT_CENTS)).toBe(true);
@@ -238,8 +238,8 @@ describe("Liability one-time transfers (v1-seam)", () => {
 
 describe("derivePaymentStatus (v1-seam: partial/missed not reachable in-sim yet)", () => {
   it("applied === expected → full (the everyday case, and the payoff month)", () => {
-    // The payoff month legitimately pays LESS than the level payment; because
-    // `expected` is the payoff-capped figure it equals `applied`, so it is full.
+    // The payoff month legitimately pays LESS than the level payment; `expected` is the
+    // payoff-capped figure, so it equals `applied` and counts as full.
     expect(derivePaymentStatus(120_000, 120_000)).toBe("full");
     expect(derivePaymentStatus(3_711, 3_711)).toBe("full");
   });

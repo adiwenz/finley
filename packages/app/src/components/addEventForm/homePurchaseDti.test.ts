@@ -1,9 +1,8 @@
 /**
- * The soft-DTI glue: derives gross income + existing debt from the
- * live household and classifies a prospective purchase. The threshold arithmetic
- * itself is the engine's; these pin the *derivation* — that a big mortgage on a
- * modest income trips the guideline, a small one stays quiet, and zero gross
- * income never trips a divide-by-zero warning.
+ * The soft-DTI glue: derives gross income + existing debt from the live household and
+ * classifies a prospective purchase. The threshold arithmetic is the engine's; these pin
+ * the *derivation* — a big mortgage on a modest income trips the guideline, a small one
+ * stays quiet, and zero gross income never trips a divide-by-zero warning.
  */
 import { describe, it, expect } from "vitest";
 import {

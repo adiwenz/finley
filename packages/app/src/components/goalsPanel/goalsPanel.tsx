@@ -1,17 +1,16 @@
 /**
- * Goals panel — each goal's projection-based on-track %, its target and
- * date, and priority reordering. Reordering re-runs the projection through the
- * waterfall, so the OTHER goals' numbers visibly move (the tradeoff). A goal
- * held in a risky account for a near-term date shows an honesty flag.
+ * Goals panel — each goal's projection-based on-track %, its target and date, and priority
+ * reordering. Reordering re-runs the projection through the waterfall, so the OTHER goals'
+ * numbers visibly move (the tradeoff). A goal held in a risky account for a near-term date
+ * shows an honesty flag.
  *
- * Goals are also authored here: add, edit, and delete are direct
- * value-plane overrides (NO timeline event), each re-running the
- * projection so on-track %s update live, the same feedback loop reorder has. The
- * add/edit form is disclosed on demand, not always open.
+ * Goals are authored here too: add, edit, and delete are direct value-plane overrides (NO
+ * timeline event), each re-running the projection so on-track %s update live — the same
+ * feedback loop reorder has. The add/edit form is disclosed on demand.
  *
- * Priority is the goal's position in the list; ↑/↓ reorder it. (Pointer
- * drag-and-drop is a later polish; the buttons are the accessible, testable
- * primitive and drive the exact same reprioritization.)
+ * Priority is the goal's position in the list; ↑/↓ reorder it. Pointer drag-and-drop is
+ * later polish; the buttons are the accessible, testable primitive driving the same
+ * reprioritization.
  */
 
 import { useState } from "react";
@@ -84,20 +83,19 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
                 <div className="goal-head">
                   <span className="goal-name">{row.name}</span>
                   {row.completion === "funded" ? (
-                    // Funded is terminal — a short pill that sits inline in the head. The
-                    // on-track % is the pacing signal for a goal still being worked toward,
-                    // so once the goal has latched Funded it would only contradict the badge
-                    // (e.g. a drained fund reading "Funded · 40% on track"). Show it only
-                    // while In progress, paired with the name here on the head line.
+                    // Funded is terminal — a short pill inline in the head. The on-track %
+                    // is a pacing signal for a goal still being worked toward; once Funded
+                    // latches it would only contradict the badge (a drained fund reading
+                    // "Funded · 40% on track"), so it shows only while In progress.
                     <span className="goal-status goal-status-funded">Funded</span>
                   ) : (
                     <span className="goal-track">{row.onTrackPct}% on track</span>
                   )}
                 </div>
                 {row.completion === "inProgress" && (
-                  // The In-progress badge can read "In progress · Behind pace", too long to
-                  // share the head line in this narrow panel, so it gets its own line and
-                  // hugs the left (see .goal-status-in-progress align-self).
+                  // This badge can read "In progress · Behind pace", too long to share the
+                  // head line in a narrow panel, so it takes its own line and hugs the left
+                  // (see .goal-status-in-progress align-self).
                   <span className="goal-status goal-status-in-progress">
                     In progress{row.behindPace ? " · Behind pace" : ""}
                   </span>

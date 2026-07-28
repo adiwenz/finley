@@ -1,10 +1,9 @@
 /**
  * @vitest-environment node
  *
- * Render coverage for the debug panel using the server renderer (this repo's jsdom
- * is unavailable here). These pin the RESOLVED growth rates — the ones that exist
- * only on the report, never on the plan — so the panel can't silently drop back to
- * echoing plan knobs and hiding the rates the engine actually applied.
+ * Render coverage for the debug panel via the server renderer (jsdom is unavailable here).
+ * Pins the RESOLVED growth rates — those exist only on the report, never on the plan — so
+ * the panel can't drop back to echoing plan knobs and hiding what the engine applied.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -37,21 +36,21 @@ describe("DebugPanel — resolved growth rates", () => {
   it("shows the income raise rate, which the plan itself does not carry", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Growth rates (resolved)");
-    // Named from the series itself — an untitled job by its owner ("Alex's job"), since
-    // a minted id names nothing to a reader; the amount is not repeated here, it already
-    // appears under Monthly cash flow.
+    // Named from the series itself — an untitled job by its owner ("Alex's job"), since a
+    // minted id names nothing to a reader. The amount is not repeated; it appears under
+    // Monthly cash flow.
     expect(html).toContain("<dt>Income · Alex&#x27;s job</dt><dd>3%</dd>");
   });
 
   it("names each expense line separately, and does not mistake an amount step for a rate change", () => {
     const html = render(PLAN_DEFAULTS);
-    // The default plan authors a line-item budget, so each standing line is its own
-    // named series here rather than one lumped "Expenses" row. Every line is authored
-    // in today's dollars and rises with CPI.
+    // The default plan authors a line-item budget, so each standing line is its own named
+    // series rather than one lumped "Expenses" row. Lines are authored in today's dollars
+    // and rise with CPI.
     expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
     expect(html).toContain("<dt>Groceries</dt><dd>3%</dd>");
-    // Health is a SEPARATE series with its own rate — and its amount step at Medicare
-    // age must NOT read as a rate change, since the rate never moves.
+    // Health is a SEPARATE series with its own rate; its amount step at Medicare age must
+    // NOT read as a rate change, since the rate never moves.
     expect(html).toContain("<dt>Healthcare</dt><dd>3%</dd>");
   });
 

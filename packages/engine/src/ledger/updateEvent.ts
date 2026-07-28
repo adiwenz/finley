@@ -1,28 +1,22 @@
 /**
- * updateEvent — revise an event that is already in the ledger, the third write
- * alongside `addEvent` (grow) and `removeEvent` (undo).
+ * Revise an event already in the ledger — the third write alongside `addEvent` (grow)
+ * and `removeEvent` (undo). Without it, anything authored *on* an event is write-once:
+ * a partner's jobs live on their `RelationshipEvent`, so changing a partner's salary
+ * meant removing the partner and every event depending on them. An update is not a free
+ * rewrite but a *replacement* that must leave a ledger which still replays cleanly.
  *
- * Until now the ledger could only be appended to and pruned, so anything authored *on*
- * an event was write-once: a partner's own jobs live on their
- * `RelationshipEvent`, which meant changing a partner's salary required removing the
- * partner and re-adding them, taking every event that depended on them along with it.
- * This closes that gap without weakening the log: an update is not a free rewrite, it is
- * a *replacement* that has to leave a ledger which still replays cleanly.
+ * Fixed, and why:
+ *   - **id and type** — dependencies are tracked by id and interpreted by type
+ *     (`computeDependents`, the handler table), so changing either would be a different
+ *     event wearing an existing one's name. Use add + remove for that.
+ *   - **sequence number** — the ledger's tie-breaker for same-month ordering, never
+ *     recycled; a revision keeps its place rather than jumping to the end of the log.
  *
- * What is fixed, and why:
- *   - **The id and the type.** Dependencies are tracked by event id and interpreted by
- *     type (`computeDependents`, the handler table), so a "revision" that changed either
- *     would be a different event wearing an existing event's name. Add and remove are the
- *     way to change what kind of thing happened.
- *   - **The sequence number.** It is the ledger's tie-breaker for same-month ordering
- *     and is never recycled; a revision keeps its place in that order rather than
- *     jumping to the end of the log.
- *
- * Everything else — including the month — is revisable, so validation is the same
+ * Everything else, including the month, is revisable, so validation is the same
  * whole-ledger replay `removeEvent` runs: check every remaining event against the
  * base-seeded state in interpretation order and block the edit, naming the offender, if
- * any precondition now fails. (Like undo, this runs the pure replay context: the
- * affordability gate needs a projection and fires on the authoring path in `addEvent`.)
+ * a precondition now fails. Like undo, this runs the pure replay context — the
+ * affordability gate needs a projection and fires on `addEvent`'s authoring path.
  */
 
 import type { Ledger } from "./ledger";
@@ -67,8 +61,8 @@ export function updateEvent(
   const revised = { ...next, sequenceNumber: existing.sequenceNumber } as LifeEvent;
   const events = ledger.events.map((e) => (e.id === id ? revised : e));
 
-  // Replay everything from the base-seeded state: the revision has to satisfy its own
-  // preconditions, and no event that came to depend on it may be stranded by the change.
+  // Replay from the base-seeded state: the revision must satisfy its own preconditions,
+  // and no event depending on it may be stranded.
   const state = seedState(base);
   const context = contextFrom(base);
   for (const event of sortedEvents(events)) {

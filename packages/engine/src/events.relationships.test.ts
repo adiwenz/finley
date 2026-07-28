@@ -5,8 +5,6 @@ import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// RelationshipEvent
-
 describe("RelationshipEvent", () => {
   it("adds a person to the household", () => {
     let ledger = emptyLedger;
@@ -16,18 +14,16 @@ describe("RelationshipEvent", () => {
       month: 0,
       person: personLit("p2", "Bob"),
     });
-    // Replay doesn't crash; p2 is now in state (not directly observable in
-    // projection but needed for subsequent events).
+    // Replay doesn't crash; p2 is in state — not observable in the projection, but needed
+    // by subsequent events.
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
     expect(series.months.length).toBe(13);
   });
 });
 
-// RelationshipEvent — a partner's own jobs
-
 describe("RelationshipEvent — partner jobs", () => {
-  // A base anchored to a real calendar "now" so the partner's jobs (authored in
-  // calendar years) compile into forward income relative to it.
+  // Anchored to a real calendar "now" so the partner's jobs, authored in calendar years,
+  // compile into forward income relative to it.
   const jobsCfg: LedgerBaseConfig = {
     horizonMonths: 12,
     annualInflationRate: 0,
@@ -98,8 +94,6 @@ describe("RelationshipEvent — partner jobs", () => {
   });
 });
 
-// RelationshipEvent — a partner's own life-stage ages
-
 describe("RelationshipEvent — partner retirement & claiming ages", () => {
   const cfg: LedgerBaseConfig = {
     horizonMonths: 120,
@@ -139,17 +133,17 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
   });
 
   it("moves that start when the partner claims later — the age is load-bearing, not decoration", () => {
-    // The same partner claiming at 67 is still paid nothing at month 36; their benefit
-    // begins two years later, at month 60. A partner whose ages were hardcoded put every
-    // partner's benefit in the same calendar month whoever they were.
+    // The same partner claiming at 67 is paid nothing at month 36; their benefit begins two
+    // years later, at month 60. Hardcoded ages put every partner's benefit in the same
+    // calendar month whoever they were.
     expect(incomeAt(67, 36)).toBe(0);
     expect(incomeAt(67, 59)).toBe(0);
     expect(incomeAt(67, 60)).toBe(dollarsToCents(1_000));
   });
 
   it("stops a partner's open-ended job at THEIR retirement age", () => {
-    // Born 1958, retiring at 65 → the job's last paid year is 2022, so month 36 (2023)
-    // pays nothing while month 35 still does.
+    // Born 1958, retiring at 65 → last paid year 2022, so month 36 (2023) pays nothing
+    // while month 35 still does.
     const working: Person = {
       ...partnerClaimingAt(70), // claim late, so the benefit can't mask the wage stopping
       retirementTargetAge: 65,
@@ -169,8 +163,6 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
     expect(series.months[36]?.flows?.totalIncomeCents).toBe(0);
   });
 });
-
-// SeparationEvent
 
 describe("SeparationEvent", () => {
   it("ends partner income streams from separation month", () => {
@@ -266,8 +258,6 @@ describe("SeparationEvent", () => {
   });
 });
 
-// ChildEvent
-
 describe("ChildEvent", () => {
   it("records a child as a durable entity", () => {
     let ledger = emptyLedger;
@@ -280,7 +270,7 @@ describe("ChildEvent", () => {
       birthMonth: 3,
       annualCostCents: 0,
     });
-    // Replay doesn't crash; child entity is tracked internally.
+    // Replay doesn't crash; the child entity is tracked internally.
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
     expect(series.months.length).toBe(13);
   });
