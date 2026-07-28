@@ -14,18 +14,22 @@ const person: SimPerson = { id: "p1", name: "Alice" };
  * inert, so the test pins exactly the balance-vs-target logic.
  */
 function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSeries {
+  const mkMonth = (bal: number, month: number) => ({
+    month,
+    netWorthNominalCents: bal,
+    netWorthRealCents: bal,
+    accountBalancesCents: { fund: bal },
+    accountBasisCents: {},
+    liabilityBalancesCents: {},
+    liabilityPaymentRecords: {},
+    propertyValuesCents: {},
+    isInsolvent: false,
+  });
+  // Opening is inert here — goal progress reads only the processed months — so mirror the
+  // first balance rather than modelling a distinct pre-flow value.
   return {
-    months: balancesCents.map((bal, month) => ({
-      month,
-      netWorthNominalCents: bal,
-      netWorthRealCents: bal,
-      accountBalancesCents: { fund: bal },
-      accountBasisCents: {},
-      liabilityBalancesCents: {},
-      liabilityPaymentRecords: {},
-      propertyValuesCents: {},
-      isInsolvent: false,
-    })),
+    opening: mkMonth(balancesCents[0] ?? 0, 0),
+    months: balancesCents.map(mkMonth),
   };
 }
 

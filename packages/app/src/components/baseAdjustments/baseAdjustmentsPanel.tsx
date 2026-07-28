@@ -173,15 +173,9 @@ export function BaseAdjustmentsPanel({
     if (lineAuthoring?.kind === "edit" && lineAuthoring.id === id) setLineAuthoring(null);
   }
 
-  /**
-   * Month 0 is the projection's flow-free opening snapshot (`simulate.ts` accrues flows only
-   * for `month > 0`), so income reads $0 there even while the jobs pay full salaries. The
-   * income chart skips that month; the row does too.
-   */
-  const incomeMonth = Math.max(1, selectedMonth);
-
-  /** Display only: the total across every job, so no row has to pick *the* income. */
-  const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
+  /** Display only: the total across every job, so no row has to pick *the* income. Month 0 is
+   * a processed month now, so its own flows read here — no opening-snapshot clamp. */
+  const incomeAtMonth = incomeByMonth[selectedMonth] ?? 0;
 
   // Every earner's jobs, not just the primary person's; the picker names whose is whose.
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
@@ -246,7 +240,10 @@ export function BaseAdjustmentsPanel({
     setPending(null);
   }, [plan, retirementMonth, setLines]);
 
-  const horizonMonths = spendingChartData.rows.length;
+  // `length - 1`: every row is a processed month now (the opening snapshot left the array), so
+  // the last selectable month is the last INDEX, not the count. Clamping to the count would
+  // point the editor one month past the horizon, at no row at all.
+  const lastMonth = Math.max(0, spendingChartData.rows.length - 1);
 
   const editActions: SpendingEditActions = {
     onStage: stageEdit,
@@ -286,7 +283,7 @@ export function BaseAdjustmentsPanel({
           <NumInput
             label="Month"
             value={selectedMonth}
-            onChange={(m) => selectMonth(Math.max(0, Math.min(horizonMonths, Math.round(m))))}
+            onChange={(m) => selectMonth(Math.max(0, Math.min(lastMonth, Math.round(m))))}
           />
         </div>
 
@@ -307,7 +304,7 @@ export function BaseAdjustmentsPanel({
             wages through the job's series. */}
         <PayChangeEditor
           jobs={jobOptions}
-          incomeMonth={incomeMonth}
+          incomeMonth={selectedMonth}
           onApplyOverride={(jobId, override) => adjustJob(jobId, (j) => withIncomeOverride(j, override))}
           onApplyPayChange={(jobId, payChange) => adjustJob(jobId, (j) => withPayChange(j, payChange))}
         />

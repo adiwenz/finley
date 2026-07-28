@@ -71,7 +71,10 @@ export function fundingLookup(
   const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
-  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
+  // A Year-0 purchase draws against the funds on hand right now — the `opening` snapshot;
+  // later months read that processed month's end-of-month balances, as before.
+  const monthAt = (month: number) =>
+    month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
   const sourcesAt = (month: number): readonly FundingSourceBalance[] => {

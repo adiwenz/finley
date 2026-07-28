@@ -73,10 +73,10 @@ describe("Required Minimum Distributions", () => {
       baseInput(born73In2026, [
         account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
         account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
-      ]),
+      ], { horizonMonths: 13 }),
       rmdStub,
     );
-    // No draw between the year's trigger (month 1) and the next (month 12).
+    // No draw between the year's trigger (month 0) and the next (month 12).
     expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
     expect(series.months[11].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
     // Month 12 (2027, age 74): 10% of the remaining $90k = $9k.
@@ -107,8 +107,8 @@ describe("Required Minimum Distributions", () => {
       ]),
       rmdStub,
     );
-    expect(series.months[12].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
-    expect(series.months[12].accountBalancesCents["cash"]).toBe(0);
+    expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
+    expect(series.months[11].accountBalancesCents["cash"]).toBe(0);
   });
 
   it("null jurisdiction: no RMD seam → pre-tax balances are left untouched", () => {
@@ -119,7 +119,7 @@ describe("Required Minimum Distributions", () => {
       ]),
       nullJurisdiction,
     );
-    expect(series.months[12].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
-    expect(series.months[12].accountBalancesCents["cash"]).toBe(0);
+    expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
+    expect(series.months[11].accountBalancesCents["cash"]).toBe(0);
   });
 });

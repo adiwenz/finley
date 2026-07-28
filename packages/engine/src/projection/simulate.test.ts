@@ -10,7 +10,7 @@ import {
 } from "./simulate.testSupport";
 
 describe("simulateHousehold", () => {
-  it("month 0 is the opening balance, unchanged", () => {
+  it("opening is the pre-flow snapshot; months[0] is a processed month that compounds", () => {
     const acc = makeInvestmentAccount(dollarsToCents(10000), 0.07);
     const series = simulateHousehold(
       {
@@ -23,17 +23,49 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[0].netWorthNominalCents).toBe(dollarsToCents(10000));
-    expect(series.months[0].accountBalancesCents["investment"]).toBe(dollarsToCents(10000));
+    // `opening` is "now" — the balance before any flow runs, no compounding applied.
+    expect(series.opening.netWorthNominalCents).toBe(dollarsToCents(10000));
+    expect(series.opening.accountBalancesCents["investment"]).toBe(dollarsToCents(10000));
+    // months[0] is the FIRST processed month: one month of 7% compounding has run, so it is
+    // strictly above the opening balance — no longer a flow-free snapshot.
+    expect(series.months[0].month).toBe(0);
+    expect(series.months[0].accountBalancesCents["investment"]).toBeGreaterThan(dollarsToCents(10000));
   });
 
-  it("produces horizonMonths+1 data points", () => {
+  it("deflates real net worth by ELAPSED months, so months[11] is a full year out", () => {
+    // A flat, non-compounding balance: nominal never moves, so `netWorthRealCents` isolates
+    // the deflator. `months[m]` is the END of month m — m+1 months from now — so months[11]
+    // is a full year of inflation away, not eleven twelfths of one. Indexing the deflator on
+    // `month` instead understates it by exactly one month, silently, at every point.
+    const acc = makeInvestmentAccount(dollarsToCents(10000), 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0.03,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [],
+      },
+      nullJurisdiction,
+    );
+    const nominal = dollarsToCents(10000);
+    // "Now" has nothing behind it: real equals nominal.
+    expect(series.opening.netWorthRealCents).toBe(nominal);
+    expect(series.months[11].netWorthRealCents).toBe(Math.round(nominal / 1.03));
+    expect(series.months[0].netWorthRealCents).toBe(Math.round(nominal / Math.pow(1.03, 1 / 12)));
+  });
+
+  it("produces one processed month per horizon month, plus a separate opening", () => {
     const acc = makeInvestmentAccount(0, 0.07);
     const series = simulateHousehold(
       { horizonMonths: 24, annualInflationRate: 0.03, persons: [], accounts: [acc], incomeSeries: [], expenseSeries: [] },
       nullJurisdiction,
     );
-    expect(series.months.length).toBe(25);
+    // Every slot is a processed month now; the pre-flow snapshot rides `opening` instead of
+    // occupying months[0], so the count drops from horizonMonths+1 to horizonMonths.
+    expect(series.months.length).toBe(24);
+    expect(series.months[23].month).toBe(23);
   });
 
   it("net cash flow (income - expense) accumulates in the liquid account each month", () => {
@@ -50,8 +82,9 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    // After 12 months of $1000/mo net flow at 0% return: $12,000
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(12000));
+    // After 12 months of $1000/mo net flow at 0% return: $12,000. The 12th flow-month is the
+    // end of year 0 — months[11] — now that month 0 is processed rather than opening.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(12000));
   });
 
   it("asset account compounds at preciseMonthlyRate, no cash flow", () => {
@@ -67,8 +100,9 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    // $10k @ 7% for 10 years ≈ $19,671.51; integer-cents rounding within a dime
-    expect(Math.abs(series.months[120].netWorthNominalCents! - dollarsToCents(19671.51))).toBeLessThanOrEqual(10);
+    // $10k @ 7% for 10 years ≈ $19,671.51; integer-cents rounding within a dime. 120
+    // compoundings land at months[119] (the 120th processed month).
+    expect(Math.abs(series.months[119].netWorthNominalCents! - dollarsToCents(19671.51))).toBeLessThanOrEqual(10);
   });
 
   it("negative net worth (expenses > income) renders below zero", () => {
@@ -84,7 +118,7 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[6].netWorthNominalCents).toBeLessThan(0);
+    expect(series.months[5].netWorthNominalCents).toBeLessThan(0);
   });
 
   it("real net worth < nominal when inflation > 0", () => {
@@ -100,7 +134,7 @@ describe("simulateHousehold", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[24].netWorthRealCents!).toBeLessThan(series.months[24].netWorthNominalCents!);
+    expect(series.months[23].netWorthRealCents!).toBeLessThan(series.months[23].netWorthNominalCents!);
   });
 
   it("all monetary values are integer cents", () => {
@@ -139,12 +173,12 @@ describe("simulateHousehold", () => {
       nullJurisdiction,
     );
 
-    // After 12 months at 7%, balance should be > $10k
-    const balAt12 = series.months[12].netWorthNominalCents;
+    // After 12 months at 7% (months[0..11], the whole of year 0), balance should be > $10k.
+    const balAt12 = series.months[11].netWorthNominalCents;
     expect(balAt12).toBeGreaterThan(dollarsToCents(10000));
 
     // After 12 more months at 0%, balance unchanged
-    expect(series.months[24].netWorthNominalCents).toBe(balAt12);
+    expect(series.months[23].netWorthNominalCents).toBe(balAt12);
   });
 
   it("one-time transfer is applied before compounding in its month", () => {
@@ -154,7 +188,7 @@ describe("simulateHousehold", () => {
 
     const series = simulateHousehold(
       {
-        horizonMonths: 4,
+        horizonMonths: 5,
         annualInflationRate: 0,
         persons: [makePerson()],
         accounts: [acc],
@@ -164,6 +198,8 @@ describe("simulateHousehold", () => {
       nullJurisdiction,
     );
 
+    // The transfer is keyed to absolute month 3, so it still lands in months[3] — an
+    // event's month is unchanged; only the opening-vs-processed split moved.
     expect(series.months[2].netWorthNominalCents).toBe(0);
     expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(5000));
     expect(series.months[4].netWorthNominalCents).toBe(dollarsToCents(5000));

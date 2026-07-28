@@ -55,7 +55,8 @@ describe("updateEvent", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const series = replayLedger(result.ledger, cfg, nullJurisdiction);
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(36_000));
+    // $3,000/mo across the 12 processed months (0..11) → $36,000; the last month is index 11.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(36_000));
   });
 
   it("keeps the event's place in the ledger — same sequence number, no number minted", () => {

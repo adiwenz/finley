@@ -26,7 +26,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars } from "../../format";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
 
 const AXIS = "#6b6552";
@@ -139,7 +140,6 @@ function BreakdownTooltip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const totals = tooltipTotals(payload, bands);
-  const month = Number(label) || 0;
   return (
     <div
       style={{
@@ -152,7 +152,11 @@ function BreakdownTooltip({
         minWidth: 160,
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Year {Math.floor(month / 12) + 1}</div>
+      {/* Same heading the total-net-worth chart uses, so hovering the two side by side reads
+          as one instant: "Today" at the axis' today slot, "End of month k" after it. */}
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+        {axisPointLabel(Number(label) || 0, monthLabel)}
+      </div>
       {/* Top band first, matching the visual stack read top-down. */}
       {[...payload].reverse().map((entry) => (
         <div
@@ -193,20 +197,26 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
   const visibleBands = bandsForMode(data.bands, activeMode);
 
-  // One point per month: each visible band's value keyed by id, liabilities negated in the
-  // net-worth view so debt stacks below zero and the stack's total is true net worth.
+  // One point per month on the shared months-from-now axis: each visible band's value keyed by
+  // id, liabilities negated in the net-worth view so debt stacks below zero and the stack's
+  // total is true net worth. This is a balance sheet, so `opening` gets a real column at the
+  // axis' today slot — the balances you hold right now, before any flow.
   const rows = useMemo(() => {
-    return data.rows.map((r) => {
-      const point: Record<string, number> = { month: r.month };
+    const pointFor = (centsById: Readonly<Record<string, number>>, x: number) => {
+      const point: Record<string, number> = { month: x };
       for (const b of visibleBands) {
-        const v = r.centsById[b.id] ?? 0;
+        const v = centsById[b.id] ?? 0;
         point[b.id] = activeMode === "networth" && b.kind === "liability" ? -v : v;
       }
       return point;
-    });
-  }, [data.rows, visibleBands, activeMode]);
+    };
+    return [
+      pointFor(data.opening.centsById, TODAY_X),
+      ...data.rows.map((r) => pointFor(r.centsById, toAxisX(r.month))),
+    ];
+  }, [data.opening, data.rows, visibleBands, activeMode]);
 
-  const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
+  const lastX = toAxisX(data.rows[data.rows.length - 1]?.month ?? 0);
   const accountCount = data.bands.filter((b) => b.kind === "account").length;
   const peak = data.peakNetWorthCents;
   const summary =
@@ -254,9 +264,10 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
             <XAxis
               dataKey="month"
               type="number"
-              domain={[0, lastMonth]}
+              domain={[TODAY_X, lastX]}
               allowDataOverflow
-              tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+              ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
               tick={{ fill: AXIS, fontSize: 11 }}
               stroke={GRID}
             />

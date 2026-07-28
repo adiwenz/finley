@@ -327,7 +327,8 @@ describe("buildSnapshot — the shared replay-derived model", () => {
     };
     const household = interpretLedger(emptyLedger, base);
     const projection = buildProjection(household, base, nullJurisdiction);
-    expect(projection.months[12].netWorthNominalCents).toBe(dollarsToCents(36_000));
+    // 12 processed flow-months (months[11] is the last of the 12-month horizon): $3,000/mo net.
+    expect(projection.months[11].netWorthNominalCents).toBe(dollarsToCents(36_000));
 
     const snap = buildSnapshot(household, 3, projection);
     expect(snap.income.find((s) => s.role === "base")?.monthlyCents).toBe(dollarsToCents(4_000));
@@ -372,9 +373,9 @@ describe("buildSnapshot — the shared replay-derived model", () => {
     const household = interpretLedger(ledger, base);
     const snap = buildSnapshot(household, 999, projection);
 
-    expect(snap.month).toBe(24); // clamped to last simulated month
-    expect(snap.persons.map((p) => p.id)).toEqual(["p1"]); // p2 (month 30) not present at 24
-    expect(snap.balances?.netWorthNominalCents).toBe(dollarsToCents(5_000)); // months[24]
+    expect(snap.month).toBe(23); // clamped to the last simulated month (horizonMonths-1 = 23)
+    expect(snap.persons.map((p) => p.id)).toEqual(["p1"]); // p2 (month 30) not present at 23
+    expect(snap.balances?.netWorthNominalCents).toBe(dollarsToCents(5_000)); // months[23]: no flows, opening $5,000 unchanged
   });
 
   it("a paid-off liability disappears from active snapshots", () => {

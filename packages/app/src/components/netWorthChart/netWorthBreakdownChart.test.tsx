@@ -18,20 +18,25 @@ interface MonthSpec {
   readonly liabilities?: Readonly<Record<string, number>>;
 }
 
+function mkMonth(m: MonthSpec, month: number) {
+  return {
+    month,
+    netWorthNominalCents: 0,
+    netWorthRealCents: 0,
+    accountBalancesCents: m.accounts ?? {},
+    // Inert here: the breakdown charts balances, never the embedded gain.
+    accountBasisCents: {},
+    liabilityBalancesCents: m.liabilities ?? {},
+    liabilityPaymentRecords: {},
+    propertyValuesCents: m.properties ?? {},
+    isInsolvent: false,
+  };
+}
+
 function series(months: readonly MonthSpec[]): ProjectionSeries {
   return {
-    months: months.map((m, month) => ({
-      month,
-      netWorthNominalCents: 0,
-      netWorthRealCents: 0,
-      accountBalancesCents: m.accounts ?? {},
-      // Inert here: the breakdown charts balances, never the embedded gain.
-      accountBasisCents: {},
-      liabilityBalancesCents: m.liabilities ?? {},
-      liabilityPaymentRecords: {},
-      propertyValuesCents: m.properties ?? {},
-      isInsolvent: false,
-    })),
+    opening: mkMonth({}, 0),
+    months: months.map(mkMonth),
   };
 }
 

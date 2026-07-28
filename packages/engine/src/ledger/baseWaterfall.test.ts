@@ -51,9 +51,10 @@ describe("LedgerBaseConfig → waterfall threading", () => {
       ],
     };
     const series = replayLedger(emptyLedger, base, nullJurisdiction);
-    // $500/mo deferred → $1500 by month 3; $4500/mo take-home idles in savings.
-    expect(series.months[3].accountBalancesCents["retirement"]).toBe(dollarsToCents(1500));
-    expect(series.months[3].accountBalancesCents["savings"]).toBe(dollarsToCents(13500));
+    // 3 flow-months (months[2] is the last of a 3-month horizon): $500/mo deferred → $1500;
+    // $4500/mo take-home idles in savings → $13500.
+    expect(series.months[2].accountBalancesCents["retirement"]).toBe(dollarsToCents(1500));
+    expect(series.months[2].accountBalancesCents["savings"]).toBe(dollarsToCents(13500));
   });
 
   it("base goals fund in priority order ahead of idle surplus", () => {
@@ -77,10 +78,11 @@ describe("LedgerBaseConfig → waterfall threading", () => {
       ],
     };
     const series = replayLedger(emptyLedger, base, nullJurisdiction);
-    // Filled to its $5000 target by month 3, then capped; surplus idles after.
-    expect(series.months[3].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
-    expect(series.months[6].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
-    expect(series.months[6].accountBalancesCents["savings"]).toBe(dollarsToCents(7000));
+    // Filled to its $5000 target after 3 flow-months (months[2]: $2000+$2000+$1000), then
+    // capped; by the last of the 6-month horizon (months[5]) the surplus has idled into savings.
+    expect(series.months[2].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    expect(series.months[5].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    expect(series.months[5].accountBalancesCents["savings"]).toBe(dollarsToCents(7000));
   });
 
   it("the surplus-destination lever routes leftover away from liquid", () => {
@@ -93,7 +95,8 @@ describe("LedgerBaseConfig → waterfall threading", () => {
       surplusDestination: { kind: "swept", accountId: "brokerage" },
     };
     const series = replayLedger(emptyLedger, base, nullJurisdiction);
-    expect(series.months[6].accountBalancesCents["brokerage"]).toBe(dollarsToCents(12000));
-    expect(series.months[6].accountBalancesCents["savings"]).toBe(0);
+    // 6 flow-months (months[5] is the last of the 6-month horizon): all $2000/mo swept away.
+    expect(series.months[5].accountBalancesCents["brokerage"]).toBe(dollarsToCents(12000));
+    expect(series.months[5].accountBalancesCents["savings"]).toBe(0);
   });
 });

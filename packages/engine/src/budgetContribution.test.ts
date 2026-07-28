@@ -78,7 +78,7 @@ describe("budget contribution lines fund their account", () => {
     };
     const months = project(absurd).months;
     const firstInsolvent = months.findIndex((m) => m.isInsolvent);
-    expect(firstInsolvent).toBeGreaterThan(0); // month 0 is the flow-free snapshot
+    expect(firstInsolvent).toBeGreaterThanOrEqual(0); // month 0 now processes flows, so it can itself be the insolvent month
     expect(firstInsolvent).toBeLessThan(13); // immediate, not a far-future failure
   });
 
@@ -92,7 +92,7 @@ describe("budget contribution lines fund their account", () => {
     };
     const months = project(absurd).months;
     const firstInsolvent = months.findIndex((m) => m.isInsolvent);
-    expect(firstInsolvent).toBeGreaterThan(0);
+    expect(firstInsolvent).toBeGreaterThanOrEqual(0); // month 0 now processes flows, so it can itself be the insolvent month
     const nw = months[firstInsolvent].netWorthNominalCents;
     expect(nw).not.toBeNull();
     // Nowhere near the $10M deposit: around opening savings + real monthly saving.

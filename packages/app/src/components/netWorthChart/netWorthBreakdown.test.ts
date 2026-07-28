@@ -14,20 +14,25 @@ interface MonthSpec {
   readonly isInsolvent?: boolean;
 }
 
+function mkMonth(m: MonthSpec, month: number) {
+  return {
+    month,
+    netWorthNominalCents: 0,
+    netWorthRealCents: 0,
+    accountBalancesCents: m.accounts ?? {},
+    // Inert here: the breakdown charts balances, never the embedded gain.
+    accountBasisCents: {},
+    liabilityBalancesCents: m.liabilities ?? {},
+    liabilityPaymentRecords: {},
+    propertyValuesCents: m.properties ?? {},
+    isInsolvent: m.isInsolvent ?? false,
+  };
+}
+
 function series(months: readonly MonthSpec[]): ProjectionSeries {
   return {
-    months: months.map((m, month) => ({
-      month,
-      netWorthNominalCents: 0,
-      netWorthRealCents: 0,
-      accountBalancesCents: m.accounts ?? {},
-      // Inert here: the breakdown charts balances, never the embedded gain.
-      accountBasisCents: {},
-      liabilityBalancesCents: m.liabilities ?? {},
-      liabilityPaymentRecords: {},
-      propertyValuesCents: m.properties ?? {},
-      isInsolvent: m.isInsolvent ?? false,
-    })),
+    opening: mkMonth({}, 0),
+    months: months.map(mkMonth),
   };
 }
 
@@ -188,6 +193,44 @@ describe("buildNetWorthBreakdown", () => {
       "Mortgage",
       "Credit card",
     ]);
+  });
+
+  it("carries the opening balances as their own row, separate from month 0", () => {
+    // The chart's "today" column: what the household holds right now, before any flow. It is
+    // NOT months[0] — that one has a month of compounding and spending already in it.
+    const data = buildNetWorthBreakdown(
+      {
+        opening: mkMonth({ accounts: { savings: 1000 } }, 0),
+        months: [mkMonth({ accounts: { savings: 1050 } }, 0)],
+      },
+      META,
+    );
+    expect(data.opening.centsById.savings).toBe(1000);
+    expect(data.rows[0]?.centsById.savings).toBe(1050);
+  });
+
+  it("keeps a band that exists today but is gone by month 0", () => {
+    // A Year-0 purchase can drain an account outright. Discovering bands from the processed
+    // months alone would drop it as always-zero, leaving a hole in the today column.
+    const data = buildNetWorthBreakdown(
+      {
+        opening: mkMonth({ accounts: { savings: 5000, brokerage: 0 } }, 0),
+        months: [mkMonth({ accounts: { savings: 0, brokerage: 0 } }, 0)],
+      },
+      META,
+    );
+    expect(data.bands.map((b) => b.label)).toEqual(["Cash savings"]);
+  });
+
+  it("counts today when picking the peak, so a plan that only ever falls peaks now", () => {
+    const data = buildNetWorthBreakdown(
+      {
+        opening: mkMonth({ accounts: { savings: 9000 } }, 0),
+        months: [mkMonth({ accounts: { savings: 8000 } }, 0), mkMonth({ accounts: { savings: 7000 } }, 1)],
+      },
+      META,
+    );
+    expect(data.peakNetWorthCents).toBe(9000);
   });
 
   it("returns no bands and null terminal net worth for an empty series", () => {

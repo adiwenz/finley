@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars } from "../../format";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
@@ -84,7 +85,7 @@ export function BudgetTooltip({ active, payload, label }: BudgetTooltipProps) {
         lineHeight: 1.6,
       }}
     >
-      <p style={{ margin: 0, fontWeight: 600 }}>Month {label}</p>
+      <p style={{ margin: 0, fontWeight: 600 }}>{axisPointLabel(Number(label) || 0, monthLabel)}</p>
       {payload.map((entry, i) => (
         <p key={`${entry.name}-${i}`} style={{ margin: 0, color: entry.color }}>
           {entry.name} : {formatDollars(Number(entry.value ?? 0))}
@@ -122,13 +123,15 @@ export function PerLineBudgetChart({
   // Recharts wants one flat object per point, keyed per band: a full pass over the horizon
   // (660+ months). Memoized because rows change only when the projection does, not when the
   // selection marker moves or an edit restages.
+  // On the shared months-from-now axis; a flow chart, so the today slot stays empty (nothing
+  // is spent at "now") and the bands start at end-of-month-0, aligned with the charts above.
   const rows = useMemo(
-    () => data.rows.map((r) => ({ month: r.month, ...r.centsByLine })),
+    () => data.rows.map((r) => ({ month: toAxisX(r.month), ...r.centsByLine })),
     [data.rows],
   );
   // Pin the axis to the horizon: left to itself the domain stretches past the last month to
   // fit the selection rule and open-ended insolvency band, drawing years the plan never reaches.
-  const lastMonth = data.rows[data.rows.length - 1]?.month ?? 0;
+  const lastX = toAxisX(data.rows[data.rows.length - 1]?.month ?? 0);
 
   return (
     <div
@@ -142,9 +145,15 @@ export function PerLineBudgetChart({
       <p className={summary ? "alert alert-amber" : "hint"} data-testid="perline-summary">
         {summary ?? "This budget is financed across the whole horizon."}
       </p>
-      {/* Data mirror for tests / screen readers: first row's amount per line. */}
+      {/* Data mirrors for tests / screen readers: the first row's amount per line, and the
+          second's. Both are needed because month 0 is an ORIGINATION month for anything
+          authored at Year 0 — a loan taken then is not serviced until month 1 (a schedule's
+          index 0 is `startMonth + 1`), so the first row legitimately shows no payment for it. */}
       <output data-testid="perline-first-row" hidden>
         {JSON.stringify(data.rows[0]?.centsByLine ?? {})}
+      </output>
+      <output data-testid="perline-second-row" hidden>
+        {JSON.stringify(data.rows[1]?.centsByLine ?? {})}
       </output>
 
       <ResponsiveContainer width="100%" height={260}>
@@ -154,16 +163,17 @@ export function PerLineBudgetChart({
           style={{ cursor: "pointer" }}
           onClick={(state: { activeLabel?: string | number } | null) => {
             const label = Number(state?.activeLabel);
-            if (Number.isFinite(label)) onSelectMonth(label);
+            if (Number.isFinite(label)) onSelectMonth(fromAxisX(label));
           }}
         >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="month"
             type="number"
-            domain={[0, lastMonth]}
+            domain={[TODAY_X, lastX]}
             allowDataOverflow
-            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+            ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
@@ -176,8 +186,8 @@ export function PerLineBudgetChart({
           <Tooltip content={<BudgetTooltip />} />
           {data.insolventFromMonth !== null && (
             <ReferenceArea
-              x1={data.insolventFromMonth}
-              x2={lastMonth}
+              x1={toAxisX(data.insolventFromMonth)}
+              x2={lastX}
               fill={INSOLVENT}
               fillOpacity={0.12}
               label={{
@@ -188,7 +198,7 @@ export function PerLineBudgetChart({
               }}
             />
           )}
-          <ReferenceLine x={selectedMonth} stroke={MARKER} strokeWidth={2} />
+          <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
           {data.lines.map((band, i) => {
             const color = colorOf(band, i, data.lines);
             return (

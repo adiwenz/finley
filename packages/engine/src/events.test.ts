@@ -17,9 +17,11 @@ import { personLit, baseConfig, add } from "./events.testSupport";
 describe("replayLedger — empty ledger", () => {
   it("empty ledger with no income/expense produces flat zero projection", () => {
     const series = replayLedger(emptyLedger, baseConfig, nullJurisdiction);
-    expect(series.months.length).toBe(13);
-    expect(series.months[0].netWorthNominalCents).toBe(0);
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    // months holds exactly horizonMonths processed months (0..11); the flow-free "now"
+    // snapshot lives on series.opening.
+    expect(series.months.length).toBe(12);
+    expect(series.opening.netWorthNominalCents).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(0);
   });
 });
 

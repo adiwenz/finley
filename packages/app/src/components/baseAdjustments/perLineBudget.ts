@@ -49,8 +49,9 @@ export interface PerLineBudgetData {
 }
 
 /**
- * One row per flowed month (month 0 is the flow-free opening snapshot), each carrying every
- * item's amount and the engine's own `totalSpendingCents`, not a re-sum.
+ * One row per flowed month — every entry in `months` is processed now, so month 0 is the
+ * first row — each carrying every item's amount and the engine's own `totalSpendingCents`,
+ * not a re-sum.
  *
  * A band exists only for an item that carries money somewhere in the horizon; otherwise a
  * stream costing nothing throughout drags an empty band and an unexplained tooltip row through
@@ -67,7 +68,7 @@ export function buildPerLineBudgetData(series: ProjectionSeries): PerLineBudgetD
     if (m.isInsolvent && insolventFromMonth === null) insolventFromMonth = m.month;
 
     const flows = m.flows;
-    if (flows === undefined) continue; // month 0 / any flow-free snapshot
+    if (flows === undefined) continue; // defensive: a flow-free snapshot carries no spending
 
     const centsByLine: Record<string, number> = {};
     for (const item of flows.spendingItems) {

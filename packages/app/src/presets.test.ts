@@ -125,7 +125,10 @@ describe("default simulations", () => {
         return byCat.governmentRetirementBenefit ?? 0;
       }),
     );
-    expect(defaultMaxSSTax).toBeLessThan(dollarsToCents(100));
+    // Trivial next to taxed-in-retirement's $300+. The ceiling sits at $150 (not $100): with
+    // year 0 now accruing a full 12 covered-earnings months, the benefit — and the sliver of
+    // it a little `retain` drawdown makes taxable — is marginally higher.
+    expect(defaultMaxSSTax).toBeLessThan(dollarsToCents(150));
   });
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {

@@ -178,6 +178,9 @@ const loan: EventHandler<LoanEvent> = {
       id: asLiabilityId(event.liabilityId),
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
+      // A loan originates at the month it is authored for, month 0 included — the same rule
+      // a Year-0 property/mortgage follows. Authoring a debt you ALREADY carry is a separate
+      // capability (a pre-existing liability, `startMonth < 0`) and is not expressible here.
       startMonth: event.month,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,

@@ -9,10 +9,31 @@ import type {
 function toRealCents(
   nominalCents: Cents,
   annualInflationRate: number,
-  month: number,
+  elapsedMonths: number,
 ): Cents {
-  const years = month / 12;
+  const years = elapsedMonths / 12;
   return Math.round(nominalCents / Math.pow(1 + annualInflationRate, years));
+}
+
+/** What {@link snapshotMonth} needs beyond the mutable state it reads balances off. */
+export interface MonthSnapshotParams {
+  /** The reported month index — `opening` carries 0, and so does `months[0]`. */
+  readonly month: number;
+  /**
+   * Months of real time between "now" and this snapshot: what the real-dollar deflator
+   * divides by, and NOT the same number as {@link month}. `months[m]` is the END of month m,
+   * so m+1 months have elapsed by then, while `opening` is "now" itself at 0. Passing
+   * `month` here under-deflates every real figure by exactly one month — silently, and
+   * uniformly across the whole horizon.
+   */
+  readonly elapsedMonths: number;
+  readonly annualInflationRate: number;
+  readonly isInsolvent: boolean;
+  /** A PRIOR month went insolvent — nulls the aggregates, not the balances. */
+  readonly netWorthTerminated: boolean;
+  readonly liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>;
+  /** Absent only on `opening`: no flow has run at "now". */
+  readonly flows: ProjectionMonthFlows | undefined;
 }
 
 /**
@@ -21,15 +42,16 @@ function toRealCents(
  * unfunded spending has been dropped the model can no longer say what net worth is. Balances
  * are still emitted for diagnosis; only the aggregate is nulled.
  */
-export function snapshotMonth(
-  state: SimState,
-  month: number,
-  annualInflationRate: number,
-  isInsolvent: boolean,
-  netWorthTerminated: boolean,
-  liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>,
-  flows: ProjectionMonthFlows | undefined,
-): ProjectionMonth {
+export function snapshotMonth(state: SimState, params: MonthSnapshotParams): ProjectionMonth {
+  const {
+    month,
+    elapsedMonths,
+    annualInflationRate,
+    isInsolvent,
+    netWorthTerminated,
+    liabilityPaymentRecords,
+    flows,
+  } = params;
   let nominalNetWorth: Cents = 0;
 
   const accountBalancesCents: Record<string, Cents> = {};
@@ -62,7 +84,7 @@ export function snapshotMonth(
     netWorthNominalCents: netWorthTerminated ? null : nominalNetWorth,
     netWorthRealCents: netWorthTerminated
       ? null
-      : toRealCents(nominalNetWorth, annualInflationRate, month),
+      : toRealCents(nominalNetWorth, annualInflationRate, elapsedMonths),
     accountBalancesCents,
     accountBasisCents,
     liabilityBalancesCents,
