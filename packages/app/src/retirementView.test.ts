@@ -23,19 +23,13 @@ import { setJobMonthlyIncome } from "./planPeople";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
-/** The real-jurisdiction projection environment these acceptance tests run against. */
 const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
 
-/**
- * The retirement view for a plan with no timeline events — the baseline these acceptance
- * tests pin the panel against. The event-aware path (a ledger that moves the age) has its
- * own test below.
- */
+/** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
   return retirementView(scenarioOf(plan));
 }
 
-/** Does the plan survive when retiring at exactly `age`? Runs the real projection. */
 function survivesAt(budget: Plan, age: number): boolean {
   return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
@@ -45,9 +39,8 @@ describe("retirementView — headline age driven off the real projection", () =>
     const view = viewOf(PLAN_DEFAULTS);
     expect(view.headlineAge).not.toBeNull();
     const age = view.headlineAge as number;
-    // The headline is the earliest age whose real net worth lasts to life expectancy.
     expect(survivesAt(PLAN_DEFAULTS, age)).toBe(true);
-    // …and one year earlier does not — it is genuinely the threshold.
+    // A year earlier does not — the headline is genuinely the threshold.
     expect(survivesAt(PLAN_DEFAULTS, age - 1)).toBe(false);
   });
 
@@ -58,8 +51,6 @@ describe("retirementView — headline age driven off the real projection", () =>
   });
 
   it("panel age == the first projection age that survives (panel and graph agree)", () => {
-    // First surviving age on the same projection the net-worth graph draws; the panel
-    // must report exactly it.
     let firstSurviving: number | null = null;
     for (let age = PLAN_DEFAULTS.currentAge; age <= PLAN_DEFAULTS.lifeExpectancy; age++) {
       if (survivesAt(PLAN_DEFAULTS, age)) {
@@ -74,7 +65,7 @@ describe("retirementView — headline age driven off the real projection", () =>
     const broke: Plan = {
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
-      jobs: [], // no jobs → no earned income
+      jobs: [],
       expenseCents: PLAN_DEFAULTS.expenseCents,
     };
     const view = viewOf(broke);
@@ -86,8 +77,7 @@ describe("retirementView — headline age driven off the real projection", () =>
 describe("retirementView — target mode against the pinned age", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
     // Real single-filer federal tax plus a cash-realistic 1% emergency-fund return lift the
-    // default plan's feasible floor to 75; pinning there exercises the "pinned age survives
-    // → 100%" branch.
+    // default plan's feasible floor to 75.
     const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 75 };
     const view = viewOf(pinnedAtFloor);
     expect(view.target.feasible).toBe(true);
@@ -96,8 +86,8 @@ describe("retirementView — target mode against the pinned age", () => {
   });
 
   it("falls short of 100% and points to the nearest feasible age when the pin can't survive", () => {
-    // Below the feasible floor: infeasible, on-track < 100%, and the nearest feasible age
-    // is the solver's full-retirement headline — the pin is graded by the same rule.
+    // Below the feasible floor. The nearest feasible age is the solver's full-retirement
+    // headline — the pin is graded by the same rule.
     const pinnedTooEarly: Plan = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
     const view = viewOf(pinnedTooEarly);
     expect(view.target.feasible).toBe(false);
@@ -114,16 +104,13 @@ describe("retirementView — target mode against the pinned age", () => {
     expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
   });
 
-  // The default plan pinned at its authored age 65 is INFEASIBLE (the floor is above 65)
-  // yet holds a `retain` home reserve keeping net worth positive throughout — the shape
-  // that pinned the metric to a contradictory "100% of the way there". Never 100% for an
-  // infeasible plan, and rounded DOWN to one decimal so a barely-short plan can't round up.
+  // The default plan pinned at 65 is infeasible (the floor is above 65) yet holds a `retain`
+  // home reserve keeping net worth positive throughout — the shape that once pinned the
+  // metric to a contradictory "100% of the way there".
   it("never reads 100% for an infeasible plan and rounds the % DOWN to 0.1%", () => {
     const view = viewOf(PLAN_DEFAULTS);
     expect(view.target.feasible).toBe(false);
-    // Not the self-contradicting 100%.
     expect(view.targetOnTrackPct).toBeLessThan(100);
-    // Rounded down to a tenth of a percent — never up.
     expect(view.targetOnTrackPct).toBe(Math.floor(view.target.onTrackFraction * 1000) / 10);
     expect(view.targetOnTrackPct).toBeLessThanOrEqual(view.target.onTrackFraction * 100);
   });
@@ -145,7 +132,7 @@ describe("retirementView — early-retiree health-cost honesty flag (Medicare)",
     expect(view.earlyRetireeHealth.flagged).toBe(true);
     // Ten self-funded years (55 → 65) before Medicare.
     expect(view.earlyRetireeHealth.gapYears).toBe(10);
-    // The shortfall is the whole (indexed) pre-65 benchmark, since nothing is budgeted.
+    // Nothing budgeted, so the shortfall is the whole (indexed) pre-65 benchmark.
     expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBeGreaterThan(0);
   });
 
@@ -175,7 +162,7 @@ describe("retirementView — early-retiree health-cost honesty flag (Medicare)",
     expect(far.earlyRetireeHealth.shortfallMonthlyCents).toBe(
       near.earlyRetireeHealth.shortfallMonthlyCents,
     );
-    // And it is the base-year benchmark, not an inflated one: $1,200 − $0 budgeted.
+    // The base-year benchmark, not an inflated one: $1,200 − $0 budgeted.
     expect(far.earlyRetireeHealth.shortfallMonthlyCents).toBe(dollarsToCents(1_200));
   });
 });
@@ -215,15 +202,14 @@ describe("retirementView — attributed Medicare residual step (visible at 65)",
 });
 
 describe("retirementView — the timeline events count toward retirement", () => {
-  // "When can we retire?" must reason about the plan PLUS the timeline events, as the graph
-  // does. Add a costly recurring expense (a new child) and the headline age must move
-  // LATER; if the panel still projected an empty ledger, it would not budge.
+  // The panel must reason about the plan plus the ledger, as the graph does: if it still
+  // projected an empty ledger, a costly new expense would not budge the headline age.
   it("a recurring expense added to the ledger pushes the headline age later", () => {
     // Real single-filer federal tax pins the default $5k plan at the Social-Security floor
-    // (67), where an added expense flips it infeasible rather than merely later. Headroom
-    // below the floor keeps "the age moves strictly LATER" as the observable.
+    // (67), where an added expense flips it infeasible rather than merely later. The raise
+    // buys headroom below the floor, keeping "moves strictly later" observable.
     const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
-    // An $800/mo childcare expense from now, as the app's AddEventForm would write it.
+    // Childcare, written as the app's AddEventForm would.
     const base = createProjectionBase(plan, CTX);
     const added = addEvent(
       emptyLedger,
@@ -240,30 +226,26 @@ describe("retirementView — the timeline events count toward retirement", () =>
       },
       usJurisdiction,
     );
-    // Precondition: the event is valid and actually enters the ledger.
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
-    // The bare-plan baseline retires at 60 (the home goal is a drawable `retain` reserve,
-    // so the down-payment fund counts toward the nest egg); the childcare scenario must
-    // retire strictly later. Equal values would mean the panel projected an empty ledger.
+    // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
+    // so the down-payment fund counts toward the nest egg.
     expect(baselineAge).toBe(60);
     expect(withChildAge as number).toBeGreaterThan(60);
   });
 });
 
 // No surplus-sweep-vs-idle comparison: `surplusSwept` is gone and leftover cash always
-// idles (a household wanting surplus invested authors a brokerage contribution line). The
-// whole-return gross-up is still pinned below against the real seam.
+// idles (a household wanting surplus invested authors a brokerage contribution line).
 
 describe("every draw nets its need under the real jurisdiction", () => {
   // The engine's own tests use synthetic jurisdictions (it cannot import the rules
-  // package); this proves the seam that ships. A real shortfall guard: sizing the draw by
-  // inverting an implied rate (`need / (1 − rate)`) under-delivered by $500.61 on a $50k
-  // need, because a bracket is `offset + rate × draw`, not proportional to the draw.
-  // Solving `gross = need + inducedTax(gross)` nets the need exactly.
+  // package); this proves the seam that ships. Sizing the draw by inverting an implied rate
+  // (`need / (1 − rate)`) under-delivered by $500.61 on a $50k need, because a bracket is
+  // `offset + rate × draw`, not proportional to the draw.
   it.each([1_000, 5_000, 20_000, 50_000])("nets a $%i need to the cent", (needDollars) => {
     const opening = dollarsToCents(5_000_000);
     const brokerage = new SimAccount({
@@ -277,8 +259,7 @@ describe("every draw nets its need under the real jurisdiction", () => {
     const state: WithdrawalState = {
       accounts: [brokerage],
       assetBalances: new Map([["brokerage", opening]]),
-      // Basis absent → 0 → whole draw taxable, isolating the gross-up arithmetic (the
-      // cost-basis path has its own tests).
+      // Basis absent → 0 → whole draw taxable, isolating the gross-up arithmetic.
       basisByAccount: new Map(),
       liquidAccount: null,
     };
@@ -286,7 +267,7 @@ describe("every draw nets its need under the real jurisdiction", () => {
     const ctx: JurisdictionContext = { year: START_YEAR };
     const { sources } = buildWithdrawalSources(state, usJurisdiction, [], need, ctx);
 
-    // Re-file the draws as a tax return and check what the household actually keeps.
+    // Re-file the draws as a tax return: what does the household keep?
     const byCategory: Record<string, number> = {};
     for (const s of sources) {
       byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.waterfallInflowCents;
@@ -294,8 +275,7 @@ describe("every draw nets its need under the real jurisdiction", () => {
     const gross = sources.reduce((sum, s) => sum + s.waterfallInflowCents, 0);
     const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
     expect(net).toBeGreaterThanOrEqual(need);
-    // Exactly the need, not merely enough: the fixed point satisfies `gross − tax = need`,
-    // so an overshoot would liquidate more than the household has to.
+    // Exactly the need, not merely enough — an overshoot liquidates more than it must.
     expect(net).toBe(need);
   });
 });

@@ -16,15 +16,60 @@ two passes:
 2. **Length sweep.** Paragraph-long comments compressed across the whole tree —
    restatement of signatures and types deleted outright, duplicate explanations
    collapsed to their clearest sentence, throat-clearing and code-history
-   narration cut, while every invariant, contract, footgun, legislated constant,
-   provenance URL, and `§` spec reference is kept.
+   narration cut.
+3. **Fact-carrying cut.** The length sweep alone only reached −20%, because
+   rewording preserves length. This pass applies a *decision procedure* per
+   comment instead: (a) if a reader learns nothing from the block that the
+   declaration below already says, delete the whole block; (b) sentence by
+   sentence, delete anything already stated in the same block or visible in the
+   code; (c) compress only what survives.
 
-Measured: **96,044 → 76,946 comment words (−20%)**, 10,179 → 8,570 comment lines,
-across 196 of 213 source files.
+Calibration is by file kind, not a word quota — a quota punishes files that are
+already tight. Type/interface files keep per-field contracts (often the only place
+a contract is written) but lose docs that re-say the field name; algorithmic
+modules keep invariants and ordering constraints but lose the narrative
+walkthrough; tests keep arithmetic pins and why-this-case-matters notes but lose
+mechanics narration. Files already lean were left alone. Files under 1.2 comment
+words per line of code were excluded from the sweep entirely.
+
+Measured: **96,044 → 56,517 comment words (−41%)**, 10,179 → 6,630 comment lines
+(26% of all lines → 18%).
+
+Kept throughout: invariants and runtime-enforced contracts, JS footguns
+(`null >= 0`), rejected alternatives and what broke, legislated constants with
+their SSA/IRS provenance and base years, magic-number derivations, and `§` spec
+references.
 
 The standard is encoded in the implementation prompt so future comments follow it —
 now including an explicit length discipline (prefer one line; a paragraph must earn
 itself; never pad to look thorough), which the first version lacked.
+
+## Comments that contradicted the code
+
+The per-comment procedure forces reading each claim against the declaration it
+sits on, which surfaced nine comments that were simply wrong. Each was corrected
+or deleted rather than compressed into a shorter falsehood:
+
+- `projectionBase.ts` — claimed all non-liquid accounts carry the plan's return
+  rate and that this drives the short-horizon risk flag. A goal's fund account
+  carries `goal.annualReturnPct`, and the flag tests rate plus months-to-target,
+  with liquidity playing no part.
+- `allocations.ts` — claimed a goal is always the `goalPaced` sinking-fund source
+  (`goalToLineItem` gives an `asap` goal a `literal` 0 source), and that a home is
+  recovered from an id prefix (the code uses a `homeByLineId` map).
+- `homePurchaseForm.test.tsx` — claimed jsdom is unavailable in this repo (it is a
+  dependency, and a sibling test uses it), and that empty goal funds are not
+  offered as funding sources (`sourcesAt` lists every labelled account with no
+  balance filter; empty ones render disabled, not hidden).
+- `compilePerson.ts` — cross-referenced a scalar income series in `projectionBase`
+  that no longer exists.
+- `presets.test.ts` — claimed each preset carries a *distinct* label and
+  description above a loop that only asserts non-empty length.
+- `netWorthBreakdown.ts` — claimed accounts always carry a label via the meta, but
+  `accountBands` falls back with `?? humanizeId(id)` and the ordering code
+  explicitly handles series-only ids.
+- `allocationStep.ts` — a doc claiming one income source per (owner, category)
+  where the code emits one per account.
 
 No behavior changed. Every source/JSX/signature/string-literal/test-description
 line is byte-identical; only comment text was edited.

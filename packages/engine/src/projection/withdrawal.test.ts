@@ -465,7 +465,6 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("grosses up a capital-gains draw under a flat capital-gains tax so it nets the need", () => {
-    // Flat 20% on capitalGains: the sized draw must net the need, not the gross.
     const flatGains: Jurisdiction = {
       id: "flat-gains-20",
       computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
@@ -483,10 +482,10 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
   });
 
   it("sizes the draw to need + the LUMP when a cliff induces a fixed tax, not 100x the need", () => {
-    // Crossing $30k of non-benefit income makes the ENTIRE benefit taxable at 50% at
-    // once. The induced tax is a lump — the same $50k at any draw past the cliff — so
-    // `need / (1 − rate)` does not apply: the implied rate ($50k tax on a $1k draw reads
-    // as 5000%, clamped to 99%) would draw 100 × the need. The fixed point is need + lump.
+    // Crossing $30k of non-benefit income makes the entire benefit taxable at 50% at once.
+    // The induced tax is a lump — the same $50k at any draw past the cliff — so
+    // `need / (1 − rate)` does not apply: the implied rate ($50k on a $1k draw reads as
+    // 5000%, clamped to 99%) would draw 100 × the need. The fixed point is need + lump.
     const cliff: Jurisdiction = {
       id: "cliff-50",
       computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
@@ -512,18 +511,17 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
       dollarsToCents(130_500), // $129.5k already booked + $1k of unfunded need
       ctx,
     );
-    // The draw still nets the need.
     const net = householdNetCents([...booked, ...sources], cliff);
     expect(net).toBeGreaterThanOrEqual(dollarsToCents(130_500));
-    // ...and it costs need + lump ($51k), NOT the clamp's 100 × need ($100k).
+    // Costs need + lump ($51k), not the clamp's 100 × need ($100k).
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(51_000));
   });
 
   it("spills to the next source when an account cannot cover its own gross-up", () => {
     // Flat 20% on both categories. The brokerage holds $1k against a $10k need, so it
-    // cannot fund even its own gross-up: it empties, delivers its $800 net, and the
-    // REMAINING need (not the original) grosses up against the pre-tax account behind it.
+    // cannot fund its own gross-up: it empties, delivers $800 net, and the REMAINING need
+    // (not the original) grosses up against the pre-tax account behind it.
     const flat20: Jurisdiction = {
       id: "flat-20",
       computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
@@ -537,9 +535,8 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
     const st = state(accounts, { brokerage: 1_000, pretax: 100_000 });
     const { sources } = buildWithdrawalSources(st, flat20, [], dollarsToCents(10_000), ctx);
 
-    // The brokerage is emptied, not overdrawn.
     expect(st.assetBalances.get("brokerage")).toBe(0);
-    // It netted $800 of the $10k, leaving $9,200 to gross up at 20% → $11,500 pre-tax.
+    // $9,200 of need remains, grossed up at 20% → $11,500 of pre-tax.
     expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(100_000 - 11_500));
     expect(householdNetCents(sources, flat20)).toBeGreaterThanOrEqual(dollarsToCents(10_000));
   });
@@ -588,8 +585,8 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
   }
 
   /**
-   * After-tax income across all sources, taxing each source's GAIN (`taxableCents`)
-   * rather than its full gross — as the tax seam does for a returned-basis fund draw.
+   * After-tax income taxing each source's gain (`taxableCents`) rather than its gross, as
+   * the tax seam does for a returned-basis fund draw.
    */
   function householdNetCentsGain(
     sources: readonly IncomeSourceMonth[],
@@ -608,9 +605,9 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     return gross - tax;
   }
 
-  // US pro-rata return-of-capital: only the gain is taxable, basis returned in
-  // proportion to how much of the balance is basis. The rule's own arithmetic is covered
-  // in @finley/rules; here it only shows the engine passes basis and honors gain.
+  // US pro-rata return-of-capital: basis is returned in proportion to how much of the
+  // balance is basis. Its own arithmetic is covered in @finley/rules; here it only shows
+  // the engine passes basis and honors gain.
   const proRata = (b: WithdrawalTaxBasis): Cents => {
     if (b.balanceCents <= 0 || b.basisCents <= 0) return b.grossCents;
     const frac = Math.min(1, b.basisCents / b.balanceCents);
@@ -624,7 +621,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     taxableWithdrawalCents: proRata,
   };
 
-  /** A flat tax on the capitalGains category only — makes the taxable base observable. */
+  /** A flat capitalGains-only tax — makes the taxable base observable. */
   const flatGains20: Jurisdiction = {
     id: "flat-gains-20",
     computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
@@ -637,11 +634,11 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     // Balance == basis: every dollar is returned principal, nothing is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 100_000 });
     const { sources } = buildWithdrawalSources(st, flatGains20, [], dollarsToCents(2_000), ctx);
-    // No gain → no tax → the draw is exactly the need, not grossed up.
+    // No gain → no tax → no gross-up.
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
     expect(sources[0].taxableCents).toBe(0);
-    // And basis fell by the principal returned: $100k − $2k = $98k.
+    // Basis fell by the principal returned: $100k − $2k.
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(98_000));
   });
 
@@ -650,12 +647,12 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     // $100k balance on $60k basis → 40% of any draw is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 60_000 });
     const { sources } = buildWithdrawalSources(st, flatGains20, [], dollarsToCents(6_000), ctx);
-    // gross g nets g − 0.2·(0.4·g) = 0.92·g = $6k → g ≈ $6,521.74, gain ≈ 40% of it.
+    // gross g nets g − 0.2·(0.4·g) = 0.92·g = $6k → g ≈ $6,521.74.
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     const gain = sources.reduce((s, x) => s + (x.taxableCents ?? x.waterfallInflowCents), 0);
     expect(gain).toBe(Math.round(drawn * 0.4));
     expect(householdNetCentsGain(sources, flatGains20)).toBeGreaterThanOrEqual(dollarsToCents(6_000));
-    // Basis fell only by the principal fraction (60%) of the draw.
+    // Basis fell only by the principal fraction (60%).
     const basisDrawn = dollarsToCents(60_000) - (st.basisByAccount.get("brokerage") ?? 0);
     expect(basisDrawn).toBe(drawn - gain);
   });
@@ -667,7 +664,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
       computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.2),
     };
-    // No basis entry → basis 0 → the whole draw is the gain, taxed in full.
+    // No basis entry → basis 0 → the whole draw is gain.
     const st = state(accounts, { pretax: 100_000 });
     const { sources } = buildWithdrawalSources(st, flatOrdinary20, [], dollarsToCents(2_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
@@ -679,7 +676,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
 
   it("returns basis pro-rata so a later draw's gain fraction tracks the basis that remains", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
-    // $100k balance / $50k basis → 50% gain fraction, no tax seam (isolate arithmetic).
+    // $100k balance / $50k basis → 50% gain fraction; no tax seam, to isolate arithmetic.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 50_000 });
     const { sources: first } = buildWithdrawalSources(st, proRataNoTax, [], dollarsToCents(20_000), ctx);
     // Drew $20k: $10k gain booked, $10k basis returned → $40k basis on $80k balance.
@@ -713,7 +710,6 @@ describe("Liquid-buffer drawdown reporting", () => {
 
   it("reports the whole gap as a drawdown, and sells nothing, when cash covers it", () => {
     const st = stateWithCash(10_000, 100_000);
-    // $3k need, no other income; $10k cash buffer absorbs it all → no investment sold.
     const { sources, liquidDrawdownCents } = buildWithdrawalSources(
       st,
       nullJurisdiction,
@@ -723,7 +719,7 @@ describe("Liquid-buffer drawdown reporting", () => {
     );
     expect(sources).toEqual([]);
     expect(liquidDrawdownCents).toBe(dollarsToCents(3_000));
-    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(100_000)); // untouched
+    expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(100_000));
   });
 
   it("caps the drawdown at the buffer and sells investments for the rest", () => {

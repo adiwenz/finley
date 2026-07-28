@@ -19,8 +19,8 @@ export function buildIncomeSources(
       waterfallInflowCents,
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       planDescriptor: s.planDescriptor,
-      // One source per income series, so two jobs read apart rather than collapsing
-      // into one `wages` band. Fall back to the owner when a series carries no id.
+      // One source per income series, so two jobs read apart rather than collapsing into
+      // one `wages` band. Fall back to the owner when a series carries no id.
       sourceId: s.sourceId ?? `income:${s.ownerId}`,
       label: s.label ?? "Income",
     });
@@ -34,7 +34,7 @@ export function buildIncomeSources(
  * liquid account so the cascade (next) drains liquid assets before reaching for credit.
  * Updates the per-person annual deferral accumulator so caps hold across the year.
  *
- * The waterfall's pre-cascade shortfall is NOT surfaced: it is a cash-flow gap posted
+ * The waterfall's pre-cascade shortfall is not surfaced: it is a cash-flow gap posted
  * against the liquid account, not a funding failure. Only the shortfall surviving
  * {@link applyShortfallCascade} means anything to a caller.
  */
@@ -52,8 +52,8 @@ export function allocateMonth(
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
-  // Per person, not per household: the limit (with any age-banded catch-up) depends on
-  // the individual's age. Resolved in the room callback below; no birth year → base limit.
+  // Per person, not per household: the limit (with any age-banded catch-up) depends on the
+  // individual's age. No birth year → base limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
   // Sinking-fund pace is growth-aware; unknown account → rate 0, a flat even spread.
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
@@ -84,8 +84,8 @@ export function allocateMonth(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
-    // Required of every jurisdiction (a zero-tax one returns `{}`), so always wired;
-    // `runWaterfall` enforces that a tax-charging month reconciles per source.
+    // Required of every jurisdiction (a zero-tax one returns `{}`); `runWaterfall` enforces
+    // that a tax-charging month reconciles per source.
     computeTaxByCategoryCents: (taxableByCategory) =>
       jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
     remainingDeferralRoomCents: (pid) => {
@@ -101,7 +101,7 @@ export function allocateMonth(
   for (const [id, amount] of result.accountDepositsCents) {
     state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
     // Post-tax deposits add cost basis; pre-tax deposits (deferrals, employer match) add
-    // none — taxed on the way OUT, so basis stays 0 and the whole draw is taxable.
+    // none — taxed on the way out, so the whole later draw is taxable.
     const acc = accountsById.get(id);
     if (acc !== undefined && !acc.taxProfile.contributionsPreTax) {
       state.basisByAccount.set(id, (state.basisByAccount.get(id) ?? 0) + amount);
@@ -129,12 +129,12 @@ export function allocateMonth(
 }
 
 /**
- * Undo the phantom part of a COMMITTED contribution. A contribution deposits its FULL
- * amount and returns the unfunded remainder as a shortfall (see
+ * Undo the phantom part of a committed contribution. A contribution deposits its full amount
+ * and returns the unfunded remainder as a shortfall (see
  * {@link import("./waterfall").runWaterfall}); if neither savings nor credit covers that
- * shortfall, the uncovered slice was still deposited, booking an asset the household
- * never funded. Reverse exactly that slice, lowest-priority contribution first, removing
- * both the amount and the cost basis `allocateMonth` added.
+ * shortfall, the uncovered slice was still deposited, booking an asset the household never
+ * funded. Reverse exactly that slice, lowest-priority contribution first, removing both the
+ * amount and the cost basis `allocateMonth` added.
  */
 export function unwindUnfundedContributions(
   state: SimState,
@@ -160,25 +160,22 @@ export function unwindUnfundedContributions(
 /**
  * Last month's credited interest as this month's taxable income. `compoundAssets` already
  * credited the cash to each buffer's balance, so these carry `waterfallInflowCents` 0 —
- * re-injecting would double-credit — and are taxed via `taxableCents`. It IS real
- * household cash, so it also reports {@link IncomeSourceMonth.cashInflowCents}: counted
- * once as a balance credit and once as a cash flow, never twice as a balance. Empty in
- * month 1 and whenever every buffer's return was zero. Interest is ordinary income, so it
- * enters the provisional-income formula and can pull a benefit into taxability.
+ * re-injecting would double-credit — and are taxed via `taxableCents`. It is real household
+ * cash, so it also reports {@link IncomeSourceMonth.cashInflowCents}. Empty in month 1 and
+ * whenever every buffer's return was zero. Interest is ordinary income, so it enters the
+ * provisional-income formula and can pull a benefit into taxability.
  */
 export function buildInterestAccrualSources(state: SimState): IncomeSourceMonth[] {
   const sources: IncomeSourceMonth[] = [];
-  // One source PER ACCOUNT, in the plan's account order (stable, so the cash-flow chart
-  // keeps each band's identity across months). An emptied buffer then stops booking
-  // interest entirely while a still-funded reserve keeps earning under its OWN name; one
-  // merged "Savings interest" line made a drained account look like it was still earning.
-  // The app's Simple view re-collapses `savingsInterest` bands (keyed on reportCategory).
+  // One source per account, in the plan's account order (stable, so the cash-flow chart
+  // keeps each band's identity across months). One merged "Savings interest" line made a
+  // drained account look like it was still earning. The app's Simple view re-collapses
+  // `savingsInterest` bands (keyed on reportCategory).
   for (const acc of state.accounts) {
     const accrued = state.accruedReturnByAccount.get(acc.id);
     if (accrued === undefined || accrued.cents <= 0) continue;
-    // `reportCategory` lets the UI group these without parsing the id; `taxCategory`
-    // keeps them taxed and rolled up as ordinary income. Other interest kinds
-    // (brokerage/bond) will later carry their own provenance.
+    // `reportCategory` lets the UI group these without parsing the id; `taxCategory` keeps
+    // them taxed as ordinary income.
     sources.push({
       ownerId: acc.ownerId,
       waterfallInflowCents: 0,

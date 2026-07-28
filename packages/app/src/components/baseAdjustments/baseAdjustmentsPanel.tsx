@@ -1,14 +1,12 @@
 /**
- * The **Base + Adjustments** budget editor. Direct manipulation, not a form: click the graph
- * to pick a month, every row resolves *at that month*; type a number and answer "just this
- * month, or from here forward?". {@link routeMonthEdit} routes to the right primitive — line
- * override, ledger transaction, or job income override. There is no `Adjustment` entity
- * underneath.
+ * The **Base + Adjustments** budget editor. Click the graph to pick a month, every row
+ * resolves *at that month*; type a number and answer "just this month, or from here
+ * forward?". {@link routeMonthEdit} routes to the right primitive — line override, ledger
+ * transaction, or job income override. There is no `Adjustment` entity underneath.
  *
  * The graph is the engine's itemized spending report — authored lines, spending they don't
  * author (health, timeline expenses), and each debt's payment — so the stack totals the
- * month's whole obligation. Spending is never rationed away behind the user's back; an
- * unfinanceable plan says so outright.
+ * month's whole obligation. Spending is never rationed away behind the user's back.
  *
  * A non-empty `Plan.budgetLines` replaces the scalar `expenseCents` series outright
  * (`projectionBase.ts`) — hence no separate scalar monthly-expenses control.
@@ -16,8 +14,8 @@
  * The children own no state; what stays here spans them: the selected month, the staged
  * edit, which line form is disclosed (one at a time across both lists), and plan mutations.
  *
- * Standing pay is NOT edited here — it lives on the person's jobs, authored in the Jobs
- * panel. The exception is a one-off single-month change, which writes a per-job
+ * Standing pay lives on the person's jobs, authored in the Jobs panel. The exception is a
+ * one-off single-month change, which writes a per-job
  * {@link import("@finley/engine").JobIncomeOverride}.
  */
 
@@ -130,16 +128,15 @@ export function BaseAdjustmentsPanel({
 
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
-  /** The last routed edit, with the row label it was made on (the route only has the id). */
+  /** The route carries only the line id, so the row's label rides along with it. */
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
 
   const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
   const incomeChartData = useMemo(() => buildIncomeChartData(series), [series]);
   const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
   /**
-   * Wages + government benefit, NOT the full taxable rollup (`totalIncomeCents`): savings
-   * interest and asset drawdowns are real cash flow the income chart shows, but not the pay
-   * this editor is about.
+   * Wages + government benefit, not the full taxable rollup (`totalIncomeCents`): savings
+   * interest and asset drawdowns are cash flow, but not pay.
    */
   const incomeByMonth = useMemo(
     () =>
@@ -151,8 +148,8 @@ export function BaseAdjustmentsPanel({
     [series],
   );
 
-  // Only EXPENSE lines get month-resolved amounts (the inline stage/commit override flow);
-  // contribution lines are a flat literal into an account.
+  // Only expense lines get month-resolved amounts; contribution lines are a flat literal
+  // into an account.
   const expenseLines = useMemo(() => expenseLinesOf(lines), [lines]);
   const contributionLines = useMemo(() => contributionLinesOf(lines), [lines]);
   const rows = useMemo(
@@ -160,8 +157,8 @@ export function BaseAdjustmentsPanel({
     [expenseLines, selectedMonth, editCtx],
   );
 
-  // Structural add/edit/delete, distinct from the inline amount override above. One
-  // disclosed form at a time, like the Jobs and Goals panels.
+  // Structural add/edit/delete, distinct from the inline amount override above. One form
+  // disclosed at a time, like the Jobs and Goals panels.
   const [lineAuthoring, setLineAuthoring] = useState<LineAuthoring | null>(null);
 
   function addLine(draft: BudgetLineDraft): void {
@@ -172,10 +169,7 @@ export function BaseAdjustmentsPanel({
     setLines((prev) => updateLineFromDraft(prev, id, draft));
     setLineAuthoring(null);
   }
-  /**
-   * Expense rows and the contributions list share one slot, so the toggle is arbitrated
-   * here, not in either list.
-   */
+  /** Expense rows and the contributions list share one slot, so the toggle is arbitrated here. */
   function toggleLineForm(id: string): void {
     setLineAuthoring((a) => (a?.kind === "edit" && a.id === id ? null : { kind: "edit", id }));
   }
@@ -187,15 +181,14 @@ export function BaseAdjustmentsPanel({
   /**
    * Month 0 is the projection's flow-free opening snapshot (`simulate.ts` accrues flows only
    * for `month > 0`), so income reads $0 there even while the jobs pay full salaries. The
-   * income chart skips that month; the row does too, acting on month 1 instead.
+   * income chart skips that month; the row does too.
    */
   const incomeMonth = Math.max(1, selectedMonth);
 
-  /** Display only: the compiled total across every job, so no row has to pick *the* income. */
+  /** Display only: the total across every job, so no row has to pick *the* income. */
   const incomeAtMonth = incomeByMonth[incomeMonth] ?? 0;
 
-  // EVERY earner's jobs, not just the primary person's — the picker names whose job each
-  // one is.
+  // Every earner's jobs, not just the primary person's; the picker names whose is whose.
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   const jobOptions = useMemo(
     () => ownedJobsOf(owners).map(({ job, label }) => ({ id: job.id, label })),
@@ -203,9 +196,9 @@ export function BaseAdjustmentsPanel({
   );
 
   /**
-   * `revise` is handed the whole existing job, so its other overrides, pay changes and
-   * unrelated fields ride through. Routing (plan vs. the partner's `RelationshipEvent`) and
-   * the all-or-nothing commit belong to {@link commitJobWrites}.
+   * `revise` is handed the whole existing job, so its other overrides and pay changes ride
+   * through. Routing (plan vs. the partner's `RelationshipEvent`) and the all-or-nothing
+   * commit belong to {@link commitJobWrites}.
    */
   function adjustJob(jobId: string, revise: (job: Job) => Job): void {
     const result = reviseJob(owners, jobId, revise);
@@ -213,8 +206,8 @@ export function BaseAdjustmentsPanel({
   }
 
   /**
-   * A staged-but-uncommitted edit is dropped: it was framed against the old month's numbers,
-   * so carrying it forward would commit a change the user never read. Stable identity, like
+   * A staged-but-uncommitted edit is dropped: framed against the old month's numbers,
+   * carrying it forward would commit a change the user never read. Stable identity, like
    * {@link applyQuickstart} — both are props of the memoized graphs.
    */
   const selectMonth = useCallback((month: number): void => {
@@ -231,10 +224,7 @@ export function BaseAdjustmentsPanel({
     setPending({ row, label, priorAmountCents: priorCents, newAmountCents });
   }
 
-  /**
-   * Only budget *lines* are edited in place here, so a staged edit is always a line
-   * override.
-   */
+  /** Only budget *lines* are edited in place here, so a staged edit is always a line override. */
   function commit(scope: EditScope): void {
     if (pending === null) return;
     const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
@@ -245,13 +235,13 @@ export function BaseAdjustmentsPanel({
     setPending(null);
   }
 
-  /** Month the household retires — where the savings line stops (see the quickstart). */
+  /** Where the quickstart's savings line stops. */
   const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
 
   const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the
-    // WHOLE household's standing pay — reading one earner's jobs would size a two-earner
-    // household's spending to half its income. Identical on a single-earner plan.
+    // whole household's standing pay — one earner's jobs would size a two-earner
+    // household's spending to half its income.
     const monthlyIncomeCents = owners.reduce(
       (sum, o) =>
         sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
@@ -293,11 +283,11 @@ export function BaseAdjustmentsPanel({
         onQuickstart={applyQuickstart}
       />
 
-      {/* The point on the budget being edited. */}
+      {/* The point being edited. */}
       <div>
         <div className="row-between">
           <h3 data-testid="selected-month">Editing {describeMonth(selectedMonth, plan.currentAge)}</h3>
-          {/* Keyboard/assistive path to the same selection the chart click makes. */}
+          {/* Keyboard/assistive path to the same selection. */}
           <NumInput
             label="Month"
             value={selectedMonth}
@@ -317,9 +307,9 @@ export function BaseAdjustmentsPanel({
           below. This shows the total your jobs pay at the selected month.
         </p>
 
-        {/* One-month perturbations (bonus, $0 for a missed paycheck — a per-job
-            {@link JobIncomeOverride}) and PERMANENT changes from the selected month forward
-            (a {@link JobPayChange}). Both taxed as wages through the job's series. */}
+        {/* One-month perturbations (a per-job {@link JobIncomeOverride}) and permanent
+            changes from the selected month forward (a {@link JobPayChange}). Both taxed as
+            wages through the job's series. */}
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={incomeMonth}

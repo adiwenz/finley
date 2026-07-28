@@ -1,17 +1,15 @@
 /**
- * The **pay change at this month** control. Owns the whole disclosed form — whether it is
- * open, its live contents, and the confirmation note after a change is applied — so
- * {@link BaseAdjustmentsPanel} carries none of that transient state.
+ * The **pay change at this month** control. Owns the disclosed form — whether it is open,
+ * its live contents, and the confirmation note — so {@link BaseAdjustmentsPanel} carries
+ * none of that transient state.
  *
  * The change is made against a month the parent selects. Two kinds are one-month
- * perturbations (a bonus on top of that month's pay, or an absolute figure — a
- * {@link JobIncomeOverride}); two are PERMANENT step changes holding from the month forward
- * (a new ongoing pay, or a delta — a {@link JobPayChange}). All ride the job's own income
- * series, so all are taxed as wages and run through its 401(k): a bonus is not tax-free
- * cash, a raise not a magic influx.
+ * perturbations (a bonus on top, or an absolute figure — a {@link JobIncomeOverride}); two
+ * are permanent step changes holding from the month forward (a new ongoing pay, or a delta —
+ * a {@link JobPayChange}). All ride the job's own income series, so all are taxed as wages
+ * and run through its 401(k): a bonus is not tax-free cash, a raise not a magic influx.
  *
- * No separate "missed paycheck" kind — that is "Set pay this month" to $0, which zeroes the
- * month's wages and its wage tax the same way.
+ * No separate "missed paycheck" kind — that is "Set pay this month" to $0.
  *
  * This component never sees `Plan` or `setBudget`; it hands the parent a finished
  * {@link JobIncomeOverride} or {@link JobPayChange} to apply.
@@ -24,9 +22,8 @@ import { NumInput } from "../numInput/numInput";
 import styles from "./baseAdjustments.module.css";
 
 /**
- * A job this control can act on — stable id plus display name. Not a
- * {@link import("@finley/engine").Job}: the form reads no job fields and does not know who
- * holds it. The parent supplies a label already owner-qualified where needed ("Sam · Job
+ * Not a {@link import("@finley/engine").Job}: the form reads no job fields and does not know
+ * who holds it. The parent supplies a label already owner-qualified where needed ("Sam · Job
  * 1"), so two members' identically-titled jobs stay distinguishable.
  */
 export interface PayChangeJobOption {
@@ -35,21 +32,19 @@ export interface PayChangeJobOption {
 }
 
 /**
- * A pay change against the selected month — all flavours share one form. The first two are
- * one-month perturbations (a {@link JobIncomeOverride}); the last two are PERMANENT step
- * changes from the month forward (a {@link JobPayChange}). Permanent cuts both ways: a new
- * ongoing pay can be lower, so this is a *pay change*, not a "raise".
+ * The first two are one-month perturbations (a {@link JobIncomeOverride}); the last two are
+ * permanent step changes from the month forward (a {@link JobPayChange}). Permanent cuts
+ * both ways: a new ongoing pay can be lower, so this is a *pay change*, not a "raise".
  */
 export type PayChangeKind = "addBonus" | "setTo" | "setOngoing" | "changeOngoing";
 
-/** Whether a kind is a permanent pay change (rides a {@link JobPayChange}) vs. one month. */
 const isPermanentChange = (kind: PayChangeKind): kind is "setOngoing" | "changeOngoing" =>
   kind === "setOngoing" || kind === "changeOngoing";
 
 /**
  * The open form's live contents; `null` means closed — the single open/shut flag. The
- * confirmation note is NOT part of it: it reports the LAST applied change, so it outlives
- * the form it came from and must not reset as the draft's fields move.
+ * confirmation note is not part of it: it reports the last applied change, so it outlives
+ * the form it came from.
  */
 interface PayChangeDraft {
   readonly kind: PayChangeKind;
@@ -58,17 +53,16 @@ interface PayChangeDraft {
   readonly jobId: string | null;
 }
 
-/** The draft a freshly opened form starts from: a bonus, no amount, no explicit job pick. */
 const freshDraft = (): PayChangeDraft => ({ kind: "addBonus", dollars: 0, jobId: null });
 
 export interface PayChangeEditorProps {
-  /** Every job in the household this can act on, in join order. */
+  /** Every job in the household, in join order. */
   readonly jobs: readonly PayChangeJobOption[];
-  /** The month applied at — the panel's selected month, floored to a paying month. */
+  /** The panel's selected month, floored to a paying month. */
   readonly incomeMonth: number;
-  /** Apply a one-month perturbation. Plan mutation lives in the parent. */
+  /** Plan mutation lives in the parent. */
   readonly onApplyOverride: (jobId: string, override: JobIncomeOverride) => void;
-  /** Apply a permanent pay change — a raise OR a cut. Plan mutation lives in the parent. */
+  /** A raise or a cut. Plan mutation lives in the parent. */
   readonly onApplyPayChange: (jobId: string, payChange: JobPayChange) => void;
 }
 
@@ -78,25 +72,17 @@ export function PayChangeEditor({
   onApplyOverride,
   onApplyPayChange,
 }: PayChangeEditorProps) {
-  /** The open form's contents, or `null` when the form is closed. */
   const [draft, setDraft] = useState<PayChangeDraft | null>(null);
-  /** A short confirmation of the last pay change applied, echoed like the spending route. */
+  /** Echoed like the spending route's confirmation. */
   const [note, setNote] = useState<string | null>(null);
 
-  /** The job a pay change targets: the explicit pick, else the first job. */
   const targetJobId = draft?.jobId ?? jobs[0]?.id ?? null;
 
-  /**
-   * Apply the pay change to the target job at the selected month. One-month kinds ride a
-   * {@link JobIncomeOverride} (bonus adds on top; "set pay this month" fixes an absolute
-   * figure — $0 for a missed paycheck); permanent kinds ride a {@link JobPayChange} holding
-   * from this month FORWARD. On success the form closes but the note stays.
-   */
+  /** On success the form closes but the note stays. */
   function apply(): void {
     if (draft === null || targetJobId === null) return;
     const cents = dollarsToCents(draft.dollars);
-    // The note names the job as the picker does — owner and all, so a change landing on a
-    // partner's job says so.
+    // The note names the job as the picker does, owner and all.
     const jobLabel = jobs.find((j) => j.id === targetJobId)?.label ?? targetJobId;
 
     if (isPermanentChange(draft.kind)) {
@@ -143,8 +129,7 @@ export function PayChangeEditor({
               </optgroup>
             </select>
           </label>
-          {/* Shown even for a single job — one consistent shape, and the note always names
-              the job the change landed on. */}
+          {/* Shown even for a single job — one consistent shape. */}
           <label className="field">
             <span className="field-label">Job</span>
             <select
