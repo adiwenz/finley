@@ -8,7 +8,7 @@ each decision. They also carried embedded issue/PR references (`#150`,
 `#129/#151`, `Issue #105`, …) and decorative section banners (`// ─── Label ───`).
 
 This branch sweeps every comment to the project's dense-but-succinct standard, in
-two passes:
+four passes:
 
 1. **Reference and banner strip.** Issue/PR tokens removed while the domain
    rationale they sat inside is preserved; decorative banners reduced to plain
@@ -23,21 +23,20 @@ two passes:
    declaration below already says, delete the whole block; (b) sentence by
    sentence, delete anything already stated in the same block or visible in the
    code; (c) compress only what survives.
-
-Calibration is by file kind, not a word quota — a quota punishes files that are
-already tight. Type/interface files keep per-field contracts (often the only place
-a contract is written) but lose docs that re-say the field name; algorithmic
-modules keep invariants and ordering constraints but lose the narrative
-walkthrough; tests keep arithmetic pins and why-this-case-matters notes but lose
-mechanics narration. Files already lean were left alone. Files under 1.2 comment
-words per line of code were excluded from the sweep entirely.
-
 4. **Long-block pass.** A final sweep over every comment block still 120+ words —
    mostly module headers. A header earns its length only by stating what the
    exports cannot: the layering constraint, the invariant, the rejected
    alternative, the footgun. Export enumerations and motivational framing went;
    the longest block in the tree is now 182 words (the decumulation channel's
    gross-up contract, which covers four distinct topics), down from 276.
+
+Calibration is by file kind, not a word quota — a quota punishes files that are
+already tight. Type/interface files keep per-field contracts (often the only place
+a contract is written) but lose docs that re-say the field name; algorithmic
+modules keep invariants and ordering constraints but lose the narrative
+walkthrough; tests keep arithmetic pins and why-this-case-matters notes but lose
+mechanics narration. Files already lean were left alone, and files under 1.2
+comment words per line of code were excluded from the sweep entirely.
 
 Measured: **96,044 → 55,097 comment words (−43%)**, 10,179 → 6,503 comment lines
 (26% of all lines → 18%).
