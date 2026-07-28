@@ -38,8 +38,8 @@ const DEFAULT_START_YEAR = 2026;
  *
  * - `sourcesAt(month)` — the POOL: every account that could ever fund a draw, with what it
  *   holds at that month — WHICH MAY BE NOTHING — largest first. What a source picker lists
- *   (#156) and what a conflict message can name. Only liquid accounts qualify — a cash goal
- *   fund included (its whole purpose is to be reachable), retirement excluded (#125), credit
+ *   and what a conflict message can name. Only liquid accounts qualify — a cash goal
+ *   fund included (its whole purpose is to be reachable), retirement excluded, credit
  *   never, being a liability rather than an asset — so "credit is not a funding source" holds
  *   by construction. Membership is a property of the ACCOUNT, not of the month: what varies
  *   with the month is only `balanceCents`, so a caller comparing two months sees an emptied
@@ -72,7 +72,7 @@ export interface FundingLookup {
  * would fall short, under any tax regime.
  *
  * It is a question about a {@link import("./transfers").FundingDraw}, not about any one
- * event: the Home Purchase §4.5 gate asks it of a down payment, One-Time Spend (#154) will
+ * event: the Home Purchase §4.5 gate asks it of a down payment, One-Time Spend will
  * ask it of a spend, and both get the identical answer from this one lookup. Only liquid
  * accounts fund a draw (a cash goal fund included; credit never, being a liability), so a
  * selected id that is not a positive-balance liquid account contributes 0 to the draw yet is

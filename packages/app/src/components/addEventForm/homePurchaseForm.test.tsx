@@ -97,7 +97,7 @@ describe("HomePurchaseForm — soft DTI warning", () => {
   });
 });
 
-// ─── The ordered down-payment source picker (#156) ───────────────────────────
+// The ordered down-payment source picker.
 // The down payment was hardcoded to drain "savings"; it now drains the accounts the
 // user picks, in the order picked. These pin what the control SHOWS — the engine's own
 // pool and after-tax coverage — so the form can never promise what §4.5 would refuse.

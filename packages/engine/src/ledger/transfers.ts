@@ -30,7 +30,7 @@ export interface AccountTransfer {
  * Why a {@link FundingDraw} exists — drives its reporting provenance downstream: the
  * simulator names the draw's flow bands from it (`REPORT_PREFIX` in {@link
  * import("../projection/fundingDrawStep")}), and nothing else about the resolution reads it.
- * So a new money-out event (One-Time Spend, #154) adds a reason here plus its prefix there,
+ * So a new money-out event (One-Time Spend) adds a reason here plus its prefix there,
  * and reuses the whole channel unchanged.
  */
 export type FundingReason = "homeDownPayment";
@@ -38,7 +38,7 @@ export type FundingReason = "homeDownPayment";
 /**
  * An ordered, cross-account outflow resolved at SIMULATION time — the money-out
  * primitive for events that fund a fixed amount from a user-ordered list of
- * sources (Home Purchase today; the One-Time Spend event next, #154).
+ * sources (Home Purchase today; the One-Time Spend event next).
  *
  * Unlike an {@link AccountTransfer}, whose per-account amount is fixed the moment
  * it is authored, a funding draw's split across its sources depends on each source's

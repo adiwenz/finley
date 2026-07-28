@@ -88,7 +88,7 @@ describe("buildFlows", () => {
     expect(flows.incomeSources).toEqual([]);
   });
 
-  // ── Per-source reporting ──────────────────────────────────────────────────────
+  // Per-source reporting
 
   it("reports income by source, keeping distinct sources in one tax bucket apart", () => {
     // Two jobs both taxed as `wages` — the category rollup collapses them, the source

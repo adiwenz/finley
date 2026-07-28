@@ -5,7 +5,7 @@ import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// ─── RelationshipEvent ────────────────────────────────────────────────────────
+// RelationshipEvent
 
 describe("RelationshipEvent", () => {
   it("adds a person to the household", () => {
@@ -23,7 +23,7 @@ describe("RelationshipEvent", () => {
   });
 });
 
-// ─── RelationshipEvent — a partner's own jobs ─────────────────────────────────
+// RelationshipEvent — a partner's own jobs
 
 describe("RelationshipEvent — partner jobs", () => {
   // A base anchored to a real calendar "now" so the partner's jobs (authored in
@@ -98,7 +98,7 @@ describe("RelationshipEvent — partner jobs", () => {
   });
 });
 
-// ─── RelationshipEvent — a partner's own life-stage ages ──────────────────────
+// RelationshipEvent — a partner's own life-stage ages
 
 describe("RelationshipEvent — partner retirement & claiming ages", () => {
   const cfg: LedgerBaseConfig = {
@@ -170,7 +170,7 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
   });
 });
 
-// ─── SeparationEvent ──────────────────────────────────────────────────────────
+// SeparationEvent
 
 describe("SeparationEvent", () => {
   it("ends partner income streams from separation month", () => {
@@ -266,7 +266,7 @@ describe("SeparationEvent", () => {
   });
 });
 
-// ─── ChildEvent ───────────────────────────────────────────────────────────────
+// ChildEvent
 
 describe("ChildEvent", () => {
   it("records a child as a durable entity", () => {

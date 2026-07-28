@@ -126,7 +126,7 @@ describe("default simulations", () => {
     // SS is barely taxed.
     expect(Math.max(...ssTax)).toBeGreaterThan(dollarsToCents(300));
     // Contrast: the default plan taxes the benefit only trivially. Its home goal is now
-    // a drawable `retain` reserve (#150), so a little taxable drawdown does reach the
+    // a drawable `retain` reserve, so a little taxable drawdown does reach the
     // benefit — but nowhere near the sustained several-hundred-a-month scale the
     // taxed-in-retirement preset is tuned for; the two regimes stay clearly distinct.
     const defaultMaxSSTax = Math.max(

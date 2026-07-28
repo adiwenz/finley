@@ -6,9 +6,7 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---------------------------------------------------------------------------
-// Original tests (preserved verbatim — these are behavioral anchors)
-// ---------------------------------------------------------------------------
+// Original tests, preserved verbatim as behavioral anchors.
 
 test("cumulative rounding: 12 months sum exactly to an awkward annual total", () => {
   const annual = dollarsToCents(100000.37); // not evenly divisible by 12
@@ -113,10 +111,7 @@ test("preciseMonthlyRate compounds to the annual rate over 12 months", () => {
   assert.ok(Math.abs(compounded - annualRate) < 1e-9);
 });
 
-// ---------------------------------------------------------------------------
-// Additions: baselineUnit, growthAnchor, endMonth, resetAnchor,
-//            taxCategory, history correction
-// ---------------------------------------------------------------------------
+// Additions: baselineUnit, growthAnchor, endMonth, resetAnchor, taxCategory, history correction
 
 test("monthly-native: $150 repeats exactly — zero rounding drift over 36 months", () => {
   const s = new SimCashFlowSeries(0, dollarsToCents(150), { type: "fixed" }, {

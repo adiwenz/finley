@@ -12,8 +12,7 @@ import type { Cents, ModelAssumption } from "@finley/engine";
  * base; later years are indexed forward, earlier years return the base unchanged.
  */
 
-// ── Legislated base-year constants (one place, disclaimed) ─────────────────────
-//
+// Legislated base-year constants, one place, disclaimed.
 // Single-filer figures pinned to 2026 (projected inflation-adjusted brackets,
 // standard deduction, and long-term capital-gains bracket tops). Sources are the
 // published IRS inflation adjustments / Tax Foundation 2026 projections. Every
@@ -50,8 +49,7 @@ const BASE_LTCG_FIFTEEN_TOP_CENTS: Cents = 545_050_00;
 export const LTCG_RATE_15 = 0.15;
 export const LTCG_RATE_20 = 0.2;
 
-// ── Social Security inclusion thresholds (single) — NOT indexed by law ─────────
-//
+// Social Security inclusion thresholds (single), NOT indexed by law.
 // The $25,000 / $34,000 provisional-income thresholds have been FIXED in statute
 // since 1984/1993 (never inflation-adjusted), so — unlike the brackets — they are
 // deliberately held flat across all years. The share caps (50% / 85%) are the two
@@ -66,7 +64,7 @@ export const SS_TIER_1_SHARE = 0.5;
 /** Upper inclusion ceiling — the most of a benefit that can ever be taxed. */
 export const SS_MAX_SHARE = 0.85;
 
-// ── Forward indexing (mirrors contributionLimits / healthCosts) ────────────────
+// Forward indexing (mirrors contributionLimits / healthCosts).
 
 /**
  * Assumed forward CPI indexing rate for the brackets, standard deduction, and

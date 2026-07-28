@@ -79,7 +79,7 @@ interface GoalPlanBase {
  * accumulates into its own derived fund account (`goal-<id>`).
  *
  * The `disposition`/`targetDate` pairing is the engine's {@link GoalDisposal}. Both
- * dispositions are purely descriptive (#150), so either accepts a concrete month or
+ * dispositions are purely descriptive, so either accepts a concrete month or
  * `"asap"`. Sharing the type keeps the plan and the sim goal from drifting apart.
  */
 export type GoalPlan = GoalPlanBase & GoalDisposal;

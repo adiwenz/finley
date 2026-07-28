@@ -10,7 +10,7 @@ import type { GrowthMode, TaxCategory } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
 import type { Person } from "../person";
 
-// ─── Durable entity ──────────────────────────────────────────────────────────
+// Durable entity
 
 export interface Child {
   readonly id: string;
@@ -21,7 +21,7 @@ export interface Child {
   readonly causedByEventId: string;
 }
 
-// ─── Event base ──────────────────────────────────────────────────────────────
+// Event base
 
 /**
  * Fields shared by *every* event — nothing more. Dependency metadata and
@@ -44,7 +44,7 @@ export interface CausedByFields {
   readonly causedByEventId?: string;
 }
 
-// ─── Event types ─────────────────────────────────────────────────────────────
+// Event types
 
 /** Adds a new person (partner/spouse) to the household — authoring {@link Person} data. */
 export interface RelationshipEvent extends EventBase {
@@ -103,7 +103,7 @@ export interface HomePurchaseEvent extends EventBase {
   /** Drained at the purchase month from `downPaymentSourceIds`, in order (hard block). */
   readonly downPaymentCents: Cents;
   /**
-   * The liquid accounts funding the down payment, in drain order (#129/#151): the
+   * The liquid accounts funding the down payment, in drain order: the
    * shared funding helper takes as much as each holds before moving to the next, so
    * an early source empties before a later one is touched. Each contributing source
    * receives its own paired outflow. Credit is never eligible (a real mortgage rule).
@@ -195,7 +195,7 @@ export function causedByEventId(event: LifeEvent): string | undefined {
   return "causedByEventId" in event ? event.causedByEventId : undefined;
 }
 
-// ─── Derived-series vocabulary ───────────────────────────────────────────────
+// Derived-series vocabulary
 
 /** Why a replay-derived series exists — machine-readable; labels are the UI's job. */
 export type SeriesRole =
@@ -215,7 +215,7 @@ export type SeriesBaseline =
   | { readonly unit: "annual"; readonly annualCents: Cents }
   | { readonly unit: "monthly"; readonly monthlyCents: Cents };
 
-// ─── New-event input ─────────────────────────────────────────────────────────
+// New-event input
 
 /** Distributes `Omit` across a union so each member keeps its discriminant. */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown

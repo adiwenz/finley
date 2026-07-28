@@ -29,7 +29,7 @@ describe("RetirementPanel", () => {
 
   it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction", () => {
     // The default plan pinned at 65 is infeasible (feasible floor 71 — the home goal is
-    // now a drawable `retain` reserve, #150) but its net worth stays positive throughout —
+    // now a drawable `retain` reserve) but its net worth stays positive throughout —
     // the shape that used to print the self-contradicting "100% of the way there".
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");

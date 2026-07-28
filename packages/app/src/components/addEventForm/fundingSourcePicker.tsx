@@ -2,8 +2,8 @@
  * The ordered funding-source picker — which accounts pay for a money-out event, and in
  * what order they are drained.
  *
- * Deliberately event-neutral (#156): it edits the `sourceIds` of a funding draw, so the
- * Home Purchase down payment uses it today and One-Time Spend (#154) uses the same control
+ * Deliberately event-neutral: it edits the `sourceIds` of a funding draw, so the
+ * Home Purchase down payment uses it today and a one-time spend uses the same control
  * for the same question. It renders no policy of its own — the pool it lists and the
  * coverage it states both come from the engine's `fundingLookup`, the very function
  * `addEvent` gates on, so the form can never promise what the engine will refuse.

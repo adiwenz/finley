@@ -47,7 +47,7 @@ describe("GoalsPanel", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} />,
     );
-    // Both default goals are `retain` savings reserves (planDefaults, #150).
+    // Both default goals are `retain` savings reserves (planDefaults).
     expect(html).toContain("Kept as a reserve");
   });
 

@@ -69,7 +69,7 @@ export const PLAN_DEFAULTS: Plan = {
       targetDate: 60,
       // A home-savings goal: the down payment simply accumulates and is retained in
       // net worth. A goal no longer moves its own money out at maturity — only a
-      // timeline event does — so a savings goal needs no purchase event (#150).
+      // timeline event does — so a savings goal needs no purchase event.
       // A near-term down payment saved in a taxable brokerage.
       disposition: "retain",
       accountType: "brokerage",

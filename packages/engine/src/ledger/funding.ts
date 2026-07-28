@@ -1,9 +1,9 @@
 /**
  * funding — the shared ordered-drain primitive for money-out events.
  *
- * Both money-out events in the #129 model (Home Purchase, One-Time Spend) fund
+ * Both money-out events (Home Purchase, One-Time Spend) fund
  * an outflow from an ordered list of eligible accounts (liquid non-retirement
- * accounts + goal funds; retirement excluded in v1, see #125). This is the one
+ * accounts + goal funds; retirement excluded in v1). This is the one
  * place that decides "take X from these accounts, in the order given": it walks
  * the list, drawing as much as each account holds until the amount is met, and
  * reports what came out (`drained`), what could not be covered (`shortfall`), and

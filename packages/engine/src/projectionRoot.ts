@@ -142,7 +142,7 @@ export interface BuyHomeInput {
   readonly ownerId: PersonId;
   readonly purchasePriceCents: number;
   readonly downPaymentCents: number;
-  /** The liquid funding accounts drained for the down payment, in order (#129/#151). */
+  /** The liquid funding accounts drained for the down payment, in order. */
   readonly downPaymentSourceIds: readonly string[];
   readonly mortgageApr: number;
   readonly mortgageTermMonths: number;
@@ -241,7 +241,7 @@ export class Projection {
     });
   }
 
-  // ─── Standing edits ───────────────────────────────────────────────────────
+  // Standing edits
 
   /**
    * Add a {@link Job} owned by `personId`. Mints and returns a `"job-N"` id (override
@@ -298,7 +298,7 @@ export class Projection {
     this.commitPlan({ ...this.state.scenario.plan, retirementAge: age });
   }
 
-  // ─── Ledger transactions ──────────────────────────────────────────────────
+  // Ledger transactions
 
   /**
    * Grow the ledger with a life event through the safe, base-aware {@link addEvent}
@@ -395,7 +395,7 @@ export class Projection {
     return id;
   }
 
-  // ─── Run ("npm API") ──────────────────────────────────────────────────────
+  // Run
 
   /**
    * Compute the immutable {@link ProjectionResult} for the current authoring state
@@ -416,7 +416,7 @@ export class Projection {
     });
   }
 
-  // ─── Serialization (the id counter round-trips) ───────────────────────────
+  // Serialization (the id counter round-trips)
 
   /**
    * The serializable current state — plan, ledger, `startYear`, and the `nextSeq`

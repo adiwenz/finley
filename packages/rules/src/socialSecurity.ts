@@ -35,7 +35,7 @@ export function isCoveredEarnings(taxCategory: TaxCategory): boolean {
  * jurisdiction concept (never hardcoded in the engine).
  */
 
-// ── Legislated constants (one place, disclaimed) ──────────────────────────────
+// Legislated constants, one place, disclaimed.
 //
 // Base years, indexing anchors & sources. The dollar constants below are SSA
 // figures that change yearly, so each is pinned to the base year its dollar
@@ -144,8 +144,6 @@ const MAX_CREDITS_PER_YEAR = 4;
  */
 const QUARTER_OF_COVERAGE_CENTS = 1_890_00;
 const QUARTER_OF_COVERAGE_BASE_YEAR = 2026;
-
-// ── Formula ────────────────────────────────────────────────────────────────
 
 /** Index factor for `year`'s earnings, indexed up to `indexingYear` (1.0 at/after it). */
 function indexFactor(year: number, indexingYear: number): number {

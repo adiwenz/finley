@@ -127,7 +127,7 @@ export function HomePurchaseForm({
       purchasePriceCents: dollarsToCents(draft.price),
       downPaymentCents: dollarsToCents(draft.down),
       // The user's chosen accounts, in the order they chose them — the drain order the
-      // simulator resolves the down payment against (#156). The pruned list, so an account
+      // simulator resolves the down payment against. The pruned list, so an account
       // that emptied under a month change cannot ride onto the event unseen.
       downPaymentSourceIds: sourceIds,
       mortgageLiabilityId: `mortgage-${nextId}`,

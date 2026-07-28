@@ -12,7 +12,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { personLit, baseConfig, add } from "./events.testSupport";
 
-// ─── Replay basics ────────────────────────────────────────────────────────────
+// Replay basics
 
 describe("replayLedger — empty ledger", () => {
   it("empty ledger with no income/expense produces flat zero projection", () => {
@@ -23,7 +23,7 @@ describe("replayLedger — empty ledger", () => {
   });
 });
 
-// ─── Event validation ─────────────────────────────────────────────────────────
+// Event validation
 
 describe("event validation", () => {
   it("validateLedgerStructure rejects a duplicate event id", () => {
@@ -82,7 +82,7 @@ describe("event validation", () => {
   });
 });
 
-// ─── Replay order — (month, sequenceNumber) ───────────────────────────────────
+// Replay order — (month, sequenceNumber)
 
 describe("replay order", () => {
   it("same-month producer-before-consumer: an end applies after the series it ends", () => {

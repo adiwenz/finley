@@ -27,7 +27,7 @@ import type { Cents, HealthCostContext } from "@finley/engine";
  * inflation runs above CPI), not held flat ("indexed forward").
  */
 
-// ── Legislated / benchmark base-year constants (one place, disclaimed) ─────────
+// Legislated / benchmark base-year constants, one place, disclaimed.
 
 /** The calendar year the pinned dollar figures below are authoritative for. */
 export const HEALTH_COST_BASE_YEAR = 2026;

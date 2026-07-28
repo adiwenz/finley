@@ -49,11 +49,6 @@ export type {
 
 const DEFAULT_START_YEAR = 2026;
 
-// ---------------------------------------------------------------------------
-// Household simulator — real income/expense series + compounding accounts
-// Liabilities, shortfall cascade, infeasibility flag
-// ---------------------------------------------------------------------------
-
 /** Σ of a set of series at `month` — reused for both income (step 1) and expenses (step 3). */
 function sumMonthlySeries(series: readonly SimOwnedSeries[], month: number): Cents {
   let total = 0;
@@ -149,7 +144,7 @@ export function simulateHousehold(
       );
       const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
 
-      // Down-payment / one-time-spend draws (#153/#154) resolve BEFORE the tax chokepoint
+      // Down-payment / one-time-spend draws resolve BEFORE the tax chokepoint
       // so an appreciated source's realized gain is actually taxed. Each selected source is
       // grossed up over that tax and drained here (before compounding, so a drained balance
       // does not earn this month); its net-neutral tax source rides into `allocateMonth` so

@@ -57,7 +57,7 @@ export function AddEventForm({
   /**
    * The engine's funding questions against the ledger so far — which accounts could pay
    * for a money-out event at a month, and what a chosen set nets after tax. The
-   * home-purchase form's source picker reads it; #154's spend form will read the same.
+   * home-purchase form's source picker reads it, as a future spend form will too.
    */
   funding: FundingLookup;
   defaultMonth: number;

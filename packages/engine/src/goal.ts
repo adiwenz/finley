@@ -15,8 +15,8 @@ import type { ProjectionSeries } from "./projection/simulate";
 
 /**
  * What happens to a goal's accumulated money once its target is reached — a purely
- * descriptive axis. A goal never moves its own money out; only a timeline event does
- * (#150). Both dispositions leave the fund in net worth and drawable — they differ
+ * descriptive axis. A goal never moves its own money out; only a timeline event does.
+ * Both dispositions leave the fund in net worth and drawable — they differ
  * only in the story they tell the user:
  *
  *  - `retain`   — held as a liquid reserve (emergency fund, or a savings target such as
@@ -102,7 +102,7 @@ export type GoalVerdictPath = "immediate" | "projection";
 
 /**
  * A goal's completion state, derived from the projection series — never stored, and
- * carrying zero cross-reference to any event (#129/#150). It is binary and monotone:
+ * carrying zero cross-reference to any event. It is binary and monotone:
  *
  *  - `inProgress` — the fund has not yet reached target on/before the target date.
  *  - `funded`     — the fund balance reached target at some month **on or before** the

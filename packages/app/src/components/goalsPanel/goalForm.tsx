@@ -3,7 +3,7 @@
  * on the value-editing plane: a direct override, NO timeline event.
  * Holds the disposition and target date as separate controls and folds them back
  * into a {@link GoalDisposal} via {@link goalDisposal} on submit. Both dispositions
- * are purely descriptive (#150), so either accepts a concrete month or "as soon as
+ * are purely descriptive, so either accepts a concrete month or "as soon as
  * possible".
  *
  * Progressive disclosure: this is rendered on demand by the panel, not

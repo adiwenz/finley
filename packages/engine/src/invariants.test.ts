@@ -23,7 +23,7 @@ import {
   dollarsToCents,
 } from "./cashFlowSeries";
 
-// ---- harness ---------------------------------------------------------------
+// harness
 // Thin adapters onto Vitest so the invariant bodies below stay verbatim. A
 // `test(...)` registers a real Vitest case (a thrown assertion fails it); a
 // `todo(...)` is a not-yet-implementable invariant recorded as a pending target
@@ -31,9 +31,6 @@ import {
 const test = (name: string, fn: () => void) => it(name, fn);
 const todo = (name: string) => it.todo(name);
 
-// ===========================================================================
-// 1. MONEY INTEGRITY
-// ===========================================================================
 console.log("\n1. Money integrity");
 
 test("all monetary state is integer cents (CashFlowSeries)", () => {
@@ -67,18 +64,12 @@ test("cumulative rounding still sums exactly AFTER a fromHereForward override", 
 todo("net worth = Σassets − Σliabilities, every month; property contributes equity value−mortgage (needs Account + Property)");
 todo("one-time transfer conserves money: between-account transfer leaves total unchanged; influx/outflow moves exactly one balance");
 
-// ===========================================================================
-// 2. COMPOUNDING DISCIPLINE
-// ===========================================================================
 console.log("\n2. Compounding discipline");
 todo("growth happens in exactly one place: disable compound step -> balances flat (needs Simulator)");
 todo("each account compounds at most once per month (needs Account + Simulator)");
 todo("one-time transfers never compound: transfer moves at its month; growth only from compounding step, post-transfer balance");
 todo("account rate is a segment series not a scalar: a fromHereForward rate change applies only from its month");
 
-// ===========================================================================
-// 3. DETERMINISM & REPLAY
-// ===========================================================================
 console.log("\n3. Determinism & replay");
 
 test("CashFlowSeries is query-order independent (cache determinism)", () => {
@@ -98,17 +89,11 @@ todo("replaying the same ledger twice yields byte-identical output (needs Simula
 todo("remove-then-readd the same event returns identical state (needs events)");
 todo("no operation mutates a stored event/edit in place (needs ledger)");
 
-// ===========================================================================
-// 4. ALLOCATION & SHORTFALL
-// ===========================================================================
 console.log("\n4. Allocation & shortfall");
 todo("no impossible move: never transfer cash an account lacks (needs allocation)");
 todo("shortfalls route through cascade, never a silent negative cash balance (needs allocation)");
 todo("credit-covered shortfall raises card liability by exactly the deficit (conservation)");
 
-// ===========================================================================
-// 5. STREAMS & LIFECYCLE
-// ===========================================================================
 console.log("\n5. Streams & lifecycle");
 
 test("independent series do not couple: a salary edit never changes a rent series", () => {
@@ -149,9 +134,6 @@ todo("backdated event reconstructs structure not past finances: child born 2y pr
 todo("financial accumulation starts at now: net-worth curve begins at the now marker from entered balances; no values before now");
 todo("backdated in-flight state uses entered current values: 3y-old mortgage uses entered current balance + remaining term, not re-amortized from origin");
 
-// ===========================================================================
-// 6. GOALS & RETIREMENT
-// ===========================================================================
 console.log("\n6. Goals & retirement");
 todo("future goal uses projection path; month-0 goal uses asset-ratio path, no divide-by-zero");
 todo("reprioritizing goals conserves total allocated cash (needs goals)");
@@ -175,16 +157,10 @@ todo("Benefit claiming age monotonicity: later claiming (<=70) => higher monthly
 todo("Medicare step lowers health cost at 65; pre-65 early-retiree health cost modeled elevated");
 todo("RMDs force taxable withdrawals from pre-tax accounts past RMD age regardless of need");
 
-// ===========================================================================
-// 7. RECOMMENDATIONS
-// ===========================================================================
 console.log("\n7. Recommendations");
 todo("apply then un-apply returns to identical pre-apply state (tagged remove-then-replay)");
 todo("applied recommendation's realized effect matches its preview vs the same plan state");
 
-// ===========================================================================
-// 8. DERIVED REPORTING
-// ===========================================================================
 console.log("\n8. Derived reporting");
 
 test("real-dollar conversion is a pure function of nominal/inflation/horizon", () => {
@@ -197,9 +173,7 @@ test("real-dollar conversion is a pure function of nominal/inflation/horizon", (
   assert.ok(a < dollarsToCents(100000));
 });
 
-// ===========================================================================
-// 9. KNOWN-VALUE ANCHORS  — PIN THESE BY HAND, do not let the loop rewrite them
-// ===========================================================================
+// 9. KNOWN-VALUE ANCHORS — PIN THESE BY HAND, do not let the loop rewrite them
 console.log("\n9. Known-value anchors (external truth)");
 
 test("ANCHOR: mortgage amortization — $200k @ 6% APR, 360mo", () => {

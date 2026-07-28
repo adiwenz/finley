@@ -140,7 +140,7 @@ export interface FundingSourceBalance {
  * The affordability verdict for a set of selected funding sources at a month — whether they
  * can net a wanted amount once the capital-gains tax on liquidating them is paid. Event-
  * neutral: the Home Purchase §4.5 down-payment gate reads it today, and any other event that
- * funds a fixed amount from an ordered source list (One-Time Spend, #154) reads the same
+ * funds a fixed amount from an ordered source list (One-Time Spend) reads the same
  * shape. A gate hard-blocks on a positive `shortfallCents`.
  */
 export interface FundingAvailability {
@@ -179,7 +179,7 @@ export interface InterpretContext {
    * would fall short — under any tax regime, with no standalone-rate estimate.
    *
    * Deliberately event-neutral: the Home Purchase §4.5 down-payment gate is its first caller,
-   * and One-Time Spend (#154) gates on the identical question. Only liquid accounts fund a
+   * and One-Time Spend gates on the identical question. Only liquid accounts fund a
    * draw (a cash goal fund included; credit never, being a liability), so an illiquid or empty
    * selected source contributes 0. Present only on the authoring path ({@link addEvent});
    * `undefined` during ordinary interpretation and undo, when handlers skip

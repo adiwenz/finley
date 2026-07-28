@@ -4,7 +4,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// ─── LoanEvent + DebtPayoffEvent ─────────────────────────────────────────────
+// LoanEvent + DebtPayoffEvent
 
 describe("LoanEvent + DebtPayoffEvent", () => {
   it("LoanEvent adds a liability that reduces net worth at month 0", () => {

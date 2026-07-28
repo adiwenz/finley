@@ -63,7 +63,7 @@ export interface GoalRow {
   /**
    * True when a still-In-Progress goal is not on pace to hit its target by the date
    * (raw on-track fraction < 1). A Funded goal is never behind pace. Reuses the existing
-   * `onTrackFraction` — no separate state (#129 slice).
+   * `onTrackFraction` — no separate state.
    */
   readonly behindPace: boolean;
   /** What becomes of the money at target — see {@link GoalDisposition}. */
@@ -146,7 +146,7 @@ export const GOAL_ACCOUNT_TYPES: readonly {
 /**
  * Build a {@link GoalDisposal} from an independently-held disposition and date — the
  * shape an authoring form keeps its two controls in. Every disposition is purely
- * descriptive and accepts either a concrete month or `"asap"` (#150), so the pair is
+ * descriptive and accepts either a concrete month or `"asap"`, so the pair is
  * assembled verbatim.
  */
 export function goalDisposal(

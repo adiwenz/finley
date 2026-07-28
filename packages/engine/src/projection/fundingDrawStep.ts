@@ -1,7 +1,7 @@
 /**
  * Funding draws — the simulation-time resolution of an ordered, cross-account
  * money-out draw (a Home Purchase down payment today; the One-Time Spend event
- * next, #154).
+ * next).
  *
  * The ledger records the INTENT — drain `amountCents` from these sources, in this
  * order — because the per-source split is balance-dependent and the balances only
@@ -13,7 +13,7 @@
  * ({@link import("./withdrawal").buildWithdrawalSources}) and a fixed asset transfer
  * ({@link import("./assetSteps").applyAssetTransfers}) use.
  *
- * Capital-gains tax is REAL (#153 follow-up). Liquidating an appreciated investment to
+ * Capital-gains tax is REAL. Liquidating an appreciated investment to
  * fund the draw realizes a taxable gain, so the draw is GROSSED UP: it sells enough that
  * the amount left AFTER the tax still covers the down payment, exactly as the decumulation
  * withdrawal grosses up its draw. The realized gain is routed through the single tax
@@ -24,7 +24,7 @@
  * paid, which is what actually happens. A cash source (basis == balance, no gain) realizes
  * no tax and still conserves.
  *
- * Reporting is #122-consistent and unchanged in shape: an investment source's realized
+ * Reporting is unchanged in shape: an investment source's realized
  * GAIN reports as capital-gains income and its returned PRINCIPAL (plus any cash source's
  * whole draw) as a savings drawdown. The gain band is reporting-only (`cashInflowCents`
  * the gain, `waterfallInflowCents` 0); the tax it now bears rides the separate net-neutral
@@ -56,7 +56,7 @@ const GROSS_UP_ITERATIONS = 1_000;
  * bands its draw produces: `<prefix>:<accountId>` for the realized-gain band and
  * `<prefix>-tax:<accountId>` for the net-neutral source that carries its tax. This is the one
  * place a draw's *reason* becomes a *name* — the resolution itself (balances, gross-up, basis,
- * tax) is reason-blind, so a new money-out event (One-Time Spend, #154) names its own bands by
+ * tax) is reason-blind, so a new money-out event (One-Time Spend) names its own bands by
  * adding one line here rather than reporting under the down payment's name. Exhaustive by
  * type: a new reason without a prefix fails the typecheck instead of silently going unnamed.
  */
@@ -160,7 +160,7 @@ export function resolveOrderedFundingDraw(
     // The taxable gain of a `gross` draw: the jurisdiction owns the return-of-capital policy
     // (`taxableWithdrawalCents`, as the withdrawal channel uses it); absent the seam (null
     // jurisdiction) fall back to the engine's pro-rata basis split, which is exactly the
-    // #153 reporting split — so a no-tax run grosses up by nothing and the gain/principal
+    // reporting split — so a no-tax run grosses up by nothing and the gain/principal
     // bands are unchanged. Monotone non-decreasing in `gross`, which lets the loop climb.
     const gainOf = (gross: Cents): Cents =>
       jurisdiction.taxableWithdrawalCents?.(

@@ -4,7 +4,7 @@ import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { makeLiquidAccount, baseConfig, add } from "./events.testSupport";
 
-// ─── Income series (BudgetItemStartEvent) ─────────────────────────────────────
+// Income series (BudgetItemStartEvent)
 
 describe("income series (BudgetItemStartEvent)", () => {
   it("creates income series that increases the liquid account balance", () => {
@@ -72,7 +72,7 @@ describe("income series (BudgetItemStartEvent)", () => {
   });
 });
 
-// ─── BudgetItemStartEvent / BudgetItemEndEvent ────────────────────────────────
+// BudgetItemStartEvent / BudgetItemEndEvent
 
 describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
   it("creates an expense series that reduces net worth", () => {
@@ -125,7 +125,7 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
   });
 });
 
-// ─── Base series (value-editing surface) ──────────────────────────────────────
+// Base series (value-editing surface)
 
 describe("initialIncomeSeries / initialExpenseSeries", () => {
   it("base income series drive net worth without any events", () => {

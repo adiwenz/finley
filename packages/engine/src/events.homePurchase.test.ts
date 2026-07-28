@@ -15,7 +15,7 @@ import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 
-// ─── HomePurchaseEvent (property lifecycle) ───────────────────────────────────
+// HomePurchaseEvent (property lifecycle)
 
 function savings(openingCents: number, rate = 0): SimAccount {
   return new SimAccount({
@@ -193,11 +193,10 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
   });
 });
 
-// ─── §4.5 gate — liquid goal funds (the cash emergency reserve) are sources ──────
-// Issue #105: a goal held as cash (the "liquid reserve" emergency fund) lands in a
-// liquid account, so it IS a sourced down-payment fund. The gate must count it, and
-// the block message must name which buckets it counted rather than telling the user
-// "goal funds do not count" — a claim the model contradicts the moment a cash goal exists.
+// §4.5 gate — liquid goal funds (the cash emergency reserve) are sources
+// A goal held as cash lands in a liquid account, so it IS a sourced down-payment fund.
+// The gate must count it, and the block message must name which buckets it counted
+// rather than claiming "goal funds do not count" — false the moment a cash goal exists.
 
 /** A goal's fund account; liquid when the goal is held as cash (the emergency reserve). */
 function goalFund(id: string, label: string, openingCents: number, liquid: boolean): SimAccount {
@@ -311,7 +310,7 @@ describe("removeEvent — HomePurchaseEvent", () => {
   });
 });
 
-// ─── Ordered multi-source down payment (#129/#151/#153) ──────────────────────
+// Ordered multi-source down payment
 // The down payment drains an ORDERED list of sources: the shared funding helper
 // takes as much as each holds before moving to the next, so an early source empties
 // before a later one is touched. Each contributing source receives its own outflow.
@@ -407,7 +406,7 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
   });
 });
 
-// ─── Down-payment draw reporting (#122-consistent) ───────────────────────────
+// Down-payment draw reporting
 // The draw converts a liquid asset into home equity (net worth conserved), but it
 // still surfaces in the diagnostic flow view: a cash source's whole draw as a savings
 // drawdown, an investment source's realized GAIN as capital-gains income and its
@@ -477,7 +476,7 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
   });
 });
 
-// ─── Down-payment capital-gains tax — accurate net worth (#153 follow-up) ─────
+// Down-payment capital-gains tax — accurate net worth
 // Liquidating an appreciated source to fund a down payment realizes a taxable gain. The
 // draw grosses up over that tax and net worth falls by exactly the tax paid; a cash source
 // (no gain) still conserves. The §4.5 gate sizes on the down payment PLUS the tax.
@@ -589,7 +588,7 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
     const flows = series.months[12].flows!;
     // The gain still surfaces as its own capital-gains band and the principal as a savings
-    // drawdown (#122-consistent), and the tax charged is exactly 20% of that reported gain.
+    // drawdown, and the tax charged is exactly 20% of that reported gain.
     const gainBand = flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
     expect(gainBand?.category).toBe("capitalGains");
     expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
@@ -658,7 +657,7 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
   });
 });
 
-// ─── §4.5 gate — a SIBLING draw in the same month ────────────────────────────
+// §4.5 gate — a SIBLING draw in the same month
 // Two money-out events in one month, same owner, both from taxable sources: the simulator
 // stacks the first draw's realized gain under the second (one working base threaded across
 // the month's draws), so the second owes tax the first did not. The gate must price the
@@ -711,11 +710,11 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
   });
 });
 
-// ─── fundingLookup.sourcesAt — the pool an authoring surface lists ────────────
+// fundingLookup.sourcesAt — the pool an authoring surface lists
 // The pool's MEMBERSHIP is a property of the account, not of the month: every liquid account
 // is listed at every month, and only `balanceCents` moves. A pool that omitted empty accounts
 // let a picker's rows appear and disappear as the month changed, so an account chosen while it
-// held money could vanish from the list while its id stayed selected behind the scenes (#153).
+// held money could vanish from the list while its id stayed selected behind the scenes.
 
 describe("fundingLookup — the source pool", () => {
   // $40k savings + $40k brokerage, $60k down at month 3: savings empties, brokerage keeps $20k.
@@ -753,7 +752,7 @@ describe("fundingLookup — the source pool", () => {
   it("omits accounts that could never fund a draw, empty or not", () => {
     // Membership is "liquid", not "has money": an illiquid retirement fund holding $50k is
     // absent, while a liquid account holding nothing is present. Listing at $0 widens what the
-    // pool SHOWS, not what it considers spendable (#125).
+    // pool SHOWS, not what it considers spendable.
     const b = baseWithAccounts([liquidAcct("savings", 0), goalFund("retirement", "401(k)", 5_000_000, false)]);
     expect(fundingLookup(emptyLedger, b, nullJurisdiction).sourcesAt(6).map((s) => s.id)).toEqual([
       "savings",

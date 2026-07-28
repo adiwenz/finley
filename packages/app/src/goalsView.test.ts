@@ -177,7 +177,7 @@ describe("dispositionLabel", () => {
 
 describe("goalDisposal — disposition/date pairing", () => {
   it("assembles the disposition and date verbatim, including 'asap'", () => {
-    // Both dispositions are purely descriptive (#150), so either date is kept as-is.
+    // Both dispositions are purely descriptive, so either date is kept as-is.
     expect(goalDisposal("retain", "asap")).toEqual({ disposition: "retain", targetDate: "asap" });
     expect(goalDisposal("drawDown", 24)).toEqual({ disposition: "drawDown", targetDate: 24 });
     expect(goalDisposal("retain", 12)).toEqual({ disposition: "retain", targetDate: 12 });

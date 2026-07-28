@@ -26,7 +26,7 @@ import type { Cents, DeferralLimitContext } from "@finley/engine";
  * ("future-year figures are indexed forward, not held flat").
  */
 
-// ── Legislated base-year constants (one place, disclaimed) ─────────────────────
+// Legislated base-year constants, one place, disclaimed.
 
 /** The calendar year the pinned dollar figures below are authoritative for. */
 export const CONTRIBUTION_LIMITS_BASE_YEAR = 2026;

@@ -36,6 +36,12 @@ Pay extra attention to existing test files that touch the relevant parts of the 
 
 ---
 
+### ✍️ Comment Style
+
+Comments must be dense, not merely short. Explain why, plus any cases, constraints, or invariants not evident from the code. Never restate the code. Never reference issue or PR numbers.
+
+---
+
 ### 🔍 Verification & Feedback Loops
 Before declaring your work complete, you must ensure the entire workspace is healthy:
 * Run `npm run typecheck` to verify complete type safety.

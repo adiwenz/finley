@@ -80,7 +80,7 @@ export interface SimState {
   /** Every person who appears as an income owner or roster member — waterfall pools. */
   readonly personIds: readonly string[];
   /**
-   * The funding goals. A goal never moves its own money out (#150): its fund
+   * The funding goals. A goal never moves its own money out: its fund
    * accumulates and stays drawable, so the set is fixed for the whole run.
    */
   readonly goals: readonly SimGoal[];

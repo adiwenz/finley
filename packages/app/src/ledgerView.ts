@@ -17,7 +17,7 @@
 import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
-// ─── Plain-language event summaries (one label = one change) ───────────────────
+// Plain-language event summaries (one label = one change)
 
 export interface EventSummary {
   /** Friendly label. Exactly one per structural change. */
@@ -75,7 +75,7 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
   }
 }
 
-// ─── Series labels (engine role → snapshot-panel text) ────────────────────────
+// Series labels (engine role → snapshot-panel text)
 
 export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): string {
   switch (s.role) {
@@ -93,7 +93,7 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
   }
 }
 
-// ─── Timeline markers ─────────────────────────────────────────────────────────
+// Timeline markers
 
 export interface TimelineMarker extends EventSummary {
   readonly id: string;

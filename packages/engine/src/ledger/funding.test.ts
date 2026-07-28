@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { drainSources } from "./funding";
 
-// ─── drainSources — the shared ordered-drain funding primitive (§4.5 / #129) ──────
+// drainSources — the shared ordered-drain funding primitive (§4.5)
 // Both money-out events (Home Purchase, One-Time Spend) fund from an ordered list of
 // eligible accounts. This pure helper resolves "take X from these accounts, in order"
 // into how much came out (`drained`), how much couldn't be covered (`shortfall`), and

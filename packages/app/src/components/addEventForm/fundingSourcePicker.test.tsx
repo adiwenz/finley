@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The ordered funding-source picker (#156) — the interaction the static render can't show:
+ * The ordered funding-source picker — the interaction the static render can't show:
  * that the ORDER the user checks accounts in is the drain order the event records, and that
  * the coverage line tracks the selection live.
  *
@@ -120,7 +120,7 @@ describe("down-payment source picker", () => {
   });
 });
 
-// ─── A selected account that empties under a month change ─────────────────────────────
+// A selected account that empties under a month change.
 //
 // The pool used to list only accounts holding something, so moving the purchase to a month
 // where a chosen account had run dry made its row DISAPPEAR while its id stayed in the draft:

@@ -442,7 +442,7 @@ export interface HouseholdSimInput {
    */
   readonly properties?: readonly SimProperty[];
   /**
-   * Ordered, cross-account down-payment / spend draws (Home Purchase; #154 Spend).
+   * Ordered, cross-account down-payment / spend draws (Home Purchase; One-Time Spend).
    * The simulator drains each `amountCents` from its `sourceIds` in order at `month`,
    * taking as much as each holds before the next — the split is balance-dependent, so
    * it is resolved here, not when the event is authored. Defaults to none.

@@ -99,7 +99,7 @@ function liquidationRank(
  * *source* regardless of `liquid`. The one exclusion is the liquid cash account
  * itself — it is spent down first via the shortfall charge, so it is not a withdrawal
  * source here (it would double-count). Goal funds carry no disposition earmark: a goal
- * never moves its own money out (#150), so every goal fund is fully drawable.
+ * never moves its own money out, so every goal fund is fully drawable.
  */
 function isLiquidatable(account: SimAccount, state: WithdrawalState): boolean {
   if (state.liquidAccount !== null && account.id === state.liquidAccount.id) return false;

@@ -299,7 +299,7 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
   });
 });
 
-// ─── One replay-derived model feeds both snapshot and projection ──────────────
+// One replay-derived model feeds both snapshot and projection
 
 describe("buildSnapshot — the shared replay-derived model", () => {
   function liquid(id = "checking", openingCents = 0): SimAccount {
@@ -401,7 +401,7 @@ describe("buildSnapshot — the shared replay-derived model", () => {
   });
 });
 
-// ─── Properties (equity = value − mortgage) ───────────────────────────────────
+// Properties (equity = value − mortgage)
 
 const PROPERTY_PRICE = 30_000_000; // $300k
 const PROPERTY_DOWN = 6_000_000; // $60k

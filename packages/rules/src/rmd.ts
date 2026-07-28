@@ -17,7 +17,7 @@ import type { Cents, RmdContext, ModelAssumption } from "@finley/engine";
  * at RMD time — a documented forward-projection simplification.
  */
 
-// ── Legislated constants (one place, disclaimed) ──────────────────────────────
+// Legislated constants, one place, disclaimed.
 
 /**
  * SECURE 2.0 RMD start age by birth year: 73 for 1951–1959, 75 for 1960 and
