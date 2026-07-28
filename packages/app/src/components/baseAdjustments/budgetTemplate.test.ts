@@ -27,15 +27,20 @@ describe("defaultBudgetTemplate — the prepopulated Base", () => {
     expect(lines.some((l) => l.category === "wants")).toBe(true);
   });
 
-  it("spends exactly what the scalar default did, so itemizing changes authoring not amount", () => {
+  it("sums the template lines to the pinned default spend, driving the default plan's budget", () => {
     const total = defaultBudgetTemplate().reduce(
       (sum, l) => sum + (l.amountSource as { monthlyCents: number }).monthlyCents,
       0,
     );
+    // Retuning the template lines without retuning this constant moves the app's default
+    // retirement age silently.
     expect(total).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
-    // The scalar field the line-item budget replaced. Retuning the template without
-    // retuning this moves the app's default retirement age silently.
-    expect(total).toBe(PLAN_DEFAULTS.expenseCents);
+    // The default plan opens on exactly these lines, so its budget total is the same figure.
+    const planTotal = (PLAN_DEFAULTS.budgetLines ?? []).reduce(
+      (sum, l) => sum + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
+      0,
+    );
+    expect(planTotal).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
   });
 });
 

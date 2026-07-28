@@ -66,7 +66,6 @@ describe("retirementView — headline age driven off the real projection", () =>
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
       jobs: [],
-      expenseCents: PLAN_DEFAULTS.expenseCents,
     };
     const view = viewOf(broke);
     expect(view.headlineAge).toBeNull();

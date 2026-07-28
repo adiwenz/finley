@@ -36,8 +36,15 @@ const baseBudget: Plan = {
       salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],
-  expenseCents: dollarsToCents(3500),
-  expenseOverrides: [],
+  budgetLines: [
+    {
+      id: "spend",
+      label: "Spending",
+      target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(3500) },
+      category: "needs",
+    },
+  ],
   openingBalanceCents: 0,
   savingsReturnPct: 0,
   retirementReturnPct: 0,

@@ -3,8 +3,8 @@
  * a number asks "just this month, or from here forward?", and {@link routeMonthEdit}
  * decomposes the answer into existing primitives — there is no `Adjustment` entity underneath.
  *
- * A non-empty `Plan.budgetLines` replaces the scalar `expenseCents` series outright
- * (`projectionBase.ts`) — hence no separate scalar monthly-expenses control.
+ * `Plan.budgetLines` is the sole expense authoring surface (`projectionBase.ts`) — hence no
+ * separate monthly-expenses control.
  *
  * The children own no state: the selected month, the staged edit and the open line form (one
  * at a time across both lists) live here.

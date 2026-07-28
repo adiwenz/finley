@@ -57,9 +57,8 @@ export function defaultBudgetTemplate(): BudgetLineInput[] {
 }
 
 /**
- * Equals the scalar `PLAN_DEFAULTS.expenseCents` it replaced: itemizing changes how spending is
- * authored, not how much a default household spends, which would otherwise move the app's
- * headline retirement age. Pinned by a test against drift.
+ * The default household's total monthly spend. Retuning the template's lines without retuning
+ * this moves the app's headline retirement age silently, so a test pins the two together.
  */
 export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(3_500);
 

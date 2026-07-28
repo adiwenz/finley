@@ -57,8 +57,8 @@ function salariedJob(monthlyCents: number): Job {
 /**
  * The default Base budget rescaled to a scenario's monthly spend. A preset is authored as one
  * number, but empty `budgetLines` would open the editor onto an empty chart. Rounding residue
- * settles on the largest line so the lines sum to `monthlyCents` exactly — the budget replaces
- * the scalar series wholesale, so drift here is drift in the projection.
+ * settles on the largest line so the lines sum to `monthlyCents` exactly — the lines ARE the
+ * scenario's spend, so drift here is drift in the projection.
  */
 function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
   const scale = monthlyCents / DEFAULT_TEMPLATE_TOTAL_CENTS;
@@ -91,17 +91,17 @@ function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
 
 /**
  * Each teaching scenario is one legible income/expense gap, with health trimmed below the
- * default's ~$700 so that gap — not a medical line — sets the trajectory. Scalar `expenseCents`
- * stays set as the engine-native fallback, inert while lines exist.
+ * default's ~$700 so that gap — not a medical line — sets the trajectory. `monthlySpendCents`
+ * is authored as one number and expanded into the scenario's budget lines.
  */
-function teachingPlan(over: Partial<Plan> & { readonly expenseCents: number }): Plan {
+function teachingPlan(monthlySpendCents: number, over: Partial<Plan>): Plan {
   return {
     ...PLAN_DEFAULTS,
     goals: [],
     healthMonthlyCents: dollarsToCents(450),
     postCoverageHealthMonthlyCents: dollarsToCents(350),
     ...over,
-    budgetLines: scaledBudgetLines(over.expenseCents),
+    budgetLines: scaledBudgetLines(monthlySpendCents),
   };
 }
 
@@ -109,10 +109,9 @@ function teachingPlan(over: Partial<Plan> & { readonly expenseCents: number }): 
  * A modest salary spent almost entirely each month: net worth clings to a thin buffer through
  * the working years, and with no cushion retirement is unfundable.
  */
-const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan({
+const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(dollarsToCents(3600), {
   name: "Sam",
   jobs: [salariedJob(dollarsToCents(4500))],
-  expenseCents: dollarsToCents(3600),
   openingBalanceCents: dollarsToCents(1500),
 });
 
@@ -120,10 +119,9 @@ const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan({
  * Expenses outrun income from month 0, so the shortfall cascade routes the gap onto a synthetic
  * credit card compounding at ~22%, dragging net worth negative within the first year.
  */
-const LIVING_ON_CREDIT: Plan = teachingPlan({
+const LIVING_ON_CREDIT: Plan = teachingPlan(dollarsToCents(3600), {
   name: "Jordan",
   jobs: [salariedJob(dollarsToCents(3800))],
-  expenseCents: dollarsToCents(3600),
   openingBalanceCents: dollarsToCents(1000),
 });
 
@@ -131,10 +129,9 @@ const LIVING_ON_CREDIT: Plan = teachingPlan({
  * A new graduate on a solid salary carrying a $45k loan: net worth opens underwater and climbs
  * back above zero within a decade — the "negative but improving" case.
  */
-const STUDENT_LOAN: Plan = teachingPlan({
+const STUDENT_LOAN: Plan = teachingPlan(dollarsToCents(3000), {
   name: "Riley",
   jobs: [salariedJob(dollarsToCents(6000))],
-  expenseCents: dollarsToCents(3000),
   openingBalanceCents: dollarsToCents(4000),
 });
 
@@ -157,7 +154,6 @@ const TAXED_IN_RETIREMENT: Plan = {
       deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
     },
   ],
-  expenseCents: dollarsToCents(5500),
   budgetLines: scaledBudgetLines(dollarsToCents(5500)),
   retirementReturnPct: 4,
   lifeExpectancy: 72,

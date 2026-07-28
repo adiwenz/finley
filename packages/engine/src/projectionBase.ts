@@ -239,45 +239,23 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     jobs: budget.jobs,
   };
 
-  // General (non-health) expenses grow with CPI — flat in real terms.
-  const expenseSeries = new SimCashFlowSeries(
-    0,
-    budget.expenseCents,
-    { type: "inflationLinked", annualRate: inflationRate },
-    { baselineUnit: "monthly" },
-  );
-  // Value edits are overrides on the artifact — never life events (rule 1).
-  for (const o of budget.expenseOverrides) {
-    expenseSeries.addOverride(o.month, o.monthlyCents, o.scope);
-  }
-
-  // A non-empty line-item budget takes over from the scalar `expenseCents` series above.
-  const budgetLines = budget.budgetLines;
+  // Expenses are authored solely as budget lines — there is no separate general-expense
+  // lever. An absent or empty budget therefore contributes no general spending; health and
+  // events still apply.
+  const budgetLines = budget.budgetLines ?? [];
   // Account-target lines fund the waterfall's contribution step each month.
-  const contributionLines: readonly BudgetLine[] = (budgetLines ?? []).filter(
+  const contributionLines: readonly BudgetLine[] = budgetLines.filter(
     (l) => l.target.kind === "account",
   );
   // The owner tag is inert today: the simulator sums all expense series into one household
   // obligation and splits it by `sharedScheme`, never reading an expense's ownerId. It
   // starts doing work once a line can be *personal* (charged against that person's
   // take-home first).
-  const generalExpenseSeries: readonly SimOwnedSeries[] =
-    budgetLines != null && budgetLines.length > 0
-      ? compileExpenseBudgetLines(budgetLines, PRIMARY_PERSON_ID, inflationRate)
-      : [
-          {
-            series: expenseSeries,
-            ownerId: PRIMARY_PERSON_ID,
-            label: "Expenses",
-            // The scalar lever, not a line: reports as one item, edited on the plan.
-            spendingSource: {
-              kind: "planExpense",
-              id: "plan-expenses",
-              category: "other",
-              editable: false,
-            },
-          },
-        ];
+  const generalExpenseSeries: readonly SimOwnedSeries[] = compileExpenseBudgetLines(
+    budgetLines,
+    PRIMARY_PERSON_ID,
+    inflationRate,
+  );
 
   const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 

@@ -1,8 +1,7 @@
 /**
  * Compilation of the line-item {@link BudgetLine} budget into simulator inputs: unit
  * assertions on the compiled expense series, plus an end-to-end pass through the real
- * simulator proving a line-item budget drives spending — spans and dated overrides
- * included — exactly like the scalar `expenseCents` path.
+ * simulator proving a line-item budget drives spending — spans and dated overrides included.
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "./index";
@@ -35,7 +34,7 @@ describe("compileExpenseBudgetLines", () => {
     expect(s.series.getMonthlyCents(120)).toBe(dollarsToCents(2_000)); // flat, no CPI growth
   });
 
-  it("grows a line with inflation, like the scalar expense series it replaces", () => {
+  it("grows a line with inflation — a budget authored in today's dollars", () => {
     // A budget is authored in today's dollars; compiling it flat models a household whose
     // spending never rises, understating lifetime cost enough to move the retirement age
     // by years.
@@ -132,19 +131,6 @@ describe("fillToLimitSeamFor", () => {
 });
 
 describe("createProjectionBase — the line-item budget drives spending", () => {
-  it("reproduces the scalar expense path when a single literal line replaces expenseCents", () => {
-    // A budget line rises with prices exactly like the scalar `expenseCents` series, so one
-    // line carrying the whole amount is indistinguishable from it.
-    const scalar = project(samplePlan);
-    const lineItem = project({
-      ...samplePlan,
-      budgetLines: [literalExpense("all-spend", samplePlan.expenseCents)],
-    });
-    expect(lineItem.months.at(-1)!.netWorthNominalCents).toBe(
-      scalar.months.at(-1)!.netWorthNominalCents,
-    );
-  });
-
   it("spending more via the line-item budget leaves the household poorer (real driver, not a stub)", () => {
     const lean = project({
       ...samplePlan,
@@ -176,9 +162,11 @@ describe("createProjectionBase — the line-item budget drives spending", () => 
     );
   });
 
-  it("leaves the scalar path untouched when no budgetLines are authored", () => {
-    const a = project(samplePlan).months.at(-1)!.netWorthNominalCents!;
-    const b = project({ ...samplePlan, budgetLines: [] }).months.at(-1)!.netWorthNominalCents!;
-    expect(a).toBe(b);
+  it("charges no general expense when a plan authors no budget lines — richer than one that does", () => {
+    // Budget lines are the only expense surface, so an empty budget spends nothing on general
+    // expenses and ends strictly richer than the same plan carrying a $4k line.
+    const noBudget = project({ ...samplePlan, budgetLines: [] }).months.at(-1)!.netWorthNominalCents!;
+    const withBudget = project(samplePlan).months.at(-1)!.netWorthNominalCents!;
+    expect(noBudget).toBeGreaterThan(withBudget);
   });
 });

@@ -56,6 +56,15 @@ describe("default simulations", () => {
   });
 
   it("every preset opens on an editable line-item budget totalling its authored spend", () => {
+    // The spend each scenario was tuned against, kept here as an independent source of truth
+    // so a drift in the budget lines that changes the projection is caught.
+    const AUTHORED_SPEND: Record<string, number> = {
+      default: dollarsToCents(3500),
+      "paycheck-to-paycheck": dollarsToCents(3600),
+      "living-on-credit": dollarsToCents(3600),
+      "student-loan": dollarsToCents(3000),
+      "taxed-in-retirement": dollarsToCents(5500),
+    };
     for (const preset of PRESETS) {
       const lines = preset.plan.budgetLines ?? [];
       // No lines opens the Base + Adjustments editor onto an empty spending chart.
@@ -64,9 +73,7 @@ describe("default simulations", () => {
         (sum, line) => sum + (line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0),
         0,
       );
-      // Itemizing must not move the spend: the lines replace the scalar series wholesale,
-      // so their total is what the scenario was tuned against.
-      expect(total).toBe(preset.plan.expenseCents);
+      expect(total).toBe(AUTHORED_SPEND[preset.id]);
     }
   });
 
