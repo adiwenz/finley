@@ -413,12 +413,12 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     // $0. It must zero BOTH the income and the wage tax — you are not taxed on a paycheck you
     // did not receive.
     renderPanel(PLAN_DEFAULTS);
-    const monthOneTax = () =>
+    const firstRowTax = () =>
       (JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}").taxCents as number) ?? 0;
-    // Month 1 normally pays $5,000 of wages and is taxed on them.
-    expect(monthOneTax()).toBeGreaterThan(0);
+    // Month 0 — the first processed month — normally pays $5,000 of wages and is taxed on them.
+    expect(firstRowTax()).toBeGreaterThan(0);
 
-    selectMonth(1);
+    selectMonth(0);
     openOneOff();
     setOneOffKind("setTo");
     setOneOffAmount(0); // the missed-paycheck case
@@ -426,7 +426,7 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$0/i);
     expect(incomeReadonlyDollars()).toBe(0);
     // Taxed on $0 wages, not the full salary.
-    expect(monthOneTax()).toBe(0);
+    expect(firstRowTax()).toBe(0);
     // The override is a single month, so the next one is untouched.
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(5000);

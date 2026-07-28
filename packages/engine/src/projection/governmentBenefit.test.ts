@@ -50,7 +50,7 @@ describe("government-benefit accumulation + benefit seam", () => {
       priorEarningsCents: { 2020: dollarsToCents(40_000), 2021: dollarsToCents(40_000) },
     };
     const series = simulateHousehold(baseInput(person), nullJurisdiction);
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(0);
   });
 
   it("derives the monthly benefit from the accumulated record and injects it post-claim", () => {
@@ -72,9 +72,10 @@ describe("government-benefit accumulation + benefit seam", () => {
       benefitClaimingAge: 67, // claims from month 0 → benefit every simulated month
       priorEarningsCents: { 2020: dollarsToCents(40_000), 2021: dollarsToCents(40_000) },
     };
-    // total = $80,000 = 8,000,000 cents → benefit = 80,000 cents/mo ($800).
+    // total = $80,000 = 8,000,000 cents → benefit = 80,000 cents/mo ($800). Claimed from
+    // month 0, so months[0..11] each deposit once: 12 deposits by the end of year 0.
     const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
   });
 
   it("only pays from the claiming month onward (claiming age is the gate)", () => {
@@ -92,8 +93,8 @@ describe("government-benefit accumulation + benefit seam", () => {
     };
     const series = simulateHousehold(baseInput(person, { horizonMonths: 24 }), stub);
     expect(series.months[11].netWorthNominalCents).toBe(0);
-    // One deposit per month from 12 through 24 inclusive: 13 months.
-    expect(series.months[24].netWorthNominalCents).toBe(dollarsToCents(1_000) * 13);
+    // One deposit per processed month from 12 through 23 inclusive: 12 months.
+    expect(series.months[23].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
   });
 
   it("live (post-now) wage earnings feed the record, not just the pre-now seed", () => {
@@ -133,8 +134,9 @@ describe("government-benefit accumulation + benefit seam", () => {
       }),
       stub,
     );
-    // Months 1–12 of $5,000 wages accumulated before the claim was priced.
-    expect(seenTotal).toBe(dollarsToCents(5_000) * 12);
+    // Year 0 (2026, months 0–11) now accrues its full 12 covered-earnings months, plus month
+    // 12 (Jan 2027) folded in before the claim is priced: 13 wage-months of $5,000.
+    expect(seenTotal).toBe(dollarsToCents(5_000) * 13);
   });
 
   it("consults the jurisdiction's isCoveredEarnings predicate for what feeds the record", () => {
@@ -176,8 +178,9 @@ describe("government-benefit accumulation + benefit seam", () => {
       }),
       stub,
     );
-    // Only the $5,000 wages stream (months 1–12) counts; ordinaryIncome is excluded.
-    expect(seenTotal).toBe(dollarsToCents(5_000) * 12);
+    // Only the $5,000 wages stream counts; ordinaryIncome is excluded. Year 0's full 12
+    // months plus month 12 captured at claim pricing → 13 wage-months.
+    expect(seenTotal).toBe(dollarsToCents(5_000) * 13);
   });
 
   it("falls back to wages-only covered earnings when the jurisdiction omits the predicate", () => {
@@ -232,7 +235,7 @@ describe("government-benefit accumulation + benefit seam", () => {
       benefitClaimingAge: 67,
     };
     const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
   });
 
   it("inflates the post-claim benefit by the COLA (CPI) rate each year", () => {
@@ -253,8 +256,9 @@ describe("government-benefit accumulation + benefit seam", () => {
       birthYear: 1964, // turns 62 in 2026 → claims from month 0, no eligibility bridge
       benefitClaimingAge: 62,
     };
+    // Horizon 25 so month 24 (year 2028, the ×1.10² step) is a processed month.
     const series = simulateHousehold(
-      baseInput(person, { horizonMonths: 24, annualInflationRate: 0.1 }),
+      baseInput(person, { horizonMonths: 25, annualInflationRate: 0.1 }),
       stub,
     );
     const paidInMonth = (m: number) =>
@@ -304,7 +308,8 @@ describe("government-benefit accumulation + benefit seam", () => {
     };
     // annualInflationRate defaults to 0 in baseInput → COLA is a no-op.
     const series = simulateHousehold(baseInput(person, { horizonMonths: 24 }), stub);
-    expect(series.months[24].netWorthNominalCents).toBe(dollarsToCents(1_000) * 24);
+    // 24 processed months (0–23), each depositing $1,000 from the month-0 claim.
+    expect(series.months[23].netWorthNominalCents).toBe(dollarsToCents(1_000) * 24);
   });
 
   it("a jurisdiction may tax the whole benefit (no inclusion cap)", () => {
@@ -327,7 +332,7 @@ describe("government-benefit accumulation + benefit seam", () => {
       benefitClaimingAge: 67,
     };
     const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
   });
 
   it("benefitColaRate defaults to general inflation when unset", () => {

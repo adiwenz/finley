@@ -51,7 +51,7 @@ function monthlyGrossCents(
 /**
  * Debt already serviced at `month`, before this purchase — scheduled liability payments
  * (mortgages, loans, card minimums) from the projected month's flows. 0 when nothing is
- * owed: month 0 carries no flows, and an empty ledger none at all.
+ * owed: an empty ledger services none, and a month past the horizon has no entry.
  */
 function existingMonthlyDebtCents(series: ProjectionSeries, month: number): Cents {
   return series.months[month]?.flows?.liabilityPaymentsCents ?? 0;

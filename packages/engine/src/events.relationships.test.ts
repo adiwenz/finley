@@ -17,7 +17,7 @@ describe("RelationshipEvent", () => {
     // Replay doesn't crash; p2 is in state — not observable in the projection, but needed
     // by subsequent events.
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
-    expect(series.months.length).toBe(13);
+    expect(series.months.length).toBe(12);
   });
 });
 
@@ -55,8 +55,8 @@ describe("RelationshipEvent — partner jobs", () => {
       person: partnerWith2kJob(),
     });
     const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
-    // $2,000/mo earned by the partner across months 1–12 → $24,000.
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(24_000));
+    // $2,000/mo earned by the partner across the 12 processed months (0..11) → $24,000.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(24_000));
   });
 
   it("a separated partner's job income ends at separation", () => {
@@ -77,8 +77,9 @@ describe("RelationshipEvent — partner jobs", () => {
       childSupportMonthlyCents: 0,
     });
     const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
-    // Months 1–5 pay ($2,000 × 5 = $10,000); the job stops at separation.
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
+    // Processed months 0..5 pay before the month-6 separation ($2,000 × 6 = $12,000); the job
+    // stops at separation.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(12_000));
   });
 
   it("a partner with no jobs adds no income (single-earner plans unchanged)", () => {
@@ -90,7 +91,7 @@ describe("RelationshipEvent — partner jobs", () => {
       person: personLit("p2", "Bob"),
     });
     const series = replayLedger(ledger, jobsCfg, nullJurisdiction);
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(0);
   });
 });
 
@@ -201,8 +202,8 @@ describe("SeparationEvent", () => {
       childSupportMonthlyCents: 0,
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Months 1–5: $2000 × 5 = $10,000; months 6–12: $0
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(10_000));
+    // Processed months 0–5: $2000 × 6 = $12,000; months 6–11: $0 (income ends at separation).
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(12_000));
   });
 
   it("creates alimony expense stream after separation", () => {
@@ -227,8 +228,9 @@ describe("SeparationEvent", () => {
       childSupportMonthlyCents: 0,
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Alimony months 1–6: 6 × $1000 = $6000 expense → $14,000 remaining
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(14_000));
+    // Alimony is keyed to absolute months 1–6 (starts at the month-1 separation, duration 6):
+    // 6 × $1000 = $6000 expense → $14,000 remaining. Final state is month index 11.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(14_000));
   });
 
   it("child support expense runs indefinitely (no endMonth)", () => {
@@ -253,8 +255,9 @@ describe("SeparationEvent", () => {
       childSupportMonthlyCents: dollarsToCents(1_000),
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Child support months 1–12: 12 × $1000 = $12,000 → $0 remaining
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    // Child support runs from the month-0 separation across all 12 processed months (0..11):
+    // 12 × $1000 = $12,000 → $0 remaining
+    expect(series.months[11].netWorthNominalCents).toBe(0);
   });
 });
 
@@ -272,7 +275,7 @@ describe("ChildEvent", () => {
     });
     // Replay doesn't crash; the child entity is tracked internally.
     const series = replayLedger(ledger, baseConfig, nullJurisdiction);
-    expect(series.months.length).toBe(13);
+    expect(series.months.length).toBe(12);
   });
 
   it("annual cost spawns a bounded 18-year childCost expense that reduces net worth", () => {
@@ -292,7 +295,8 @@ describe("ChildEvent", () => {
       annualCostCents: dollarsToCents(12_000),
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    // $1,000/mo drains the $12,000 opening across all 12 processed months (0..11) → $0.
+    expect(series.months[11].netWorthNominalCents).toBe(0);
 
     // The derived series is a childCost expense bounded to exactly 18 years.
     const household = interpretLedger(ledger, cfg);

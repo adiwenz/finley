@@ -84,6 +84,8 @@ describe("usJurisdiction (US-2026)", () => {
       },
       usJurisdiction,
     );
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(1200));
+    // 12 flow-months of $100 land at months[11] (the 12th processed month) now that month 0
+    // is processed rather than a flow-free opening slot.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1200));
   });
 });

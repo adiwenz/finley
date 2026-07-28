@@ -275,9 +275,9 @@ describe("createProjectionBase — horizon spans to life expectancy", () => {
   it("projects from now to life expectancy, not a fixed 30 years", () => {
     const horizon = (currentAge: number, lifeExpectancy: number) =>
       project({ ...samplePlan, currentAge, lifeExpectancy }).months.length;
-    // months are [0 … (life − now)*12] inclusive → +1.
-    expect(horizon(35, 90)).toBe((90 - 35) * 12 + 1);
-    expect(horizon(25, 95)).toBe((95 - 25) * 12 + 1);
+    // months are [0 … (life − now)*12), one processed month each → length (life − now)*12.
+    expect(horizon(35, 90)).toBe((90 - 35) * 12);
+    expect(horizon(25, 95)).toBe((95 - 25) * 12);
     expect(horizon(35, 95)).toBeGreaterThan(horizon(35, 65));
   });
 });

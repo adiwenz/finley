@@ -52,7 +52,7 @@ export interface ProjectionMonth {
   readonly accountBasisCents: Readonly<Record<string, Cents>>;
   /** Positive = owed. */
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
-  /** The partial-payment / forbearance seam. Empty at month 0. */
+  /** The partial-payment / forbearance seam. Empty on {@link ProjectionSeries.opening}. */
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
   /**
    * From purchase month until sold. Equity is this value minus the matching
@@ -61,7 +61,7 @@ export interface ProjectionMonth {
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;
   /** True where the shortfall cascade exhausted all available credit. */
   readonly isInsolvent: boolean;
-  /** Absent on month 0 (no flows are processed at "now"). */
+  /** Present on every processed month; absent only on {@link ProjectionSeries.opening}. */
   readonly flows?: ProjectionMonthFlows;
 }
 
@@ -199,6 +199,17 @@ export interface ProjectionIncomeSource {
 }
 
 export interface ProjectionSeries {
+  /**
+   * The household as it stands NOW, before any flow runs — no income, compounding, or draws
+   * applied. Split out of {@link months} so every entry there is a real, processed month:
+   * this is the point the net-worth chart draws as "today", one month before {@link
+   * months}[0]'s end-of-month-0.
+   */
+  readonly opening: ProjectionMonth;
+  /**
+   * Every entry is a fully processed, end-of-month snapshot with `months[i].month === i`;
+   * `months[0..11]` all belong to calendar year 0, so year 0 accrues a full 12 flow-months.
+   */
   readonly months: readonly ProjectionMonth[];
 }
 

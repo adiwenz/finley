@@ -84,8 +84,9 @@ describe("goalRows — projection-based on-track %", () => {
   it("scores each goal by projected fund at target ÷ target, not saved-so-far", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
     const rows = goalRows(budget, project(budget));
-    // $1,500/mo surplus, all to priority-0 Goal A: $18,000 of $30,000 by month 12.
-    expect(rows[0]).toMatchObject({ id: "a", priority: 0, onTrackPct: 60 });
+    // $1,500/mo surplus, all to priority-0 Goal A. months[12] is the end of month 12, so 13
+    // processed months (0–12) have funded it — now that month 0 saves — → $19,500 of $30,000.
+    expect(rows[0]).toMatchObject({ id: "a", priority: 0, onTrackPct: 65 });
     // Goal B is starved behind A → 0% on track.
     expect(rows[1]).toMatchObject({ id: "b", priority: 1, onTrackPct: 0 });
   });
@@ -94,8 +95,8 @@ describe("goalRows — projection-based on-track %", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
     const reordered = { ...budget, goals: reorderGoal(budget.goals, "b", "up") };
     const rows = goalRows(reordered, project(reordered));
-    // Now B is funded first: it takes the 60%, and A drops to 0.
-    expect(rows.find((r) => r.id === "b")?.onTrackPct).toBe(60);
+    // Now B is funded first: it takes the 65%, and A drops to 0.
+    expect(rows.find((r) => r.id === "b")?.onTrackPct).toBe(65);
     expect(rows.find((r) => r.id === "a")?.onTrackPct).toBe(0);
   });
 
@@ -257,9 +258,9 @@ describe("updateGoal", () => {
 
   it("re-runs live: editing the target moves the on-track % (feedback loop)", () => {
     const before = { ...baseBudget, goals: [goalA] };
-    // goalA: $30k by month 12, $1,500/mo surplus → $18k → 60%.
-    expect(goalRows(before, project(before))[0].onTrackPct).toBe(60);
-    // Halve the target: the same $18k now clears it → capped 100%.
+    // goalA: $30k by month 12, $1,500/mo surplus over 13 processed months (0–12) → $19.5k → 65%.
+    expect(goalRows(before, project(before))[0].onTrackPct).toBe(65);
+    // Halve the target: the same $19.5k now clears it → capped 100%.
     const after = {
       ...baseBudget,
       goals: updateGoal(before.goals, "a", {

@@ -93,11 +93,11 @@ function bandForTaxOnlyKey(id: string): TaxSourceBand {
 }
 
 /**
- * Tax chart data from a projection series. One row per *flowed* month — month 0 is the
- * flow-free opening snapshot and is skipped — mirroring the income chart so the two line
- * up point-for-point on the shared axis. Σ `taxBySourceCents` equals `taxCents` by enforced
- * contract; the union of sources that ever carry tax becomes the bands, named from the
- * month's `incomeSources` where available.
+ * Tax chart data from a projection series. One row per flowed month — every entry in `months`
+ * now carries flows (the flow-free "now" rides `series.opening`, outside this loop), so the
+ * guard below only trips on a defensively-empty snapshot. Σ `taxBySourceCents` equals
+ * `taxCents` by enforced contract; the union of sources that ever carry tax becomes the bands,
+ * named from the month's `incomeSources` where available.
  */
 export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   const rows: TaxMonthRow[] = [];
@@ -113,7 +113,7 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
 
   for (const m of series.months) {
     const flows = m.flows;
-    if (flows === undefined) continue; // month 0 / any flow-free snapshot
+    if (flows === undefined) continue; // defensive: a flow-free snapshot carries no tax
     for (const s of flows.incomeSources ?? []) {
       if (!registry.has(s.sourceId)) registry.set(s.sourceId, { label: s.label, category: s.category });
     }

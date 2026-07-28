@@ -30,8 +30,8 @@ function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInpu
 
 describe("buildSimulationReport", () => {
   it("emits one row per simulated month with year and age axes", () => {
-    const report = buildSimulationReport(baseInput(), nullJurisdiction);
-    expect(report.months).toHaveLength(13); // horizon 12 → months 0..12
+    const report = buildSimulationReport(baseInput({ horizonMonths: 13 }), nullJurisdiction);
+    expect(report.months).toHaveLength(13); // horizon 13 → processed months 0..12
     expect(report.months[0]).toMatchObject({ month: 0, year: 2026, ageByPerson: { p1: 35 } });
     // Month 12 rolls into the next calendar year → age ticks up.
     expect(report.months[12]).toMatchObject({ month: 12, year: 2027, ageByPerson: { p1: 36 } });
@@ -119,20 +119,19 @@ describe("buildSimulationReport", () => {
     for (const a of report.assumptions) expect(a.text.length).toBeGreaterThan(0);
   });
 
-  it("surfaces cash flows per month (month 0 flow-free; month 1 carries income and expenses)", () => {
+  it("surfaces cash flows per month — every row is a processed month, month 0 included", () => {
     const report = buildSimulationReport(baseInput(), nullJurisdiction);
-    expect(report.months[0].totalIncomeCents).toBe(0);
-    expect(report.months[0].incomeByCategoryCents).toEqual({});
-
-    const m1 = report.months[1];
-    expect(m1.totalIncomeCents).toBe(dollarsToCents(3000));
-    expect(m1.expensesCents).toBe(dollarsToCents(2000));
-    expect(m1.governmentRetirementBenefitCents).toBe(0);
+    // The flow-free snapshot now rides `series.opening`, outside the report; months[0] is the
+    // first processed month and carries the same income/expenses as any other.
+    const m0 = report.months[0];
+    expect(m0.totalIncomeCents).toBe(dollarsToCents(3000));
+    expect(m0.expensesCents).toBe(dollarsToCents(2000));
+    expect(m0.governmentRetirementBenefitCents).toBe(0);
   });
 
   it("reports the tax the jurisdiction seam charged, so it is inspectable and not just folded into take-home", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
-    expect(buildSimulationReport(baseInput(), nullJurisdiction).months[1].taxCents).toBe(0);
+    expect(buildSimulationReport(baseInput(), nullJurisdiction).months[0].taxCents).toBe(0);
 
     // Flat 10%: $3,000 of wages → $300 of tax on the row, and the household is $300 poorer
     // (income 3000 − expenses 2000 − tax 300).
@@ -151,9 +150,9 @@ describe("buildSimulationReport", () => {
       },
     };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
-    expect(report.months[1].taxCents).toBe(dollarsToCents(300));
-    expect(report.months[0].taxCents).toBe(0); // month 0 is flow-free
-    expect(report.months[1].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 700));
+    // Month 0 is now a processed, taxed month: $300 tax, and savings up $700 after its flows.
+    expect(report.months[0].taxCents).toBe(dollarsToCents(300));
+    expect(report.months[0].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 700));
   });
 
   it("lists column keys for accounts and income categories", () => {

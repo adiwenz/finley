@@ -96,6 +96,25 @@ describe("HomePurchaseEvent", () => {
     expect(m3.netWorthNominalCents).toBe(10_000_000);
   });
 
+  it("takes the down payment for a purchase authored at month 0 (no free equity)", () => {
+    // Month 0 is a real processed month now, so a Year-0 purchase drains its source in
+    // months[0] rather than silently skipping the draw and granting the property's equity for
+    // free. Net worth is conserved: −DOWN cash, +PRICE property, −FINANCED mortgage.
+    const base = baseWith(10_000_000);
+    const ledger = addWithBase(emptyLedger, base, purchase({ month: 0 }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // `opening` is untouched — the purchase hasn't run at "now".
+    expect(series.opening.accountBalancesCents.savings).toBe(10_000_000);
+    expect(series.opening.propertyValuesCents.house1 ?? 0).toBe(0);
+
+    const m0 = series.months[0];
+    expect(m0.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
+    expect(m0.liabilityBalancesCents.mtg1).toBe(FINANCED);
+    expect(m0.propertyValuesCents.house1).toBe(PRICE);
+    expect(m0.netWorthNominalCents).toBe(10_000_000);
+  });
+
   it("appreciates the property value at the base inflation rate by default", () => {
     const base = baseWith(10_000_000, 0.12); // 12%/yr inflation
     const ledger = addWithBase(emptyLedger, base, purchase({ month: 1 }));
@@ -600,7 +619,8 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
 
 describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same month", () => {
   // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain. Alone it
-  // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment.
+  // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment. Purchase
+  // at month 23: months[23] holds those 24 flow-months of growth now that month 0 is processed.
   const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
   const twoBrokerages = () =>
     baseWithAccounts([
@@ -609,7 +629,7 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     ]);
   const secondPurchase = purchase({
     id: "buy2",
-    month: 24,
+    month: 23,
     propertyId: "house2",
     mortgageLiabilityId: "mtg2",
     downPaymentSourceIds: ["brokerage-b"],
@@ -621,7 +641,7 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     const first = addEvent(
       emptyLedger,
       base,
-      purchase({ month: 24, downPaymentSourceIds: ["brokerage-a"] }),
+      purchase({ month: 23, downPaymentSourceIds: ["brokerage-a"] }),
       jur,
     );
     expect(first.ok).toBe(true);

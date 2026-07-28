@@ -213,7 +213,9 @@ export function snapshotAt(
   },
 ): HouseholdSnapshot {
   const base: LedgerBaseConfig = {
-    horizonMonths: opts?.projection ? opts.projection.months.length - 1 : 0,
+    // `months.length` IS the horizon now that the opening snapshot rides a separate field
+    // rather than occupying months[0].
+    horizonMonths: opts?.projection ? opts.projection.months.length : 0,
     annualInflationRate: 0,
     initialPersons: opts?.initialPersons,
   };

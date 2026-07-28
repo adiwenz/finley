@@ -36,7 +36,7 @@ export interface IncomeMonthRow {
   readonly takeHomeCents: number;
   /**
    * Obligations the income must cover: expenses + scheduled liability payments (the
-   * waterfall's `sharedObligationCents`). 0 when flows are absent (month 0).
+   * waterfall's `sharedObligationCents`). 0 only on a flow-free snapshot.
    */
   readonly spendingNeedCents: number;
 }
@@ -81,8 +81,9 @@ function categoryRank(category: string): number {
 }
 
 /**
- * One row per *flowed* month (month 0 is the flow-free opening snapshot, skipped). Sources
- * carrying nothing across the whole horizon are dropped rather than shown as empty bands.
+ * One row per flowed month. Every entry in `months` is processed now — the flow-free "now" is
+ * `series.opening`, outside this loop — so month 0 is the first row. Sources carrying nothing
+ * across the whole horizon are dropped rather than shown as empty bands.
  */
 export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData {
   const rows: IncomeMonthRow[] = [];
@@ -94,7 +95,7 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
 
   for (const m of series.months) {
     const sources = m.flows?.incomeSources;
-    if (sources === undefined) continue; // month 0 / any flow-free snapshot
+    if (sources === undefined) continue; // defensive: a flow-free snapshot has no sources
 
     const centsBySource: Record<string, number> = {};
     const netCentsBySource: Record<string, number> = {};

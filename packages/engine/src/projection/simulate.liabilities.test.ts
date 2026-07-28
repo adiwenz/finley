@@ -54,7 +54,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     });
     const series = simulateHousehold(
       {
-        horizonMonths: 12,
+        // 13 processed months (0..12) so month 12 — the term-end payoff month, first payment
+        // at month 1 → 12 payments through month 12 — is a real array slot.
+        horizonMonths: 13,
         annualInflationRate: 0,
         persons: [makePerson()],
         accounts: [acc],
@@ -91,10 +93,11 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       },
       nullJurisdiction,
     );
-    // Owed every month up to the term, then exactly retired — no rounding tail.
+    // Owed every month up to the term, then exactly retired — no rounding tail. The final
+    // slot is months[17] now (18 processed months, 0..17); it stays 0 well past the term.
     expect(series.months[11].liabilityBalancesCents["car"]).toBeGreaterThan(0);
     expect(series.months[12].liabilityBalancesCents["car"]).toBe(0);
-    expect(series.months[18].liabilityBalancesCents["car"]).toBe(0);
+    expect(series.months[17].liabilityBalancesCents["car"]).toBe(0);
   });
 
   it("a loan that originates mid-timeline is absent before its startMonth", () => {
@@ -128,7 +131,7 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     // Amortizes only after origination (first payment at startMonth + 1).
     expect(bal(25)).toBe(dollarsToCents(11_000));
     expect(bal(36)).toBe(0); // retired exactly one term (12 months) later
-    expect(bal(40)).toBe(0);
+    expect(bal(39)).toBe(0); // final slot (40 processed months, 0..39) — still retired
     // Net worth reflects the loan only from origination onward.
     expect(series.months[23].netWorthNominalCents).toBe(dollarsToCents(50_000));
     expect(series.months[24].netWorthNominalCents).toBe(dollarsToCents(38_000));
@@ -148,14 +151,15 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[3].accountBalancesCents["investment"]).toBeGreaterThanOrEqual(0);
-    expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeGreaterThan(0);
+    // Final of 3 processed months (0..2): three months of shortfall have accrued on the card.
+    expect(series.months[2].accountBalancesCents["investment"]).toBeGreaterThanOrEqual(0);
+    expect(series.months[2].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeGreaterThan(0);
     // A modest shortfall stays under the synthetic card's finite limit, so the plan is
     // still financeable.
-    expect(series.months[3].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThan(
+    expect(series.months[2].liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThan(
       SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
     );
-    expect(series.months[3].isInsolvent).toBe(false);
+    expect(series.months[2].isInsolvent).toBe(false);
   });
 
   it("isInsolvent=true once a sustained shortfall exhausts the synthetic card's limit", () => {
@@ -182,8 +186,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
         SYNTHETIC_CARD_CREDIT_LIMIT_CENTS * 1.1,
       );
     }
-    // Once the deficit outruns all available credit, the plan is flagged insolvent.
-    expect(series.months[6].isInsolvent).toBe(true);
+    // Once the deficit outruns all available credit, the plan is flagged insolvent. Final of
+    // 6 processed months (0..5) — the deficit has long since exhausted the card by here.
+    expect(series.months[5].isInsolvent).toBe(true);
     const firstInsolvent = series.months.find((m) => m.isInsolvent);
     expect(firstInsolvent).toBeDefined();
   });
@@ -199,7 +204,10 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     });
     const series = simulateHousehold(
       {
-        horizonMonths: 1,
+        // A card only absorbs shortfalls the month AFTER its startMonth (0), so month 1 is
+        // the first where its $100 limit is actually tested against the deficit; run 2
+        // processed months (0..1) so that month exists.
+        horizonMonths: 2,
         annualInflationRate: 0,
         persons: [makePerson()],
         accounts: [acc],
@@ -254,7 +262,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     acc.addTransfer({ month: 1, proportionalFraction: -0.2 });
     const series = simulateHousehold(
       {
-        horizonMonths: 2,
+        // 3 processed months (0..2) so month 2 exists to confirm the month-1 transfer isn't
+        // re-applied afterward.
+        horizonMonths: 3,
         annualInflationRate: 0,
         persons: [],
         accounts: [acc],
@@ -264,6 +274,7 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       },
       nullJurisdiction,
     );
+    // Transfer lands at its authored month 1; the balance then holds at $8k.
     expect(series.months[1].accountBalancesCents["investment"]).toBe(dollarsToCents(8_000));
     expect(series.months[2].accountBalancesCents["investment"]).toBe(dollarsToCents(8_000));
   });
@@ -274,7 +285,8 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     acc.addTransfer({ month: 1, amountCents: dollarsToCents(1_000), proportionalFraction: -0.1 });
     const series = simulateHousehold(
       {
-        horizonMonths: 1,
+        // 2 processed months (0..1) so the transfer's authored month 1 is a real slot.
+        horizonMonths: 2,
         annualInflationRate: 0,
         persons: [],
         accounts: [acc],
@@ -344,7 +356,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
         termMonths: 60,
       });
     const base = {
-      horizonMonths: 60,
+      // 61 processed months (0..60) so month 60 — the 60-term loan's payoff month, first
+      // payment at month 1 → retired at month 60 — is a real slot.
+      horizonMonths: 61,
       annualInflationRate: 0,
       persons: [makePerson()],
       accounts: [makeInvestmentAccount(dollarsToCents(1_000_000), 0)],
@@ -416,7 +430,9 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     });
     const series = simulateHousehold(
       {
-        horizonMonths: 1,
+        // A card only absorbs shortfalls the month AFTER its startMonth (0), so it first fills
+        // at month 1; run 2 processed months (0..1) so that month exists.
+        horizonMonths: 2,
         annualInflationRate: 0,
         persons: [makePerson()],
         accounts: [acc],

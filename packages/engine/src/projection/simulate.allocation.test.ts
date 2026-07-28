@@ -46,8 +46,9 @@ describe("simulateHousehold — allocation waterfall", () => {
       nullJurisdiction,
     );
     // $500/mo deferred → $1500 after 3 months; take-home $4500/mo → $13,500 in checking.
-    expect(series.months[3].accountBalancesCents["401k"]).toBe(dollarsToCents(1500));
-    expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(13500));
+    // 3 processed months are months[0..2]; the final one, months[2], holds the accumulation.
+    expect(series.months[2].accountBalancesCents["401k"]).toBe(dollarsToCents(1500));
+    expect(series.months[2].accountBalancesCents["investment"]).toBe(dollarsToCents(13500));
   });
 
   it("the annual deferral cap is enforced across the calendar year", () => {
@@ -77,7 +78,7 @@ describe("simulateHousehold — allocation waterfall", () => {
       cappingJurisdiction,
     );
     // Year one is months 0–11 (ctx.year = startYear + floor(month/12)); deferrals in
-    // months 1–11 cap at $12,000, against an uncapped 11×$5000 = $55,000.
+    // months 0–11 cap at $12,000, against an uncapped 12×$5000 = $60,000.
     expect(series.months[11].accountBalancesCents["401k"]).toBe(dollarsToCents(12000));
     // Month 12 opens the next calendar year and the room resets → $24,000 cumulative.
     expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(24000));
@@ -135,9 +136,10 @@ describe("simulateHousehold — allocation waterfall", () => {
       },
       catchUpJurisdiction,
     );
-    // The over-50 partner caps at $15,000 (base + catch-up); the younger at $12,000.
-    expect(series.months[11].accountBalancesCents["401k-a"]).toBe(dollarsToCents(15000));
-    expect(series.months[11].accountBalancesCents["401k-b"]).toBe(dollarsToCents(12000));
+    // The over-50 partner caps at $15,000 (base + catch-up); the younger at $12,000. Both
+    // caps bind within year 0; read them at the last processed month, months[10] (horizon 11).
+    expect(series.months[10].accountBalancesCents["401k-a"]).toBe(dollarsToCents(15000));
+    expect(series.months[10].accountBalancesCents["401k-b"]).toBe(dollarsToCents(12000));
   });
 
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
@@ -155,8 +157,8 @@ describe("simulateHousehold — allocation waterfall", () => {
       },
       nullJurisdiction,
     );
-    // $1000 opening + $1000/mo net for 12 months = $13,000.
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(13000));
+    // $1000 opening + $1000/mo net for 12 months = $13,000; the 12th flow-month is months[11].
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(13000));
   });
 
   it("surplus swept to an investment account instead of idling in liquid (lever 4)", () => {
@@ -181,8 +183,9 @@ describe("simulateHousehold — allocation waterfall", () => {
       },
       nullJurisdiction,
     );
-    expect(series.months[6].accountBalancesCents["brokerage"]).toBe(dollarsToCents(12000));
-    expect(series.months[6].accountBalancesCents["investment"]).toBe(0);
+    // $2000/mo swept for 6 months = $12,000; the 6th flow-month is months[5].
+    expect(series.months[5].accountBalancesCents["brokerage"]).toBe(dollarsToCents(12000));
+    expect(series.months[5].accountBalancesCents["investment"]).toBe(0);
   });
 
   /** A rate-0 fund account so a goal's balance moves only by deposit/disposition. */
@@ -198,8 +201,9 @@ describe("simulateHousehold — allocation waterfall", () => {
   }
 
   describe("a matured goal never fires — the fund simply stays put (#150)", () => {
-    // $2000/mo income, no expenses; the goal funds $2000/mo and hits its $4000 target
-    // exactly at month 2, its target date. A goal never moves its own money out — only a
+    // $2000/mo income, no expenses; the goal funds $2000/mo and, now that month 0 is a
+    // processed funding month, its sinking-fund pace hits the $4000 target at month 1 — one
+    // month inside its month-2 target date. A goal never moves its own money out — only a
     // timeline event does — so maturity is a no-op whatever the descriptive disposition.
     const goalScenario = (disposition: "retain" | "drawDown") => ({
       horizonMonths: 4,
@@ -226,15 +230,16 @@ describe("simulateHousehold — allocation waterfall", () => {
       "a `%s` goal's fund stays in the account and in net worth past its target date",
       (disposition) => {
         const series = simulateHousehold(goalScenario(disposition), nullJurisdiction);
-        // Month 2 (target): the fund shows AT target — the goal reads as achieved.
-        expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
-        expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(4000));
-        // Month 3: fund unchanged (nothing fired, no equity synthesized), plus this month's
+        // Month 1: the fund is AT target — the goal reads as achieved, all income absorbed,
+        // nothing idle yet → net worth $4000.
+        expect(series.months[1].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+        expect(series.months[1].netWorthNominalCents).toBe(dollarsToCents(4000));
+        // Month 2: fund unchanged (nothing fired, no equity synthesized), plus this month's
         // $2000 idling in the liquid account → $6000.
-        expect(series.months[3].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
-        expect(series.months[3].propertyValuesCents["goal-equity-x"]).toBeUndefined();
-        expect(series.months[3].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
-        expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(6000));
+        expect(series.months[2].accountBalancesCents["goal-x"]).toBe(dollarsToCents(4000));
+        expect(series.months[2].propertyValuesCents["goal-equity-x"]).toBeUndefined();
+        expect(series.months[2].accountBalancesCents["investment"]).toBe(dollarsToCents(2000));
+        expect(series.months[2].netWorthNominalCents).toBe(dollarsToCents(6000));
       },
     );
   });
@@ -272,11 +277,11 @@ describe("simulateHousehold — allocation waterfall", () => {
       },
       nullJurisdiction,
     );
-    // Months 1–2 fill the goal to $5000 ($2000 + $2000 + $1000), then surplus idles.
-    expect(series.months[3].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
-    expect(series.months[6].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
-    // Once capped, the rest idles in checking: $1000 in month 3, $2000 in months 4–6.
-    expect(series.months[6].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
+    // Months 0–2 fill the goal to $5000 ($2000 + $2000 + $1000), then surplus idles.
+    expect(series.months[2].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    expect(series.months[5].accountBalancesCents["emergency"]).toBe(dollarsToCents(5000));
+    // Once capped, the rest idles in checking: $1000 in month 2, $2000 in months 3–5.
+    expect(series.months[5].accountBalancesCents["investment"]).toBe(dollarsToCents(7000));
   });
 
   describe("dated goals amortize to their deadline", () => {
@@ -319,11 +324,12 @@ describe("simulateHousehold — allocation waterfall", () => {
 
     it("amortizes the far goal along a rising path instead of filling it then idling", () => {
       const series = simulateHousehold(scenario(1, 2), nullJurisdiction);
-      const far0 = series.months[1].accountBalancesCents["far-fund"];
-      const far6 = series.months[6].accountBalancesCents["far-fund"];
-      const far12 = series.months[12].accountBalancesCents["far-fund"];
-      // Fill-then-idle would land the full $12k in month 1; a paced path starts small,
-      // climbs monotonically, and reaches the target only at the month-12 deadline.
+      const far0 = series.months[0].accountBalancesCents["far-fund"];
+      const far6 = series.months[5].accountBalancesCents["far-fund"];
+      const far12 = series.months[11].accountBalancesCents["far-fund"];
+      // Fill-then-idle would land the full $12k in month 0; a paced path starts small,
+      // climbs monotonically, and reaches the target only as its month-12 deadline arrives —
+      // now the final processed month, months[11], since month 0 joined the funding schedule.
       expect(far0).toBeGreaterThan(0);
       expect(far0).toBeLessThan(dollarsToCents(2000));
       expect(far6).toBeGreaterThan(far0);
@@ -334,10 +340,12 @@ describe("simulateHousehold — allocation waterfall", () => {
     it("both affordable goals reach 100% regardless of priority order", () => {
       const forward = simulateHousehold(scenario(1, 2), nullJurisdiction);
       const reversed = simulateHousehold(scenario(2, 1), nullJurisdiction);
-      // The near goal is fully funded by its month-6 deadline; read its balance there.
+      // The near goal is fully funded by its month-6 deadline; read its balance there. The
+      // far goal completes as its month-12 deadline arrives — the final processed month,
+      // months[11], now that month 0 is a funding month.
       for (const s of [forward, reversed]) {
         expect(s.months[6].accountBalancesCents["near-fund"]).toBe(dollarsToCents(6000));
-        expect(s.months[12].accountBalancesCents["far-fund"]).toBe(dollarsToCents(12000));
+        expect(s.months[11].accountBalancesCents["far-fund"]).toBe(dollarsToCents(12000));
       }
     });
   });

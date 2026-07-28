@@ -23,8 +23,8 @@ describe("income series (BudgetItemStartEvent)", () => {
       taxCategory: "wages",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // $5000/mo × 12 months = $60,000
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(60_000));
+    // $5000/mo × 12 processed months (0..11) = $60,000
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(60_000));
   });
 
   it("ending an income series and starting a new one swaps the active income", () => {
@@ -64,9 +64,9 @@ describe("income series (BudgetItemStartEvent)", () => {
       taxCategory: "wages",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // Old job ends at month 5 (endMonth = 6−1), new job starts at 6:
-    // 5 × $3000 + 7 × $6000 = $57,000
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(57_000));
+    // Processed months 0..11. Old job ends at month 5 (endMonth = 6−1) → active 0..5 (6 months);
+    // new job starts at 6 → active 6..11 (6 months): 6 × $3000 + 6 × $6000 = $54,000.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(54_000));
   });
 });
 
@@ -88,8 +88,8 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       growthMode: { type: "fixed" },
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // $24,000 opening − $2000/mo × 12 = $0
-    expect(series.months[12].netWorthNominalCents).toBe(0);
+    // $24,000 opening − $2000/mo × 12 processed months (0..11) = $0
+    expect(series.months[11].netWorthNominalCents).toBe(0);
   });
 
   it("BudgetItemEndEvent ends the expense series at month−1", () => {
@@ -116,8 +116,8 @@ describe("BudgetItemStartEvent / BudgetItemEndEvent", () => {
       seriesId: "rent",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // 5 active months × $1000 → $7000 left
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(7_000));
+    // Active months 0..5 (endMonth = 6−1) → 6 months × $1000 = $6000 spent → $6000 left.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(6_000));
   });
 });
 
@@ -137,8 +137,8 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       initialIncomeSeries: [{ series: income, ownerId: "p1" }],
     };
     const series = replayLedger(emptyLedger, cfg, nullJurisdiction);
-    // $4000/mo × 12 = $48,000
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(48_000));
+    // $4000/mo × 12 processed months (0..11) = $48,000
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(48_000));
   });
 
   it("base expense series net against event-derived income", () => {
@@ -166,8 +166,8 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       taxCategory: "wages",
     });
     const series = replayLedger(ledger, cfg, nullJurisdiction);
-    // ($3000 − $1000)/mo × 12 = $24,000
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(24_000));
+    // ($3000 − $1000)/mo × 12 processed months (0..11) = $24,000
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(24_000));
   });
 
   it("a fromHereForward value override on a base series changes the trajectory", () => {
@@ -186,8 +186,8 @@ describe("initialIncomeSeries / initialExpenseSeries", () => {
       initialExpenseSeries: [{ series: expense, ownerId: "p1" }],
     };
     const series = replayLedger(emptyLedger, cfg, nullJurisdiction);
-    // Flow lands months 1–12; the fromHereForward override covers 6–12:
-    // 5 × $1000 + 7 × $2000 = $19,000 spent.
-    expect(series.months[12].netWorthNominalCents).toBe(dollarsToCents(81_000));
+    // Flow lands processed months 0–11; the fromHereForward override covers 6–11:
+    // 6 × $1000 + 6 × $2000 = $18,000 spent → $82,000 left.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(82_000));
   });
 });

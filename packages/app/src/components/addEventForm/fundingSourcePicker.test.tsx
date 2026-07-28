@@ -121,18 +121,18 @@ describe("down-payment source picker", () => {
 // count it. So an emptied account stays listed at $0 — greyed, disabled — and is dropped from
 // the selection; what is on screen is what the event carries.
 //
-// Default plan, months 360 → 420: cash savings holds $160,244.24 at 360 and is drained to
-// exactly $0 by 420 (retirement decumulation), while the home fund ($48,288.72) and emergency
-// fund ($20,607.02) still hold money — so a drained account is distinguishable from an empty
-// plan.
+// Default plan, months 360 → 420: cash savings holds ~$160,632 at 360 (a flow-month higher
+// than before now that month 0 is processed) and is drained to exactly $0 by 420 (retirement
+// decumulation), while the home and emergency funds still hold money — so a drained account is
+// distinguishable from an empty plan.
 const FUNDED_MONTH = 360;
 const DRAINED_MONTH = 420;
 
 describe("down-payment source picker — an account that empties at a later month", () => {
   it("keeps the drained account listed at $0, greyed out and unpickable", () => {
     renderForm(FUNDED_MONTH);
-    fireEvent.click(box(/Cash savings/)); // pick it while it still holds $160,244.24
-    expect(box(/Cash savings/).getAttribute("aria-label")).toMatch(/\$160,244 available/);
+    fireEvent.click(box(/Cash savings/)); // pick it while it still holds ~$160,632
+    expect(box(/Cash savings/).getAttribute("aria-label")).toMatch(/\$160,632 available/);
 
     setMonth(DRAINED_MONTH);
 

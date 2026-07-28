@@ -75,13 +75,13 @@ describe("Desired-withdrawal decumulation channel", () => {
       }),
       nullJurisdiction,
     );
-    expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(98_000));
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(0);
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(98_000));
+    expect(series.months[0].accountBalancesCents["cash"]).toBe(0);
     // Synthetic card never touched — no "retiring onto a credit card".
-    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+    for (const [, bal] of Object.entries(series.months[0].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
-    expect(series.months[1].isInsolvent).toBe(false);
+    expect(series.months[0].isInsolvent).toBe(false);
   });
 
   it("spends the liquid buffer down to 0 before selling investments", () => {
@@ -92,8 +92,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       nullJurisdiction,
     );
     // $2k need, $1.2k in cash → only $800 comes out of the brokerage; cash drains to 0.
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(0);
-    expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(99_200));
+    expect(series.months[0].accountBalancesCents["cash"]).toBe(0);
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(99_200));
   });
 
   it("drains taxable before pre-tax (liquidation order)", () => {
@@ -109,8 +109,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       nullJurisdiction,
     );
     // $2k need: brokerage ($1k taxable) empties first, then $1k from pre-tax.
-    expect(series.months[1].accountBalancesCents["brokerage"]).toBe(0);
-    expect(series.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(99_000));
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(0);
+    expect(series.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(99_000));
   });
 
   it("injects a pre-tax draw as ordinaryIncome in the flows (taxed once at the chokepoint)", () => {
@@ -120,7 +120,7 @@ describe("Desired-withdrawal decumulation channel", () => {
       }),
       nullJurisdiction,
     );
-    expect(series.months[1].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
+    expect(series.months[0].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
       dollarsToCents(2_000),
     );
   });
@@ -140,8 +140,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       nullJurisdiction,
     );
     // Income > expenses → brokerage untouched, surplus idles in cash.
-    expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(100_000));
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(100_000));
+    expect(series.months[0].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
   });
 
   function goal(id: string, disposal: GoalDisposal): SimGoal {
@@ -158,7 +158,7 @@ describe("Desired-withdrawal decumulation channel", () => {
 
   it("draws a goal fund reaching its target month — no disposition earmarks or fires it (#150)", () => {
     // At its target month the fund is neither earmarked out nor zeroed, so it stays drawable.
-    const maturing = goal("home", { disposition: "retain", targetDate: 1 }); // target IS this month
+    const maturing = goal("home", { disposition: "retain", targetDate: 1 }); // target IS month 1
     const series = simulateHousehold(
       baseInput(
         [
@@ -169,7 +169,10 @@ describe("Desired-withdrawal decumulation channel", () => {
       ),
       nullJurisdiction,
     );
-    expect(series.months[1].accountBalancesCents["goal-home"]).toBe(dollarsToCents(48_000));
+    // Read at the target month (month 1, absolute): months 0 and 1 have each drawn $2k to
+    // cover expenses, so the fund sits at $50k − 2·$2k = $46k — still positive, proving the
+    // target neither earmarked it out nor zeroed it.
+    expect(series.months[1].accountBalancesCents["goal-home"]).toBe(dollarsToCents(46_000));
     for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
@@ -188,8 +191,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       ),
       nullJurisdiction,
     );
-    expect(series.months[1].accountBalancesCents["goal-reserve"]).toBe(dollarsToCents(48_000));
-    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+    expect(series.months[0].accountBalancesCents["goal-reserve"]).toBe(dollarsToCents(48_000));
+    for (const [, bal] of Object.entries(series.months[0].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
   });
@@ -208,8 +211,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       ),
       nullJurisdiction,
     );
-    expect(series.months[1].accountBalancesCents["goal-nestegg"]).toBe(dollarsToCents(48_000));
-    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+    expect(series.months[0].accountBalancesCents["goal-nestegg"]).toBe(dollarsToCents(48_000));
+    for (const [, bal] of Object.entries(series.months[0].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
   });
@@ -223,7 +226,7 @@ describe("Desired-withdrawal decumulation channel", () => {
       requiredMinimumDistributionCents: (preTaxBalanceCents, ctx) =>
         ctx.age >= 73 ? Math.min(preTaxBalanceCents, dollarsToCents(requiredDollars)) : 0,
     });
-    // Age 75 in 2026 → past the RMD start age, so the seam fires at month 1.
+    // Age 75 in 2026 → past the RMD start age, so the seam fires at month 0.
     const rmdAgePerson: SimPerson = { id: "p1", name: "You", birthYear: 2026 - 75 };
     const accounts = () => [
       account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
@@ -238,12 +241,12 @@ describe("Desired-withdrawal decumulation channel", () => {
       }),
       rmdJurisdiction(1_000),
     );
-    expect(desiredWins.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(98_000));
+    expect(desiredWins.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(98_000));
     // RMD + desired taxed once as ordinaryIncome.
-    expect(desiredWins.months[1].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
+    expect(desiredWins.months[0].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
       dollarsToCents(2_000),
     );
-    for (const [, bal] of Object.entries(desiredWins.months[1].liabilityBalancesCents)) {
+    for (const [, bal] of Object.entries(desiredWins.months[0].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
 
@@ -256,8 +259,8 @@ describe("Desired-withdrawal decumulation channel", () => {
       }),
       rmdJurisdiction(5_000),
     );
-    expect(requiredWins.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(95_000));
-    expect(requiredWins.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
+    expect(requiredWins.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(95_000));
+    expect(requiredWins.months[0].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
   });
 
   it("grosses up a pre-tax draw so it nets the needed cash under a flat tax", () => {
@@ -277,11 +280,11 @@ describe("Desired-withdrawal decumulation channel", () => {
       flatTax,
     );
     // Gross ≈ 2000 / (1 − 0.25) ≈ $2,666.67 leaves pre-tax.
-    const drawn = dollarsToCents(100_000) - series.months[1].accountBalancesCents["pretax"];
+    const drawn = dollarsToCents(100_000) - series.months[0].accountBalancesCents["pretax"];
     expect(drawn).toBeGreaterThanOrEqual(dollarsToCents(2_666));
     expect(drawn).toBeLessThanOrEqual(dollarsToCents(2_668));
     // Cash lands ~0 — single-pass residual only.
-    expect(Math.abs(series.months[1].accountBalancesCents["cash"])).toBeLessThan(dollarsToCents(5));
+    expect(Math.abs(series.months[0].accountBalancesCents["cash"])).toBeLessThan(dollarsToCents(5));
   });
 
   it("does NOT tax a tax-exempt draw: it comes out one-for-one, not grossed up (contrast with pre-tax)", () => {
@@ -302,9 +305,9 @@ describe("Desired-withdrawal decumulation channel", () => {
       flatTax,
     );
     // Exactly $2k drawn; a pre-tax draw would have been ~$2,667.
-    expect(series.months[1].accountBalancesCents["taxexempt"]).toBe(dollarsToCents(98_000));
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(0);
-    for (const [, bal] of Object.entries(series.months[1].liabilityBalancesCents)) {
+    expect(series.months[0].accountBalancesCents["taxexempt"]).toBe(dollarsToCents(98_000));
+    expect(series.months[0].accountBalancesCents["cash"]).toBe(0);
+    for (const [, bal] of Object.entries(series.months[0].liabilityBalancesCents)) {
       expect(bal).toBe(0);
     }
   });

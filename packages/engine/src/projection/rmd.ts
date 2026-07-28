@@ -18,12 +18,12 @@ export interface RmdState {
 }
 
 /**
- * The year's single RMD event lands on its first processed month: month 0 is the opening
- * snapshot and months 1–11 are the start year, so month 1 carries it, and every 12th month
- * opens a new calendar year. Keeps the forced withdrawal annual rather than twelvefold.
+ * The year's single RMD event lands on its first processed month — month 0 for the start
+ * year, then every 12th month as a new calendar year opens. Keeps the forced withdrawal
+ * annual rather than twelvefold.
  */
 function isRmdTriggerMonth(month: number): boolean {
-  return month > 0 && (month === 1 || month % 12 === 0);
+  return month % 12 === 0;
 }
 
 /**

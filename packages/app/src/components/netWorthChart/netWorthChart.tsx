@@ -34,23 +34,34 @@ export function NetWorthChart({
   series: ProjectionSeries;
   retirementMonth?: number | null;
 }) {
-  const data: Point[] = series.months.map((m) => ({
-    month: m.month,
-    nominalCents: m.netWorthNominalCents,
-    realCents: m.netWorthRealCents,
-  }));
+  // The x-axis is "months from now": `opening` (today) plots at 0 and each processed month at
+  // `month + 1`. The shift keeps today and end-of-month-0 — a genuine month apart — from
+  // collapsing onto x=0, where the line between them would read as a vertical rendering
+  // artifact rather than a real step.
+  const data: Point[] = [
+    {
+      month: 0,
+      nominalCents: series.opening.netWorthNominalCents,
+      realCents: series.opening.netWorthRealCents,
+    },
+    ...series.months.map((m) => ({
+      month: m.month + 1,
+      nominalCents: m.netWorthNominalCents,
+      realCents: m.netWorthRealCents,
+    })),
+  ];
 
-  // Where the curve ends: the last month with a non-null value — the "money runs out" point
+  // Where the curve ends: the last point with a non-null value — the "money runs out" point
   // for a failed plan, the horizon for a surviving one.
-  const horizonMonth = series.months[series.months.length - 1]?.month ?? 0;
+  const horizonMonth = data[data.length - 1]?.month ?? 0;
   const insolvent = series.months.some((m) => m.isInsolvent);
   let lastMeaningfulMonth = horizonMonth;
   let terminalCents: number | null = null;
-  for (let i = series.months.length - 1; i >= 0; i--) {
-    const m = series.months[i];
-    if (m.netWorthNominalCents !== null) {
-      lastMeaningfulMonth = m.month;
-      terminalCents = m.netWorthNominalCents;
+  for (let i = data.length - 1; i >= 0; i--) {
+    const p = data[i];
+    if (p.nominalCents !== null) {
+      lastMeaningfulMonth = p.month;
+      terminalCents = p.nominalCents;
       break;
     }
   }
@@ -100,7 +111,8 @@ export function NetWorthChart({
           <ReferenceLine y={0} stroke="#c9bfa5" />
           {retirementMonth != null && (
             <ReferenceLine
-              x={retirementMonth}
+              // +1 to match the data's months-from-now axis (processed month M plots at M+1).
+              x={retirementMonth + 1}
               stroke={AMBER}
               strokeDasharray="4 4"
               label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
@@ -111,7 +123,13 @@ export function NetWorthChart({
               value == null ? "—" : formatDollars(Number(value)),
               name,
             ]}
-            labelFormatter={(label) => `Month ${label} · ${monthLabel(Number(label))}`}
+            // x=0 is `opening` — net worth as it stands right now, before any flow. Every
+            // later x is the END of processed month x−1, one month further out.
+            labelFormatter={(label) =>
+              Number(label) === 0
+                ? "Today · net worth now"
+                : `End of month ${Number(label) - 1} · ${monthLabel(Number(label) - 1)}`
+            }
             contentStyle={{ fontSize: 12 }}
           />
           <Area
