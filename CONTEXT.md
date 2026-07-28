@@ -47,7 +47,9 @@ the user edits that artifact.
 **One-time transfer**:
 A discrete, dated movement/injection/removal of money at a specific month (influx,
 outflow, or proportional shock), as opposed to an ongoing `CashFlowSeries`. Never
-compounds.
+compounds. Its per-account amount is fixed when authored — which is what separates it from
+a **One-Time Spend**, whose split across accounts depends on their balances and so resolves
+at simulation time.
 _Avoid_: transaction (reserve "transaction" for future ledger/persistence layers, if any).
 
 **Goal**:
@@ -76,12 +78,68 @@ perturbs a single future month).
 `projected fund balance at target date ÷ target amount`, computed from the full
 projection (future contributions + growth) — never "saved so far ÷ target."
 
+**Financial obligation**:
+An amount that must be funded in one simulation month, carrying its economic treatment and
+its funding strategy. The single normalized form every source of monthly cost — budget line,
+health line, event-spawned expense, debt payment, home down payment, one-time spend — is
+reduced to before funding runs.
+_Avoid_: spending item (the superseded name), expense (an obligation may be an asset
+acquisition or a debt payment instead), bill, charge.
+
+**Obligation treatment**:
+The economic result of satisfying an obligation: **expense** (money leaves, net worth
+falls), **asset-acquisition** (cash converts to an asset, net worth conserved), or
+**debt-payment** (a liability's balance falls). Governs both how the obligation reports and
+what happens when it cannot be funded.
+_Avoid_: kind, type, category (an obligation carries a separate display category).
+
+**Funding strategy**:
+How an obligation gets paid: **automatic** (through the allocation waterfall — every
+recurring obligation) or **explicit** (drained from a user-ordered list of named accounts —
+one-time spends and home down payments). Independent of treatment; neither axis implies the
+other.
+_Avoid_: funding mode, payment method, funding kind.
+
+**Resolved funding**:
+The derived, per-obligation record of which sources actually paid it and how much. Belongs
+to the projection, never the ledger — recomputed whenever the plan changes.
+_Avoid_: allocation, payment record (a liability's payment record is a different, narrower
+thing).
+
+**Funding attribution**:
+The assignment of particular funding sources to particular obligations within a month — a
+**derived interpretation, not a fact**. Money is fungible; "the car payment went on credit
+while rent came from income" is produced by the priority order, and reordering priorities
+reassigns it. Presented as a stated-rule reading, in the spirit of a **Nudge** — never as
+something the user authored or the ledger observed.
+_Avoid_: stating it as an observed or authored fact.
+
+**Funding-deficit liability**:
+The zero-interest accounting plug standing in for an **asset-acquisition** obligation that
+could not be funded — not borrowed money (no lender exists), but the record that the plan
+is impossible as authored. Marks the projection insolvent.
+_Avoid_: loan, debt, credit (it is none of these; giving it an APR would compound a fiction
+until it dominated the projection).
+
+**Underfunded**:
+The state of an explicitly-funded event whose named sources can no longer cover it, because
+the plan changed after it was authored. A surfaced flag, never an error — the projection
+keeps running and the event stays authored and replayable.
+_Avoid_: invalid, broken, stale.
+
+**One-Time Spend**:
+A dated, source-directed cash outflow funded from named accounts in a chosen order.
+Distinguished from a dated expense override by exactly two things: the user names *which*
+accounts pay and in what order, and a coverage gate blocks it if those accounts fall short.
+_Avoid_: purchase (a home purchase is its own event), spend event, expense event.
+
 **Allocation waterfall**:
-The fixed, opinionated per-month order that routes net cash flow: per-income-source
-pre-tax deductions → personal cash pool → shared pool (proportional-to-income by default)
-→ shared goals in priority order → personal goals → shortfall cascade. Not user-configurable
-except for three named levers (contribution %, shared-contribution scheme, goal priority
-order + surplus-cash destination). The ordering is fixed plumbing, never user-configurable.
+The fixed, opinionated per-month order that routes net cash flow to the month's
+**automatically-funded obligations**: per-income-source pre-tax deductions → personal cash
+pool → shared pool (proportional-to-income by default) → shared goals in priority order →
+personal goals → shortfall cascade. Not user-configurable except for four named levers
+(contribution %, shared-contribution scheme, goal priority order, surplus-cash
+destination). The ordering is fixed plumbing, never user-configurable.
 _Avoid_: budget rules, allocation policy (waterfall is the precise term; "policy" is used
 loosely, but "waterfall" names the specific fixed sequence).
 
@@ -103,7 +161,9 @@ residual specifically).
 The specific fallback sequence when a month can't be covered from cash: skip discretionary
 savings → draw down liquid assets → route the deficit to a credit-card liability (accruing
 at its APR) → hard-infeasibility flag if credit is exhausted. Distinct from ordinary
-negative net worth, which requires no intervention.
+negative net worth, which requires no intervention. An **asset-acquisition** obligation
+never enters this cascade — credit cannot fund a down payment — and falls to a
+**funding-deficit liability** instead.
 _Avoid_: shortfall handling, deficit logic.
 
 **Hard-infeasibility**:
