@@ -46,3 +46,33 @@ export function axisPointLabel(x: number, describeMonth?: (month: number) => str
   const suffix = describeMonth ? ` · ${describeMonth(month)}` : "";
   return `End of month ${month}${suffix}`;
 }
+
+/**
+ * Year-boundary tick positions, `[TODAY_X, toAxisX(12), toAxisX(24), …]` up to `maxX`.
+ *
+ * Ticks must be supplied explicitly for two reasons. Recharts' auto-placement lands them on
+ * fractional-year positions that round to the same label (two "yr 1"s). And a tick is only
+ * honest where a plan year actually STARTS — `toAxisX(12 * n)`, i.e. `12n + 1` — not at the
+ * round number `12n`, which on this axis holds the last month of the PREVIOUS year. Labelling
+ * `x = 12` as "yr 1" while the tooltip on the same pixel reads "End of month 11 · Year 0" is
+ * exactly the contradiction {@link axisYearTickLabel} exists to prevent.
+ *
+ * Spacing widens with span: every year when zoomed in, every 5th or 10th across a full
+ * 55-year horizon.
+ */
+export function yearTickXs(maxX: number): number[] {
+  const spanYears = Math.max(1, maxX / 12);
+  const stepYears = spanYears <= 6 ? 1 : spanYears <= 15 ? 2 : spanYears <= 35 ? 5 : 10;
+  const ticks: number[] = [TODAY_X];
+  for (let month = 0; toAxisX(month) <= maxX; month += stepYears * 12) ticks.push(toAxisX(month));
+  return ticks;
+}
+
+/**
+ * A year tick's label. Goes through the caller's `yearOf` so every surface naming a year
+ * agrees — `format.ts` documents that rule, and the bug it prevents (the same month called
+ * "year 45" on one surface and "Year 44" on another).
+ */
+export function axisYearTickLabel(x: number, yearOf: (month: number) => number): string {
+  return x <= TODAY_X ? "now" : `yr ${yearOf(fromAxisX(x))}`;
+}

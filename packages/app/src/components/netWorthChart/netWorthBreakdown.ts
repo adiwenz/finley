@@ -12,7 +12,7 @@
  * engine construction path.
  */
 
-import type { ProjectionSeries } from "@finley/engine";
+import type { ProjectionMonth, ProjectionSeries } from "@finley/engine";
 
 /** Drives colour, stacking order, and sign. */
 export type BreakdownBandKind = "account" | "property" | "liability";
@@ -120,7 +120,7 @@ export function buildNetWorthBreakdown(
   const nonZero = new Set<string>();
 
   /** One month's three balance maps folded into a band row, registering ids as it goes. */
-  const rowFor = (m: ProjectionSeries["opening"]): BreakdownMonthRow => {
+  const rowFor = (m: ProjectionMonth): BreakdownMonthRow => {
     const centsById: Record<string, number> = {};
     const collect = (source: Readonly<Record<string, number>>, into: Set<string>) => {
       for (const [id, cents] of Object.entries(source)) {

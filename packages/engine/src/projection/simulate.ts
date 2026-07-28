@@ -7,10 +7,8 @@ import { buildFlows } from "./reportFlows";
 import { buildSpendingItems } from "./spendingItems";
 import type {
   HouseholdSimInput,
-  LiabilityPaymentRecord,
   SimOwnedSeries,
   ProjectionMonth,
-  ProjectionMonthFlows,
   ProjectionSeries,
 } from "./simulate.types";
 import { initSimState } from "./runState";
@@ -76,7 +74,16 @@ export function simulateHousehold(
   const state = initSimState(input);
   // "Now", before any flow: the net-worth chart's first point and the baseline every
   // processed month builds on. Captured before the loop mutates state; carries no flows.
-  const opening = snapshotMonth(state, 0, input.annualInflationRate, false, false, {}, undefined);
+  const opening = snapshotMonth(state, {
+    month: 0,
+    // "Now" itself: nothing has elapsed, so real dollars equal nominal here.
+    elapsedMonths: 0,
+    annualInflationRate: input.annualInflationRate,
+    isInsolvent: false,
+    netWorthTerminated: false,
+    liabilityPaymentRecords: {},
+    flows: undefined,
+  });
   const months: ProjectionMonth[] = [];
   // Insolvency is terminal for net-worth reporting: once a month exhausts all credit, every
   // LATER month reports net worth as null. The first insolvent month still reports its
@@ -86,10 +93,6 @@ export function simulateHousehold(
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
   // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
   for (let month = 0; month < input.horizonMonths; month++) {
-    let isInsolvent = false;
-    let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
-    let flows: ProjectionMonthFlows | undefined;
-
     // Calendar year for this month's flows. Month 0 is now processed like any other, so
     // `months[0..11]` accrue a full 12 covered-earnings months in year 0 — a $5k/mo salary
     // contributes the whole $60k, closing the graph-vs-panel benefit gap. A mid-year start
@@ -158,7 +161,7 @@ export function simulateHousehold(
       );
     // Nothing — savings or credit — could absorb this: the terminal flag.
     const uncoveredCents = applyShortfallCascade(state, month);
-    isInsolvent = uncoveredCents > 0;
+    const isInsolvent = uncoveredCents > 0;
     // A committed contribution deposits in full and borrows the rest; if that borrowing
     // couldn't be funded (this uncovered slice), unwind the phantom deposit.
     unwindUnfundedContributions(state, contributions, uncoveredCents);
@@ -167,9 +170,9 @@ export function simulateHousehold(
     compoundAssets(state, month, jurisdiction, ctx);
     advanceLiabilities(state, month, payments);
     advanceProperties(state, month);
-    paymentRecords = buildLiabilityPaymentRecords(payments);
+    const paymentRecords = buildLiabilityPaymentRecords(payments);
     const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
-    flows = buildFlows(
+    const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
       [...incomeSources, ...fundingDraw.gainSources],
@@ -192,18 +195,24 @@ export function simulateHousehold(
     // prices a would-be draw on top of any sibling draw at this month. A newly appended
     // event's draw is last in ledger order, hence last in resolution, so this post-draw
     // base is its marginal context.
-    flows = { ...flows, taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter) };
+    const flows = {
+      ...bands,
+      taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
+    };
 
     months.push(
-      snapshotMonth(
-        state,
+      snapshotMonth(state, {
         month,
-        input.annualInflationRate,
+        // `month + 1`, NOT `month`: this snapshot is the END of month `month`, so that many
+        // months plus one have passed since "now". Deflating by `month` would understate a
+        // year of inflation by a twelfth, every month, all the way out.
+        elapsedMonths: month + 1,
+        annualInflationRate: input.annualInflationRate,
         isInsolvent,
-        priorInsolvency,
-        paymentRecords,
+        netWorthTerminated: priorInsolvency,
+        liabilityPaymentRecords: paymentRecords,
         flows,
-      ),
+      }),
     );
     if (isInsolvent) priorInsolvency = true;
   }

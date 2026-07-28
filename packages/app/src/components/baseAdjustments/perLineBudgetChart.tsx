@@ -10,8 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel } from "../../format";
-import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "../monthAxis";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
@@ -145,9 +145,15 @@ export function PerLineBudgetChart({
       <p className={summary ? "alert alert-amber" : "hint"} data-testid="perline-summary">
         {summary ?? "This budget is financed across the whole horizon."}
       </p>
-      {/* Data mirror for tests / screen readers: first row's amount per line. */}
+      {/* Data mirrors for tests / screen readers: the first row's amount per line, and the
+          second's. Both are needed because month 0 is an ORIGINATION month for anything
+          authored at Year 0 — a loan taken then is not serviced until month 1 (a schedule's
+          index 0 is `startMonth + 1`), so the first row legitimately shows no payment for it. */}
       <output data-testid="perline-first-row" hidden>
         {JSON.stringify(data.rows[0]?.centsByLine ?? {})}
+      </output>
+      <output data-testid="perline-second-row" hidden>
+        {JSON.stringify(data.rows[1]?.centsByLine ?? {})}
       </output>
 
       <ResponsiveContainer width="100%" height={260}>
@@ -166,7 +172,8 @@ export function PerLineBudgetChart({
             type="number"
             domain={[TODAY_X, lastX]}
             allowDataOverflow
-            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+            ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />

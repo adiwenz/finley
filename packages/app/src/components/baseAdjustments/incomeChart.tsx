@@ -11,8 +11,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel } from "../../format";
-import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "../monthAxis";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import {
   describeIncomeGap,
   incomeBandsForMode,
@@ -186,9 +186,14 @@ export function IncomeChart({
         {JSON.stringify(view.sources.map((s) => s.label))}
       </output>
       {/* The spending need is expenses plus scheduled liability payments — a loan on the
-          timeline is part of what income has to cover. */}
+          timeline is part of what income has to cover. The second row is mirrored too: a loan
+          authored at Year 0 originates in month 0 and is first serviced in month 1, so only
+          the second row shows what servicing it costs. */}
       <output data-testid="income-first-spending-need" hidden>
         {view.rows[0]?.spendingNeedCents ?? 0}
+      </output>
+      <output data-testid="income-second-spending-need" hidden>
+        {view.rows[1]?.spendingNeedCents ?? 0}
       </output>
 
       <ResponsiveContainer width="100%" height={200}>
@@ -207,7 +212,8 @@ export function IncomeChart({
             type="number"
             domain={[TODAY_X, lastX]}
             allowDataOverflow
-            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+            ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />

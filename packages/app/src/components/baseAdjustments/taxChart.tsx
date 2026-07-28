@@ -10,8 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel } from "../../format";
-import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "../monthAxis";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
 
 /**
@@ -122,7 +122,8 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
             type="number"
             domain={[TODAY_X, lastX]}
             allowDataOverflow
-            tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+            ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />

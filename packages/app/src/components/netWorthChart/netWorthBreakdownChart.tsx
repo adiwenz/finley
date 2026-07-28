@@ -26,8 +26,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel } from "../../format";
-import { TODAY_X, axisPointLabel, toAxisX } from "../monthAxis";
+import { formatDollars, monthLabel, yearOf } from "../../format";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
 
 const AXIS = "#6b6552";
@@ -266,7 +266,8 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
               type="number"
               domain={[TODAY_X, lastX]}
               allowDataOverflow
-              tickFormatter={(month: number) => `yr ${Math.floor(month / 12) + 1}`}
+              ticks={yearTickXs(lastX)}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
               tick={{ fill: AXIS, fontSize: 11 }}
               stroke={GRID}
             />

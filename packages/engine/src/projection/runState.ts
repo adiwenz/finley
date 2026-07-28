@@ -13,6 +13,7 @@ import type { BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
+import { PRE_NOW_MONTH, isPreExisting } from "./nowMarker";
 import type { FundingDraw } from "../ledger/transfers";
 
 /**
@@ -114,10 +115,9 @@ export function initSimState(input: HouseholdSimInput): SimState {
   const properties: SimProperty[] = [...(input.properties ?? [])];
   const propertyValues = new Map<string, Cents>();
   for (const p of properties) {
-    // `< 0`, not `<= 0`: a Year-0 purchase (startMonth 0) is a flow DURING month 0, not part
-    // of "now", so it opens at 0 here and advanceProperties originates it at month 0. Only a
-    // genuinely pre-existing property (startMonth < 0) is present in the opening snapshot.
-    propertyValues.set(p.id, p.startMonth < 0 ? p.openingValueCents : 0);
+    // A Year-0 purchase (startMonth 0) is a flow DURING month 0, not part of "now", so it
+    // opens at 0 here and advanceProperties originates it at month 0.
+    propertyValues.set(p.id, isPreExisting(p.startMonth) ? p.openingValueCents : 0);
   }
 
   const userLiabilities = input.liabilities ?? [];
@@ -134,21 +134,20 @@ export function initSimState(input: HouseholdSimInput): SimState {
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
         creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
-        // Originated BEFORE "now" (not at month 0), so the shortfall cascade can borrow onto
-        // it in month 0 — now a real processed month. A `startMonth` of 0 would make the
-        // cascade skip it and `advanceLiabilities` re-originate it that month, leaving a
-        // month-0 shortfall uncovered and the plan falsely insolvent at the start.
-        startMonth: -1,
+        // Pre-existing, so the shortfall cascade can borrow onto it in month 0 — now a real
+        // processed month. A `startMonth` of 0 would make the cascade skip it and
+        // `advanceLiabilities` re-originate it that month, leaving a month-0 shortfall
+        // uncovered and the plan falsely insolvent at the start.
+        startMonth: PRE_NOW_MONTH,
       });
   const liabilities = syntheticCard ? [...userLiabilities, syntheticCard] : [...userLiabilities];
 
   const liabilityBalances = new Map<string, Cents>();
   for (const liab of liabilities) {
-    // `< 0`, not `<= 0`: a liability originated at month 0 (e.g. a Year-0 mortgage) is a flow
-    // during that processed month, so advanceLiabilities opens it there and it stays out of
-    // the opening snapshot. Only the pre-existing synthetic shortfall card (startMonth −1)
-    // seeds a balance here.
-    liabilityBalances.set(liab.id, liab.startMonth < 0 ? liab.openingBalanceCents : 0);
+    // A liability originated at month 0 (a Year-0 mortgage or loan) is a flow during that
+    // processed month, so advanceLiabilities opens it there and it stays out of the opening
+    // snapshot. Only the pre-existing synthetic shortfall card seeds a balance here.
+    liabilityBalances.set(liab.id, isPreExisting(liab.startMonth) ? liab.openingBalanceCents : 0);
   }
 
   const cascadeCards = liabilities

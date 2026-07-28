@@ -32,6 +32,30 @@ describe("simulateHousehold", () => {
     expect(series.months[0].accountBalancesCents["investment"]).toBeGreaterThan(dollarsToCents(10000));
   });
 
+  it("deflates real net worth by ELAPSED months, so months[11] is a full year out", () => {
+    // A flat, non-compounding balance: nominal never moves, so `netWorthRealCents` isolates
+    // the deflator. `months[m]` is the END of month m — m+1 months from now — so months[11]
+    // is a full year of inflation away, not eleven twelfths of one. Indexing the deflator on
+    // `month` instead understates it by exactly one month, silently, at every point.
+    const acc = makeInvestmentAccount(dollarsToCents(10000), 0);
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0.03,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [],
+      },
+      nullJurisdiction,
+    );
+    const nominal = dollarsToCents(10000);
+    // "Now" has nothing behind it: real equals nominal.
+    expect(series.opening.netWorthRealCents).toBe(nominal);
+    expect(series.months[11].netWorthRealCents).toBe(Math.round(nominal / 1.03));
+    expect(series.months[0].netWorthRealCents).toBe(Math.round(nominal / Math.pow(1.03, 1 / 12)));
+  });
+
   it("produces one processed month per horizon month, plus a separate opening", () => {
     const acc = makeInvestmentAccount(0, 0.07);
     const series = simulateHousehold(

@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { TODAY_X, axisPointLabel, fromAxisX, toAxisX } from "./monthAxis";
-import { monthLabel } from "../format";
+import {
+  TODAY_X,
+  axisPointLabel,
+  axisYearTickLabel,
+  fromAxisX,
+  toAxisX,
+  yearTickXs,
+} from "./monthAxis";
+import { monthLabel, yearOf } from "../format";
 
 /**
  * The one axis every projection chart shares. These pin the contract the charts rely on to
@@ -38,5 +45,34 @@ describe("the months-from-now chart axis", () => {
     // The alignment guarantee: a flow chart has no point at the today slot, but the point it
     // DOES draw at a given x carries the same label the stock charts give that x.
     expect(axisPointLabel(toAxisX(5), monthLabel)).toBe(axisPointLabel(6, monthLabel));
+  });
+
+  it("puts year ticks where a plan year STARTS, not on the round number before it", () => {
+    // x=12 is the end of month 11 — still Year 0. A tick there labelled "yr 1" contradicts
+    // the tooltip on the same pixel. Year 1 starts at month 12, i.e. x=13.
+    expect(yearTickXs(40)).toEqual([TODAY_X, toAxisX(0), toAxisX(12), toAxisX(24), toAxisX(36)]);
+  });
+
+  it("widens tick spacing with span, so labels never repeat", () => {
+    const ticks = yearTickXs(toAxisX(55 * 12)); // a full retirement horizon
+    const labels = ticks.map((x) => axisYearTickLabel(x, yearOf));
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("labels a year tick by the plan year of the data sitting on it", () => {
+    expect(axisYearTickLabel(TODAY_X, yearOf)).toBe("now");
+    // The regression this replaces: `yearOf(x)` on the shifted axis called this one "yr 1".
+    expect(axisYearTickLabel(toAxisX(0), yearOf)).toBe("yr 0");
+    expect(axisYearTickLabel(toAxisX(12), yearOf)).toBe("yr 1");
+  });
+
+  it("agrees with the tooltip at every year tick", () => {
+    // The contradiction that started this: tick and tooltip on the same pixel must name the
+    // same plan year.
+    for (const x of yearTickXs(toAxisX(120))) {
+      if (x === TODAY_X) continue;
+      expect(axisPointLabel(x, monthLabel)).toContain(`Year ${yearOf(fromAxisX(x))}`);
+      expect(axisYearTickLabel(x, yearOf)).toBe(`yr ${yearOf(fromAxisX(x))}`);
+    }
   });
 });

@@ -174,17 +174,14 @@ const loan: EventHandler<LoanEvent> = {
     return ok;
   },
   apply(event, state) {
-    // A loan authored at Year 0 ("now") is a debt already carried, so it originates BEFORE
-    // month 0: it belongs in the opening snapshot and services (and, for a card, absorbs
-    // shortfalls) from month 0, the first processed month. A future-dated loan originates at
-    // its own month. The event's own `month` is unchanged; only the liability's origination
-    // moves, which is what the amortization schedule and month-0 processing key off.
-    const originationMonth = event.month === 0 ? -1 : event.month;
     const common = {
       id: asLiabilityId(event.liabilityId),
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
-      startMonth: originationMonth,
+      // A loan originates at the month it is authored for, month 0 included — the same rule
+      // a Year-0 property/mortgage follows. Authoring a debt you ALREADY carry is a separate
+      // capability (a pre-existing liability, `startMonth < 0`) and is not expressible here.
+      startMonth: event.month,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
       transfers: [],

@@ -875,13 +875,20 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
       />,
     );
 
-    const firstRow = JSON.parse(
-      screen.getByTestId("perline-first-row").textContent || "{}",
+    // The SECOND row: the loan is authored at month 0, which ORIGINATES it — a schedule's
+    // index 0 is `startMonth + 1`, so month 1 is the first month it is serviced.
+    const servicedRow = JSON.parse(
+      screen.getByTestId("perline-second-row").textContent || "{}",
     ) as Record<string, number>;
     // Servicing the loan is spending, banded like anything else the month costs, and the budget
     // lines beside it are untouched by its arrival.
-    expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
-    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    expect(servicedRow["line:housing"]).toBeGreaterThan(0);
+    // Origination month itself: the debt exists but nothing is due yet.
+    const firstRow = JSON.parse(
+      screen.getByTestId("perline-first-row").textContent || "{}",
+    ) as Record<string, number>;
+    expect(firstRow["debt:loan-student"] ?? 0).toBe(0);
   });
 
   it("redraws when the budget changes — the memoized graphs must not go stale", () => {

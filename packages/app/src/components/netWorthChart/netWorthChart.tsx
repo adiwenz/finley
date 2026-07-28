@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
-import { TODAY_X, axisPointLabel, toAxisX } from "../monthAxis";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
@@ -52,15 +52,16 @@ export function NetWorthChart({
   ];
 
   // Where the curve ends: the last point with a non-null value — the "money runs out" point
-  // for a failed plan, the horizon for a surviving one.
-  const horizonMonth = data[data.length - 1]?.month ?? 0;
+  // for a failed plan, the horizon for a surviving one. These are AXIS positions, not model
+  // months; only `data` is indexed from here on.
+  const horizonX = data[data.length - 1]?.month ?? TODAY_X;
   const insolvent = series.months.some((m) => m.isInsolvent);
-  let lastMeaningfulMonth = horizonMonth;
+  let lastMeaningfulX = horizonX;
   let terminalCents: number | null = null;
   for (let i = data.length - 1; i >= 0; i--) {
     const p = data[i];
     if (p.nominalCents !== null) {
-      lastMeaningfulMonth = p.month;
+      lastMeaningfulX = p.month;
       terminalCents = p.nominalCents;
       break;
     }
@@ -68,18 +69,8 @@ export function NetWorthChart({
   // Zoom the x-axis just past where the curve ends, so an early failure is legible instead
   // of a spike against decades of empty chart. The 2-year floor keeps a very early failure
   // roomy.
-  const xMaxMonth = Math.min(
-    horizonMonth,
-    Math.max(24, Math.ceil((lastMeaningfulMonth + 6) / 12) * 12),
-  );
-
-  // Ticks pinned to whole-year boundaries (multiples of 12). Recharts' auto-placement
-  // lands them on fractional-year months that round to the same label (two "yr 1"s).
-  // Spacing shows every year when zoomed in, every 5th/10th across a full horizon.
-  const spanYears = Math.max(1, xMaxMonth / 12);
-  const stepYears = spanYears <= 6 ? 1 : spanYears <= 15 ? 2 : spanYears <= 35 ? 5 : 10;
-  const yearTicks: number[] = [];
-  for (let m = 0; m <= xMaxMonth; m += stepYears * 12) yearTicks.push(m);
+  const xMax = Math.min(horizonX, Math.max(24, Math.ceil((lastMeaningfulX + 6) / 12) * 12));
+  const yearTicks = yearTickXs(xMax);
 
   return (
     <div
@@ -95,10 +86,10 @@ export function NetWorthChart({
           <XAxis
             dataKey="month"
             type="number"
-            domain={[0, xMaxMonth]}
+            domain={[TODAY_X, xMax]}
             allowDataOverflow
             ticks={yearTicks}
-            tickFormatter={(month: number) => `yr ${yearOf(month)}`}
+            tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
@@ -147,7 +138,7 @@ export function NetWorthChart({
           />
           {insolvent && terminalCents !== null && (
             <ReferenceDot
-              x={lastMeaningfulMonth}
+              x={lastMeaningfulX}
               y={terminalCents}
               r={4}
               fill={INK}

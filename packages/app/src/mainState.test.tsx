@@ -213,8 +213,10 @@ describe("App — starter simulations", () => {
 
   it("counts a scenario's loan payment in the spending need the income chart draws", () => {
     render(<App />);
+    // The SECOND row: a Year-0 loan originates in month 0 and is first serviced in month 1,
+    // so month 0's spending need does not include its payment.
     const spendingNeed = () =>
-      Number(screen.getByTestId("income-first-spending-need").textContent);
+      Number(screen.getByTestId("income-second-spending-need").textContent);
     const withoutLoan = spendingNeed();
 
     fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
@@ -236,13 +238,15 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Beside the budget lines, not as one of them.
-    const firstRow = JSON.parse(
-      screen.getByTestId("perline-first-row").textContent || "{}",
+    // Beside the budget lines, not as one of them. Read the SECOND row: the seed loan is
+    // authored at Year 0, so month 0 originates it and month 1 is the first month it is
+    // serviced (an amortization schedule's index 0 is `startMonth + 1`).
+    const servicedRow = JSON.parse(
+      screen.getByTestId("perline-second-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(firstRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
     // And the budget lines are unchanged by its arrival.
-    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(servicedRow["line:housing"]).toBeGreaterThan(0);
   });
 
   it("swaps back to a plan-only scenario, clearing the prior seed timeline", () => {
