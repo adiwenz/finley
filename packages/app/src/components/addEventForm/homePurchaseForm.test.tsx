@@ -104,12 +104,15 @@ describe("HomePurchaseForm — soft DTI warning", () => {
 
 describe("HomePurchaseForm — down-payment source picker", () => {
   it("lists each fundable account with what it holds at that month", () => {
-    // The default plan opens with $10,000 in cash savings; the goal funds are still
-    // empty at month 0, so they are not offered (an empty account funds nothing).
+    // The default plan opens with $10,000 in cash savings. "Year 0" is month 0 — the
+    // flow-free opening snapshot — so a draw authored there is taken in month 1, and the
+    // picker prices month 1 to match: $10,008 after one month of interest and saving.
+    // Pricing the month the draw RESOLVES in, not the month the event names, is what keeps
+    // this control from promising an amount the simulator cannot deliver.
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Down payment paid from");
     expect(html).toContain("Cash savings");
-    expect(html).toContain("$10,000");
+    expect(html).toContain("$10,008");
   });
 
   it("offers a goal fund by name once it holds money, largest first", () => {
@@ -123,9 +126,11 @@ describe("HomePurchaseForm — down-payment source picker", () => {
   });
 
   it("states the shortfall against the SELECTED accounts, not total net worth", () => {
-    // $10,000 of cash savings against a $60,000 down payment: the form says so while the
-    // user is still editing, rather than letting them submit into the §4.5 block.
+    // ~$10,000 of cash savings against a $60,000 down payment: the form says so while the
+    // user is still editing, rather than letting them submit into the §4.5 block. The
+    // shortfall is quoted against the month the draw resolves in (month 1, $10,008 — see
+    // above), so it is the very number the gate will decide on.
     const html = render(PLAN_DEFAULTS);
-    expect(html).toContain("$50,000 short");
+    expect(html).toContain("$49,992 short");
   });
 });

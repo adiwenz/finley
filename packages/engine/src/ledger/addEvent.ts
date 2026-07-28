@@ -101,7 +101,12 @@ export function fundingLookup(
   const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
   const last = projection.months.length - 1;
-  const monthAt = (month: number) => projection.months[Math.max(0, Math.min(month, last))];
+  // The projected month a draw authored at `month` is actually resolved in. Clamped to 1 for
+  // the same reason the draw step clamps: month 0 is the flow-free opening snapshot, so a draw
+  // authored at "now" is taken in month 1. Pricing the pool and the coverage verdict at the
+  // month the sim will drain — not the month the event names — is what keeps the gate from
+  // approving an amount the simulator then cannot deliver.
+  const monthAt = (month: number) => projection.months[Math.max(1, Math.min(month, last))];
 
   // The pool: EVERY liquid account, carrying what it holds at the month, largest first — a
   // stable, sensible default drain order for a picker (spend the biggest bucket first), which

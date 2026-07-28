@@ -297,6 +297,38 @@ describe("App — budget edits", () => {
   // guard — that overrides accumulate rather than replace one another — now lives in
   // `baseAdjustments/monthEdit.test.ts` (applyLineOverride) and the panel's own tests.
 
+  it("spends at Year 0: the money actually leaves the account, not just the timeline", () => {
+    // The QA regression this guards (#154): "Year 0" is month 0, the flow-free opening
+    // snapshot the simulator never processes, so the spend's funding draw matched no month
+    // and was silently dropped. The event was accepted, the timeline listed it, and the
+    // net-worth chart did not move an inch. Driven end to end — form to projection —
+    // because every piece in isolation was already green while the app was wrong.
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/What happened/), {
+      target: { value: "OneTimeSpendEvent" },
+    });
+    // Year 0 is the form's default; $5,000 is comfortably inside the $10,000 cash savings,
+    // so this is a spend the §4.5 gate accepts rather than blocks.
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: "5000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add event" }));
+
+    // It records — and no red conflict alert stands in for a silent no-op.
+    expect(screen.getAllByText(/One-time spend/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Can’t do that yet/)).toBeNull();
+
+    // Scrub past the spend and read the account the snapshot reports. Unfixed this shows
+    // the full ~$10,100 the plan would hold having spent nothing.
+    fireEvent.change(screen.getByLabelText("Scrub to a month"), { target: { value: "12" } });
+    // Scoped to the snapshot panel — the debug table names its columns "savings" too.
+    const snapshot = within(screen.getByText(/^As of/).closest("div")!);
+    const row = snapshot.getByText("savings").closest("li")!;
+    const balanceCents = dollarsToCents(
+      Number(within(row).getByText(/^\$/).textContent!.replace(/[$,]/g, "")),
+    );
+    expect(balanceCents).toBeLessThan(dollarsToCents(6000));
+    expect(balanceCents).toBeGreaterThan(dollarsToCents(4000));
+  });
+
   it("drives the whole projection from a line-item budget edit", () => {
     // The regression this guards: the Base + Adjustments panel used to hold the budget
     // in its own state and project it separately, so raising spending past income moved

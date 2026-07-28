@@ -137,6 +137,29 @@ describe("HomePurchaseEvent", () => {
   });
 });
 
+describe("HomePurchaseEvent — authored at month 0 (\"now\")", () => {
+  // Month 0 is the flow-free opening snapshot, so the funding-draw step never runs for it.
+  // A purchase authored there was half-applied: the property and its mortgage ARE created
+  // (they establish state, not flow) while the down payment was never drained — so buying a
+  // house at "now" RAISED net worth by the down payment, free equity out of nothing. The
+  // draw resolves in month 1 instead, and the purchase conserves as it does at any month.
+  it("takes the down payment rather than handing out free equity", () => {
+    const base = baseWith(10_000_000); // $100k liquid
+    const ledger = addWithBase(emptyLedger, base, purchase({ month: 0 }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // By the first processed month the down payment has left the account — alongside the
+    // mortgage's own first payment, which a month-1 purchase also owes (0% APR, so the
+    // payment is straight principal).
+    const firstPayment = Math.round(FINANCED / 360);
+    expect(series.months[1].accountBalancesCents.savings).toBe(10_000_000 - DOWN - firstPayment);
+    // ...and the purchase conserves: property (PRICE) − mortgage (FINANCED) = DOWN, which is
+    // exactly what the account gave up. A cash source realizes no gain, so nothing is taxed.
+    expect(series.months[1].netWorthNominalCents).toBe(10_000_000);
+    expect(series.months[1].propertyValuesCents!.house1).toBe(PRICE);
+  });
+});
+
 describe("HomePurchaseEvent — down-payment hard block", () => {
   it("blocks the purchase when liquid funds cannot cover the down payment", () => {
     const base = baseWith(5_000_000); // $50k < $60k down

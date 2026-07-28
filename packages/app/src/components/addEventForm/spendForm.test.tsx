@@ -44,11 +44,13 @@ function render(budget: Plan, month = 0) {
 
 describe("SpendForm — ordered funding-source picker", () => {
   it("lists each fundable account with what it holds at that month", () => {
-    // The default plan opens with $10,000 in cash savings.
+    // The default plan opens with $10,000 in cash savings. "Year 0" is month 0 — the
+    // flow-free opening snapshot — so a spend authored there is drained in month 1, and the
+    // picker prices month 1 to match: $10,008 after one month of interest and saving.
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Spending paid from");
     expect(html).toContain("Cash savings");
-    expect(html).toContain("$10,000");
+    expect(html).toContain("$10,008");
   });
 
   it("states the shortfall against the SELECTED accounts while editing", () => {

@@ -274,7 +274,15 @@ export function resolveFundingDraws(
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
   for (const draw of state.fundingDraws) {
-    if (draw.month !== month) continue;
+    // Month 0 is the flow-free opening snapshot — the simulator processes no month before
+    // "now", so this step is never called for it. A draw authored AT month 0 (the app's
+    // "Year 0" is literally month 0) therefore has no month of its own to resolve in, and
+    // matching on equality alone dropped it silently: the gate accepted the event, the
+    // ledger kept it, and nothing was ever drained. It resolves in month 1 instead — the
+    // first processed month, and the earliest one with a tax chokepoint to charge an
+    // appreciated source's realized gain through. Every later draw still matches its own
+    // month exactly.
+    if (Math.max(1, draw.month) !== month) continue;
     // Resolve the ordered draw against the live balances/basis, then apply what it took.
     const sources: FundingSourceState[] = [];
     for (const sourceId of draw.sourceIds) {

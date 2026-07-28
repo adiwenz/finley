@@ -249,6 +249,45 @@ describe("OneTimeSpendEvent — investment-funded spend is taxed", () => {
   });
 });
 
+describe("OneTimeSpendEvent — authored at month 0 (\"now\")", () => {
+  // Month 0 is the flow-free opening snapshot: the simulator processes no month before
+  // "now", so the funding-draw step is never called for it. A draw authored AT month 0 —
+  // which is exactly what the app's "Year 0" option records — used to match no processed
+  // month at all and vanish: the gate accepted the spend, the ledger kept it, the timeline
+  // listed it, and net worth never moved. It resolves in month 1 instead, the first
+  // processed month and the earliest with a tax chokepoint to charge a gain through.
+  it("drains the source and leaves net worth, exactly as a later spend does", () => {
+    const base = baseWith([liquidAcct("savings", 10_000_000)]); // $100k cash
+    const ledger = addWithBase(emptyLedger, base, spend({ month: 0 }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // The opening snapshot itself is untouched — month 0 still reports the world as it is
+    // before any flow runs.
+    expect(series.months[0].accountBalancesCents.savings).toBe(10_000_000);
+    // By the first processed month the spend has been taken, and stays taken.
+    expect(series.months[1].accountBalancesCents.savings).toBe(10_000_000 - 3_000_000);
+    expect(series.months[1].netWorthNominalCents).toBe(10_000_000 - 3_000_000);
+    expect(series.months[12].accountBalancesCents.savings).toBe(10_000_000 - 3_000_000);
+  });
+
+  it("is drained once, not once per skipped month", () => {
+    const base = baseWith([liquidAcct("savings", 10_000_000)]);
+    const ledger = addWithBase(emptyLedger, base, spend({ month: 0 }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    // Clamping the draw's month must not let it re-match a later month: the balance after
+    // month 1 never moves again.
+    expect(series.months[2].accountBalancesCents.savings).toBe(10_000_000 - 3_000_000);
+    expect(series.months[2].netWorthNominalCents).toBe(10_000_000 - 3_000_000);
+  });
+
+  it("still hard-blocks at month 0 when the sources cannot cover it", () => {
+    // The gate prices the month the draw RESOLVES in, so a month-0 spend is judged against
+    // month 1's balances — the very ones the simulator will drain.
+    const base = baseWith([liquidAcct("savings", 2_000_000)]); // $20k < $30k spend
+    expect(addEvent(emptyLedger, base, spend({ month: 0 })).ok).toBe(false);
+  });
+});
+
 describe("OneTimeSpendEvent — ledger round-trip (replay + undo)", () => {
   it("replays deterministically: the same ledger yields the same projection", () => {
     const base = baseWith([liquidAcct("savings", 10_000_000)]);
