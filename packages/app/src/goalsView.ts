@@ -165,8 +165,13 @@ export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
   return goals.filter((g) => g.id !== id);
 }
 
-/** One event that blocks a goal's deletion, in the shape the block message renders. */
+/**
+ * One event that blocks a goal's deletion, in the shape the block message renders. Carries
+ * the event id so a caller can hold on to *which* events blocked without holding the words
+ * describing them — the label and month are re-derived from the ledger on every read.
+ */
 export interface GoalFundingBlock {
+  readonly eventId: string;
   readonly label: string;
   readonly month: number;
 }
@@ -182,26 +187,23 @@ export function goalFundingBlocks(
   ledger: Ledger,
 ): GoalFundingBlock[] {
   return eventsFundedByGoal(goals, id, ledger).map((e) => ({
+    eventId: e.id,
     label: summarizeEvent(e).label,
     month: e.month,
   }));
 }
 
 /**
- * Refuse-to-delete text when a goal's fund account funds an event, naming each blocker by
- * label and month so the user knows which events to edit or re-point first. Null when the
- * account is unreferenced — deletion may proceed.
+ * The refuse-to-delete text for a given set of blockers, or null for none. The single
+ * authority for the wording; callers that hold a narrowed set of blockers (one refusal's
+ * own) format through here rather than re-deriving the sentence.
  */
-export function goalDeletionBlockMessage(
-  goals: readonly GoalPlan[],
-  id: string,
-  ledger: Ledger,
-): string | null {
-  const blocks = goalFundingBlocks(goals, id, ledger);
+export function fundingBlockMessage(blocks: readonly GoalFundingBlock[]): string | null {
   if (blocks.length === 0) return null;
   const lines = blocks.map((b) => `- ${b.label} in ${monthLabel(b.month)}`);
   return ["This account cannot be deleted because it funds:", ...lines].join("\n");
 }
+
 
 /**
  * Move a goal one slot earlier ("up", funded sooner) or later ("down"); a no-op at the

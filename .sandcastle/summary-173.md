@@ -39,8 +39,13 @@ Three red→green cycles, each a single failing test first.
 4. **Engine relocation** — moved the predicate down to `goalFunding.ts` and added
    `Projection.removeGoal`. Exhaustiveness was verified by deleting an arm of the switch and
    confirming `tsc` fails with TS2366, then restoring it.
+5. **Stale-refusal fix** — pinned the refusal to the blockers of one delete attempt. Both
+   halves of the fix were checked by removing each in turn and confirming which test fails:
+   the id filter is what catches a blocker *replaced in a single update*, and it alone is
+   enough to make revival impossible. The state-clear is belt-and-braces and no test
+   fails without it.
 
-Final: `1014 passed | 45 todo`, typecheck clean, engine purity clean.
+Final: `1019 passed | 45 todo`, typecheck clean, engine purity clean.
 
 ## Key Decisions & Why
 
@@ -64,12 +69,14 @@ Final: `1014 passed | 45 todo`, typecheck clean, engine purity clean.
   single month→time label every surface already goes through). No new formatting concepts, so
   the refusal reads consistently with the rest of the app.
 - **Structured list + formatted message as two functions.** `goalFundingBlocks` returns
-  `{ label, month }[]` (tested against the AC's "by label and month"); `goalDeletionBlockMessage`
-  is the single authority for the user-facing text. One formatter, tested for exact wording.
-- **Derive the refusal at render, don't snapshot it.** The panel stores only `refusedDeleteId`
-  and recomputes the message from the current ledger each render. Removing or re-pointing the
-  blocking events therefore clears the message live (AC4) instead of leaving stale text — and
-  it follows the "derive during render, not in an effect" React guideline.
+  `{ eventId, label, month }[]` (tested against the AC's "by label and month"); the row carries
+  its event id so a caller can hold *which* events blocked without holding the words describing
+  them. `fundingBlockMessage` is the single authority for the user-facing text.
+- **The refusal is pinned to one delete attempt.** The panel stores `{ goalId, blockerEventIds }`
+  — the events that blocked at that click — and re-derives the wording from the current ledger
+  each render. Ids rather than the sentence, so a blocker re-dated afterwards still reads
+  correctly; pinned rather than "whatever blocks this goal now", so an event that funds the
+  same goal later cannot revive a refusal the user never asked for a second time.
 - **Sort blockers by (month, sequence)** so a multi-event refusal reads in timeline order.
 
 ## Changes Made
@@ -85,14 +92,15 @@ Final: `1014 passed | 45 todo`, typecheck clean, engine purity clean.
   throws with the state untouched while an event still spends from its fund account.
 - `packages/engine/src/index.ts` — exports the new module.
 - `packages/app/src/goalsView.ts`
-  - `goalFundingBlocks(goals, id, ledger)` — maps the engine's blockers to `{ label, month }[]`
-    using `summarizeEvent`. No longer decides *which* events block.
-  - `goalDeletionBlockMessage(goals, id, ledger)` — the refuse-to-delete text naming each
-    blocker, or `null` when deletion may proceed.
+  - `goalFundingBlocks(goals, id, ledger)` — maps the engine's blockers to
+    `{ eventId, label, month }[]` using `summarizeEvent`. No longer decides *which* events block.
+  - `fundingBlockMessage(blocks)` — the refuse-to-delete text for a given set of blockers, or
+    `null` for none. Takes the rows rather than the goal, so the panel can format one
+    refusal's own blockers instead of everything currently blocking the goal.
 - `packages/app/src/components/goalsPanel/goalsPanel.tsx`
   - New required `ledger` prop.
-  - `remove(id)` refuses (sets `refusedDeleteId`, no mutation) when the goal funds an event;
-    otherwise deletes as before.
+  - `remove(id)` refuses (records `{ goalId, blockerEventIds }`, no mutation) when the goal
+    funds an event; otherwise deletes as before.
   - Renders the derived refusal as an amber `role="alert"` under the goal's actions.
 - `packages/app/src/main.tsx` — passes `ledger` into `GoalsPanel`.
 - `packages/app/src/assets/styles/globals.css` — `.alert-list { white-space: pre-line }` so
@@ -100,12 +108,14 @@ Final: `1014 passed | 45 todo`, typecheck clean, engine purity clean.
 - Tests: `goalFunding.test.ts` (per-type funding sources, blocker discovery and ordering,
   refusal wording), `projectionRoot.test.ts` (remove / refuse / state untouched / unblock /
   unknown id), `goalsView.test.ts` (block logic, multi-event, unreferenced, unblock),
-  `goalsPanel/goalsDelete.test.tsx` (refuse + normal delete), existing `goalsPanel.test.tsx`
+  `goalsPanel/goalsDelete.test.tsx` (refuse + normal delete + the stale-refusal regressions:
+  no revival after a later blocker, no revival when a blocker is replaced in one update,
+  wording re-read from the ledger, partial-clear keeps the rest), existing `goalsPanel.test.tsx`
   render calls updated for the new prop.
 
 ## Verification & Testing
 
-- `npm run check` (purity + typecheck + tests): **1014 passed | 45 todo**, 85 test files.
+- `npm run check` (purity + typecheck + tests): **1019 passed | 45 todo**, 85 test files.
 - Engine purity check: passed.
 - `tsc --noEmit`: clean.
 

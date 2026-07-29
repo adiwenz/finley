@@ -19,7 +19,7 @@ import {
   freshGoalId,
   goalDisposal,
   goalFundingBlocks,
-  goalDeletionBlockMessage,
+  fundingBlockMessage,
 } from "./goalsView";
 import { goalFundAccountId } from "@finley/engine";
 import type { Plan, GoalPlan, Ledger, LifeEvent } from "@finley/engine";
@@ -349,7 +349,7 @@ describe("goalFundingBlocks — events naming a goal's fund account as a funding
     // The home purchase at month 72 funds its down payment from Goal A's derived account.
     const buy = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
     const blocks = goalFundingBlocks([goalA, goalB], "a", ledgerOf(buy));
-    expect(blocks).toEqual([{ label: "Bought a home", month: 72 }]);
+    expect(blocks).toEqual([{ eventId: "buy1", label: "Bought a home", month: 72 }]);
   });
 
   it("returns nothing when no event references the goal's fund account", () => {
@@ -369,22 +369,34 @@ describe("goalFundingBlocks — events naming a goal's fund account as a funding
     const earlier = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
     const blocks = goalFundingBlocks([goalA], "a", ledgerOf(later, earlier));
     expect(blocks).toEqual([
-      { label: "Bought a home", month: 72 },
-      { label: "Bought a home", month: 90 },
+      { eventId: "buy1", label: "Bought a home", month: 72 },
+      { eventId: "buy2", label: "Bought a home", month: 90 },
     ]);
   });
 });
 
-describe("goalDeletionBlockMessage — the refuse-to-delete text", () => {
+describe("fundingBlockMessage — the refuse-to-delete text", () => {
+  const blocksFor = (goals: readonly GoalPlan[], id: string, ledger: Ledger) =>
+    fundingBlockMessage(goalFundingBlocks(goals, id, ledger));
+
   it("is null when the goal's fund account is unreferenced (deletion may proceed)", () => {
     const buy = homePurchase("buy1", 72, 0, ["savings"]);
-    expect(goalDeletionBlockMessage([goalA], "a", ledgerOf(buy))).toBeNull();
+    expect(blocksFor([goalA], "a", ledgerOf(buy))).toBeNull();
   });
 
   it("names each blocking event by label and month", () => {
     const buy = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
-    expect(goalDeletionBlockMessage([goalA], "a", ledgerOf(buy))).toBe(
+    expect(blocksFor([goalA], "a", ledgerOf(buy))).toBe(
       `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(72)}`,
+    );
+  });
+
+  it("names a narrowed set of blockers — the panel formats one refusal's own", () => {
+    const early = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
+    const late = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
+    const blocks = goalFundingBlocks([goalA], "a", ledgerOf(early, late));
+    expect(fundingBlockMessage(blocks.filter((b) => b.eventId === "buy2"))).toBe(
+      `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(90)}`,
     );
   });
 });
