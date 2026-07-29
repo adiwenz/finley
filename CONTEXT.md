@@ -34,6 +34,18 @@ persisted as truth — recomputed fresh whenever the projection changes.
 _Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy only),
 projection unqualified (that is the thing you ran, not what it produced).
 
+**Plan file**:
+A serialised `Projection state` a user saves or shares — self-describing, carrying a
+`Format version` so any consumer knows which shape produced it. Loading one is all-or-
+nothing: it yields a `Valid ledger` or is rejected.
+_Avoid_: save file, export, document.
+
+**Format version**:
+The version stamped into a `Plan file` identifying the `Projection state` shape that wrote
+it. The engine is the sole reader — it migrates a supported older version up to current, or
+rejects one it cannot (too old, or a future version it has no forward knowledge of).
+_Avoid_: schema version (in user-facing copy), app version.
+
 **Scenario**:
 A plan and a ledger together — the smallest unit that can be projected. Neither half
 projects alone: the plan states the standing numbers, the ledger states what happens.
