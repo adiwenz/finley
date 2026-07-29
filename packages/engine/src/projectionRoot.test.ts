@@ -921,6 +921,48 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     expect(p.addJob(P1, openEndedJob)).toBe("job-3");
   });
 
+  it("resetLedger reads named id fields, not every string it can reach", () => {
+    // `childName` is a person's words. A scan over every string in the ledger would read
+    // "goal-50000" as a counter reading and advance the mint by fifty thousand on the
+    // strength of a name.
+    const p = freshProjection();
+    p.resetLedger({
+      events: [
+        {
+          id: "imported-child",
+          type: "ChildEvent",
+          month: 12,
+          sequenceNumber: 0,
+          childId: "imported-child",
+          childName: "room-50000",
+          birthMonth: 12,
+          annualCostCents: 0,
+        },
+        {
+          id: "imported-child-2",
+          type: "ChildEvent",
+          month: 18,
+          sequenceNumber: 1,
+          childId: "imported-child-2",
+          // Mint-SHAPED and a real minted kind — still a name, still ignored.
+          childName: "goal-50000",
+          birthMonth: 18,
+          annualCostCents: 0,
+        },
+      ],
+      nextSequenceNumber: 2,
+    });
+
+    // Only the two sequence numbers moved the floor, so the next goal is goal-2, not goal-50001.
+    expect(p.addGoal({
+      name: "Car",
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+      annualReturnPct: 3,
+    })).toBe("goal-2");
+  });
+
   it("resetLedger swaps the timeline while the plan stays put", () => {
     const p = freshProjection();
     p.setRetirementTarget(58);
@@ -931,6 +973,156 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     expect(p.ledger.events).toHaveLength(0);
     // Unlike fromJSON, the standing plan authored alongside the timeline survives.
     expect(p.plan.retirementAge).toBe(58);
+  });
+});
+
+describe("Projection root — the id counter starts clear of the plan it is given", () => {
+  function planWith(overrides: Partial<typeof samplePlan>) {
+    return { ...samplePlan, jobs: [], budgetLines: [], goals: [], ...overrides };
+  }
+
+  const jobAt = (id: string) => ({
+    id,
+    ownerId: P1,
+    startYear: SAMPLE_START_YEAR,
+    endYear: null,
+    salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+  });
+
+  it("mints past a job the supplied plan already holds", () => {
+    // The app's own PLAN_DEFAULTS ships a `job-1`; before the fix a counter starting at 1
+    // minted a second one and the plan carried two jobs under one id.
+    const p = Projection.create({
+      plan: planWith({ jobs: [jobAt("job-1")] }),
+      startYear: SAMPLE_START_YEAR,
+    });
+
+    const added = p.addJob(P1, openEndedJob);
+    expect(added).not.toBe("job-1");
+    expect(added).toBe("job-2");
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("takes the floor from every plan collection, not just the one it is minting into", () => {
+    const p = Projection.create({
+      plan: planWith({
+        jobs: [jobAt("job-3")],
+        goals: [{
+          id: "goal-7",
+          name: "Car",
+          targetCents: dollarsToCents(30000),
+          targetDate: 36,
+          disposition: "retain",
+          annualReturnPct: 3,
+        }],
+        budgetLines: [{ ...expenseLine, id: "line-5" }],
+      }),
+      startYear: SAMPLE_START_YEAR,
+    });
+
+    // One counter across all kinds, so the highest id in ANY collection sets the floor.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-8");
+    expect(p.addBudgetLine(expenseLine)).toBe("line-9");
+  });
+
+  it("counts ids nested inside an imported partner's own jobs", () => {
+    const p = freshProjection();
+    p.resetLedger({
+      events: [
+        {
+          id: "person-4",
+          type: "RelationshipEvent",
+          month: 24,
+          sequenceNumber: 0,
+          person: {
+            id: "person-4",
+            name: "Partner",
+            birthYear: 1988,
+            retirementTargetAge: 65,
+            benefitClaimingAge: 67,
+            // A partner's jobs live ON their event — a floor reading only the event's own
+            // fields would hand `job-9` straight back out.
+            jobs: [jobAt("job-9")],
+          },
+        },
+      ],
+      nextSequenceNumber: 1,
+    });
+
+    expect(p.addJob(P1, openEndedJob)).toBe("job-10");
+  });
+
+  it("ignores an id-shaped suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
+    // Past 2^53 `Number` rounds, so honouring the suffix would set a floor the counter can
+    // never pass — and incrementing a non-safe integer is a no-op, so the mint would hand out
+    // the SAME id forever. Ignoring it is both safe and correct: `mint` cannot have issued a
+    // number it cannot count to.
+    const p = Projection.create({
+      plan: planWith({ jobs: [jobAt("job-9007199254740993")] }),
+      startYear: SAMPLE_START_YEAR,
+    });
+
+    const first = p.addJob(P1, openEndedJob);
+    const second = p.addJob(P1, openEndedJob);
+    expect(first).toBe("job-1");
+    expect(second).toBe("job-2");
+    expect(first).not.toBe(second);
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // Same guard on the import path, where the id sits in a real id field.
+    p.resetLedger({
+      events: [
+        {
+          id: "loan-9007199254740993",
+          type: "LoanEvent",
+          month: 6,
+          sequenceNumber: 0,
+          kind: "auto",
+          liabilityId: "loan-9007199254740993",
+          ownerId: P1,
+          openingBalanceCents: dollarsToCents(20_000),
+          apr: 5,
+          termMonths: 60,
+        },
+      ],
+      nextSequenceNumber: 1,
+    });
+
+    const a = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    const b = p.takeLoan({ month: 18, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    expect(a).not.toBe(b);
+    const eventIds = p.ledger.events.map((e) => e.id);
+    expect(new Set(eventIds).size).toBe(eventIds.length);
+  });
+
+  it("never walks the counter backwards, through create or a later reset", () => {
+    const p = Projection.create({
+      plan: planWith({ jobs: [jobAt("job-6")] }),
+      startYear: SAMPLE_START_YEAR,
+    });
+    expect(p.addJob(P1, openEndedJob)).toBe("job-7");
+
+    // An emptier import must not release ids already spent — neither the plan's `job-6` nor
+    // the `job-7` just minted.
+    p.resetLedger(emptyLedger);
+    expect(p.addJob(P1, openEndedJob)).toBe("job-8");
+  });
+
+  it("still addresses the right entity after the counter has been advanced", () => {
+    const p = Projection.create({
+      plan: planWith({ jobs: [jobAt("job-1")] }),
+      startYear: SAMPLE_START_YEAR,
+    });
+    const added = p.addJob(P1, openEndedJob);
+
+    p.updateJob(added, { name: "Second job" });
+    expect(p.plan.jobs.find((j) => j.id === "job-1")).not.toHaveProperty("name");
+    expect(p.plan.jobs.find((j) => j.id === added)).toMatchObject({ name: "Second job" });
+
+    p.removeJob(added);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual(["job-1"]);
   });
 });
 

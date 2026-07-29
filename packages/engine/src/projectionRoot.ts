@@ -35,7 +35,8 @@ import type { BudgetLine, BudgetLinePatch } from "./budgetLine";
 import { withLinePatch, withoutLine } from "./budgetLine";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
-import type { NewLifeEvent } from "./ledger/eventTypes";
+import type { LifeEvent, NewLifeEvent } from "./ledger/eventTypes";
+import { causedByEventId } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { Person } from "./person";
@@ -178,63 +179,143 @@ export interface ProjectionInit {
 }
 
 /**
+ * Every kind the shared counter issues ids for. ONE list: {@link mint} accepts nothing else,
+ * so the compiler refuses a new kind until it is named here, and {@link MINTED_ID} — the
+ * parser that has to recognize the same ids coming back in — is built from it. A kind that
+ * mints but is not recognized on the way back is exactly how a counter walks onto a live id.
+ */
+const MINTED_KINDS = [
+  "job",
+  "line",
+  "goal",
+  "person",
+  "child",
+  "separation",
+  "payoff",
+  "loan",
+  "home",
+] as const;
+
+type MintedKind = (typeof MINTED_KINDS)[number];
+
+/**
  * An override is returned verbatim and does NOT advance the counter. One counter across all
  * kinds, so ids cannot collide.
  */
 function mint(
   state: ProjectionState,
-  kind: string,
+  kind: MintedKind,
   override: string | undefined,
 ): { id: string; nextSeq: number } {
   if (override != null) return { id: override, nextSeq: state.nextSeq };
   return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
 }
 
-/**
- * The inverse of {@link mint}'s `${kind}-${n}` template, and deliberately kept beside it: a
- * change to the shape minted ids take is a change to both.
- *
- * Narrow on purpose. `mortgage-home-1` and a partner's `person-1-job-2` are not shapes `mint`
- * can produce, so they cannot be collided with — and the ids they derive FROM (`home-1`,
- * `person-1`) sit on the same event anyway, so nothing is missed by skipping them.
- */
-const MINTED_ID = /^[a-z]+-(\d+)$/;
+/** The exact inverse of {@link mint}'s `${kind}-${n}` template — no other shape parses. */
+const MINTED_ID = new RegExp(`^(?:${MINTED_KINDS.join("|")})-(\\d+)$`);
 
 /**
- * The highest number {@link mint} could have issued anywhere in `value`. Walks nested objects
- * and arrays — a partner's jobs live on `person.jobs` inside their event, so a shallow pass
- * over the event's own fields would miss `job-3` entirely.
+ * The number {@link mint} issued to make this id, or `null` for anything it did not make.
+ *
+ * Rejects a suffix past `Number.MAX_SAFE_INTEGER`: past that, `Number` rounds, so
+ * `job-9007199254740993` would parse to an integer neighbouring value and set a floor no
+ * counter can reach — the mint would then hand out the SAME id forever, since incrementing a
+ * non-safe integer is a no-op. Ignoring it is correct as well as safe: `mint` cannot have
+ * issued a number it cannot count to, so nothing that far out is a real minted id.
  */
-function highestMintedId(value: unknown): number {
-  if (typeof value === "string") {
-    const match = MINTED_ID.exec(value);
-    return match ? Number(match[1]) : 0;
-  }
-  if (value === null || typeof value !== "object") return 0;
-  // `Object.values` yields an array's elements too, so arrays need no separate branch.
-  return Object.values(value).reduce<number>((max, v) => Math.max(max, highestMintedId(v)), 0);
+function mintedNumber(id: string | undefined): number | null {
+  if (id === undefined) return null;
+  const match = MINTED_ID.exec(id);
+  if (match === null) return null;
+  const n = Number(match[1]);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/** A job's ids: its own, its owner's, and the account its deferral funds. */
+function jobIds(job: Job): readonly (string | undefined)[] {
+  return [job.id, job.ownerId, job.deferral?.fundAccountId];
 }
 
 /**
- * The counter floor an imported {@link Ledger} forces — ONE number, computed once, serving
- * both counters an import can invalidate:
+ * The id-bearing fields of one event, named field by field. The switch is exhaustive over
+ * {@link LifeEvent} — the `never` default makes a new event type a COMPILE error here, so an
+ * id field cannot be added to the union and silently left out of the floor.
+ */
+function eventIds(event: LifeEvent): readonly (string | undefined)[] {
+  const common = [event.id, causedByEventId(event)];
+  switch (event.type) {
+    case "RelationshipEvent":
+      return [...common, event.person.id, ...event.person.jobs.flatMap(jobIds)];
+    case "ChildEvent":
+      return [...common, event.childId];
+    case "SeparationEvent":
+      return [...common, event.partnerPersonId];
+    case "HomePurchaseEvent":
+      return [
+        ...common,
+        event.propertyId,
+        event.ownerId,
+        event.mortgageLiabilityId,
+        ...event.downPaymentSourceIds,
+      ];
+    case "LoanEvent":
+      return [...common, event.liabilityId, event.ownerId];
+    case "DebtPayoffEvent":
+      return [...common, event.liabilityId, event.accountId];
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Every field of a {@link Scenario} that can hold an id the counter issued — the plan's three
+ * collections and each event, named explicitly.
  *
- *  - `ProjectionState.nextSeq`, the id mint. An imported event carrying `child-1` means the
- *    next {@link Projection.haveChild} must not mint `child-1`.
+ * Named fields, NOT a walk over every string: a `childName` of `"room-50000"` or a label of
+ * `"goal-2 rewrite"` is a person's words, and treating it as a counter reading would advance
+ * the mint by fifty thousand on the strength of a typo. Only somewhere an id actually lives
+ * is read.
+ */
+function mintedIdFields(scenario: Scenario): readonly (string | undefined)[] {
+  const { plan, ledger } = scenario;
+  return [
+    ...plan.jobs.flatMap(jobIds),
+    ...plan.goals.map((g) => g.id),
+    ...plan.budgetLines.flatMap((l) => [
+      l.id,
+      l.target.kind === "account" ? l.target.accountId : undefined,
+    ]),
+    ...ledger.events.flatMap(eventIds),
+  ];
+}
+
+/**
+ * The counter floor a scenario forces — ONE number, computed once, serving both counters that
+ * authored data can invalidate:
+ *
+ *  - `ProjectionState.nextSeq`, the id mint. A plan holding `job-1` or an event holding
+ *    `child-1` means the next {@link Projection.addJob} / {@link Projection.haveChild} must
+ *    not mint it a second time.
  *  - `Ledger.nextSequenceNumber`, the same-month tie-breaker {@link addEvent} stamps from.
  *    Its invariant (strictly above every event's `sequenceNumber`) is documented but not
- *    enforced on data arriving from outside, and a ledger that violates it hands the next
- *    two appends the SAME sequence number.
+ *    enforced on data arriving from outside, and a ledger violating it hands the next two
+ *    appends the SAME sequence number.
  *
- * Never decreases: a number this `Projection` has already issued stays spent, so an import
- * cannot walk the counter back onto an id the plan is already using.
+ * Never decreases: `current` is a lower bound, so a number this `Projection` has already
+ * issued stays spent and an import cannot walk the counter back onto a live id.
  */
-function seqFloorAfterImport(ledger: Ledger, current: number): number {
-  let floor = Math.max(current, ledger.nextSequenceNumber);
-  for (const event of ledger.events) {
+function seqFloor(scenario: Scenario, current: number): number {
+  let floor = Math.max(current, scenario.ledger.nextSequenceNumber);
+  for (const event of scenario.ledger.events) {
     floor = Math.max(floor, event.sequenceNumber + 1);
   }
-  return Math.max(floor, highestMintedId(ledger.events) + 1);
+  for (const id of mintedIdFields(scenario)) {
+    const n = mintedNumber(id);
+    if (n !== null) floor = Math.max(floor, n + 1);
+  }
+  return floor;
 }
 
 export class Projection {
@@ -245,11 +326,16 @@ export class Projection {
     this.current = state;
   }
 
+  /**
+   * The counter starts clear of the plan it is handed, not at 1: a plan authored elsewhere
+   * routinely already holds `job-1`, and minting it a second time would give two jobs one id.
+   */
   static create(init: ProjectionInit): Projection {
+    const scenario = scenarioOf(init.plan);
     return new Projection({
-      scenario: scenarioOf(init.plan),
+      scenario,
       startYear: init.startYear,
-      nextSeq: 1,
+      nextSeq: seqFloor(scenario, 1),
     });
   }
 
@@ -670,16 +756,18 @@ export class Projection {
    *
    * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
    * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
-   * the import already occupies ({@link seqFloorAfterImport}), because an imported event
-   * holding `child-1` or sitting at `sequenceNumber` 7 would otherwise be handed straight back
-   * to the next authored event as its own id or its own place in the log.
+   * the import already occupies ({@link seqFloor}), because an imported event holding `child-1`
+   * or sitting at `sequenceNumber` 7 would otherwise be handed straight back to the next
+   * authored event as its own id or its own place in the log.
    *
    * Prefer the per-transaction methods for anything an authoring flow does; reach for this
    * only when the ledger arrives already-built.
    */
   resetLedger(ledger: Ledger): void {
     const s = this.state;
-    const nextSeq = seqFloorAfterImport(ledger, s.nextSeq);
+    // Over the plan AND the incoming ledger, so the standing collections keep their claim on
+    // the counter across a reset.
+    const nextSeq = seqFloor(withLedger(s.scenario, ledger), s.nextSeq);
     this.commit({
       ...s,
       // One floor for both: the id mint and the ledger's own tie-breaker start clear of the
