@@ -190,6 +190,53 @@ function mint(
   return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
 }
 
+/**
+ * The inverse of {@link mint}'s `${kind}-${n}` template, and deliberately kept beside it: a
+ * change to the shape minted ids take is a change to both.
+ *
+ * Narrow on purpose. `mortgage-home-1` and a partner's `person-1-job-2` are not shapes `mint`
+ * can produce, so they cannot be collided with — and the ids they derive FROM (`home-1`,
+ * `person-1`) sit on the same event anyway, so nothing is missed by skipping them.
+ */
+const MINTED_ID = /^[a-z]+-(\d+)$/;
+
+/**
+ * The highest number {@link mint} could have issued anywhere in `value`. Walks nested objects
+ * and arrays — a partner's jobs live on `person.jobs` inside their event, so a shallow pass
+ * over the event's own fields would miss `job-3` entirely.
+ */
+function highestMintedId(value: unknown): number {
+  if (typeof value === "string") {
+    const match = MINTED_ID.exec(value);
+    return match ? Number(match[1]) : 0;
+  }
+  if (value === null || typeof value !== "object") return 0;
+  // `Object.values` yields an array's elements too, so arrays need no separate branch.
+  return Object.values(value).reduce<number>((max, v) => Math.max(max, highestMintedId(v)), 0);
+}
+
+/**
+ * The counter floor an imported {@link Ledger} forces — ONE number, computed once, serving
+ * both counters an import can invalidate:
+ *
+ *  - `ProjectionState.nextSeq`, the id mint. An imported event carrying `child-1` means the
+ *    next {@link Projection.haveChild} must not mint `child-1`.
+ *  - `Ledger.nextSequenceNumber`, the same-month tie-breaker {@link addEvent} stamps from.
+ *    Its invariant (strictly above every event's `sequenceNumber`) is documented but not
+ *    enforced on data arriving from outside, and a ledger that violates it hands the next
+ *    two appends the SAME sequence number.
+ *
+ * Never decreases: a number this `Projection` has already issued stays spent, so an import
+ * cannot walk the counter back onto an id the plan is already using.
+ */
+function seqFloorAfterImport(ledger: Ledger, current: number): number {
+  let floor = Math.max(current, ledger.nextSequenceNumber);
+  for (const event of ledger.events) {
+    floor = Math.max(floor, event.sequenceNumber + 1);
+  }
+  return Math.max(floor, highestMintedId(ledger.events) + 1);
+}
+
 export class Projection {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
@@ -621,13 +668,26 @@ export class Projection {
    * Swap the whole timeline — how a caller loads a pre-built scenario without discarding the
    * plan it was authored against, which {@link fromJSON} would.
    *
-   * The caller owns the incoming ledger's validity: this replays nothing, so it is the one
-   * ledger write with no gate. Prefer the per-transaction methods for anything an authoring
-   * flow does; reach for this only when the ledger arrives already-built.
+   * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
+   * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
+   * the import already occupies ({@link seqFloorAfterImport}), because an imported event
+   * holding `child-1` or sitting at `sequenceNumber` 7 would otherwise be handed straight back
+   * to the next authored event as its own id or its own place in the log.
+   *
+   * Prefer the per-transaction methods for anything an authoring flow does; reach for this
+   * only when the ledger arrives already-built.
    */
   resetLedger(ledger: Ledger): void {
     const s = this.state;
-    this.commit({ ...s, scenario: withLedger(s.scenario, ledger) });
+    const nextSeq = seqFloorAfterImport(ledger, s.nextSeq);
+    this.commit({
+      ...s,
+      // One floor for both: the id mint and the ledger's own tie-breaker start clear of the
+      // import together. Sequence numbers are allowed to skip — the gap this leaves is the
+      // same kind a removal leaves.
+      scenario: withLedger(s.scenario, { ...ledger, nextSequenceNumber: nextSeq }),
+      nextSeq,
+    });
   }
 
   // Run

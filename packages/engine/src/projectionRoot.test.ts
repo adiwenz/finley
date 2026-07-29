@@ -11,7 +11,7 @@ import { nullJurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
 import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
-import { emptyLedger } from "./ledger/ledger";
+import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { PersonId } from "./job";
 
@@ -817,6 +817,108 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
       }),
     ).toThrow(/cannot revise transaction — /);
     expect(p.state).toBe(before);
+  });
+
+  it("resetLedger advances both counters past what the import already occupies", () => {
+    const p = freshProjection();
+    // An id counter sitting exactly where the import already is: a fresh Projection's
+    // `nextSeq` is 1, and the imported event is `child-1` at sequenceNumber 1. Before the
+    // fix, the next haveChild() minted `child-1` a second time — refused by the duplicate
+    // -child guard — and the next append reused sequence number 1.
+    const imported: Ledger = {
+      events: [
+        {
+          id: "child-1",
+          type: "ChildEvent",
+          month: 12,
+          sequenceNumber: 1,
+          childId: "child-1",
+          childName: "Robin",
+          birthMonth: 12,
+          annualCostCents: dollarsToCents(12_000),
+        },
+      ],
+      nextSequenceNumber: 2,
+    };
+    p.resetLedger(imported);
+
+    const newChildId = p.haveChild({ month: 36, name: "Sam", annualCostCents: dollarsToCents(9_000) });
+
+    // A distinct id, and a place in the log after the event it was imported alongside.
+    expect(newChildId).not.toBe("child-1");
+    const ids = p.ledger.events.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const imported0 = p.ledger.events.find((e) => e.id === "child-1");
+    const added = p.ledger.events.find((e) => e.id === newChildId);
+    expect(added?.sequenceNumber).toBeGreaterThan(imported0?.sequenceNumber ?? 0);
+
+    // Both events remain individually addressable: a revision lands on the imported one and
+    // leaves the new one alone, and a removal takes only the event it names.
+    p.reviseTransaction("child-1", {
+      id: "child-1",
+      type: "ChildEvent",
+      month: 12,
+      childId: "child-1",
+      childName: "Robin (renamed)",
+      birthMonth: 12,
+      annualCostCents: dollarsToCents(15_000),
+    });
+    expect(p.ledger.events.find((e) => e.id === "child-1")).toMatchObject({
+      childName: "Robin (renamed)",
+      // A revision keeps its place in the log.
+      sequenceNumber: imported0?.sequenceNumber,
+    });
+    expect(p.ledger.events.find((e) => e.id === newChildId)).toMatchObject({ childName: "Sam" });
+
+    p.removeTransaction("child-1");
+    expect(p.ledger.events.map((e) => e.id)).toEqual([newChildId]);
+  });
+
+  it("resetLedger clears a sequence number an import would otherwise hand out twice", () => {
+    // A ledger whose own `nextSequenceNumber` violates the Ledger invariant — it is not above
+    // every event's `sequenceNumber`. Nothing validates data arriving from outside, so before
+    // the fix `addEvent` stamped 3, then 4, and the 4 collided with the imported event.
+    const p = freshProjection();
+    p.resetLedger({
+      events: [
+        {
+          id: "imported-loan",
+          type: "LoanEvent",
+          month: 6,
+          sequenceNumber: 4,
+          kind: "auto",
+          liabilityId: "imported-loan",
+          ownerId: P1,
+          openingBalanceCents: dollarsToCents(20_000),
+          apr: 5,
+          termMonths: 60,
+        },
+      ],
+      nextSequenceNumber: 3,
+    });
+
+    const loanId = p.takeLoan({
+      month: 12,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(5_000),
+      apr: 4,
+      termMonths: 24,
+    });
+
+    const seqs = p.ledger.events.map((e) => e.sequenceNumber);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    expect(p.ledger.events.find((e) => e.id === loanId)?.sequenceNumber).toBeGreaterThan(4);
+  });
+
+  it("resetLedger never walks the id counter backwards", () => {
+    // Ids this Projection already issued stay spent, even when the import is emptier than
+    // what came before — otherwise a reset would re-mint over the plan's own jobs.
+    const p = freshProjection();
+    p.addJob(P1, openEndedJob); // job-1
+    p.addJob(P1, openEndedJob); // job-2
+    p.resetLedger(emptyLedger);
+    expect(p.addJob(P1, openEndedJob)).toBe("job-3");
   });
 
   it("resetLedger swaps the timeline while the plan stays put", () => {
