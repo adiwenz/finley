@@ -3,6 +3,8 @@
  * exactly one home, and income "just this month" is a *delta* ledger transaction rather than
  * a standing change.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, type BudgetLine } from "@finley/engine";
 import {
@@ -228,5 +230,14 @@ describe("applyLineOverride", () => {
     });
     expect(next[0]?.overrides).toHaveLength(2);
     expect(next[1]).toEqual(start[1]);
+  });
+
+  // The behavior above is explained in `applyLineOverride`'s JSDoc. That prose must stay in
+  // app/public terms: `SimCashFlowSeries` is an engine implementation detail — how the
+  // compiler happens to represent a schedule today — so app prose should describe the
+  // observable effect instead. Pins the boundary against a reword reaching back inside.
+  it("explains supersession without naming an engine implementation detail", () => {
+    const source = readFileSync(fileURLToPath(new URL("./monthEdit.ts", import.meta.url)), "utf8");
+    expect(source).not.toContain("SimCashFlowSeries");
   });
 });
