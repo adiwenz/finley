@@ -14,7 +14,31 @@ _Avoid_: history, event log (use "ledger" specifically for the stored record lis
 **Projection**:
 The derived month-by-month net-worth output produced by replaying the ledger. Never
 persisted as truth — recomputed fresh whenever the ledger changes.
-_Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy only).
+_Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy only). Note
+the engine's `Projection` class is a **scenario editor**, not this — a known misnomer; this
+sense is canonical.
+
+**Scenario**:
+A plan and a ledger together — the smallest unit that can be projected. Neither half
+projects alone: the plan states the standing numbers, the ledger states what happens.
+_Avoid_: state, document, model.
+
+**Scenario editor**:
+A short-lived object that applies authored changes to a scenario and issues the ids those
+changes need. Exists only for the duration of a set of edits; never the resting place of
+application state.
+_Avoid_: projection (that is the derived output), store, state container.
+
+**Scenario input**:
+A declarative, id-free description of a whole scenario — standing numbers plus the events
+that create everything else. The authoring counterpart to a scenario: it says what should
+exist, not what does.
+_Avoid_: plan input (it describes both planes, not just the plan), config, template.
+
+**Ref**:
+An author-chosen name used inside a scenario input so one entry can point at another before
+any id exists. Resolved when the scenario is built and discarded — never persisted.
+_Avoid_: id, key, alias.
 
 **CashFlowSeries**:
 The reusable primitive modeling any recurring dollar amount that changes over time
@@ -38,6 +62,21 @@ An `Account` or `CashFlowSeries` that exists only as a consequence of an `Event`
 mortgage, a child-support stream) and has no independent life. Tagged with
 `sourceEventId` for provenance, but provenance never dictates its editing surface.
 _Avoid_: byproduct, side effect.
+
+**Minted id**:
+An id issued by the engine's shared counter (`job-3`, `goal-7`). The counter is the only
+thing permitted to invent one, so a minted id is unique across a scenario by construction.
+_Avoid_: generated id, auto id.
+
+**Derived id**:
+An id computed from its parent's id rather than from the counter (a mortgage's, from the
+property that owns it). Unique because its parent is, so it never consumes a count.
+_Avoid_: composite id, child id (a child has a minted id like anything else).
+
+**External id**:
+An id that arrived from outside the engine and is carried verbatim — never parsed, never
+allowed to influence the counter. The engine treats it as an opaque label.
+_Avoid_: foreign id, custom id.
 
 **Provenance**:
 The `sourceEventId` (or `appliedRecommendationId`) tag recording *what created* an
@@ -229,6 +268,13 @@ interface.
 The seam the engine defines and a `rules` package implements: `computeTax`, contribution
 limits, and government-program formulas, all parameterized by year. The engine ships a
 null jurisdiction (zero tax, no programs) so it runs standalone.
+
+**Validation jurisdiction** vs **run jurisdiction**:
+Two distinct uses of the same seam. The **validation** jurisdiction decides whether an
+authored change may be accepted (an affordability gate nets tax, so the answer is
+jurisdiction-dependent). The **run** jurisdiction is chosen per projection, so one scenario
+can be re-run under several. Authoring against one and projecting under another is normal.
+_Avoid_: "the jurisdiction" unqualified when either could be meant.
 
 **EarningsRecord**:
 An engine-owned, per-person accumulator filled as the simulator runs forward (every income
