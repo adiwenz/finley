@@ -35,6 +35,13 @@ describe("App — initial values", () => {
 });
 
 describe("App — event ledger", () => {
+  it("no longer offers 'Added an expense' — recurring spend lives in Base + Adjustments", () => {
+    render(<App />);
+    const menu = screen.getByLabelText("What happened?");
+    const labels = within(menu).getAllByRole("option").map((o) => o.textContent);
+    expect(labels).not.toContain("Added an expense");
+  });
+
   it("adds an event without rebuilding the projection base", () => {
     const spy = vi.spyOn(engine, "createProjectionBase");
     render(<App />);
@@ -42,7 +49,7 @@ describe("App — event ledger", () => {
 
     fireEvent.click(screen.getByText("Add event"));
 
-    // The default "Added an expense" event has one timeline marker (one Remove).
+    // The default "Took out a loan" event has one timeline marker (one Remove).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
     // The base is memoized on budget identity, which a ledger edit must not churn.
@@ -95,29 +102,6 @@ describe("App — event ledger", () => {
     // Move the separation to Year 5, where the partner exists.
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
     expect(screen.getByLabelText("From")).toBeTruthy();
-  });
-
-  it("offers a job/expense owner only once the partner is in the household", () => {
-    render(<App />);
-
-    // Partner joins in Year 5 (month 60).
-    fireEvent.change(screen.getByLabelText("What happened?"), {
-      target: { value: "RelationshipEvent" },
-    });
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
-    fireEvent.click(screen.getByText("Add event"));
-
-    // The default "Added an expense" defaults to Year 0, before the partnership, so only
-    // you can own it.
-    fireEvent.change(screen.getByLabelText("What happened?"), {
-      target: { value: "BudgetItemStartEvent" },
-    });
-    expect(screen.queryByLabelText("Whose")).toBeNull();
-
-    // Move the expense to Year 5, where the partner is in the household.
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
-    const owner = screen.getByLabelText("Whose");
-    expect(within(owner).getByRole("option", { name: "Partner" })).toBeTruthy();
   });
 
   it("carries a partner's own job through every surface, and edits it from the Jobs panel", () => {

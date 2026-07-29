@@ -9,8 +9,6 @@
 
 import type { ValidationResult } from "./ledger";
 import type {
-  BudgetItemEndEvent,
-  BudgetItemStartEvent,
   ChildEvent,
   DebtPayoffEvent,
   HomePurchaseEvent,
@@ -318,47 +316,6 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
-const budgetItemStart: EventHandler<BudgetItemStartEvent> = {
-  check(event, state) {
-    if (state.seriesById.has(asSeriesId(event.seriesId))) {
-      return fail(event, `series "${event.seriesId}" already exists`);
-    }
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
-    return ok;
-  },
-  apply(event, state) {
-    addSeries(state, {
-      id: asSeriesId(event.seriesId),
-      causedByEventId: event.id,
-      role: "budgetItem",
-      ownerId: asPersonId(event.ownerId),
-      seriesType: event.seriesType,
-      startMonth: event.month,
-      endMonth: null,
-      baseline: { unit: "monthly", monthlyCents: event.monthlyCents },
-      growthMode: event.growthMode,
-      taxCategory: event.taxCategory,
-    });
-  },
-};
-
-const budgetItemEnd: EventHandler<BudgetItemEndEvent> = {
-  check(event, state) {
-    const s = state.seriesById.get(asSeriesId(event.seriesId));
-    if (!s) return fail(event, `series "${event.seriesId}" not found; cannot end it`);
-    if (s.endMonth !== null) {
-      return fail(event, `series "${event.seriesId}" is already ended`);
-    }
-    return ok;
-  },
-  apply(event, state) {
-    const s = state.seriesById.get(asSeriesId(event.seriesId));
-    if (s && s.endMonth === null) s.endMonth = event.month - 1;
-  },
-};
-
 function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
@@ -380,8 +337,6 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
-  BudgetItemStartEvent: budgetItemStart,
-  BudgetItemEndEvent: budgetItemEnd,
 };
 
 /**

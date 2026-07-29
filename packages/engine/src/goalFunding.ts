@@ -34,8 +34,6 @@ export function eventFundingSourceIds(event: LifeEvent): readonly string[] {
     case "ChildEvent":
     case "SeparationEvent":
     case "LoanEvent":
-    case "BudgetItemStartEvent":
-    case "BudgetItemEndEvent":
       return [];
   }
 }

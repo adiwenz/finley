@@ -54,13 +54,6 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
       };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
-    case "BudgetItemStartEvent":
-      return {
-        label: e.seriesType === "income" ? "Added income" : "Added an expense",
-        detail: `${formatDollars(e.monthlyCents)}/mo`,
-      };
-    case "BudgetItemEndEvent":
-      return { label: "Ended an item", detail: e.seriesId };
   }
 }
 
@@ -75,7 +68,6 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
     case "childCost":
       return "Child cost";
     case "base":
-    case "budgetItem":
       return s.seriesType === "income" ? "Income" : "Expense";
   }
 }

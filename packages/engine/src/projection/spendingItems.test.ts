@@ -71,23 +71,24 @@ const LOAN: NewLifeEvent = {
   termMonths: 120,
 };
 
-const ADDED_EXPENSE: NewLifeEvent = {
-  id: "exp-1",
-  type: "BudgetItemStartEvent",
+// A child spawns a linked child-cost expense series — the surviving event-authored expense
+// on the timeline (recurring rates live in the budget, not on the ledger).
+const CHILD_COST: NewLifeEvent = {
+  id: "child-1",
+  type: "ChildEvent",
   month: 12,
-  seriesId: "series-daycare",
-  ownerId: "p1",
-  seriesType: "expense",
-  monthlyCents: dollarsToCents(900),
-  growthMode: { type: "fixed" },
+  childId: "kid-1",
+  childName: "Robin",
+  birthMonth: 12,
+  annualCostCents: dollarsToCents(10_800), // $900/mo
 };
 
 describe("spendingItems — the invariant", () => {
   it.each([
     ["authored lines + health", LINED_PLAN, []],
     ["with a liability being serviced", LINED_PLAN, [LOAN]],
-    ["with an event-created expense", LINED_PLAN, [ADDED_EXPENSE]],
-    ["everything at once", LINED_PLAN, [LOAN, ADDED_EXPENSE]],
+    ["with an event-created expense", LINED_PLAN, [CHILD_COST]],
+    ["everything at once", LINED_PLAN, [LOAN, CHILD_COST]],
     ["the sample plan's single-line budget", samplePlan, [LOAN]],
   ])("%s: the items sum to the month's total spending, every month", (_name, plan, events) => {
     const series = project(plan as Plan, events as NewLifeEvent[]);
@@ -106,7 +107,7 @@ describe("spendingItems — the invariant", () => {
   });
 
   it("reports each authoring model as its own item, tagged with where it came from", () => {
-    const flows = project(LINED_PLAN, [LOAN, ADDED_EXPENSE]).months[13]!.flows!;
+    const flows = project(LINED_PLAN, [LOAN, CHILD_COST]).months[13]!.flows!;
     const byKind = (kind: string) => flows.spendingItems.filter((i) => i.sourceKind === kind);
 
     expect(byKind("budgetLine").map((i) => [i.id, i.label, i.category, i.editable])).toEqual([
@@ -123,7 +124,7 @@ describe("spendingItems — the invariant", () => {
       ["debt:loan-student", "Student loan payment", "debtService", false],
     ]);
     expect(byKind("event").map((i) => [i.sourceId, i.category, i.editable])).toEqual([
-      ["series-daycare", "other", false],
+      ["child-1:childCost", "other", false],
     ]);
     expect(byKind("liability")[0]!.amountCents).toBeGreaterThan(0);
   });

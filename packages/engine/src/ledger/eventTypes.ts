@@ -5,7 +5,7 @@
  */
 
 import type { Cents } from "../money";
-import type { GrowthMode, TaxCategory } from "../cashFlowSeries";
+import type { GrowthMode } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
 import type { Person } from "../person";
 
@@ -138,33 +138,13 @@ export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly amountCents: Cents;
 }
 
-/** Runs from `month` forward. */
-export interface BudgetItemStartEvent extends EventBase, CausedByFields {
-  readonly type: "BudgetItemStartEvent";
-  readonly seriesId: string;
-  readonly ownerId: string;
-  readonly seriesType: "income" | "expense";
-  readonly monthlyCents: Cents;
-  readonly growthMode: GrowthMode;
-  readonly taxCategory?: TaxCategory;
-}
-
-/** The series' last active month is `month − 1`. */
-export interface BudgetItemEndEvent extends EventBase {
-  readonly type: "BudgetItemEndEvent";
-  /** `seriesId` of the {@link BudgetItemStartEvent} to end. */
-  readonly seriesId: string;
-}
-
 export type LifeEvent =
   | RelationshipEvent
   | ChildEvent
   | SeparationEvent
   | HomePurchaseEvent
   | LoanEvent
-  | DebtPayoffEvent
-  | BudgetItemStartEvent
-  | BudgetItemEndEvent;
+  | DebtPayoffEvent;
 
 export type LifeEventType = LifeEvent["type"];
 
@@ -178,7 +158,6 @@ export function causedByEventId(event: LifeEvent): string | undefined {
 export type SeriesRole =
   | "base"
   | "primaryIncome"
-  | "budgetItem"
   | "alimony"
   | "childSupport"
   | "childCost";

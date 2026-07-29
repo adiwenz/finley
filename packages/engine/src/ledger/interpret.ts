@@ -99,7 +99,6 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
 const ROLE_LABEL: Record<SeriesRole, string> = {
   base: "Expense",
   primaryIncome: "Income",
-  budgetItem: "Expense",
   alimony: "Alimony",
   childSupport: "Child support",
   childCost: "Child cost",

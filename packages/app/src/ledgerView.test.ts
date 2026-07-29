@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   emptyLedger,
   addEvent,
-  dollarsToCents,
   asSeriesId,
   asPersonId,
   type Ledger,
@@ -80,14 +79,9 @@ describe("timelineMarkers", () => {
     });
     ledger = add(ledger, {
       id: "j1",
-      type: "BudgetItemStartEvent",
+      type: "RelationshipEvent",
       month: 12,
-      seriesId: "s1",
-      ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(5_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
+      person: personLit("p2", "Sam"),
     });
     const markers = timelineMarkers(ledger);
     expect(markers.map((m) => m.month)).toEqual([12, 24]);
@@ -128,7 +122,7 @@ describe("seriesLabel — engine series role → snapshot-panel text", () => {
       id: asSeriesId("s1"),
       ownerId: asPersonId("p1"),
       seriesType: "expense",
-      role: "budgetItem",
+      role: "base",
       monthlyCents: 0,
       causedByEventId: "e1",
       startMonth: 0,
@@ -141,8 +135,8 @@ describe("seriesLabel — engine series role → snapshot-panel text", () => {
     expect(seriesLabel(series({ role: "primaryIncome", seriesType: "income" }))).toBe("Job income");
     expect(seriesLabel(series({ role: "alimony" }))).toBe("Alimony");
     expect(seriesLabel(series({ role: "childSupport" }))).toBe("Child support");
-    expect(seriesLabel(series({ role: "budgetItem" }))).toBe("Expense");
-    expect(seriesLabel(series({ role: "budgetItem", seriesType: "income" }))).toBe("Income");
+    expect(seriesLabel(series({ role: "base" }))).toBe("Expense");
+    expect(seriesLabel(series({ role: "base", seriesType: "income" }))).toBe("Income");
   });
 });
 

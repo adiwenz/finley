@@ -88,10 +88,6 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       return event.amountCents > 0
         ? { ok: true }
         : bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
-    case "BudgetItemStartEvent":
-      return nonNegative(event, "monthlyCents", event.monthlyCents) ?? { ok: true };
-    case "BudgetItemEndEvent":
-      return { ok: true };
   }
 }
 
