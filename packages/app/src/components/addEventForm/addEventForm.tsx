@@ -19,10 +19,6 @@ import styles from "./addEventForm.module.css";
  * The `LifeEvent` types this menu authors — a subset (`DebtPayoffEvent` is handled
  * elsewhere). Derived from `LifeEvent` so renaming or removing a type is a compile error
  * here rather than silent drift. Labels stay decoupled from these ids.
- *
- * No recurring-expense entry: an ongoing spend rate is edited directly under Base +
- * Adjustments, its single source of truth, so putting it on the timeline too would give
- * one concept two authoring paths.
  */
 type EventKind = Extract<
   LifeEvent["type"],
