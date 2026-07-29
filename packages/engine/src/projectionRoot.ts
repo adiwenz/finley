@@ -198,19 +198,6 @@ const MINTED_KINDS = [
 
 type MintedKind = (typeof MINTED_KINDS)[number];
 
-/**
- * An override is returned verbatim and does NOT advance the counter. One counter across all
- * kinds, so ids cannot collide.
- */
-function mint(
-  state: ProjectionState,
-  kind: MintedKind,
-  override: string | undefined,
-): { id: string; nextSeq: number } {
-  if (override != null) return { id: override, nextSeq: state.nextSeq };
-  return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
-}
-
 /** The exact inverse of {@link mint}'s `${kind}-${n}` template — no other shape parses. */
 const MINTED_ID = new RegExp(`^(?:${MINTED_KINDS.join("|")})-(\\d+)$`);
 
@@ -229,6 +216,31 @@ function mintedNumber(id: string | undefined): number | null {
   if (match === null) return null;
   const n = Number(match[1]);
   return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * A caller's `{ id }` override is returned VERBATIM — it is their name for the thing, and
+ * `Projection` does not rename it. But if it is one of *our* ids, the counter steps over it:
+ * authoring `job-2` explicitly and then minting twice would otherwise reach `job-2` again.
+ *
+ * Anything else — `external-payroll-job`, a suffix past `Number.MAX_SAFE_INTEGER` — leaves the
+ * counter alone. `mint` never produces those shapes, so no future id can collide with them.
+ *
+ * One counter across all kinds, so a `goal-5` override moves the floor for jobs and loans too.
+ */
+function mint(
+  state: ProjectionState,
+  kind: MintedKind,
+  override: string | undefined,
+): { id: string; nextSeq: number } {
+  if (override != null) {
+    const taken = mintedNumber(override);
+    return {
+      id: override,
+      nextSeq: taken === null ? state.nextSeq : Math.max(state.nextSeq, taken + 1),
+    };
+  }
+  return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
 }
 
 /** A job's ids: its own, its owner's, and the account its deferral funds. */
@@ -355,9 +367,20 @@ export class Projection {
     return this.current.scenario.ledger;
   }
 
-  /** The single write primitive every method routes through. */
+  /**
+   * The single write primitive every method routes through — and so the one place the id
+   * counter is re-floored against what was just written.
+   *
+   * {@link mint} covers the id a write *asks* for, but not the ids a write CARRIES: a partner
+   * arrives at {@link marry} with their own jobs already named, and {@link reviseTransaction}
+   * can introduce a whole new set. Neither passes through the mint. Flooring here, rather than
+   * in each method, means an authoring path cannot be added that forgets to — and since
+   * {@link seqFloor} never decreases, doing it on every write costs nothing but a walk.
+   *
+   * A refused write throws before reaching here, so nothing it minted is consumed.
+   */
   private commit(next: ProjectionState): void {
-    this.current = next;
+    this.current = { ...next, nextSeq: seqFloor(next.scenario, next.nextSeq) };
   }
 
   /** Swap the plan, carrying the ledger through, so no standing write drops the timeline. */

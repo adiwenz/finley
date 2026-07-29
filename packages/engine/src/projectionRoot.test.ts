@@ -1126,6 +1126,128 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 });
 
+describe("Projection root — an authored id claims the counter", () => {
+  const partnerJob = (id: string) => ({
+    id,
+    ownerId: "partner" as PersonId,
+    startYear: SAMPLE_START_YEAR,
+    endYear: null,
+    salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 },
+  });
+
+  it("steps over an explicitly authored id rather than minting onto it", () => {
+    const p = freshProjection();
+    p.addJob(P1, { ...openEndedJob, id: "job-2" });
+
+    const second = p.addJob(P1, openEndedJob);
+    const third = p.addJob(P1, openEndedJob);
+
+    // Before the fix the override consumed nothing, so the mint walked 1, 2 — straight back
+    // onto the authored id.
+    expect(second).toBe("job-3");
+    expect(third).toBe("job-4");
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(ids).toEqual(["job-2", "job-3", "job-4"]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("claims the shared counter, so an override of one kind moves every kind", () => {
+    const p = freshProjection();
+    p.addGoal({
+      name: "Car",
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+      annualReturnPct: 3,
+      id: "goal-6",
+    });
+    // One counter across all kinds — `goal-6` spends 6 for jobs and loans too.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-7");
+  });
+
+  it("leaves the counter alone for an id it did not mint", () => {
+    const p = freshProjection();
+    p.addJob(P1, { ...openEndedJob, id: "external-payroll-job" });
+    // Not a shape `mint` produces, so no future id can collide with it and nothing is spent.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+  });
+
+  it("leaves the counter alone for a suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
+    const p = freshProjection();
+    p.addJob(P1, { ...openEndedJob, id: "job-9007199254740993" });
+
+    const a = p.addJob(P1, openEndedJob);
+    const b = p.addJob(P1, openEndedJob);
+    // Honouring the suffix would have set a floor the counter cannot pass — and incrementing
+    // a non-safe integer is a no-op, so every later mint would return the SAME id.
+    expect(a).toBe("job-1");
+    expect(b).toBe("job-2");
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("floors the counter on ids a transaction CARRIES, not just the one it mints", () => {
+    // A partner arrives already holding `job-9`. It never passes through the mint, so only a
+    // floor taken from the committed state sees it.
+    const p = freshProjection();
+    p.marry({
+      month: 24,
+      name: "Partner",
+      birthYear: 1988,
+      id: "partner",
+      jobs: [partnerJob("job-9")],
+    });
+
+    expect(p.addJob(P1, openEndedJob)).toBe("job-10");
+  });
+
+  it("floors the counter on ids a revision introduces", () => {
+    const p = freshProjection();
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, id: "partner" });
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+
+    // The partner picks up a job named elsewhere — a second way nested ids arrive.
+    p.reviseTransaction("partner", {
+      id: "partner",
+      type: "RelationshipEvent",
+      month: 24,
+      person: {
+        id: "partner",
+        name: "Partner",
+        birthYear: 1988,
+        retirementTargetAge: 65,
+        benefitClaimingAge: 67,
+        jobs: [partnerJob("job-12")],
+      },
+    });
+
+    expect(p.addJob(P1, openEndedJob)).toBe("job-13");
+  });
+
+  it("a refused transaction consumes no id, override or not", () => {
+    const p = freshProjection();
+    const before = p.state;
+
+    expect(() =>
+      p.buyHome({
+        month: 12,
+        ownerId: P1,
+        id: "home-8",
+        purchasePriceCents: dollarsToCents(500000),
+        downPaymentCents: dollarsToCents(400000),
+        downPaymentSourceIds: ["savings"],
+        mortgageApr: 6,
+        mortgageTermMonths: 360,
+      }),
+    ).toThrow();
+
+    // The refusal never reached the commit, so `home-8` claimed nothing.
+    expect(p.state).toBe(before);
+    expect(p.state.nextSeq).toBe(before.nextSeq);
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+  });
+});
+
 describe("Projection root — id counter round-trips through serialization", () => {
   it("a reloaded plan continues the sequence without collision", () => {
     const p = freshProjection();
