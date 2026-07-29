@@ -206,6 +206,20 @@ export class Projection {
   }
 
   /**
+   * Replace one goal's authorable fields, keeping its `id` — and thus its `goal-<id>` fund
+   * account and its list position, so funding priority is untouched. A patch, not a whole
+   * draft: the caller names only what changes. Editing cannot dangle a funding reference (the
+   * account id is stable), so unlike {@link removeGoal} it needs no guard. A patch aimed at an
+   * id that is not a goal is a no-op plan swap.
+   */
+  updateGoal(id: string, patch: Partial<GoalInput>): void {
+    const plan = this.state.scenario.plan;
+    const { id: _drop, ...rest } = patch;
+    const goals = plan.goals.map((g) => (g.id === id ? ({ ...g, ...rest } as GoalPlan) : g));
+    this.commitPlan({ ...plan, goals });
+  }
+
+  /**
    * Drop a goal and, with it, the derived fund account that is its balance. REFUSED while
    * any event still spends from that account: the account would vanish out from under a
    * reference the ledger keeps, so the removal is a no-op and this throws with the state
@@ -221,6 +235,23 @@ export class Projection {
       throw new Error(`Projection: cannot remove goal — ${check.reason}`);
     }
     this.commitPlan({ ...plan, goals: plan.goals.filter((g) => g.id !== id) });
+  }
+
+  /**
+   * Move a goal one slot earlier (`"up"`, funded sooner) or later (`"down"`) in the funding
+   * order. Priority is the goal's index in {@link Plan.goals}, and {@link addGoal} only
+   * appends, so this is the sole way an API caller reprioritizes a goal after authoring it. A
+   * no-op at the ends and for an id that is not a goal.
+   */
+  reorderGoal(id: string, direction: "up" | "down"): void {
+    const plan = this.state.scenario.plan;
+    const index = plan.goals.findIndex((g) => g.id === id);
+    if (index === -1) return;
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= plan.goals.length) return;
+    const goals = [...plan.goals];
+    [goals[index], goals[target]] = [goals[target], goals[index]];
+    this.commitPlan({ ...plan, goals });
   }
 
   setRetirementTarget(age: number): void {

@@ -280,6 +280,91 @@ describe("Projection root — removing a goal guards its fund account", () => {
   });
 });
 
+describe("Projection root — editing a goal keeps its id and priority", () => {
+  const carGoal = {
+    name: "Car",
+    targetCents: dollarsToCents(30000),
+    targetDate: 36,
+    disposition: "retain",
+    annualReturnPct: 3,
+  } as const;
+
+  it("patches only the named fields, leaving the rest of the goal intact", () => {
+    const p = freshProjection();
+    const goalId = p.addGoal({ ...carGoal, id: "car" });
+    p.updateGoal(goalId, { name: "New car", annualReturnPct: 5 });
+    const goal = p.plan.goals.find((g) => g.id === goalId);
+    expect(goal).toMatchObject({
+      id: "car",
+      name: "New car",
+      annualReturnPct: 5,
+      // Untouched fields survive the patch.
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+    });
+  });
+
+  it("holds the goal's list position, so its funding priority is unchanged", () => {
+    const p = freshProjection();
+    const first = p.addGoal({ ...carGoal, id: "first" });
+    const second = p.addGoal({ ...carGoal, id: "second" });
+    const before = p.plan.goals.map((g) => g.id);
+    p.updateGoal(first, { name: "Renamed" });
+    expect(p.plan.goals.map((g) => g.id)).toEqual(before);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([
+      ...samplePlan.goals.map((g) => g.id),
+      first,
+      second,
+    ]);
+  });
+
+  it("treats an id that is not a goal as a no-op rather than an error", () => {
+    const p = freshProjection();
+    expect(() => p.updateGoal("no-such-goal", { name: "x" })).not.toThrow();
+    expect(p.plan.goals).toEqual(samplePlan.goals);
+  });
+});
+
+describe("Projection root — reordering a goal changes its funding priority", () => {
+  const goal = {
+    name: "Goal",
+    targetCents: dollarsToCents(10000),
+    targetDate: 24,
+    disposition: "retain",
+    annualReturnPct: 3,
+  } as const;
+
+  function seededProjection(): { p: Projection; a: string; b: string; c: string } {
+    // Start from an empty goal list so priority (array index) reflects only what we add.
+    const p = Projection.create({
+      plan: { ...samplePlan, jobs: [], budgetLines: [], goals: [] },
+      startYear: SAMPLE_START_YEAR,
+    });
+    return { p, a: p.addGoal({ ...goal, id: "a" }), b: p.addGoal({ ...goal, id: "b" }), c: p.addGoal({ ...goal, id: "c" }) };
+  }
+
+  it("moves a goal one slot earlier when funded sooner", () => {
+    const { p, b } = seededProjection();
+    p.reorderGoal(b, "up");
+    expect(p.plan.goals.map((g) => g.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("moves a goal one slot later when funded later", () => {
+    const { p, b } = seededProjection();
+    p.reorderGoal(b, "down");
+    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
+  });
+
+  it("is a no-op at the ends and for an unknown id", () => {
+    const { p, a, c } = seededProjection();
+    p.reorderGoal(a, "up"); // already first
+    p.reorderGoal(c, "down"); // already last
+    p.reorderGoal("no-such-goal", "up");
+    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
 describe("Projection root — id counter round-trips through serialization", () => {
   it("a reloaded plan continues the sequence without collision", () => {
     const p = freshProjection();
