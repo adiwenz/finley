@@ -330,6 +330,30 @@ function seqFloor(scenario: Scenario, current: number): number {
   return floor;
 }
 
+/**
+ * `state` with BOTH counters raised to the floor its own contents force — the entry point for
+ * every state that arrives from outside rather than being built up by writes.
+ *
+ * Whole-state normalization, not just `nextSeq`: a serialized state carries the ledger's
+ * `nextSequenceNumber` too, and it is no more trustworthy than the id counter. Its invariant
+ * (strictly above every event's `sequenceNumber`) is documented but nothing enforces it on
+ * data that has been round-tripped through JSON, edited by hand, or written by an older build.
+ *
+ * Never decreases either counter, and is idempotent — normalizing an already-normal state
+ * returns the same numbers.
+ */
+function withNormalizedCounters(state: ProjectionState): ProjectionState {
+  const nextSeq = seqFloor(state.scenario, state.nextSeq);
+  return {
+    ...state,
+    scenario: withLedger(state.scenario, {
+      ...state.scenario.ledger,
+      nextSequenceNumber: nextSeq,
+    }),
+    nextSeq,
+  };
+}
+
 export class Projection {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
@@ -788,17 +812,10 @@ export class Projection {
    */
   resetLedger(ledger: Ledger): void {
     const s = this.state;
-    // Over the plan AND the incoming ledger, so the standing collections keep their claim on
-    // the counter across a reset.
-    const nextSeq = seqFloor(withLedger(s.scenario, ledger), s.nextSeq);
-    this.commit({
-      ...s,
-      // One floor for both: the id mint and the ledger's own tie-breaker start clear of the
-      // import together. Sequence numbers are allowed to skip — the gap this leaves is the
-      // same kind a removal leaves.
-      scenario: withLedger(s.scenario, { ...ledger, nextSequenceNumber: nextSeq }),
-      nextSeq,
-    });
+    // Normalized over the plan AND the incoming ledger, so the standing collections keep their
+    // claim on the counter across a reset. Sequence numbers are allowed to skip — the gap this
+    // leaves is the same kind a removal leaves.
+    this.commit(withNormalizedCounters({ ...s, scenario: withLedger(s.scenario, ledger) }));
   }
 
   // Run
@@ -827,7 +844,15 @@ export class Projection {
     return this.state;
   }
 
+  /**
+   * Both counters are normalized on the way in rather than trusted. A serialized state is the
+   * least trustworthy input the API takes — it has been through JSON, may have been hand-edited
+   * or truncated, and may have been written by a build whose counters meant something else. A
+   * stale `nextSeq` beside a plan holding `job-5` would mint `job-5` again on the first write.
+   *
+   * Normalization only ever raises a counter, so a well-formed state round-trips unchanged.
+   */
   static fromJSON(state: ProjectionState): Projection {
-    return new Projection(state);
+    return new Projection(withNormalizedCounters(state));
   }
 }

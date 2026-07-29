@@ -4,7 +4,7 @@
  * `run(jurisdiction)` leaving the plan untouched. Barrel/purity is covered elsewhere.
  */
 import { describe, it, expect } from "vitest";
-import { Projection } from "./projectionRoot";
+import { Projection, type ProjectionState } from "./projectionRoot";
 import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction } from "./jurisdiction";
@@ -1268,6 +1268,117 @@ describe("Projection root — id counter round-trips through serialization", () 
     })).toBe("goal-3");
     expect(reloaded.state.scenario.plan.jobs).toHaveLength(1);
     expect(reloaded.state.scenario.plan.budgetLines).toHaveLength(1);
+  });
+
+  it("normalizes counters a serialized state got wrong", () => {
+    // The least trustworthy input the API takes: a state that has been through JSON, and may
+    // have been hand-edited or written by a build whose counters meant something else. Both
+    // counters here are stale — `nextSeq` 1 against a `job-5`, and `nextSequenceNumber` 1
+    // against an event already at 8.
+    const stale: ProjectionState = {
+      startYear: SAMPLE_START_YEAR,
+      nextSeq: 1,
+      scenario: {
+        plan: {
+          ...samplePlan,
+          goals: [],
+          budgetLines: [],
+          jobs: [
+            {
+              id: "job-5",
+              ownerId: P1,
+              startYear: SAMPLE_START_YEAR,
+              endYear: null,
+              salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+            },
+          ],
+        },
+        ledger: {
+          events: [
+            {
+              id: "imported-loan",
+              type: "LoanEvent",
+              month: 6,
+              sequenceNumber: 8,
+              kind: "auto",
+              liabilityId: "imported-loan",
+              ownerId: P1,
+              openingBalanceCents: dollarsToCents(20_000),
+              apr: 5,
+              termMonths: 60,
+            },
+          ],
+          nextSequenceNumber: 1,
+        },
+      },
+    };
+
+    const p = Projection.fromJSON(stale);
+
+    // Trusting `nextSeq: 1` would have minted `job-5` a second time.
+    const jobId = p.addJob(P1, openEndedJob);
+    expect(jobId).not.toBe("job-5");
+    const jobIds = p.plan.jobs.map((j) => j.id);
+    expect(new Set(jobIds).size).toBe(jobIds.length);
+
+    // Trusting `nextSequenceNumber: 1` would have stamped the next event 1, then 2 — and the
+    // ledger already holds 8, so the log would have carried two events at one number before
+    // long. The floor is taken from the whole state, so it clears the sequence AND `job-5`.
+    const loanId = p.takeLoan({
+      month: 12,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(5_000),
+      apr: 4,
+      termMonths: 24,
+    });
+    const added = p.ledger.events.find((e) => e.id === loanId);
+    expect(added?.sequenceNumber).toBeGreaterThan(8);
+    const seqs = p.ledger.events.map((e) => e.sequenceNumber);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    const eventIds = p.ledger.events.map((e) => e.id);
+    expect(new Set(eventIds).size).toBe(eventIds.length);
+  });
+
+  it("only ever raises a counter, never renumbers what is already authored", () => {
+    const p = freshProjection();
+    p.addJob(P1, openEndedJob);
+    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const before = p.toJSON();
+
+    const reloaded = Projection.fromJSON(JSON.parse(JSON.stringify(before)));
+
+    // The id counter is already at its floor, so a reload does not skip ids.
+    expect(reloaded.state.nextSeq).toBe(before.nextSeq);
+    // One floor serves both counters, so the ledger's own may be RAISED to meet it — a wider
+    // gap before the next event, never a lower number.
+    expect(reloaded.ledger.nextSequenceNumber).toBeGreaterThanOrEqual(
+      before.scenario.ledger.nextSequenceNumber,
+    );
+    // What matters is that nothing already in the log is renumbered: sequence numbers are
+    // identity for the same-month tie-break, and a reload must not reshuffle a timeline.
+    expect(reloaded.ledger.events.map((e) => e.sequenceNumber)).toEqual(
+      before.scenario.ledger.events.map((e) => e.sequenceNumber),
+    );
+    expect(reloaded.ledger.events.map((e) => e.id)).toEqual(
+      before.scenario.ledger.events.map((e) => e.id),
+    );
+  });
+
+  it("settles after one normalization — reloading repeatedly does not drift", () => {
+    // Idempotence is what makes a save/load cycle safe to repeat: if each pass could raise
+    // the counters again, a plan reopened daily would climb without ever being edited.
+    const p = freshProjection();
+    p.addJob(P1, openEndedJob);
+    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+
+    const once = Projection.fromJSON(JSON.parse(JSON.stringify(p.toJSON()))).toJSON();
+    const twice = Projection.fromJSON(JSON.parse(JSON.stringify(once))).toJSON();
+
+    expect(twice.nextSeq).toBe(once.nextSeq);
+    expect(twice.scenario.ledger.nextSequenceNumber).toBe(
+      once.scenario.ledger.nextSequenceNumber,
+    );
   });
 });
 
