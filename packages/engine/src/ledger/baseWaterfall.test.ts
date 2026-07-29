@@ -7,9 +7,11 @@
 import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import { nullJurisdiction } from "../jurisdiction";
 import type { Person } from "../person";
+import { planAccount, type PlanAccount } from "../planAccount";
+import type { PersonId } from "../job";
 
 const person: Person = {
   id: "p1",
@@ -24,13 +26,13 @@ function monthly(cents: number): SimCashFlowSeries {
   return new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly" });
 }
 
-function account(id: string, liquid: boolean): SimAccount {
-  return new SimAccount({
+function account(id: string, liquid: boolean): PlanAccount {
+  return planAccount({
     id,
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     liquid,
     taxProfile: liquid ? CAPITAL_GAINS_TAX_PROFILE : PRE_TAX_TAX_PROFILE,
-    openingBalanceCents: 0,
+    balanceCents: 0,
     initialAnnualRate: 0,
   });
 }

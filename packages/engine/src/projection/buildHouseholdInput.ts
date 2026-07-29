@@ -83,7 +83,7 @@ export function buildHouseholdSimInput(
   });
 
   // Attach payoff outflows to their accounts without discarding account state.
-  const accounts = (base.initialAccounts ?? []).map((acc) => {
+  const accounts = (base.initialAccounts ?? []).map(({ sim: acc }) => {
     const transfers = household.accountTransfers
       .filter((t) => t.accountId === acc.id)
       .map((t) => ({ month: t.month, amountCents: t.amountCents }));

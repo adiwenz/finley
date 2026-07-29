@@ -12,6 +12,7 @@ import type { SpendingSource } from "../projection/spendingItems";
 import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
+import type { Account } from "../account";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
@@ -113,6 +114,14 @@ export interface Household {
   readonly series: readonly HouseholdSeries[];
   readonly liabilities: readonly HouseholdLiability[];
   readonly properties: readonly HouseholdProperty[];
+  /**
+   * The household's accounts — the authoring side of the very
+   * {@link import("../planAccount").PlanAccount}s the simulation runs, so net worth here and
+   * the simulated balances cannot describe different holdings. Owners resolve against
+   * {@link memberships} through {@link import("../account").accountsOf} et al., an invariant
+   * interpretation enforces.
+   */
+  readonly accounts: readonly Account[];
   readonly accountTransfers: readonly AccountTransfer[];
   /**
    * Ordered cross-account down-payment / spend draws — resolved against source balances at

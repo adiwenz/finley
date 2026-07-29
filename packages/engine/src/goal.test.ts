@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { computeGoalProgress, type SimGoal } from "./goal";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { planAccount, type PlanAccount } from "./planAccount";
+import type { PersonId } from "./job";
 import { simulateHousehold } from "./projection/simulate";
 import type { SimPerson, ProjectionSeries } from "./projection/simulate.types";
 import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
@@ -47,13 +49,13 @@ function fundGoal(overrides: Partial<SimGoal> = {}): SimGoal {
   };
 }
 
-function account(id: string, annualRate: number, liquid = true): SimAccount {
-  return new SimAccount({
+function account(id: string, annualRate: number, liquid = true): PlanAccount {
+  return planAccount({
     id,
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     liquid,
     taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: 0,
+    balanceCents: 0,
     initialAnnualRate: annualRate,
   });
 }
@@ -71,7 +73,7 @@ describe("computeGoalProgress — projection-based on-track %", () => {
         horizonMonths: 24,
         annualInflationRate: 0,
         persons: [person],
-        accounts: [fund],
+        accounts: [fund.sim],
         incomeSeries: [{ series: monthly(dollarsToCents(1000)), ownerId: "p1" }],
         expenseSeries: [],
         surplusDestination: { kind: "swept", accountId: "fund" },
@@ -101,7 +103,7 @@ describe("computeGoalProgress — projection-based on-track %", () => {
         horizonMonths: 24,
         annualInflationRate: 0,
         persons: [person],
-        accounts: [fund],
+        accounts: [fund.sim],
         incomeSeries: [{ series: monthly(dollarsToCents(500)), ownerId: "p1" }],
         expenseSeries: [],
         surplusDestination: { kind: "swept", accountId: "fund" },
@@ -129,7 +131,7 @@ describe("computeGoalProgress — projection-based on-track %", () => {
         horizonMonths: 6,
         annualInflationRate: 0,
         persons: [person],
-        accounts: [fund],
+        accounts: [fund.sim],
         incomeSeries: [],
         expenseSeries: [],
       },
@@ -197,7 +199,7 @@ describe("computeGoalProgress — verdict routing & risk flag", () => {
       horizonMonths: 36,
       annualInflationRate: 0,
       persons: [person],
-      accounts: [account("fund", 0)],
+      accounts: [account("fund", 0).sim],
       incomeSeries: [],
       expenseSeries: [],
     },

@@ -65,7 +65,7 @@ export function fundingLookup(
   // `||`, not `??`, so an empty-string label falls back to the id too. The category prices
   // each sale's tax under its own provenance (a tax-exempt cash reserve untaxed; a taxable
   // brokerage bears its gain).
-  const liquidAccounts = (base.initialAccounts ?? []).filter((a) => a.liquid);
+  const liquidAccounts = (base.initialAccounts ?? []).map((a) => a.sim).filter((a) => a.liquid);
   const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
   const ownerById = new Map(liquidAccounts.map((a) => [a.id, a.ownerId]));
   const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));

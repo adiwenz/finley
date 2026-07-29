@@ -16,9 +16,54 @@ import {
   householdNetWorthCents,
   isJoint,
   isIndividual,
-  type AccountHousehold,
+  type Account,
 } from "./account";
+import type { Household } from "./ledger/household";
+import type { Person } from "./person";
 import type { PersonId } from "./job";
+
+function personLit(id: PersonId): Person {
+  return {
+    id,
+    name: id,
+    birthYear: 1990,
+    retirementTargetAge: 65,
+    benefitClaimingAge: 67,
+    jobs: [],
+  };
+}
+
+/**
+ * A unified {@link Household} carrying only the account-ownership slice under test; the
+ * ledger-derived collections are empty so the ownership helpers are exercised in isolation.
+ *
+ * Every owner the accounts name is rostered on `memberships`, upholding the same invariant
+ * interpretation enforces — a fixture must not model a household whose accounts reference a
+ * non-member. Callers may pass `persons` to roster members who hold no account.
+ */
+function householdWith(
+  accounts: readonly Account[],
+  persons: readonly Person[] = [],
+): Household {
+  const rostered = new Map(persons.map((p) => [p.id, p]));
+  for (const owner of accounts.flatMap((a) => a.owners)) {
+    if (!rostered.has(owner)) rostered.set(owner, personLit(owner));
+  }
+  return {
+    memberships: [...rostered.values()].map((person) => ({
+      person,
+      startMonth: 0,
+      endMonth: null,
+    })),
+    children: [],
+    series: [],
+    liabilities: [],
+    properties: [],
+    accountTransfers: [],
+    fundingDraws: [],
+    accounts,
+  };
+}
 
 const p1 = "p1" as PersonId;
 const p2 = "p2" as PersonId;
@@ -51,10 +96,7 @@ const p2Ira = makeAccount({
   retirement: true,
 });
 
-const household: AccountHousehold = {
-  persons: [],
-  accounts: [soloTaxable, jointTaxable, p1Ira, p2Ira],
-};
+const household: Household = householdWith([soloTaxable, jointTaxable, p1Ira, p2Ira]);
 
 describe("standing account ownership", () => {
   it("refuses a retirement account with more than one owner", () => {
@@ -104,5 +146,25 @@ describe("standing account ownership", () => {
     );
     expect(perPersonSum).toBe(1300_00);
     expect(householdNetWorthCents(household)).toBeLessThan(perPersonSum);
+  });
+});
+
+describe("accounts on the unified household aggregate", () => {
+  const alice: Person = {
+    id: p1,
+    name: "Alice",
+    birthYear: 1990,
+    retirementTargetAge: 65,
+    benefitClaimingAge: 67,
+    jobs: [],
+  };
+
+  it("resolves ownership against a person the household rosters via memberships", () => {
+    // The ownership helpers read the same household object the ledger produces — no separate
+    // account-ownership aggregate to keep in sync with the roster.
+    const unified = householdWith([soloTaxable, jointTaxable, p1Ira], [alice]);
+    expect(accountsOf(unified, alice)).toEqual([soloTaxable, jointTaxable, p1Ira]);
+    expect(personalAccounts(unified, alice)).toEqual([soloTaxable, p1Ira]);
+    expect(householdNetWorthCents(unified)).toBe(750_00);
   });
 });

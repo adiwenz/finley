@@ -10,18 +10,20 @@ import {
   type LedgerBaseConfig,
   type NewLifeEvent,
 } from "./index";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
+import { planAccount, type PlanAccount } from "./planAccount";
+import type { PersonId } from "./job";
 
-function savings(openingCents: number, rate = 0): SimAccount {
-  return new SimAccount({
+function savings(openingCents: number, rate = 0): PlanAccount {
+  return planAccount({
     id: "savings",
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     liquid: true,
     taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
+    balanceCents: openingCents,
     initialAnnualRate: rate,
   });
 }
@@ -206,14 +208,14 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
 // §4.5 gate: a goal held as cash lands in a liquid account, so the gate counts it and the
 // block message must name the buckets it counted.
 
-function goalFund(id: string, label: string, openingCents: number, liquid: boolean): SimAccount {
-  return new SimAccount({
+function goalFund(id: string, label: string, openingCents: number, liquid: boolean): PlanAccount {
+  return planAccount({
     id,
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     label,
     liquid,
     taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
+    balanceCents: openingCents,
     initialAnnualRate: 0,
   });
 }
@@ -314,19 +316,19 @@ describe("removeEvent — HomePurchaseEvent", () => {
 
 // Sources drain in order, each taken to zero before the next is touched; each gets its own outflow.
 
-function liquidAcct(id: string, openingCents: number, rate = 0, label?: string): SimAccount {
-  return new SimAccount({
+function liquidAcct(id: string, openingCents: number, rate = 0, label?: string): PlanAccount {
+  return planAccount({
     id,
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     ...(label !== undefined ? { label } : {}),
     liquid: true,
     taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
+    balanceCents: openingCents,
     initialAnnualRate: rate,
   });
 }
 
-function baseWithAccounts(accounts: SimAccount[], inflation = 0): LedgerBaseConfig {
+function baseWithAccounts(accounts: PlanAccount[], inflation = 0): LedgerBaseConfig {
   return {
     horizonMonths: 24,
     annualInflationRate: inflation,
