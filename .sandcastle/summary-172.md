@@ -51,10 +51,12 @@ low-level series that bypass the compilers.
   test series). Renaming to `untracked` removes the scalar-fallback terminology while keeping
   the sum invariant (`Σ spendingItems == expenses + liability payments`) intact for those
   series. It never arises from a real plan.
-- **Presets author spend as an explicit argument.** `teachingPlan` now takes
-  `monthlySpendCents` directly instead of reading it off a `Plan.expenseCents` field, and
-  expands it into scaled budget lines — the number the scenario is tuned against, pinned by an
-  independent expected-spend map in the test.
+- **Presets author their budgets as lines.** Each teaching scenario now names a written-out
+  budget const (`MODEST_BUDGET`, `LEAN_BUDGET`, `COMFORTABLE_BUDGET`) that `teachingPlan` takes
+  as an argument, rather than a scalar spend expanded into scaled lines — no scalar lever
+  survives in the app either. The SUM is still the tuned number, pinned by an independent
+  expected-spend map in the test. Sam and Jordan share `MODEST_BUDGET`: same household, different
+  paycheck, which is the point of the pair.
 - **Debug panel reports the budget-line total.** The old "Expenses (general)" / "Expense
   overrides" rows read the removed scalar fields; they now show the summed base amount and
   count of literal expense budget lines.
@@ -76,7 +78,8 @@ low-level series that bypass the compilers.
 **App**
 - `planDefaults.ts` — dropped the scalar fields; the default plan opens on the template budget
   lines only.
-- `presets.ts` — `teachingPlan(monthlySpendCents, over)`; all presets author spend explicitly.
+- `presets.ts` — `teachingPlan(budgetLines, over)`; each scenario declares a written-out budget
+  const. Deleted `scaledBudgetLines` and its rounding-residue logic.
 - `components/baseAdjustments/budgetTemplate.ts`, `components/baseAdjustments/baseAdjustmentsPanel.tsx`,
   `components/budgetEditor/budgetEditor.tsx` — comment updates.
 - `components/debugPanel/debugPanel.tsx` — new `expenseLinesSummary` helper drives the

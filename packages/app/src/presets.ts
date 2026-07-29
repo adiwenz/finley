@@ -21,11 +21,6 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import {
-  defaultBudgetTemplate,
-  toBudgetLines,
-  DEFAULT_TEMPLATE_TOTAL_CENTS,
-} from "./components/baseAdjustments/budgetTemplate";
 
 /**
  * A named starting point. Authored events rather than a pre-built {@link Ledger}, so each
@@ -54,54 +49,69 @@ function salariedJob(monthlyCents: number): Job {
   };
 }
 
-/**
- * The default Base budget rescaled to a scenario's monthly spend. A preset is authored as one
- * number, but empty `budgetLines` would open the editor onto an empty chart. Rounding residue
- * settles on the largest line so the lines sum to `monthlyCents` exactly — the lines ARE the
- * scenario's spend, so drift here is drift in the projection.
- */
-function scaledBudgetLines(monthlyCents: number): BudgetLine[] {
-  const scale = monthlyCents / DEFAULT_TEMPLATE_TOTAL_CENTS;
-  const lines = toBudgetLines(defaultBudgetTemplate()).map((line) =>
-    line.amountSource.kind === "literal"
-      ? {
-          ...line,
-          amountSource: {
-            kind: "literal" as const,
-            monthlyCents: Math.round(line.amountSource.monthlyCents * scale),
-          },
-        }
-      : line,
-  );
-
-  const amountOf = (line: BudgetLine) =>
-    line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0;
-  const residual = monthlyCents - lines.reduce((sum, line) => sum + amountOf(line), 0);
-  if (residual === 0) return lines;
-  const largest = lines.reduce((a, b) => (amountOf(b) > amountOf(a) ? b : a));
-  return lines.map((line) =>
-    line === largest
-      ? {
-          ...line,
-          amountSource: { kind: "literal" as const, monthlyCents: amountOf(line) + residual },
-        }
-      : line,
-  );
+/** A flat monthly expense line. A preset's spend is authored as these and nothing else. */
+function expenseLine(
+  id: string,
+  label: string,
+  category: BudgetLine["category"],
+  monthlyDollars: number,
+): BudgetLine {
+  return {
+    id,
+    label,
+    target: { kind: "expense" },
+    amountSource: { kind: "literal", monthlyCents: dollarsToCents(monthlyDollars) },
+    category,
+  };
 }
 
 /**
- * Each teaching scenario is one legible income/expense gap, with health trimmed below the
- * default's ~$700 so that gap — not a medical line — sets the trajectory. `monthlySpendCents`
- * is authored as one number and expanded into the scenario's budget lines.
+ * Each teaching budget is written out line by line rather than scaled from a total: the lines
+ * ARE the scenario's spend, so what the engine charges is what the Base + Adjustments editor
+ * shows. A budget's SUM is the tuned number — retuning a line without retuning its siblings
+ * moves the scenario's trajectory, so `presets.test.ts` pins each total independently.
  */
-function teachingPlan(monthlySpendCents: number, over: Partial<Plan>): Plan {
+
+/** $3,600/mo. Sam and Jordan run the same household on different paychecks — that IS the pair. */
+const MODEST_BUDGET: readonly BudgetLine[] = [
+  expenseLine("housing", "Housing", "needs", 1_650),
+  expenseLine("groceries", "Groceries", "needs", 720),
+  expenseLine("transport", "Transportation", "needs", 460),
+  expenseLine("dining", "Dining & fun", "wants", 570),
+  expenseLine("subscriptions", "Subscriptions", "wants", 200),
+];
+
+/** $3,000/mo — a new graduate living below a solid salary to dig out from under a loan. */
+const LEAN_BUDGET: readonly BudgetLine[] = [
+  expenseLine("housing", "Housing", "needs", 1_400),
+  expenseLine("groceries", "Groceries", "needs", 600),
+  expenseLine("transport", "Transportation", "needs", 400),
+  expenseLine("dining", "Dining & fun", "wants", 450),
+  expenseLine("subscriptions", "Subscriptions", "wants", 150),
+];
+
+/** $5,500/mo — high enough that cash never piles up, forcing the 401(k) to fund retirement. */
+const COMFORTABLE_BUDGET: readonly BudgetLine[] = [
+  expenseLine("housing", "Housing", "needs", 2_500),
+  expenseLine("groceries", "Groceries", "needs", 950),
+  expenseLine("transport", "Transportation", "needs", 650),
+  expenseLine("dining", "Dining & fun", "wants", 1_000),
+  expenseLine("subscriptions", "Subscriptions", "wants", 400),
+];
+
+/**
+ * Each teaching scenario is one legible income/expense gap, with health trimmed below the
+ * default's ~$700 so that gap — not a medical line — sets the trajectory. The budget is passed
+ * in rather than derived: a scenario states its spend as lines, the only expense surface there is.
+ */
+function teachingPlan(budgetLines: readonly BudgetLine[], over: Partial<Plan>): Plan {
   return {
     ...PLAN_DEFAULTS,
     goals: [],
     healthMonthlyCents: dollarsToCents(450),
     postCoverageHealthMonthlyCents: dollarsToCents(350),
+    budgetLines,
     ...over,
-    budgetLines: scaledBudgetLines(monthlySpendCents),
   };
 }
 
@@ -109,7 +119,7 @@ function teachingPlan(monthlySpendCents: number, over: Partial<Plan>): Plan {
  * A modest salary spent almost entirely each month: net worth clings to a thin buffer through
  * the working years, and with no cushion retirement is unfundable.
  */
-const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(dollarsToCents(3600), {
+const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(MODEST_BUDGET, {
   name: "Sam",
   jobs: [salariedJob(dollarsToCents(4500))],
   openingBalanceCents: dollarsToCents(1500),
@@ -119,7 +129,7 @@ const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(dollarsToCents(3600), {
  * Expenses outrun income from month 0, so the shortfall cascade routes the gap onto a synthetic
  * credit card compounding at ~22%, dragging net worth negative within the first year.
  */
-const LIVING_ON_CREDIT: Plan = teachingPlan(dollarsToCents(3600), {
+const LIVING_ON_CREDIT: Plan = teachingPlan(MODEST_BUDGET, {
   name: "Jordan",
   jobs: [salariedJob(dollarsToCents(3800))],
   openingBalanceCents: dollarsToCents(1000),
@@ -129,7 +139,7 @@ const LIVING_ON_CREDIT: Plan = teachingPlan(dollarsToCents(3600), {
  * A new graduate on a solid salary carrying a $45k loan: net worth opens underwater and climbs
  * back above zero within a decade — the "negative but improving" case.
  */
-const STUDENT_LOAN: Plan = teachingPlan(dollarsToCents(3000), {
+const STUDENT_LOAN: Plan = teachingPlan(LEAN_BUDGET, {
   name: "Riley",
   jobs: [salariedJob(dollarsToCents(6000))],
   openingBalanceCents: dollarsToCents(4000),
@@ -154,7 +164,7 @@ const TAXED_IN_RETIREMENT: Plan = {
       deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
     },
   ],
-  budgetLines: scaledBudgetLines(dollarsToCents(5500)),
+  budgetLines: COMFORTABLE_BUDGET,
   retirementReturnPct: 4,
   lifeExpectancy: 72,
 };
