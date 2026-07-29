@@ -130,8 +130,8 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("has no undo — writes are reversed by addressable removal, not a stack", () => {
-    // Reversal names the thing to drop (a future `removeTransaction(id)`), so a UI can
-    // delete row 3 without knowing creation order.
+    // Reversal names the thing to drop (`removeTransaction(id)`), so a UI can delete row 3
+    // without knowing creation order.
     const p = freshProjection();
     expect("undo" in p).toBe(false);
     expect("depth" in p).toBe(false);
@@ -362,6 +362,473 @@ describe("Projection root — reordering a goal changes its funding priority", (
     p.reorderGoal(c, "down"); // already last
     p.reorderGoal("no-such-goal", "up");
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("Projection root — editing and removing a job", () => {
+  const matchedJob = {
+    ...openEndedJob,
+    name: "Day job",
+    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
+  } as const;
+
+  it("patches only the named fields, carrying the rest of the job through", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, matchedJob);
+    p.addJobPayChange(jobId, { month: 12, kind: "changeBy", cents: dollarsToCents(500) });
+
+    p.updateJob(jobId, { name: "Night job", endYear: SAMPLE_START_YEAR + 10 });
+
+    expect(p.plan.jobs[0]).toMatchObject({
+      id: jobId,
+      name: "Night job",
+      endYear: SAMPLE_START_YEAR + 10,
+      // Everything the patch did not name survives — including what only the adjustment
+      // methods author.
+      ownerId: P1,
+      salary: matchedJob.salary,
+      deferral: matchedJob.deferral,
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+  });
+
+  it("reassigns a job to another owner", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const jobId = p.addJob(P1, openEndedJob);
+    p.updateJob(jobId, { ownerId: partnerId });
+    expect(p.plan.jobs[0]?.ownerId).toBe(partnerId);
+  });
+
+  it("removes a job, leaving the others alone", () => {
+    const p = freshProjection();
+    const keep = p.addJob(P1, openEndedJob);
+    p.removeJob(p.addJob(P1, openEndedJob));
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([keep]);
+  });
+
+  it("treats an id that is not a job as a no-op rather than an error", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const before = p.plan.jobs;
+    p.updateJob("no-such-job", { name: "x" });
+    p.removeJob("no-such-job");
+    p.setJobMonthlyIncome("no-such-job", 1);
+    p.setJobDeferralFraction("no-such-job", 0.5);
+    expect(p.plan.jobs).toEqual(before);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+  });
+
+  it("setJobMonthlyIncome takes monthly cents and stores the annualized salary", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    p.setJobMonthlyIncome(jobId, dollarsToCents(9000));
+    expect(p.plan.jobs[0]?.salary).toEqual({
+      startingSalaryCents: dollarsToCents(9000) * 12,
+      // The growth rate is not part of "what it pays now".
+      realGrowthPct: 0,
+    });
+  });
+
+  it("setJobDeferralFraction keeps the funded account and employer match", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, matchedJob);
+    p.setJobDeferralFraction(jobId, 0.15);
+    expect(p.plan.jobs[0]?.deferral).toEqual({
+      deferralFraction: 0.15,
+      // Both belong to the employment, not to the elected rate.
+      fundAccountId: "retirement",
+      employerMatchFraction: 0.5,
+    });
+  });
+
+  it("setJobDeferralFraction(0) removes the deferral rather than recording a 0% one", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, matchedJob);
+    p.setJobDeferralFraction(jobId, 0);
+    expect(p.plan.jobs[0]).not.toHaveProperty("deferral");
+  });
+});
+
+describe("Projection root — pay changes and one-month income overrides", () => {
+  it("attaches a pay change and replaces one already at that month", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
+    p.addJobPayChange(jobId, { month: 24, kind: "changeBy", cents: dollarsToCents(500) });
+    // Re-authoring the same month replaces rather than stacking a second change there.
+    p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9500) });
+
+    expect(p.plan.jobs[0]?.payChanges).toEqual([
+      { month: 24, kind: "changeBy", cents: dollarsToCents(500) },
+      { month: 12, kind: "setTo", cents: dollarsToCents(9500) },
+    ]);
+  });
+
+  it("removes a pay change, dropping the field once none are left", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
+    p.addJobPayChange(jobId, { month: 24, kind: "setTo", cents: dollarsToCents(9500) });
+
+    p.removeJobPayChange(jobId, 12);
+    expect(p.plan.jobs[0]?.payChanges).toEqual([
+      { month: 24, kind: "setTo", cents: dollarsToCents(9500) },
+    ]);
+
+    p.removeJobPayChange(jobId, 24);
+    expect(p.plan.jobs[0]).not.toHaveProperty("payChanges");
+  });
+
+  it("attaches a one-month override and removes it, dropping the field once empty", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: dollarsToCents(5000) });
+    p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: dollarsToCents(6000) });
+    expect(p.plan.jobs[0]?.incomeOverrides).toEqual([
+      { month: 6, kind: "addBonus", cents: dollarsToCents(6000) },
+    ]);
+
+    p.removeJobIncomeOverride(jobId, 6);
+    expect(p.plan.jobs[0]).not.toHaveProperty("incomeOverrides");
+  });
+
+  it("removing an adjustment that is not there leaves the job untouched", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const before = p.plan.jobs[0];
+    p.removeJobPayChange(jobId, 99);
+    p.removeJobIncomeOverride(jobId, 99);
+    expect(p.plan.jobs[0]).toEqual(before);
+  });
+});
+
+describe("Projection root — editing and removing a budget line", () => {
+  it("patches the named fields and carries span, overrides and priority through", () => {
+    const p = freshProjection();
+    const lineId = p.addBudgetLine({
+      ...expenseLine,
+      priority: 2,
+      span: { startMonth: 6 },
+      overrides: [{ month: 12, monthlyCents: dollarsToCents(2500), scope: "thisMonthOnly" }],
+    });
+
+    p.updateBudgetLine(lineId, {
+      label: "Rent (new place)",
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2400) },
+    });
+
+    expect(p.plan.budgetLines[0]).toEqual({
+      id: lineId,
+      label: "Rent (new place)",
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(2400) },
+      target: { kind: "expense" },
+      category: "needs",
+      // Timeline facts about the line, not part of what an edit names.
+      priority: 2,
+      span: { startMonth: 6 },
+      overrides: [{ month: 12, monthlyCents: dollarsToCents(2500), scope: "thisMonthOnly" }],
+    });
+  });
+
+  it("switches an expense line to a contribution by replacing the whole target", () => {
+    const p = freshProjection();
+    const lineId = p.addBudgetLine(expenseLine);
+    p.updateBudgetLine(lineId, {
+      category: "savings",
+      target: { kind: "account", accountId: "brokerage", taxTreatment: "postTax" },
+    });
+    expect(p.plan.budgetLines[0]?.target).toEqual({
+      kind: "account",
+      accountId: "brokerage",
+      taxTreatment: "postTax",
+    });
+  });
+
+  it("removes a line, leaving the others alone", () => {
+    const p = freshProjection();
+    const keep = p.addBudgetLine(expenseLine);
+    p.removeBudgetLine(p.addBudgetLine(expenseLine));
+    expect(p.plan.budgetLines.map((l) => l.id)).toEqual([keep]);
+  });
+
+  it("treats an id that is not a line as a no-op rather than an error", () => {
+    const p = freshProjection();
+    p.addBudgetLine(expenseLine);
+    const before = p.plan.budgetLines;
+    p.updateBudgetLine("no-such-line", { label: "x" });
+    p.removeBudgetLine("no-such-line");
+    expect(p.plan.budgetLines).toEqual(before);
+  });
+});
+
+describe("Projection root — patching the plan's standing scalars", () => {
+  it("writes any scalar the budget editor writes, in one call", () => {
+    const p = freshProjection();
+    p.updatePlan({
+      name: "Renamed",
+      openingBalanceCents: dollarsToCents(50000),
+      savingsReturnPct: 2,
+      inflationPct: 4,
+      currentAge: 41,
+      lifeExpectancy: 90,
+      benefitClaimingAge: 70,
+      enrollsInPublicHealthCoverage: false,
+      surplusCashTo: "brokerage",
+      sharedScheme: "even",
+    });
+
+    expect(p.plan).toMatchObject({
+      name: "Renamed",
+      openingBalanceCents: dollarsToCents(50000),
+      savingsReturnPct: 2,
+      inflationPct: 4,
+      currentAge: 41,
+      lifeExpectancy: 90,
+      benefitClaimingAge: 70,
+      enrollsInPublicHealthCoverage: false,
+      surplusCashTo: "brokerage",
+      sharedScheme: "even",
+      // Unnamed scalars keep their authored values.
+      retirementAge: samplePlan.retirementAge,
+      brokerageReturnPct: samplePlan.brokerageReturnPct,
+    });
+  });
+
+  it("cannot reach the collections, so no edit bypasses their guards", () => {
+    const p = freshProjection();
+    const goalId = p.addGoal({
+      name: "Car",
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+      annualReturnPct: 3,
+      id: "car",
+    });
+    const jobId = p.addJob(P1, openEndedJob);
+    const lineId = p.addBudgetLine(expenseLine);
+
+    // A `Partial<Plan>` would make `updatePlan({ goals: [] })` a way past `removeGoal`'s
+    // fund-account guard. `PlanPatch` excludes the collections, so it does not typecheck —
+    // and they are dropped at runtime too, for the JavaScript caller the type never reaches.
+    // @ts-expect-error the collections are not part of PlanPatch
+    p.updatePlan({ goals: [], jobs: [], budgetLines: [], inflationPct: 4 });
+
+    expect(p.plan.goals.map((g) => g.id)).toContain(goalId);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(p.plan.budgetLines.map((l) => l.id)).toEqual([lineId]);
+    // The scalar in the same patch still lands — only the collections are refused.
+    expect(p.plan.inflationPct).toBe(4);
+  });
+
+  it("setRetirementTarget writes the same scalar and carries the ledger through", () => {
+    const p = freshProjection();
+    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    p.setRetirementTarget(58);
+    expect(p.plan.retirementAge).toBe(58);
+    expect(p.ledger.events).toHaveLength(1);
+  });
+});
+
+describe("Projection root — the remaining ledger transactions", () => {
+  it("haveChild() records a child, using one id for the event and the child", () => {
+    const p = freshProjection();
+    const childId = p.haveChild({ month: 12, name: "Robin", annualCostCents: dollarsToCents(12000) });
+    expect(childId).toBe("child-1");
+    expect(p.ledger.events[0]).toMatchObject({
+      id: childId,
+      type: "ChildEvent",
+      childId,
+      childName: "Robin",
+      // Recorded as it happens: birthMonth defaults to the event's month.
+      birthMonth: 12,
+      annualCostCents: dollarsToCents(12000),
+    });
+  });
+
+  it("haveChild() takes a birthMonth of its own for a child entered after the fact", () => {
+    const p = freshProjection();
+    p.haveChild({ month: 0, name: "Sam", annualCostCents: 0, birthMonth: -60 });
+    expect(p.ledger.events[0]).toMatchObject({ month: 0, birthMonth: -60 });
+  });
+
+  it("separate() ends a partnership authored by marry()", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const separationId = p.separate({
+      month: 60,
+      partnerPersonId: partnerId,
+      alimonyMonthlyCents: dollarsToCents(1000),
+      alimonyDurationMonths: 36,
+    });
+
+    expect(separationId).toBe("separation-2");
+    expect(p.ledger.events[1]).toMatchObject({
+      id: separationId,
+      type: "SeparationEvent",
+      partnerPersonId: partnerId,
+      alimonyMonthlyCents: dollarsToCents(1000),
+      alimonyDurationMonths: 36,
+      // The no-support default, stated rather than omitted.
+      childSupportMonthlyCents: 0,
+    });
+  });
+
+  it("separate() is refused before the partnering it would end", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const before = p.state;
+    expect(() => p.separate({ month: 12, partnerPersonId: partnerId })).toThrow(
+      /cannot apply transaction — .*before partnering at month 24/,
+    );
+    expect(p.state).toBe(before);
+  });
+
+  it("payOffDebt() pays a liability down from a named account", () => {
+    const p = freshProjection();
+    const loanId = p.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+    const payoffId = p.payOffDebt({
+      month: 12,
+      liabilityId: loanId,
+      accountId: "savings",
+      amountCents: dollarsToCents(5000),
+    });
+
+    expect(payoffId).toBe("payoff-2");
+    expect(p.ledger.events[1]).toMatchObject({
+      id: payoffId,
+      type: "DebtPayoffEvent",
+      liabilityId: loanId,
+      accountId: "savings",
+      amountCents: dollarsToCents(5000),
+    });
+  });
+
+  it("payOffDebt() is refused against a liability that does not exist", () => {
+    const p = freshProjection();
+    const before = p.state;
+    expect(() =>
+      p.payOffDebt({ month: 12, liabilityId: "no-such-loan", accountId: "savings", amountCents: 100 }),
+    ).toThrow(/cannot apply transaction — .*liability "no-such-loan" not found/);
+    expect(p.state).toBe(before);
+  });
+});
+
+describe("Projection root — a transaction can be removed, revised, or swapped wholesale", () => {
+  function marriedProjection(): { p: Projection; partnerId: string } {
+    const p = freshProjection();
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+  }
+
+  it("removes a transaction by id, not by position", () => {
+    const p = freshProjection();
+    const first = p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    const second = p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(5000), apr: 4, termMonths: 24 });
+
+    p.removeTransaction(first);
+    expect(p.ledger.events.map((e) => e.id)).toEqual([second]);
+  });
+
+  it("refuses a removal that would strand a later transaction, naming it", () => {
+    const { p, partnerId } = marriedProjection();
+    const separationId = p.separate({ month: 60, partnerPersonId: partnerId });
+    const before = p.state;
+
+    expect(() => p.removeTransaction(partnerId)).toThrow(
+      new RegExp(`cannot remove transaction — .*causes event "${separationId}" \\(SeparationEvent\\) to fail`),
+    );
+    // Refused means untouched, not partially applied.
+    expect(p.state).toBe(before);
+    expect(p.ledger.events).toHaveLength(2);
+
+    // Removing the dependent first unblocks it.
+    p.removeTransaction(separationId);
+    p.removeTransaction(partnerId);
+    expect(p.ledger.events).toHaveLength(0);
+  });
+
+  it("refuses to remove an id that is not in the ledger", () => {
+    const p = freshProjection();
+    expect(() => p.removeTransaction("no-such-event")).toThrow(
+      /No event with id "no-such-event" to remove/,
+    );
+  });
+
+  it("revises a transaction in place, keeping its id and its place in the log", () => {
+    const { p, partnerId } = marriedProjection();
+    const [before] = p.ledger.events;
+
+    p.reviseTransaction(partnerId, {
+      id: partnerId,
+      type: "RelationshipEvent",
+      month: 36,
+      person: {
+        id: partnerId,
+        name: "Partner",
+        birthYear: 1988,
+        retirementTargetAge: 65,
+        benefitClaimingAge: 67,
+        // The motivating case: a partner's jobs live ON their event, so without a revision
+        // they would be write-once.
+        jobs: [
+          {
+            id: "partner-job-1",
+            ownerId: partnerId,
+            startYear: SAMPLE_START_YEAR,
+            endYear: null,
+            salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 },
+          },
+        ],
+      },
+    });
+
+    const [after] = p.ledger.events;
+    expect(after).toMatchObject({ id: partnerId, month: 36 });
+    expect(after?.sequenceNumber).toBe(before?.sequenceNumber);
+    expect(p.ledger.events).toHaveLength(1);
+  });
+
+  it("refuses a revision that would strand a later transaction", () => {
+    const { p, partnerId } = marriedProjection();
+    p.separate({ month: 36, partnerPersonId: partnerId });
+    const before = p.state;
+
+    // Moving the marriage past the separation leaves the separation with nothing to end.
+    expect(() =>
+      p.reviseTransaction(partnerId, {
+        id: partnerId,
+        type: "RelationshipEvent",
+        month: 48,
+        person: {
+          id: partnerId,
+          name: "Partner",
+          birthYear: 1988,
+          retirementTargetAge: 65,
+          benefitClaimingAge: 67,
+          jobs: [],
+        },
+      }),
+    ).toThrow(/cannot revise transaction — /);
+    expect(p.state).toBe(before);
+  });
+
+  it("resetLedger swaps the timeline while the plan stays put", () => {
+    const p = freshProjection();
+    p.setRetirementTarget(58);
+    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+
+    p.resetLedger(emptyLedger);
+
+    expect(p.ledger.events).toHaveLength(0);
+    // Unlike fromJSON, the standing plan authored alongside the timeline survives.
+    expect(p.plan.retirementAge).toBe(58);
   });
 });
 

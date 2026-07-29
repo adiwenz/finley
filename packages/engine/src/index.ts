@@ -89,11 +89,17 @@ export type {
   ProjectionResult,
   ProjectionInit,
   JobInput,
+  JobPatch,
   BudgetLineInput,
+  BudgetLinePatch,
   GoalInput,
+  PlanPatch,
   MarryInput,
+  HaveChildInput,
+  SeparateInput,
   TakeLoanInput,
   BuyHomeInput,
+  PayOffDebtInput,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
