@@ -12,22 +12,26 @@ The ordered, immutable list of `Event` records — the sole source of truth for 
 _Avoid_: history, event log (use "ledger" specifically for the stored record list).
 
 **Projection**:
-The derived month-by-month net-worth output produced by replaying the ledger. Never
-persisted as truth — recomputed fresh whenever the ledger changes.
-_Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy only). Note
-the engine's `Projection` class is a **scenario editor**, not this — a known misnomer; this
-sense is canonical.
+A scenario as something you can act on — edit it, add events to it, run it. The bare word
+means this; every derived-output concept carries a suffix. In code it is a momentary handle
+picked up to make a change and put down again, never the resting place of state.
+_Avoid_: simulation (that names the math layer), editor, store, session.
+
+**Projection state**:
+A projection at rest — the plain immutable value holding the scenario plus the bookkeeping
+authoring needs. What an application keeps as its state, and what serialises.
+_Avoid_: document, snapshot, store.
+
+**Projection output**:
+The derived month-by-month net-worth result produced by running a projection. Never
+persisted as truth — recomputed fresh whenever the projection changes.
+_Avoid_: simulation result, forecast (reserve "forecast" for user-facing copy only),
+projection unqualified (that is the thing you ran, not what it produced).
 
 **Scenario**:
 A plan and a ledger together — the smallest unit that can be projected. Neither half
 projects alone: the plan states the standing numbers, the ledger states what happens.
 _Avoid_: state, document, model.
-
-**Scenario editor**:
-A short-lived object that applies authored changes to a scenario and issues the ids those
-changes need. Exists only for the duration of a set of edits; never the resting place of
-application state.
-_Avoid_: projection (that is the derived output), store, state container.
 
 **Scenario input**:
 A declarative, id-free description of a whole scenario — standing numbers plus the events
