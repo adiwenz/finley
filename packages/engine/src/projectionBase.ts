@@ -7,13 +7,14 @@
 
 import { SimCashFlowSeries } from "./cashFlowSeries";
 import {
-  SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   CASH_INTEREST_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
   type SimAccountTaxProfile,
 } from "./simAccount";
+import { planAccount, type PlanAccount } from "./planAccount";
+import type { PersonId } from "./job";
 import type { SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
 import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
@@ -92,51 +93,58 @@ export function goalAccountShape(goal: GoalPlan): {
   return GOAL_ACCOUNT_SHAPES[goal.accountType ?? DEFAULT_GOAL_ACCOUNT_TYPE];
 }
 
-/** Every account implied by the plan: the three standing accounts, then one fund per goal. */
-export function buildPlanAccounts(budget: Plan): SimAccount[] {
-  const accounts: SimAccount[] = [
-    new SimAccount({
+/**
+ * Every account implied by the plan: the three standing accounts, then one fund per goal.
+ * Nobody authors these by hand — every projection has savings, retirement and brokerage by
+ * construction, owned by the plan's single {@link PRIMARY_PERSON_ID} person. Each comes out
+ * as a {@link PlanAccount}, so the household's authoring view and the simulator's compiled
+ * view are built from one spec here and cannot diverge downstream.
+ */
+export function buildPlanAccounts(budget: Plan): PlanAccount[] {
+  const owners = [PRIMARY_PERSON_ID as PersonId];
+  const accounts: PlanAccount[] = [
+    planAccount({
       id: SAVINGS_ID,
-      ownerId: PRIMARY_PERSON_ID,
+      owners,
       label: SAVINGS_LABEL,
       liquid: true,
       // Not capital-gains: such a draw counts toward provisional income and pulls the
       // government benefit into tax. Not tax-exempt either: withdrawal is free only
       // BECAUSE the interest is taxed as ordinary income at accrual.
       taxProfile: CASH_INTEREST_TAX_PROFILE,
-      openingBalanceCents: budget.openingBalanceCents,
+      balanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
     }),
-    new SimAccount({
+    planAccount({
       id: RETIREMENT_ID,
-      ownerId: PRIMARY_PERSON_ID,
+      owners,
       label: RETIREMENT_LABEL,
       liquid: false,
       taxProfile: PRE_TAX_TAX_PROFILE,
-      openingBalanceCents: 0,
+      balanceCents: 0,
       initialAnnualRate: budget.retirementReturnPct / 100,
     }),
-    new SimAccount({
+    planAccount({
       id: BROKERAGE_ID,
-      ownerId: PRIMARY_PERSON_ID,
+      owners,
       label: BROKERAGE_LABEL,
       liquid: false,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
+      balanceCents: 0,
       initialAnnualRate: budget.brokerageReturnPct / 100,
     }),
   ];
   for (const goal of budget.goals) {
     const { taxProfile, liquid } = goalAccountShape(goal);
     accounts.push(
-      new SimAccount({
+      planAccount({
         id: goalFundAccountId(goal),
-        ownerId: PRIMARY_PERSON_ID,
+        owners,
         // Named for its goal, so a drawdown reads as that goal, not a tax bucket.
         label: goal.name,
         liquid,
         taxProfile,
-        openingBalanceCents: 0,
+        balanceCents: 0,
         initialAnnualRate: goal.annualReturnPct / 100,
       }),
     );

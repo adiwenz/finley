@@ -115,11 +115,11 @@ export interface Household {
   readonly liabilities: readonly HouseholdLiability[];
   readonly properties: readonly HouseholdProperty[];
   /**
-   * Account-ownership holdings on this single household — no second aggregate to keep the
-   * roster in sync with. Owners resolve against {@link memberships} through
-   * {@link import("../account").accountsOf} et al. Empty until an authoring-account source
-   * flows through interpretation; today accounts still enter the sim as compiled
-   * {@link import("../simAccount").SimAccount}s on the base.
+   * The household's accounts — the authoring side of the very
+   * {@link import("../planAccount").PlanAccount}s the simulation runs, so net worth here and
+   * the simulated balances cannot describe different holdings. Owners resolve against
+   * {@link memberships} through {@link import("../account").accountsOf} et al., an invariant
+   * interpretation enforces.
    */
   readonly accounts: readonly Account[];
   readonly accountTransfers: readonly AccountTransfer[];

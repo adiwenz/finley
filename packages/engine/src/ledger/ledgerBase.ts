@@ -6,7 +6,7 @@
 
 import type { SimOwnedSeries } from "../projection/simulate";
 import type { Person } from "../person";
-import type { SimAccount } from "../simAccount";
+import type { PlanAccount } from "../planAccount";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type {
@@ -22,8 +22,12 @@ export interface LedgerBaseConfig {
   readonly startYear?: number;
   /** Persons present before any events — authoring {@link Person}s. */
   readonly initialPersons?: readonly Person[];
-  /** Payoff events attach their outflows to these. */
-  readonly initialAccounts?: readonly SimAccount[];
+  /**
+   * The household's accounts, each carrying both its authoring and compiled aspect (see
+   * {@link PlanAccount}) so the roster's `household.accounts` and the simulation's accounts
+   * are one collection. Payoff events attach their outflows to the compiled side.
+   */
+  readonly initialAccounts?: readonly PlanAccount[];
   readonly initialIncomeSeries?: readonly SimOwnedSeries[];
   readonly initialExpenseSeries?: readonly SimOwnedSeries[];
   /** Prioritized destinations in the waterfall. */

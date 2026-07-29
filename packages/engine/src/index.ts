@@ -34,6 +34,9 @@ export type { Person } from "./person";
 // holdings. Distinct from the simulator's `SimAccount` class (`./simAccount`). Ownership
 // lives on the single `Household` aggregate (`./ledger/household`), not a second one.
 export type { Account } from "./account";
+// One account under both aspects: the authoring `Account` the household rosters and the
+// compiled `SimAccount` the simulator runs, built from a single spec so they cannot drift.
+export { planAccount, authoringAccounts, simAccounts, type PlanAccount } from "./planAccount";
 export {
   makeAccount,
   assertAccountOwnership,

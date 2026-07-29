@@ -14,6 +14,7 @@ import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
 import { compilePersonIncomeSeries } from "../compilePerson";
+import { authoringAccounts } from "../planAccount";
 import {
   freshState,
   type InterpretContext,
@@ -48,7 +49,7 @@ export function sortedEvents(events: readonly LifeEvent[]): LifeEvent[] {
 
 export function contextFrom(base: LedgerBaseConfig): InterpretContext {
   const accountIds = new Set<AccountId>();
-  for (const acc of base.initialAccounts ?? []) accountIds.add(acc.id as AccountId);
+  for (const acc of base.initialAccounts ?? []) accountIds.add(acc.account.id as AccountId);
   return { accountIds, annualInflationRate: base.annualInflationRate };
 }
 
@@ -197,23 +198,46 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     mortgageLiabilityId: def.mortgageLiabilityId,
   }));
 
-  return {
-    memberships: [...state.personsById.values()].map((m) => ({
-      person: m.person,
-      startMonth: m.startMonth,
-      endMonth: m.endMonth,
-    })),
+  const memberships = [...state.personsById.values()].map((m) => ({
+    person: m.person,
+    startMonth: m.startMonth,
+    endMonth: m.endMonth,
+  }));
+
+  return assertAccountOwnersRostered({
+    memberships,
     children: [...state.childrenById.values()],
     series,
     liabilities,
     properties,
-    // No authoring-account source flows through the ledger yet; accounts still enter the
-    // simulation as compiled `SimAccount`s on the base. The field folds the former account
-    // aggregate into this one household so ownership reads off a single object.
-    accounts: [],
+    // The authoring side of the very accounts the simulation runs, so the ownership helpers
+    // and net worth read the same collection `buildHouseholdInput` compiles from.
+    accounts: authoringAccounts(base.initialAccounts),
     accountTransfers: [...state.accountTransfersByAccountId.values()].flat(),
     fundingDraws: [...state.fundingDraws],
-  };
+  });
+}
+
+/**
+ * The canonicalization boundary's ownership invariant: every account owner is a person the
+ * household rosters. Interpretation is where the two halves meet — accounts arrive on the
+ * base, the roster is built from events — so an owner who is not a member can only be a
+ * mis-built base, and silently answering ownership queries against it would understate
+ * {@link import("../account").personalAccounts} rather than fail.
+ */
+function assertAccountOwnersRostered(household: Household): Household {
+  const rostered = new Set(household.memberships.map((m) => m.person.id));
+  for (const account of household.accounts) {
+    for (const owner of account.owners) {
+      if (!rostered.has(owner)) {
+        throw new Error(
+          `Account "${account.id}" is owned by "${owner}", who is not a member of the household; ` +
+            `rostered members are [${[...rostered].join(", ")}].`,
+        );
+      }
+    }
+  }
+  return household;
 }
 
 export function interpretLedger(ledger: Ledger, base: LedgerBaseConfig): Household {

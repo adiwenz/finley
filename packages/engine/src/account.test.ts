@@ -22,18 +22,39 @@ import type { Household } from "./ledger/household";
 import type { Person } from "./person";
 import type { PersonId } from "./job";
 
+function personLit(id: PersonId): Person {
+  return {
+    id,
+    name: id,
+    birthYear: 1990,
+    retirementTargetAge: 65,
+    benefitClaimingAge: 67,
+    jobs: [],
+  };
+}
+
 /**
- * A unified {@link Household} carrying only the account-ownership slice under test; every
- * ledger-derived collection is empty so the ownership helpers are exercised in isolation.
- * The roster rides on `memberships` — the single household aggregate has no separate person
- * list to drift from it.
+ * A unified {@link Household} carrying only the account-ownership slice under test; the
+ * ledger-derived collections are empty so the ownership helpers are exercised in isolation.
+ *
+ * Every owner the accounts name is rostered on `memberships`, upholding the same invariant
+ * interpretation enforces — a fixture must not model a household whose accounts reference a
+ * non-member. Callers may pass `persons` to roster members who hold no account.
  */
 function householdWith(
   accounts: readonly Account[],
   persons: readonly Person[] = [],
 ): Household {
+  const rostered = new Map(persons.map((p) => [p.id, p]));
+  for (const owner of accounts.flatMap((a) => a.owners)) {
+    if (!rostered.has(owner)) rostered.set(owner, personLit(owner));
+  }
   return {
-    memberships: persons.map((person) => ({ person, startMonth: 0, endMonth: null })),
+    memberships: [...rostered.values()].map((person) => ({
+      person,
+      startMonth: 0,
+      endMonth: null,
+    })),
     children: [],
     series: [],
     liabilities: [],

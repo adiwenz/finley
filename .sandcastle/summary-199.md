@@ -49,14 +49,25 @@ facade exposes the already-unified shape once, not a shape that immediately chan
   resulting `account.ts` ↔ `ledger/household.ts` reference is **type-only on both sides**
   (`Household` needs `Account`; the helpers need `Household`), so it is fully erased at compile
   time — there is no runtime import between the two files and thus no runtime cycle.
-- **`toHousehold` populates `accounts: []`.** No authoring-`Account` source flows through the
-  ledger today — accounts still enter the simulation as compiled `SimAccount`s on the base
-  (`buildPlanAccounts` → `base.initialAccounts`), and `SimAccount` carries a single `ownerId`,
-  not the authoring `owners[]`. Deriving `Account` from `SimAccount` would invert the
-  authoring→compiled direction, so it is deliberately not done here. The field unifies the
-  aggregate now; wiring an authoring-account source through interpretation is future work. This
-  is documented at the field and at the assignment so the empty value doesn't read as an
-  oversight.
+- **`toHousehold` populates the household's real accounts.** An earlier revision of this
+  branch emitted `accounts: []`, which made `Household` authoritative-looking but disconnected:
+  `householdNetWorthCents` answered 0 and the ownership helpers answered `[]` for every
+  interpreted household. Fixed by making the *account itself* carry both aspects
+  ({@link PlanAccount}): `buildPlanAccounts` builds one spec per account and yields the
+  authoring `Account` alongside its compiled `SimAccount`. The base carries that single
+  collection, the household rosters the authoring side, and `buildHouseholdSimInput` runs the
+  compiled side — so the two can never describe different holdings.
+- **Direction stays authoring → compiled.** `Account` is not recovered from `SimAccount`:
+  `SimAccount.ownerId` is single-valued, so joint ownership is unrepresentable in the compiled
+  shape and any such derivation would have to be deleted the moment joint accounts land.
+- **Accounts remain plan-derived defaults, not new user input.** `buildPlanAccounts` already
+  synthesized savings / retirement / brokerage plus one fund per goal from the `Plan`; it now
+  emits `PlanAccount`s instead of bare `SimAccount`s. Nobody authors an account by hand, and
+  `owners: [PRIMARY_PERSON_ID]` is the true owner rather than a placeholder. Joint ownership is
+  a later issue; until then `jointAccounts()` correctly returns `[]`.
+- **The ownership invariant is enforced at the canonicalization boundary.** `toHousehold`
+  rejects a base whose account names an owner absent from `memberships`, so a mis-built base
+  fails loudly instead of silently understating `personalAccounts`.
 
 ## Changes Made
 
@@ -65,8 +76,17 @@ facade exposes the already-unified shape once, not a shape that immediately chan
 - `packages/engine/src/account.ts` — deleted the `AccountHousehold` interface; `personalAccounts`,
   `jointAccounts`, `accountsOf`, and `householdNetWorthCents` now accept `Household` (type-only
   import).
-- `packages/engine/src/ledger/interpret.ts` — `toHousehold` emits `accounts: []` with a comment
-  explaining why no source flows yet.
+- `packages/engine/src/planAccount.ts` — **new.** `PlanAccount` plus the `planAccount()`
+  factory: the single construction site pairing an authoring `Account` with its compiled
+  `SimAccount`, plus `authoringAccounts()` / `simAccounts()` view helpers.
+- `packages/engine/src/ledger/ledgerBase.ts` — `initialAccounts` is now `readonly PlanAccount[]`.
+- `packages/engine/src/projectionBase.ts` — `buildPlanAccounts` returns `PlanAccount[]`;
+  `retirement` reads off the tax profile's `forcedDistributionEligible` rather than being
+  stated twice.
+- `packages/engine/src/ledger/interpret.ts` — `toHousehold` populates `accounts` from the
+  base and asserts every owner is rostered (`assertAccountOwnersRostered`).
+- `packages/engine/src/projection/buildHouseholdInput.ts`, `ledger/addEvent.ts` — read the
+  compiled `.sim` side.
 - `packages/engine/src/index.ts` — barrel no longer exports the removed `AccountHousehold` type.
 - `packages/engine/src/account.test.ts` — added a `householdWith(...)` factory; the shared
   fixture and a new unified-aggregate test build a `Household`; existing ownership assertions
@@ -76,4 +96,9 @@ facade exposes the already-unified shape once, not a shape that immediately chan
 
 - `npm run check:purity` — ✓ passed (no I/O, no app/rules imports).
 - `npm run typecheck` — ✓ clean.
-- `npm run test` — **1073 passed | 45 todo (1118)** across 85 test files.
+- `npm run test` — **1079 passed | 45 todo (1124)** across 86 test files.
+- New regressions in `packages/engine/src/ledger/interpret.accounts.test.ts`: an interpreted
+  household rosters its initial accounts; the simulator receives the same collection (id,
+  order and balance parity); net worth counts those balances; `accountsOf` /
+  `personalAccounts` / `jointAccounts` answer correctly and answer nothing for a non-member;
+  and an off-roster owner is refused.

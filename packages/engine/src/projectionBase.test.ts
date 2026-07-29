@@ -200,9 +200,9 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
     // A capital-gains draw counts toward provisional income and pulls the benefit into
     // tax — wrong for an account only ever spent as cash. Withdrawal is tax-free
     // because its interest is taxed at accrual.
-    const savings = createProjectionBase(samplePlan, ctx()).initialAccounts!.find(
-      (a) => a.id === "savings",
-    )!;
+    const savings = createProjectionBase(samplePlan, ctx())
+      .initialAccounts!.map((a) => a.sim)
+      .find((a) => a.id === "savings")!;
     expect(savings.liquid).toBe(true);
     expect(savings.taxProfile.withdrawalCategory).not.toBe("capitalGains");
     expect(savings.taxProfile.withdrawalCategory).toBe("taxExempt");
@@ -212,7 +212,9 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
 
 describe("createProjectionBase — a goal declares its account type", () => {
   function goalFund(plan: Plan) {
-    return createProjectionBase(plan, ctx()).initialAccounts!.find((a) => a.id === "goal-emergency")!;
+    return createProjectionBase(plan, ctx())
+      .initialAccounts!.map((a) => a.sim)
+      .find((a) => a.id === "goal-emergency")!;
   }
 
   function withEmergencyType(accountType: GoalPlan["accountType"]): Plan {
@@ -393,7 +395,7 @@ describe("planAccountDescriptors — presentation metadata that agrees with buil
   it("matches buildPlanAccounts on id, label, and order (the shared source of truth)", () => {
     const plan: Plan = { ...samplePlan };
     const descriptors = planAccountDescriptors(plan);
-    const accounts = buildPlanAccounts(plan);
+    const accounts = buildPlanAccounts(plan).map((a) => a.sim);
     expect(descriptors.map((d) => d.id)).toEqual(accounts.map((a) => a.id));
     for (const d of descriptors) {
       expect(d.label).toBe(accounts.find((a) => a.id === d.id)?.label);

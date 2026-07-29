@@ -12,10 +12,12 @@ import {
   type NewLifeEvent,
 } from "./index";
 import { dollarsToCents, SimCashFlowSeries } from "./cashFlowSeries";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SYNTHETIC_CARD_ID } from "./liability";
 import { nullJurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
+import { planAccount, type PlanAccount } from "./planAccount";
+import type { PersonId } from "./job";
 
 const personLit = (id: string, name: string): Person => ({
   id,
@@ -35,12 +37,12 @@ const addBase: LedgerBaseConfig = {
   annualInflationRate: 0,
   initialPersons: primary,
   initialAccounts: [
-    new SimAccount({
+    planAccount({
       id: "checking",
-      ownerId: "p1",
+      owners: ["p1" as PersonId],
       liquid: true,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: 0,
+      balanceCents: 0,
       initialAnnualRate: 0,
     }),
   ],
@@ -216,12 +218,12 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       annualInflationRate: 0,
       initialPersons: primary,
       initialAccounts: [
-        new SimAccount({
+        planAccount({
           id: "savings",
-          ownerId: "p1",
+          owners: ["p1" as PersonId],
           liquid: true,
           taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-          openingBalanceCents: opening,
+          balanceCents: opening,
           initialAnnualRate: 0,
         }),
       ],
@@ -269,13 +271,13 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
 // One replay-derived model feeds both snapshot and projection
 
 describe("buildSnapshot — the shared replay-derived model", () => {
-  function liquid(id = "checking", openingCents = 0): SimAccount {
-    return new SimAccount({
+  function liquid(id = "checking", openingCents = 0): PlanAccount {
+    return planAccount({
       id,
-      ownerId: "p1",
+      owners: ["p1" as PersonId],
       liquid: true,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: openingCents,
+      balanceCents: openingCents,
       initialAnnualRate: 0,
     });
   }
@@ -381,12 +383,12 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
     annualInflationRate: 0,
     initialPersons: primary,
     initialAccounts: [
-      new SimAccount({
+      planAccount({
         id: "savings",
-        ownerId: "p1",
+        owners: ["p1" as PersonId],
         liquid: true,
         taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-        openingBalanceCents: openingCents,
+        balanceCents: openingCents,
         initialAnnualRate: 0,
       }),
     ],

@@ -1,6 +1,8 @@
 import { addEvent, type Ledger, type LedgerBaseConfig, type NewLifeEvent } from "./index";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import type { Person } from "./person";
+import { planAccount, type PlanAccount } from "./planAccount";
+import type { PersonId } from "./job";
 
 // Shared builders for the events.* test files, co-located with them, mirroring
 // engine/src/testing/. Behaviour-identical to the originals from the top of events.test.ts,
@@ -15,13 +17,13 @@ export const personLit = (id: string, name: string): Person => ({
   jobs: [],
 });
 
-export function makeLiquidAccount(id = "checking", openingCents = 0): SimAccount {
-  return new SimAccount({
+export function makeLiquidAccount(id = "checking", openingCents = 0): PlanAccount {
+  return planAccount({
     id,
-    ownerId: "p1",
+    owners: ["p1" as PersonId],
     liquid: true,
     taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-    openingBalanceCents: openingCents,
+    balanceCents: openingCents,
     initialAnnualRate: 0,
   });
 }
