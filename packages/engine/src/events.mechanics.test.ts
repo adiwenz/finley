@@ -159,23 +159,25 @@ describe("addEvent — sequence numbers", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "e1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "s1",
+      liabilityId: "loan-1",
       ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: 1000,
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000),
+      apr: 0,
+      termMonths: 60,
     });
     ledger = add(ledger, {
       id: "e2",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "s2",
+      liabilityId: "loan-2",
       ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: 2000,
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20_000),
+      apr: 0,
+      termMonths: 60,
     });
     expect(ledger.events[0].sequenceNumber).toBe(0);
     expect(ledger.events[1].sequenceNumber).toBe(1);
@@ -187,13 +189,14 @@ describe("addEvent — sequence numbers", () => {
     for (const id of ["a", "b", "c"]) {
       ledger = add(ledger, {
         id,
-        type: "BudgetItemStartEvent",
+        type: "LoanEvent",
         month: 0,
-        seriesId: `s-${id}`,
+        liabilityId: `loan-${id}`,
         ownerId: "p1",
-        seriesType: "expense",
-        monthlyCents: dollarsToCents(100),
-        growthMode: { type: "fixed" },
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(1_000),
+        apr: 0,
+        termMonths: 60,
       });
     }
     expect(ledger.nextSequenceNumber).toBe(3);
@@ -205,13 +208,14 @@ describe("addEvent — sequence numbers", () => {
 
     ledger = add(ledger, {
       id: "d",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "s-d",
+      liabilityId: "loan-d",
       ownerId: "p1",
-      seriesType: "expense",
-      monthlyCents: dollarsToCents(100),
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(1_000),
+      apr: 0,
+      termMonths: 60,
     });
     expect(ledger.events.at(-1)?.sequenceNumber).toBe(3); // reuses next, not the freed 1
     expect(ledger.nextSequenceNumber).toBe(4);
@@ -225,24 +229,25 @@ describe("removeEvent — replays against base-seeded people", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "j1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "s1",
+      liabilityId: "car",
       ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(5_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(5_000),
+      apr: 0,
+      termMonths: 60,
     });
     ledger = add(ledger, {
       id: "b1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "rent",
+      liabilityId: "boat",
       ownerId: "p1",
-      seriesType: "expense",
-      monthlyCents: dollarsToCents(1_000),
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(1_000),
+      apr: 0,
+      termMonths: 60,
     });
     // j1 (owned by base person p1) still validates when replayed after removal.
     expect(removeEvent(ledger, "b1", baseConfig).ok).toBe(true);
@@ -360,13 +365,14 @@ describe("removeEvent — Strategy A", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "b1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "rent",
+      liabilityId: "car",
       ownerId: "p1",
-      seriesType: "expense",
-      monthlyCents: dollarsToCents(1_000),
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(1_000),
+      apr: 0,
+      termMonths: 60,
     });
     const result = removeEvent(ledger, "b1", baseConfig);
     expect(result.ok).toBe(true);
@@ -383,13 +389,14 @@ describe("computeDependents", () => {
     let ledger = emptyLedger;
     ledger = add(ledger, {
       id: "e1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
-      seriesId: "s1",
+      liabilityId: "car",
       ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: 1000,
-      growthMode: { type: "fixed" },
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000),
+      apr: 0,
+      termMonths: 60,
     });
     expect(computeDependents(ledger, "e1")).toEqual(["e1"]);
   });
@@ -432,18 +439,18 @@ describe("removeEvent — Strategy B cascade", () => {
       month: 0,
       person: personLit("p2", "Bob"),
     });
-    // Income event tagged as child of r1 via sourceEventId
+    // A loan owned by the partner, tagged as a child of r1 via causedByEventId.
     ledger = add(ledger, {
       id: "j1",
-      type: "BudgetItemStartEvent",
+      type: "LoanEvent",
       month: 0,
       causedByEventId: "r1",
-      seriesId: "s1",
+      liabilityId: "car",
       ownerId: "p2",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(5_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(5_000),
+      apr: 0,
+      termMonths: 60,
     });
     // No SeparationEvent — so removing r1 is not blocked by Strategy A.
     const result = removeEvent(ledger, "r1", baseConfig);

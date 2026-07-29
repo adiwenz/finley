@@ -81,8 +81,11 @@ describe("eventFundingSourceIds — what an event spends from", () => {
   });
 
   it("reports nothing for an event that spends from no account", () => {
-    const end: LifeEvent = { id: "e1", type: "BudgetItemEndEvent", month: 6, sequenceNumber: 1, seriesId: "s1" };
-    expect(eventFundingSourceIds(end)).toEqual([]);
+    const child: LifeEvent = {
+      id: "e1", type: "ChildEvent", month: 6, sequenceNumber: 1,
+      childId: "kid1", childName: "Robin", birthMonth: 6, annualCostCents: 0,
+    };
+    expect(eventFundingSourceIds(child)).toEqual([]);
   });
 });
 

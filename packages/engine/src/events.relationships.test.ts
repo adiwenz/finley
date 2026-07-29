@@ -167,29 +167,32 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
 
 describe("SeparationEvent", () => {
   it("ends partner income streams from separation month", () => {
+    // A partner's income is their job, authored on the RelationshipEvent; anchoring to a
+    // 2020 "now" compiles the calendar-year job into forward income.
     const cfg: LedgerBaseConfig = {
       ...baseConfig,
+      startYear: 2020,
       initialAccounts: [makeLiquidAccount()],
     };
+    const partner: Person = {
+      ...personLit("p2", "Bob"),
+      jobs: [
+        {
+          id: "pj1",
+          ownerId: "p2",
+          startYear: 2020,
+          endYear: null,
+          salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 }, // $2,000/mo
+        },
+      ],
+    };
     let ledger = emptyLedger;
-    // Add partner
+    // Add partner carrying the $2,000/mo job.
     ledger = add(ledger, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: personLit("p2", "Bob"),
-    });
-    // Partner income: $2000/mo from month 0
-    ledger = add(ledger, {
-      id: "j1",
-      type: "BudgetItemStartEvent",
-      month: 0,
-      seriesId: "s1",
-      ownerId: "p2",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(2_000), // $2000/mo
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
+      person: partner,
     });
     // Separate at month 6 — partner income ends at month 5
     ledger = add(ledger, {

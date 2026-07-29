@@ -208,20 +208,20 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // (67), where an added expense flips it infeasible rather than merely later. The raise
     // buys headroom below the floor, keeping "moves strictly later" observable.
     const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
-    // Childcare, written as the app's AddEventForm would.
+    // A child spawns an 18-year childcare expense on the ledger — the surviving way the
+    // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
     const base = createProjectionBase(plan, CTX);
     const added = addEvent(
       emptyLedger,
       base,
       {
-        id: "new-child-costs",
-        type: "BudgetItemStartEvent",
+        id: "new-child",
+        type: "ChildEvent",
         month: 0,
-        seriesId: "childcare",
-        ownerId: PRIMARY_PERSON_ID,
-        seriesType: "expense",
-        monthlyCents: dollarsToCents(800),
-        growthMode: { type: "fixed" },
+        childId: "kid-1",
+        childName: "Robin",
+        birthMonth: 0,
+        annualCostCents: dollarsToCents(9_600), // $800/mo
       },
       usJurisdiction,
     );

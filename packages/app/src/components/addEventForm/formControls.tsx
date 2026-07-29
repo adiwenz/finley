@@ -1,6 +1,6 @@
 /** Shared controls and props for the per-event authoring forms. */
 
-import type { NewLifeEvent, Person } from "@finley/engine";
+import type { NewLifeEvent } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
@@ -34,30 +34,6 @@ export function MonthSelect({
         {yearStartMonths.map((m) => (
           <option key={m} value={m}>
             {monthLabel(m)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-/** The "Whose" owner picker, shared by the income and expense forms. */
-export function OwnerSelect({
-  owners,
-  value,
-  onChange,
-}: {
-  owners: readonly Person[];
-  value: string;
-  onChange: (id: string) => void;
-}) {
-  return (
-    <label className="field">
-      <span className="field-label">Whose</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {owners.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
           </option>
         ))}
       </select>

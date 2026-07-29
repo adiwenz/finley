@@ -147,66 +147,30 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
     expect(partnerIncome[0].monthlyCents).toBe(dollarsToCents(5_000));
   });
 
-  it("income is active from its start and ends when replaced", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "j1",
-      type: "BudgetItemStartEvent",
-      month: 0,
-      seriesId: "s1",
-      ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(3_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
-    // At month 24, end s1 and start s2 in its place.
-    ledger = add(ledger, {
-      id: "end1",
-      type: "BudgetItemEndEvent",
-      month: 24,
-      seriesId: "s1",
-    });
-    ledger = add(ledger, {
-      id: "j2",
-      type: "BudgetItemStartEvent",
-      month: 24,
-      seriesId: "s2",
-      ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(5_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
-    // At month 12 the first income series is active.
-    const early = snapshotAt(ledger, 12, { initialPersons: primary });
-    expect(early.income.map((s) => s.id)).toEqual(["s1"]);
-    expect(early.income[0].role).toBe("budgetItem");
-    // At month 24 the replacement is active; the old one ended at month 23.
-    const later = snapshotAt(ledger, 24, { initialPersons: primary });
-    expect(later.income.map((s) => s.id)).toEqual(["s2"]);
-  });
-
   it("separation ends the departing partner's income and starts alimony", () => {
+    // The partner's income is their job (authored on the RelationshipEvent); a 2020 "now"
+    // compiles the calendar-year job into forward income, so buildSnapshot — not snapshotAt,
+    // which carries no calendar — reads the same household the projection does.
+    const base: LedgerBaseConfig = {
+      horizonMonths: 360,
+      annualInflationRate: 0,
+      startYear: 2020,
+      initialPersons: primary,
+    };
+    const partner: Person = {
+      ...personLit("p2", "Sam"),
+      jobs: [
+        {
+          id: "pj1",
+          ownerId: "p2",
+          startYear: 2020,
+          endYear: null,
+          salary: { startingSalaryCents: dollarsToCents(48_000), realGrowthPct: 0 }, // $4,000/mo
+        },
+      ],
+    };
     let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "r1",
-      type: "RelationshipEvent",
-      month: 0,
-      person: personLit("p2", "Sam"),
-    });
-    ledger = add(ledger, {
-      id: "j2",
-      type: "BudgetItemStartEvent",
-      month: 0,
-      causedByEventId: "r1",
-      seriesId: "s2",
-      ownerId: "p2",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(4_000),
-      growthMode: { type: "fixed" },
-      taxCategory: "wages",
-    });
+    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: partner });
     ledger = add(ledger, {
       id: "sep1",
       type: "SeparationEvent",
@@ -216,14 +180,16 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
       alimonyDurationMonths: 12,
       childSupportMonthlyCents: 0,
     });
-    expect(snapshotAt(ledger, 35, { initialPersons: primary }).income.map((s) => s.id)).toEqual(["s2"]);
-    const after = snapshotAt(ledger, 36, { initialPersons: primary });
-    expect(after.income).toHaveLength(0);
+    const household = interpretLedger(ledger, base);
+    // Before separation the partner's job income is in the cross-section; at separation it stops.
+    expect(buildSnapshot(household, 35).income.filter((s) => s.ownerId === "p2")).toHaveLength(1);
+    const after = buildSnapshot(household, 36);
+    expect(after.income.filter((s) => s.ownerId === "p2")).toHaveLength(0);
     // Alimony expense is now active, and expires with its duration.
     const alimony = after.expenses.find((s) => s.id === "sep1:alimony");
     expect(alimony?.role).toBe("alimony");
     expect(alimony?.monthlyCents).toBe(dollarsToCents(500));
-    expect(snapshotAt(ledger, 48, { initialPersons: primary }).expenses).toHaveLength(0);
+    expect(buildSnapshot(household, 48).expenses).toHaveLength(0);
   });
 
   it("a loan is present from its origination month", () => {
@@ -278,24 +244,25 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
   });
 
   it("reports the grown monthly rate at the snapshot month, not the baseline", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "j1",
-      type: "BudgetItemStartEvent",
-      month: 0,
-      seriesId: "s1",
-      ownerId: "p1",
-      seriesType: "income",
-      monthlyCents: dollarsToCents(5_000),
-      growthMode: { type: "salaryCompound", annualRate: 0.1 },
-      taxCategory: "wages",
-    });
-    const monthly = dollarsToCents(5_000);
-    expect(snapshotAt(ledger, 0, { initialPersons: primary }).income[0].monthlyCents).toBe(monthly);
-    // One full growth cycle later the rate has compounded by 10%.
-    expect(snapshotAt(ledger, 12, { initialPersons: primary }).income[0].monthlyCents).toBe(
-      Math.round(monthly * 1.1),
+    // A base income series compounding 10% a year — the value-editing surface, read straight
+    // by the snapshot with no projection needed.
+    const income = new SimCashFlowSeries(
+      0,
+      dollarsToCents(5_000),
+      { type: "salaryCompound", annualRate: 0.1 },
+      { baselineUnit: "monthly" },
     );
+    const base: LedgerBaseConfig = {
+      horizonMonths: 24,
+      annualInflationRate: 0,
+      initialPersons: primary,
+      initialIncomeSeries: [{ series: income, ownerId: "p1" }],
+    };
+    const household = interpretLedger(emptyLedger, base);
+    const monthly = dollarsToCents(5_000);
+    expect(buildSnapshot(household, 0).income[0].monthlyCents).toBe(monthly);
+    // One full growth cycle later the rate has compounded by 10%.
+    expect(buildSnapshot(household, 12).income[0].monthlyCents).toBe(Math.round(monthly * 1.1));
   });
 });
 

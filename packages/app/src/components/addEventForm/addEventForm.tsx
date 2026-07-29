@@ -10,21 +10,18 @@ import type {
 } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
-import { ExpenseForm } from "./expenseForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import { SeparationForm } from "./separationForm";
 import styles from "./addEventForm.module.css";
 
 /**
- * The `LifeEvent` types this menu authors — a subset (`DebtPayoffEvent` and
- * `BudgetItemEndEvent` are handled elsewhere). Derived from `LifeEvent` so renaming or
- * removing a type is a compile error here rather than silent drift. Labels stay decoupled
- * from these ids.
+ * The `LifeEvent` types this menu authors — a subset (`DebtPayoffEvent` is handled
+ * elsewhere). Derived from `LifeEvent` so renaming or removing a type is a compile error
+ * here rather than silent drift. Labels stay decoupled from these ids.
  */
 type EventKind = Extract<
   LifeEvent["type"],
-  | "BudgetItemStartEvent"
   | "LoanEvent"
   | "HomePurchaseEvent"
   | "RelationshipEvent"
@@ -33,7 +30,6 @@ type EventKind = Extract<
 >;
 
 const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
-  { value: "BudgetItemStartEvent", label: "Added an expense" },
   { value: "LoanEvent", label: "Took out a loan" },
   { value: "HomePurchaseEvent", label: "Bought a home" },
   { value: "RelationshipEvent", label: "Partnered" },
@@ -64,7 +60,7 @@ export function AddEventForm({
   horizonMonths: number;
   onAdd: (event: NewLifeEvent) => void;
 }) {
-  const [kind, setKind] = useState<EventKind>("BudgetItemStartEvent");
+  const [kind, setKind] = useState<EventKind>("LoanEvent");
 
   const formProps = { defaultMonth, nextId, horizonMonths, onAdd };
 
@@ -86,7 +82,6 @@ export function AddEventForm({
         </select>
       </label>
 
-      {kind === "BudgetItemStartEvent" && <ExpenseForm {...formProps} household={household} />}
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (
         <HomePurchaseForm {...formProps} household={household} series={series} funding={funding} />
