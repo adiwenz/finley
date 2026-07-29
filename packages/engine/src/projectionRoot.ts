@@ -13,9 +13,19 @@
  * No undo stack. Reversal is addressable, not positional: {@link Projection.removeTransaction}
  * names the event to drop, because a UI deleting row 3 does not know creation order.
  *
- * The jurisdiction is injected at `run()`, never at construction, so one plan re-runs under
- * different rule sets. `Projection` therefore imports no rules package; the write-time
- * affordability gate uses {@link nullJurisdiction}.
+ * `Projection` holds a jurisdiction twice over, answering two different questions. `run()` takes
+ * one per call — "what does this scenario look like under these rules?" — and stays independent,
+ * so one plan re-runs under any rule set. The *validation* jurisdiction is fixed at construction
+ * — "is this write permitted?" — and is what the write-time affordability gate decides on, so a
+ * jurisdiction-dependent authoring gate (the §4.5 down-payment check nets funds after
+ * capital-gains tax) fires the same way it does in the app.
+ *
+ * Only the second question is meant to be varied freely: authoring under one jurisdiction and
+ * projecting under another is legal, not an error. The validation jurisdiction defaults to
+ * {@link nullJurisdiction}, so the engine still runs standalone with no rules package, and it is
+ * behaviour rather than data — never serialised into {@link ProjectionState}, supplied fresh
+ * beside the state each time a handle is constructed (which is why {@link ProjectionResult}
+ * records a `jurisdictionId`, not the jurisdiction itself).
  */
 
 import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
@@ -358,21 +368,35 @@ export class Projection {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
 
-  private constructor(state: ProjectionState) {
+  /**
+   * The jurisdiction every write validates against — behaviour, not state, so it is passed
+   * beside the state at construction and never serialised. `run()` ignores it entirely.
+   */
+  private readonly validationJurisdiction: Jurisdiction;
+
+  private constructor(state: ProjectionState, jurisdiction: Jurisdiction) {
     this.current = state;
+    this.validationJurisdiction = jurisdiction;
   }
 
   /**
    * The counter starts clear of the plan it is handed, not at 1: a plan authored elsewhere
    * routinely already holds `job-1`, and minting it a second time would give two jobs one id.
+   *
+   * `jurisdiction` is the validation jurisdiction the write-time affordability gate decides on;
+   * it defaults to {@link nullJurisdiction} and is independent of whatever {@link run} is later
+   * given.
    */
-  static create(init: ProjectionInit): Projection {
+  static create(init: ProjectionInit, jurisdiction: Jurisdiction = nullJurisdiction): Projection {
     const scenario = scenarioOf(init.plan);
-    return new Projection({
-      scenario,
-      startYear: init.startYear,
-      nextSeq: seqFloor(scenario, 1),
-    });
+    return new Projection(
+      {
+        scenario,
+        startYear: init.startYear,
+        nextSeq: seqFloor(scenario, 1),
+      },
+      jurisdiction,
+    );
   }
 
   get state(): ProjectionState {
@@ -593,26 +617,32 @@ export class Projection {
   // Ledger transactions
 
   /**
-   * The replay context every ledger write validates against: the plan compiled under
-   * {@link nullJurisdiction}, so `Projection` stays free of any rules package.
+   * The replay context every ledger write validates against: the plan compiled under the
+   * construction-time {@link validationJurisdiction}, so a jurisdiction-gated authoring check
+   * sees the same numbers the app does rather than the tax-free {@link nullJurisdiction} answer.
    */
   private baseConfig(): LedgerBaseConfig {
     const s = this.state;
     return createProjectionBase(s.scenario.plan, {
-      jurisdiction: nullJurisdiction,
+      jurisdiction: this.validationJurisdiction,
       startYear: s.startYear,
     });
   }
 
   /**
-   * Validates through {@link addEvent} — including the affordability gate, run under
-   * {@link nullJurisdiction} to keep purity — and commits ledger and post-mint `nextSeq` as
-   * ONE new state. On failure it throws with the state untouched, so a refused transaction
-   * consumes no id.
+   * Validates through {@link addEvent} — including the affordability gate, run under the
+   * construction-time {@link validationJurisdiction} so the §4.5 down-payment check nets funds
+   * after that jurisdiction's tax — and commits ledger and post-mint `nextSeq` as ONE new state.
+   * On failure it throws with the state untouched, so a refused transaction consumes no id.
    */
   private commitEvent(event: NewLifeEvent, nextSeq: number): void {
     const s = this.state;
-    const result = addEvent(s.scenario.ledger, this.baseConfig(), event, nullJurisdiction);
+    const result = addEvent(
+      s.scenario.ledger,
+      this.baseConfig(),
+      event,
+      this.validationJurisdiction,
+    );
     if (!result.ok) {
       throw new Error(`Projection: cannot apply transaction — ${result.conflict}`);
     }
@@ -851,8 +881,15 @@ export class Projection {
    * stale `nextSeq` beside a plan holding `job-5` would mint `job-5` again on the first write.
    *
    * Normalization only ever raises a counter, so a well-formed state round-trips unchanged.
+   *
+   * `jurisdiction` is supplied fresh here, not read back from the state: a jurisdiction is
+   * behaviour and was never serialised. It defaults to {@link nullJurisdiction}, the same as
+   * {@link create}.
    */
-  static fromJSON(state: ProjectionState): Projection {
-    return new Projection(withNormalizedCounters(state));
+  static fromJSON(
+    state: ProjectionState,
+    jurisdiction: Jurisdiction = nullJurisdiction,
+  ): Projection {
+    return new Projection(withNormalizedCounters(state), jurisdiction);
   }
 }

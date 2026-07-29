@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { Projection, type ProjectionState } from "./projectionRoot";
 import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { nullJurisdiction } from "./jurisdiction";
+import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
 import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
@@ -1545,5 +1545,94 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {
       expect(fundedTotal(m)).toBe(months[m]?.flows?.expensesCents);
     }
+  });
+});
+
+describe("Projection root — authoring validates against the construction-time jurisdiction", () => {
+  /**
+   * Taxes `capitalGains` at `rate`, returning basis pro-rata — the same monotone shape the
+   * `addEvent` gross-up requires. A brokerage down-payment source therefore nets less than its
+   * face balance under this jurisdiction, and exactly its balance under {@link nullJurisdiction}.
+   */
+  function flatCapitalGains(rate: number): Jurisdiction {
+    return {
+      id: "test-capital-gains",
+      computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * rate),
+      computeTaxByCategoryCents: (byCat) => {
+        const tax = Math.round((byCat.capitalGains ?? 0) * rate);
+        return tax > 0 ? { capitalGains: tax } : {};
+      },
+      taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) => {
+        const basisFraction = balanceCents > 0 ? Math.min(1, basisCents / balanceCents) : 0;
+        return grossCents - Math.round(grossCents * basisFraction);
+      },
+    };
+  }
+
+  /**
+   * A single high-growth brokerage goal, so surplus accrues into ONE liquid capital-gains
+   * account whose balance outruns its basis. By month 24 it holds ~$96.8k of which a large
+   * share is embedded gain — the setup that makes a mid-range down payment affordable pre-tax
+   * and short once the gain is taxed.
+   */
+  const NEST_GOAL = {
+    id: "nest",
+    name: "Nest",
+    targetCents: dollarsToCents(1_000_000),
+    targetDate: 60,
+    disposition: "retain",
+    annualReturnPct: 40,
+    accountType: "brokerage",
+  } as const;
+
+  function nestProjection(jurisdiction?: Jurisdiction): Projection {
+    return Projection.create(
+      { plan: { ...samplePlan, goals: [NEST_GOAL] }, startYear: SAMPLE_START_YEAR },
+      jurisdiction,
+    );
+  }
+
+  // A $90k down payment against a ~$96.8k balance: the face balance covers it, the capital-gains
+  // tax on liquidating the embedded gain does not.
+  const buyFromNest = {
+    month: 24,
+    ownerId: P1,
+    purchasePriceCents: dollarsToCents(300000),
+    downPaymentCents: dollarsToCents(90000),
+    downPaymentSourceIds: [goalFundAccountId(NEST_GOAL)],
+    mortgageApr: 6,
+    mortgageTermMonths: 360,
+  };
+
+  it("refuses a buyHome the validation jurisdiction's §4.5 tax gate rejects", () => {
+    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance,
+    // so the gate blocks — the false-accept this change closes.
+    const p = nestProjection(flatCapitalGains(0.5));
+    expect(() => p.buyHome(buyFromNest)).toThrow(/tax/i);
+    expect(p.ledger.events).toHaveLength(0);
+  });
+
+  it("accepts the same buyHome when constructed against nullJurisdiction", () => {
+    // No tax, so the balance nets in full and the down payment clears — the default, and the
+    // path that made the weaker check invisible before.
+    const p = nestProjection(nullJurisdiction);
+    expect(() => p.buyHome(buyFromNest)).not.toThrow();
+    expect(p.ledger.events).toHaveLength(1);
+  });
+
+  it("defaults to nullJurisdiction when none is supplied at construction", () => {
+    const p = nestProjection();
+    expect(() => p.buyHome(buyFromNest)).not.toThrow();
+  });
+
+  it("keeps run(jurisdiction) independent of the authoring jurisdiction", () => {
+    // Authored under a taxing jurisdiction that would refuse the purchase, then projected
+    // under another: run() takes its own jurisdiction and never consults the authoring one,
+    // so one scenario still re-runs under whatever rules a caller asks for.
+    const p = nestProjection(flatCapitalGains(0.5));
+    p.marry({ month: 12, name: "Partner", birthYear: 1990 });
+    expect(p.run(nullJurisdiction).jurisdictionId).toBe(nullJurisdiction.id);
+    expect(p.run(flatCapitalGains(0.5)).jurisdictionId).toBe("test-capital-gains");
+    expect(p.run(mockJurisdiction()).jurisdictionId).toBe("mock");
   });
 });
