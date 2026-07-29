@@ -38,8 +38,8 @@ export {
 } from "./compilePerson";
 // Line-item budget authoring model: prioritized expenses + account contributions, with
 // {literal, fill-to-limit, goal-paced} amount sources, spans and dated overrides. Deferral is
-// not a lever here — it rides the Job. `expenseCents` remains the scalar-expense fallback, and
-// `compileBudget` is the sim seam.
+// not a lever here — it rides the Job. The sole expense authoring surface; `compileBudget` is
+// the sim seam.
 export type {
   TaxTreatment,
   BudgetTarget,

@@ -23,10 +23,14 @@ export type SpendingSourceKind =
   | "budgetLine"
   /** The plan's health line — a standing plan input, not a budget line. */
   | "healthcare"
-  /** The scalar `Plan.expenseCents` series, used when a plan authors no budget lines. */
-  | "planExpense"
   /** An expense series a life event created (a child's cost, alimony, an added expense). */
   | "event"
+  /**
+   * An expense stream that carries no authoring provenance — nowhere to edit it. Never arises
+   * from the plan→projection pipeline (budget lines, health and events all tag themselves);
+   * it exists only for raw engine-level series that bypass those compilers.
+   */
+  | "untracked"
   /** A liability's scheduled payment — computed from balance/rate/term, never authored. */
   | "liability";
 
@@ -71,9 +75,9 @@ export interface SpendingSource {
   readonly editable: boolean;
 }
 
-/** Fallback provenance for an expense series compiled before this seam existed. */
-const UNTAGGED: SpendingSource = {
-  kind: "planExpense",
+/** Provenance for an expense series that reached the report without tagging itself. */
+const UNTRACKED: SpendingSource = {
+  kind: "untracked",
   id: "expenses",
   category: "other",
   editable: false,
@@ -104,7 +108,7 @@ export function buildSpendingItems(
   payments: ReadonlyMap<string, Cents>,
 ): SpendingItem[] {
   const items: SpendingItem[] = expenseSeries.map((s): SpendingItem => {
-    const source = s.spendingSource ?? UNTAGGED;
+    const source = s.spendingSource ?? UNTRACKED;
     return {
       id: source.kind === "budgetLine" ? `line:${source.id}` : source.id,
       label: s.label ?? source.id,

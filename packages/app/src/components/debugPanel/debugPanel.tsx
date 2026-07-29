@@ -15,6 +15,22 @@ import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
 const pct = (whole: number) => `${whole}%`;
+
+/**
+ * The plan's authored monthly general spend: the base amount of every literal expense budget
+ * line, before price growth, spans or dated overrides. Contribution lines (account targets)
+ * and non-literal amounts are not spend, so they are excluded.
+ */
+function expenseLinesSummary(budget: Plan): { count: number; monthlyCents: number } {
+  const lines = budget.budgetLines.filter(
+    (l) => l.target.kind === "expense" && l.amountSource.kind === "literal",
+  );
+  const monthlyCents = lines.reduce(
+    (sum, l) => sum + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
+    0,
+  );
+  return { count: lines.length, monthlyCents };
+}
 /** A rate held as a FRACTION (0.03) rendered as a percentage ("3%"). */
 const ratePct = (fraction: number) => `${+(fraction * 100).toFixed(2)}%`;
 const yesNo = (b: boolean) => (b ? "yes" : "no");
@@ -83,6 +99,7 @@ function Configuration({
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
+  const expenseLines = expenseLinesSummary(budget);
   return (
     <div className={styles.config}>
       <ConfigGroup
@@ -104,9 +121,9 @@ function Configuration({
             `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
             formatDollars(totalMonthlyIncomeCents(budget)),
           ],
-          ["Expenses (general)", formatDollars(budget.expenseCents)],
+          ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
           ["Opening balance", formatDollars(budget.openingBalanceCents)],
-          ["Expense overrides", `${budget.expenseOverrides.length}`],
+          ["Budget expense lines", `${expenseLines.count}`],
         ]}
       />
       <ConfigGroup

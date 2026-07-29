@@ -4,16 +4,9 @@
  */
 
 import type { GoalDisposal } from "./goal";
-import type { OverrideScope } from "./cashFlowSeries";
 import type { SharedContributionScheme } from "./projection/waterfall";
 import type { Job } from "./job";
 import type { BudgetLine } from "./budgetLine";
-
-export interface ValueOverride {
-  readonly month: number;
-  readonly monthlyCents: number;
-  readonly scope: OverrideScope;
-}
 
 /**
  * A goal fund account's {@link import("./simAccount").SimAccountTaxProfile} and liquidity:
@@ -58,8 +51,6 @@ export type GoalPlan = GoalPlanBase & GoalDisposal;
  */
 export interface Plan {
   readonly name: string;
-  readonly expenseCents: number;
-  readonly expenseOverrides: readonly ValueOverride[];
   readonly openingBalanceCents: number;
   /**
    * Whole-number percents. Goal fund accounts carry their own rate on {@link GoalPlan}.
@@ -73,7 +64,7 @@ export interface Plan {
   readonly goals: readonly GoalPlan[];
   /**
    * Self-funded health expense until public coverage begins (for life when
-   * {@link enrollsInPublicHealthCoverage} is false). ADDITIVE to {@link expenseCents}, not
+   * {@link enrollsInPublicHealthCoverage} is false). ADDITIVE to the budget-line spend, not
    * a slice of it; grows at {@link healthInflationPct}.
    */
   readonly healthMonthlyCents: number;
@@ -116,9 +107,12 @@ export interface Plan {
    */
   readonly jobs: readonly Job[];
   /**
-   * When present and non-empty, the *expense* lines replace the scalar
-   * {@link expenseCents} series in `createProjectionBase`; contribution lines resolve via
-   * {@link import("./budgetLine").resolveBudget}.
+   * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
+   * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
+   * household's general-expense series; contribution lines resolve via
+   * {@link import("./budgetLine").resolveBudget}. An empty array is the deliberate no-general-
+   * spending plan — only the health line and any event-created costs remain — and is
+   * indistinguishable to the engine from a budget of zero-amount lines.
    */
-  readonly budgetLines?: readonly BudgetLine[];
+  readonly budgetLines: readonly BudgetLine[];
 }

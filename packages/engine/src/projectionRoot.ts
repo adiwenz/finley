@@ -190,7 +190,7 @@ export class Projection {
     const { id: _drop, ...rest } = line;
     const newLine: BudgetLine = { id, ...rest };
     const plan = s.scenario.plan;
-    this.commitPlan({ ...plan, budgetLines: [...(plan.budgetLines ?? []), newLine] }, nextSeq);
+    this.commitPlan({ ...plan, budgetLines: [...plan.budgetLines, newLine] }, nextSeq);
     return id;
   }
 

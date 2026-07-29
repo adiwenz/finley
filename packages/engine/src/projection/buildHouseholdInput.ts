@@ -42,7 +42,7 @@ export function buildHouseholdSimInput(
       });
     } else {
       // Keep the budget-line provenance so the simulator can report each line's monthly
-      // amount; a scalar/health series carries none.
+      // amount; a health or event series carries none.
       expenseSeries.push({
         series: s.series,
         ownerId: s.ownerId,

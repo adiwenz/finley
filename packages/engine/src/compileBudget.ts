@@ -8,8 +8,7 @@
  * any `projection/*` import. Inflation arrives from the caller, the legislated fill-to-limit
  * cap through the jurisdiction interface — never imported.
  *
- * Additive alongside the scalar `Plan.expenseCents` path; both compile into the same
- * `initialExpenseSeries`.
+ * The sole source of the household's general-expense series in `initialExpenseSeries`.
  */
 
 import type { Cents } from "./money";

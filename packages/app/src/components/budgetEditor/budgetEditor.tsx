@@ -6,10 +6,10 @@
  * fourth, in the Goals panel.
  *
  * Spending is NOT edited here: the line-item budget (Base + Adjustments) is the single
- * source of truth, since a non-empty `Plan.budgetLines` replaces the scalar `expenseCents`
- * series outright (`projectionBase.ts`) — a second scalar control would edit nothing.
- * Earned income likewise: the Jobs panel is the single authoring surface, so salary, span,
- * career start and 401(k) deferral all live per-job there.
+ * source of truth, since `Plan.budgetLines` is the sole expense authoring surface
+ * (`projectionBase.ts`) — a second spending control would edit nothing. Earned income
+ * likewise: the Jobs panel is the single authoring surface, so salary, span, career start
+ * and 401(k) deferral all live per-job there.
  */
 
 import type { Dispatch, SetStateAction } from "react";

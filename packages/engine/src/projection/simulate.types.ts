@@ -131,7 +131,7 @@ export interface ProjectionMonthFlows {
   readonly taxableByOwnerAfterFundingCents?: Readonly<
     Readonly<Record<string, Readonly<Record<string, Cents>>>>
   >;
-  /** General + health + any authored lines. */
+  /** Authored budget lines + health + any event-created expenses. */
   readonly expensesCents: Cents;
   /** Mortgages, loans, card minimums. */
   readonly liabilityPaymentsCents: Cents;
@@ -141,7 +141,7 @@ export interface ProjectionMonthFlows {
    *
    * NOT rationed by the waterfall in a tight month — the simulator never skips spending,
    * an uncovered obligation cascades onto credit — so a line reported below its amount
-   * would describe money that was in fact spent. Empty on the scalar path.
+   * would describe money that was in fact spent. Empty when no expense lines are authored.
    */
   readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
   /**
@@ -259,7 +259,7 @@ export interface SimOwnedSeries {
   readonly planDescriptor?: PlanDescriptor;
   /**
    * The authoring id of the {@link import("../budgetLine").BudgetLine} an EXPENSE series
-   * was compiled from; a scalar/health series carries none. Keys {@link
+   * was compiled from; a health or event series carries none. Keys {@link
    * ProjectionMonthFlows.lineMonthlyCents} and nothing else. Carries no priority: a tight
    * month is absorbed by savings and credit, not by starving low-priority lines.
    */

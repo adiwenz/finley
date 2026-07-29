@@ -88,7 +88,7 @@ describe("spendingItems — the invariant", () => {
     ["with a liability being serviced", LINED_PLAN, [LOAN]],
     ["with an event-created expense", LINED_PLAN, [ADDED_EXPENSE]],
     ["everything at once", LINED_PLAN, [LOAN, ADDED_EXPENSE]],
-    ["the scalar-expense plan (no authored lines)", samplePlan, [LOAN]],
+    ["the sample plan's single-line budget", samplePlan, [LOAN]],
   ])("%s: the items sum to the month's total spending, every month", (_name, plan, events) => {
     const series = project(plan as Plan, events as NewLifeEvent[]);
     const flowedMonths = series.months.filter((m) => m.flows !== undefined);

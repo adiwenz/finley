@@ -227,7 +227,12 @@ describe("App — starter simulations", () => {
     // $45k at 6% over 10 years): the Base panel charts the whole scenario, not the bare
     // plan.
     const riley = presetById("student-loan").plan;
-    const budgetAndHealth = riley.expenseCents + riley.healthMonthlyCents;
+    const rileyBudget = riley.budgetLines.reduce(
+      (sum, l) =>
+        sum + (l.target.kind === "expense" && l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
+      0,
+    );
+    const budgetAndHealth = rileyBudget + riley.healthMonthlyCents;
     expect(spendingNeed()).toBeGreaterThan(budgetAndHealth + dollarsToCents(400));
     expect(spendingNeed()).not.toBe(withoutLoan);
   });
@@ -302,6 +307,6 @@ describe("App — budget edits", () => {
 
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
     const lastPlan = spy.mock.calls.at(-1)?.[0];
-    expect(lastPlan?.budgetLines?.find((l) => l.id === "housing")?.overrides).toHaveLength(1);
+    expect(lastPlan?.budgetLines.find((l) => l.id === "housing")?.overrides).toHaveLength(1);
   });
 });

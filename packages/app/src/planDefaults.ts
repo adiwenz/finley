@@ -27,12 +27,8 @@ const DEFAULT_JOB: Job = {
 export const PLAN_DEFAULTS: Plan = {
   name: "Alex",
   jobs: [DEFAULT_JOB],
-  // A non-empty `budgetLines` replaces the scalar `expenseCents` series wholesale (see
-  // `projectionBase.ts`), so a fresh plan opens with the prepopulated Base and the
-  // Base + Adjustments editor drives the projection. `expenseCents` is the engine-native
-  // fallback only, inert while lines exist.
-  expenseCents: dollarsToCents(3500),
-  expenseOverrides: [],
+  // Budget lines are the sole expense authoring surface, so a fresh plan opens with the
+  // prepopulated Base and the Base + Adjustments editor drives the projection.
   budgetLines: toBudgetLines(defaultBudgetTemplate()),
   openingBalanceCents: dollarsToCents(10000),
   // A cash buffer, not an investment: the engine never sells this account (it is the

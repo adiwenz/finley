@@ -13,8 +13,24 @@
  */
 import type { Plan } from "../plan";
 import type { Job } from "../job";
+import type { BudgetLine } from "../budgetLine";
 import { dollarsToCents } from "../cashFlowSeries";
 import { RETIREMENT_ID } from "../projectionBase";
+
+/**
+ * One literal expense line carrying the whole monthly spend. Budget lines are the only expense
+ * authoring surface, so a fixture states its spend as a line; a single line inflating with CPI
+ * is what the projection charges.
+ */
+export function spendLine(monthlyCents: number): BudgetLine {
+  return {
+    id: "spend",
+    label: "Spending",
+    target: { kind: "expense" },
+    amountSource: { kind: "literal", monthlyCents },
+    category: "needs",
+  };
+}
 
 /** Calendar year the sample-plan solver tests freeze "now" at (mirrors the app's START_YEAR). */
 export const SAMPLE_START_YEAR = 2026;
@@ -55,8 +71,7 @@ export function salariedJob(
 
 export const samplePlan = {
   name: "Sample",
-  expenseCents: dollarsToCents(4000),
-  expenseOverrides: [],
+  budgetLines: [spendLine(dollarsToCents(4000))],
   openingBalanceCents: dollarsToCents(20000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,
@@ -112,8 +127,7 @@ const baristaSupplementalJob: Job = {
 
 export const baristaPlan = {
   name: "Barista",
-  expenseCents: dollarsToCents(5500),
-  expenseOverrides: [],
+  budgetLines: [spendLine(dollarsToCents(5500))],
   openingBalanceCents: dollarsToCents(200000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,

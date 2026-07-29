@@ -24,7 +24,7 @@ import {
   type ProjectionContext,
 } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, salariedJob } from "./testing/samplePlan";
+import { samplePlan, salariedJob, spendLine } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan, GoalPlan } from "./plan";
 
@@ -50,6 +50,24 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
   const series = project(plan, jurisdiction);
   return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
 }
+
+describe("createProjectionBase — general expenses come only from budget lines", () => {
+  const generalKinds = (plan: Plan) =>
+    createProjectionBase(plan, ctx())
+      .initialExpenseSeries!.map((s) => s.spendingSource?.kind)
+      .filter((k) => k !== "healthcare");
+
+  it("tags every general-expense series as a budget line", () => {
+    // The line-item budget is the sole expense authoring surface; no separate general-expense
+    // series rides alongside it.
+    expect(generalKinds(samplePlan)).toEqual(["budgetLine"]);
+  });
+
+  it("emits no general-expense series when a plan authors no budget lines — only health", () => {
+    const base = createProjectionBase({ ...samplePlan, budgetLines: [] }, ctx());
+    expect(base.initialExpenseSeries!.map((s) => s.spendingSource?.kind)).toEqual(["healthcare"]);
+  });
+});
 
 describe("createProjectionBase — retirement + government benefit wired into the graph", () => {
   it("gives the projection person a benefit basis: birth year (from age) and claiming age", () => {
@@ -286,7 +304,7 @@ describe("createProjectionBase — health as its own additive, growing expense",
   const saver: Plan = {
     ...samplePlan,
     jobs: [salariedJob(dollarsToCents(6_000))],
-    expenseCents: dollarsToCents(3_000),
+    budgetLines: [spendLine(dollarsToCents(3_000))],
     goals: [],
   };
 
@@ -313,7 +331,7 @@ describe("createProjectionBase — health as its own additive, growing expense",
       retirementAge: 90,
       lifeExpectancy: 90,
       jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
-      expenseCents: dollarsToCents(3_000),
+      budgetLines: [spendLine(dollarsToCents(3_000))],
       healthMonthlyCents: dollarsToCents(1_000),
       postCoverageHealthMonthlyCents: dollarsToCents(400),
       healthInflationPct: 5,

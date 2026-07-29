@@ -18,8 +18,12 @@ import type { PersonId } from "./job";
 const P1 = "p1" as PersonId;
 
 function freshProjection(): Projection {
-  // Empty job list so minted ids and roster lengths reflect only jobs added under test.
-  return Projection.create({ plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR });
+  // Empty job and budget-line lists so minted ids and roster lengths reflect only what each
+  // test adds — the sample plan seeds a spend line that would otherwise skew the counts.
+  return Projection.create({
+    plan: { ...samplePlan, jobs: [], budgetLines: [] },
+    startYear: SAMPLE_START_YEAR,
+  });
 }
 
 const openEndedJob = {

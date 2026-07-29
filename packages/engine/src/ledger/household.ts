@@ -59,7 +59,7 @@ export interface HouseholdSeries {
   /**
    * The source line's id, keying
    * {@link import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}. Set
-   * only on budget-line expense series; absent on scalar/health/event-caused ones.
+   * only on budget-line expense series; absent on health and event-caused ones.
    */
   readonly lineId?: string;
   /**

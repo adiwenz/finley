@@ -746,7 +746,7 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
     const withContribution: Plan = {
       ...PLAN_DEFAULTS,
       budgetLines: [
-        ...(PLAN_DEFAULTS.budgetLines ?? []),
+        ...PLAN_DEFAULTS.budgetLines,
         {
           id: "save",
           label: "Savings",
@@ -767,10 +767,9 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   });
 
   it("renders a plan that authors no budget lines at all", () => {
-    // `budgetLines` is optional; the panel falls back to a shared empty list rather than
-    // minting one per render.
-    const { budgetLines: _dropped, ...noLines } = PLAN_DEFAULTS;
-    renderPanel(noLines as Plan);
+    // An empty `budgetLines` is the deliberate spends-nothing plan, not a missing field: the
+    // panel opens on it as an editable blank budget rather than erroring.
+    renderPanel({ ...PLAN_DEFAULTS, budgetLines: [] });
     expect(screen.getByText(/No recurring contributions yet/)).toBeTruthy();
     expect(screen.queryByRole("spinbutton", { name: /Housing/ })).toBeNull();
   });
