@@ -8,7 +8,7 @@
  */
 
 import type { Cents } from "./money";
-import type { SimAccount } from "./simAccount";
+import type { PlanAccount } from "./planAccount";
 import type { ProjectionSeries } from "./projection/simulate";
 
 /**
@@ -96,7 +96,7 @@ export interface GoalProgress {
 export function computeGoalProgress(
   goal: SimGoal,
   projection: ProjectionSeries,
-  accounts: readonly SimAccount[],
+  accounts: readonly PlanAccount[],
   nowMonth = 0,
 ): GoalProgress {
   const lastMonth = projection.months.length - 1;
@@ -135,8 +135,10 @@ export function computeGoalProgress(
       ? "immediate"
       : "projection";
 
-  const fundAccount = accounts.find((a) => a.id === goal.fundAccountId);
-  const fundRate = fundAccount ? fundAccount.getRateAt(nowMonth) : 0;
+  // The rate lives on the compiled side; callers pass the household's accounts and never
+  // have to hold a `SimAccount` themselves.
+  const fundAccount = accounts.find((a) => a.account.id === goal.fundAccountId);
+  const fundRate = fundAccount ? fundAccount.sim.getRateAt(nowMonth) : 0;
   const shortHorizonRiskFlag =
     monthsToTarget < SHORT_HORIZON_RISK_MONTHS && fundRate >= RISKY_ANNUAL_RATE_THRESHOLD;
 

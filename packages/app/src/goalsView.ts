@@ -8,7 +8,6 @@
 import {
   computeGoalProgress,
   buildPlanAccounts,
-  simAccounts,
   buildPlanGoals,
   eventsFundedByGoal,
   withGoalPatch,
@@ -68,8 +67,7 @@ export interface GoalRow {
  */
 export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
   const goals = buildPlanGoals(budget);
-  // Goal progress reads simulated balances, so it wants the compiled side.
-  const accounts = simAccounts(buildPlanAccounts(budget));
+  const accounts = buildPlanAccounts(budget);
   // `goals` is `budget.goals` mapped in order, so the plan goal at the same index carries
   // this row's editable rate.
   return goals.map((goal, i) => {

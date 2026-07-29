@@ -36,7 +36,7 @@ export type { Person } from "./person";
 export type { Account } from "./account";
 // One account under both aspects: the authoring `Account` the household rosters and the
 // compiled `SimAccount` the simulator runs, built from a single spec so they cannot drift.
-export { planAccount, authoringAccounts, simAccounts, type PlanAccount } from "./planAccount";
+export { planAccount, type PlanAccount } from "./planAccount";
 export {
   makeAccount,
   assertAccountOwnership,
