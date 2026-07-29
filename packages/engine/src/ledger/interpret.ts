@@ -207,6 +207,10 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     series,
     liabilities,
     properties,
+    // No authoring-account source flows through the ledger yet; accounts still enter the
+    // simulation as compiled `SimAccount`s on the base. The field folds the former account
+    // aggregate into this one household so ownership reads off a single object.
+    accounts: [],
     accountTransfers: [...state.accountTransfersByAccountId.values()].flat(),
     fundingDraws: [...state.fundingDraws],
   };

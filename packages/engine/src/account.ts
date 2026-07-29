@@ -11,6 +11,7 @@
 import type { Cents } from "./money";
 import type { PersonId } from "./job";
 import type { Person } from "./person";
+import type { Household } from "./ledger/household";
 
 /** `balanceCents` is the authored current balance (today's dollars); the trajectory is the simulator's job. */
 export interface Account {
@@ -19,11 +20,6 @@ export interface Account {
   readonly owners: readonly PersonId[];
   readonly balanceCents: Cents;
   readonly retirement: boolean;
-}
-
-export interface AccountHousehold {
-  readonly persons: readonly Person[];
-  readonly accounts: readonly Account[];
 }
 
 type PersonRef = PersonId | Person;
@@ -73,25 +69,25 @@ export function isIndividual(account: Account): boolean {
 
 /** Personal + joint partition {@link accountsOf} with no overlap. */
 export function personalAccounts(
-  household: AccountHousehold,
+  household: Household,
   person: PersonRef,
 ): Account[] {
   const id = idOf(person);
   return household.accounts.filter((a) => isIndividual(a) && a.owners[0] === id);
 }
 
-export function jointAccounts(household: AccountHousehold, person: PersonRef): Account[] {
+export function jointAccounts(household: Household, person: PersonRef): Account[] {
   const id = idOf(person);
   return household.accounts.filter((a) => isJoint(a) && a.owners.includes(id));
 }
 
 /** {@link personalAccounts} ∪ {@link jointAccounts}. */
-export function accountsOf(household: AccountHousehold, person: PersonRef): Account[] {
+export function accountsOf(household: Household, person: PersonRef): Account[] {
   const id = idOf(person);
   return household.accounts.filter((a) => a.owners.includes(id));
 }
 
 /** The canonical list summed once; a per-person sum would double-count joint accounts. */
-export function householdNetWorthCents(household: AccountHousehold): Cents {
+export function householdNetWorthCents(household: Household): Cents {
   return household.accounts.reduce((sum, account) => sum + account.balanceCents, 0);
 }

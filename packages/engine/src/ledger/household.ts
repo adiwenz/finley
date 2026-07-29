@@ -12,6 +12,7 @@ import type { SpendingSource } from "../projection/spendingItems";
 import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
+import type { Account } from "../account";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
 
@@ -113,6 +114,14 @@ export interface Household {
   readonly series: readonly HouseholdSeries[];
   readonly liabilities: readonly HouseholdLiability[];
   readonly properties: readonly HouseholdProperty[];
+  /**
+   * Account-ownership holdings on this single household — no second aggregate to keep the
+   * roster in sync with. Owners resolve against {@link memberships} through
+   * {@link import("../account").accountsOf} et al. Empty until an authoring-account source
+   * flows through interpretation; today accounts still enter the sim as compiled
+   * {@link import("../simAccount").SimAccount}s on the base.
+   */
+  readonly accounts: readonly Account[];
   readonly accountTransfers: readonly AccountTransfer[];
   /**
    * Ordered cross-account down-payment / spend draws — resolved against source balances at

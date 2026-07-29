@@ -31,8 +31,9 @@ export {
 } from "./job";
 export type { Person } from "./person";
 // Authoring model: `Account.owners` distinguishes individual (`[p]`) from joint (`[p1, p2]`)
-// holdings. Distinct from the simulator's `SimAccount` class (`./simAccount`).
-export type { Account, AccountHousehold } from "./account";
+// holdings. Distinct from the simulator's `SimAccount` class (`./simAccount`). Ownership
+// lives on the single `Household` aggregate (`./ledger/household`), not a second one.
+export type { Account } from "./account";
 export {
   makeAccount,
   assertAccountOwnership,
