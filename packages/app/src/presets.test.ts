@@ -66,7 +66,7 @@ describe("default simulations", () => {
       "taxed-in-retirement": dollarsToCents(5500),
     };
     for (const preset of PRESETS) {
-      const lines = preset.plan.budgetLines ?? [];
+      const lines = preset.plan.budgetLines;
       // No lines opens the Base + Adjustments editor onto an empty spending chart.
       expect(lines.length).toBeGreaterThan(0);
       const total = lines.reduce(

@@ -36,7 +36,7 @@ describe("defaultBudgetTemplate — the prepopulated Base", () => {
     // retirement age silently.
     expect(total).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
     // The default plan opens on exactly these lines, so its budget total is the same figure.
-    const planTotal = (PLAN_DEFAULTS.budgetLines ?? []).reduce(
+    const planTotal = PLAN_DEFAULTS.budgetLines.reduce(
       (sum, l) => sum + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
       0,
     );

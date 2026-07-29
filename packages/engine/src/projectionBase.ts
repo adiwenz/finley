@@ -240,9 +240,9 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   };
 
   // Expenses are authored solely as budget lines — there is no separate general-expense
-  // lever. An absent or empty budget therefore contributes no general spending; health and
-  // events still apply.
-  const budgetLines = budget.budgetLines ?? [];
+  // lever. An empty budget is a plan that spends nothing in general; health and events
+  // still apply.
+  const budgetLines = budget.budgetLines;
   // Account-target lines fund the waterfall's contribution step each month.
   const contributionLines: readonly BudgetLine[] = budgetLines.filter(
     (l) => l.target.kind === "account",

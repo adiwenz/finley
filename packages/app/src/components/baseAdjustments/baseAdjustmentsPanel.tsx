@@ -63,12 +63,6 @@ import { ContributionsEditor } from "./contributionsEditor";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
-/**
- * Module-level, not a `?? []` fallback: a fresh literal each render is a new identity, so
- * every memo keyed on the line list would recompute.
- */
-const NO_BUDGET_LINES: readonly BudgetLine[] = [];
-
 /** "month 180 · 2041 · age 50". */
 function describeMonth(month: number, currentAge: number): string {
   const year = START_YEAR + Math.floor(month / 12);
@@ -108,7 +102,7 @@ export function BaseAdjustmentsPanel({
   ledger,
   onReviseEvents,
 }: BaseAdjustmentsPanelProps) {
-  const lines = plan.budgetLines ?? NO_BUDGET_LINES;
+  const lines = plan.budgetLines;
   // Rows are shown in the selected month's dollars — the same price growth the projection
   // uses to get there and back.
   const editCtx: MonthEditContext = useMemo(
@@ -117,7 +111,7 @@ export function BaseAdjustmentsPanel({
   );
   const setLines = useCallback(
     (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
-      setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines ?? NO_BUDGET_LINES)] })),
+      setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines)] })),
     [setBudget],
   );
 

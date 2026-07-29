@@ -22,7 +22,7 @@ const pct = (whole: number) => `${whole}%`;
  * and non-literal amounts are not spend, so they are excluded.
  */
 function expenseLinesSummary(budget: Plan): { count: number; monthlyCents: number } {
-  const lines = (budget.budgetLines ?? []).filter(
+  const lines = budget.budgetLines.filter(
     (l) => l.target.kind === "expense" && l.amountSource.kind === "literal",
   );
   const monthlyCents = lines.reduce(

@@ -41,9 +41,10 @@ low-level series that bypass the compilers.
 
 ## Key Decisions & Why
 
-- **Budget lines are the only expense surface; `budgetLines` stays optional.** An absent or
-  empty budget means "no general expenses," a valid state, rather than falling back to a
-  scalar. Fixtures and defaults now express spend as one literal line, which inflates with CPI
+- **Budget lines are the only expense surface, and `budgetLines` is REQUIRED.** A plan always
+  states its spend, even when that statement is "nothing": `budgetLines: []` is the deliberate
+  no-general-spending plan, rather than a missing field standing in for it or a scalar to fall
+  back to. Fixtures and defaults now express spend as one literal line, which inflates with CPI
   exactly as the old scalar series did — so the default net-worth curve and headline retirement
   age are byte-for-byte unchanged (pinned by the template-total and retirement tests).
 - **`planExpense` → `untracked`, not deleted entirely.** The unified spending read model still

@@ -107,10 +107,12 @@ export interface Plan {
    */
   readonly jobs: readonly Job[];
   /**
-   * The sole expense authoring surface. `createProjectionBase` compiles the *expense* lines
-   * into the household's general-expense series; contribution lines resolve via
-   * {@link import("./budgetLine").resolveBudget}. Absent or empty means no general expenses —
-   * only the health line and any event-created costs remain.
+   * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
+   * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
+   * household's general-expense series; contribution lines resolve via
+   * {@link import("./budgetLine").resolveBudget}. An empty array is the deliberate no-general-
+   * spending plan — only the health line and any event-created costs remain — and is
+   * indistinguishable to the engine from a budget of zero-amount lines.
    */
-  readonly budgetLines?: readonly BudgetLine[];
+  readonly budgetLines: readonly BudgetLine[];
 }
