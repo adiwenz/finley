@@ -8,7 +8,7 @@
  *
  * Every authorable thing is add / edit / remove, not add-only: a caller that can author a
  * goal, a job, a budget line or a transaction can also revise and retract it, so the API is a
- * full editor rather than an authoring funnel that has to be escaped through {@link fromJSON}.
+ * full editor rather than an authoring funnel that has to be escaped through {@link fromState}.
  *
  * No undo stack. Reversal is addressable, not positional: {@link Projection.removeTransaction}
  * names the event to drop, because a UI deleting row 3 does not know creation order.
@@ -62,7 +62,10 @@ import { addEvent } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
 import { validateGoalRemoval } from "./goalFunding";
-import { projectScenario } from "./retirementSolver";
+import { projectScenarioParts } from "./retirementSolver";
+import { summarizeSimulation } from "./projection/report";
+import type { SimulationReport } from "./projection/report";
+import type { Household } from "./ledger/household";
 import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
 // Type-only: with the validation jurisdiction required, this module no longer names a fallback.
 import type { Jurisdiction } from "./jurisdiction";
@@ -185,12 +188,21 @@ export interface PayOffDebtInput {
   readonly id?: string;
 }
 
-/** One pipeline pass under a specific jurisdiction, frozen. */
+/**
+ * One pipeline pass under a specific jurisdiction, frozen. Carries every artifact the pass
+ * produces so a caller answers the graph, the snapshot roster, and the debug report from a
+ * SINGLE simulation — the {@link household} the snapshot reads and the {@link report} the
+ * debug panel shows are derived from the very {@link series} the chart draws, never a re-run.
+ */
 export interface ProjectionResult {
   readonly jurisdictionId: string;
   readonly series: ProjectionSeries;
   /** First month the shortfall cascade exhausted all credit, or `null` if solvent throughout. */
   readonly firstInsolventMonth: number | null;
+  /** The interpreted roster the snapshot panel and owner picker read. */
+  readonly household: Household;
+  /** The debug panel / download view of this run — summarized off {@link series}, not a second pass. */
+  readonly report: SimulationReport;
 }
 
 export interface ProjectionInit {
@@ -399,15 +411,45 @@ export class Projection {
    * later given. Pass `nullJurisdiction` to author without tax rules.
    */
   static create(init: ProjectionInit, jurisdiction: Jurisdiction): Projection {
-    const scenario = scenarioOf(init.plan);
+    return Projection.fromScenario(scenarioOf(init.plan), init.startYear, jurisdiction);
+  }
+
+  /**
+   * Open a handle over a scenario that already carries a timeline — the import counterpart to
+   * {@link create}, which always starts from an empty ledger. Both counters are floored past
+   * whatever the scenario already occupies, the same normalization {@link fromState} applies,
+   * so an imported event holding `child-1` or sitting at a live sequence number is never
+   * handed back to the next authored write.
+   *
+   * `create` collapses to this over the empty-ledger scenario `scenarioOf(plan)` builds, so
+   * every construction path runs through one flooring. Ids arrive already present; the counter
+   * advances *past* them rather than minting them — the distinction from an authoring build,
+   * where the engine mints and the counter advances as it goes.
+   */
+  static fromScenario(scenario: Scenario, startYear: number, jurisdiction: Jurisdiction): Projection {
     return new Projection(
-      {
-        scenario,
-        startYear: init.startYear,
-        nextSeq: seqFloor(scenario, 1),
-      },
+      withNormalizedCounters({ scenario, startYear, nextSeq: 1 }),
       jurisdiction,
     );
+  }
+
+  /**
+   * Run one write over plain {@link ProjectionState} and hand back the next state beside
+   * whatever the write returned. The app holds state, not a live handle, so every mutation is
+   * a momentary handle built here, written once, and read back — the id-returning methods keep
+   * returning their id through `result`.
+   *
+   * The handle is constructed through {@link fromState}, so the counters are floored on the way
+   * in exactly as any imported state is, and `fn` validates against the jurisdiction passed.
+   */
+  static transact<R>(
+    state: ProjectionState,
+    jurisdiction: Jurisdiction,
+    fn: (projection: Projection) => R,
+  ): { state: ProjectionState; result: R } {
+    const projection = Projection.fromState(state, jurisdiction);
+    const result = fn(projection);
+    return { state: projection.state, result };
   }
 
   get state(): ProjectionState {
@@ -851,7 +893,7 @@ export class Projection {
 
   /**
    * Swap the whole timeline — how a caller loads a pre-built scenario without discarding the
-   * plan it was authored against, which {@link fromJSON} would.
+   * plan it was authored against, which {@link fromState} would.
    *
    * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
    * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
@@ -873,42 +915,72 @@ export class Projection {
   // Run
 
   /**
-   * Read-only — never swaps the current state. Delegates to {@link projectScenario}, the
-   * pipeline the chart and solver panel already share.
+   * Read-only — never swaps the current state. Delegates to {@link projectScenarioParts}, the
+   * pipeline the chart and solver panel already share, and summarizes the report off the same
+   * series so the debug view reuses the run the chart drew rather than simulating twice.
+   *
+   * `meta` echoes the whole authored plan plus the run's jurisdiction id, so knobs the sim
+   * input compiles away — life expectancy, retirement age, health lines — survive into the
+   * report and its download.
    */
   run(jurisdiction: Jurisdiction): ProjectionResult {
     const s = this.state;
-    const series = projectScenario(s.scenario, { jurisdiction, startYear: s.startYear });
+    const { household, simInput, series } = projectScenarioParts(s.scenario, {
+      jurisdiction,
+      startYear: s.startYear,
+    });
+    const report = summarizeSimulation(
+      simInput,
+      series,
+      { plan: s.scenario.plan, jurisdictionId: jurisdiction.id },
+      jurisdiction,
+    );
     return Object.freeze({
       jurisdictionId: jurisdiction.id,
       series,
       firstInsolventMonth: firstInsolventMonth(series),
+      household,
+      report,
     });
   }
 
-  // Serialization
+  // State round-trip
 
   /**
-   * Serializing `nextSeq` is what lets a reloaded plan continue the sequence instead of
-   * colliding with an existing id.
+   * The authoring state this handle wraps — the whole of what persists. Named for what it is:
+   * a handle over state, not a serializer. Serializing `nextSeq` with it is what lets a
+   * reloaded plan continue the sequence instead of colliding with an existing id.
    */
-  toJSON(): ProjectionState {
+  toState(): ProjectionState {
     return this.state;
   }
 
   /**
-   * Both counters are normalized on the way in rather than trusted. A serialized state is the
-   * least trustworthy input the API takes — it has been through JSON, may have been hand-edited
-   * or truncated, and may have been written by a build whose counters meant something else. A
-   * stale `nextSeq` beside a plan holding `job-5` would mint `job-5` again on the first write.
+   * Alias of {@link toState} kept because it is the JS protocol name: `JSON.stringify(projection)`
+   * calls it automatically, so persistence keeps working without the caller reaching for
+   * `toState()`. Discarding it would be a real loss.
+   */
+  toJSON(): ProjectionState {
+    return this.toState();
+  }
+
+  /**
+   * Open a handle over state that arrives from outside — a reload, a round-trip, an import.
+   * Both counters are normalized on the way in rather than trusted: a serialized state is the
+   * least trustworthy input the API takes — through JSON, possibly hand-edited or truncated,
+   * possibly written by a build whose counters meant something else. A stale `nextSeq` beside
+   * a plan holding `job-5` would mint `job-5` again on the first write.
    *
    * Normalization only ever raises a counter, so a well-formed state round-trips unchanged.
+   * This is the SINGLE flooring path — there is no "trusted" variant that skips it, because
+   * `commit` floors after every write anyway, so a skip would save one walk and reopen the
+   * silent-collision hole.
    *
    * `jurisdiction` is supplied fresh here, not read back from the state: a jurisdiction is
    * behaviour and was never serialised. Required, the same as {@link create} — a reload is
    * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
-  static fromJSON(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
+  static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
     return new Projection(withNormalizedCounters(state), jurisdiction);
   }
 }

@@ -268,7 +268,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
       mortgageApr: 0.065,
       mortgageTermMonths: 360,
     };
-    return Projection.fromJSON(
+    return Projection.fromState(
       {
         ...s,
         scenario: withLedger(s.scenario, { events: [purchase], nextSequenceNumber: 2 }),
@@ -312,7 +312,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
     expect(() => blocked.removeGoal(goalId)).toThrow();
 
     const s = blocked.state;
-    const unblocked = Projection.fromJSON(
+    const unblocked = Projection.fromState(
       {
         ...s,
         scenario: withLedger(s.scenario, emptyLedger),
@@ -1024,8 +1024,53 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     p.resetLedger(emptyLedger);
 
     expect(p.ledger.events).toHaveLength(0);
-    // Unlike fromJSON, the standing plan authored alongside the timeline survives.
+    // Unlike fromState, the standing plan authored alongside the timeline survives.
     expect(p.plan.retirementAge).toBe(58);
+  });
+});
+
+describe("Projection root — fromScenario imports a plan and its timeline together", () => {
+  it("carries the timeline and floors the shared counter past the ids it already holds", () => {
+    // A scenario that arrives already built: a plan holding `job-4`, a ledger whose event holds
+    // `loan-2` at sequence number 2. fromScenario keeps the timeline — unlike create, which
+    // always starts from an empty ledger — and floors the shared counter past both.
+    const scenario = {
+      plan: {
+        ...samplePlan,
+        goals: [],
+        budgetLines: [],
+        jobs: [{ ...openEndedJob, id: "job-4", ownerId: P1 }],
+      },
+      ledger: {
+        events: [
+          {
+            id: "loan-2",
+            type: "LoanEvent" as const,
+            month: 6,
+            sequenceNumber: 2,
+            kind: "auto" as const,
+            liabilityId: "loan-2",
+            ownerId: P1,
+            openingBalanceCents: dollarsToCents(20000),
+            apr: 5,
+            termMonths: 60,
+          },
+        ],
+        nextSequenceNumber: 0,
+      },
+    };
+
+    const p = Projection.fromScenario(scenario, SAMPLE_START_YEAR, nullJurisdiction);
+
+    // The imported event survived the construction.
+    expect(p.ledger.events.map((e) => e.id)).toEqual(["loan-2"]);
+    // The id floor cleared `job-4`, so the next mint is `job-5`.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-5");
+    // One shared counter: the sequence side was lifted to that same floor, so the next append
+    // lands at or above 5 — well clear of the imported event still sitting at 2.
+    const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
+    const appended = p.ledger.events.find((e) => e.id === eventId);
+    expect(appended?.sequenceNumber).toBeGreaterThanOrEqual(5);
   });
 });
 
@@ -1272,7 +1317,10 @@ describe("Projection root — an authored id claims the counter", () => {
   it("floors the counter on ids a revision introduces", () => {
     const p = freshProjection();
     p.marry({ month: 24, name: "Partner", birthYear: 1988, id: "partner" });
-    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+    // The shared counter floors both ids and sequence numbers, so the marriage's own event
+    // (which takes the first sequence number) steps the counter one past it — the first
+    // authored job is `job-2`, a harmless gap, the same as any other construction path.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-2");
 
     // The partner picks up a job named elsewhere — a second way nested ids arrive.
     p.reviseTransaction("partner", {
@@ -1316,6 +1364,49 @@ describe("Projection root — an authored id claims the counter", () => {
   });
 });
 
+describe("Projection root — transact wraps one write over plain state", () => {
+  it("returns the next state and the write's own result, leaving the input state untouched", () => {
+    const before = freshProjection().state;
+    const { state, result } = Projection.transact(before, nullJurisdiction, (p) =>
+      p.addJob(P1, openEndedJob),
+    );
+
+    // The id-returning write hands its id straight back through `result`.
+    expect(result).toBe("job-1");
+    // The next state carries the write; the state passed in is never mutated in place.
+    expect(state.scenario.plan.jobs.map((j) => j.id)).toEqual(["job-1"]);
+    expect(before.scenario.plan.jobs).toHaveLength(0);
+  });
+
+  it("carries a void write through as an undefined result", () => {
+    const seeded = Projection.transact(freshProjection().state, nullJurisdiction, (p) =>
+      p.addJob(P1, openEndedJob),
+    );
+    const { state, result } = Projection.transact(seeded.state, nullJurisdiction, (p) =>
+      p.setJobMonthlyIncome("job-1", dollarsToCents(9000)),
+    );
+
+    expect(result).toBeUndefined();
+    expect(state.scenario.plan.jobs[0]?.salary.startingSalaryCents).toBe(dollarsToCents(108000));
+  });
+
+  it("floors the counter on ids the imported state already carries", () => {
+    // The handle is built through the flooring path, so a write inside the transaction mints
+    // clear of a `job-5` the imported state already holds rather than colliding with it.
+    const seeded: ProjectionState = {
+      startYear: SAMPLE_START_YEAR,
+      nextSeq: 1,
+      scenario: {
+        plan: { ...samplePlan, jobs: [{ ...openEndedJob, id: "job-5", ownerId: P1 }], budgetLines: [], goals: [] },
+        ledger: emptyLedger,
+      },
+    };
+
+    const { result } = Projection.transact(seeded, nullJurisdiction, (p) => p.addJob(P1, openEndedJob));
+    expect(result).toBe("job-6");
+  });
+});
+
 describe("Projection root — id counter round-trips through serialization", () => {
   it("a reloaded plan continues the sequence without collision", () => {
     const p = freshProjection();
@@ -1323,7 +1414,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.addBudgetLine(expenseLine); // line-2 → nextSeq now 3
 
     const snapshot = JSON.parse(JSON.stringify(p.toJSON()));
-    const reloaded = Projection.fromJSON(snapshot, nullJurisdiction);
+    const reloaded = Projection.fromState(snapshot, nullJurisdiction);
 
     // The counter survived: the next mint is 3, not a colliding 1.
     expect(reloaded.state.nextSeq).toBe(3);
@@ -1381,7 +1472,7 @@ describe("Projection root — id counter round-trips through serialization", () 
       },
     };
 
-    const p = Projection.fromJSON(stale, nullJurisdiction);
+    const p = Projection.fromState(stale, nullJurisdiction);
 
     // Trusting `nextSeq: 1` would have minted `job-5` a second time.
     const jobId = p.addJob(P1, openEndedJob);
@@ -1414,7 +1505,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     const before = p.toJSON();
 
-    const reloaded = Projection.fromJSON(JSON.parse(JSON.stringify(before)), nullJurisdiction);
+    const reloaded = Projection.fromState(JSON.parse(JSON.stringify(before)), nullJurisdiction);
 
     // The id counter is already at its floor, so a reload does not skip ids.
     expect(reloaded.state.nextSeq).toBe(before.nextSeq);
@@ -1440,13 +1531,37 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.addJob(P1, openEndedJob);
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
 
-    const once = Projection.fromJSON(JSON.parse(JSON.stringify(p.toJSON())), nullJurisdiction).toJSON();
-    const twice = Projection.fromJSON(JSON.parse(JSON.stringify(once)), nullJurisdiction).toJSON();
+    const once = Projection.fromState(JSON.parse(JSON.stringify(p.toJSON())), nullJurisdiction).toJSON();
+    const twice = Projection.fromState(JSON.parse(JSON.stringify(once)), nullJurisdiction).toJSON();
 
     expect(twice.nextSeq).toBe(once.nextSeq);
     expect(twice.scenario.ledger.nextSequenceNumber).toBe(
       once.scenario.ledger.nextSequenceNumber,
     );
+  });
+
+  it("names the round-trip fromState/toState, with toJSON kept as a JSON-protocol alias", () => {
+    const p = freshProjection();
+    p.addJob(P1, openEndedJob); // job-1
+    p.addBudgetLine(expenseLine); // line-2
+
+    // toJSON is the JS protocol name: JSON.stringify calls it automatically, and it returns
+    // the same state as toState — one payload, two names.
+    expect(p.toJSON()).toBe(p.toState());
+    expect(JSON.parse(JSON.stringify(p))).toEqual(p.toState());
+
+    // fromState is the flooring construction path: a reloaded state continues the sequence.
+    const reloaded = Projection.fromState(JSON.parse(JSON.stringify(p.toState())), nullJurisdiction);
+    expect(reloaded.state.nextSeq).toBe(3);
+    expect(
+      reloaded.addGoal({
+        name: "Trip",
+        targetCents: dollarsToCents(5000),
+        targetDate: 12,
+        disposition: "retain",
+        annualReturnPct: 2,
+      }),
+    ).toBe("goal-3");
   });
 });
 
@@ -1482,6 +1597,26 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 
     // run() is read-only: the authoring state is identical before and after.
     expect(p.toJSON()).toBe(before);
+  });
+
+  it("surfaces the interpreted household and a report built from the same series", () => {
+    const p = freshProjection();
+    p.addJob(P1, openEndedJob);
+    p.marry({ month: 12, name: "Partner", birthYear: 1990 });
+    const result = p.run(nullJurisdiction);
+
+    // The household the snapshot panel and owner picker read — both partners present.
+    expect(result.household.memberships.map((m) => m.person.name)).toContain("Partner");
+
+    // The report is derived from the very series the chart draws, not a second simulation:
+    // every reported month lines up with the result's own series, value for value.
+    expect(result.report.months.length).toBe(result.series.months.length);
+    const lastReport = result.report.months.at(-1)?.netWorthNominalCents;
+    const lastSeries = result.series.months.at(-1)?.netWorthNominalCents;
+    expect(lastReport).toBe(lastSeries);
+
+    // Knobs the sim input compiles away survive via meta — the whole plan and the run's rules.
+    expect(result.report.meta).toEqual({ plan: p.plan, jurisdictionId: "null" });
   });
 });
 
