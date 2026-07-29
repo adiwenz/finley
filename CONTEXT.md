@@ -11,6 +11,12 @@ vocabulary for the domain.
 The ordered, immutable list of `Event` records — the sole source of truth for the plan.
 _Avoid_: history, event log (use "ledger" specifically for the stored record list).
 
+**Valid ledger**:
+A ledger that replays cleanly — every event satisfies its precondition against the state
+its predecessors produce. Distinct from an _affordable_ one: replay never re-litigates a
+purchase's affordability, so a validly-loaded plan may still project insolvent.
+_Avoid_: correct plan, well-formed (reserve for JSON shape), affordable.
+
 **Projection**:
 A scenario as something you can act on — edit it, add events to it, run it. The bare word
 means this; every derived-output concept carries a suffix. In code it is a momentary handle
