@@ -229,7 +229,7 @@ export function App() {
           </div>
 
           <div className="card">
-            <GoalsPanel budget={budget} series={series} setBudget={setBudget} />
+            <GoalsPanel budget={budget} series={series} setBudget={setBudget} ledger={ledger} />
           </div>
 
           <div className="card">

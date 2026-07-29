@@ -9,6 +9,7 @@ import {
   computeGoalProgress,
   buildPlanAccounts,
   buildPlanGoals,
+  eventsFundedByGoal,
   type ProjectionSeries,
 } from "@finley/engine";
 import type {
@@ -18,7 +19,10 @@ import type {
   GoalDisposal,
   GoalAccountType,
   GoalCompletion,
+  Ledger,
 } from "@finley/engine";
+import { summarizeEvent } from "./ledgerView";
+import { monthLabel } from "./format";
 
 export function dispositionLabel(disposition: GoalDisposition): string {
   switch (disposition) {
@@ -160,6 +164,46 @@ export function updateGoal(
 export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
   return goals.filter((g) => g.id !== id);
 }
+
+/**
+ * One event that blocks a goal's deletion, in the shape the block message renders. Carries
+ * the event id so a caller can hold on to *which* events blocked without holding the words
+ * describing them — the label and month are re-derived from the ledger on every read.
+ */
+export interface GoalFundingBlock {
+  readonly eventId: string;
+  readonly label: string;
+  readonly month: number;
+}
+
+/**
+ * The blocking events in the words a person reads. Which events block is the engine's
+ * question ({@link eventsFundedByGoal} — already in timeline order); this only names them,
+ * with the same labels the timeline shows.
+ */
+export function goalFundingBlocks(
+  goals: readonly GoalPlan[],
+  id: string,
+  ledger: Ledger,
+): GoalFundingBlock[] {
+  return eventsFundedByGoal(goals, id, ledger).map((e) => ({
+    eventId: e.id,
+    label: summarizeEvent(e).label,
+    month: e.month,
+  }));
+}
+
+/**
+ * The refuse-to-delete text for a given set of blockers, or null for none. The single
+ * authority for the wording; callers that hold a narrowed set of blockers (one refusal's
+ * own) format through here rather than re-deriving the sentence.
+ */
+export function fundingBlockMessage(blocks: readonly GoalFundingBlock[]): string | null {
+  if (blocks.length === 0) return null;
+  const lines = blocks.map((b) => `- ${b.label} in ${monthLabel(b.month)}`);
+  return ["This account cannot be deleted because it funds:", ...lines].join("\n");
+}
+
 
 /**
  * Move a goal one slot earlier ("up", funded sooner) or later ("down"); a no-op at the

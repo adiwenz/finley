@@ -13,7 +13,7 @@
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { ProjectionSeries } from "@finley/engine";
-import type { Plan } from "@finley/engine";
+import type { Plan, Ledger } from "@finley/engine";
 import {
   goalRows,
   reorderGoal,
@@ -21,6 +21,8 @@ import {
   addGoal,
   updateGoal,
   removeGoal,
+  goalFundingBlocks,
+  fundingBlockMessage,
   type GoalDraft,
 } from "../../goalsView";
 import { GoalForm } from "./goalForm";
@@ -31,14 +33,48 @@ interface GoalsPanelProps {
   budget: Plan;
   series: ProjectionSeries;
   setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * The event ledger, read only to guard deletion: a goal's derived fund account may be
+   * named as an event's funding source, and dropping the goal would strand that reference.
+   */
+  ledger: Ledger;
 }
 
 /** Which authoring form, if any, is disclosed: a goal id (edit), "new" (add), or none. */
 type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
 
-export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
+/**
+ * One refused delete: the goal, and the events that blocked it *at that click*. Ids, never
+ * the formatted sentence — labels and months are re-read from the ledger each render, so an
+ * event re-dated after the refusal still reads correctly.
+ *
+ * Pinning the ids is also what keeps the refusal answering the question the user actually
+ * asked. A later event funding the same goal is a different answer to a question nobody
+ * asked, so it must not revive this message.
+ */
+interface RefusedDelete {
+  readonly goalId: string;
+  readonly blockerEventIds: readonly string[];
+}
+
+export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProps) {
   const rows = goalRows(budget, series);
   const [authoring, setAuthoring] = useState<Authoring>(null);
+  const [refused, setRefused] = useState<RefusedDelete | null>(null);
+
+  // Only this refusal's own blockers, and only while they are still in the ledger: removing
+  // or re-pointing them clears the message live, and nothing else can put it back.
+  const refusalMessage = refused
+    ? fundingBlockMessage(
+        goalFundingBlocks(budget.goals, refused.goalId, ledger).filter((b) =>
+          refused.blockerEventIds.includes(b.eventId),
+        ),
+      )
+    : null;
+  // Every blocker behind it is gone, so the refusal is spent — drop it rather than keep dead
+  // state a later render would have to reason around. Setting state during render is React's
+  // supported path for this; it re-runs the component instead of committing this pass.
+  if (refused && refusalMessage === null) setRefused(null);
 
   function move(id: string, direction: "up" | "down") {
     setBudget((current) => ({ ...current, goals: reorderGoal(current.goals, id, direction) }));
@@ -59,6 +95,14 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
   }
 
   function remove(id: string) {
+    // Refuse while the goal's fund account funds an event — deleting it strands that funding
+    // reference. The user edits or re-points the named events first.
+    const blocks = goalFundingBlocks(budget.goals, id, ledger);
+    if (blocks.length > 0) {
+      setRefused({ goalId: id, blockerEventIds: blocks.map((b) => b.eventId) });
+      return;
+    }
+    setRefused(null);
     setBudget((current) => ({ ...current, goals: removeGoal(current.goals, id) }));
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
@@ -150,6 +194,13 @@ export function GoalsPanel({ budget, series, setBudget }: GoalsPanelProps) {
                     Delete
                   </button>
                 </div>
+                {refused?.goalId === row.id && refusalMessage && (
+                  // Heading + one `\n`-joined line per blocking event; `.alert-list`
+                  // preserves the newlines so it reads as a list.
+                  <p className="alert alert-amber alert-list" role="alert">
+                    {refusalMessage}
+                  </p>
+                )}
                 {authoring?.kind === "edit" && authoring.id === row.id && (
                   <GoalForm
                     initial={budget.goals.find((g) => g.id === row.id)}
