@@ -25,7 +25,9 @@ const DEMO_PLAN: Plan = {
 };
 
 it("taxes Social Security when 401(k) withdrawals accompany it, keyed to the benefit source", () => {
-  const series = Projection.create({ plan: DEMO_PLAN, startYear: START_YEAR }).run(usJurisdiction).series;
+  const series = Projection.create({ plan: DEMO_PLAN, startYear: START_YEAR }, usJurisdiction).run(
+    usJurisdiction,
+  ).series;
 
   const taxedSSMonths = series.months.filter((m) => {
     const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;

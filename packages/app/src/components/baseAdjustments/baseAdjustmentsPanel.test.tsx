@@ -846,7 +846,10 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
   });
 
   it("bands a liability's payment from the timeline, with no extra props", () => {
-    const projection = Projection.create({ plan: PLAN_DEFAULTS, startYear: START_YEAR });
+    const projection = Projection.create(
+      { plan: PLAN_DEFAULTS, startYear: START_YEAR },
+      usJurisdiction,
+    );
     projection.takeLoan({
       id: "loan-student",
       month: 0,
