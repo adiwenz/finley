@@ -13,6 +13,8 @@ import {
   createProjectionBase,
   firstInsolventMonth,
   dollarsToCents,
+  CONTRIBUTION_TARGETS,
+  type BudgetLine,
   type ProjectionContext,
   type ProjectionSeries,
 } from "@finley/engine";
@@ -39,6 +41,33 @@ function project(preset: Preset): ProjectionSeries {
 const realNetWorthAt = (series: ProjectionSeries, month: number): number | null =>
   series.months[month]?.netWorthRealCents ?? null;
 
+/**
+ * The spend each scenario was tuned against, kept here as an independent source of truth so a
+ * drift in the budget lines that changes the projection is caught.
+ */
+const AUTHORED_SPEND: Record<string, number> = {
+  default: dollarsToCents(3500),
+  "paycheck-to-paycheck": dollarsToCents(3600),
+  "living-on-credit": dollarsToCents(3600),
+  "student-loan": dollarsToCents(3000),
+  "taxed-in-retirement": dollarsToCents(5500),
+};
+
+/**
+ * A budget's monthly SPEND: literal `expense` lines only. Contribution (`account`) lines are
+ * saving — the waterfall funds them out of what is left after spending — so counting them here
+ * would inflate the obligation the engine actually charges.
+ */
+const expenseTotal = (lines: readonly BudgetLine[]): number =>
+  lines.reduce(
+    (sum, line) =>
+      sum +
+      (line.target.kind === "expense" && line.amountSource.kind === "literal"
+        ? line.amountSource.monthlyCents
+        : 0),
+    0,
+  );
+
 describe("default simulations", () => {
   it("offers the healthy default plus the teaching scenarios", () => {
     expect(PRESETS.map((p) => p.id)).toEqual([
@@ -56,25 +85,50 @@ describe("default simulations", () => {
   });
 
   it("every preset opens on an editable line-item budget totalling its authored spend", () => {
-    // The spend each scenario was tuned against, kept here as an independent source of truth
-    // so a drift in the budget lines that changes the projection is caught.
-    const AUTHORED_SPEND: Record<string, number> = {
-      default: dollarsToCents(3500),
-      "paycheck-to-paycheck": dollarsToCents(3600),
-      "living-on-credit": dollarsToCents(3600),
-      "student-loan": dollarsToCents(3000),
-      "taxed-in-retirement": dollarsToCents(5500),
-    };
     for (const preset of PRESETS) {
       const lines = preset.plan.budgetLines;
       // No lines opens the Base + Adjustments editor onto an empty spending chart.
       expect(lines.length).toBeGreaterThan(0);
-      const total = lines.reduce(
-        (sum, line) => sum + (line.amountSource.kind === "literal" ? line.amountSource.monthlyCents : 0),
-        0,
-      );
-      expect(total).toBe(AUTHORED_SPEND[preset.id]);
+      // Expense targets ONLY: an `account` line is a contribution the waterfall funds, not
+      // spend, so summing the budget wholesale would book saving as spending.
+      expect(expenseTotal(lines)).toBe(AUTHORED_SPEND[preset.id]);
     }
+  });
+
+  it("counts only expense lines as spend — a savings contribution is not an expense", () => {
+    // Budget lines carry both destinations. No preset seeds a contribution today, so the
+    // totals above would hold either way; the 50/30/20 quickstart seeds one the moment a user
+    // touches it, and a preset may yet ship one. Pin the split rather than the accident.
+    const preset = presetById("student-loan");
+    const account = CONTRIBUTION_TARGETS[0];
+    const savings: BudgetLine = {
+      id: "seed-savings",
+      label: "Savings",
+      target: { kind: "account", accountId: account.accountId, taxTreatment: account.taxTreatment },
+      amountSource: { kind: "literal", monthlyCents: dollarsToCents(400) },
+      category: "savings",
+    };
+    const withSavings: Preset = {
+      ...preset,
+      plan: { ...preset.plan, budgetLines: [...preset.plan.budgetLines, savings] },
+    };
+
+    // The contribution reaches the budget but never the spending obligation.
+    expect(expenseTotal(withSavings.plan.budgetLines)).toBe(AUTHORED_SPEND["student-loan"]);
+    const before = project(preset);
+    const after = project(withSavings);
+    const expensesAt = (s: ProjectionSeries, month: number): number | null =>
+      s.months[month]?.flows?.expensesCents ?? null;
+    // Guard the comparison below against passing on two undefineds.
+    expect(expensesAt(before, 0)).toBeGreaterThan(0);
+    for (const month of [0, 12, 120]) {
+      expect({ month, cents: expensesAt(after, month) }).toEqual({
+        month,
+        cents: expensesAt(before, month),
+      });
+    }
+    // …and it is live, not ignored: the money lands somewhere the projection can see.
+    expect(after.months[120]?.netWorthRealCents).not.toBe(before.months[120]?.netWorthRealCents);
   });
 
   it("default: builds real wealth across the working years and stays solvent", () => {
