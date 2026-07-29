@@ -32,6 +32,13 @@ const openEndedJob = {
   salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
+/** The partner a single `marry()` authored, whose jobs live on the event, not the plan. */
+function partnerEvent(p: Projection) {
+  const event = p.state.scenario.ledger.events[0];
+  if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+  return event;
+}
+
 const expenseLine = {
   label: "Rent",
   target: { kind: "expense" } as const,
@@ -142,6 +149,40 @@ describe("Projection root — one root for standing + ledger writes", () => {
     const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     expect(partnerId).toBe("person-1");
     expect(p.state.scenario.ledger.events[0]).toMatchObject({ type: "RelationshipEvent" });
+  });
+
+  it("marry() mints an id and owner for each of the partner's jobs", () => {
+    const p = freshProjection();
+    // JobInput carries no id or ownerId — the engine mints both, so the caller never has to.
+    const partnerId = p.marry({
+      month: 24,
+      name: "Partner",
+      birthYear: 1988,
+      jobs: [openEndedJob, openEndedJob],
+    });
+    const partnerJobs = partnerEvent(p).person.jobs;
+
+    // Person plus two jobs = three minted ids, all distinct.
+    const minted = [partnerId, ...partnerJobs.map((j) => j.id)];
+    expect(new Set(minted).size).toBe(3);
+    // Each job is owned by the partner the engine just created, not the caller's guess.
+    expect(partnerJobs.every((j) => j.ownerId === partnerId)).toBe(true);
+    // A subsequent addJob clears all three, so the counter walked past the nested jobs.
+    expect(minted).not.toContain(p.addJob(P1, openEndedJob));
+  });
+
+  it("marry() preserves a partner job's explicit id override and steps the counter past it", () => {
+    const p = freshProjection();
+    p.marry({
+      month: 24,
+      name: "Partner",
+      birthYear: 1988,
+      // `job-5` is one of our own ids, so it must be returned verbatim AND advance the counter.
+      jobs: [{ ...openEndedJob, id: "job-5" }],
+    });
+    expect(partnerEvent(p).person.jobs[0]?.id).toBe("job-5");
+    // The next mint clears the override rather than colliding with it.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-6");
   });
 
   it("takeLoan() carries the kind-determined field for each arm of the union", () => {

@@ -73,6 +73,11 @@ export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
  * catch-up computable. `retirementTargetAge` defaults to 65, `benefitClaimingAge` to 67.
  * Covered earnings derive from `jobs`, so the empty default models no benefit basis.
+ *
+ * Jobs arrive as {@link JobInput}, not `Job`: the engine is the sole id authority, and for a
+ * partner the owner is the person this very call creates — a caller could not name either id
+ * before {@link Projection.marry} minted the person. {@link Projection.marry} mints each job's
+ * id and stamps its `ownerId`.
  */
 export interface MarryInput {
   readonly month: number;
@@ -80,7 +85,7 @@ export interface MarryInput {
   readonly birthYear: number;
   readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
-  readonly jobs?: readonly Job[];
+  readonly jobs?: readonly JobInput[];
   /** Override the minted person id. */
   readonly id?: string;
 }
@@ -621,14 +626,25 @@ export class Projection {
 
   /** Returns the minted `"person-N"` id. */
   marry(input: MarryInput): string {
-    const { id, nextSeq } = mint(this.state, "person", input.id);
+    const { id, nextSeq: afterPerson } = mint(this.state, "person", input.id);
+    // One counter, threaded person → jobs: each job mints against the seq the previous mint
+    // left, so the partner and their jobs draw distinct ids from the same monotonic run. The
+    // owner is `id` — the person minted just above — because a partner's jobs belong to the
+    // person this call creates, never to the caller.
+    let nextSeq = afterPerson;
+    const jobs: Job[] = (input.jobs ?? []).map((job) => {
+      const minted = mint({ ...this.state, nextSeq }, "job", job.id);
+      nextSeq = minted.nextSeq;
+      const { id: _drop, ...rest } = job;
+      return { ...rest, id: minted.id, ownerId: id };
+    });
     const person: Person = {
       id,
       name: input.name,
       birthYear: input.birthYear,
       retirementTargetAge: input.retirementTargetAge ?? 65,
       benefitClaimingAge: input.benefitClaimingAge ?? 67,
-      jobs: input.jobs ?? [],
+      jobs,
     };
     this.commitEvent({ id, type: "RelationshipEvent", month: input.month, person }, nextSeq);
     return id;
