@@ -15,8 +15,20 @@ export * from "./governmentBenefit";
 export * from "./goal";
 // `Person` is the public household-member type. Its compiled counterpart `SimPerson` is
 // engine-internal and intentionally absent here; `compilePerson` derives it at the sim boundary.
-export type { Job, PersonId, SalaryTrajectory, JobDeferral, JobIncomeOverride, JobPayChange } from "./job";
-export { deriveRealGrowthPct } from "./job";
+export type { Job, PersonId, SalaryTrajectory, JobDeferral, JobIncomeOverride, JobPayChange, JobPatch } from "./job";
+// The authoring transforms are shared BY BOTH write paths — the `Projection` API and the
+// app's panels — so a rule like "a 0% deferral is removed, not recorded" has one home.
+export {
+  deriveRealGrowthPct,
+  mapJob,
+  withJobPatch,
+  withMonthlyIncome,
+  withDeferralFraction,
+  withPayChange,
+  withoutPayChange,
+  withIncomeOverride,
+  withoutIncomeOverride,
+} from "./job";
 export type { Person } from "./person";
 // Authoring model: `Account.owners` distinguishes individual (`[p]`) from joint (`[p1, p2]`)
 // holdings. Distinct from the simulator's `SimAccount` class (`./simAccount`).
@@ -48,6 +60,7 @@ export type {
   BudgetLineSpan,
   BudgetLineOverride,
   BudgetLine,
+  BudgetLinePatch,
   ResolveLineContext,
   ResolvedBudgetLine,
 } from "./budgetLine";
@@ -57,6 +70,8 @@ export {
   budgetLinePriority,
   orderBudgetLines,
   resolveBudget,
+  withLinePatch,
+  withoutLine,
 } from "./budgetLine";
 export {
   compileExpenseBudgetLines,
@@ -92,8 +107,11 @@ export type {
   BudgetLineInput,
   GoalInput,
   MarryInput,
+  HaveChildInput,
+  SeparateInput,
   TakeLoanInput,
   BuyHomeInput,
+  PayOffDebtInput,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped

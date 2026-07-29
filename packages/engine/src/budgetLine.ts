@@ -203,3 +203,34 @@ export function resolveBudget(
     monthlyCents: resolveBudgetLineMonthlyCents(line, ctx),
   }));
 }
+
+// ── Authoring transforms ──
+//
+// Pure list-in/list-out edits, beside the type they edit, so the `Projection` API and the
+// app's Base + Adjustments panel share one definition of what editing a line means.
+
+/** Every {@link BudgetLine} field except the stable `id`. */
+export type BudgetLinePatch = Partial<Omit<BudgetLine, "id">>;
+
+/**
+ * Overwrite the named fields, carrying through what an edit does not name — the line's
+ * `span`, its dated `overrides`, an explicit `priority`. Those are timeline facts about the
+ * line rather than part of what an edit states.
+ *
+ * `target` and `amountSource` are whole discriminated unions and are replaced entire when
+ * patched: half a union is not a value, so switching an expense line to a contribution means
+ * supplying the new `target` complete. The `id` is stripped. An unknown id changes nothing.
+ */
+export function withLinePatch(
+  lines: readonly BudgetLine[],
+  id: string,
+  patch: BudgetLinePatch,
+): readonly BudgetLine[] {
+  const { id: _drop, ...rest } = patch as Partial<BudgetLine>;
+  return lines.map((l) => (l.id === id ? ({ ...l, ...rest } as BudgetLine) : l));
+}
+
+/** Drop a line. Nothing to guard: a line derives no account an event can reference. */
+export function withoutLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
+  return lines.filter((l) => l.id !== id);
+}

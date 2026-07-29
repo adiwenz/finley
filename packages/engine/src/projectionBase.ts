@@ -24,6 +24,7 @@ import { type Person } from "./person";
 import { compilePersonIncomeSeries } from "./compilePerson";
 import { compileExpenseBudgetLines } from "./compileBudget";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
+import { RETIREMENT_ID } from "./ids";
 
 export interface ProjectionContext {
   readonly jurisdiction: Jurisdiction;
@@ -34,8 +35,10 @@ export interface ProjectionContext {
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
 const SAVINGS_ID = "savings";
-/** The pre-tax retirement account a {@link Job}'s 401(k) deferral funds. */
-export const RETIREMENT_ID = "retirement";
+// RETIREMENT_ID — the account this module mints for a job's 401(k) deferral to fund — lives
+// in `ids` so `job` can name the same default without importing this module (which would
+// cycle back through `compilePerson`). Imported above; not re-exported, so the barrel has
+// exactly one source for it.
 const BROKERAGE_ID = "brokerage";
 
 // Shared by {@link buildPlanAccounts} and {@link planAccountDescriptors} so a label
