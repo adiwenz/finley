@@ -156,11 +156,11 @@ export function resolveRowsAtMonth(
  * Apply a routed line override to the standing lines. An override *replaces* any existing
  * one of the same scope at the same month, so repeated edits to a point don't stack up.
  *
- * **A `fromHereForward` override supersedes every later one on that line.** `compileBudget`
- * replays overrides in array order and `SimCashFlowSeries.addOverride` drops segments at or
- * after the month it lands on, so editing month 100 after month 300 holds the month-100
- * amount for the rest of the horizon — intended, the more recent decision wins. The
- * superseded entry stays in the array but resolves nowhere, so it cannot resurrect.
+ * **A `fromHereForward` override supersedes every later one on that line.** The budget
+ * compiler replays overrides in array order and each one erases the schedule at and after
+ * the month it lands on, so editing month 100 after month 300 holds the month-100 amount for
+ * the rest of the horizon — intended, the more recent decision wins. The superseded entry
+ * stays in the array but resolves nowhere, so it cannot resurrect.
  */
 export function applyLineOverride(
   lines: readonly BudgetLine[],

@@ -3,6 +3,8 @@
  * exactly one home, and income "just this month" is a *delta* ledger transaction rather than
  * a standing change.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, type BudgetLine } from "@finley/engine";
 import {
@@ -228,5 +230,14 @@ describe("applyLineOverride", () => {
     });
     expect(next[0]?.overrides).toHaveLength(2);
     expect(next[1]).toEqual(start[1]);
+  });
+
+  // The behavior above is explained in `applyLineOverride`'s JSDoc. That prose must stay in
+  // app/public terms: `SimCashFlowSeries` is engine-internal (not barrel-exported), so an
+  // app-side doc naming it invents a dependency on a class the app can't even reach. Pins the
+  // boundary against a reword sliding back to the internal name.
+  it("explains supersession without naming any engine-internal class", () => {
+    const source = readFileSync(fileURLToPath(new URL("./monthEdit.ts", import.meta.url)), "utf8");
+    expect(source).not.toContain("SimCashFlowSeries");
   });
 });
