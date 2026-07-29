@@ -114,24 +114,67 @@ reassigns it. Presented as a stated-rule reading, in the spirit of a **Nudge** �
 something the user authored or the ledger observed.
 _Avoid_: stating it as an observed or authored fact.
 
-**Funding-deficit liability**:
-The zero-interest accounting plug standing in for an **asset-acquisition** obligation that
-could not be funded — not borrowed money (no lender exists), but the record that the plan
-is impossible as authored. Marks the projection insolvent.
-_Avoid_: loan, debt, credit (it is none of these; giving it an APR would compound a fiction
-until it dominated the projection).
-
-**Underfunded**:
-The state of an explicitly-funded event whose named sources can no longer cover it, because
-the plan changed after it was authored. A surfaced flag, never an error — the projection
-keeps running and the event stays authored and replayable.
-_Avoid_: invalid, broken, stale.
-
 **One-Time Spend**:
 A dated, source-directed cash outflow funded from named accounts in a chosen order.
-Distinguished from a dated expense override by exactly two things: the user names *which*
-accounts pay and in what order, and a coverage gate blocks it if those accounts fall short.
+Distinguished from a dated expense override by exactly one thing: the user names *which*
+accounts pay and in what order. Being an **expense**, a credit card is among the sources it
+may name.
 _Avoid_: purchase (a home purchase is its own event), spend event, expense event.
+
+**Funding eligibility**:
+Which sources an obligation is permitted to name, decided by the engine and never by the UI.
+Governed by **treatment**: an `expense` may draw on liquid accounts and credit cards, an
+`asset-acquisition` on liquid accounts only (no bank funds a down payment on a card).
+_Avoid_: allowed accounts, valid sources.
+
+**Structural validity**:
+Whether an authored change is well-formed — ids resolve, references exist, percentages total
+100%. The only grounds on which a change may be refused. A structurally valid plan may still
+be impossible to fund.
+_Avoid_: validation (unqualified — name which of the two is meant).
+
+**Projection feasibility**:
+Whether the authored plan can actually be simulated. Never affects structural validity, and
+never grounds for refusing a change: aspirational plans are authorable by design.
+_Avoid_: validity, correctness.
+
+**Blocking obligation**:
+The explicitly-funded obligation whose named sources cannot cover it, halting the projection.
+Exactly one blocks any projection — the first one reached. The **event** that authored it is
+the reporting handle; an event is blocked if any of its obligations is.
+_Avoid_: failed obligation, invalid event, underfunded (the superseded name, which implied
+the projection continued).
+
+**Blocked month**:
+The month containing the blocking obligation — simulated to completion with that obligation,
+and the artifacts it would have created, omitted. The last month the projection emits.
+_Avoid_: failure month, cutoff.
+
+**Not reached**:
+An obligation authored after the blocked month, whose affordability is unknown because the
+simulation stopped before it. Positional, never inferred from dependency — nothing after the
+block was tested.
+_Avoid_: unreachable, skipped, invalidated (an invalidated *event* is the reported rollup).
+
+**Funding configuration failure**:
+The named sources cannot cover an obligation, but eligible sources elsewhere can. An
+authoring mistake, not a money problem — the engine reports the alternatives and never picks
+one.
+_Avoid_: insufficient funds (it is the opposite — the money exists).
+
+**Blocked** vs **insolvent**:
+Two distinct terminal conditions, never conflated. **Blocked** means an authored instruction
+cannot be carried out, and has no continuation. **Insolvent** means the shortfall cascade
+exhausted savings and credit; it *does* continue — the household is in debt and may dig out —
+so the projection runs on with net worth nulled. A block strictly precedes insolvency within
+a month.
+
+**Soft warning**:
+A persistent, non-dismissible statement of fact about the projection, rendered while its
+condition holds and blocking nothing (debt-to-income, blocking, insolvency). Distinct from a
+**Nudge**, which proposes a value change and is advice; a soft warning proposes nothing and
+dismissing it would not make it less true.
+_Avoid_: error, alert, dismissible warning.
 
 **Allocation waterfall**:
 The fixed, opinionated per-month order that routes net cash flow to the month's
@@ -161,9 +204,10 @@ residual specifically).
 The specific fallback sequence when a month can't be covered from cash: skip discretionary
 savings → draw down liquid assets → route the deficit to a credit-card liability (accruing
 at its APR) → hard-infeasibility flag if credit is exhausted. Distinct from ordinary
-negative net worth, which requires no intervention. An **asset-acquisition** obligation
-never enters this cascade — credit cannot fund a down payment — and falls to a
-**funding-deficit liability** instead.
+negative net worth, which requires no intervention. Reserved for **automatically-funded**
+obligations: an explicitly-funded one names its own sources, so falling short blocks the
+projection rather than cascading — substituting an unnamed source would rewrite an authored
+funding decision.
 _Avoid_: shortfall handling, deficit logic.
 
 **Hard-infeasibility**:
@@ -172,7 +216,7 @@ The terminal state where a monthly deficit exceeds all available liquid assets a
 tool produces.
 
 **Liquid** (account flag):
-Marks an `Account` as usable for the down-payment check and the shortfall cascade's
+Marks an `Account` as eligible to fund an obligation and usable by the shortfall cascade's
 drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
 (`401k`/`Roth`/`HSA`) = not liquid.
 
@@ -212,7 +256,8 @@ A prompt surfaced when the user authors a life event that plausibly changes a re
 budget item (e.g. job-change / early retirement → adjust the `category:"health"` item;
 home purchase → end a housing item), typically with a pre-filled suggested value. A nudge
 never silently rewrites a user-controlled value — it makes the change user-authored,
-honoring the anti-deception rules.
+honoring the anti-deception rules. Distinct from a **soft warning**, which proposes nothing
+and cannot be dismissed.
 _Avoid_: auto-adjust, automatic step (a nudge is explicitly NOT silent/automatic).
 
 **Backdating** / **"now" marker**:
