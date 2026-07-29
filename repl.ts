@@ -12,7 +12,8 @@ const { Projection, dollarsToCents, centsToDollars, nullJurisdiction } = engine;
 const { usJurisdiction } = rules;
 
 /** Start over: a fresh Projection on the sample plan. */
-const fresh = () => Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR });
+const fresh = () =>
+  Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
 
 /** Run under the US jurisdiction and print the headline numbers. */
 const summarize = (p: engine.Projection, j: engine.Jurisdiction = usJurisdiction) => {

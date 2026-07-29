@@ -3,15 +3,22 @@
  * Run with:  npx tsx playground.ts
  * Not part of the build — delete freely.
  */
-import { Projection, dollarsToCents, centsToDollars, type PersonId } from "@finley/engine";
+import {
+  Projection,
+  dollarsToCents,
+  centsToDollars,
+  nullJurisdiction,
+  type PersonId,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 // A ready-made Plan fixture (not barrel-exported; import by path).
 import { samplePlan, SAMPLE_START_YEAR } from "./packages/engine/src/testing/samplePlan";
 
 const P1 = "p1" as PersonId;
 
-// 1. Create — standing numbers in, jurisdiction NOT yet involved.
-const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR });
+// 1. Create — standing numbers in, plus the jurisdiction writes validate against (authoring
+//    only; `run()` below still picks its own).
+const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
 
 // 2. Standing edits. Creating writes return a minted id.
 const jobId = p.addJob(P1, {
@@ -58,7 +65,7 @@ console.log({ ledgerEvents: p.state.scenario.ledger.events.length });
 
 // 6. Serialize / reload — the id counter continues, so ids never collide.
 const saved = JSON.parse(JSON.stringify(p.toJSON()));
-const reloaded = Projection.fromJSON(saved);
+const reloaded = Projection.fromJSON(saved, nullJurisdiction);
 console.log({ nextIdAfterReload: reloaded.addGoal({
   name: "Car",
   targetCents: dollarsToCents(30_000),

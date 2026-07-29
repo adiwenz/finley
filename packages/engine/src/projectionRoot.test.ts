@@ -20,10 +20,13 @@ const P1 = "p1" as PersonId;
 function freshProjection(): Projection {
   // Empty job and budget-line lists so minted ids and roster lengths reflect only what each
   // test adds — the sample plan seeds a spend line that would otherwise skew the counts.
-  return Projection.create({
-    plan: { ...samplePlan, jobs: [], budgetLines: [] },
-    startYear: SAMPLE_START_YEAR,
-  });
+  return Projection.create(
+    {
+      plan: { ...samplePlan, jobs: [], budgetLines: [] },
+      startYear: SAMPLE_START_YEAR,
+    },
+    nullJurisdiction,
+  );
 }
 
 const openEndedJob = {
@@ -224,10 +227,13 @@ describe("Projection root — removing a goal guards its fund account", () => {
       mortgageApr: 0.065,
       mortgageTermMonths: 360,
     };
-    return Projection.fromJSON({
-      ...s,
-      scenario: withLedger(s.scenario, { events: [purchase], nextSequenceNumber: 2 }),
-    });
+    return Projection.fromJSON(
+      {
+        ...s,
+        scenario: withLedger(s.scenario, { events: [purchase], nextSequenceNumber: 2 }),
+      },
+      nullJurisdiction,
+    );
   }
 
   it("removes a goal no event funds", () => {
@@ -265,10 +271,13 @@ describe("Projection root — removing a goal guards its fund account", () => {
     expect(() => blocked.removeGoal(goalId)).toThrow();
 
     const s = blocked.state;
-    const unblocked = Projection.fromJSON({
-      ...s,
-      scenario: withLedger(s.scenario, emptyLedger),
-    });
+    const unblocked = Projection.fromJSON(
+      {
+        ...s,
+        scenario: withLedger(s.scenario, emptyLedger),
+      },
+      nullJurisdiction,
+    );
     unblocked.removeGoal(goalId);
     expect(unblocked.plan.goals.map((g) => g.id)).not.toContain(goalId);
   });
@@ -337,10 +346,13 @@ describe("Projection root — reordering a goal changes its funding priority", (
 
   function seededProjection(): { p: Projection; a: string; b: string; c: string } {
     // Start from an empty goal list so priority (array index) reflects only what we add.
-    const p = Projection.create({
-      plan: { ...samplePlan, jobs: [], budgetLines: [], goals: [] },
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: { ...samplePlan, jobs: [], budgetLines: [], goals: [] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
     return { p, a: p.addGoal({ ...goal, id: "a" }), b: p.addGoal({ ...goal, id: "b" }), c: p.addGoal({ ...goal, id: "c" }) };
   }
 
@@ -992,10 +1004,13 @@ describe("Projection root — the id counter starts clear of the plan it is give
   it("mints past a job the supplied plan already holds", () => {
     // The app's own PLAN_DEFAULTS ships a `job-1`; before the fix a counter starting at 1
     // minted a second one and the plan carried two jobs under one id.
-    const p = Projection.create({
-      plan: planWith({ jobs: [jobAt("job-1")] }),
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: planWith({ jobs: [jobAt("job-1")] }),
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
 
     const added = p.addJob(P1, openEndedJob);
     expect(added).not.toBe("job-1");
@@ -1005,21 +1020,24 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 
   it("takes the floor from every plan collection, not just the one it is minting into", () => {
-    const p = Projection.create({
-      plan: planWith({
-        jobs: [jobAt("job-3")],
-        goals: [{
-          id: "goal-7",
-          name: "Car",
-          targetCents: dollarsToCents(30000),
-          targetDate: 36,
-          disposition: "retain",
-          annualReturnPct: 3,
-        }],
-        budgetLines: [{ ...expenseLine, id: "line-5" }],
-      }),
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: planWith({
+          jobs: [jobAt("job-3")],
+          goals: [{
+            id: "goal-7",
+            name: "Car",
+            targetCents: dollarsToCents(30000),
+            targetDate: 36,
+            disposition: "retain",
+            annualReturnPct: 3,
+          }],
+          budgetLines: [{ ...expenseLine, id: "line-5" }],
+        }),
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
 
     // One counter across all kinds, so the highest id in ANY collection sets the floor.
     expect(p.addJob(P1, openEndedJob)).toBe("job-8");
@@ -1058,10 +1076,13 @@ describe("Projection root — the id counter starts clear of the plan it is give
     // never pass — and incrementing a non-safe integer is a no-op, so the mint would hand out
     // the SAME id forever. Ignoring it is both safe and correct: `mint` cannot have issued a
     // number it cannot count to.
-    const p = Projection.create({
-      plan: planWith({ jobs: [jobAt("job-9007199254740993")] }),
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: planWith({ jobs: [jobAt("job-9007199254740993")] }),
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
 
     const first = p.addJob(P1, openEndedJob);
     const second = p.addJob(P1, openEndedJob);
@@ -1098,10 +1119,13 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 
   it("never walks the counter backwards, through create or a later reset", () => {
-    const p = Projection.create({
-      plan: planWith({ jobs: [jobAt("job-6")] }),
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: planWith({ jobs: [jobAt("job-6")] }),
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
     expect(p.addJob(P1, openEndedJob)).toBe("job-7");
 
     // An emptier import must not release ids already spent — neither the plan's `job-6` nor
@@ -1111,10 +1135,13 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 
   it("still addresses the right entity after the counter has been advanced", () => {
-    const p = Projection.create({
-      plan: planWith({ jobs: [jobAt("job-1")] }),
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: planWith({ jobs: [jobAt("job-1")] }),
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
     const added = p.addJob(P1, openEndedJob);
 
     p.updateJob(added, { name: "Second job" });
@@ -1255,7 +1282,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.addBudgetLine(expenseLine); // line-2 → nextSeq now 3
 
     const snapshot = JSON.parse(JSON.stringify(p.toJSON()));
-    const reloaded = Projection.fromJSON(snapshot);
+    const reloaded = Projection.fromJSON(snapshot, nullJurisdiction);
 
     // The counter survived: the next mint is 3, not a colliding 1.
     expect(reloaded.state.nextSeq).toBe(3);
@@ -1313,7 +1340,7 @@ describe("Projection root — id counter round-trips through serialization", () 
       },
     };
 
-    const p = Projection.fromJSON(stale);
+    const p = Projection.fromJSON(stale, nullJurisdiction);
 
     // Trusting `nextSeq: 1` would have minted `job-5` a second time.
     const jobId = p.addJob(P1, openEndedJob);
@@ -1346,7 +1373,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     const before = p.toJSON();
 
-    const reloaded = Projection.fromJSON(JSON.parse(JSON.stringify(before)));
+    const reloaded = Projection.fromJSON(JSON.parse(JSON.stringify(before)), nullJurisdiction);
 
     // The id counter is already at its floor, so a reload does not skip ids.
     expect(reloaded.state.nextSeq).toBe(before.nextSeq);
@@ -1372,8 +1399,8 @@ describe("Projection root — id counter round-trips through serialization", () 
     p.addJob(P1, openEndedJob);
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
 
-    const once = Projection.fromJSON(JSON.parse(JSON.stringify(p.toJSON()))).toJSON();
-    const twice = Projection.fromJSON(JSON.parse(JSON.stringify(once))).toJSON();
+    const once = Projection.fromJSON(JSON.parse(JSON.stringify(p.toJSON())), nullJurisdiction).toJSON();
+    const twice = Projection.fromJSON(JSON.parse(JSON.stringify(once)), nullJurisdiction).toJSON();
 
     expect(twice.nextSeq).toBe(once.nextSeq);
     expect(twice.scenario.ledger.nextSequenceNumber).toBe(
@@ -1423,10 +1450,13 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
   it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
     // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
-    const p = Projection.create({
-      plan: { ...samplePlan, goals: [] },
-      startYear: SAMPLE_START_YEAR,
-    });
+    const p = Projection.create(
+      {
+        plan: { ...samplePlan, goals: [] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
     p.addBudgetLine({
       id: "rent",
       label: "Rent",
@@ -1451,18 +1481,21 @@ describe("Projection root — per-line monthly resolution in the result", () => 
   it("reports every line at its full amount even once the plan is insolvent", () => {
     // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
     // shortfall. Priority funds rent (a need) before fun (a want).
-    const p = Projection.create({
-      plan: {
-        ...samplePlan,
-        jobs: [salariedJob(dollarsToCents(3_000))],
-        openingBalanceCents: 0,
-        goals: [],
-        healthMonthlyCents: 0,
-        postCoverageHealthMonthlyCents: 0,
-        enrollsInPublicHealthCoverage: false,
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          jobs: [salariedJob(dollarsToCents(3_000))],
+          openingBalanceCents: 0,
+          goals: [],
+          healthMonthlyCents: 0,
+          postCoverageHealthMonthlyCents: 0,
+          enrollsInPublicHealthCoverage: false,
+        },
+        startYear: SAMPLE_START_YEAR,
       },
-      startYear: SAMPLE_START_YEAR,
-    });
+      nullJurisdiction,
+    );
     p.addBudgetLine({
       id: "rent",
       label: "Rent",
@@ -1502,17 +1535,20 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     // samplePlan retires at 60 and claims its benefit at 67, so ages 60–67 have no income
     // at all. Funding the budget by drawing savings down is the plan working, not a starved
     // budget.
-    const p = Projection.create({
-      plan: {
-        ...samplePlan,
-        openingBalanceCents: dollarsToCents(2_000_000),
-        goals: [],
-        healthMonthlyCents: 0,
-        postCoverageHealthMonthlyCents: 0,
-        enrollsInPublicHealthCoverage: false,
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          openingBalanceCents: dollarsToCents(2_000_000),
+          goals: [],
+          healthMonthlyCents: 0,
+          postCoverageHealthMonthlyCents: 0,
+          enrollsInPublicHealthCoverage: false,
+        },
+        startYear: SAMPLE_START_YEAR,
       },
-      startYear: SAMPLE_START_YEAR,
-    });
+      nullJurisdiction,
+    );
     p.addBudgetLine({
       id: "rent",
       label: "Rent",
@@ -1585,7 +1621,7 @@ describe("Projection root — authoring validates against the construction-time 
     accountType: "brokerage",
   } as const;
 
-  function nestProjection(jurisdiction?: Jurisdiction): Projection {
+  function nestProjection(jurisdiction: Jurisdiction): Projection {
     return Projection.create(
       { plan: { ...samplePlan, goals: [NEST_GOAL] }, startYear: SAMPLE_START_YEAR },
       jurisdiction,
@@ -1613,16 +1649,11 @@ describe("Projection root — authoring validates against the construction-time 
   });
 
   it("accepts the same buyHome when constructed against nullJurisdiction", () => {
-    // No tax, so the balance nets in full and the down payment clears — the default, and the
-    // path that made the weaker check invisible before.
+    // No tax, so the balance nets in full and the down payment clears — the path that made the
+    // weaker check invisible before, now reachable only by asking for it explicitly.
     const p = nestProjection(nullJurisdiction);
     expect(() => p.buyHome(buyFromNest)).not.toThrow();
     expect(p.ledger.events).toHaveLength(1);
-  });
-
-  it("defaults to nullJurisdiction when none is supplied at construction", () => {
-    const p = nestProjection();
-    expect(() => p.buyHome(buyFromNest)).not.toThrow();
   });
 
   it("keeps run(jurisdiction) independent of the authoring jurisdiction", () => {

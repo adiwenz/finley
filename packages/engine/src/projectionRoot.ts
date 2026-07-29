@@ -21,11 +21,16 @@
  * capital-gains tax) fires the same way it does in the app.
  *
  * Only the second question is meant to be varied freely: authoring under one jurisdiction and
- * projecting under another is legal, not an error. The validation jurisdiction defaults to
- * {@link nullJurisdiction}, so the engine still runs standalone with no rules package, and it is
- * behaviour rather than data — never serialised into {@link ProjectionState}, supplied fresh
- * beside the state each time a handle is constructed (which is why {@link ProjectionResult}
- * records a `jurisdictionId`, not the jurisdiction itself).
+ * projecting under another is legal, not an error. The validation jurisdiction is behaviour
+ * rather than data — never serialised into {@link ProjectionState}, supplied fresh beside the
+ * state each time a handle is constructed (which is why {@link ProjectionResult} records a
+ * `jurisdictionId`, not the jurisdiction itself).
+ *
+ * It is **required**, with no default. A default would have to be `nullJurisdiction`, and a
+ * caller who meant to validate under real tax rules but forgot the argument would silently get
+ * the tax-free answer — the false-accept this contract exists to prevent, reintroduced by
+ * omission. Standalone use is unaffected: `nullJurisdiction` is part of this package, so
+ * `create(init, nullJurisdiction)` needs no rules package — it just has to say so out loud.
  */
 
 import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
@@ -59,7 +64,8 @@ import { updateEvent } from "./ledger/updateEvent";
 import { validateGoalRemoval } from "./goalFunding";
 import { projectScenario } from "./retirementSolver";
 import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
-import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
+// Type-only: with the validation jurisdiction required, this module no longer names a fallback.
+import type { Jurisdiction } from "./jurisdiction";
 
 /** The immutable authoring state a {@link Projection} holds, and the whole of what it serializes. */
 export interface ProjectionState {
@@ -383,11 +389,11 @@ export class Projection {
    * The counter starts clear of the plan it is handed, not at 1: a plan authored elsewhere
    * routinely already holds `job-1`, and minting it a second time would give two jobs one id.
    *
-   * `jurisdiction` is the validation jurisdiction the write-time affordability gate decides on;
-   * it defaults to {@link nullJurisdiction} and is independent of whatever {@link run} is later
-   * given.
+   * `jurisdiction` is the validation jurisdiction the write-time affordability gate decides on,
+   * required so the choice is never made by omission, and independent of whatever {@link run} is
+   * later given. Pass `nullJurisdiction` to author without tax rules.
    */
-  static create(init: ProjectionInit, jurisdiction: Jurisdiction = nullJurisdiction): Projection {
+  static create(init: ProjectionInit, jurisdiction: Jurisdiction): Projection {
     const scenario = scenarioOf(init.plan);
     return new Projection(
       {
@@ -619,7 +625,7 @@ export class Projection {
   /**
    * The replay context every ledger write validates against: the plan compiled under the
    * construction-time {@link validationJurisdiction}, so a jurisdiction-gated authoring check
-   * sees the same numbers the app does rather than the tax-free {@link nullJurisdiction} answer.
+   * sees the same numbers the app does rather than the tax-free `nullJurisdiction` answer.
    */
   private baseConfig(): LedgerBaseConfig {
     const s = this.state;
@@ -883,13 +889,10 @@ export class Projection {
    * Normalization only ever raises a counter, so a well-formed state round-trips unchanged.
    *
    * `jurisdiction` is supplied fresh here, not read back from the state: a jurisdiction is
-   * behaviour and was never serialised. It defaults to {@link nullJurisdiction}, the same as
-   * {@link create}.
+   * behaviour and was never serialised. Required, the same as {@link create} — a reload is
+   * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
-  static fromJSON(
-    state: ProjectionState,
-    jurisdiction: Jurisdiction = nullJurisdiction,
-  ): Projection {
+  static fromJSON(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
     return new Projection(withNormalizedCounters(state), jurisdiction);
   }
 }
