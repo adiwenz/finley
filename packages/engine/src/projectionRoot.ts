@@ -18,9 +18,21 @@
  * affordability gate uses {@link nullJurisdiction}.
  */
 
-import type { Plan, GoalPlan } from "./plan";
-import type { Job, JobIncomeOverride, JobPayChange, PersonId } from "./job";
-import type { BudgetLine } from "./budgetLine";
+import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
+import { withGoalPatch, withGoalReordered, withoutGoal, withPlanPatch } from "./plan";
+import type { Job, JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
+import {
+  mapJob,
+  withDeferralFraction,
+  withIncomeOverride,
+  withJobPatch,
+  withMonthlyIncome,
+  withoutIncomeOverride,
+  withoutPayChange,
+  withPayChange,
+} from "./job";
+import type { BudgetLine, BudgetLinePatch } from "./budgetLine";
+import { withLinePatch, withoutLine } from "./budgetLine";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
 import type { NewLifeEvent } from "./ledger/eventTypes";
@@ -35,7 +47,7 @@ import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
 import { validateGoalRemoval } from "./goalFunding";
 import { projectScenario } from "./retirementSolver";
-import { createProjectionBase, firstInsolventMonth, RETIREMENT_ID } from "./projectionBase";
+import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 
 /** The immutable authoring state a {@link Projection} holds, and the whole of what it serializes. */
@@ -55,28 +67,6 @@ export type JobInput = Omit<Job, "id" | "ownerId"> & { readonly id?: string };
 export type BudgetLineInput = Omit<BudgetLine, "id"> & { readonly id?: string };
 
 export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
-
-/**
- * Every {@link Job} field except the stable `id`. `ownerId` IS patchable, so an edit can
- * reassign a job to another household member — the same move the Jobs form makes by changing
- * the draft's owner.
- */
-export type JobPatch = Partial<Omit<Job, "id">>;
-
-/** Every {@link BudgetLine} field except the stable `id`. */
-export type BudgetLinePatch = Partial<Omit<BudgetLine, "id">>;
-
-/**
- * The plan's standing **scalars** — every {@link Plan} field except the three collections
- * (`goals`, `jobs`, `budgetLines`).
- *
- * The exclusion is the point, not tidiness: each collection has methods that mint stable ids
- * and enforce rules — {@link Projection.removeGoal} refuses while an event still spends from
- * a goal's fund account. A bare `Partial<Plan>` would let `updatePlan({ goals: [] })` walk
- * straight past that guard, so the one free-form setter is confined to the fields that carry
- * no such rule.
- */
-export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines">>;
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
@@ -248,12 +238,12 @@ export class Projection {
   }
 
   /**
-   * Rewrite the job list through `f`. Every per-job edit routes through here, so "which job"
-   * and "leave the rest alone" are answered once rather than in each setter.
+   * Apply one of `job`'s authoring transforms to the job with `id` and commit. Every per-job
+   * setter routes through here, so each is the transform's name and nothing else.
    */
-  private mapJobs(f: (job: Job) => Job): void {
+  private editJob(id: string, f: (job: Job) => Job): void {
     const plan = this.state.scenario.plan;
-    this.commitPlan({ ...plan, jobs: plan.jobs.map(f) });
+    this.commitPlan({ ...plan, jobs: mapJob(plan.jobs, id, f) });
   }
 
   // Standing edits
@@ -275,18 +265,16 @@ export class Projection {
   }
 
   /**
-   * Rewrite one job's fields in place, keeping its `id`. A patch, not a whole job: the caller
-   * names only what changes, so everything it does not name — the other salary fields, the
-   * deferral's `fundAccountId` and employer match, accumulated {@link JobPayChange}s and
-   * {@link JobIncomeOverride}s, any field added to {@link Job} later — carries through.
+   * Rewrite one job's fields in place, keeping its `id` — see {@link withJobPatch} for what
+   * carries through.
    *
    * Editing a job changes the income the projection base compiles, but never re-validates the
    * ledger: the affordability gate is an append-time check ({@link commitEvent}), so a
-   * transaction already accepted stays accepted. A patch aimed at an id that is not a job is
-   * a no-op plan swap.
+   * transaction already accepted stays accepted. That matches the app, whose gate also fires
+   * only on append. A patch aimed at an id that is not a job is a no-op plan swap.
    */
   updateJob(id: string, patch: JobPatch): void {
-    this.mapJobs((j) => (j.id === id ? ({ ...j, ...patch } as Job) : j));
+    this.editJob(id, (j) => withJobPatch(j, patch));
   }
 
   /**
@@ -299,103 +287,38 @@ export class Projection {
     this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
   }
 
-  /**
-   * Set a job's pay in **monthly** cents, the denomination a person states income in;
-   * {@link Job} stores the annualized figure. Shorthand for the `salary` half of
-   * {@link updateJob}, leaving the growth rate alone.
-   */
+  /** See {@link withMonthlyIncome} — monthly cents in, annualized salary stored. */
   setJobMonthlyIncome(id: string, monthlyCents: number): void {
-    this.mapJobs((j) =>
-      j.id === id ? { ...j, salary: { ...j.salary, startingSalaryCents: monthlyCents * 12 } } : j,
-    );
+    this.editJob(id, (j) => withMonthlyIncome(j, monthlyCents));
   }
 
   /**
-   * Set a job's pre-tax 401(k) deferral as a fraction of ITS gross (0..1). A fraction of 0
-   * *removes* the deferral rather than recording a 0% one, and any fraction above 0 preserves
-   * the funded account and employer match, which belong to the employment and not to the
-   * elected rate. That asymmetry is why this exists beside {@link updateJob}, whose `deferral`
-   * patch replaces the whole object.
+   * See {@link withDeferralFraction}. It exists beside {@link updateJob} because 0 *removes*
+   * the deferral and a positive fraction preserves the funded account and employer match —
+   * an asymmetry a `deferral` patch, which replaces the whole object, cannot express.
    */
   setJobDeferralFraction(id: string, fraction: number): void {
-    this.mapJobs((j) => {
-      if (j.id !== id) return j;
-      if (fraction <= 0) {
-        const { deferral: _drop, ...rest } = j;
-        return rest;
-      }
-      return {
-        ...j,
-        deferral: {
-          deferralFraction: fraction,
-          fundAccountId: j.deferral?.fundAccountId ?? RETIREMENT_ID,
-          ...(j.deferral?.employerMatchFraction !== undefined
-            ? { employerMatchFraction: j.deferral.employerMatchFraction }
-            : {}),
-        },
-      };
-    });
+    this.editJob(id, (j) => withDeferralFraction(j, fraction));
   }
 
-  /**
-   * Attach a permanent raise or cut, in force from its month forward. At most one per
-   * (job, month) — a second at the same month replaces the first, so re-authoring is
-   * idempotent rather than stacking.
-   */
+  /** See {@link withPayChange} — a permanent raise or cut, at most one per (job, month). */
   addJobPayChange(jobId: string, payChange: JobPayChange): void {
-    this.mapJobs((j) =>
-      j.id === jobId
-        ? {
-            ...j,
-            payChanges: [...(j.payChanges ?? []).filter((c) => c.month !== payChange.month), payChange],
-          }
-        : j,
-    );
+    this.editJob(jobId, (j) => withPayChange(j, payChange));
   }
 
-  /** Drop the pay change at `month`, if any. The field goes away entirely once empty. */
+  /** See {@link withoutPayChange}. */
   removeJobPayChange(jobId: string, month: number): void {
-    this.mapJobs((j) => {
-      if (j.id !== jobId || j.payChanges === undefined) return j;
-      const kept = j.payChanges.filter((c) => c.month !== month);
-      if (kept.length === 0) {
-        const { payChanges: _drop, ...rest } = j;
-        return rest;
-      }
-      return { ...j, payChanges: kept };
-    });
+    this.editJob(jobId, (j) => withoutPayChange(j, month));
   }
 
-  /**
-   * Attach a one-month income perturbation — a bonus, a missed paycheck, a correction. Where
-   * {@link addJobPayChange} opens a new salary segment, this touches exactly one month. At
-   * most one per (job, month).
-   */
+  /** See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment. */
   addJobIncomeOverride(jobId: string, override: JobIncomeOverride): void {
-    this.mapJobs((j) =>
-      j.id === jobId
-        ? {
-            ...j,
-            incomeOverrides: [
-              ...(j.incomeOverrides ?? []).filter((o) => o.month !== override.month),
-              override,
-            ],
-          }
-        : j,
-    );
+    this.editJob(jobId, (j) => withIncomeOverride(j, override));
   }
 
-  /** Drop the one-month override at `month`, if any. The field goes away entirely once empty. */
+  /** See {@link withoutIncomeOverride}. */
   removeJobIncomeOverride(jobId: string, month: number): void {
-    this.mapJobs((j) => {
-      if (j.id !== jobId || j.incomeOverrides === undefined) return j;
-      const kept = j.incomeOverrides.filter((o) => o.month !== month);
-      if (kept.length === 0) {
-        const { incomeOverrides: _drop, ...rest } = j;
-        return rest;
-      }
-      return { ...j, incomeOverrides: kept };
-    });
+    this.editJob(jobId, (j) => withoutIncomeOverride(j, month));
   }
 
   /** Returns the minted `"line-N"` id. */
@@ -409,21 +332,10 @@ export class Projection {
     return id;
   }
 
-  /**
-   * Rewrite one budget line's fields in place, keeping its `id`. A patch, so what it does not
-   * name — the line's `span`, dated `overrides`, explicit `priority` — carries through; those
-   * are timeline facts about the line, not part of what a form edits.
-   *
-   * `target` and `amountSource` are whole discriminated unions and are replaced entire when
-   * patched: half a union is not a value, so switching an expense line to a contribution means
-   * supplying the new `target` complete. A patch aimed at an id that is not a line is a no-op.
-   */
+  /** See {@link withLinePatch} — span, dated overrides and priority carry through. */
   updateBudgetLine(id: string, patch: BudgetLinePatch): void {
     const plan = this.state.scenario.plan;
-    const budgetLines = plan.budgetLines.map((l) =>
-      l.id === id ? ({ ...l, ...patch } as BudgetLine) : l,
-    );
-    this.commitPlan({ ...plan, budgetLines });
+    this.commitPlan({ ...plan, budgetLines: withLinePatch(plan.budgetLines, id, patch) });
   }
 
   /**
@@ -432,7 +344,7 @@ export class Projection {
    */
   removeBudgetLine(id: string): void {
     const plan = this.state.scenario.plan;
-    this.commitPlan({ ...plan, budgetLines: plan.budgetLines.filter((l) => l.id !== id) });
+    this.commitPlan({ ...plan, budgetLines: withoutLine(plan.budgetLines, id) });
   }
 
   /** Appended, so lowest funding priority. Returns the minted `"goal-N"` id. */
@@ -447,17 +359,13 @@ export class Projection {
   }
 
   /**
-   * Replace one goal's authorable fields, keeping its `id` — and thus its `goal-<id>` fund
-   * account and its list position, so funding priority is untouched. A patch, not a whole
-   * draft: the caller names only what changes. Editing cannot dangle a funding reference (the
-   * account id is stable), so unlike {@link removeGoal} it needs no guard. A patch aimed at an
-   * id that is not a goal is a no-op plan swap.
+   * See {@link withGoalPatch}. Editing keeps the `id`, so the `goal-<id>` fund account is
+   * stable and no funding reference can dangle — which is why, unlike {@link removeGoal}, this
+   * needs no guard.
    */
-  updateGoal(id: string, patch: Partial<GoalInput>): void {
+  updateGoal(id: string, patch: GoalPatch): void {
     const plan = this.state.scenario.plan;
-    const { id: _drop, ...rest } = patch;
-    const goals = plan.goals.map((g) => (g.id === id ? ({ ...g, ...rest } as GoalPlan) : g));
-    this.commitPlan({ ...plan, goals });
+    this.commitPlan({ ...plan, goals: withGoalPatch(plan.goals, id, patch) });
   }
 
   /**
@@ -475,38 +383,26 @@ export class Projection {
     if (!check.ok) {
       throw new Error(`Projection: cannot remove goal — ${check.reason}`);
     }
-    this.commitPlan({ ...plan, goals: plan.goals.filter((g) => g.id !== id) });
+    this.commitPlan({ ...plan, goals: withoutGoal(plan.goals, id) });
   }
 
   /**
-   * Move a goal one slot earlier (`"up"`, funded sooner) or later (`"down"`) in the funding
-   * order. Priority is the goal's index in {@link Plan.goals}, and {@link addGoal} only
-   * appends, so this is the sole way an API caller reprioritizes a goal after authoring it. A
-   * no-op at the ends and for an id that is not a goal.
+   * See {@link withGoalReordered}. {@link addGoal} only appends, so this is the sole way an
+   * API caller reprioritizes a goal after authoring it.
    */
   reorderGoal(id: string, direction: "up" | "down"): void {
     const plan = this.state.scenario.plan;
-    const index = plan.goals.findIndex((g) => g.id === id);
-    if (index === -1) return;
-    const target = direction === "up" ? index - 1 : index + 1;
-    if (target < 0 || target >= plan.goals.length) return;
-    const goals = [...plan.goals];
-    [goals[index], goals[target]] = [goals[target], goals[index]];
-    this.commitPlan({ ...plan, goals });
+    this.commitPlan({ ...plan, goals: withGoalReordered(plan.goals, id, direction) });
   }
 
   /**
    * Patch the plan's standing scalars — opening balance, the return and inflation rates, the
    * health-cost fields, the ages, the household levers, the name. The collections are NOT
-   * reachable from here (see {@link PlanPatch}): every goal / job / budget-line edit goes
-   * through the method that mints its id and enforces its rules.
+   * reachable from here, in the type or at runtime (see {@link withPlanPatch}): every goal /
+   * job / budget-line edit goes through the method that mints its id and enforces its rules.
    */
   updatePlan(patch: PlanPatch): void {
-    // Dropped at runtime, not only in the type: `Projection` is published, and a JavaScript
-    // caller passing `{ goals: [] }` would otherwise spread straight past `removeGoal`'s
-    // fund-account guard. A type that is the only guard is not a guard.
-    const { goals: _g, jobs: _j, budgetLines: _b, ...scalars } = patch as Partial<Plan>;
-    this.commitPlan({ ...this.state.scenario.plan, ...scalars });
+    this.commitPlan(withPlanPatch(this.state.scenario.plan, patch));
   }
 
   /** The named shorthand for the scalar the retirement solver reports against. */

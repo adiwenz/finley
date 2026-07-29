@@ -9,6 +9,12 @@
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
+  mapJob,
+  withDeferralFraction,
+  withIncomeOverride,
+  withMonthlyIncome,
+  withPayChange,
+  withoutPayChange,
   type Job,
   type JobIncomeOverride,
   type JobPayChange,
@@ -236,103 +242,40 @@ export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
   return { ...plan, jobs: [...addJobToList(plan.jobs, primaryBirthYear(plan), draft)] };
 }
 
-// Adjustments on ONE job: taking and returning a single {@link Job} lets the plan-level
-// wrappers below and the owner-aware routing in `jobEditing` share one "replace the
-// entry at this month".
-
-/**
- * Attach a one-month income perturbation (bonus, missed paycheck, salary correction) to
- * a job. At most one override per (job, month) — a new one replaces any existing there.
- */
-export function withIncomeOverride(job: Job, override: JobIncomeOverride): Job {
-  return {
-    ...job,
-    incomeOverrides: [
-      ...(job.incomeOverrides ?? []).filter((o) => o.month !== override.month),
-      override,
-    ],
-  };
-}
-
-/**
- * Attach a permanent pay change (raise or cut) to a job — a step that holds from
- * `payChange.month` forward, unlike the one-month {@link withIncomeOverride}. At most
- * one per (job, month).
- */
-export function withPayChange(job: Job, payChange: JobPayChange): Job {
-  return {
-    ...job,
-    payChanges: [
-      ...(job.payChanges ?? []).filter((c) => c.month !== payChange.month),
-      payChange,
-    ],
-  };
-}
-
-export function withoutPayChange(job: Job, month: number): Job {
-  if (job.payChanges === undefined) return job;
-  const kept = job.payChanges.filter((c) => c.month !== month);
-  if (kept.length === job.payChanges.length) return job;
-  if (kept.length === 0) {
-    const { payChanges: _drop, ...rest } = job;
-    return rest;
-  }
-  return { ...job, payChanges: kept };
-}
+// ── Adjustments on ONE job ──
+//
+// The transforms themselves live in the engine (`@finley/engine`'s `job` module), because
+// the published `Projection` API applies the SAME edits and a rule with two implementations
+// is a rule that can drift — "a 0% deferral is removed, not recorded" is the sharp one.
+// Re-exported here so the panels and `jobEditing`'s owner-aware routing keep one import
+// site, and wrapped below at plan level for callers holding a whole {@link Plan}.
+export {
+  withIncomeOverride,
+  withPayChange,
+  withoutPayChange,
+  withoutIncomeOverride,
+} from "@finley/engine";
 
 export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncomeOverride): Plan {
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) => (j.id === jobId ? withIncomeOverride(j, override) : j)),
-  };
+  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withIncomeOverride(j, override)) };
 }
 
 export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) => (j.id === jobId ? withPayChange(j, payChange) : j)),
-  };
+  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withPayChange(j, payChange)) };
 }
 
 export function removeJobPayChange(plan: Plan, jobId: string, month: number): Plan {
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) => (j.id === jobId ? withoutPayChange(j, month) : j)),
-  };
+  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withoutPayChange(j, month)) };
 }
 
 // ── Thin single-job setters, for fixtures and callers that build a one-job plan ──
 
 /** Set a job's monthly salary (today's dollars). */
 export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) =>
-      j.id === id ? { ...j, salary: { ...j.salary, startingSalaryCents: monthlyCents * 12 } } : j,
-    ),
-  };
+  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withMonthlyIncome(j, monthlyCents)) };
 }
 
 /** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */
 export function setJobDeferralFraction(plan: Plan, id: string, fraction: number): Plan {
-  return {
-    ...plan,
-    jobs: plan.jobs.map((j) => {
-      if (j.id !== id) return j;
-      if (fraction <= 0) {
-        const { deferral: _drop, ...rest } = j;
-        return rest;
-      }
-      return {
-        ...j,
-        deferral: {
-          deferralFraction: fraction,
-          fundAccountId: j.deferral?.fundAccountId ?? RETIREMENT_ID,
-          ...(j.deferral?.employerMatchFraction !== undefined
-            ? { employerMatchFraction: j.deferral.employerMatchFraction }
-            : {}),
-        },
-      };
-    }),
-  };
+  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withDeferralFraction(j, fraction)) };
 }

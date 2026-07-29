@@ -28,3 +28,11 @@ export const asSeriesId = (s: string): SeriesId => s as SeriesId;
 export const asLiabilityId = (s: string): LiabilityId => s as LiabilityId;
 export const asAccountId = (s: string): AccountId => s as AccountId;
 export const asPropertyId = (s: string): PropertyId => s as PropertyId;
+
+/**
+ * The person-owned account a 401(k) deferral funds unless the employment names another.
+ * Here rather than beside the account that `createProjectionBase` mints from it, because
+ * this module imports nothing: {@link import("./job").withDeferralFraction} needs the
+ * default, and a leaf domain type must not reach up into the projection base to get it.
+ */
+export const RETIREMENT_ID = "retirement";

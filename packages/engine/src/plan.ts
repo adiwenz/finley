@@ -116,3 +116,77 @@ export interface Plan {
    */
   readonly budgetLines: readonly BudgetLine[];
 }
+
+// ── Authoring transforms ──
+//
+// Pure list-in/list-out edits over the plan's goals, beside the type they edit, so the
+// `Projection` API and the app's Goals panel apply the same rule rather than each holding
+// its own copy. Priority is array position, so "reorder" is a real operation here and not
+// a field write.
+
+/** Every {@link GoalPlan} field except the stable `id`, which the plan owns: add mints a
+ * fresh one, edit keeps the old. */
+export type GoalPatch = Partial<Omit<GoalPlan, "id">>;
+
+/**
+ * The plan's standing **scalars** — every {@link Plan} field except the three collections.
+ *
+ * The exclusion is the point, not tidiness: each collection has operations that mint stable
+ * ids and enforce rules (removing a goal is refused while an event still spends from its
+ * fund account). A bare `Partial<Plan>` would let a caller drop every goal in a "scalar"
+ * patch and walk straight past that guard.
+ */
+export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines">>;
+
+/**
+ * Overwrite one goal's named fields, keeping its `id` — and thus its derived `goal-<id>`
+ * fund account and its list position, so funding priority is untouched. The `id` is
+ * stripped from the patch, so an edit can never re-point a goal at another's fund account.
+ * A patch aimed at an id that is not a goal changes nothing.
+ */
+export function withGoalPatch(
+  goals: readonly GoalPlan[],
+  id: string,
+  patch: GoalPatch,
+): readonly GoalPlan[] {
+  const { id: _drop, ...rest } = patch as Partial<GoalPlan>;
+  return goals.map((g) => (g.id === id ? ({ ...g, ...rest } as GoalPlan) : g));
+}
+
+/**
+ * Drop a goal. Its derived fund account falls away with it, which is why the callers that
+ * can reach a ledger check {@link import("./goalFunding").validateGoalRemoval} first.
+ */
+export function withoutGoal(goals: readonly GoalPlan[], id: string): readonly GoalPlan[] {
+  return goals.filter((g) => g.id !== id);
+}
+
+/**
+ * Move a goal one slot earlier (`"up"`, funded sooner) or later (`"down"`). Priority IS the
+ * index in {@link Plan.goals} and appending is the only way to author one, so this is the
+ * sole reprioritization primitive. A no-op at the ends and for an unknown id.
+ */
+export function withGoalReordered(
+  goals: readonly GoalPlan[],
+  id: string,
+  direction: "up" | "down",
+): readonly GoalPlan[] {
+  const index = goals.findIndex((g) => g.id === id);
+  if (index === -1) return goals;
+  const target = direction === "up" ? index - 1 : index + 1;
+  if (target < 0 || target >= goals.length) return goals;
+  const next = [...goals];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+/**
+ * Patch the plan's scalars, dropping the three collections at RUNTIME as well as in the
+ * type: `@finley/engine` is published, and a JavaScript caller passing `{ goals: [] }`
+ * would otherwise spread straight past the goal-removal guard. A type that is the only
+ * guard is not a guard.
+ */
+export function withPlanPatch(plan: Plan, patch: PlanPatch): Plan {
+  const { goals: _g, jobs: _j, budgetLines: _b, ...scalars } = patch as Partial<Plan>;
+  return { ...plan, ...scalars };
+}

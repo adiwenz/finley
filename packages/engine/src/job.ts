@@ -7,6 +7,7 @@
  */
 
 import type { Cents } from "./money";
+import { RETIREMENT_ID } from "./ids";
 
 /** Stable id of a household member. */
 export type PersonId = string;
@@ -114,4 +115,114 @@ export function deriveRealGrowthPct(
   const years = laterYear - earlierYear;
   if (years <= 0 || earlierCents <= 0) return 0;
   return (Math.pow(laterCents / earlierCents, 1 / years) - 1) * 100;
+}
+
+// ── Authoring transforms ──
+//
+// Pure, id-free, one job in and one job out. They live here, beside the type they edit,
+// because BOTH write paths over a `Job` — the `Projection` API and the app's Jobs and
+// Base + Adjustments panels — must apply the SAME rule. Two implementations of "0 removes
+// the deferral" is a rule that can drift; keeping the rule in one place and duplicating
+// only the wiring is what makes the two surfaces safe to keep.
+
+/** Every {@link Job} field except the stable `id`. `ownerId` is patchable — an edit can
+ * reassign a job to another household member. */
+export type JobPatch = Partial<Omit<Job, "id">>;
+
+/** Apply `f` to the job with `id`, leaving the rest of the list alone. */
+export function mapJob(
+  jobs: readonly Job[],
+  id: string,
+  f: (job: Job) => Job,
+): readonly Job[] {
+  return jobs.map((j) => (j.id === id ? f(j) : j));
+}
+
+/**
+ * Overwrite the named fields, carrying everything else through — the other salary fields,
+ * the deferral's funded account and employer match, accumulated adjustments, and any field
+ * added to {@link Job} later. The `id` is stripped, so an edit can never re-point a job.
+ */
+export function withJobPatch(job: Job, patch: JobPatch): Job {
+  const { id: _drop, ...rest } = patch as Partial<Job>;
+  return { ...job, ...rest };
+}
+
+/** Set pay in **monthly** cents, the denomination a person states income in; {@link Job}
+ * stores the annualized figure. Leaves the growth rate alone. */
+export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
+  return { ...job, salary: { ...job.salary, startingSalaryCents: monthlyCents * 12 } };
+}
+
+/**
+ * Set the pre-tax 401(k) deferral as a fraction of THIS job's gross (0..1). A fraction of 0
+ * *removes* the deferral rather than recording a 0% one, and any positive fraction preserves
+ * the funded account and employer match — both properties of the employment, not of the
+ * elected rate.
+ */
+export function withDeferralFraction(job: Job, fraction: number): Job {
+  if (fraction <= 0) {
+    const { deferral: _drop, ...rest } = job;
+    return rest;
+  }
+  return {
+    ...job,
+    deferral: {
+      deferralFraction: fraction,
+      fundAccountId: job.deferral?.fundAccountId ?? RETIREMENT_ID,
+      ...(job.deferral?.employerMatchFraction !== undefined
+        ? { employerMatchFraction: job.deferral.employerMatchFraction }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Attach a permanent raise or cut, in force from its month forward. At most one per
+ * (job, month) — re-authoring the same month replaces rather than stacking.
+ */
+export function withPayChange(job: Job, payChange: JobPayChange): Job {
+  return {
+    ...job,
+    payChanges: [...(job.payChanges ?? []).filter((c) => c.month !== payChange.month), payChange],
+  };
+}
+
+/** Drop the pay change at `month`, if any; the field goes away entirely once empty. */
+export function withoutPayChange(job: Job, month: number): Job {
+  if (job.payChanges === undefined) return job;
+  const kept = job.payChanges.filter((c) => c.month !== month);
+  if (kept.length === job.payChanges.length) return job;
+  if (kept.length === 0) {
+    const { payChanges: _drop, ...rest } = job;
+    return rest;
+  }
+  return { ...job, payChanges: kept };
+}
+
+/**
+ * Attach a one-month income perturbation — a bonus, a missed paycheck, a correction. Where
+ * {@link withPayChange} opens a new salary segment, this touches exactly one month. At most
+ * one per (job, month).
+ */
+export function withIncomeOverride(job: Job, override: JobIncomeOverride): Job {
+  return {
+    ...job,
+    incomeOverrides: [
+      ...(job.incomeOverrides ?? []).filter((o) => o.month !== override.month),
+      override,
+    ],
+  };
+}
+
+/** Drop the one-month override at `month`, if any; the field goes away entirely once empty. */
+export function withoutIncomeOverride(job: Job, month: number): Job {
+  if (job.incomeOverrides === undefined) return job;
+  const kept = job.incomeOverrides.filter((o) => o.month !== month);
+  if (kept.length === job.incomeOverrides.length) return job;
+  if (kept.length === 0) {
+    const { incomeOverrides: _drop, ...rest } = job;
+    return rest;
+  }
+  return { ...job, incomeOverrides: kept };
 }

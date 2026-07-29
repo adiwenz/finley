@@ -15,7 +15,7 @@ import type { Plan } from "../plan";
 import type { Job } from "../job";
 import type { BudgetLine } from "../budgetLine";
 import { dollarsToCents } from "../cashFlowSeries";
-import { RETIREMENT_ID } from "../projectionBase";
+import { RETIREMENT_ID } from "../ids";
 
 /**
  * One literal expense line carrying the whole monthly spend. Budget lines are the only expense

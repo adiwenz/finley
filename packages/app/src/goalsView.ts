@@ -10,6 +10,9 @@ import {
   buildPlanAccounts,
   buildPlanGoals,
   eventsFundedByGoal,
+  withGoalPatch,
+  withGoalReordered,
+  withoutGoal,
   type ProjectionSeries,
 } from "@finley/engine";
 import type {
@@ -86,12 +89,17 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
   });
 }
 
+// The list edits themselves live in the engine (`@finley/engine`'s `plan` module): the
+// published `Projection` API reprioritizes and patches goals too, and priority-is-array-index
+// is the kind of rule that must not have two implementations. What stays here is the panel's
+// vocabulary — a form-shaped {@link GoalDraft}, and the rate as its own control.
+
 export function setGoalRate(
   goals: readonly GoalPlan[],
   id: string,
   annualReturnPct: number,
-): GoalPlan[] {
-  return goals.map((g) => (g.id === id ? { ...g, annualReturnPct } : g));
+): readonly GoalPlan[] {
+  return withGoalPatch(goals, id, { annualReturnPct });
 }
 
 /**
@@ -146,23 +154,24 @@ export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[
 }
 
 /**
- * Replace one goal's authorable fields, keeping its id and list position so priority is
- * unchanged. Returns a fresh array even when `id` matches nothing.
+ * Replace one goal's authorable fields from a form draft, keeping its id and list position
+ * so priority is unchanged. A draft is a WHOLE goal minus its id, so this is a replace, not
+ * the engine's field-wise patch.
  */
 export function updateGoal(
   goals: readonly GoalPlan[],
   id: string,
   draft: GoalDraft,
-): GoalPlan[] {
-  return goals.map((g) => (g.id === id ? { id, ...draft } : g));
+): readonly GoalPlan[] {
+  return withGoalPatch(goals, id, draft);
 }
 
 /**
  * Drop a goal. Its derived `goal-<id>` fund account falls away with it —
  * `buildPlanAccounts` mints one account per remaining goal.
  */
-export function removeGoal(goals: readonly GoalPlan[], id: string): GoalPlan[] {
-  return goals.filter((g) => g.id !== id);
+export function removeGoal(goals: readonly GoalPlan[], id: string): readonly GoalPlan[] {
+  return withoutGoal(goals, id);
 }
 
 /**
@@ -213,12 +222,6 @@ export function reorderGoal(
   goals: readonly GoalPlan[],
   id: string,
   direction: "up" | "down",
-): GoalPlan[] {
-  const index = goals.findIndex((g) => g.id === id);
-  if (index === -1) return [...goals];
-  const target = direction === "up" ? index - 1 : index + 1;
-  if (target < 0 || target >= goals.length) return [...goals];
-  const next = [...goals];
-  [next[index], next[target]] = [next[target], next[index]];
-  return next;
+): readonly GoalPlan[] {
+  return withGoalReordered(goals, id, direction);
 }

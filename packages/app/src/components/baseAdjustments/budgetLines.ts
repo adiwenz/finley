@@ -10,6 +10,8 @@
 
 import {
   CONTRIBUTION_TARGETS,
+  withLinePatch,
+  withoutLine,
   type BudgetCategory,
   type BudgetLine,
   type TaxTreatment,
@@ -97,24 +99,19 @@ export function addLineFromDraft(lines: readonly BudgetLine[], draft: BudgetLine
   return [...lines, lineFromDraft(nextLineId(lines), draft)];
 }
 
-/** Rewrites the line, but preserves what the form doesn't edit: span, overrides, priority. */
+/**
+ * Rewrites the line from the form's draft, but preserves what the form doesn't edit: span,
+ * overrides, priority. A draft is a projection of a line, so this rebuilds and re-attaches
+ * rather than patching field-wise like the engine's {@link withLinePatch}.
+ */
 export function updateLineFromDraft(
   lines: readonly BudgetLine[],
   id: string,
   draft: BudgetLineDraft,
-): BudgetLine[] {
-  return lines.map((l) => {
-    if (l.id !== id) return l;
-    const rebuilt = lineFromDraft(l.id, draft);
-    return {
-      ...rebuilt,
-      ...(l.span ? { span: l.span } : {}),
-      ...(l.overrides ? { overrides: l.overrides } : {}),
-      ...(l.priority !== undefined ? { priority: l.priority } : {}),
-    };
-  });
+): readonly BudgetLine[] {
+  return withLinePatch(lines, id, lineFromDraft(id, draft));
 }
 
-export function removeLine(lines: readonly BudgetLine[], id: string): BudgetLine[] {
-  return lines.filter((l) => l.id !== id);
+export function removeLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
+  return withoutLine(lines, id);
 }
