@@ -500,8 +500,24 @@ export class Projection {
    * setter routes through here, so each is the transform's name and nothing else.
    */
   private editJob(id: string, f: (job: Job) => Job): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planJobSite(id);
     this.commitPlan({ ...plan, jobs: mapJob(plan.jobs, id, f) });
+  }
+
+  /**
+   * The plan, once it is known to hold `id` — or a refusal naming the id.
+   *
+   * An edit aimed at a job that is not there is a caller error, not a smaller edit: it means
+   * the id came from somewhere that no longer agrees with this state, and the write the caller
+   * believes it made has not happened. Both planes answer the same way ({@link partnerJobSite}
+   * for a partner's), so a caller never has to know which one refused it in order to handle it.
+   */
+  private planJobSite(id: string): Plan {
+    const plan = this.state.scenario.plan;
+    if (!plan.jobs.some((j) => j.id === id)) {
+      throw new Error(`Projection: cannot edit a job — no job "${id}" on this plan`);
+    }
+    return plan;
   }
 
   // Standing edits
@@ -536,7 +552,7 @@ export class Projection {
    * the name blanked has to mean.
    *
    * `ownerId` stays as it was — reassignment is a two-plane move, not a field edit (a partner's
-   * jobs do not live on the plan at all). Rewriting an id that is not a job is a no-op.
+   * jobs do not live on the plan at all). Refused for an id the plan does not hold.
    */
   replaceJob(id: string, job: JobInput): void {
     const { id: _drop, ...rest } = job;
@@ -550,7 +566,7 @@ export class Projection {
    * Editing a job changes the income the projection base compiles, but never re-validates the
    * ledger: the affordability gate is an append-time check ({@link commitEvent}), so a
    * transaction already accepted stays accepted. That matches the app, whose gate also fires
-   * only on append. A patch aimed at an id that is not a job is a no-op plan swap.
+   * only on append. Refused for an id the plan does not hold.
    */
   updateJob(id: string, patch: JobPatch): void {
     this.editJob(id, (j) => withJobPatch(j, patch));
@@ -558,11 +574,11 @@ export class Projection {
 
   /**
    * Drop a job. Unlike {@link removeGoal} there is nothing to guard: a job derives no account
-   * an event can reference, so no ledger reference can dangle. Removing an id that is not a
-   * job is a no-op.
+   * an event can reference, so no ledger reference can dangle. Refused for an id the plan does
+   * not hold.
    */
   removeJob(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planJobSite(id);
     this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
   }
 
@@ -588,7 +604,8 @@ export class Projection {
     );
   }
 
-  /** The event and job for a partner-owned job id, or a refusal naming the id. */
+  /** The event and job for a partner-owned job id, or a refusal naming the id — see
+   * {@link planJobSite} for why an id that is not there is refused rather than skipped. */
   private partnerJobSite(jobId: string): { event: RelationshipEvent; job: Job } {
     for (const event of this.state.scenario.ledger.events) {
       if (event.type !== "RelationshipEvent") continue;

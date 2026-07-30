@@ -6,12 +6,19 @@
  */
 import { describe, it, expect } from "vitest";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import { blankJobDraft, jobToDraft, primaryJobs, type JobDraft } from "./planPeople";
-import { addJobFromDraft } from "./testing/planFixtures";
+import { START_YEAR } from "./config";
+import {
+  blankJobDraft,
+  buildJobFromDraft,
+  jobToDraft,
+  primaryJobs,
+  type JobDraft,
+} from "./planPeople";
 
 const draft = (over: Partial<JobDraft> = {}): JobDraft => ({ ...blankJobDraft(PLAN_DEFAULTS), ...over });
+/** The draft → job mapping under test. The id is the caller's, so it says nothing here. */
 const lastJob = (plan = PLAN_DEFAULTS, d: JobDraft = draft()) =>
-  primaryJobs(addJobFromDraft(plan, "job-added", d)).at(-1)!;
+  buildJobFromDraft("job-under-test", START_YEAR - plan.currentAge, d);
 
 describe("planPeople — a job's optional name on the draft round-trip", () => {
   it("stores a typed name (trimmed) on the standing job", () => {

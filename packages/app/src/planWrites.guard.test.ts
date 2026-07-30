@@ -165,7 +165,7 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(PLAN_REBUILD.test("return { ...plan, budgetLines: [...lines] };")).toBe(true);
     expect(PLAN_JOBS_REBUILD.test("return { ...plan, jobs: mapJob(plan.jobs, id, f) };")).toBe(true);
     expect(SCENARIO_REBUILD.test("withPlan(s.scenario, nextPlan)")).toBe(true);
-    expect(PLAN_PRODUCER.test("export function addJobFromDraft(plan: Plan): Plan {")).toBe(true);
+    expect(PLAN_PRODUCER.test("export function withJob(plan: Plan, job: Job): Plan {")).toBe(true);
     expect(
       PARTNER_JOBS_REBUILD.test(
         "p.reviseTransaction(event.id, { ...event, person: { ...event.person, jobs: [...jobs] } });",

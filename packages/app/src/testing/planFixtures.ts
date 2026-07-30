@@ -7,6 +7,9 @@
  * gestures that would produce it, so the plan-level writers live here — outside the app layer,
  * where the guard test can prove nothing in production reaches for them.
  *
+ * All of them ADJUST a job the plan already holds. None creates one, because creating means
+ * minting, and the counter that mints belongs to `Projection`.
+ *
  * A fixture that wants the *authored* result rather than a stated one should use
  * `useTestProjection` (see `./projectionHarness`) and write through the facade.
  */
@@ -21,20 +24,6 @@ import {
   type JobPayChange,
   type Plan,
 } from "@finley/engine";
-import { buildJobFromDraft, primaryBirthYear, type JobDraft } from "../planPeople";
-
-/**
- * Append a job to the primary person from a draft, under the `id` the fixture names.
- *
- * The id is a parameter because nothing outside `Projection` issues one: the counter that mints
- * every authored job id lives there, across both planes. A fixture is stating a job that already
- * exists, so it says which job — and `fromScenario` floors the counter past whatever it says on
- * the way into a projection.
- */
-export function addJobFromDraft(plan: Plan, id: string, draft: JobDraft): Plan {
-  return { ...plan, jobs: [...plan.jobs, buildJobFromDraft(id, primaryBirthYear(plan), draft)] };
-}
-
 /** Attach a permanent pay change to one job. */
 export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
   return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withPayChange(j, payChange)) };

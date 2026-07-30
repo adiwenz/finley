@@ -20,8 +20,7 @@ import { usJurisdiction } from "@finley/rules";
 import { useTestProjection } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
-import { blankJobDraft } from "../../planPeople";
-import { addJobFromDraft, setJobMonthlyIncome } from "../../testing/planFixtures";
+import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 import { BudgetTooltip } from "./perLineBudgetChart";
 
@@ -626,7 +625,10 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
   });
 
   it("defaults to the first job with several jobs, unless another is picked", () => {
-    const twoJobs = addJobFromDraft(PLAN_DEFAULTS, "job-2", blankJobDraft(PLAN_DEFAULTS));
+    const twoJobs: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: [...PLAN_DEFAULTS.jobs, { ...PLAN_DEFAULTS.jobs[0], id: "job-2" }],
+    };
     renderPanel(twoJobs);
     selectMonth(6);
 

@@ -489,16 +489,31 @@ describe("Projection root — editing and removing a job", () => {
     expect(p.plan.jobs.map((j) => j.id)).toEqual([keep]);
   });
 
-  it("treats an id that is not a job as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold, rather than reporting a write it did not make", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
-    const before = p.plan.jobs;
-    p.updateJob("no-such-job", { name: "x" });
-    p.removeJob("no-such-job");
-    p.setJobMonthlyIncome("no-such-job", 1);
-    p.setJobDeferralFraction("no-such-job", 0.5);
-    expect(p.plan.jobs).toEqual(before);
+    const before = p.state;
+
+    expect(() => p.updateJob("no-such-job", { name: "x" })).toThrow(/no job "no-such-job"/);
+    expect(() => p.removeJob("no-such-job")).toThrow(/no job "no-such-job"/);
+    expect(() => p.setJobMonthlyIncome("no-such-job", 1)).toThrow(/no job "no-such-job"/);
+    expect(() => p.setJobDeferralFraction("no-such-job", 0.5)).toThrow(/no job "no-such-job"/);
+
+    // Same state object throughout: a refusal commits nothing.
+    expect(p.state).toBe(before);
     expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+  });
+
+  it("refuses a partner's job id on the plan plane, and the reverse", () => {
+    // The two families do not reach across: a job is authored where its owner is, and asking
+    // the wrong plane is the same caller error as asking for a job that does not exist.
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 });
+    const planJob = p.addJob(P1, openEndedJob);
+    const partnerJob = p.addPartnerJob(partnerId, openEndedJob);
+
+    expect(() => p.updateJob(partnerJob, { name: "x" })).toThrow(/no job/);
+    expect(() => p.updatePartnerJob(planJob, { name: "x" })).toThrow(/no partner holds a job/);
   });
 
   it("setJobMonthlyIncome takes monthly cents and stores the annualized salary", () => {
@@ -581,12 +596,14 @@ describe("Projection root — editing and removing a job", () => {
     expect(p.plan.jobs).toHaveLength(1);
   });
 
-  it("replaceJob keeps the job's list position, and an unknown id is a no-op", () => {
+  it("replaceJob keeps the job's list position, and refuses an unknown id", () => {
     const p = freshProjection();
     const first = p.addJob(P1, openEndedJob);
     const second = p.addJob(P1, openEndedJob);
     p.replaceJob(first, { ...openEndedJob, name: "Renamed" });
-    p.replaceJob("no-such-job", { ...openEndedJob, name: "Nowhere" });
+    expect(() => p.replaceJob("no-such-job", { ...openEndedJob, name: "Nowhere" })).toThrow(
+      /no job "no-such-job"/,
+    );
     expect(p.plan.jobs.map((j) => j.id)).toEqual([first, second]);
     expect(p.plan.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
   });

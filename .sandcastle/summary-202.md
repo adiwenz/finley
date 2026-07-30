@@ -71,6 +71,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - **Derived ids parent-suffixed.** `mortgage-home-3` → `home-3-mortgage`, matching the existing
   `p-3-job-1` convention so a sort groups derived ids under their parent. (Partner-job ids are
   now minted by `marry` as `job-N`, so the app-side `${partnerId}-job-N` scheme is moot.)
+- **An edit aimed at a job that is not there is refused, on both planes.** It means the id came
+  from somewhere that no longer agrees with the state, so the write the caller believes it made
+  has not happened; reporting nothing is how that stays invisible. `addPartnerJob` has no choice
+  either way — it returns a minted id, so there is no value a quiet no-op could hand back.
 - **Job writes are intents, routed per plane, facade methods on both.** `jobEditing` returns
   `add` / `replace` / `remove` rather than a `(jobs) => jobs` transform, because the write
   authority is the facade and a list callback had nowhere to be applied that wasn't the app
@@ -148,10 +152,11 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   methods inside it. `applyJobWrite` and `nextJobIdFor` are gone — the app has no job-list
   interpreter and no id authority left.
 - `jobOwners.ts`: `JobWriteTarget` is `"plan" | "event"`.
-- `planPeople.ts`: the plan-level writers (`addJobFromDraft`, `setJobMonthlyIncome`, …) live in
+- `planPeople.ts`: the plan-level writers (`setJobMonthlyIncome`, `addJobPayChange`, …) live in
   `testing/planFixtures.ts` — they are fixture builders, and in the app layer they would be a
-  second write path the guard could not rule out. `addJobFromDraft` takes the id it should use,
-  since nothing outside `Projection` issues one.
+  second write path the guard could not rule out. Every one of them ADJUSTS a job the plan
+  already holds; none creates one, because creating means minting and the counter belongs to
+  `Projection`.
 
 **Tests** updated to the new seams: `mainState`, `subForms`, `relationshipForm`,
 `fundingSourcePicker`, `homePurchaseForm`, `goalsView`, `goalsPanel`, `goalsDelete`,
