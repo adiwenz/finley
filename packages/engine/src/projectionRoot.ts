@@ -139,7 +139,7 @@ export type JobInput = Omit<Job, "id" | "ownerId">;
  */
 export type BudgetLineInput = Omit<BudgetLine, "id">;
 
-export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
+export type GoalInput = Omit<GoalPlan, "id">;
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
@@ -158,8 +158,6 @@ export interface MarryInput {
   readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly JobInput[];
-  /** Override the minted person id. */
-  readonly id?: string;
 }
 
 interface TakeLoanCommon {
@@ -167,8 +165,6 @@ interface TakeLoanCommon {
   readonly ownerId: PersonId;
   readonly openingBalanceCents: number;
   readonly apr: number;
-  /** Override the minted liability id. */
-  readonly id?: string;
 }
 
 /**
@@ -193,8 +189,6 @@ export interface BuyHomeInput {
   readonly mortgageApr: number;
   readonly mortgageTermMonths: number;
   readonly appreciationMode?: GrowthMode;
-  /** Override the minted property id. */
-  readonly id?: string;
 }
 
 /**
@@ -208,8 +202,6 @@ export interface HaveChildInput {
   readonly name: string;
   readonly annualCostCents: number;
   readonly birthMonth?: number;
-  /** Override the minted child id. */
-  readonly id?: string;
 }
 
 /**
@@ -223,8 +215,6 @@ export interface SeparateInput {
   readonly alimonyMonthlyCents?: number;
   readonly alimonyDurationMonths?: number;
   readonly childSupportMonthlyCents?: number;
-  /** Override the minted event id. */
-  readonly id?: string;
 }
 
 /**
@@ -237,8 +227,6 @@ export interface PayOffDebtInput {
   /** The account the payment is drawn from; must exist at `month`. */
   readonly accountId: string;
   readonly amountCents: number;
-  /** Override the minted event id. */
-  readonly id?: string;
 }
 
 /**
@@ -420,27 +408,14 @@ function mintedNumber(id: string | undefined): number | null {
 }
 
 /**
- * A caller's `{ id }` override is returned VERBATIM — it is their name for the thing, and
- * `Projection` does not rename it. But if it is one of *our* ids, the counter steps over it:
- * authoring `job-2` explicitly and then minting twice would otherwise reach `job-2` again.
+ * Issue the next id. `<kind>-<n>` off ONE counter shared by every kind, so a job, a goal and a
+ * loan can never be handed the same number and an id says what it names.
  *
- * Anything else — `external-payroll-job`, a suffix past `Number.MAX_SAFE_INTEGER` — leaves the
- * counter alone. `mint` never produces those shapes, so no future id can collide with them.
- *
- * One counter across all kinds, so a `goal-5` override moves the floor for jobs and loans too.
+ * There is no override: no authoring input carries an `id`, so identity has a single source.
+ * Ids that arrive from OUTSIDE — an imported state, an event a revision introduces — never pass
+ * through here at all; {@link seqFloor} steps the counter past those instead.
  */
-function mint(
-  state: ProjectionState,
-  kind: MintedKind,
-  override: string | undefined,
-): { id: string; nextSeq: number } {
-  if (override != null) {
-    const taken = mintedNumber(override);
-    return {
-      id: override,
-      nextSeq: taken === null ? state.nextSeq : Math.max(state.nextSeq, taken + 1),
-    };
-  }
+function mint(state: ProjectionState, kind: MintedKind): { id: string; nextSeq: number } {
   return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
 }
 
@@ -702,7 +677,7 @@ export class Projection {
    */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
-    const { id, nextSeq } = mint(s, "job", undefined);
+    const { id, nextSeq } = mint(s, "job");
     const newJob: Job = { ...job, id, ownerId: personId };
     this.commitPlan({ ...s.scenario.plan, jobs: [...(s.scenario.plan.jobs ?? []), newJob] }, nextSeq);
     return id;
@@ -820,7 +795,7 @@ export class Projection {
    */
   addPartnerJob(personId: PersonId, job: JobInput): string {
     const event = this.relationshipFor(personId);
-    const { id, nextSeq } = mint(this.state, "job", undefined);
+    const { id, nextSeq } = mint(this.state, "job");
     const newJob: Job = { ...job, id, ownerId: personId };
     this.commitPartnerJobs(event, [...event.person.jobs, newJob], nextSeq);
     return id;
@@ -984,7 +959,7 @@ export class Projection {
   /** Returns the minted `"line-N"` id — always minted; a caller cannot name a line. */
   addBudgetLine(line: BudgetLineInput): string {
     const s = this.state;
-    const { id, nextSeq } = mint(s, "line", undefined);
+    const { id, nextSeq } = mint(s, "line");
     const newLine: BudgetLine = { id, ...line };
     const plan = s.scenario.plan;
     this.commitPlan({ ...plan, budgetLines: [...plan.budgetLines, newLine] }, nextSeq);
@@ -1027,9 +1002,8 @@ export class Projection {
   /** Appended, so lowest funding priority. Returns the minted `"goal-N"` id. */
   addGoal(goal: GoalInput): string {
     const s = this.state;
-    const { id, nextSeq } = mint(s, "goal", goal.id);
-    const { id: _drop, ...rest } = goal;
-    const newGoal = { id, ...rest } as GoalPlan;
+    const { id, nextSeq } = mint(s, "goal");
+    const newGoal = { id, ...goal } as GoalPlan;
     const plan = s.scenario.plan;
     this.commitPlan({ ...plan, goals: [...plan.goals, newGoal] }, nextSeq);
     return id;
@@ -1135,14 +1109,14 @@ export class Projection {
 
   /** Returns the minted `"person-N"` id. */
   marry(input: MarryInput): string {
-    const { id, nextSeq: afterPerson } = mint(this.state, "person", input.id);
+    const { id, nextSeq: afterPerson } = mint(this.state, "person");
     // One counter, threaded person → jobs: each job mints against the seq the previous mint
     // left, so the partner and their jobs draw distinct ids from the same monotonic run. The
     // owner is `id` — the person minted just above — because a partner's jobs belong to the
     // person this call creates, never to the caller.
     let nextSeq = afterPerson;
     const jobs: Job[] = (input.jobs ?? []).map((job) => {
-      const minted = mint({ ...this.state, nextSeq }, "job", undefined);
+      const minted = mint({ ...this.state, nextSeq }, "job");
       nextSeq = minted.nextSeq;
       return { ...job, id: minted.id, ownerId: id };
     });
@@ -1164,7 +1138,7 @@ export class Projection {
    * addressed the same way, exactly as {@link buyHome} does for a property.
    */
   haveChild(input: HaveChildInput): string {
-    const { id, nextSeq } = mint(this.state, "child", input.id);
+    const { id, nextSeq } = mint(this.state, "child");
     this.commitEvent(
       {
         id,
@@ -1190,7 +1164,7 @@ export class Projection {
    * is an event about a person rather than a durable entity of its own.
    */
   separate(input: SeparateInput): string {
-    const { id, nextSeq } = mint(this.state, "separation", input.id);
+    const { id, nextSeq } = mint(this.state, "separation");
     this.commitEvent(
       {
         id,
@@ -1212,7 +1186,7 @@ export class Projection {
    * minted `"payoff-N"` id.
    */
   payOffDebt(input: PayOffDebtInput): string {
-    const { id, nextSeq } = mint(this.state, "payoff", input.id);
+    const { id, nextSeq } = mint(this.state, "payoff");
     this.commitEvent(
       {
         id,
@@ -1229,7 +1203,7 @@ export class Projection {
 
   /** Returns the minted `"loan-N"` id. */
   takeLoan(input: TakeLoanInput): string {
-    const { id, nextSeq } = mint(this.state, "loan", input.id);
+    const { id, nextSeq } = mint(this.state, "loan");
     const common = {
       id,
       type: "LoanEvent",
@@ -1256,7 +1230,7 @@ export class Projection {
    * hard block.
    */
   buyHome(input: BuyHomeInput): string {
-    const { id, nextSeq } = mint(this.state, "home", input.id);
+    const { id, nextSeq } = mint(this.state, "home");
     this.commitEvent(
       {
         id,

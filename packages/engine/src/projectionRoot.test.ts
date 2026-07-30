@@ -84,13 +84,6 @@ describe("Projection root — creating writes mint deterministic ids", () => {
     expect(p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
   });
 
-  it("honours a caller `{ id }` override without consuming the counter", () => {
-    const p = freshProjection();
-    expect(p.addGoal({ ...carGoalInput, id: "rainy-day" })).toBe("rainy-day");
-    // The counter did not advance, so the next mint is still "-1".
-    expect(p.addBudgetLine(expenseLine)).toBe("line-1");
-  });
-
   it("mints a job id whatever the caller passes — `JobInput` cannot name one", () => {
     // Jobs take no `id` at all: authoring one is the engine's to name, and relocating an
     // existing one is `reassignJob`, which names the id as an argument instead.
@@ -338,19 +331,24 @@ describe("Projection root — removing a goal guards its fund account", () => {
 
   it("leaves the other goals alone", () => {
     const p = freshProjection();
-    const keep = p.addGoal({ ...carGoal, id: "keep" });
-    p.removeGoal(p.addGoal({ ...carGoal, id: "drop" }));
+    const keep = p.addGoal(carGoal);
+    p.removeGoal(p.addGoal(carGoal));
     expect(p.plan.goals.map((g) => g.id)).toEqual([...samplePlan.goals.map((g) => g.id), keep]);
   });
 
   it("refuses while an event spends from the goal's fund account", () => {
     const p0 = freshProjection();
-    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const goalId = p0.addGoal(carGoal);
     const p = withPurchaseFundedBy(p0, goalId);
     const before = p.state;
 
+    // The message names the goal, its derived fund account and the event holding it — all by
+    // the ids the engine minted, so the assertion builds them from the handle it was given.
     expect(() => p.removeGoal(goalId)).toThrow(
-      /cannot remove goal — Cannot remove goal "house-fund": its fund account "fund-house-fund" funds "e1" \(HomePurchaseEvent, month 24\)/,
+      new RegExp(
+        `cannot remove goal — Cannot remove goal "${goalId}": its fund account ` +
+          `"fund-${goalId}" funds "e1" \\(HomePurchaseEvent, month 24\\)`,
+      ),
     );
     // Refused means untouched, not partially applied.
     expect(p.state).toBe(before);
@@ -359,7 +357,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
 
   it("allows the removal once the referencing event leaves the ledger", () => {
     const p0 = freshProjection();
-    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const goalId = p0.addGoal(carGoal);
     const blocked = withPurchaseFundedBy(p0, goalId);
     expect(() => blocked.removeGoal(goalId)).toThrow();
 
@@ -395,11 +393,11 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
 
   it("patches only the named fields, leaving the rest of the goal intact", () => {
     const p = freshProjection();
-    const goalId = p.addGoal({ ...carGoal, id: "car" });
+    const goalId = p.addGoal(carGoal);
     p.updateGoal(goalId, { name: "New car", annualReturnPct: 5 });
     const goal = p.plan.goals.find((g) => g.id === goalId);
     expect(goal).toMatchObject({
-      id: "car",
+      id: goalId,
       name: "New car",
       annualReturnPct: 5,
       // Untouched fields survive the patch.
@@ -411,8 +409,8 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
 
   it("holds the goal's list position, so its funding priority is unchanged", () => {
     const p = freshProjection();
-    const first = p.addGoal({ ...carGoal, id: "first" });
-    const second = p.addGoal({ ...carGoal, id: "second" });
+    const first = p.addGoal(carGoal);
+    const second = p.addGoal(carGoal);
     const before = p.plan.goals.map((g) => g.id);
     p.updateGoal(first, { name: "Renamed" });
     expect(p.plan.goals.map((g) => g.id)).toEqual(before);
@@ -449,23 +447,23 @@ describe("Projection root — reordering a goal changes its funding priority", (
       },
       nullJurisdiction,
     );
-    return { p, a: p.addGoal({ ...goal, id: "a" }), b: p.addGoal({ ...goal, id: "b" }), c: p.addGoal({ ...goal, id: "c" }) };
+    return { p, a: p.addGoal(goal), b: p.addGoal(goal), c: p.addGoal(goal) };
   }
 
   it("moves a goal one slot earlier when funded sooner", () => {
-    const { p, b } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     p.reorderGoal(b, "up");
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["b", "a", "c"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([b, a, c]);
   });
 
   it("moves a goal one slot later when funded later", () => {
-    const { p, b } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     p.reorderGoal(b, "down");
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([a, c, b]);
   });
 
   it("refuses a move that cannot happen — at either end, or for an id that is not there", () => {
-    const { p, a, c } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     const before = p.state;
 
     expect(() => p.reorderGoal(a, "up")).toThrow(/already first/);
@@ -473,7 +471,7 @@ describe("Projection root — reordering a goal changes its funding priority", (
     expect(() => p.reorderGoal("no-such-goal", "up")).toThrow(/no goal "no-such-goal"/);
 
     expect(p.state).toBe(before);
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([a, b, c]);
   });
 });
 
@@ -1097,7 +1095,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       targetDate: 36,
       disposition: "retain",
       annualReturnPct: 3,
-      id: "car",
     });
     const jobId = p.addJob(P1, openEndedJob);
     const lineId = p.addBudgetLine(expenseLine);
@@ -1680,97 +1677,112 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 });
 
-describe("Projection root — an authored id claims the counter", () => {
-  const partnerJob = (id: string) => ({
+/**
+ * No authoring input carries an `id`, so the counter is the only thing that issues one. What
+ * still needs flooring is an id that arrives WITHOUT passing through the mint: a revision that
+ * introduces a whole event, or an imported state (covered in the round-trip suite above).
+ */
+describe("Projection root — the counter floors ids it did not mint", () => {
+  const partnerJob = (id: string, ownerId: PersonId) => ({
     id,
-    ownerId: "partner" as PersonId,
+    ownerId,
     startYear: SAMPLE_START_YEAR,
     endYear: null,
     salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 },
   });
 
-  it("steps over an explicitly authored id rather than minting onto it", () => {
+  it("mints from one counter across every kind, so two things never share a number", () => {
     const p = freshProjection();
-    p.addGoal({ ...carGoalInput, id: "goal-2" });
-
-    const second = p.addGoal(carGoalInput);
-    const third = p.addGoal(carGoalInput);
-
-    // Before the fix the override consumed nothing, so the mint walked 1, 2 — straight back
-    // onto the authored id.
-    expect(second).toBe("goal-3");
-    expect(third).toBe("goal-4");
-    // The sample plan opens with goals of its own, so read the three this test appended.
-    const ids = p.plan.goals.map((g) => g.id);
-    expect(ids.slice(-3)).toEqual(["goal-2", "goal-3", "goal-4"]);
-    expect(new Set(ids).size).toBe(ids.length);
+    const ids = [
+      p.addGoal(carGoalInput),
+      p.addJob(P1, openEndedJob),
+      p.addBudgetLine(expenseLine),
+      p.takeLoan({
+        month: 6,
+        ownerId: P1,
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(20000),
+        apr: 5,
+        termMonths: 60,
+      }),
+    ];
+    // Distinct, and each says what it names — one counter, so the numbers never repeat.
+    expect(ids).toEqual(["goal-1", "job-2", "line-3", "loan-4"]);
   });
 
-  it("claims the shared counter, so an override of one kind moves every kind", () => {
-    const p = freshProjection();
-    p.addGoal({
-      name: "Car",
-      targetCents: dollarsToCents(30000),
-      targetDate: 36,
-      disposition: "retain",
-      annualReturnPct: 3,
-      id: "goal-6",
-    });
-    // One counter across all kinds — `goal-6` spends 6 for jobs and loans too.
-    expect(p.addJob(P1, openEndedJob)).toBe("job-7");
+  /** A handle over a plan that already holds a job named elsewhere — the import case. */
+  const importedHolding = (jobId: string) =>
+    Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          goals: [],
+          budgetLines: [],
+          jobs: [{ ...openEndedJob, id: jobId, ownerId: P1 }],
+        },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+
+  it("leaves the counter alone for an imported id it could not have minted", () => {
+    const p = importedHolding("external-payroll-job");
+    // Not a shape `mint` produces, so no id it goes on to issue can collide with it and
+    // nothing is spent stepping over it.
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
   });
 
-  it("leaves the counter alone for an id it did not mint", () => {
-    const p = freshProjection();
-    p.addGoal({ ...carGoalInput, id: "external-savings-goal" });
-    // Not a shape `mint` produces, so no future id can collide with it and nothing is spent.
-    expect(p.addGoal(carGoalInput)).toBe("goal-1");
-  });
+  it("ignores an imported suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
+    const p = importedHolding("job-9007199254740993");
 
-  it("leaves the counter alone for a suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
-    const p = freshProjection();
-    p.addGoal({ ...carGoalInput, id: "goal-9007199254740993" });
-
-    const a = p.addGoal(carGoalInput);
-    const b = p.addGoal(carGoalInput);
+    const a = p.addJob(P1, openEndedJob);
+    const b = p.addJob(P1, openEndedJob);
     // Honouring the suffix would have set a floor the counter cannot pass — and incrementing
     // a non-safe integer is a no-op, so every later mint would return the SAME id.
-    expect(a).toBe("goal-1");
-    expect(b).toBe("goal-2");
-    const ids = p.plan.goals.map((g) => g.id);
+    expect(a).toBe("job-1");
+    expect(b).toBe("job-2");
+    const ids = p.plan.jobs.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  // A partner can no longer ARRIVE holding an id — `marry` mints its nested jobs like anything
-  // else — so the two paths that still carry ids past the mint are a revision (below) and an
-  // import ("steps past a partner job an imported scenario already holds").
+  it("steps over an imported id of minted shape rather than reissuing it", () => {
+    const p = importedHolding("job-2");
+    // `job-2` is one of ours, so the counter must clear it — minting 1 then 2 would hand out
+    // an id the plan already holds.
+    const second = p.addJob(P1, openEndedJob);
+    expect(second).toBe("job-3");
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("floors the counter on ids a revision introduces", () => {
     const p = freshProjection();
-    p.marry({ month: 24, name: "Partner", birthYear: 1988, id: "partner" });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 }) as PersonId;
     // The shared counter floors both ids and sequence numbers, so the marriage's own event
     // (which takes the first sequence number) steps the counter one past it — the first
     // authored job is `job-2`, a harmless gap, the same as any other construction path.
     expect(p.addJob(P1, openEndedJob)).toBe("job-2");
 
-    // The partner picks up a job named elsewhere — a second way nested ids arrive.
-    p.reviseTransaction("partner", {
-      id: "partner",
+    // A revision carries a whole event, nested ids and all — the one authoring path where an
+    // id reaches the ledger without the mint issuing it.
+    p.reviseTransaction(partnerId, {
+      id: partnerId,
       type: "RelationshipEvent",
       month: 24,
       person: {
-        id: "partner",
+        id: partnerId,
         name: "Partner",
         birthYear: 1988,
         retirementTargetAge: 65,
         benefitClaimingAge: 67,
-        jobs: [partnerJob("job-12")],
+        jobs: [partnerJob("job-12", partnerId)],
       },
     });
 
     expect(p.addJob(P1, openEndedJob)).toBe("job-13");
   });
 
-  it("a refused transaction consumes no id, override or not", () => {
+  it("a refused transaction consumes no id", () => {
     const p = freshProjection();
     const before = p.state;
 
@@ -1778,7 +1790,6 @@ describe("Projection root — an authored id claims the counter", () => {
       p.buyHome({
         month: 12,
         ownerId: P1,
-        id: "home-8",
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
         downPaymentSourceIds: ["savings"],
@@ -1787,7 +1798,7 @@ describe("Projection root — an authored id claims the counter", () => {
       }),
     ).toThrow();
 
-    // The refusal never reached the commit, so `home-8` claimed nothing.
+    // The refusal never reached the commit, so it claimed nothing.
     expect(p.state).toBe(before);
     expect(p.state.nextSeq).toBe(before.nextSeq);
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");

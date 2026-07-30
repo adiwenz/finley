@@ -840,8 +840,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
       { plan: PLAN_DEFAULTS, startYear: START_YEAR },
       usJurisdiction,
     );
-    projection.takeLoan({
-      id: "loan-student",
+    const loanId = projection.takeLoan({
       month: 0,
       ownerId: PRIMARY_PERSON_ID,
       openingBalanceCents: dollarsToCents(45_000),
@@ -871,13 +870,13 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     ) as Record<string, number>;
     // Servicing the loan is spending, banded like anything else the month costs, and the budget
     // lines beside it are untouched by its arrival.
-    expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    expect(servicedRow[`debt:${loanId}`]).toBeGreaterThan(dollarsToCents(400));
     expect(servicedRow[lineKey("Housing")]).toBeGreaterThan(0);
     // Origination month itself: the debt exists but nothing is due yet.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(firstRow["debt:loan-student"] ?? 0).toBe(0);
+    expect(firstRow[`debt:${loanId}`] ?? 0).toBe(0);
   });
 
   it("redraws when the budget changes — the memoized graphs must not go stale", () => {
