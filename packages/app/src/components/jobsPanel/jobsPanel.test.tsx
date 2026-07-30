@@ -13,7 +13,6 @@ import {
   RETIREMENT_ID,
   Projection,
   dollarsToCents,
-  projectScenario,
   type Job,
   type Ledger,
   type NewLifeEvent,
@@ -464,10 +463,9 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(job.payChanges).toEqual([PAY_CHANGE]);
     expect(job.incomeOverrides).toEqual([BONUS]);
 
-    const series = projectScenario(
-      { plan, ledger },
-      { jurisdiction: usJurisdiction, startYear: START_YEAR },
-    );
+    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
+      usJurisdiction,
+    ).series;
     // The income is the partner's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
@@ -500,10 +498,9 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(plan.jobs).toEqual([]);
     expect(partnerJobs()).toHaveLength(1);
 
-    const series = projectScenario(
-      { plan, ledger },
-      { jurisdiction: usJurisdiction, startYear: START_YEAR },
-    );
+    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
+      usJurisdiction,
+    ).series;
     expect(wagesFor(series, "p-1", 179)).toBeGreaterThan(0); // last month as a member
     expect(wagesFor(series, "p-1", 180)).toBe(0); // gone with the separation
     expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBe(0); // long since stopped

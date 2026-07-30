@@ -102,6 +102,11 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   solution, the target evaluation with `nearestFeasibleAge` resolved, the health flag, and the
   chart's month offset. `run()` is untouched: a simulation is not a search, so a caller that
   only wants the graph never pays for one — pinned by a test.
+  - The searches leave the barrel entirely — `solveRetirement`, `evaluateFullRetirementAtAge`,
+    `evaluateAtAge`, `projectScenario`, `planSurvives`. They were exported only so app tests
+    could re-derive a number and check the panel matched it, which pins the engine's own tests
+    a second time in a place that cannot fix them. Each is tested where it lives
+    (`retirementSolver.test.ts`); the app tests now ask the facade the question the app asks.
 - **`ProjectionReader` is the reading half, as a type.** A `Projection` is a mutable handle, and
   a write onto one nobody reads back is silently discarded — the exact failure this migration
   exists to prevent. Panels take the reader instead, so authoring from a view is a compile

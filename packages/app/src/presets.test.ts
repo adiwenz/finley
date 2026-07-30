@@ -20,11 +20,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import {
-  projectScenario,
-  solveRetirement,
-  evaluateFullRetirementAtAge,
-} from "@finley/engine";
-import {
+  Projection,
   addEvent,
   emptyLedger,
   type Ledger,
@@ -263,14 +259,16 @@ describe("the panel and the graph agree", () => {
       const preset = presetById(id);
       const base = createProjectionBase(preset.plan, CTX);
       const ledger = buildPresetLedger(base, preset.events);
-      const scenario = { plan: preset.plan, ledger };
-      const graphSurvives =
-        firstInsolventMonth(projectScenario(scenario, CTX)) === null;
+      const projection = Projection.fromScenario(
+        { plan: preset.plan, ledger },
+        START_YEAR,
+        usJurisdiction,
+      );
+      const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
       // draws surviving.
-      const pinnedWorks = evaluateFullRetirementAtAge(scenario, preset.plan.retirementAge, CTX)
-        .feasible;
+      const pinnedWorks = projection.retirement(usJurisdiction).target.feasible;
       if (graphSurvives) expect(pinnedWorks).toBe(true);
     },
   );
@@ -278,9 +276,12 @@ describe("the panel and the graph agree", () => {
   it("student-loan: an underwater opening still has a feasible retirement age", () => {
     const preset = presetById("student-loan");
     const base = createProjectionBase(preset.plan, CTX);
-    const scenario = { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) };
-    const series = projectScenario(scenario, CTX);
-    expect(series.months[0]!.netWorthRealCents).toBeLessThan(0);
-    expect(solveRetirement(scenario, CTX).fullRetirementAge).not.toBeNull();
+    const projection = Projection.fromScenario(
+      { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) },
+      START_YEAR,
+      usJurisdiction,
+    );
+    expect(projection.run(usJurisdiction).series.months[0]!.netWorthRealCents).toBeLessThan(0);
+    expect(projection.retirement(usJurisdiction).solution.fullRetirementAge).not.toBeNull();
   });
 });

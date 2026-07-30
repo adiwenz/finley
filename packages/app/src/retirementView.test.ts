@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   dollarsToCents,
-  projectScenario,
-  planSurvives,
-  solveRetirement,
   scenarioOf,
   Projection,
   createProjectionBase,
@@ -31,10 +28,6 @@ const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
   return retirementView(Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction));
-}
-
-function survivesAt(budget: Plan, age: number): boolean {
-  return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
 
 describe("retirementView — one query behind every figure", () => {
@@ -81,30 +74,21 @@ describe("retirementView — one query behind every figure", () => {
 });
 
 describe("retirementView — headline age driven off the real projection", () => {
-  it("reports a feasible headline age that actually survives in the projection", () => {
-    const view = viewOf(PLAN_DEFAULTS);
-    expect(view.headlineAge).not.toBeNull();
-    const age = view.headlineAge as number;
-    expect(survivesAt(PLAN_DEFAULTS, age)).toBe(true);
-    // A year earlier does not — the headline is genuinely the threshold.
-    expect(survivesAt(PLAN_DEFAULTS, age - 1)).toBe(false);
+  it("reports the full-retirement age the facade found, not a second search", () => {
+    const projection = Projection.fromScenario(
+      scenarioOf(PLAN_DEFAULTS),
+      START_YEAR,
+      usJurisdiction,
+    );
+    expect(retirementView(projection).headlineAge).toBe(
+      projection.retirement(usJurisdiction).solution.fullRetirementAge,
+    );
   });
 
   it("the month offset is (age − now) × 12, floored at 0 — the chart reference line", () => {
     const view = viewOf(PLAN_DEFAULTS);
     const age = view.headlineAge as number;
     expect(view.headlineMonth).toBe((age - PLAN_DEFAULTS.currentAge) * 12);
-  });
-
-  it("panel age == the first projection age that survives (panel and graph agree)", () => {
-    let firstSurviving: number | null = null;
-    for (let age = PLAN_DEFAULTS.currentAge; age <= PLAN_DEFAULTS.lifeExpectancy; age++) {
-      if (survivesAt(PLAN_DEFAULTS, age)) {
-        firstSurviving = age;
-        break;
-      }
-    }
-    expect(viewOf(PLAN_DEFAULTS).headlineAge).toBe(firstSurviving);
   });
 
   it("reports no feasible headline when the money can never last", () => {
@@ -138,9 +122,6 @@ describe("retirementView — target mode against the pinned age", () => {
     expect(view.target.feasible).toBe(false);
     expect(view.targetOnTrackPct).toBeLessThan(100);
     expect(view.target.nearestFeasibleAge).toBe(view.headlineAge);
-    expect(view.target.nearestFeasibleAge).toBe(
-      solveRetirement(scenarioOf(pinnedTooEarly), CTX).fullRetirementAge,
-    );
   });
 
   it("keeps the on-track % within [0, 100]", () => {

@@ -133,23 +133,13 @@ export * from "./projectionBase";
 // Which events spend from a goal's fund account — the integrity question behind removing a
 // goal, since the account is derived from the goal and falls away with it.
 export * from "./goalFunding";
-// The per-mode retirement searches stay module-internal; `solveRetirement` returns all three
-// ages at once. None of these is how an application asks the retirement question — that is
-// `Projection.retirement`, which runs the search once and returns the headline, the pinned-age
-// verdict and the health flag together, so the three cannot be assembled inconsistently.
-// They stay public for one reason: an acceptance test needs an oracle INDEPENDENT of the
-// facade, to check that what a panel shows is what a plain simulation says.
-// `projectScenarioParts` is deliberately NOT public: its only caller is `Projection.run`, a
-// sibling inside the engine, and its result carries `HouseholdSimInput` — a low-level simulator
-// artifact the facade migration exists to stop publishing. Exporting it would pin that type to
-// the public surface through a type the app has no reason to name.
-export {
-  solveRetirement,
-  evaluateAtAge,
-  evaluateFullRetirementAtAge,
-  projectScenario,
-  planSurvives,
-} from "./retirementSolver";
+// The retirement searches are NOT public. `Projection.retirement` is how the question is
+// asked: it runs the search once and returns the headline, the pinned-age verdict and the
+// health flag together, so the three cannot be assembled inconsistently by a caller. Each
+// search, and `projectScenario`/`planSurvives` under it, is tested where it lives — a second
+// copy of that arithmetic outside the engine would only pin the engine's own tests twice.
+// `projectScenarioParts` is internal for a further reason: its result carries
+// `HouseholdSimInput`, a low-level simulator artifact this facade exists to stop publishing.
 export * from "./retirementTypes";
 export * from "./earlyRetireeHealthCheck";
 export * from "./ids";
