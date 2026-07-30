@@ -346,6 +346,140 @@ async function markIssueDone(issue: { id: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Issue tasks: the unit an implementer agent actually runs on.
+//
+// An issue may declare a `## Tasks` section whose `###` subheadings are worked
+// one at a time, each by a FRESH agent. That is the whole point: a single agent
+// grinding an 80-iteration loop fills its context window and degrades on the
+// later steps, where a per-task agent starts clean and only has to hold one
+// task's worth of detail. The cost is a sandbox spin-up per task and a hard
+// amnesia boundary between them — which is why the prompt makes each agent read
+// the branch's commit log, and why RALPH's "notes for the next iteration" line
+// stops being decorative.
+//
+// An issue with no `## Tasks` section runs exactly as before: one agent, whole
+// issue. Most of the backlog is that shape, and forcing tasks onto it would
+// mean rewriting every open issue before the next run.
+// ---------------------------------------------------------------------------
+interface IssueTask {
+  /** 1-based, as presented to the agent ("Task 2 of 5"). */
+  readonly index: number;
+  readonly title: string;
+  /** Everything under the task's heading — its detail, acceptance notes, snippets. */
+  readonly body: string;
+}
+
+async function fetchIssueTasks(issueId: string): Promise<IssueTask[]> {
+  let body: string;
+  try {
+    const { stdout } = await execPromise(`gh issue view ${issueId} --json body --jq .body`);
+    body = stdout;
+  } catch (error: any) {
+    // A read failure must not sink the issue — fall back to whole-issue mode,
+    // which is the same behaviour as an issue that declares no tasks.
+    console.warn(`⚠️ [Issue #${issueId}] Could not read issue body for tasks: ${error.message}`);
+    return [];
+  }
+
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => /^##\s+Tasks\s*$/i.test(line.trim()));
+  if (start === -1) return [];
+
+  // The section ends at the next H2. `^##\s` cannot match an H3, since `###` has
+  // no whitespace at offset 2 — so subheadings inside the section survive.
+  const section: string[] = [];
+  for (let i = start + 1; i < lines.length && !/^##\s/.test(lines[i]); i++) {
+    section.push(lines[i]);
+  }
+
+  const tasks: IssueTask[] = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of section) {
+    const heading = /^###\s+(.*\S)\s*$/.exec(line);
+    if (heading) {
+      if (current) tasks.push({ index: tasks.length + 1, title: current.title, body: current.body.join("\n").trim() });
+      // Strip a leading ordinal ("1. ", "2) ") — the index is authoritative, and
+      // a hand-numbered heading drifts the moment a task is inserted.
+      current = { title: heading[1].replace(/^\d+[.)]\s*/, ""), body: [] };
+    } else if (current) {
+      current.body.push(line);
+    }
+  }
+  if (current) tasks.push({ index: tasks.length + 1, title: current.title, body: current.body.join("\n").trim() });
+
+  return tasks;
+}
+
+// How many tasks a previous run already landed on this branch.
+//
+// Resume support, and the reason task commits carry a `[task N/M]` marker: a
+// run that dies mid-issue (CI timeout, cancelled workflow, a task that never
+// signals) leaves finished tasks committed and pushed. Re-running must pick up
+// where it stopped rather than reimplementing task 1 on top of itself — the
+// branch is deterministic precisely so progress accumulates across runs.
+//
+// Returns 0 when the branch is absent (a first run) or carries no markers (an
+// older run, or whole-issue mode), which correctly means "start at the top".
+async function completedTaskCount(branch: string): Promise<number> {
+  // A CI runner clones fresh, so the branch may exist only as a remote ref.
+  for (const ref of [branch, `origin/${branch}`]) {
+    try {
+      const { stdout } = await execPromise(`git log --format=%s origin/main..${ref}`);
+      let highest = 0;
+      for (const subject of stdout.split("\n")) {
+        const marker = /\[task (\d+)\/\d+\]/.exec(subject);
+        if (marker) highest = Math.max(highest, Number(marker[1]));
+      }
+      return highest;
+    } catch {
+      // Ref doesn't resolve — try the remote form, then give up.
+    }
+  }
+  return 0;
+}
+
+// One implementer agent, on one branch. Called once per task, or once for the
+// whole issue when the issue declares none.
+async function runImplementer(args: {
+  issue: { id: string; title: string; branch: string };
+  task?: IssueTask;
+  taskTotal: number;
+  /** Titles of the tasks already committed on this branch, for the handoff. */
+  priorTasks: readonly string[];
+}) {
+  const { issue, task, taskTotal, priorTasks } = args;
+  return sandcastle.run({
+    hooks,
+    copyToWorktree,
+    sandbox,
+    cwd: REPO_ROOT,
+    branchStrategy: { type: "branch", branch: issue.branch },
+    name: task ? `implementer-task-${task.index}` : "implementer",
+    // Re-prompted until it emits the completion signal (default
+    // "<promise>COMPLETE</promise>") or hits this cap. Completion can't be
+    // detected via structured output (Output.*) instead — that requires
+    // maxIterations: 1, and an implementer needs the full red-green-refactor
+    // loop across many turns. A single task needs far fewer of those than a
+    // whole issue, and the lower cap surfaces a stuck task rather than letting
+    // it eat the run's budget.
+    maxIterations: task ? 40 : 80,
+    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    promptFile: "./.sandcastle/new_flow/implement-prompt.md",
+    promptArgs: {
+      TASK_ID: issue.id,
+      ISSUE_TITLE: issue.title,
+      BRANCH: issue.branch,
+      // Whole-issue mode leaves these empty; the prompt branches on TASK_TITLE.
+      TASK_NUMBER: task ? String(task.index) : "",
+      TASK_TOTAL: task ? String(taskTotal) : "",
+      TASK_TITLE: task ? task.title : "",
+      TASK_BODY: task ? task.body : "",
+      PRIOR_TASKS: priorTasks.length > 0 ? priorTasks.map((t, i) => `${i + 1}. ${t}`).join("\n") : "(none — this is the first task)",
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Helper: Run the implementer agent for one issue, then hand off for review.
 //
 // This runs concurrently with other issues, so it must never touch the shared
@@ -370,69 +504,103 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
   console.log(`🚀 [Issue #${issue.id}] Running implementation agent...`);
 
   let success = false;
+  // Commits landed on the branch this run. Read after the try block so a partial
+  // run still gets pushed — see the push step below.
+  let totalCommits = 0;
   // Set only when the agent's own host worktree survived the run (uncommitted
   // changes). When present we can review in place instead of creating a new one.
   let preservedWorktreePath: string | undefined;
 
   try {
-    const result = await sandcastle.run({
-      hooks,
-      copyToWorktree,
-      sandbox,
-      cwd: REPO_ROOT,
-      branchStrategy: { type: "branch", branch: issue.branch },
-      name: "implementer",
-      // One run, but many iterations: the agent is re-prompted until it emits
-      // the completion signal (default "<promise>COMPLETE</promise>") or hits
-      // this cap. We can't detect completion via structured output (Output.*)
-      // instead — that requires maxIterations: 1, and the implementer needs the
-      // full red-green-refactor loop across many iterations.
-      maxIterations: 80,
-      agent: sandcastle.claudeCode("claude-opus-4-8"),
-      promptFile: "./.sandcastle/new_flow/implement-prompt.md",
-      promptArgs: {
-        TASK_ID: issue.id,
-        ISSUE_TITLE: issue.title,
-        BRANCH: issue.branch,
-      },
-    });
+    const tasks = await fetchIssueTasks(issue.id);
+    console.log(
+      tasks.length > 0
+        ? `📋 [Issue #${issue.id}] ${tasks.length} task(s) declared — one fresh agent per task.`
+        : `📋 [Issue #${issue.id}] No "## Tasks" section — one agent for the whole issue.`,
+    );
 
-    // The implementer runs typecheck + tests inside its own sandbox before
-    // signaling done, so success is determined entirely from the sandbox
-    // result — never from a host checkout, which would corrupt sibling agents
-    // running concurrently on other branches.
-    if (result.completionSignal !== undefined && result.commits.length > 0) {
-      success = true;
-      preservedWorktreePath = result.preservedWorktreePath;
-      console.log(
-        `✓ [Issue #${issue.id}] Implementer signaled COMPLETE with ${result.commits.length} commit(s).`,
+    // Whole-issue mode is modelled as a single undefined task so there is ONE
+    // loop rather than two code paths that drift apart as this evolves.
+    const runs: (IssueTask | undefined)[] = tasks.length > 0 ? tasks : [undefined];
+
+    // Resume: skip tasks a previous run already committed, but keep their titles
+    // so the next agent's handoff context still lists everything done so far.
+    const alreadyDone = tasks.length > 0 ? await completedTaskCount(issue.branch) : 0;
+    if (alreadyDone > 0) {
+      console.log(`⏭️  [Issue #${issue.id}] Resuming — tasks 1-${alreadyDone} already on ${issue.branch}.`);
+    }
+    const doneTasks: string[] = tasks.slice(0, alreadyDone).map((t) => t.title);
+    let allCompleted = true;
+
+    for (const task of runs) {
+      if (task && task.index <= alreadyDone) continue;
+      const label = task ? `Task ${task.index}/${tasks.length} — ${task.title}` : "whole issue";
+      console.log(`🚀 [Issue #${issue.id}] Starting ${label}...`);
+
+      const result = await runImplementer({ issue, task, taskTotal: tasks.length, priorTasks: doneTasks });
+
+      // The implementer runs typecheck + tests inside its own sandbox before
+      // signaling done, so success is determined entirely from the sandbox
+      // result — never from a host checkout, which would corrupt sibling agents
+      // running concurrently on other branches.
+      if (result.completionSignal !== undefined && result.commits.length > 0) {
+        totalCommits += result.commits.length;
+        preservedWorktreePath = result.preservedWorktreePath;
+        if (task) doneTasks.push(task.title);
+        console.log(`✓ [Issue #${issue.id}] ${label} COMPLETE (${result.commits.length} commit(s)).`);
+        continue;
+      }
+
+      allCompleted = false;
+      console.warn(
+        result.completionSignal !== undefined
+          ? `⚠️ [Issue #${issue.id}] ${label}: COMPLETE promise but no commits.`
+          : `⚠️ [Issue #${issue.id}] ${label}: no completion signal within the iteration limit.`,
       );
-    } else if (result.completionSignal !== undefined) {
-      console.warn(`⚠️ [Issue #${issue.id}] COMPLETE promise but no commits — nothing to review.`);
-    } else {
-      console.warn(`⚠️ [Issue #${issue.id}] Agent did not signal completion within the iteration limit.`);
+      // Stop the chain. A later task builds on this one's code, so running it
+      // against a half-finished base yields a branch nobody can review — and
+      // buries the real failure under a second, derivative one.
+      break;
+    }
+
+    // A resumed run that finds every task already committed does no work and so
+    // produces no commits — but the issue IS finished (a previous run died after
+    // the last task, before relabeling). Treat that as success or it can never
+    // leave the queue.
+    const nothingLeftToDo = tasks.length > 0 && alreadyDone >= tasks.length;
+    success = allCompleted && (totalCommits > 0 || nothingLeftToDo);
+    if (!success && totalCommits > 0) {
+      console.warn(
+        `⚠️ [Issue #${issue.id}] Stopped after ${doneTasks.length}/${tasks.length} task(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run resumes from task ${doneTasks.length + 1}.`,
+      );
     }
   } catch (error: any) {
     console.error(`[Issue #${issue.id}] Runner error:`, error);
   }
 
-  // --- Push the branch and surface it for review (per REVIEW_MODE) ---
-  if (success) {
-    const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-    console.log(`✓ [Issue #${issue.id}] Task completed cleanly in ${elapsed}m.`);
-
-    // Push the branch to origin. In `push` (CI) mode this is the ONLY durable
-    // handoff — the runner is ephemeral — so a failure means the work could be
-    // lost; in `worktree` mode it is an off-machine backup on top of the local
-    // branch. Non-fatal either way so sibling issues still finish.
-    let pushed = false;
+  // --- Push whatever landed, complete or not ---
+  //
+  // Deliberately OUTSIDE the success check. In `push` (CI) mode this is the ONLY
+  // durable handoff — the runner is ephemeral — so an unpushed branch is lost
+  // work, and a partial run is exactly the case worth preserving: the pushed
+  // commits are what a re-run resumes from. In `worktree` mode it is an
+  // off-machine backup on top of the local branch. Non-fatal either way so
+  // sibling issues still finish.
+  let pushed = false;
+  if (totalCommits > 0) {
     try {
       await execPromise(`git push origin ${issue.branch}`);
       pushed = true;
-      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin.`);
+      console.log(`⬆️  [Issue #${issue.id}] Pushed ${issue.branch} to origin (${totalCommits} commit(s) this run).`);
     } catch (pushError: any) {
       console.warn(`⚠️ [Issue #${issue.id}] Could not push branch: ${pushError.message}`);
     }
+  }
+
+  // --- Surface it for review (per REVIEW_MODE) ---
+  if (success) {
+    const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
+    console.log(`✓ [Issue #${issue.id}] Issue completed cleanly in ${elapsed}m.`);
 
     // Take the issue out of the planner's queue so it is not re-selected, while
     // leaving it open for human review.
@@ -463,7 +631,11 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       await createReviewWorktree(issue);
     }
   } else {
-    console.error(`🚨 [Issue #${issue.id}] Did not complete — no branch handed off for review.`);
+    console.error(
+      totalCommits > 0 && pushed
+        ? `🚨 [Issue #${issue.id}] Did not complete. Partial work is on origin/${issue.branch} — re-run to resume.`
+        : `🚨 [Issue #${issue.id}] Did not complete — no branch handed off for review.`,
+    );
   }
 }
 
