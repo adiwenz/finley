@@ -15,38 +15,43 @@ import type {
   Ledger,
   Plan,
   ProjectionResult,
+  ProjectionState,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "../hooks/useProjection";
 
 /**
- * `fromScenario` floors both counters past whatever ids the fixture already carries, so a
- * fixture holding `job-1` cannot have a second `job-1` minted on top of it.
+ * A fixture plan and its seed ledger as the {@link ProjectionState} the app holds.
+ *
+ * `nextSeq: 1` means "not known" rather than "starts at 1": {@link Projection.fromState} floors
+ * both counters past whatever ids the fixture already carries, so a fixture holding `goal-1`
+ * cannot have a second `goal-1` minted on top of it. Every helper below goes through here, so a
+ * test builds its state exactly one way.
  */
+export function stateOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionState {
+  return { scenario: withLedger(scenarioOf(plan), ledger), startYear: START_YEAR, nextSeq: 1 };
+}
+
 export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): UseProjection {
   const [initial] = useState(() =>
-    Projection.fromScenario(
-      withLedger(scenarioOf(plan), ledger),
-      START_YEAR,
-      usJurisdiction,
-    ).toState(),
+    Projection.fromState(stateOf(plan, ledger), usJurisdiction).toState(),
   );
   return useProjection(initial);
 }
 
 /**
  * A handle over a fixture plan, for the reads a panel makes. Each panel's prop names only the
- * members it uses, so this satisfies every one of them. Built through `fromScenario`, so the
+ * members it uses, so this satisfies every one of them. Built through `fromState`, so the
  * counters are floored exactly as the app's are.
  */
 export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): Projection {
-  return Projection.fromScenario(withLedger(scenarioOf(plan), ledger), START_YEAR, usJurisdiction);
+  return Projection.fromState(stateOf(plan, ledger), usJurisdiction);
 }
 
 /**
  * One completed run over a fixture plan — what a panel taking a `ProjectionResult` reads. Built
- * the same way the app builds its own (`fromScenario` → `run`), so a test cannot accidentally
+ * the same way the app builds its own (`fromState` → `run`), so a test cannot accidentally
  * assemble a result the app could never produce.
  *
  * `jurisdiction` defaults to the app's, which is what a panel test wants. Pass
@@ -59,9 +64,5 @@ export function runOf(
   ledger: Ledger = emptyLedger,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): ProjectionResult {
-  return Projection.fromScenario(
-    withLedger(scenarioOf(plan), ledger),
-    START_YEAR,
-    jurisdiction,
-  ).run(jurisdiction);
+  return Projection.fromState(stateOf(plan, ledger), jurisdiction).run(jurisdiction);
 }

@@ -546,32 +546,21 @@ export class Projection {
   }
 
   /**
+   * Open a handle on a plan with no timeline yet — the one way to start something new.
+   *
    * The counter starts clear of the plan it is handed, not at 1: a plan authored elsewhere
-   * routinely already holds `job-1`, and minting it a second time would give two jobs one id.
+   * routinely already holds `goal-1`, and minting it a second time would give two goals one id.
+   * That flooring is {@link fromState}'s, which this routes through with a `nextSeq` of 1
+   * meaning "unknown — work it out from what the plan holds". So there is ONE normalization in
+   * the class, and creating is just restoring from a state nobody has authored into yet.
    *
    * `jurisdiction` is the validation jurisdiction the write-time affordability gate decides on,
    * required so the choice is never made by omission, and independent of whatever {@link run} is
    * later given. Pass `nullJurisdiction` to author without tax rules.
    */
   static create(init: ProjectionInit, jurisdiction: Jurisdiction): Projection {
-    return Projection.fromScenario(scenarioOf(init.plan), init.startYear, jurisdiction);
-  }
-
-  /**
-   * Open a handle over a scenario that already carries a timeline — the import counterpart to
-   * {@link create}, which always starts from an empty ledger. Both counters are floored past
-   * whatever the scenario already occupies, the same normalization {@link fromState} applies,
-   * so an imported event holding `child-1` or sitting at a live sequence number is never
-   * handed back to the next authored write.
-   *
-   * `create` collapses to this over the empty-ledger scenario `scenarioOf(plan)` builds, so
-   * every construction path runs through one flooring. Ids arrive already present; the counter
-   * advances *past* them rather than minting them — the distinction from an authoring build,
-   * where the engine mints and the counter advances as it goes.
-   */
-  static fromScenario(scenario: Scenario, startYear: number, jurisdiction: Jurisdiction): Projection {
-    return new Projection(
-      withNormalizedCounters({ scenario, startYear, nextSeq: 1 }),
+    return Projection.fromState(
+      { scenario: scenarioOf(init.plan), startYear: init.startYear, nextSeq: 1 },
       jurisdiction,
     );
   }
@@ -1592,10 +1581,21 @@ export class Projection {
    * possibly written by a build whose counters meant something else. A stale `nextSeq` beside
    * a plan holding `job-5` would mint `job-5` again on the first write.
    *
-   * Normalization only ever raises a counter, so a well-formed state round-trips unchanged.
+   * Normalization only ever RAISES a counter, and is idempotent from the second pass on, so a
+   * reload can never walk one upward. It is not quite an identity on a freshly authored state:
+   * both counters share one floor ({@link seqFloor}) but `commit` maintains only `nextSeq` as a
+   * write lands, so restoring is where `Ledger.nextSequenceNumber` catches up to it. Raising it
+   * is always safe — the invariant is "strictly above every event" — and it reissues nothing.
+   *
    * This is the SINGLE flooring path — there is no "trusted" variant that skips it, because
    * `commit` floors after every write anyway, so a skip would save one walk and reopen the
-   * silent-collision hole.
+   * silent-collision hole. {@link create} routes through here too, over a state nobody has
+   * authored into yet, so restoring and creating cannot drift apart.
+   *
+   * It is also the ONLY restoration api: there is no variant taking a bare `Scenario`, because
+   * such a call is this one with `nextSeq` unknown — which the flooring works out anyway — and
+   * two entry points differing only in what they leave unsaid is how they end up meaning
+   * different things.
    *
    * `jurisdiction` is supplied fresh here, not read back from the state: a jurisdiction is
    * behaviour and was never serialised. Required, the same as {@link create} — a reload is
@@ -1608,8 +1608,8 @@ export class Projection {
   /**
    * Build a projection from a declarative, id-free {@link ScenarioInput}: every id is minted
    * through this handle's own counter, so no caller ever names one. The authoring counterpart to
-   * {@link fromScenario} — that IMPORTS a scenario whose ids are already present and floors the
-   * counter past them; this AUTHORS one, advancing the counter as it mints.
+   * {@link fromState} — that RESTORES state whose ids are already present and floors the counter
+   * past them; this AUTHORS one, advancing the counter as it mints.
    *
    * Two phases, mirroring {@link resolveRefs}'s resolution model. First the plan plane
    * (`jobs`, `goals`, `budgetLines`) — no month, applied as one block through the standing-edit

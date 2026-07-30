@@ -21,7 +21,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import type { Transact } from "../../hooks/useProjection";
-import { useTestProjection } from "../../testing/projectionHarness";
+import { useTestProjection, stateOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { primaryJobs } from "../../planPeople";
@@ -466,9 +466,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(job.payChanges).toEqual([PAY_CHANGE]);
     expect(job.incomeOverrides).toEqual([BONUS]);
 
-    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
-      usJurisdiction,
-    ).series;
+    const series = Projection.fromState(stateOf(plan, ledger), usJurisdiction).run(usJurisdiction).series;
     // The income is the partner's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
@@ -501,9 +499,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(plan.jobs).toEqual([]);
     expect(partnerJobs()).toHaveLength(1);
 
-    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
-      usJurisdiction,
-    ).series;
+    const series = Projection.fromState(stateOf(plan, ledger), usJurisdiction).run(usJurisdiction).series;
     expect(wagesFor(series, "p-1", 179)).toBeGreaterThan(0); // last month as a member
     expect(wagesFor(series, "p-1", 180)).toBe(0); // gone with the separation
     expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBe(0); // long since stopped

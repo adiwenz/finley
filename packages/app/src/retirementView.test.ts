@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   dollarsToCents,
-  scenarioOf,
   Projection,
   createProjectionBase,
   addEvent,
@@ -16,6 +15,7 @@ import {
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import { stateOf } from "./testing/projectionHarness";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { setJobMonthlyIncome } from "./testing/planFixtures";
@@ -26,7 +26,7 @@ const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_
 
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
-  return retirementView(Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction));
+  return retirementView(Projection.fromState(stateOf(plan), usJurisdiction));
 }
 
 describe("retirementView — one query behind every figure", () => {
@@ -35,7 +35,7 @@ describe("retirementView — one query behind every figure", () => {
    * so the stand-in states them outright rather than wrapping a projection.
    */
   function countingReader(plan: Plan) {
-    const real = Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction);
+    const real = Projection.fromState(stateOf(plan), usJurisdiction);
     let calls = 0;
     return {
       reader: {
@@ -78,11 +78,7 @@ describe("retirementView — one query behind every figure", () => {
 
 describe("retirementView — headline age driven off the real projection", () => {
   it("reports the full-retirement age the facade found, not a second search", () => {
-    const projection = Projection.fromScenario(
-      scenarioOf(PLAN_DEFAULTS),
-      START_YEAR,
-      usJurisdiction,
-    );
+    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
     expect(retirementView(projection).headlineAge).toBe(
       projection.retirement(usJurisdiction).solution.fullRetirementAge,
     );
@@ -260,7 +256,7 @@ describe("retirementView — the timeline events count toward retirement", () =>
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView(
-      Projection.fromScenario({ plan, ledger: added.ledger }, START_YEAR, usJurisdiction),
+      Projection.fromState(stateOf(plan, added.ledger), usJurisdiction),
     ).headlineAge;
     // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
     // so the down-payment fund counts toward the nest egg.

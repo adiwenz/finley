@@ -1467,48 +1467,103 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
   });
 });
 
-describe("Projection root — fromScenario imports a plan and its timeline together", () => {
-  it("carries the timeline and floors the shared counter past the ids it already holds", () => {
-    // A scenario that arrives already built: a plan holding `job-4`, a ledger whose event holds
-    // `loan-2` at sequence number 2. fromScenario keeps the timeline — unlike create, which
-    // always starts from an empty ledger — and floors the shared counter past both.
-    const scenario = {
-      plan: {
-        ...samplePlan,
-        goals: [],
-        budgetLines: [],
-        jobs: [{ ...openEndedJob, id: "job-4", ownerId: P1 }],
+describe("Projection root — fromState restores a plan and its timeline together", () => {
+  it("carries the timeline and floors both counters past the ids it already holds", () => {
+    // State that arrives already built: a plan holding `job-4`, a ledger whose event holds
+    // `loan-2` at sequence number 2, and — the reason normalization is not optional — a
+    // `nextSeq` and a `nextSequenceNumber` that both understate what the state contains. This
+    // is the shape a hand-edited or stale serialization takes, and `fromState` is the only
+    // door it can come through.
+    const state: ProjectionState = {
+      scenario: {
+        plan: {
+          ...samplePlan,
+          goals: [],
+          budgetLines: [],
+          jobs: [{ ...openEndedJob, id: "job-4", ownerId: P1 }],
+        },
+        ledger: {
+          events: [
+            {
+              id: "loan-2",
+              type: "LoanEvent" as const,
+              month: 6,
+              sequenceNumber: 2,
+              kind: "auto" as const,
+              liabilityId: "loan-2",
+              ownerId: P1,
+              openingBalanceCents: dollarsToCents(20000),
+              apr: 5,
+              termMonths: 60,
+            },
+          ],
+          nextSequenceNumber: 0,
+        },
       },
-      ledger: {
-        events: [
-          {
-            id: "loan-2",
-            type: "LoanEvent" as const,
-            month: 6,
-            sequenceNumber: 2,
-            kind: "auto" as const,
-            liabilityId: "loan-2",
-            ownerId: P1,
-            openingBalanceCents: dollarsToCents(20000),
-            apr: 5,
-            termMonths: 60,
-          },
-        ],
-        nextSequenceNumber: 0,
-      },
+      startYear: SAMPLE_START_YEAR,
+      nextSeq: 1,
     };
 
-    const p = Projection.fromScenario(scenario, SAMPLE_START_YEAR, nullJurisdiction);
+    const p = Projection.fromState(state, nullJurisdiction);
 
-    // The imported event survived the construction.
+    // The restored event survived the construction — unlike `create`, which always starts from
+    // an empty ledger.
     expect(p.ledger.events.map((e) => e.id)).toEqual(["loan-2"]);
-    // The id floor cleared `job-4`, so the next mint is `job-5`.
+    // The id floor cleared `job-4`, so the next mint is `job-5` — not `job-1`, which the
+    // state's own `nextSeq` would have handed out on top of a live id.
     expect(p.addJob(P1, openEndedJob)).toBe("job-5");
     // One shared counter: the sequence side was lifted to that same floor, so the next append
-    // lands at or above 5 — well clear of the imported event still sitting at 2.
+    // lands at or above 5 — well clear of the restored event still sitting at 2.
     const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
     const appended = p.ledger.events.find((e) => e.id === eventId);
     expect(appended?.sequenceNumber).toBeGreaterThanOrEqual(5);
+  });
+
+  it("keeps every id and event across a round trip, and never lowers a counter", () => {
+    const authored = freshProjection();
+    authored.addJob(P1, openEndedJob);
+    authored.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+    const before = authored.toState();
+    const after = Projection.fromState(before, nullJurisdiction).toState();
+
+    // What the round trip must preserve: the plan, and every event with its id and its place
+    // in the sequence.
+    expect(after.scenario.plan).toEqual(before.scenario.plan);
+    expect(after.scenario.ledger.events).toEqual(before.scenario.ledger.events);
+    // Counters only ever rise. `nextSequenceNumber` DOES rise here, and legitimately: the two
+    // counters share one floor (see `seqFloor`), but `commit` maintains only `nextSeq` as a
+    // write lands, so restoring is where the sequence side catches up. Raising it is always
+    // safe — the invariant is "strictly above every event" — and it never reissues a number.
+    expect(after.nextSeq).toBeGreaterThanOrEqual(before.nextSeq);
+    expect(after.scenario.ledger.nextSequenceNumber).toBeGreaterThanOrEqual(
+      before.scenario.ledger.nextSequenceNumber,
+    );
+  });
+
+  it("is idempotent from the second trip on, so restoring cannot walk a counter upward", () => {
+    // The catch-up above happens once. If it repeated, every reload would inflate the counters
+    // a little further — so this is the property that makes the raise safe rather than a drift.
+    const authored = freshProjection();
+    authored.addJob(P1, openEndedJob);
+    authored.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+
+    const once = Projection.fromState(authored.toState(), nullJurisdiction).toState();
+    const twice = Projection.fromState(once, nullJurisdiction).toState();
+    expect(twice).toEqual(once);
   });
 });
 

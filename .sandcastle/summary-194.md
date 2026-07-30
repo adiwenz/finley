@@ -75,9 +75,11 @@ gone.
 
 ## Key Decisions & Why
 
-- **Authoring and import are different APIs.** `fromInput` describes a scenario for the first time
-  and mints; `fromState` restores state whose ids were issued earlier and floors the counter past
-  them. Collapsing the two — letting an input carry ids — is what gives identity two authorities,
+- **Authoring and restoration are different APIs, and there is exactly one of each.**
+  `fromInput` describes a scenario for the first time and mints; `fromState` restores state whose
+  ids were issued earlier and floors the counter past them. `fromScenario` is gone — it was
+  `fromState` with `nextSeq` left unsaid, which the flooring works out anyway — and `create` now
+  routes through `fromState` too, so the class has ONE normalization path. Collapsing the two — letting an input carry ids — is what gives identity two authorities,
   so `ScenarioInput` has no `id` field anywhere.
 - **`Ref` is branded.** `string & { [REF_BRAND]: true }`, built with `ref(name)`. The distinction
   from an id is now enforced by the compiler rather than asserted in a comment: an id read off a
@@ -122,6 +124,6 @@ gone.
 
 - `npm run check:purity` — engine purity guard passes.
 - `npm run typecheck` — clean.
-- `npm run test` — **1183 tests green** (45 todo) across 90 files, including the engine
+- `npm run test` — **1185 tests green** (45 todo) across 90 files, including the engine
   `fromInput`/`scenarioInput`/`scenarioRefs` suites, the app `presets` and `mainState`
   integration suites, and the `planWrites.guard` facade-surface scan.
