@@ -15,10 +15,9 @@
 
 import type { Ledger } from "./ledger";
 import type { LifeEvent, NewLifeEvent } from "./eventTypes";
-import { applyEvent, checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
-import { contextFrom, seedState, sortedEvents } from "./interpret";
 import type { LedgerBaseConfig } from "./ledgerBase";
+import { validateLedger } from "./validateLedger";
 
 export type UpdateResult =
   | { ok: true; ledger: Ledger }
@@ -51,24 +50,22 @@ export function updateEvent(
   if (!data.ok) return { ok: false, conflict: data.reason };
 
   const revised = { ...next, sequenceNumber: existing.sequenceNumber } as LifeEvent;
-  const events = ledger.events.map((e) => (e.id === id ? revised : e));
+  // Sequence numbers are never recycled, and an update mints none.
+  const updated: Ledger = {
+    events: ledger.events.map((e) => (e.id === id ? revised : e)),
+    nextSequenceNumber: ledger.nextSequenceNumber,
+  };
 
   // Replay from the base-seeded state: the revision must satisfy its own preconditions,
   // and no event depending on it may be stranded.
-  const state = seedState(base);
-  const context = contextFrom(base);
-  for (const event of sortedEvents(events)) {
-    const check = checkEvent(event, state, context);
-    if (!check.ok) {
-      const blame =
-        event.id === id
-          ? `the revision fails — ${check.reason}`
-          : `it causes event "${event.id}" (${event.type}) to fail — ${check.reason}`;
-      return { ok: false, conflict: `Cannot update event "${id}": ${blame}` };
-    }
-    applyEvent(event, state, context);
+  const replay = validateLedger(updated, base);
+  if (!replay.ok) {
+    const blame =
+      replay.event.id === id
+        ? `the revision fails — ${replay.reason}`
+        : `it causes event "${replay.event.id}" (${replay.event.type}) to fail — ${replay.reason}`;
+    return { ok: false, conflict: `Cannot update event "${id}": ${blame}` };
   }
 
-  // Sequence numbers are never recycled, and an update mints none.
-  return { ok: true, ledger: { events, nextSequenceNumber: ledger.nextSequenceNumber } };
+  return { ok: true, ledger: updated };
 }

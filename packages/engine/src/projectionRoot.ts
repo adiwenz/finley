@@ -70,6 +70,7 @@ import { addEvent, fundingLookup } from "./ledger/addEvent";
 import type { FundingLookup } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
+import { validateLedger } from "./ledger/validateLedger";
 import { eventsFundedByGoal, validateGoalRemoval } from "./goalFunding";
 import {
   evaluateFullRetirementAtAge,
@@ -110,6 +111,57 @@ export interface ProjectionState {
   /** The frozen "now" — calendar year of month 0. An input, never a wall-clock read. */
   readonly startYear: number;
   readonly nextSeq: number;
+  /**
+   * The format version of the shape that wrote this state — self-describing, so a loader knows
+   * whether it can read it. {@link Projection.toState} stamps {@link CURRENT_FORMAT_VERSION};
+   * {@link Projection.fromState} rejects any other with {@link UnsupportedVersionError} before it
+   * touches replay, since a shape this build cannot read is not worth replaying.
+   */
+  readonly version: number;
+}
+
+/**
+ * The format version this build writes, and — until a migration exists — the sole one it reads.
+ * Bump when the serialized shape changes incompatibly.
+ *
+ * A *range* of accepted versions would be a promise this build cannot keep: reading a v1 file
+ * under v2 rules means transforming it, and no transforms exist. So the check is exact equality,
+ * and it stays exact until the first real migration lands — at which point the gate becomes
+ * "migrate an older supported version up to current, or reject", not "widen the range".
+ */
+export const CURRENT_FORMAT_VERSION = 1;
+
+/**
+ * The version-rejection bucket, distinct from the generic invalid-plan `Error` a shape/replay
+ * failure throws: it names a file the app cannot open because it is the wrong *version*, so the
+ * UX is "update to open this" rather than "can't open". Carries the file's declared version
+ * (`undefined` when the plan predates versioning) and the one version this build reads.
+ */
+export class UnsupportedVersionError extends Error {
+  constructor(
+    readonly fileVersion: number | undefined,
+    readonly supported: number,
+  ) {
+    super(
+      `Projection: cannot load — plan format version ${fileVersion ?? "unknown"} is unsupported; ` +
+        `this build reads version ${supported}`,
+    );
+    this.name = "UnsupportedVersionError";
+  }
+}
+
+/**
+ * Reject anything but {@link CURRENT_FORMAT_VERSION}, including an unversioned plan. Runs before
+ * replay on every {@link Projection.fromState}: replaying a shape this build cannot read would
+ * fail with a meaningless per-event conflict instead of the true cause.
+ *
+ * Exact equality, deliberately — an older version is no more loadable than a newer one while
+ * there is nothing to migrate it with.
+ */
+function assertSupportedVersion(version: number | undefined): void {
+  if (version !== CURRENT_FORMAT_VERSION) {
+    throw new UnsupportedVersionError(version, CURRENT_FORMAT_VERSION);
+  }
 }
 
 export type JobInput = Omit<Job, "id" | "ownerId"> & { readonly id?: string };
@@ -572,10 +624,12 @@ export class Projection {
    * where the engine mints and the counter advances as it goes.
    */
   static fromScenario(scenario: Scenario, startYear: number, jurisdiction: Jurisdiction): Projection {
-    return new Projection(
-      withNormalizedCounters({ scenario, startYear, nextSeq: 1 }),
+    const projection = new Projection(
+      withNormalizedCounters({ scenario, startYear, nextSeq: 1, version: CURRENT_FORMAT_VERSION }),
       jurisdiction,
     );
+    projection.assertReplayable(projection.ledger);
+    return projection;
   }
 
   /**
@@ -1062,6 +1116,29 @@ export class Projection {
   }
 
   /**
+   * Reject a pre-built ledger that will not replay cleanly against this plan's base — the gate
+   * on every import path that installs a timeline whole rather than minting it event-by-event.
+   * A structurally-valid but un-replayable ledger (tampered, hand-edited, version-skewed) would
+   * otherwise install silently and project garbage; here it throws, naming the stranded event.
+   *
+   * Replay validity only — {@link validateLedger} runs `checkEvent`, never the affordability
+   * gate, so a plan that projects insolvent still loads. Complementary to `withNormalizedCounters`:
+   * that floors ids, this checks preconditions; neither substitutes for the other.
+   *
+   * The offender's id and type are stamped into the message here rather than borrowed from the
+   * `reason`: a reason is free to explain the failure without naming the event (the unknown-type
+   * rejection does exactly that), so a message that relied on it would silently lose the one
+   * detail a user needs to find the bad row. Same detail `removeEvent` / `updateEvent` give.
+   */
+  private assertReplayable(ledger: Ledger): void {
+    const result = validateLedger(ledger, this.baseConfig());
+    if (!result.ok) {
+      const { id, type } = result.event;
+      throw new Error(`Projection: cannot load — event "${id}" (${type}) fails — ${result.reason}`);
+    }
+  }
+
+  /**
    * Validates through {@link addEvent} — including the affordability gate, run under the
    * construction-time {@link validationJurisdiction} so the §4.5 down-payment check nets funds
    * after that jurisdiction's tax — and commits ledger and post-mint `nextSeq` as ONE new state.
@@ -1275,17 +1352,21 @@ export class Projection {
    * Swap the whole timeline — how a caller loads a pre-built scenario without discarding the
    * plan it was authored against, which {@link fromState} would.
    *
-   * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
-   * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
-   * the import already occupies ({@link seqFloor}), because an imported event holding `child-1`
-   * or sitting at `sequenceNumber` 7 would otherwise be handed straight back to the next
-   * authored event as its own id or its own place in the log.
+   * The incoming ledger is validated before anything commits ({@link assertReplayable}): an
+   * un-replayable import throws and the state is left untouched, so no partial timeline escapes.
+   * The counters are the caller's responsibility no more than the validity is — both are advanced
+   * past whatever the import already occupies ({@link seqFloor}), because an imported event
+   * holding `child-1` or sitting at `sequenceNumber` 7 would otherwise be handed straight back
+   * to the next authored event as its own id or its own place in the log.
    *
    * Prefer the per-transaction methods for anything an authoring flow does; reach for this
    * only when the ledger arrives already-built.
    */
   resetLedger(ledger: Ledger): void {
     const s = this.state;
+    // Gate before commit: the incoming ledger replays against the standing plan, and only then
+    // is the swap applied — a rejected import mutates nothing.
+    this.assertReplayable(ledger);
     // Normalized over the plan AND the incoming ledger, so the standing collections keep their
     // claim on the counter across a reset. Sequence numbers are allowed to skip — the gap this
     // leaves is the same kind a removal leaves.
@@ -1577,7 +1658,12 @@ export class Projection {
    * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
   static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
-    return new Projection(withNormalizedCounters(state), jurisdiction);
+    // Version before replay: a foreign shape must be refused as unsupported, not dragged through
+    // a replay that would blame some arbitrary event for a mismatch the whole file carries.
+    assertSupportedVersion(state.version);
+    const projection = new Projection(withNormalizedCounters(state), jurisdiction);
+    projection.assertReplayable(projection.ledger);
+    return projection;
   }
 }
 

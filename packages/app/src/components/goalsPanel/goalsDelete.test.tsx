@@ -43,12 +43,14 @@ function homePurchase(
     id,
     sequenceNumber,
     month,
-    propertyId: "house1",
+    // Entities namespaced by the event id so a ledger holding two purchases replays cleanly:
+    // a second buy reusing one property would strand on the load gate (property already exists).
+    propertyId: `house-${id}`,
     ownerId: "p1",
     purchasePriceCents: dollarsToCents(500000),
     downPaymentCents: dollarsToCents(100000),
     downPaymentSourceIds: sourceIds,
-    mortgageLiabilityId: "mtg1",
+    mortgageLiabilityId: `mtg-${id}`,
     mortgageApr: 0,
     mortgageTermMonths: 360,
   };
