@@ -70,6 +70,7 @@ import { addEvent, fundingLookup } from "./ledger/addEvent";
 import type { FundingLookup } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
+import { validateLedger } from "./ledger/validateLedger";
 import { eventsFundedByGoal, validateGoalRemoval } from "./goalFunding";
 import {
   evaluateFullRetirementAtAge,
@@ -572,10 +573,12 @@ export class Projection {
    * where the engine mints and the counter advances as it goes.
    */
   static fromScenario(scenario: Scenario, startYear: number, jurisdiction: Jurisdiction): Projection {
-    return new Projection(
+    const projection = new Projection(
       withNormalizedCounters({ scenario, startYear, nextSeq: 1 }),
       jurisdiction,
     );
+    projection.assertReplayable(projection.ledger);
+    return projection;
   }
 
   /**
@@ -1062,6 +1065,23 @@ export class Projection {
   }
 
   /**
+   * Reject a pre-built ledger that will not replay cleanly against this plan's base — the gate
+   * on every import path that installs a timeline whole rather than minting it event-by-event.
+   * A structurally-valid but un-replayable ledger (tampered, hand-edited, version-skewed) would
+   * otherwise install silently and project garbage; here it throws, naming the stranded event.
+   *
+   * Replay validity only — {@link validateLedger} runs `checkEvent`, never the affordability
+   * gate, so a plan that projects insolvent still loads. Complementary to `withNormalizedCounters`:
+   * that floors ids, this checks preconditions; neither substitutes for the other.
+   */
+  private assertReplayable(ledger: Ledger): void {
+    const result = validateLedger(ledger, this.baseConfig());
+    if (!result.ok) {
+      throw new Error(`Projection: cannot load — ${result.reason}`);
+    }
+  }
+
+  /**
    * Validates through {@link addEvent} — including the affordability gate, run under the
    * construction-time {@link validationJurisdiction} so the §4.5 down-payment check nets funds
    * after that jurisdiction's tax — and commits ledger and post-mint `nextSeq` as ONE new state.
@@ -1275,17 +1295,21 @@ export class Projection {
    * Swap the whole timeline — how a caller loads a pre-built scenario without discarding the
    * plan it was authored against, which {@link fromState} would.
    *
-   * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
-   * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
-   * the import already occupies ({@link seqFloor}), because an imported event holding `child-1`
-   * or sitting at `sequenceNumber` 7 would otherwise be handed straight back to the next
-   * authored event as its own id or its own place in the log.
+   * The incoming ledger is validated before anything commits ({@link assertReplayable}): an
+   * un-replayable import throws and the state is left untouched, so no partial timeline escapes.
+   * The counters are the caller's responsibility no more than the validity is — both are advanced
+   * past whatever the import already occupies ({@link seqFloor}), because an imported event
+   * holding `child-1` or sitting at `sequenceNumber` 7 would otherwise be handed straight back
+   * to the next authored event as its own id or its own place in the log.
    *
    * Prefer the per-transaction methods for anything an authoring flow does; reach for this
    * only when the ledger arrives already-built.
    */
   resetLedger(ledger: Ledger): void {
     const s = this.state;
+    // Gate before commit: the incoming ledger replays against the standing plan, and only then
+    // is the swap applied — a rejected import mutates nothing.
+    this.assertReplayable(ledger);
     // Normalized over the plan AND the incoming ledger, so the standing collections keep their
     // claim on the counter across a reset. Sequence numbers are allowed to skip — the gap this
     // leaves is the same kind a removal leaves.
@@ -1577,7 +1601,9 @@ export class Projection {
    * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
   static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
-    return new Projection(withNormalizedCounters(state), jurisdiction);
+    const projection = new Projection(withNormalizedCounters(state), jurisdiction);
+    projection.assertReplayable(projection.ledger);
+    return projection;
   }
 }
 

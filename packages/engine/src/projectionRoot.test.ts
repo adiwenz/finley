@@ -1443,6 +1443,56 @@ describe("Projection root — fromScenario imports a plan and its timeline toget
   });
 });
 
+describe("Projection root — importing a pre-built ledger rejects one that will not replay", () => {
+  // A lone separation with no marriage to end: replay fails its precondition on the first
+  // event, so every import path must refuse it and name it rather than install a broken
+  // timeline. The offender's type and id surface in the thrown message.
+  const unreplayable: Ledger = {
+    events: [
+      {
+        id: "sep-1",
+        type: "SeparationEvent",
+        month: 24,
+        sequenceNumber: 1,
+        partnerPersonId: "nobody",
+        alimonyMonthlyCents: dollarsToCents(0),
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: dollarsToCents(0),
+      },
+    ],
+    nextSequenceNumber: 2,
+  };
+
+  it("fromState rejects an un-replayable ledger, naming the offending event", () => {
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      scenario: withLedger(base.scenario, unreplayable),
+    };
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
+      /cannot load — SeparationEvent "sep-1"/,
+    );
+  });
+
+  it("fromScenario rejects an un-replayable ledger, naming the offending event", () => {
+    const base = freshProjection().toState();
+    const scenario = withLedger(base.scenario, unreplayable);
+    expect(() =>
+      Projection.fromScenario(scenario, SAMPLE_START_YEAR, nullJurisdiction),
+    ).toThrow(/cannot load — SeparationEvent "sep-1"/);
+  });
+
+  it("resetLedger rejects an un-replayable ledger and leaves the state untouched", () => {
+    const p = freshProjection();
+    const before = p.state;
+    expect(() => p.resetLedger(unreplayable)).toThrow(
+      /cannot load — SeparationEvent "sep-1"/,
+    );
+    // No partial projection escapes: a refused reset commits nothing.
+    expect(p.state).toBe(before);
+  });
+});
+
 describe("Projection root — the id counter starts clear of the plan it is given", () => {
   function planWith(overrides: Partial<typeof samplePlan>) {
     return { ...samplePlan, jobs: [], budgetLines: [], goals: [], ...overrides };
