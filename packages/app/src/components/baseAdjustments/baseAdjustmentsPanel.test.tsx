@@ -778,7 +778,7 @@ describe("BaseAdjustmentsPanel — long-horizon points", () => {
 describe("BaseAdjustmentsPanel — per-line graph", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(1_500)),
+    ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
     healthMonthlyCents: 0,
@@ -804,7 +804,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
 
   it("reports a comfortable budget as financed throughout", () => {
     const richPlan: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(8_000)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
       healthMonthlyCents: 0,

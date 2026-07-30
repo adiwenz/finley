@@ -237,7 +237,7 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // Real single-filer federal tax pins the default $5k plan at the Social-Security floor
     // (67), where an added expense flips it infeasible rather than merely later. The raise
     // buys headroom below the floor, keeping "moves strictly later" observable.
-    const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
+    const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(7000));
     // A child spawns an 18-year childcare expense on the ledger — the surviving way the
     // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
     const base = createProjectionBase(plan, CTX);

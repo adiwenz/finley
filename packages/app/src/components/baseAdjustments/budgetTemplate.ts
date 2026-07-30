@@ -68,10 +68,13 @@ const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
 const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
 const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
 
-function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLine {
+// Seeds are authored ID-free: `toBudgetLines` keys each on its label, the same `id ?? label`
+// fallback a hand-written line takes, so no invented `seed-*` id has to be spent on a line the
+// user never named. The label is not a minted-shaped id, so committing the seed leaves the
+// counter untouched.
+function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLineInput {
   const account = DEFAULT_CONTRIBUTION_ACCOUNT;
-  const line: BudgetLine = {
-    id: "seed-savings",
+  const line: BudgetLineInput = {
     label: "Savings",
     target: { kind: "account", accountId: account.accountId, taxTreatment: account.taxTreatment },
     amountSource: { kind: "literal", monthlyCents },
@@ -81,10 +84,9 @@ function seedSavingsLine(monthlyCents: number, retirementMonth?: number): Budget
   return retirementMonth === undefined ? line : { ...line, span: { endMonth: retirementMonth } };
 }
 
-function seedExpenseLine(category: "needs" | "wants", monthlyCents: number): BudgetLine {
+function seedExpenseLine(category: "needs" | "wants", monthlyCents: number): BudgetLineInput {
   const label = category === "needs" ? "Needs" : "Wants";
   return {
-    id: `seed-${category}`,
     label,
     target: { kind: "expense" },
     amountSource: { kind: "literal", monthlyCents },
@@ -135,8 +137,9 @@ export function redistributeToTiers(
     return withMonthlyCents(l, newCents);
   });
 
-  // An empty tier can't be scaled into existence, so seed it.
-  const seeds: BudgetLine[] = [];
+  // An empty tier can't be scaled into existence, so seed it. `toBudgetLines` gives each seed
+  // its label as a key.
+  const seeds: BudgetLineInput[] = [];
   for (const tier of TIERS) {
     if (lines.some((l) => l.category === tier)) continue;
     seeds.push(
@@ -146,7 +149,7 @@ export function redistributeToTiers(
     );
   }
 
-  return [...scaled, ...seeds];
+  return [...scaled, ...toBudgetLines(seeds)];
 }
 
 /**

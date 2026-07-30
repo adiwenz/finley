@@ -1791,6 +1791,9 @@ export class Projection {
 
 // The authored model, and the artifacts a run produces.
 export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan";
+// The declarative, id-free authoring input {@link fromInput} consumes, and the result it
+// answers with — how seed data and presets describe a whole scenario without naming an id.
+export type { ScenarioInput, FromInputResult } from "./scenarioInput";
 export type {
   Job,
   JobPatch,

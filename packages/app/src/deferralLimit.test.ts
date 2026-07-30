@@ -30,8 +30,11 @@ function budget(opts: {
   overrides?: Partial<Plan>;
 }): Plan {
   let plan: Plan = { ...PLAN_DEFAULTS, ...(opts.overrides ?? {}) };
-  if (opts.monthlyIncome !== undefined) plan = setJobMonthlyIncome(plan, "job-1", dollarsToCents(opts.monthlyIncome));
-  if (opts.deferralPct !== undefined) plan = setJobDeferralFraction(plan, "job-1", opts.deferralPct / 100);
+  // The default plan's lone job, by its engine-minted id — these single-earner cases never
+  // override `jobs`, so this is Alex's job on the plan being tuned.
+  const jobId = PLAN_DEFAULTS.jobs[0]!.id;
+  if (opts.monthlyIncome !== undefined) plan = setJobMonthlyIncome(plan, jobId, dollarsToCents(opts.monthlyIncome));
+  if (opts.deferralPct !== undefined) plan = setJobDeferralFraction(plan, jobId, opts.deferralPct / 100);
   return plan;
 }
 

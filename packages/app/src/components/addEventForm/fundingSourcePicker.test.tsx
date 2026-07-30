@@ -14,6 +14,7 @@ import {
   emptyLedger,
   createProjectionBase,
   fundingLookup,
+  goalFundAccountId,
   type BuyHomeInput,
   type Projection,
 } from "@finley/engine";
@@ -63,6 +64,12 @@ const row = (name: RegExp) => box(name).closest("label")!;
 // the home fund alone does not.
 const MONTH = 120;
 
+/** A default goal's derived fund-account id, keyed by the goal's minted id — never a literal. */
+const fundAccountFor = (goalName: string) =>
+  goalFundAccountId(PLAN_DEFAULTS.goals.find((g) => g.name === goalName)!);
+const EMERGENCY_FUND = fundAccountFor("Emergency fund");
+const HOME_FUND = fundAccountFor("Home down payment");
+
 describe("down-payment source picker", () => {
   it("records the accounts in the ORDER they were picked, not display order", () => {
     const { buyHome } = renderForm(MONTH);
@@ -73,14 +80,14 @@ describe("down-payment source picker", () => {
     fireEvent.click(box(/Emergency fund/));
     addEvent();
 
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["savings", "fund-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["savings", EMERGENCY_FUND]);
   });
 
   it("defaults to the largest single account, so the form works untouched", () => {
     const { buyHome } = renderForm(MONTH);
     addEvent();
     // Whatever holds the most at that month — the engine orders the pool, not the form.
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["fund-home"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual([HOME_FUND]);
   });
 
   it("asks for at least one account when everything is deselected", () => {
@@ -182,7 +189,7 @@ describe("down-payment source picker — an account that empties at a later mont
 
     // The drained id must not ride along to the engine, where it would be silently worth $0
     // against the §4.5 gate.
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["fund-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual([EMERGENCY_FUND]);
   });
 
   it("lists every account at $0 when none of them holds anything, and picks no default", () => {

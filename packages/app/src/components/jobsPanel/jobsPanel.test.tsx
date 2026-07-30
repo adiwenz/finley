@@ -30,6 +30,9 @@ import { JobsPanel } from "./jobsPanel";
 
 afterEach(cleanup);
 
+/** The default plan's single job, addressed by its engine-minted id rather than a hardcoded one. */
+const DEFAULT_JOB_ID = PLAN_DEFAULTS.jobs[0]!.id;
+
 /** A refused transaction: the facade threw, so nothing on either plane changed. */
 const refuseEveryWrite: Transact = () => undefined;
 
@@ -290,7 +293,7 @@ describe("JobsPanel — every member's jobs", () => {
     expect(partnerJobs()).toEqual([]);
     const { plan } = authored();
     // The same job — its id survived the crossing, so its income band did too.
-    expect(plan.jobs.map((j) => j.id)).toEqual(["job-1", "p-1-job-1"]);
+    expect(plan.jobs.map((j) => j.id)).toEqual([DEFAULT_JOB_ID, "p-1-job-1"]);
     const moved = plan.jobs.find((j) => j.id === "p-1-job-1")!;
     expect(moved.ownerId).toBe(PRIMARY_PERSON_ID);
     expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(2500 * 12));
@@ -318,8 +321,8 @@ describe("JobsPanel — every member's jobs", () => {
     // One edit to the existing job, so all of it rides along; minting from the form draft
     // instead loses id, bonus, raise and match.
     const rich = addJobPayChange(
-      setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.1),
-      "job-1",
+      setJobDeferralFraction(PLAN_DEFAULTS, DEFAULT_JOB_ID, 0.1),
+      DEFAULT_JOB_ID,
       { month: 24, kind: "changeBy", cents: -dollarsToCents(500) },
     );
     const withMatch: Plan = {
@@ -338,7 +341,7 @@ describe("JobsPanel — every member's jobs", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const [moved] = partnerJobs();
-    expect(moved.id).toBe("job-1"); // the same job, not a new one minted on the partner
+    expect(moved.id).toBe(DEFAULT_JOB_ID); // the same job, not a new one minted on the partner
     expect(moved.ownerId).toBe("p-1");
     expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(6000 * 12)); // edited in the same submit
     expect(moved.payChanges).toEqual([{ month: 24, kind: "changeBy", cents: -dollarsToCents(500) }]);
@@ -510,7 +513,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 describe("JobsPanel — permanent pay changes", () => {
   // A pay change lands on `payChanges`, not the starting salary, so the headline stays
   // $5,000/mo while the change moves pay — showing only the headline hides it.
-  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 12, kind: "setTo", cents: 0 });
+  const withSetToZero = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, { month: 12, kind: "setTo", cents: 0 });
 
   it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
     render(<Harness initial={withSetToZero} />);
@@ -535,7 +538,7 @@ describe("JobsPanel — permanent pay changes", () => {
   });
 
   it("describes a delta cut with the right verb and sign", () => {
-    const cut = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
+    const cut = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
     render(<Harness initial={cut} />);
     expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
   });
@@ -631,7 +634,7 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
 
   it("discloses that a deferral over the annual limit is paid as taxable income", () => {
     // $5,000/mo = $60k/yr; a 50% deferral is $30k, above the 2026 $24,500 elective limit.
-    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.5)} />);
+    render(<Harness initial={setJobDeferralFraction(PLAN_DEFAULTS, DEFAULT_JOB_ID, 0.5)} />);
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
     // Phrased as the user's own on a single-earner plan — no name.
     expect(screen.getByText(/Across your jobs/i)).toBeTruthy();
@@ -655,7 +658,7 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
     // $20k + $20k tops a single $24,500 limit, but neither person is over their own.
     render(
       <Harness
-        initial={setJobDeferralFraction(PLAN_DEFAULTS, "job-1", 0.3334)}
+        initial={setJobDeferralFraction(PLAN_DEFAULTS, DEFAULT_JOB_ID, 0.3334)}
         events={[partnerDeferring(5000, 33.34)]}
       />,
     );
