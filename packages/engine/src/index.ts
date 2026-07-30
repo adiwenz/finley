@@ -23,6 +23,8 @@ export {
   mapJob,
   withJobPatch,
   withMonthlyIncome,
+  monthlyIncomeCentsOf,
+  deferralFractionOf,
   withDeferralFraction,
   withPayChange,
   withoutPayChange,

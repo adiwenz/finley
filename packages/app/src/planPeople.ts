@@ -9,6 +9,8 @@
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
+  deferralFractionOf,
+  monthlyIncomeCentsOf,
   type Job,
   type JobIncomeOverride,
   type JobInput,
@@ -35,7 +37,7 @@ export function primaryJobs(plan: Plan): readonly Job[] {
  */
 export function totalMonthlyIncomeCents(plan: Plan): number {
   return primaryJobs(plan).reduce(
-    (sum, j) => sum + Math.round(j.salary.startingSalaryCents / 12),
+    (sum, j) => sum + monthlyIncomeCentsOf(j),
     0,
   );
 }
@@ -46,7 +48,7 @@ export function blendedDeferralFraction(plan: Plan): number {
   const grossCents = jobs.reduce((s, j) => s + j.salary.startingSalaryCents, 0);
   if (grossCents <= 0) return 0;
   const deferredCents = jobs.reduce(
-    (s, j) => s + j.salary.startingSalaryCents * (j.deferral?.deferralFraction ?? 0),
+    (s, j) => s + j.salary.startingSalaryCents * deferralFractionOf(j),
     0,
   );
   return deferredCents / grossCents;
@@ -114,11 +116,11 @@ export function jobToDraftFor(birthYear: number, job: Job): JobDraft {
   return {
     name: job.name ?? "",
     ownerId: job.ownerId,
-    monthlyCents: Math.round(job.salary.startingSalaryCents / 12),
+    monthlyCents: monthlyIncomeCentsOf(job),
     startAge: jobStartAgeFor(birthYear, job),
     endAge: jobEndAgeFor(birthYear, job),
     realGrowthPct: job.salary.realGrowthPct,
-    deferralPct: Math.round((job.deferral?.deferralFraction ?? 0) * 100),
+    deferralPct: Math.round(deferralFractionOf(job) * 100),
   };
 }
 

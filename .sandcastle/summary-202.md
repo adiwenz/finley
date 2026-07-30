@@ -109,6 +109,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   array it is handed).
 - `budgetLine.ts`: added `withLineOverride` — the one-per-(scope, month) rule, moved down from the
   app.
+- `job.ts`: added `monthlyIncomeCentsOf` and `deferralFractionOf`, the read counterparts of
+  `withMonthlyIncome` and `withDeferralFraction`. The engine owned each conversion in the write
+  direction only, so the read was open-coded at five app sites — including the `?? 0` that reads
+  an absent deferral as the 0% it was elected at, which is the same rule as removing it at 0.
 - `projectionRoot.ts`: partner-owned jobs — `addPartnerJob` (mints off the shared counter),
   `replacePartnerJob`, `updatePartnerJob`, `removePartnerJob`. Each locates the person's
   `RelationshipEvent`, rewrites that person's `jobs`, and commits through the same `updateEvent`

@@ -13,7 +13,7 @@
 
 import { retirementDeferralLimitCents } from "@finley/rules";
 import { START_YEAR } from "./config";
-import type { PersonId } from "@finley/engine";
+import { deferralFractionOf, type PersonId } from "@finley/engine";
 import type { JobOwner } from "./jobOwners";
 import { yearOfMonth } from "./planPeople";
 
@@ -62,7 +62,7 @@ export function firstDeferralLimitCrossing(
 
   for (const owner of owners) {
     // Every plan the person defers into, not one privileged job.
-    const deferringJobs = owner.jobs.filter((j) => (j.deferral?.deferralFraction ?? 0) > 0);
+    const deferringJobs = owner.jobs.filter((j) => deferralFractionOf(j) > 0);
     if (deferringJobs.length === 0) continue;
 
     const years = membershipYears(owner);

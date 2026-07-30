@@ -155,6 +155,28 @@ export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
 }
 
 /**
+ * Read pay back in **monthly** cents — the inverse of {@link withMonthlyIncome}, and the
+ * reason it exists: a job stores an annual figure and every surface states a monthly one, so
+ * the two halves of that conversion have to round the same way or a number typed into a form
+ * comes back a cent different from what was typed.
+ *
+ * The STARTING salary, before growth and before any {@link JobPayChange} — what a headline
+ * quotes and what an edit form seeds from.
+ */
+export function monthlyIncomeCentsOf(job: Job): Cents {
+  return Math.round(job.salary.startingSalaryCents / 12);
+}
+
+/**
+ * The elected pre-tax 401(k) fraction (0..1), 0 when there is no deferral — the inverse of
+ * {@link withDeferralFraction}, which removes the deferral outright at 0. The absent case is
+ * that rule read back: no deferral and a 0% deferral are the same elected rate.
+ */
+export function deferralFractionOf(job: Job): number {
+  return job.deferral?.deferralFraction ?? 0;
+}
+
+/**
  * Set the pre-tax 401(k) deferral as a fraction of THIS job's gross (0..1). A fraction of 0
  * *removes* the deferral rather than recording a 0% one, and any positive fraction preserves
  * the funded account and employer match — both properties of the employment, not of the

@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
+  monthlyIncomeCentsOf,
   type Household,
   type Job,
   type Ledger,
@@ -219,7 +220,7 @@ export function BaseAdjustmentsPanel({
     // household's spending to half its income.
     const monthlyIncomeCents = owners.reduce(
       (sum, o) =>
-        sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
+        sum + o.jobs.reduce((s, j) => s + monthlyIncomeCentsOf(j), 0),
       0,
     );
     // One transaction: the whole rebalance lands together or not at all.

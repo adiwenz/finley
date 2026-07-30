@@ -13,7 +13,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { PRIMARY_PERSON_ID, type Job, type Household, type Ledger, type Plan } from "@finley/engine";
+import {
+  PRIMARY_PERSON_ID,
+  monthlyIncomeCentsOf,
+  type Job,
+  type Household,
+  type Ledger,
+  type Plan,
+} from "@finley/engine";
 import {
   jobInputFromDraft,
   withoutPayChange,
@@ -129,7 +136,7 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
       ) : (
         <ul className={styles.list}>
           {rows.map(({ owner, job, label }) => {
-            const monthlyCents = Math.round(job.salary.startingSalaryCents / 12);
+            const monthlyCents = monthlyIncomeCentsOf(job);
             const overrideCount = job.incomeOverrides?.length ?? 0;
             // Permanent pay changes, oldest first — listed in full, not just counted.
             const payChanges = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
