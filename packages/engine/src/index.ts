@@ -124,7 +124,7 @@ export type {
   RetirementOutlook,
   ResolvedExpenseRow,
 } from "./projectionRoot";
-export { Projection, CURRENT_FORMAT_VERSION, SUPPORTED_VERSION_RANGE, UnsupportedVersionError } from "./projectionRoot";
+export { Projection, CURRENT_FORMAT_VERSION, UnsupportedVersionError } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
 // from a projection.
 export * from "./scenario";

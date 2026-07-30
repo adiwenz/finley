@@ -36,7 +36,7 @@ per-event as they mint):
 
 - **RED** (`packages/engine/src/projectionRoot.test.ts`): a new `describe` block asserting the
   serialized state carries `CURRENT_FORMAT_VERSION`, that a non-current version throws
-  `UnsupportedVersionError` carrying the file version and `SUPPORTED_VERSION_RANGE`, that an
+  `UnsupportedVersionError` carrying the file version and the supported version, that an
   unversioned plan is rejected, and that the version gate fires **before** replay (a state that is
   both wrong-version and un-replayable throws the version error, not the replay error). Initially
   failed — the symbols did not exist and no version check ran.
@@ -56,11 +56,22 @@ per-event as they mint):
   the current version, so only `fromState` (the one path that ingests a foreign `ProjectionState`)
   needs the check.
 - **Two rejection buckets.** `UnsupportedVersionError` (version → app UX "update to open this")
-  carries `fileVersion` + supported range; shape/replay failures stay a generic
+  carries `fileVersion` + the version this build reads; shape/replay failures stay a generic
   `Error("Projection: cannot load — …")` ("can't open"). The app distinguishes on the error type.
-- **Migration is seam-only.** `SUPPORTED_VERSION_RANGE` is exactly `{ min: 1, max: 1 }` today, so
-  the range check reduces to "must equal current". The seam (a range plus a rejection) is in place;
-  the transforms get written when v2 first exists.
+- **The version gate is exact equality, not a range.** A range would promise something this build
+  cannot deliver: reading a v1 file under v2 rules means *transforming* it, and no transforms
+  exist. So `assertSupportedVersion` compares against `CURRENT_FORMAT_VERSION` and rejects an
+  older version exactly as firmly as a newer one. When real migrations land, an older version
+  stops throwing because it gets migrated up — not because an accepted range quietly widened.
+- **A load error always names the offending event.** `Projection: cannot load — event "<id>"
+  (<type>) fails — <reason>`, the same detail `removeEvent`/`updateEvent` give. The id and type are
+  stamped in by the caller rather than borrowed from the `reason`, because a reason is free to
+  explain a failure without naming the event — the unknown-type rejection does exactly that.
+- **An unknown event discriminant is a rejection, not a crash.** `validateLedger` asks
+  `isKnownEventType` before dispatching: an imported plan is untrusted data wearing a `LifeEvent`
+  type, and a hand-edited or version-skewed one can name an event no handler answers to. The
+  registry lookup would return `undefined` and throw a raw `TypeError` naming neither the event
+  nor the plan.
 - **Affordability is never re-checked on load** (falls out for free — `validateLedger` runs only
   `checkEvent`, and `withNormalizedCounters` id-flooring is kept as a complement, not a substitute).
 
@@ -68,14 +79,19 @@ per-event as they mint):
 
 - `packages/engine/src/projectionRoot.ts`
   - `ProjectionState.version: number` — the self-describing format version.
-  - `CURRENT_FORMAT_VERSION = 1`, `SUPPORTED_VERSION_RANGE = { min, max }`.
+  - `CURRENT_FORMAT_VERSION = 1` — the version written, and the sole one read.
   - `UnsupportedVersionError` — carries `fileVersion` (`undefined` for a pre-versioning plan) and
-    the supported range.
-  - `assertSupportedVersion(version)` — rejects anything outside the range, including unversioned.
+    the supported version.
+  - `assertSupportedVersion(version)` — exact-equality gate; rejects older, newer, and unversioned.
   - `fromScenario` stamps `version: CURRENT_FORMAT_VERSION`; `fromState` calls
     `assertSupportedVersion` before flooring and replay.
-- `packages/engine/src/index.ts` — export `CURRENT_FORMAT_VERSION`, `SUPPORTED_VERSION_RANGE`,
-  `UnsupportedVersionError`.
+  - `assertReplayable` names the offender: `event "<id>" (<type>) fails — <reason>`.
+- `packages/engine/src/ledger/eventHandlers.ts` — `isKnownEventType(type)`, an own-property check
+  against the handler registry, so a prototype name (`"toString"`) is not mistaken for an event
+  type.
+- `packages/engine/src/ledger/validateLedger.ts` — gates the discriminant before `checkEvent` /
+  `applyEvent`, returning the offending event with reason `"unknown event type"`.
+- `packages/engine/src/index.ts` — export `CURRENT_FORMAT_VERSION`, `UnsupportedVersionError`.
 - `packages/engine/src/projectionRoot.test.ts` — new versioning `describe`; two existing
   hand-built `ProjectionState` literals updated with the now-required `version` field.
 
@@ -84,4 +100,5 @@ per-event as they mint):
 - `npm run check:purity` — engine purity guard passes (version narrowing is pure in-memory
   computation, no I/O).
 - `npm run typecheck` — clean.
-- `npm run test` — **1167 tests green** (45 todo), including the new versioning suite.
+- `npm run test` — **1173 tests green** (45 todo), including the new versioning, load-gate, and
+  unknown-discriminant suites.

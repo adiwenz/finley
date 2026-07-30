@@ -121,54 +121,46 @@ export interface ProjectionState {
 }
 
 /**
- * The format version this build writes and the sole one it reads. Bump when the serialized shape
- * changes incompatibly; when that first happens, {@link SUPPORTED_VERSION_RANGE} widens and a
- * migration transforms an older supported version up to current.
+ * The format version this build writes, and — until a migration exists — the sole one it reads.
+ * Bump when the serialized shape changes incompatibly.
+ *
+ * A *range* of accepted versions would be a promise this build cannot keep: reading a v1 file
+ * under v2 rules means transforming it, and no transforms exist. So the check is exact equality,
+ * and it stays exact until the first real migration lands — at which point the gate becomes
+ * "migrate an older supported version up to current, or reject", not "widen the range".
  */
 export const CURRENT_FORMAT_VERSION = 1;
-
-/**
- * The versions {@link Projection.fromState} accepts. Seam-only until v2: exactly the current
- * version, because no migration transforms exist yet — a non-current file is rejected, not
- * transformed. Carried on {@link UnsupportedVersionError} so the app can tell the user which
- * versions this build reads.
- */
-export const SUPPORTED_VERSION_RANGE = {
-  min: CURRENT_FORMAT_VERSION,
-  max: CURRENT_FORMAT_VERSION,
-} as const;
 
 /**
  * The version-rejection bucket, distinct from the generic invalid-plan `Error` a shape/replay
  * failure throws: it names a file the app cannot open because it is the wrong *version*, so the
  * UX is "update to open this" rather than "can't open". Carries the file's declared version
- * (`undefined` when the plan predates versioning) and the range this build supports.
+ * (`undefined` when the plan predates versioning) and the one version this build reads.
  */
 export class UnsupportedVersionError extends Error {
   constructor(
     readonly fileVersion: number | undefined,
-    readonly supported: { readonly min: number; readonly max: number },
+    readonly supported: number,
   ) {
     super(
       `Projection: cannot load — plan format version ${fileVersion ?? "unknown"} is unsupported; ` +
-        `this build reads ${supported.min}–${supported.max}`,
+        `this build reads version ${supported}`,
     );
     this.name = "UnsupportedVersionError";
   }
 }
 
 /**
- * Reject any version outside {@link SUPPORTED_VERSION_RANGE}, including an unversioned plan. Runs
- * before replay on every {@link Projection.fromState}: replaying a shape this build cannot read
- * would fail with a meaningless per-event conflict instead of the true cause.
+ * Reject anything but {@link CURRENT_FORMAT_VERSION}, including an unversioned plan. Runs before
+ * replay on every {@link Projection.fromState}: replaying a shape this build cannot read would
+ * fail with a meaningless per-event conflict instead of the true cause.
+ *
+ * Exact equality, deliberately — an older version is no more loadable than a newer one while
+ * there is nothing to migrate it with.
  */
 function assertSupportedVersion(version: number | undefined): void {
-  if (
-    version === undefined ||
-    version < SUPPORTED_VERSION_RANGE.min ||
-    version > SUPPORTED_VERSION_RANGE.max
-  ) {
-    throw new UnsupportedVersionError(version, SUPPORTED_VERSION_RANGE);
+  if (version !== CURRENT_FORMAT_VERSION) {
+    throw new UnsupportedVersionError(version, CURRENT_FORMAT_VERSION);
   }
 }
 
@@ -1132,11 +1124,17 @@ export class Projection {
    * Replay validity only — {@link validateLedger} runs `checkEvent`, never the affordability
    * gate, so a plan that projects insolvent still loads. Complementary to `withNormalizedCounters`:
    * that floors ids, this checks preconditions; neither substitutes for the other.
+   *
+   * The offender's id and type are stamped into the message here rather than borrowed from the
+   * `reason`: a reason is free to explain the failure without naming the event (the unknown-type
+   * rejection does exactly that), so a message that relied on it would silently lose the one
+   * detail a user needs to find the bad row. Same detail `removeEvent` / `updateEvent` give.
    */
   private assertReplayable(ledger: Ledger): void {
     const result = validateLedger(ledger, this.baseConfig());
     if (!result.ok) {
-      throw new Error(`Projection: cannot load — ${result.reason}`);
+      const { id, type } = result.event;
+      throw new Error(`Projection: cannot load — event "${id}" (${type}) fails — ${result.reason}`);
     }
   }
 

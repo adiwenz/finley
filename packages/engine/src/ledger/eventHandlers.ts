@@ -340,9 +340,27 @@ const handlers: HandlerRegistry = {
 };
 
 /**
+ * Does the registry hold a handler for this discriminant? The type-level guarantee that
+ * `event.type` is a {@link LifeEventType} holds only for events this build minted — an
+ * imported plan is `unknown` data wearing a `LifeEvent` type, and a hand-edited or
+ * version-skewed one may carry a discriminant no handler answers to. A caller replaying
+ * foreign events asks here first, so the miss is a rejection it can phrase rather than the
+ * `TypeError` {@link handlerFor} would raise on an `undefined` handler.
+ *
+ * Own properties only, so a prototype name (`"toString"`, `"constructor"`) is not mistaken
+ * for a registered event type.
+ */
+export function isKnownEventType(type: unknown): type is LifeEventType {
+  return typeof type === "string" && Object.hasOwn(handlers, type);
+}
+
+/**
  * Dispatch to the handler for `event.type`. The cast bridges TypeScript's inability to
  * correlate the mapped-type lookup with the specific union member; sound because the
  * registry is keyed by that exact type.
+ *
+ * Assumes a registered discriminant — true of every event this build mints. Replaying events
+ * from outside (an imported plan) gates on {@link isKnownEventType} first.
  */
 function handlerFor(event: LifeEvent): EventHandler<LifeEvent> {
   return handlers[event.type] as EventHandler<LifeEvent>;
