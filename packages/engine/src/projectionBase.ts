@@ -63,9 +63,13 @@ export const CONTRIBUTION_TARGETS: readonly {
   { accountId: SAVINGS_ID, label: "Cash savings", taxTreatment: "postTax" },
 ];
 
-/** One fund account per goal, so two goals never share a balance. */
+/**
+ * One fund account per goal, so two goals never share a balance. Prefixed `fund-`, not
+ * `goal-`: once ids are minted the goal id already reads `goal-N`, and a `goal-` fund
+ * prefix would double it to `goal-goal-N`.
+ */
 export function goalFundAccountId(goal: GoalPlan): string {
-  return `goal-${goal.id}`;
+  return `fund-${goal.id}`;
 }
 
 /**

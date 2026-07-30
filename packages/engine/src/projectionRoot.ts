@@ -990,7 +990,7 @@ export class Projection {
   }
 
   /**
-   * See {@link withGoalPatch}. Editing keeps the `id`, so the `goal-<id>` fund account is
+   * See {@link withGoalPatch}. Editing keeps the `id`, so the `fund-<id>` fund account is
    * stable and no funding reference can dangle — which is why, unlike {@link removeGoal}, this
    * needs no funding guard. Refused for an id the plan does not hold.
    */

@@ -73,14 +73,14 @@ describe("down-payment source picker", () => {
     fireEvent.click(box(/Emergency fund/));
     addEvent();
 
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["savings", "goal-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["savings", "fund-emergency"]);
   });
 
   it("defaults to the largest single account, so the form works untouched", () => {
     const { buyHome } = renderForm(MONTH);
     addEvent();
     // Whatever holds the most at that month — the engine orders the pool, not the form.
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["goal-home"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["fund-home"]);
   });
 
   it("asks for at least one account when everything is deselected", () => {
@@ -182,7 +182,7 @@ describe("down-payment source picker — an account that empties at a later mont
 
     // The drained id must not ride along to the engine, where it would be silently worth $0
     // against the §4.5 gate.
-    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["goal-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["fund-emergency"]);
   });
 
   it("lists every account at $0 when none of them holds anything, and picks no default", () => {

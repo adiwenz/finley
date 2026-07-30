@@ -329,7 +329,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
     const before = p.state;
 
     expect(() => p.removeGoal(goalId)).toThrow(
-      /cannot remove goal — Cannot remove goal "house-fund": its fund account "goal-house-fund" funds "e1" \(HomePurchaseEvent, month 24\)/,
+      /cannot remove goal — Cannot remove goal "house-fund": its fund account "fund-house-fund" funds "e1" \(HomePurchaseEvent, month 24\)/,
     );
     // Refused means untouched, not partially applied.
     expect(p.state).toBe(before);

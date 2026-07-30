@@ -1,6 +1,6 @@
 # Handoff — issue 194
 
-**Completed so far:** tasks 1-3 (Declare the input types; Resolve refs; Build fromInput)
+**Completed so far:** tasks 1-4 (Declare the input types; Resolve refs; Build fromInput; Re-prefix the goal fund account)
 
 ## Live constraints
 
@@ -16,20 +16,28 @@
   jurisdiction — under `nullJurisdiction` it is silent (the issue's "Blocked on #195" note), so a
   preset/PLAN_DEFAULTS built under `nullJurisdiction` is NOT down-payment-checked. Expected, not a
   regression.
+- **Goal fund account ids are now `fund-<goal.id>`, not `goal-<goal.id>`.** `goalFundAccountId`
+  (`projectionBase.ts:67`) is the sole minter; nothing hardcodes the prefix. Once tasks 5-6 mint
+  goal ids through `fromInput`, a goal reads `goal-3` and its fund account reads `fund-goal-3` —
+  the doubled `goal-goal-3` form the re-prefix existed to prevent. A goal ref still binds to
+  `goalFundAccountId(goal)` (task 2's model), so refs pick up the new prefix automatically; no
+  applier edit was needed. When converting PLAN_DEFAULTS/presets, any fixture or assertion that
+  named a fund account as `goal-<id>` must read `fund-<id>` (all such call sites already updated —
+  most tests derive the id via `goalFundAccountId` and follow the rename for free). Note: strings
+  like `goal-N` in projectionRoot mint tests, `goal-paced` budget pacing, and `goal-*` CSS classes
+  are unrelated to fund accounts — leave them. `incomeByCategory.test.ts`'s `interest:goal-emergency`
+  is arbitrary fixture data, not a derived id — also leave it.
 - **Plan-plane apply order is goals → jobs → budget lines**, and it is load-bearing.
   `resolveRefs` treats the plan plane as one mutually-visible block, but the applier needs a real
   topological order: a job's `deferral.fundAccountRef` and a budget line's `accountRef` can both
   name a goal's derived fund account, and a goal points at nothing — so goals must mint first. If a
   later task adds a plan-plane entry that references another plan-plane entry, re-check this order.
-- **A goal ref binds to `goalFundAccountId(goal)`**, not the goal id — task 2's model.
-  `fromInput` imports `goalFundAccountId`, so task 4's re-prefix (`goal-` → `fund-`) flows through
-  it automatically; task 4 needs no `fromInput` edit. Well-known refs (`WELL_KNOWN_REF_IDS`,
-  exported) resolve to themselves: `PRIMARY_PERSON_ID`, `SAVINGS_ID`, `RETIREMENT_ID`,
-  `BROKERAGE_ID`, `SYNTHETIC_CARD_ID`.
 - **A deferral with no `fundAccountRef` defaults to `RETIREMENT_ID`** (the standing 401(k)).
   `JobEntry.deferral.fundAccountRef` is optional but `JobDeferral.fundAccountId` is required, so the
   applier fills the gap. If PLAN_DEFAULTS/presets author a deferral, an omitted account means
   retirement.
+- **Well-known refs** (`WELL_KNOWN_REF_IDS`, exported) resolve to themselves:
+  `PRIMARY_PERSON_ID`, `SAVINGS_ID`, `RETIREMENT_ID`, `BROKERAGE_ID`, `SYNTHETIC_CARD_ID`.
 - **A partner's nested `marry` jobs drop `ownerRef`** — `marry` stamps the owner it mints. Their
   own `ref` is never consumed (nothing points *at* a job), so `resolveRefs` validates it but the
   applier ignores it. Don't rely on a nested job's ref resolving to anything.
@@ -47,10 +55,6 @@
 
 ## Deferred
 
-- **Task 4** owns re-prefixing `goalFundAccountId` (`goal-${id}` → `fund-${id}`) and must land
-  BEFORE task 5 converts PLAN_DEFAULTS, so the doubled `goal-goal-N` form never lands. `fromInput`
-  already routes through `goalFundAccountId`; task 4 only edits `projectionBase.ts` + snapshot/chart
-  keys/snapshots.
 - **Tasks 5-6** convert PLAN_DEFAULTS and the presets to `ScenarioInput` and delete
   `buildPresetLedger`. `fromInput` is ready for both. Note there is NO `id?` field on any
   `ScenarioInput` entry — so a preset that needs a pinned id (the issue allows this for stable
