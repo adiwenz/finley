@@ -47,6 +47,12 @@ gone.
 - **No entry may name an id.** `ScenarioInput` is an authoring API: refs connect entries while a
   document is applied, and `Projection`'s own authoring methods mint every durable id off the
   shared counter. Restoring state whose ids already exist is `Projection.fromState`'s job.
+- **`JobInput` and `BudgetLineInput` lost their `id?` too**, so the engine's own authoring
+  methods no longer take a caller's name either. The one operation that legitimately needs an
+  already-issued job id — moving a job between household members, which must keep its overrides,
+  pay changes and employer match — became `Projection.reassignJob(jobId, toOwnerId, job)`: it
+  takes the id as an argument and performs the two-plane move itself, so authoring a job and
+  relocating one are different verbs.
 - **`planDefaults.ts`** — `DEFAULT_INPUT` is exported (so presets reuse it) and now carries the
   Base budget lines as entries, so `PLAN_DEFAULTS` is the built plan wholesale rather than a
   built plan with budget lines layered on afterwards.
@@ -90,8 +96,14 @@ gone.
 - `packages/engine/src/scenarioRefs.ts` — pre-branded `PRIMARY_PERSON_REF`/`SAVINGS_REF`/
   `RETIREMENT_REF`/`BROKERAGE_REF`/`SYNTHETIC_CARD_REF` beside `WELL_KNOWN_REF_IDS`.
 - `packages/engine/src/projectionRoot.ts` — `fromInput` passes no id to any authoring call; the
-  ref registry is local to the call. Facade re-exports the entry types, `ref` and the well-known
-  refs.
+  ref registry is local to the call. `JobInput`/`BudgetLineInput` drop `id?`; `reassignJob`
+  replaces the caller-sequenced job move and `assertJobIdFree` goes with it. Facade re-exports the
+  entry types, `ref` and the well-known refs.
+- `packages/app/src/jobEditing.ts`, `jobWrites.ts` — a cross-member move is one `reassign` write
+  instead of an id-carrying `add` plus a `remove`, so the app no longer orders the two halves.
+- `packages/app/src/components/baseAdjustments/budgetTemplate.ts` — the template and the 50/30/20
+  seeds name no ids; the label key `toBudgetLines` applies is a local placeholder for the
+  rebalance math, stripped before a seed reaches `addBudgetLine`.
 - `packages/engine/src/fromInput.test.ts` — the allocator/collision/round-trip/no-persisted-ref
   suite.
 - `packages/app/src/presets.ts` — presets are `ScenarioInput` values, id-free; `taxed-in-retirement`
@@ -107,6 +119,6 @@ gone.
 
 - `npm run check:purity` — engine purity guard passes.
 - `npm run typecheck` — clean.
-- `npm run test` — **1182 tests green** (45 todo) across 90 files, including the engine
+- `npm run test` — **1184 tests green** (45 todo) across 90 files, including the engine
   `fromInput`/`scenarioInput`/`scenarioRefs` suites, the app `presets` and `mainState`
   integration suites, and the `planWrites.guard` facade-surface scan.

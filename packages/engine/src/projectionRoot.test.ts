@@ -13,7 +13,7 @@ import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
-import type { PersonId } from "./job";
+import type { Job, PersonId } from "./job";
 import type { BudgetLine } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
 
@@ -51,6 +51,18 @@ const expenseLine = {
   category: "needs" as const,
 };
 
+/**
+ * A goal, for the counter tests. `GoalInput` still takes an optional `id` — jobs and budget
+ * lines do not — so a goal is what an "authored id claims the counter" case is written against.
+ */
+const carGoalInput = {
+  name: "Car",
+  targetCents: dollarsToCents(30000),
+  targetDate: 36,
+  disposition: "retain" as const,
+  annualReturnPct: 3,
+};
+
 describe("Projection root — creating writes mint deterministic ids", () => {
   it("mints a monotonic sequence id and returns it", () => {
     const p = freshProjection();
@@ -74,9 +86,22 @@ describe("Projection root — creating writes mint deterministic ids", () => {
 
   it("honours a caller `{ id }` override without consuming the counter", () => {
     const p = freshProjection();
-    expect(p.addJob(P1, { ...openEndedJob, id: "day-job" })).toBe("day-job");
+    expect(p.addGoal({ ...carGoalInput, id: "rainy-day" })).toBe("rainy-day");
     // The counter did not advance, so the next mint is still "-1".
     expect(p.addBudgetLine(expenseLine)).toBe("line-1");
+  });
+
+  it("mints a job id whatever the caller passes — `JobInput` cannot name one", () => {
+    // Jobs take no `id` at all: authoring one is the engine's to name, and relocating an
+    // existing one is `reassignJob`, which names the id as an argument instead.
+    const p = freshProjection();
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    expect(p.addPartnerJob(partnerId, openEndedJob)).toMatch(/^job-\d+$/);
+    // Including the jobs a partner arrives with, nested inside the marriage.
+    const q = freshProjection();
+    q.marry({ month: 24, name: "Kim", birthYear: 1990, jobs: [openEndedJob] });
+    expect(partnerEvent(q).person.jobs[0]?.id).toMatch(/^job-\d+$/);
   });
 
   it("routes the added job onto the standing plan, owned by the person", () => {
@@ -178,16 +203,12 @@ describe("Projection root — one root for standing + ledger writes", () => {
 
   it("marry() preserves a partner job's explicit id override and steps the counter past it", () => {
     const p = freshProjection();
-    p.marry({
-      month: 24,
-      name: "Partner",
-      birthYear: 1988,
-      // `job-5` is one of our own ids, so it must be returned verbatim AND advance the counter.
-      jobs: [{ ...openEndedJob, id: "job-5" }],
-    });
-    expect(partnerEvent(p).person.jobs[0]?.id).toBe("job-5");
-    // The next mint clears the override rather than colliding with it.
-    expect(p.addJob(P1, openEndedJob)).toBe("job-6");
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, jobs: [openEndedJob] });
+    // The partner's job is minted like any other, off the same counter the marriage drew from.
+    const nested = partnerEvent(p).person.jobs[0]?.id;
+    expect(nested).toMatch(/^job-\d+$/);
+    // The next mint clears it rather than colliding with it.
+    expect(p.addJob(P1, openEndedJob)).not.toBe(nested);
   });
 
   it("takeLoan() carries the kind-determined field for each arm of the union", () => {
@@ -591,18 +612,21 @@ describe("Projection root — editing and removing a job", () => {
     });
   });
 
-  it("refuses a supplied id the household already holds, on either plane", () => {
+  it("keeps one job-id namespace across both planes", () => {
+    // No caller can supply a job id, so a duplicate cannot be authored — but the two planes
+    // must still draw from ONE counter, since a job's id keys its income band whichever plane
+    // it sits on.
     const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "day-job" });
-    expect(() => p.addJob(P1, { ...openEndedJob, id: "day-job" })).toThrow(/already holds a job/);
-
     const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
-    // One namespace across both planes: the primary's id is not free for a partner either,
-    // because a job's id keys its income band whichever plane it sits on.
-    expect(() => p.addPartnerJob(partnerId, { ...openEndedJob, id: "day-job" })).toThrow(
-      /already holds a job/,
-    );
-    expect(p.plan.jobs).toHaveLength(1);
+    const ids = [
+      p.addJob(P1, openEndedJob),
+      p.addPartnerJob(partnerId, openEndedJob),
+      p.addJob(P1, openEndedJob),
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+    // Two on the plan, one on the partner's event — three distinct ids from one counter.
+    expect(p.plan.jobs).toHaveLength(2);
+    expect(partnerEvent(p).person.jobs).toHaveLength(1);
   });
 
   it("replaceJob keeps the job's list position, and refuses an unknown id", () => {
@@ -734,18 +758,21 @@ describe("Projection root — moving a job between the two planes", () => {
     payChanges: [{ month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
   } as const;
 
-  /** The move, as the app performs it: let go on one plane, land on the other, same id. */
+  /** A job as authoring input — its id and owner are the engine's, not the caller's. */
+  const inputOf = (job: Job) => {
+    const { id: _id, ownerId: _owner, ...rest } = job;
+    return rest;
+  };
+
   it("moves a job from the plan to a partner, whole and with its id intact", () => {
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addJob(P1, richJob);
-    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
 
-    p.removeJob(jobId);
-    const landed = p.addPartnerJob(partnerId, moving);
+    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
 
-    expect(landed).toBe(jobId); // the same job, not a new one
     expect(p.plan.jobs).toEqual([]);
+    // The same job, not a new one: id, overrides, pay changes and employer match all survive.
     expect(partnerEvent(p).person.jobs).toEqual([{ ...richJob, id: jobId, ownerId: partnerId }]);
   });
 
@@ -753,27 +780,52 @@ describe("Projection root — moving a job between the two planes", () => {
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addPartnerJob(partnerId, richJob);
-    const { ownerId: _drop, ...moving } = { ...partnerEvent(p).person.jobs[0]! };
 
-    p.removePartnerJob(jobId);
-    const landed = p.addJob(P1, moving);
+    p.reassignJob(jobId, P1, inputOf(partnerEvent(p).person.jobs[0]!));
 
-    expect(landed).toBe(jobId);
     expect(partnerEvent(p).person.jobs).toEqual([]);
     expect(p.plan.jobs).toEqual([{ ...richJob, id: jobId, ownerId: P1 }]);
   });
 
-  it("refuses a move that lands before it lets go, rather than duplicating the id", () => {
+  it("never leaves the id live on both planes at once", () => {
+    // The old remove-then-add dance could not be reordered without briefly duplicating the id,
+    // which keys the income bands. One method owns both halves, so there is no ordering left
+    // for a caller to get wrong.
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addJob(P1, richJob);
-    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
 
-    // Add-then-remove is the wrong order: for the moment between them the household would
-    // hold two jobs with one id, and the ids key the income bands.
-    expect(() => p.addPartnerJob(partnerId, moving)).toThrow(/already holds a job/);
+    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
+
+    const everywhere = [
+      ...p.plan.jobs.map((j) => j.id),
+      ...partnerEvent(p).person.jobs.map((j) => j.id),
+    ];
+    expect(everywhere).toEqual([jobId]);
+  });
+
+  it("applies the fields the move lands with, so re-owning and editing are one write", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+
+    p.reassignJob(jobId, partnerId, { ...inputOf(p.plan.jobs[0]!), name: "Consulting" });
+
+    const moved = partnerEvent(p).person.jobs[0]!;
+    expect(moved.id).toBe(jobId);
+    expect(moved.name).toBe("Consulting");
+    expect(moved.incomeOverrides).toEqual(richJob.incomeOverrides);
+  });
+
+  it("refuses an unknown job, and an owner who is not in the household", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+
+    expect(() => p.reassignJob("no-such-job", partnerId, richJob)).toThrow(/no-such-job/);
+    // Refused BEFORE the source gives the job up, so a bad owner cannot strip a held job.
+    expect(() => p.reassignJob(jobId, "ghost" as PersonId, richJob)).toThrow();
     expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
-    expect(partnerEvent(p).person.jobs).toEqual([]);
   });
 });
 
@@ -804,11 +856,31 @@ describe("Projection root — one counter across both planes, across a round tri
   it("steps past a partner job an imported scenario already holds", () => {
     // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
     // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
+    //
+    // The id arrives by IMPORT, which is now the only way one can: no authoring path lets a
+    // caller name a job, so `fromState` is exactly what the floor exists for.
     const seeded = freshProjection();
     const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    seeded.addPartnerJob(partnerId, { ...openEndedJob, id: "job-9" });
+    const state = seeded.toState();
+    const imported: ProjectionState = {
+      ...state,
+      scenario: withLedger(state.scenario, {
+        ...state.scenario.ledger,
+        events: state.scenario.ledger.events.map((e) =>
+          e.type === "RelationshipEvent"
+            ? {
+                ...e,
+                person: {
+                  ...e.person,
+                  jobs: [{ ...openEndedJob, id: "job-9", ownerId: partnerId }],
+                },
+              }
+            : e,
+        ),
+      }),
+    };
 
-    const reloaded = Projection.fromState(seeded.toState(), nullJurisdiction);
+    const reloaded = Projection.fromState(imported, nullJurisdiction);
     expect(reloaded.addPartnerJob(partnerId, openEndedJob)).toBe("job-10");
     expect(reloaded.addJob(P1, openEndedJob)).toBe("job-11");
   });
@@ -1619,17 +1691,18 @@ describe("Projection root — an authored id claims the counter", () => {
 
   it("steps over an explicitly authored id rather than minting onto it", () => {
     const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "job-2" });
+    p.addGoal({ ...carGoalInput, id: "goal-2" });
 
-    const second = p.addJob(P1, openEndedJob);
-    const third = p.addJob(P1, openEndedJob);
+    const second = p.addGoal(carGoalInput);
+    const third = p.addGoal(carGoalInput);
 
     // Before the fix the override consumed nothing, so the mint walked 1, 2 — straight back
     // onto the authored id.
-    expect(second).toBe("job-3");
-    expect(third).toBe("job-4");
-    const ids = p.plan.jobs.map((j) => j.id);
-    expect(ids).toEqual(["job-2", "job-3", "job-4"]);
+    expect(second).toBe("goal-3");
+    expect(third).toBe("goal-4");
+    // The sample plan opens with goals of its own, so read the three this test appended.
+    const ids = p.plan.goals.map((g) => g.id);
+    expect(ids.slice(-3)).toEqual(["goal-2", "goal-3", "goal-4"]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -1649,40 +1722,28 @@ describe("Projection root — an authored id claims the counter", () => {
 
   it("leaves the counter alone for an id it did not mint", () => {
     const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "external-payroll-job" });
+    p.addGoal({ ...carGoalInput, id: "external-savings-goal" });
     // Not a shape `mint` produces, so no future id can collide with it and nothing is spent.
-    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+    expect(p.addGoal(carGoalInput)).toBe("goal-1");
   });
 
   it("leaves the counter alone for a suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
     const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "job-9007199254740993" });
+    p.addGoal({ ...carGoalInput, id: "goal-9007199254740993" });
 
-    const a = p.addJob(P1, openEndedJob);
-    const b = p.addJob(P1, openEndedJob);
+    const a = p.addGoal(carGoalInput);
+    const b = p.addGoal(carGoalInput);
     // Honouring the suffix would have set a floor the counter cannot pass — and incrementing
     // a non-safe integer is a no-op, so every later mint would return the SAME id.
-    expect(a).toBe("job-1");
-    expect(b).toBe("job-2");
-    const ids = p.plan.jobs.map((j) => j.id);
+    expect(a).toBe("goal-1");
+    expect(b).toBe("goal-2");
+    const ids = p.plan.goals.map((g) => g.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("floors the counter on ids a transaction CARRIES, not just the one it mints", () => {
-    // A partner arrives already holding `job-9`. It never passes through the mint, so only a
-    // floor taken from the committed state sees it.
-    const p = freshProjection();
-    p.marry({
-      month: 24,
-      name: "Partner",
-      birthYear: 1988,
-      id: "partner",
-      jobs: [partnerJob("job-9")],
-    });
-
-    expect(p.addJob(P1, openEndedJob)).toBe("job-10");
-  });
-
+  // A partner can no longer ARRIVE holding an id — `marry` mints its nested jobs like anything
+  // else — so the two paths that still carry ids past the mint are a revision (below) and an
+  // import ("steps past a partner job an imported scenario already holds").
   it("floors the counter on ids a revision introduces", () => {
     const p = freshProjection();
     p.marry({ month: 24, name: "Partner", birthYear: 1988, id: "partner" });
@@ -1990,8 +2051,11 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 });
 
 describe("Projection root — per-line monthly resolution in the result", () => {
-  const RENT = "line:rent";
-  const FUN = "line:fun";
+  /**
+   * `allocations()` keys each line `line:<id>`, and the engine mints that id — so a test adds
+   * the line, keeps what `addBudgetLine` returned, and builds the key from it.
+   */
+  const keyOf = (id: string) => `line:${id}`;
 
   it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
     // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
@@ -2002,15 +2066,13 @@ describe("Projection root — per-line monthly resolution in the result", () => 
       },
       nullJurisdiction,
     );
-    p.addBudgetLine({
-      id: "rent",
+    const rent = p.addBudgetLine({
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
@@ -2019,8 +2081,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     const flows = p.run(nullJurisdiction).series.months[1]?.flows;
     // Keyed by the allocations() id (`line:<id>`).
-    expect(flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(2_000));
-    expect(flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(500));
+    expect(flows?.lineMonthlyCents[keyOf(rent)]).toBe(dollarsToCents(2_000));
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBe(dollarsToCents(500));
   });
 
   it("reports every line at its full amount even once the plan is insolvent", () => {
@@ -2041,15 +2103,13 @@ describe("Projection root — per-line monthly resolution in the result", () => 
       },
       nullJurisdiction,
     );
-    p.addBudgetLine({
-      id: "rent",
+    const rent = p.addBudgetLine({
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(4_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
@@ -2060,8 +2120,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     // A squeezed month is absorbed by savings, then credit — the household really did pay
     // for all of it.
-    expect(months[1]?.flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(2_000));
-    expect(months[1]?.flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(4_000));
+    expect(months[1]?.flows?.lineMonthlyCents[keyOf(fun)]).toBe(dollarsToCents(2_000));
+    expect(months[1]?.flows?.lineMonthlyCents[keyOf(rent)]).toBe(dollarsToCents(4_000));
 
     // Once even credit is exhausted the budget is still reported as authored: the engine
     // surfaces that the plan broke (`isInsolvent`), it does not decide which spending the
@@ -2069,8 +2129,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     const broke = months.findIndex((m) => m.isInsolvent);
     expect(broke).toBeGreaterThan(1);
     const flows = months[broke]?.flows;
-    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0);
-    expect(flows?.lineMonthlyCents[RENT]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[keyOf(rent)]).toBeGreaterThan(0);
     // The per-line map and the coarse rollup agree: nothing was rationed away.
     const lineTotal = Object.values(flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(lineTotal).toBe(flows?.expensesCents);
@@ -2095,14 +2155,12 @@ describe("Projection root — per-line monthly resolution in the result", () => 
       nullJurisdiction,
     );
     p.addBudgetLine({
-      id: "rent",
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
@@ -2120,7 +2178,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     const fundedTotal = (m: number): number =>
       Object.values(months[m]?.flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);
-    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0); // the first line to starve
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBeGreaterThan(0); // the first line to starve
 
     // Nothing starves anywhere across the whole gap.
     for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {

@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from "vitest";
 import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
-import { editJob, type JobWrite } from "./jobEditing";
+import { editJob } from "./jobEditing";
 import type { JobOwner } from "./jobOwners";
 import { jobToDraftFor, type JobDraft } from "./planPeople";
 import { PLAN_DEFAULTS } from "./planDefaults";
@@ -69,27 +69,47 @@ const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): Jo
  * on whichever plane the owner is authored on, and the engine's tests pin that. What is being
  * checked here is which intents {@link editJob} decides on.
  */
-function applied(result: ReturnType<typeof editJob>): Map<string, readonly Job[]> {
+function applied(
+  owners: readonly JobOwner[],
+  result: ReturnType<typeof editJob>,
+): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
-  const lists = new Map<string, readonly Job[]>();
-  const apply = (jobs: readonly Job[], write: JobWrite): readonly Job[] => {
-    switch (write.kind) {
-      case "add": {
-        // Only ever a job moving between members, which keeps its id — `editJob` never
-        // authors a new one, so an intent without an id would be a bug in it.
-        if (write.job.id === undefined) throw new Error("editJob emitted a job with no id");
-        return [...jobs, { ...write.job, id: write.job.id, ownerId: write.owner.id } as Job];
-      }
-      case "replace":
-        return jobs.map((j) =>
-          j.id === write.jobId ? ({ ...write.job, id: j.id, ownerId: j.ownerId } as Job) : j,
-        );
-      case "remove":
-        return jobs.filter((j) => j.id !== write.jobId);
-    }
-  };
+  // Seeded from every member, not just the ones written to: a `reassign` takes the job off
+  // whoever holds it, and that member names no write of their own.
+  const lists = new Map<string, readonly Job[]>(owners.map((o) => [o.id, o.jobs]));
+
   for (const write of result.writes) {
-    lists.set(write.owner.id, apply(lists.get(write.owner.id) ?? write.owner.jobs, write));
+    const held = lists.get(write.owner.id) ?? write.owner.jobs;
+    switch (write.kind) {
+      case "add":
+        // `editJob` never authors a new job, so this is `Projection.addJob` minting — the id
+        // is the engine's and a test-side interpreter cannot know it.
+        lists.set(write.owner.id, [...held, { ...write.job, id: "<minted>", ownerId: write.owner.id } as Job]);
+        break;
+      case "replace":
+        lists.set(
+          write.owner.id,
+          held.map((j) =>
+            j.id === write.jobId ? ({ ...write.job, id: j.id, ownerId: j.ownerId } as Job) : j,
+          ),
+        );
+        break;
+      case "reassign": {
+        // What `Projection.reassignJob` does: off whichever list holds it, onto the target's,
+        // under the same id.
+        for (const [ownerId, jobs] of lists) {
+          lists.set(ownerId, jobs.filter((j) => j.id !== write.jobId));
+        }
+        lists.set(write.owner.id, [
+          ...(lists.get(write.owner.id) ?? []),
+          { ...write.job, id: write.jobId, ownerId: write.owner.id } as Job,
+        ]);
+        break;
+      }
+      case "remove":
+        lists.set(write.owner.id, held.filter((j) => j.id !== write.jobId));
+        break;
+    }
   }
   return lists;
 }
@@ -105,7 +125,7 @@ describe("editJob — editing fields, same owner", () => {
     expect(result.writes).toHaveLength(1);
     expect(result.writes[0].owner.id).toBe(PRIMARY_PERSON_ID);
 
-    const jobs = applied(result).get(PRIMARY_PERSON_ID)!;
+    const jobs = applied(owners, result).get(PRIMARY_PERSON_ID)!;
     expect(jobs).toHaveLength(1);
     expect(jobs[0].id).toBe("job-1");
     expect(jobs[0].salary.startingSalaryCents).toBe(8_000_00 * 12);
@@ -115,6 +135,7 @@ describe("editJob — editing fields, same owner", () => {
     const second: Job = { ...richJob, id: "job-2", name: "Consulting" };
     const owners = household([richJob, second]);
     const jobs = applied(
+      owners,
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { name: "Staff Engineer" })),
     ).get(PRIMARY_PERSON_ID)!;
 
@@ -125,6 +146,7 @@ describe("editJob — editing fields, same owner", () => {
   it("carries through everything the form does not edit", () => {
     const owners = household();
     const jobs = applied(
+      owners,
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { monthlyCents: 7_000_00 })),
     ).get(PRIMARY_PERSON_ID)!;
 
@@ -145,7 +167,7 @@ describe("editJob — changing the owner", () => {
       draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1", monthlyCents: 9_000_00, startAge: 30, endAge: 60 }),
     );
 
-    const lists = applied(result);
+    const lists = applied(owners, result);
     // One job in the household, not zero and not two.
     expect(lists.get(PRIMARY_PERSON_ID)).toEqual([]);
     const moved = lists.get("p-1")!;
@@ -157,6 +179,7 @@ describe("editJob — changing the owner", () => {
   it("keeps the job's id across the move", () => {
     const owners = household();
     const moved = applied(
+      owners,
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
     ).get("p-1")!;
 
@@ -168,6 +191,7 @@ describe("editJob — changing the owner", () => {
   it("preserves the overrides, pay changes, employer match and deferral account", () => {
     const owners = household();
     const moved = applied(
+      owners,
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
     ).get("p-1")!;
 
@@ -181,6 +205,7 @@ describe("editJob — changing the owner", () => {
     const owners = household();
     // Alex's job started at their age 30 (2021); handed to Sam, "started at 30" is SAM's 30.
     const moved = applied(
+      owners,
       editJob(
         owners,
         PRIMARY_PERSON_ID,
@@ -199,6 +224,7 @@ describe("editJob — changing the owner", () => {
     const samJob: Job = { ...richJob, id: "p-1-job-1", name: "Nursing", ownerId: "p-1" };
     const owners = household([richJob], [samJob]);
     const moved = applied(
+      owners,
       editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
     ).get("p-1")!;
 
@@ -224,18 +250,24 @@ describe("editJob — a transfer that cannot be made writes nothing", () => {
     expect(result.reason).toMatch(/job-404/);
   });
 
-  it("refuses to move a job onto an id the target already holds", () => {
-    // Two jobs sharing an id make their income bands ambiguous, and the loser is silently
-    // dropped by the very next edit.
-    const collision: Job = { ...richJob, ownerId: "p-1" };
+  it("hands the move to the facade as ONE reassign, naming the id and the new owner", () => {
+    // There is no id collision left to pre-empt: one counter issues job ids across both
+    // planes, so a job's id already names it uniquely and the target cannot be holding a
+    // second job under it. What the edit must get right is the shape — one write, so the job
+    // is never off both lists — and that is what this pins.
     const result = editJob(
-      household([richJob], [collision]),
+      household(),
       PRIMARY_PERSON_ID,
       "job-1",
       draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" }),
     );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toMatch(/already holds/);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.writes).toHaveLength(1);
+    const [write] = result.writes;
+    expect(write.kind).toBe("reassign");
+    expect(write.owner.id).toBe("p-1");
+    expect(write.kind === "reassign" && write.jobId).toBe("job-1");
   });
 });

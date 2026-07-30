@@ -10,13 +10,13 @@ const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
 
 /**
- * The prepopulated Base, as ID-free entries. {@link defaultBudgetTemplate} authors the labels and
- * amounts; its template ids are dropped here, because a line's durable id is the engine's to mint
- * — the chart, dated overrides and `allocations()` key on whatever it issues, read back off the
- * built plan rather than assumed.
+ * The prepopulated Base, as {@link ScenarioInput} entries. {@link defaultBudgetTemplate} authors
+ * the labels and amounts and names no id, so all this does is swap the account target's id for a
+ * ref — the chart, dated overrides and `allocations()` key on whatever the engine mints, read
+ * back off the built plan rather than assumed.
  */
 const DEFAULT_BUDGET_ENTRIES: readonly BudgetLineEntry[] = defaultBudgetTemplate().map(
-  ({ id: _id, target, ...rest }): BudgetLineEntry => ({
+  ({ target, ...rest }): BudgetLineEntry => ({
     ...rest,
     // A contribution line names its standing account by ref; a well-known account resolves to
     // itself, so the built line lands on the same account the template named.

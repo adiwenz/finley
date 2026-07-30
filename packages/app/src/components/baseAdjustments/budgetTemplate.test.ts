@@ -16,14 +16,16 @@ const tierTotal = (lines: readonly BudgetLine[], category: string): number =>
     .reduce((s, l) => s + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0), 0);
 
 describe("defaultBudgetTemplate — the prepopulated Base", () => {
-  it("prepopulates a non-empty set of standing expense lines with stable ids", () => {
+  it("prepopulates a non-empty set of standing expense lines, naming no ids", () => {
     const lines = defaultBudgetTemplate();
     expect(lines.length).toBeGreaterThan(0);
-    // Every line is a cash-outflow expense with an id for the chart/overrides to key on,
-    // spanning the needs → wants tiers.
+    // Every line is a cash-outflow expense spanning the needs → wants tiers. The template names
+    // no id at all — `addBudgetLine` mints one, and the chart and overrides key on that.
     expect(lines.every((l) => l.target.kind === "expense")).toBe(true);
-    expect(lines.every((l) => typeof l.id === "string" && l.id.length > 0)).toBe(true);
-    expect(new Set(lines.map((l) => l.id)).size).toBe(lines.length); // ids unique
+    expect(lines.every((l) => !("id" in l))).toBe(true);
+    // Labels are what a reader (and a test) identifies a template line by, so they must be
+    // distinct even though they are not identity.
+    expect(new Set(lines.map((l) => l.label)).size).toBe(lines.length);
     expect(lines.some((l) => l.category === "needs")).toBe(true);
     expect(lines.some((l) => l.category === "wants")).toBe(true);
   });
@@ -128,7 +130,9 @@ describe("tierRebalanceWrites — the same rebalance, as facade writes", () => {
           ? { ...l, amountSource: { kind: "literal" as const, monthlyCents: byId.get(l.id)! } }
           : l,
       ),
-      ...(seeds as BudgetLine[]),
+      // A seed carries no id — `addBudgetLine` mints it. `toBudgetLines` re-applies the same
+      // label placeholder the rule's own output uses, so the two are comparable line for line.
+      ...toBudgetLines(seeds),
     ];
 
     expect(applied).toEqual(redistributeToTiers(before, income, 240));

@@ -283,8 +283,8 @@ describe("JobsPanel — every member's jobs", () => {
   });
 
   it("reassigns a partner's job back to the primary person, ages following the new owner", () => {
-    // The reverse direction: off the RelationshipEvent and onto the plan, which the facade
-    // has to sequence as let-go-then-land or refuse the arriving id as a duplicate.
+    // The reverse direction: off the RelationshipEvent and onto the plan. The facade owns both
+    // halves (`reassignJob`), so the panel asks for a move and never sequences one.
     render(<Harness events={withPartner([partnerJob(2500, "Nursing")])} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Nursing/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });

@@ -88,6 +88,7 @@ import {
   firstInsolventMonth,
   goalFundAccountId,
   planAccountDescriptors,
+  PRIMARY_PERSON_ID,
 } from "./projectionBase";
 import {
   resolveRefs,
@@ -122,9 +123,21 @@ export interface ProjectionState {
   readonly nextSeq: number;
 }
 
-export type JobInput = Omit<Job, "id" | "ownerId"> & { readonly id?: string };
+/**
+ * A job as a caller authors it — no `id` and no `ownerId`. The engine issues the id
+ * ({@link Projection.addJob}, {@link Projection.addPartnerJob}) and the plane it lands on stamps
+ * the owner. Relocating a job between members without re-minting is
+ * {@link Projection.reassignJob}, which takes the existing id as an argument rather than letting
+ * one ride in here.
+ */
+export type JobInput = Omit<Job, "id" | "ownerId">;
 
-export type BudgetLineInput = Omit<BudgetLine, "id"> & { readonly id?: string };
+/**
+ * A budget line as a caller authors it — no `id`. Unlike a job, a line is never handed between
+ * owners and nothing outside the engine needs to choose its name, so there is no reason for a
+ * caller to supply one: {@link Projection.addBudgetLine} always mints.
+ */
+export type BudgetLineInput = Omit<BudgetLine, "id">;
 
 export type GoalInput = Omit<GoalPlan, "id"> & { readonly id?: string };
 
@@ -689,10 +702,8 @@ export class Projection {
    */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
-    if (job.id !== undefined) this.assertJobIdFree(job.id);
-    const { id, nextSeq } = mint(s, "job", job.id);
-    const { id: _drop, ...rest } = job;
-    const newJob: Job = { ...rest, id, ownerId: personId };
+    const { id, nextSeq } = mint(s, "job", undefined);
+    const newJob: Job = { ...job, id, ownerId: personId };
     this.commitPlan({ ...s.scenario.plan, jobs: [...(s.scenario.plan.jobs ?? []), newJob] }, nextSeq);
     return id;
   }
@@ -711,8 +722,7 @@ export class Projection {
    * jobs do not live on the plan at all). Refused for an id the plan does not hold.
    */
   replaceJob(id: string, job: JobInput): void {
-    const { id: _drop, ...rest } = job;
-    this.editJob(id, (prior) => ({ ...rest, id: prior.id, ownerId: prior.ownerId }));
+    this.editJob(id, (prior) => ({ ...job, id: prior.id, ownerId: prior.ownerId }));
   }
 
   /**
@@ -774,30 +784,6 @@ export class Projection {
   }
 
   /**
-   * Every job id in the scenario, both planes. One namespace, because one counter issues them
-   * — a job's id keys its income band's `sourceId`, so two jobs sharing one make the bands
-   * ambiguous no matter which plane each sits on.
-   */
-  private jobIdsInUse(): Set<string> {
-    const s = this.state.scenario;
-    const ids = new Set(s.plan.jobs.map((j) => j.id));
-    for (const event of s.ledger.events) {
-      if (event.type === "RelationshipEvent") for (const j of event.person.jobs) ids.add(j.id);
-    }
-    return ids;
-  }
-
-  /**
-   * Refuses a caller-supplied id already in use. Only a supplied id can collide: a minted one
-   * comes off a counter floored past everything the scenario holds.
-   */
-  private assertJobIdFree(id: string): void {
-    if (this.jobIdsInUse().has(id)) {
-      throw new Error(`Projection: cannot add a job — this household already holds a job "${id}"`);
-    }
-  }
-
-  /**
    * Commit a partner's rewritten job list. Routed through {@link updateEvent} — the same
    * whole-ledger replay {@link reviseTransaction} validates with — so a revision that would
    * strand a later event is refused with the state untouched, and the ledger and the counter
@@ -834,10 +820,8 @@ export class Projection {
    */
   addPartnerJob(personId: PersonId, job: JobInput): string {
     const event = this.relationshipFor(personId);
-    if (job.id !== undefined) this.assertJobIdFree(job.id);
-    const { id, nextSeq } = mint(this.state, "job", job.id);
-    const { id: _drop, ...rest } = job;
-    const newJob: Job = { ...rest, id, ownerId: personId };
+    const { id, nextSeq } = mint(this.state, "job", undefined);
+    const newJob: Job = { ...job, id, ownerId: personId };
     this.commitPartnerJobs(event, [...event.person.jobs, newJob], nextSeq);
     return id;
   }
@@ -849,12 +833,71 @@ export class Projection {
    */
   replacePartnerJob(jobId: string, job: JobInput): void {
     const { event } = this.partnerJobSite(jobId);
-    const { id: _drop, ...rest } = job;
     this.commitPartnerJobs(
       event,
       event.person.jobs.map((j) =>
-        j.id === jobId ? ({ ...rest, id: j.id, ownerId: j.ownerId } as Job) : j,
+        j.id === jobId ? ({ ...job, id: j.id, ownerId: j.ownerId } as Job) : j,
       ),
+    );
+  }
+
+  /**
+   * Hand a job to another household member, keeping its `id` — and with it every adjustment
+   * addressed by that id: one-month income overrides, permanent pay changes, the employer match.
+   *
+   * This is the ONE operation that needs an already-issued job id, and it takes it as an
+   * argument rather than letting one ride in on a {@link JobInput}, so authoring a job and
+   * relocating one stay different verbs and no caller can name a job into existence.
+   *
+   * A move crosses the two planes — the primary person's jobs are standing plan data, a
+   * partner's ride their `RelationshipEvent` — so it is a removal from one and a landing on the
+   * other. Both happen here, in that order (the id is never live in both places), and the target
+   * member is proved to exist BEFORE the source gives the job up, so a bad owner cannot strip a
+   * job from whoever holds it. A refusal from either plane throws with the handle discarded, so
+   * a job can never end up in neither list.
+   *
+   * `job` carries the fields the move lands with, so a form that re-owns a job and edits it is
+   * one write. An `ownerId` is not among them: the target names the owner.
+   */
+  reassignJob(jobId: string, toOwnerId: PersonId, job: JobInput): void {
+    // Proved BEFORE the source gives the job up: a member is either the primary person, whose
+    // jobs are standing plan data, or a partner, whose ride their `RelationshipEvent`. Anyone
+    // else is not in the household, and a job handed to them would vanish from both planes.
+    const toPartner = this.isPartner(toOwnerId);
+    if (!toPartner && toOwnerId !== PRIMARY_PERSON_ID) {
+      throw new Error(
+        `Projection: cannot reassign a job — no household member "${toOwnerId}" to own it`,
+      );
+    }
+
+    const plan = this.state.scenario.plan;
+    if (plan.jobs.some((j) => j.id === jobId)) {
+      this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== jobId) });
+    } else {
+      // Refuses an id neither plane holds, naming it.
+      const { event } = this.partnerJobSite(jobId);
+      this.commitPartnerJobs(
+        event,
+        event.person.jobs.filter((j) => j.id !== jobId),
+      );
+    }
+
+    const landed: Job = { ...job, id: jobId, ownerId: toOwnerId };
+    if (toPartner) {
+      // Re-read: the removal above committed a new state, so the event captured before it is
+      // stale.
+      const event = this.relationshipFor(toOwnerId);
+      this.commitPartnerJobs(event, [...event.person.jobs, landed]);
+    } else {
+      const after = this.state.scenario.plan;
+      this.commitPlan({ ...after, jobs: [...after.jobs, landed] });
+    }
+  }
+
+  /** Whether this member's jobs live on the ledger plane — i.e. they joined as a partner. */
+  private isPartner(personId: PersonId): boolean {
+    return this.state.scenario.ledger.events.some(
+      (e) => e.type === "RelationshipEvent" && e.person.id === personId,
     );
   }
 
@@ -883,10 +926,10 @@ export class Projection {
 
   // Adjustments to ONE job, addressed by its id alone.
   //
-  // Owner-aware: a job id is unique across the household (see {@link assertJobIdFree}), so
-  // "give job-3 a raise" has one answer and the caller does not have to know which plane
-  // job-3 is authored on to ask for it. The methods that CREATE or replace a job stay
-  // plane-explicit, because creating one needs the person it belongs to.
+  // Owner-aware: one counter issues job ids across both planes, so an id names one job in the
+  // household or nothing at all — "give job-3 a raise" has one answer, and the caller does not
+  // have to know which plane job-3 is authored on to ask for it. The methods that CREATE or
+  // replace a job stay plane-explicit, because creating one needs the person it belongs to.
 
   /** Whichever plane holds `jobId`, or a refusal naming it. */
   private editJobAnywhere(jobId: string, f: (job: Job) => Job): void {
@@ -938,12 +981,11 @@ export class Projection {
     this.editJobAnywhere(jobId, (j) => withoutIncomeOverride(j, month));
   }
 
-  /** Returns the minted `"line-N"` id. */
+  /** Returns the minted `"line-N"` id — always minted; a caller cannot name a line. */
   addBudgetLine(line: BudgetLineInput): string {
     const s = this.state;
-    const { id, nextSeq } = mint(s, "line", line.id);
-    const { id: _drop, ...rest } = line;
-    const newLine: BudgetLine = { id, ...rest };
+    const { id, nextSeq } = mint(s, "line", undefined);
+    const newLine: BudgetLine = { id, ...line };
     const plan = s.scenario.plan;
     this.commitPlan({ ...plan, budgetLines: [...plan.budgetLines, newLine] }, nextSeq);
     return id;
@@ -1100,10 +1142,9 @@ export class Projection {
     // person this call creates, never to the caller.
     let nextSeq = afterPerson;
     const jobs: Job[] = (input.jobs ?? []).map((job) => {
-      const minted = mint({ ...this.state, nextSeq }, "job", job.id);
+      const minted = mint({ ...this.state, nextSeq }, "job", undefined);
       nextSeq = minted.nextSeq;
-      const { id: _drop, ...rest } = job;
-      return { ...rest, id: minted.id, ownerId: id };
+      return { ...job, id: minted.id, ownerId: id };
     });
     const person: Person = {
       id,

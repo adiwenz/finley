@@ -5,8 +5,9 @@
  *   - {@link defaultBudgetTemplate} — a starter set of lines across the needs → wants tiers.
  *   - {@link redistributeToTiers} — 50/30/20 applied non-destructively to the existing budget.
  *
- * Lines carry ids so the chart, overrides and `allocations()` can key on them. The simulator
- * funds account-contribution lines as well as expenses, so a seeded savings line is a real
+ * Everything here is authored ID-FREE: a line's durable id is the engine's to mint, and the
+ * chart, overrides and `allocations()` key on whatever it issued. The simulator funds
+ * account-contribution lines as well as expenses, so a seeded savings line is a real
  * contribution into the brokerage, not a vanishing expense.
  */
 
@@ -19,21 +20,23 @@ import {
 } from "@finley/engine";
 
 /**
- * Promote authoring inputs to standing {@link BudgetLine}s. Template lines already carry an id;
- * the label is a last-resort fallback so the cast is total.
+ * Promote authoring inputs to standing {@link BudgetLine}s for the rebalance MATH, which works
+ * over `BudgetLine` and so needs every line to have some key.
+ *
+ * The key is the label, and it is a LOCAL placeholder — not an id. Only the engine issues ids;
+ * anything these lines seed is handed to `addBudgetLine` stripped of it (see
+ * {@link tierRebalanceWrites}), which mints the real one.
  */
 export function toBudgetLines(inputs: readonly BudgetLineInput[]): BudgetLine[] {
-  return inputs.map((input) => ({ ...input, id: input.id ?? input.label }) as BudgetLine);
+  return inputs.map((input) => ({ ...input, id: input.label }) as BudgetLine);
 }
 
 function expenseLine(
-  id: string,
   label: string,
   category: BudgetLineInput["category"],
   monthlyCents: number,
 ): BudgetLineInput {
   return {
-    id,
     label,
     target: { kind: "expense" },
     amountSource: { kind: "literal", monthlyCents },
@@ -48,11 +51,11 @@ function expenseLine(
  */
 export function defaultBudgetTemplate(): BudgetLineInput[] {
   return [
-    expenseLine("housing", "Housing", "needs", dollarsToCents(1_600)),
-    expenseLine("groceries", "Groceries", "needs", dollarsToCents(700)),
-    expenseLine("transport", "Transportation", "needs", dollarsToCents(450)),
-    expenseLine("dining", "Dining & fun", "wants", dollarsToCents(550)),
-    expenseLine("subscriptions", "Subscriptions", "wants", dollarsToCents(200)),
+    expenseLine("Housing", "needs", dollarsToCents(1_600)),
+    expenseLine("Groceries", "needs", dollarsToCents(700)),
+    expenseLine("Transportation", "needs", dollarsToCents(450)),
+    expenseLine("Dining & fun", "wants", dollarsToCents(550)),
+    expenseLine("Subscriptions", "wants", dollarsToCents(200)),
   ];
 }
 
@@ -68,10 +71,9 @@ const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
 const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
 const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
 
-// Seeds are authored ID-free: `toBudgetLines` keys each on its label, the same `id ?? label`
-// fallback a hand-written line takes, so no invented `seed-*` id has to be spent on a line the
-// user never named. The label is not a minted-shaped id, so committing the seed leaves the
-// counter untouched.
+// Seeds are authored ID-free, like every other line. `toBudgetLines` keys them on their label
+// just far enough to run the rebalance math; `tierRebalanceWrites` strips that placeholder back
+// off before the seed reaches `addBudgetLine`, which mints the id the app then keys on.
 function seedSavingsLine(monthlyCents: number, retirementMonth?: number): BudgetLineInput {
   const account = DEFAULT_CONTRIBUTION_ACCOUNT;
   const line: BudgetLineInput = {
@@ -180,7 +182,10 @@ export function tierRebalanceWrites(
   for (const line of redistributeToTiers(lines, monthlyIncomeCents, retirementMonth)) {
     const prior = before.get(line.id);
     if (prior === undefined) {
-      seeds.push(line);
+      // A line the rebalance invented. Its `id` is the label placeholder `toBudgetLines` used
+      // to run the diff; drop it, so what reaches `addBudgetLine` names nothing and is minted.
+      const { id: _placeholder, ...seed } = line;
+      seeds.push(seed);
       continue;
     }
     // Non-literal lines pass through the rebalance untouched, so only a moved literal amount
