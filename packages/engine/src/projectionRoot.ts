@@ -37,7 +37,9 @@ import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
 import { withGoalPatch, withGoalReordered, withoutGoal, withPlanPatch } from "./plan";
 import type { Job, JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
 import {
+  deferralFractionOf,
   mapJob,
+  monthlyIncomeCentsOf,
   withDeferralFraction,
   withIncomeOverride,
   withJobPatch,
@@ -46,11 +48,17 @@ import {
   withoutPayChange,
   withPayChange,
 } from "./job";
-import type { BudgetLine, BudgetLinePatch } from "./budgetLine";
-import { withLinePatch, withoutLine } from "./budgetLine";
+import type {
+  BudgetCategory,
+  BudgetLine,
+  BudgetLineOverride,
+  BudgetLinePatch,
+} from "./budgetLine";
+import { withLineOverride, withLinePatch, withoutLine } from "./budgetLine";
+import { compileExpenseBudgetLines } from "./compileBudget";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
-import type { LifeEvent, NewLifeEvent } from "./ledger/eventTypes";
+import type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
 import { causedByEventId } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
@@ -58,15 +66,37 @@ import type { Person } from "./person";
 import type { ProjectionSeries } from "./projection/simulate";
 import type { LiabilityKind } from "./liability";
 import type { GrowthMode } from "./cashFlowSeries";
-import { addEvent } from "./ledger/addEvent";
+import { addEvent, fundingLookup } from "./ledger/addEvent";
+import type { FundingLookup } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
-import { validateGoalRemoval } from "./goalFunding";
-import { projectScenarioParts } from "./retirementSolver";
+import { eventsFundedByGoal, validateGoalRemoval } from "./goalFunding";
+import {
+  evaluateFullRetirementAtAge,
+  projectScenarioParts,
+  solveRetirement,
+} from "./retirementSolver";
+import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import { summarizeSimulation } from "./projection/report";
 import type { SimulationReport } from "./projection/report";
 import type { Household } from "./ledger/household";
-import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
+import {
+  buildPlanAccounts,
+  buildPlanGoals,
+  createProjectionBase,
+  firstInsolventMonth,
+  planAccountDescriptors,
+} from "./projectionBase";
+import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+import { buildSnapshot, membersAt } from "./projection/snapshot";
+import type { HouseholdSnapshot } from "./projection/snapshot";
+import { computeGoalProgress } from "./goal";
+import type { GoalProgress, SimGoal } from "./goal";
+import { assessDti, mortgagePaymentForPurchaseCents } from "./affordability";
+import type { DtiAssessment } from "./affordability";
+import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
+import type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+import type { Cents } from "./money";
 // Type-only: with the validation jurisdiction required, this module no longer names a fallback.
 import type { Jurisdiction } from "./jurisdiction";
 
@@ -203,6 +233,121 @@ export interface ProjectionResult {
   readonly household: Household;
   /** The debug panel / download view of this run — summarized off {@link series}, not a second pass. */
   readonly report: SimulationReport;
+
+  // Reads over this pass. Methods rather than more fields, because each is a question a
+  // caller asks about ONE month or ONE goal — computing all of them eagerly would price
+  // every run at the cost of every panel. They close over the artifacts above, so no
+  // caller has to hold `household` and `series` side by side to ask.
+
+  /** Household cross-section at `month` — who is present, what is owned, what is owed. */
+  readonly snapshot: (month: number) => HouseholdSnapshot;
+  /** Who is in the household at `month`; a partner joins and leaves on their own dates. */
+  readonly membersAt: (month: number) => Person[];
+  /**
+   * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
+   * Paired, because a row needs both and the two lists are index-aligned only by construction.
+   */
+  readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
+  /** The soft debt-to-income read on a purchase that has not been authored yet. */
+  readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
+}
+
+/** A purchase being *considered* — the same numbers a `buyHome` transaction would carry. */
+export interface HomePurchaseInput {
+  /** The month it would land; gross income and existing debt are read there. */
+  readonly month: number;
+  readonly purchasePriceCents: Cents;
+  readonly downPaymentCents: Cents;
+  /** Fractional annual rate (0.065), matching `HomePurchaseEvent.mortgageApr`. */
+  readonly apr: number;
+  readonly termMonths: number;
+}
+
+/**
+ * The soft guideline read, never a gate: authoring a home purchase is refused on funding, not
+ * on debt-to-income, so this classifies and the caller decides whether to say anything.
+ */
+export interface HomePurchaseAssessment {
+  readonly assessment: DtiAssessment;
+  /** The level monthly mortgage payment the purchase would add. */
+  readonly monthlyMortgageCents: Cents;
+  /** Gross monthly income the ratios are measured against (0 → nothing is flagged). */
+  readonly monthlyGrossCents: Cents;
+  /** True when either the front- or back-end guideline is exceeded. */
+  readonly exceeded: boolean;
+}
+
+/** What {@link Projection.retirement} answers: the whole retirement question, in one value. */
+export interface RetirementOutlook {
+  /** The earliest ages the search reached, partial and full; `null` where the money runs out. */
+  readonly solution: RetirementSolution;
+  /**
+   * {@link solution}'s full-retirement age as months from "now", or `null` with the age — what
+   * a chart draws its retirement reference line at.
+   */
+  readonly fullRetirementMonth: number | null;
+  /**
+   * The plan's own `retirementAge`, evaluated as a full retirement. `nearestFeasibleAge` is
+   * resolved here: the pinned age when it survives, else the earliest age the same search
+   * found.
+   */
+  readonly target: RetirementEvaluation;
+  /** Whether retiring on this plan opens a pre-coverage health gap, and how large. */
+  readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
+}
+
+/** One expense line as it stands at a month. See {@link Projection.expenseRowsAt}. */
+export interface ResolvedExpenseRow {
+  readonly lineId: string;
+  readonly label: string;
+  readonly category: BudgetCategory;
+  /** In that month's dollars — the figure the projection charges and the graph draws. */
+  readonly monthlyCents: Cents;
+  /** True when a dated override, rather than the base amount, is what is showing. */
+  readonly overridden: boolean;
+}
+
+/**
+ * Owner tag for the throwaway compilation behind {@link Projection.expenseRowsAt}. Expense
+ * owners are inert in the pipeline; the preview never reaches a simulation.
+ */
+const EXPENSE_PREVIEW_OWNER = "expense-preview";
+
+/**
+ * Feed the guideline arithmetic the household's real numbers at the purchase month: gross
+ * income is every active income stream's rate, and the debt already being serviced is the
+ * projected month's scheduled liability payments — 0 where nothing is owed or the month sits
+ * past the horizon. Housing counts only the new mortgage; total debt counts it on top of the
+ * rest. With zero gross income {@link assessDti} flags nothing, so an unearning month cannot
+ * produce a divide-by-zero warning.
+ */
+function assessHomePurchase(
+  household: Household,
+  series: ProjectionSeries,
+  input: HomePurchaseInput,
+): HomePurchaseAssessment {
+  const monthlyMortgageCents = mortgagePaymentForPurchaseCents(
+    input.purchasePriceCents,
+    input.downPaymentCents,
+    input.apr,
+    input.termMonths,
+  );
+  const monthlyGrossCents = buildSnapshot(household, input.month, series).income.reduce(
+    (sum, s) => sum + s.monthlyCents,
+    0,
+  );
+  const existingDebtCents = series.months[input.month]?.flows?.liabilityPaymentsCents ?? 0;
+  const assessment = assessDti(
+    monthlyGrossCents,
+    monthlyMortgageCents,
+    existingDebtCents + monthlyMortgageCents,
+  );
+  return {
+    assessment,
+    monthlyMortgageCents,
+    monthlyGrossCents,
+    exceeded: assessment.frontEndExceeded || assessment.backEndExceeded,
+  };
 }
 
 export interface ProjectionInit {
@@ -499,26 +644,65 @@ export class Projection {
    * setter routes through here, so each is the transform's name and nothing else.
    */
   private editJob(id: string, f: (job: Job) => Job): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("jobs", id);
     this.commitPlan({ ...plan, jobs: mapJob(plan.jobs, id, f) });
+  }
+
+  /**
+   * The plan, once it is known to hold `id` in `collection` — or a refusal naming the id.
+   *
+   * An edit aimed at something that is not there is a caller error, not a smaller edit: the id
+   * came from somewhere that no longer agrees with this state, so the write the caller believes
+   * it made has not happened. One contract across every authored collection and both planes
+   * ({@link partnerJobSite} for a partner's jobs), so a caller never has to know which kind of
+   * thing it asked for in order to handle the answer.
+   */
+  private planSite(collection: "jobs" | "goals" | "budgetLines", id: string): Plan {
+    const plan = this.state.scenario.plan;
+    const noun = collection === "budgetLines" ? "budget line" : collection.slice(0, -1);
+    if (!plan[collection].some((entry: { id: string }) => entry.id === id)) {
+      throw new Error(`Projection: cannot edit a ${noun} — no ${noun} "${id}" on this plan`);
+    }
+    return plan;
   }
 
   // Standing edits
 
-  /** Returns the minted `"job-N"` id. */
+  /**
+   * Returns the minted `"job-N"` id.
+   *
+   * Every {@link JobInput} field carries through: a job arriving here may be an *existing* one
+   * moving between household members, and it keeps its one-month overrides, permanent pay
+   * changes and display name across the move.
+   *
+   * For a partner, {@link addPartnerJob}: their jobs are not plan data at all.
+   */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
+    if (job.id !== undefined) this.assertJobIdFree(job.id);
     const { id, nextSeq } = mint(s, "job", job.id);
-    const newJob: Job = {
-      id,
-      ownerId: personId,
-      startYear: job.startYear,
-      endYear: job.endYear,
-      salary: job.salary,
-      ...(job.deferral !== undefined ? { deferral: job.deferral } : {}),
-    };
+    const { id: _drop, ...rest } = job;
+    const newJob: Job = { ...rest, id, ownerId: personId };
     this.commitPlan({ ...s.scenario.plan, jobs: [...(s.scenario.plan.jobs ?? []), newJob] }, nextSeq);
     return id;
+  }
+
+  /**
+   * Rewrite one job wholesale, keeping its `id` and its list position — the counterpart to
+   * {@link updateJob}'s field-wise patch, for a caller holding a whole new definition rather
+   * than a diff.
+   *
+   * The difference is what an *absent* field means. A patch carries only what it names, so it
+   * can never clear a field; this replaces, so a job arriving with no `deferral` and no `name`
+   * comes out with neither. That is what a form re-submitted with the 401(k) rate zeroed and
+   * the name blanked has to mean.
+   *
+   * `ownerId` stays as it was — reassignment is a two-plane move, not a field edit (a partner's
+   * jobs do not live on the plan at all). Refused for an id the plan does not hold.
+   */
+  replaceJob(id: string, job: JobInput): void {
+    const { id: _drop, ...rest } = job;
+    this.editJob(id, (prior) => ({ ...rest, id: prior.id, ownerId: prior.ownerId }));
   }
 
   /**
@@ -528,7 +712,7 @@ export class Projection {
    * Editing a job changes the income the projection base compiles, but never re-validates the
    * ledger: the affordability gate is an append-time check ({@link commitEvent}), so a
    * transaction already accepted stays accepted. That matches the app, whose gate also fires
-   * only on append. A patch aimed at an id that is not a job is a no-op plan swap.
+   * only on append. Refused for an id the plan does not hold.
    */
   updateJob(id: string, patch: JobPatch): void {
     this.editJob(id, (j) => withJobPatch(j, patch));
@@ -536,17 +720,183 @@ export class Projection {
 
   /**
    * Drop a job. Unlike {@link removeGoal} there is nothing to guard: a job derives no account
-   * an event can reference, so no ledger reference can dangle. Removing an id that is not a
-   * job is a no-op.
+   * an event can reference, so no ledger reference can dangle. Refused for an id the plan does
+   * not hold.
    */
   removeJob(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("jobs", id);
     this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
+  }
+
+  // Jobs on the other plane
+  //
+  // A household member's jobs live on one of two planes, and which one is a fact about the
+  // member, not about the edit: the primary person's are standing plan data, a partner's ride
+  // the `RelationshipEvent` that brought them into the household. The methods above write the
+  // first plane; the four below write the second, through the same replay-validated path
+  // {@link reviseTransaction} uses.
+  //
+  // They exist so that no caller ever has to rebuild `event.person.jobs` itself: that array is
+  // the whole authoring surface of a partner's income, and rebuilding it outside this class
+  // means minting ids off a counter this class does not control.
+
+  /** The `RelationshipEvent` a partner joined on, or a refusal naming the person. */
+  private relationshipFor(personId: PersonId): RelationshipEvent {
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type === "RelationshipEvent" && event.person.id === personId) return event;
+    }
+    throw new Error(
+      `Projection: cannot author a partner job — no partner "${personId}" in this timeline`,
+    );
+  }
+
+  /** The event and job for a partner-owned job id, or a refusal naming the id — see
+   * {@link planSite} for why an id that is not there is refused rather than skipped. */
+  private partnerJobSite(jobId: string): { event: RelationshipEvent; job: Job } {
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type !== "RelationshipEvent") continue;
+      const job = event.person.jobs.find((j) => j.id === jobId);
+      if (job !== undefined) return { event, job };
+    }
+    throw new Error(
+      `Projection: cannot edit a partner job — no partner holds a job "${jobId}"`,
+    );
+  }
+
+  /**
+   * Every job id in the scenario, both planes. One namespace, because one counter issues them
+   * — a job's id keys its income band's `sourceId`, so two jobs sharing one make the bands
+   * ambiguous no matter which plane each sits on.
+   */
+  private jobIdsInUse(): Set<string> {
+    const s = this.state.scenario;
+    const ids = new Set(s.plan.jobs.map((j) => j.id));
+    for (const event of s.ledger.events) {
+      if (event.type === "RelationshipEvent") for (const j of event.person.jobs) ids.add(j.id);
+    }
+    return ids;
+  }
+
+  /**
+   * Refuses a caller-supplied id already in use. Only a supplied id can collide: a minted one
+   * comes off a counter floored past everything the scenario holds.
+   */
+  private assertJobIdFree(id: string): void {
+    if (this.jobIdsInUse().has(id)) {
+      throw new Error(`Projection: cannot add a job — this household already holds a job "${id}"`);
+    }
+  }
+
+  /**
+   * Commit a partner's rewritten job list. Routed through {@link updateEvent} — the same
+   * whole-ledger replay {@link reviseTransaction} validates with — so a revision that would
+   * strand a later event is refused with the state untouched, and the ledger and the counter
+   * land as ONE new state (a refused write consumes no id).
+   */
+  private commitPartnerJobs(
+    event: RelationshipEvent,
+    jobs: readonly Job[],
+    nextSeq?: number,
+  ): void {
+    const s = this.state;
+    const next: NewLifeEvent = { ...event, person: { ...event.person, jobs } };
+    const result = updateEvent(s.scenario.ledger, event.id, next, this.baseConfig());
+    if (!result.ok) {
+      throw new Error(`Projection: cannot revise transaction — ${result.conflict}`);
+    }
+    this.commit({
+      ...s,
+      scenario: withLedger(s.scenario, result.ledger),
+      ...(nextSeq !== undefined ? { nextSeq } : {}),
+    });
+  }
+
+  /**
+   * Add a job to a partner — the ledger-plane counterpart of {@link addJob}, returning the
+   * minted `"job-N"` id.
+   *
+   * The id comes off the SAME counter every other minted id does, in the same `job-N` shape:
+   * one namespace across both planes, which is what lets {@link seqFloor} recognize a partner's
+   * job on the way back in and step the counter past it.
+   *
+   * A supplied `id` is kept verbatim (that is how a job keeps its identity moving between
+   * members) and refused if the household already holds it.
+   */
+  addPartnerJob(personId: PersonId, job: JobInput): string {
+    const event = this.relationshipFor(personId);
+    if (job.id !== undefined) this.assertJobIdFree(job.id);
+    const { id, nextSeq } = mint(this.state, "job", job.id);
+    const { id: _drop, ...rest } = job;
+    const newJob: Job = { ...rest, id, ownerId: personId };
+    this.commitPartnerJobs(event, [...event.person.jobs, newJob], nextSeq);
+    return id;
+  }
+
+  /**
+   * Rewrite one partner-owned job wholesale, keeping its id, owner and list position — see
+   * {@link replaceJob}, of which this is the ledger-plane counterpart, for why an absent field
+   * clears rather than carries through.
+   */
+  replacePartnerJob(jobId: string, job: JobInput): void {
+    const { event } = this.partnerJobSite(jobId);
+    const { id: _drop, ...rest } = job;
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.map((j) =>
+        j.id === jobId ? ({ ...rest, id: j.id, ownerId: j.ownerId } as Job) : j,
+      ),
+    );
+  }
+
+  /** Apply one of `job`'s authoring transforms to a partner-owned job — see {@link editJob}. */
+  private editPartnerJob(jobId: string, f: (job: Job) => Job): void {
+    const { event } = this.partnerJobSite(jobId);
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.map((j) => (j.id === jobId ? f(j) : j)),
+    );
+  }
+
+  /** See {@link updateJob} — the field-wise patch, on a partner's plane. */
+  updatePartnerJob(jobId: string, patch: JobPatch): void {
+    this.editPartnerJob(jobId, (j) => withJobPatch(j, patch));
+  }
+
+  /** Drop a partner-owned job. See {@link removeJob}: there is nothing to guard. */
+  removePartnerJob(jobId: string): void {
+    const { event } = this.partnerJobSite(jobId);
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.filter((j) => j.id !== jobId),
+    );
+  }
+
+  // Adjustments to ONE job, addressed by its id alone.
+  //
+  // Owner-aware: a job id is unique across the household (see {@link assertJobIdFree}), so
+  // "give job-3 a raise" has one answer and the caller does not have to know which plane
+  // job-3 is authored on to ask for it. The methods that CREATE or replace a job stay
+  // plane-explicit, because creating one needs the person it belongs to.
+
+  /** Whichever plane holds `jobId`, or a refusal naming it. */
+  private editJobAnywhere(jobId: string, f: (job: Job) => Job): void {
+    if (this.state.scenario.plan.jobs.some((j) => j.id === jobId)) {
+      this.editJob(jobId, f);
+      return;
+    }
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type !== "RelationshipEvent") continue;
+      if (event.person.jobs.some((j) => j.id === jobId)) {
+        this.editPartnerJob(jobId, f);
+        return;
+      }
+    }
+    throw new Error(`Projection: cannot edit a job — no job "${jobId}" in this household`);
   }
 
   /** See {@link withMonthlyIncome} — monthly cents in, annualized salary stored. */
   setJobMonthlyIncome(id: string, monthlyCents: number): void {
-    this.editJob(id, (j) => withMonthlyIncome(j, monthlyCents));
+    this.editJobAnywhere(id, (j) => withMonthlyIncome(j, monthlyCents));
   }
 
   /**
@@ -555,27 +905,27 @@ export class Projection {
    * an asymmetry a `deferral` patch, which replaces the whole object, cannot express.
    */
   setJobDeferralFraction(id: string, fraction: number): void {
-    this.editJob(id, (j) => withDeferralFraction(j, fraction));
+    this.editJobAnywhere(id, (j) => withDeferralFraction(j, fraction));
   }
 
   /** See {@link withPayChange} — a permanent raise or cut, at most one per (job, month). */
   addJobPayChange(jobId: string, payChange: JobPayChange): void {
-    this.editJob(jobId, (j) => withPayChange(j, payChange));
+    this.editJobAnywhere(jobId, (j) => withPayChange(j, payChange));
   }
 
   /** See {@link withoutPayChange}. */
   removeJobPayChange(jobId: string, month: number): void {
-    this.editJob(jobId, (j) => withoutPayChange(j, month));
+    this.editJobAnywhere(jobId, (j) => withoutPayChange(j, month));
   }
 
   /** See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment. */
   addJobIncomeOverride(jobId: string, override: JobIncomeOverride): void {
-    this.editJob(jobId, (j) => withIncomeOverride(j, override));
+    this.editJobAnywhere(jobId, (j) => withIncomeOverride(j, override));
   }
 
   /** See {@link withoutIncomeOverride}. */
   removeJobIncomeOverride(jobId: string, month: number): void {
-    this.editJob(jobId, (j) => withoutIncomeOverride(j, month));
+    this.editJobAnywhere(jobId, (j) => withoutIncomeOverride(j, month));
   }
 
   /** Returns the minted `"line-N"` id. */
@@ -589,18 +939,36 @@ export class Projection {
     return id;
   }
 
-  /** See {@link withLinePatch} — span, dated overrides and priority carry through. */
+  /**
+   * See {@link withLinePatch} — span, dated overrides and priority carry through. Refused for
+   * an id the plan does not hold.
+   */
   updateBudgetLine(id: string, patch: BudgetLinePatch): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("budgetLines", id);
     this.commitPlan({ ...plan, budgetLines: withLinePatch(plan.budgetLines, id, patch) });
   }
 
   /**
-   * Drop a budget line. No guard: a line derives no account an event can reference. Removing
-   * an id that is not a line is a no-op.
+   * Layer a dated amount override onto one line — the "just this month" / "from here forward"
+   * answer, which is a fact about the line rather than a new authored amount (see
+   * {@link withLineOverride} for the one-per-(scope, month) rule).
+   *
+   * Beside {@link updateBudgetLine} rather than inside it: a patch REPLACES the `overrides`
+   * array it is given, so routing an override through one would drop every other dated change
+   * on the line unless the caller re-sent them all — exactly the read-modify-write this API
+   * exists to keep out of callers.
+   */
+  addBudgetLineOverride(lineId: string, override: BudgetLineOverride): void {
+    const plan = this.planSite("budgetLines", lineId);
+    this.commitPlan({ ...plan, budgetLines: withLineOverride(plan.budgetLines, lineId, override) });
+  }
+
+  /**
+   * Drop a budget line. Nothing to guard beyond its existence: a line derives no account an
+   * event can reference, so no ledger reference can dangle.
    */
   removeBudgetLine(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("budgetLines", id);
     this.commitPlan({ ...plan, budgetLines: withoutLine(plan.budgetLines, id) });
   }
 
@@ -618,10 +986,10 @@ export class Projection {
   /**
    * See {@link withGoalPatch}. Editing keeps the `id`, so the `goal-<id>` fund account is
    * stable and no funding reference can dangle — which is why, unlike {@link removeGoal}, this
-   * needs no guard.
+   * needs no funding guard. Refused for an id the plan does not hold.
    */
   updateGoal(id: string, patch: GoalPatch): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
     this.commitPlan({ ...plan, goals: withGoalPatch(plan.goals, id, patch) });
   }
 
@@ -631,11 +999,12 @@ export class Projection {
    * reference the ledger keeps, so the removal is a no-op and this throws with the state
    * untouched — the same contract {@link commitEvent} gives a refused transaction.
    *
-   * Removing a goal that no event funds, or an id that is not a goal, is a plain no-op-safe
-   * plan swap. Callers wanting to ask before acting call {@link validateGoalRemoval}.
+   * Removing a goal that no event funds is a plain plan swap; an id the plan does not hold is
+   * refused like any other edit. Callers wanting to ask before acting call
+   * {@link validateGoalRemoval}.
    */
   removeGoal(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
     const check = validateGoalRemoval(plan.goals, id, this.state.scenario.ledger);
     if (!check.ok) {
       throw new Error(`Projection: cannot remove goal — ${check.reason}`);
@@ -646,9 +1015,19 @@ export class Projection {
   /**
    * See {@link withGoalReordered}. {@link addGoal} only appends, so this is the sole way an
    * API caller reprioritizes a goal after authoring it.
+   *
+   * Refused at the ends, like any other edit that cannot happen: "move the first goal up" is a
+   * caller believing it changed the funding order when it did not, and priority IS the order.
+   * A UI offering the control disables it there rather than calling and ignoring the answer.
    */
   reorderGoal(id: string, direction: "up" | "down"): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
+    const index = plan.goals.findIndex((g) => g.id === id);
+    const edge = direction === "up" ? 0 : plan.goals.length - 1;
+    if (index === edge) {
+      const place = direction === "up" ? "first" : "last";
+      throw new Error(`Projection: cannot reorder goal — "${id}" is already ${place}`);
+    }
     this.commitPlan({ ...plan, goals: withGoalReordered(plan.goals, id, direction) });
   }
 
@@ -821,8 +1200,9 @@ export class Projection {
   }
 
   /**
-   * The mortgage liability id derives from the minted property id
-   * (`mortgage-<propertyId>`). Subject to the down-payment hard block.
+   * The mortgage liability id derives from the minted property id, parent-suffixed
+   * (`<propertyId>-mortgage`) so a sort groups it under its home. Subject to the down-payment
+   * hard block.
    */
   buyHome(input: BuyHomeInput): string {
     const { id, nextSeq } = mint(this.state, "home", input.id);
@@ -836,7 +1216,7 @@ export class Projection {
         purchasePriceCents: input.purchasePriceCents,
         downPaymentCents: input.downPaymentCents,
         downPaymentSourceIds: input.downPaymentSourceIds,
-        mortgageLiabilityId: `mortgage-${id}`,
+        mortgageLiabilityId: `${id}-mortgage`,
         mortgageApr: input.mortgageApr,
         mortgageTermMonths: input.mortgageTermMonths,
         ...(input.appreciationMode !== undefined
@@ -935,13 +1315,229 @@ export class Projection {
       { plan: s.scenario.plan, jurisdictionId: jurisdiction.id },
       jurisdiction,
     );
+    const plan = s.scenario.plan;
     return Object.freeze({
       jurisdictionId: jurisdiction.id,
       series,
       firstInsolventMonth: firstInsolventMonth(series),
       household,
       report,
+      snapshot: (month: number) => buildSnapshot(household, month, series),
+      membersAt: (month: number) => membersAt(household, month),
+      goalProgress: () => {
+        const accounts = buildPlanAccounts(plan);
+        return buildPlanGoals(plan).map((goal) => ({
+          goal,
+          progress: computeGoalProgress(goal, series, accounts),
+        }));
+      },
+      assessHomePurchase: (input: HomePurchaseInput) =>
+        assessHomePurchase(household, series, input),
     });
+  }
+
+  /**
+   * The accounts this plan implies, named and typed — the three standing ones plus a fund
+   * account per goal. Derived from the plan, so a goal added a moment ago already has one.
+   */
+  accountDescriptors(): readonly PlanAccountDescriptor[] {
+    return planAccountDescriptors(this.plan);
+  }
+
+  /**
+   * The context the retirement searches run in. Their own question, not {@link run}'s: each
+   * re-simulates the scenario at a *candidate* retirement age, so none of them can be answered
+   * off a completed pass — which is why {@link retirement} is a separate call and `run` never
+   * pays for one it was not asked for.
+   */
+  private projectionContext(jurisdiction: Jurisdiction): ProjectionContext {
+    return { jurisdiction, startYear: this.state.startYear };
+  }
+
+  /**
+   * The pre-coverage health gap: retiring before the jurisdiction's public-coverage age with an
+   * authored health line under the self-funded benchmark. Priced in **today's dollars** — at
+   * the plan's own start year rather than indexed out to the retirement year — because the
+   * authored line it is compared against is today's-dollars too, and pitting a nominal cost
+   * against a real budget would flag every plan. Never fires at or after the coverage age.
+   *
+   * A jurisdiction naming no coverage age has no gap window at all, so the flag stays quiet
+   * rather than treating "unknown" as "never covered".
+   */
+  private earlyRetireeHealth(jurisdiction: Jurisdiction): EarlyRetireeHealthFlag {
+    const plan = this.plan;
+    return assessEarlyRetireeHealthCost({
+      retirementAge: plan.retirementAge,
+      publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
+      authoredHealthMonthlyCents: plan.healthMonthlyCents,
+      selfFundedBenchmarkMonthlyCents:
+        jurisdiction.healthCostBenchmarkMonthlyCents?.({
+          age: plan.retirementAge,
+          year: this.state.startYear,
+        }) ?? 0,
+    });
+  }
+
+  /**
+   * One cohesive public query over one scenario and one context: "when can this household
+   * retire, and does the age it picked work?" Internally it performs both the search for the
+   * earliest feasible ages and the evaluation at the plan's target age; neither is a separate
+   * call a caller can make, because neither is a separate answer.
+   *
+   * Cohesive because the parts are not independent. The target's fallback when the pinned age
+   * fails is an age the SAME search found, so a caller assembling the pieces itself would have
+   * to re-derive that rule — which is how a panel and a chart come to disagree about a
+   * household that cannot retire at all.
+   *
+   * Separate from {@link run} on purpose. `run` is one simulation; this is a *search* over
+   * many, each at a candidate age — so a caller that only wants the graph never pays for it.
+   */
+  retirement(jurisdiction: Jurisdiction): RetirementOutlook {
+    const ctx = this.projectionContext(jurisdiction);
+    const plan = this.plan;
+    const solution = solveRetirement(this.state.scenario, ctx);
+    const evaluation = evaluateFullRetirementAtAge(this.state.scenario, plan.retirementAge, ctx);
+    return Object.freeze({
+      solution,
+      // The headline is the FULL retirement age: everyone stops all their jobs.
+      fullRetirementMonth:
+        solution.fullRetirementAge === null
+          ? null
+          : Math.max(0, (solution.fullRetirementAge - plan.currentAge) * 12),
+      target: {
+        ...evaluation,
+        // One rule for the pin and its fallback: an age the plan cannot reach falls back to the
+        // earliest age the same search found, so the two can never name different households.
+        nearestFeasibleAge: evaluation.feasible
+          ? evaluation.retirementAge
+          : solution.fullRetirementAge,
+      },
+      earlyRetireeHealth: this.earlyRetireeHealth(jurisdiction),
+    });
+  }
+
+  /**
+   * Every job in the household, both planes at once: the primary person's stand on the plan, a
+   * partner's ride the {@link RelationshipEvent} that brought them in. Ownership is on the job,
+   * so a caller reading pay or deferral never has to know which plane it came off.
+   */
+  private householdJobs(): readonly Job[] {
+    const s = this.state.scenario;
+    const jobs: Job[] = [...s.plan.jobs];
+    for (const event of s.ledger.events) {
+      if (event.type === "RelationshipEvent") jobs.push(...event.person.jobs);
+    }
+    return jobs;
+  }
+
+  /**
+   * What a job pays a month **as authored** — its starting salary, not what any given month
+   * resolves to once growth, spans and overrides are applied. That is deliberately the figure a
+   * job's headline shows: a dated change is listed beside it rather than folded into it.
+   */
+  jobMonthlyIncomeCents(jobId: string): Cents {
+    return monthlyIncomeCentsOf(this.jobOrThrow(jobId));
+  }
+
+  /** A job id names one job across both planes, or it names nothing — never a silent 0. */
+  private jobOrThrow(jobId: string): Job {
+    const job = this.householdJobs().find((j) => j.id === jobId);
+    if (job === undefined) {
+      throw new Error(`Projection: cannot read a job — no job "${jobId}" in this household`);
+    }
+    return job;
+  }
+
+  /**
+   * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a
+   * caller never has to distinguish "no deferral" from "deferring nothing" — the read
+   * counterpart of {@link setJobDeferralFraction}, which erases a 0 rather than recording it.
+   */
+  jobDeferralFraction(jobId: string): number {
+    return deferralFractionOf(this.jobOrThrow(jobId));
+  }
+
+  /** The same, summed over one person's jobs — nobody holds a single privileged job. */
+  personMonthlyIncomeCents(personId: PersonId): Cents {
+    return this.householdJobs()
+      .filter((j) => j.ownerId === personId)
+      .reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
+  }
+
+  /** Standing pay across every earner. Sizing a household's budget off one earner's is wrong. */
+  householdMonthlyIncomeCents(): Cents {
+    return this.householdJobs().reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
+  }
+
+  /**
+   * One person's pre-tax 401(k) deferral as a fraction of their gross, blended across their
+   * jobs — each job elects its own, so the household-level figure is a weighted average and not
+   * any one election. 0 when they earn nothing.
+   */
+  personDeferralFraction(personId: PersonId): number {
+    const jobs = this.householdJobs().filter((j) => j.ownerId === personId);
+    const grossCents = jobs.reduce((sum, j) => sum + j.salary.startingSalaryCents, 0);
+    if (grossCents <= 0) return 0;
+    const deferredCents = jobs.reduce(
+      (sum, j) => sum + j.salary.startingSalaryCents * deferralFractionOf(j),
+      0,
+    );
+    return deferredCents / grossCents;
+  }
+
+  /**
+   * Every expense line resolved to what it is **at `month`**: base amount, any dated override
+   * layered on, and the price growth accrued by then. The amounts come off the very series the
+   * simulator charges, so an editor showing a month and the projection running it cannot drift.
+   *
+   * Resolved rows, not the compiled series they are read from: a caller wants the number and
+   * whether an override is what is showing, and the compiler's `SimOwnedSeries` is an internal
+   * with a lifetime and an owner tag that mean nothing outside the pipeline.
+   *
+   * Contribution lines are absent by construction — they pay a literal amount into an account
+   * and have no month-resolved value to preview.
+   */
+  expenseRowsAt(month: number): readonly ResolvedExpenseRow[] {
+    const plan = this.plan;
+    const lines = plan.budgetLines.filter((line) => line.target.kind === "expense");
+    const compiled = new Map(
+      compileExpenseBudgetLines(lines, EXPENSE_PREVIEW_OWNER, plan.inflationPct / 100).map((s) => [
+        s.lineId,
+        s.series,
+      ]),
+    );
+    return lines.map((line) => ({
+      lineId: line.id,
+      label: line.label,
+      category: line.category,
+      monthlyCents: compiled.get(line.id)?.getMonthlyCents(month) ?? 0,
+      overridden: (line.overrides ?? []).some(
+        (o) =>
+          (o.scope === "thisMonthOnly" && o.month === month) ||
+          (o.scope === "fromHereForward" && o.month <= month),
+      ),
+    }));
+  }
+
+  /**
+   * The timeline events a goal's fund account pays for — what blocks its deletion, in timeline
+   * order. {@link removeGoal} refuses on the same reading; this is it asked ahead of time, so a
+   * caller can say which events to fix first instead of only that it cannot.
+   */
+  eventsFundedByGoal(goalId: string): readonly LifeEvent[] {
+    const s = this.state.scenario;
+    return eventsFundedByGoal(s.plan.goals, goalId, s.ledger);
+  }
+
+  /**
+   * The funding question against the ledger so far — which liquid accounts could pay a
+   * money-out event at a month, and what a chosen set nets after tax. Built from the SAME
+   * {@link baseConfig} and {@link validationJurisdiction} the affordability gate decides on,
+   * so an authoring picker and the §4.5 down-payment gate can never tell the user different
+   * stories. Read-only, like {@link run}.
+   */
+  funding(): FundingLookup {
+    return fundingLookup(this.state.scenario.ledger, this.baseConfig(), this.validationJurisdiction);
   }
 
   // State round-trip
@@ -984,3 +1580,79 @@ export class Projection {
     return new Projection(withNormalizedCounters(state), jurisdiction);
   }
 }
+
+// ---------------------------------------------------------------------------
+// The facade's vocabulary
+// ---------------------------------------------------------------------------
+//
+// What an application may name. `Projection` is the whole authoring surface and the whole
+// read surface over authored state, but a caller still has to spell the types its methods
+// take and return, quote a well-known id, and turn a number a user typed into cents. Those
+// are re-exported here so that ONE module states an app's entire dependency on the engine —
+// and so adding to it is a deliberate edit with a reason beside it.
+//
+// The line, drawn once: if answering the question needs the projection — the plan, the
+// ledger, the household, the run — it is a METHOD above, and it returns what the caller
+// actually wanted rather than a compiler artifact to finish assembling. What appears below
+// could not be a method without inventing a reason to hold one: a unit conversion with no
+// state to convert against, a label for an enum value, an id the engine names.
+//
+// Nothing that WRITES appears here, and nothing that writes may be added. The authoring
+// transforms (`withPayChange`, `withGoalPatch`, `addEvent`, `updateEvent`, …) stay on the
+// functional barrel, where the engine's own internals and its tests reach them. An app that
+// could import one would have a second write path around the id counter, the goal-funding
+// guard and the affordability gate — which is the arrangement this module exists to replace.
+
+// The authored model, and the artifacts a run produces.
+export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan";
+export type {
+  Job,
+  JobPatch,
+  JobDeferral,
+  JobIncomeOverride,
+  JobPayChange,
+  PersonId,
+  SalaryTrajectory,
+} from "./job";
+export type { Person } from "./person";
+export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
+export type {
+  BudgetLine,
+  BudgetLinePatch,
+  BudgetLineOverride,
+  BudgetCategory,
+  TaxTreatment,
+} from "./budgetLine";
+export type { Scenario } from "./scenario";
+export type { Ledger } from "./ledger/ledger";
+export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export type { Household } from "./ledger/household";
+export type { FundingLookup } from "./ledger/addEvent";
+export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
+export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
+export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type { SharedContributionScheme } from "./projection/waterfall.types";
+export type { SpendingItem } from "./projection/spendingItems";
+export type { SimulationReport } from "./projection/report";
+export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+export type { DtiAssessment } from "./affordability";
+export type { LiabilityKind } from "./liability";
+export type { Jurisdiction } from "./jurisdiction";
+export type { Cents } from "./money";
+
+// Money as the user types it. Neither reads nor writes anything — a form has cents to hand
+// the facade before there is any state for the facade to hold, so a `Projection` method
+// would be an instance in search of a use.
+export { dollarsToCents, centsToDollars } from "./cashFlowSeries";
+
+// A total function of one enum value, with no projection to ask.
+export { liabilityKindLabel } from "./liability";
+
+// Ids and thresholds the engine owns and an app has to quote back: the primary person, the
+// standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
+export { RETIREMENT_ID } from "./ids";
+export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
+export { SYNTHETIC_CARD_ID } from "./liability";
+export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";

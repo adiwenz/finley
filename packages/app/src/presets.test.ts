@@ -20,11 +20,32 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import {
-  projectScenario,
-  solveRetirement,
-  evaluateFullRetirementAtAge,
+  Projection,
+  addEvent,
+  emptyLedger,
+  type Ledger,
+  type LedgerBaseConfig,
+  type NewLifeEvent,
 } from "@finley/engine";
-import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
+import { PRESETS, presetById, type Preset } from "./presets";
+
+/**
+ * Replays a preset's seeds through the same `addEvent` path the live UI's authoring writes
+ * take, so they validate like hand-added events. The oracle these tests check `presetState`
+ * against: a rejected seed is a preset bug, not user error, so it throws rather than silently
+ * dropping the event.
+ */
+function buildPresetLedger(base: LedgerBaseConfig, events: readonly NewLifeEvent[]): Ledger {
+  let ledger = emptyLedger;
+  for (const event of events) {
+    const result = addEvent(ledger, base, event, usJurisdiction);
+    if (!result.ok) {
+      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
+    }
+    ledger = result.ledger;
+  }
+  return ledger;
+}
 import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
 import { START_YEAR } from "./config";
 
@@ -238,14 +259,16 @@ describe("the panel and the graph agree", () => {
       const preset = presetById(id);
       const base = createProjectionBase(preset.plan, CTX);
       const ledger = buildPresetLedger(base, preset.events);
-      const scenario = { plan: preset.plan, ledger };
-      const graphSurvives =
-        firstInsolventMonth(projectScenario(scenario, CTX)) === null;
+      const projection = Projection.fromScenario(
+        { plan: preset.plan, ledger },
+        START_YEAR,
+        usJurisdiction,
+      );
+      const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
       // draws surviving.
-      const pinnedWorks = evaluateFullRetirementAtAge(scenario, preset.plan.retirementAge, CTX)
-        .feasible;
+      const pinnedWorks = projection.retirement(usJurisdiction).target.feasible;
       if (graphSurvives) expect(pinnedWorks).toBe(true);
     },
   );
@@ -253,9 +276,12 @@ describe("the panel and the graph agree", () => {
   it("student-loan: an underwater opening still has a feasible retirement age", () => {
     const preset = presetById("student-loan");
     const base = createProjectionBase(preset.plan, CTX);
-    const scenario = { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) };
-    const series = projectScenario(scenario, CTX);
-    expect(series.months[0]!.netWorthRealCents).toBeLessThan(0);
-    expect(solveRetirement(scenario, CTX).fullRetirementAge).not.toBeNull();
+    const projection = Projection.fromScenario(
+      { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) },
+      START_YEAR,
+      usJurisdiction,
+    );
+    expect(projection.run(usJurisdiction).series.months[0]!.netWorthRealCents).toBeLessThan(0);
+    expect(projection.retirement(usJurisdiction).solution.fullRetirementAge).not.toBeNull();
   });
 });

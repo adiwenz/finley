@@ -3,10 +3,9 @@
 import { useState } from "react";
 import type {
   LifeEvent,
-  NewLifeEvent,
+  Projection,
   FundingLookup,
-  Household,
-  ProjectionSeries,
+  ProjectionResult,
 } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
@@ -38,17 +37,17 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
 ];
 
 export function AddEventForm({
-  household,
-  series,
+  result,
   funding,
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
 }: {
-  household: Household;
-  /** The live projection — the home-purchase form reads it for the DTI warning. */
-  series: ProjectionSeries;
+  /**
+   * The live run. The home-purchase form asks it for the DTI advisory, and the separation
+   * form for who is actually in the household at the chosen month.
+   */
+  result: ProjectionResult;
   /**
    * The engine's funding questions against the ledger so far: which accounts could pay for
    * a money-out event at a month, and what a chosen set nets after tax. Read by the
@@ -56,13 +55,12 @@ export function AddEventForm({
    */
   funding: FundingLookup;
   defaultMonth: number;
-  nextId: number;
   horizonMonths: number;
-  onAdd: (event: NewLifeEvent) => void;
+  onAdd: (write: (projection: Projection) => void) => void;
 }) {
   const [kind, setKind] = useState<EventKind>("LoanEvent");
 
-  const formProps = { defaultMonth, nextId, horizonMonths, onAdd };
+  const formProps = { defaultMonth, horizonMonths, onAdd };
 
   return (
     <div className={styles.authoring}>
@@ -84,11 +82,11 @@ export function AddEventForm({
 
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (
-        <HomePurchaseForm {...formProps} household={household} series={series} funding={funding} />
+        <HomePurchaseForm {...formProps} result={result} funding={funding} />
       )}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
-      {kind === "SeparationEvent" && <SeparationForm {...formProps} household={household} />}
+      {kind === "SeparationEvent" && <SeparationForm {...formProps} result={result} />}
     </div>
   );
 }

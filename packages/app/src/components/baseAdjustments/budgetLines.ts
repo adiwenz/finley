@@ -10,10 +10,10 @@
 
 import {
   CONTRIBUTION_TARGETS,
-  withLinePatch,
-  withoutLine,
   type BudgetCategory,
   type BudgetLine,
+  type BudgetLineInput,
+  type BudgetLinePatch,
   type TaxTreatment,
 } from "@finley/engine";
 
@@ -68,16 +68,9 @@ function treatmentFor(accountId: string): TaxTreatment {
   return contributionTargets.find((t) => t.accountId === accountId)?.taxTreatment ?? "postTax";
 }
 
-function nextLineId(lines: readonly BudgetLine[]): string {
-  const ids = new Set(lines.map((l) => l.id));
-  let n = lines.length + 1;
-  while (ids.has(`line-${n}`)) n++;
-  return `line-${n}`;
-}
-
-function lineFromDraft(id: string, draft: BudgetLineDraft): BudgetLine {
+/** The line minus its id — the shape the facade's `addBudgetLine` mints an id onto. */
+function lineBody(draft: BudgetLineDraft): Omit<BudgetLine, "id"> {
   const base = {
-    id,
     label: draft.label.trim() || "Untitled",
     amountSource: { kind: "literal" as const, monthlyCents: Math.max(0, draft.monthlyCents) },
   };
@@ -95,23 +88,17 @@ function lineFromDraft(id: string, draft: BudgetLineDraft): BudgetLine {
     : { ...base, category: draft.category, target: { kind: "expense" as const } };
 }
 
-export function addLineFromDraft(lines: readonly BudgetLine[], draft: BudgetLineDraft): BudgetLine[] {
-  return [...lines, lineFromDraft(nextLineId(lines), draft)];
+/** A draft as the input the facade mints a `line-N` id onto — the add path goes through it. */
+export function budgetLineInputFromDraft(draft: BudgetLineDraft): BudgetLineInput {
+  return lineBody(draft);
 }
 
 /**
- * Rewrites the line from the form's draft, but preserves what the form doesn't edit: span,
- * overrides, priority. A draft is a projection of a line, so this rebuilds and re-attaches
- * rather than patching field-wise like the engine's {@link withLinePatch}.
+ * A draft as the patch the facade applies to an existing line. Every field a draft states is
+ * named, so switching kind can't leave half the old line behind; what the form doesn't edit —
+ * span, dated overrides, priority — is absent from the patch and carried through by
+ * `Projection.updateBudgetLine`.
  */
-export function updateLineFromDraft(
-  lines: readonly BudgetLine[],
-  id: string,
-  draft: BudgetLineDraft,
-): readonly BudgetLine[] {
-  return withLinePatch(lines, id, lineFromDraft(id, draft));
-}
-
-export function removeLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
-  return withoutLine(lines, id);
+export function budgetLinePatchFromDraft(draft: BudgetLineDraft): BudgetLinePatch {
+  return lineBody(draft);
 }

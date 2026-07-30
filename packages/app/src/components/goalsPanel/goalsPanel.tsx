@@ -11,33 +11,33 @@
  */
 
 import { useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import type { ProjectionSeries } from "@finley/engine";
-import type { Plan, Ledger } from "@finley/engine";
+import type { Plan, Projection, ProjectionResult } from "@finley/engine";
 import {
   goalRows,
-  reorderGoal,
-  setGoalRate,
-  addGoal,
-  updateGoal,
-  removeGoal,
   goalFundingBlocks,
   fundingBlockMessage,
   type GoalDraft,
 } from "../../goalsView";
+import type { Transact } from "../../hooks/useProjection";
 import { GoalForm } from "./goalForm";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars, monthLabel } from "../../format";
 
 interface GoalsPanelProps {
   budget: Plan;
-  series: ProjectionSeries;
-  setBudget: Dispatch<SetStateAction<Plan>>;
+  /** This plan's run — what each goal is scored against. */
+  result: ProjectionResult;
   /**
-   * The event ledger, read only to guard deletion: a goal's derived fund account may be
-   * named as an event's funding source, and dropping the goal would strand that reference.
+   * The deletion guard, and only that: a goal's derived fund account may be named as a
+   * timeline event's funding source, and dropping the goal would strand that reference. The
+   * blockers are authored state, so this is read off the projection rather than the run.
    */
-  ledger: Ledger;
+  projection: Pick<Projection, "eventsFundedByGoal">;
+  /**
+   * Every goal write — add, edit, rate, reorder, delete — through the facade, which owns the
+   * `goal-N` mint, the array-position-is-priority rule, and the funding guard below.
+   */
+  transact: Transact;
 }
 
 /** Which authoring form, if any, is disclosed: a goal id (edit), "new" (add), or none. */
@@ -57,8 +57,8 @@ interface RefusedDelete {
   readonly blockerEventIds: readonly string[];
 }
 
-export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProps) {
-  const rows = goalRows(budget, series);
+export function GoalsPanel({ budget, result, projection, transact }: GoalsPanelProps) {
+  const rows = goalRows(budget, result);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   const [refused, setRefused] = useState<RefusedDelete | null>(null);
 
@@ -66,7 +66,7 @@ export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProp
   // or re-pointing them clears the message live, and nothing else can put it back.
   const refusalMessage = refused
     ? fundingBlockMessage(
-        goalFundingBlocks(budget.goals, refused.goalId, ledger).filter((b) =>
+        goalFundingBlocks(projection, refused.goalId).filter((b) =>
           refused.blockerEventIds.includes(b.eventId),
         ),
       )
@@ -77,33 +77,35 @@ export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProp
   if (refused && refusalMessage === null) setRefused(null);
 
   function move(id: string, direction: "up" | "down") {
-    setBudget((current) => ({ ...current, goals: reorderGoal(current.goals, id, direction) }));
+    transact((p) => p.reorderGoal(id, direction));
   }
 
   function setRate(id: string, annualReturnPct: number) {
-    setBudget((current) => ({ ...current, goals: setGoalRate(current.goals, id, annualReturnPct) }));
+    transact((p) => p.updateGoal(id, { annualReturnPct }));
   }
 
   function add(draft: GoalDraft) {
-    setBudget((current) => ({ ...current, goals: addGoal(current.goals, draft) }));
+    transact((p) => p.addGoal(draft));
     setAuthoring(null);
   }
 
+  /** A draft is a whole goal minus its id, so this states every authorable field at once. */
   function edit(id: string, draft: GoalDraft) {
-    setBudget((current) => ({ ...current, goals: updateGoal(current.goals, id, draft) }));
+    transact((p) => p.updateGoal(id, draft));
     setAuthoring(null);
   }
 
   function remove(id: string) {
-    // Refuse while the goal's fund account funds an event — deleting it strands that funding
-    // reference. The user edits or re-points the named events first.
-    const blocks = goalFundingBlocks(budget.goals, id, ledger);
+    // Asked before acting, so the panel can name the blocking events. The facade refuses the
+    // same removal outright (`Projection.removeGoal` throws on a stranded funding reference);
+    // this is the same rule read ahead of time to say which events to fix first.
+    const blocks = goalFundingBlocks(projection, id);
     if (blocks.length > 0) {
       setRefused({ goalId: id, blockerEventIds: blocks.map((b) => b.eventId) });
       return;
     }
     setRefused(null);
-    setBudget((current) => ({ ...current, goals: removeGoal(current.goals, id) }));
+    transact((p) => p.removeGoal(id));
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
 

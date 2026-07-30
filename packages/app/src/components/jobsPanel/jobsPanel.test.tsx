@@ -6,16 +6,13 @@
  * the 401(k) elective-limit nudge fires here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
-  createProjectionBase,
+  Projection,
   dollarsToCents,
-  interpretLedger,
-  projectScenario,
-  updateEvent,
   type Job,
   type Ledger,
   type NewLifeEvent,
@@ -23,17 +20,24 @@ import {
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import type { EventRevision } from "../../hooks/useLedger";
+import type { Transact } from "../../hooks/useProjection";
+import { useTestProjection } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
-import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";
+import { primaryJobs } from "../../planPeople";
+import { addJobPayChange, setJobDeferralFraction } from "../../testing/planFixtures";
 import { JobsPanel } from "./jobsPanel";
 
 afterEach(cleanup);
 
+/** A refused transaction: the facade threw, so nothing on either plane changed. */
+const refuseEveryWrite: Transact = () => undefined;
+
 /**
  * Controlled harness standing in for `App`, with a probe for each plane a job can live on: the
- * primary person's on the plan, a partner's on their `RelationshipEvent`.
+ * primary person's on the plan, a partner's on their `RelationshipEvent`. Writes go through a
+ * real `useProjection`, so an edit spanning both planes is committed the way the app commits
+ * it — one transaction, all of it or none.
  */
 function Harness({
   initial = PLAN_DEFAULTS,
@@ -42,44 +46,26 @@ function Harness({
 }: {
   initial?: Plan;
   events?: readonly NewLifeEvent[];
-  /** Stands in for a revision conflict: every ledger revision is refused, as `App` would. */
+  /** Stands in for a conflict: the transaction is refused, as the facade would refuse it. */
   rejectRevisions?: boolean;
 }) {
-  const [budget, setBudget] = useState<Plan>(initial);
-  const [ledger, setLedger] = useState<Ledger>(() => ({
+  const { state, transact } = useTestProjection(initial, {
     events: events.map((e, i) => ({ ...e, sequenceNumber: i })),
     nextSequenceNumber: events.length,
-  }));
-  const base = useMemo(
-    () => createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
-    [budget],
-  );
-  const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // Readable synchronously: `onReviseEvents` answers whether it committed before the panel
-  // writes the plan side, as `useLedger` does.
-  const ledgerRef = useRef(ledger);
-  ledgerRef.current = ledger;
-  const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
-    if (rejectRevisions) return false;
-    let next = ledgerRef.current;
-    for (const revision of revisions) {
-      const result = updateEvent(next, revision.id, revision.next, base);
-      if (!result.ok) return false;
-      next = result.ledger;
-    }
-    ledgerRef.current = next;
-    setLedger(next);
-    return true;
-  };
+  });
+  const budget = state.scenario.plan;
+  const ledger = state.scenario.ledger;
+  const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
+  const household = useMemo(() => projection.run(usJurisdiction).household, [projection]);
 
   return (
     <>
       <JobsPanel
         budget={budget}
-        setBudget={setBudget}
+        transact={rejectRevisions ? refuseEveryWrite : transact}
         household={household}
         ledger={ledger}
-        onReviseEvents={onReviseEvents}
+        projection={projection}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -293,6 +279,41 @@ describe("JobsPanel — every member's jobs", () => {
     expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
   });
 
+  it("reassigns a partner's job back to the primary person, ages following the new owner", () => {
+    // The reverse direction: off the RelationshipEvent and onto the plan, which the facade
+    // has to sequence as let-go-then-land or refuse the arriving id as a duplicate.
+    render(<Harness events={withPartner([partnerJob(2500, "Nursing")])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Nursing/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(partnerJobs()).toEqual([]);
+    const { plan } = authored();
+    // The same job — its id survived the crossing, so its income band did too.
+    expect(plan.jobs.map((j) => j.id)).toEqual(["job-1", "p-1-job-1"]);
+    const moved = plan.jobs.find((j) => j.id === "p-1-job-1")!;
+    expect(moved.ownerId).toBe(PRIMARY_PERSON_ID);
+    expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(2500 * 12));
+    // Sam's age-40 start, re-read against Alex's clock: the same age, a different year.
+    expect(moved.startYear).toBe(START_YEAR - PLAN_DEFAULTS.currentAge + 40);
+    // Sam is still in the household, so titles stay owner-qualified — under Alex now.
+    expect(screen.getByLabelText("Alex · Nursing")).toBeTruthy();
+  });
+
+  it("mints a partner's new job off the shared counter, not a per-owner scheme", () => {
+    render(<Harness events={withPartner([])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    const { plan } = authored();
+    const minted = partnerJobs()[0].id;
+    // One namespace with the plan's jobs, and clear of every id already in the household.
+    expect(minted).toMatch(/^job-\d+$/);
+    expect(plan.jobs.map((j) => j.id)).not.toContain(minted);
+  });
+
   it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
     // One edit to the existing job, so all of it rides along; minting from the form draft
     // instead loses id, bonus, raise and match.
@@ -425,7 +446,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 
     // The same job, edited — not a new one built from the draft.
     const job = moved[0];
-    expect(job.id).toBe("job-1"); // a minted id would read "p-1-job-2"
+    expect(job.id).toBe("job-1"); // the id it arrived with, not one minted on landing
     expect(job.ownerId).toBe("p-1");
     expect(job.name).toBe("Software Engineer");
     expect(job.salary.startingSalaryCents).toBe(dollarsToCents(72_000)); // $6,000/mo, edited
@@ -442,10 +463,9 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(job.payChanges).toEqual([PAY_CHANGE]);
     expect(job.incomeOverrides).toEqual([BONUS]);
 
-    const series = projectScenario(
-      { plan, ledger },
-      { jurisdiction: usJurisdiction, startYear: START_YEAR },
-    );
+    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
+      usJurisdiction,
+    ).series;
     // The income is the partner's now — the primary person has no job left to pay them.
     expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
     expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
@@ -478,10 +498,9 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     expect(plan.jobs).toEqual([]);
     expect(partnerJobs()).toHaveLength(1);
 
-    const series = projectScenario(
-      { plan, ledger },
-      { jurisdiction: usJurisdiction, startYear: START_YEAR },
-    );
+    const series = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction).run(
+      usJurisdiction,
+    ).series;
     expect(wagesFor(series, "p-1", 179)).toBeGreaterThan(0); // last month as a member
     expect(wagesFor(series, "p-1", 180)).toBe(0); // gone with the separation
     expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBe(0); // long since stopped
@@ -519,6 +538,84 @@ describe("JobsPanel — permanent pay changes", () => {
     const cut = addJobPayChange(PLAN_DEFAULTS, "job-1", { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
     render(<Harness initial={cut} />);
     expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
+  });
+});
+
+describe("JobsPanel — authoring a raise", () => {
+  /** Open the disclosed form on a job, by the label its row carries. */
+  function openPayChange(label: string) {
+    fireEvent.click(screen.getByRole("button", { name: `Change pay on ${label}` }));
+  }
+
+  const applyPayChange = (kind: "setTo" | "changeBy", age: number, dollars: number) => {
+    fireEvent.change(screen.getByRole("combobox", { name: /Pay change kind/i }), {
+      target: { value: kind },
+    });
+    fireEvent.change(spin(/From age/i), { target: { value: String(age) } });
+    fireEvent.change(spin(/Amount/i), { target: { value: String(dollars) } });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+  };
+
+  it("dates a raise by the owner's age and lists it back", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 45, 8000);
+
+    // Authored at age 45 with the owner 35 now → month 120, read back as age 45.
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 120, kind: "setTo", cents: dollarsToCents(8000) },
+    ]);
+    const row = screen.getByLabelText("Job 1");
+    expect(within(row).getByText(/Pay set to \$8,000\/mo from age 45/)).toBeTruthy();
+    // The headline is the STARTING salary, now qualified because a change exists.
+    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+  });
+
+  it("authors a cut as a negative delta", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("changeBy", 40, -500);
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
+    ]);
+    expect(screen.getByText(/Pay cut \$500\/mo from age 40/)).toBeTruthy();
+  });
+
+  it("writes a partner's raise to the event carrying their job, not the plan", () => {
+    render(<Harness events={[partnerJoining([partnerJob(4_000)])]} />);
+    openPayChange("Sam · Job 1");
+    applyPayChange("setTo", 50, 6000);
+
+    // The partner is 40 now, so age 50 is month 120 — read against THEIR birth year.
+    expect(partnerJobs()[0].payChanges).toEqual([
+      { month: 120, kind: "setTo", cents: dollarsToCents(6000) },
+    ]);
+    // Nothing landed on the plan plane.
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+  });
+
+  it("cannot date a change before now — the form floors it at month 0", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 20, 7000);
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 0, kind: "setTo", cents: dollarsToCents(7000) },
+    ]);
+  });
+
+  it("closes without writing when cancelled", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+    expect(screen.queryByRole("group", { name: /Pay change/i })).toBeNull();
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+  });
+
+  it("leaves the plan untouched when the facade refuses the write", () => {
+    render(<Harness rejectRevisions />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 45, 8000);
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
   });
 });
 

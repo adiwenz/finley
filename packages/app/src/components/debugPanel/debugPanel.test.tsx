@@ -18,6 +18,7 @@ import {
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { DebugPanel } from "./debugPanel";
+import { readerOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import type { Plan } from "@finley/engine";
@@ -29,7 +30,9 @@ function render(budget: Plan) {
   const report = summarizeSimulation(input, simulateHousehold(input, usJurisdiction), {
     jurisdictionId: usJurisdiction.id,
   });
-  return renderToStaticMarkup(<DebugPanel report={report} budget={budget} />);
+  return renderToStaticMarkup(
+    <DebugPanel report={report} budget={budget} projection={readerOf(budget)} />,
+  );
 }
 
 describe("DebugPanel — resolved growth rates", () => {

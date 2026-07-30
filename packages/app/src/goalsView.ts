@@ -5,24 +5,14 @@
  * shared priority list exists to show.
  */
 
-import {
-  computeGoalProgress,
-  buildPlanAccounts,
-  buildPlanGoals,
-  eventsFundedByGoal,
-  withGoalPatch,
-  withGoalReordered,
-  withoutGoal,
-  type ProjectionSeries,
-} from "@finley/engine";
 import type {
   Plan,
-  GoalPlan,
+  Projection,
+  ProjectionResult,
   GoalDisposition,
   GoalDisposal,
   GoalAccountType,
   GoalCompletion,
-  Ledger,
 } from "@finley/engine";
 import { summarizeEvent } from "./ledgerView";
 import { monthLabel } from "./format";
@@ -62,16 +52,14 @@ export interface GoalRow {
 }
 
 /**
- * Rows in priority order. The projection MUST be built from the SAME `budget`, so its
- * fund-account balances line up with the goals' `fundAccountId`s.
+ * Rows in priority order, scored against `result` — one run of the very plan they belong to,
+ * so a goal's fund-account balance and its target are read off the same pass.
+ *
+ * `budget` supplies only what the run compiles away: a goal's editable annual return. The
+ * two lists are index-aligned because both are `budget.goals` in order.
  */
-export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
-  const goals = buildPlanGoals(budget);
-  const accounts = buildPlanAccounts(budget);
-  // `goals` is `budget.goals` mapped in order, so the plan goal at the same index carries
-  // this row's editable rate.
-  return goals.map((goal, i) => {
-    const progress = computeGoalProgress(goal, projection, accounts);
+export function goalRows(budget: Plan, result: ProjectionResult): GoalRow[] {
+  return result.goalProgress().map(({ goal, progress }, i) => {
     return {
       id: goal.id,
       name: goal.name,
@@ -89,18 +77,10 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
   });
 }
 
-// The list edits themselves live in the engine (`@finley/engine`'s `plan` module): the
-// published `Projection` API reprioritizes and patches goals too, and priority-is-array-index
-// is the kind of rule that must not have two implementations. What stays here is the panel's
-// vocabulary — a form-shaped {@link GoalDraft}, and the rate as its own control.
-
-export function setGoalRate(
-  goals: readonly GoalPlan[],
-  id: string,
-  annualReturnPct: number,
-): readonly GoalPlan[] {
-  return withGoalPatch(goals, id, { annualReturnPct });
-}
+// Every goal edit — add, patch, reorder, remove — is a `Projection` method, because each one
+// either mints an id or enforces a rule (priority is array position; a goal funding an event
+// cannot be deleted). What lives here is the panel's vocabulary: a form-shaped
+// {@link GoalDraft}, and the words a refused deletion is read in.
 
 /**
  * The user-authorable shape of a goal — every {@link GoalPlan} field EXCEPT the stable
@@ -136,43 +116,7 @@ export function goalDisposal(
   return { disposition, targetDate };
 }
 
-/**
- * Deterministic (same list → same id), so the transforms that mint it stay pure. Ids only
- * drive each goal's derived `goal-<id>` fund account, so they need not be meaningful.
- */
-export function freshGoalId(goals: readonly GoalPlan[]): string {
-  const used = new Set(goals.map((g) => g.id));
-  let n = 1;
-  while (used.has(`goal${n}`)) n++;
-  return `goal${n}`;
-}
 
-/** Append a goal at lowest priority — priority is array index. A direct value-plane
- * override, no timeline event. */
-export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[] {
-  return [...goals, { id: freshGoalId(goals), ...draft }];
-}
-
-/**
- * Replace one goal's authorable fields from a form draft, keeping its id and list position
- * so priority is unchanged. A draft is a WHOLE goal minus its id, so this is a replace, not
- * the engine's field-wise patch.
- */
-export function updateGoal(
-  goals: readonly GoalPlan[],
-  id: string,
-  draft: GoalDraft,
-): readonly GoalPlan[] {
-  return withGoalPatch(goals, id, draft);
-}
-
-/**
- * Drop a goal. Its derived `goal-<id>` fund account falls away with it —
- * `buildPlanAccounts` mints one account per remaining goal.
- */
-export function removeGoal(goals: readonly GoalPlan[], id: string): readonly GoalPlan[] {
-  return withoutGoal(goals, id);
-}
 
 /**
  * One event that blocks a goal's deletion, in the shape the block message renders. Carries
@@ -186,16 +130,15 @@ export interface GoalFundingBlock {
 }
 
 /**
- * The blocking events in the words a person reads. Which events block is the engine's
- * question ({@link eventsFundedByGoal} — already in timeline order); this only names them,
- * with the same labels the timeline shows.
+ * The blocking events in the words a person reads. Which events block is the facade's
+ * question (`eventsFundedByGoal` — already in timeline order); this only names them, with the
+ * same labels the timeline shows.
  */
 export function goalFundingBlocks(
-  goals: readonly GoalPlan[],
+  projection: Pick<Projection, "eventsFundedByGoal">,
   id: string,
-  ledger: Ledger,
 ): GoalFundingBlock[] {
-  return eventsFundedByGoal(goals, id, ledger).map((e) => ({
+  return projection.eventsFundedByGoal(id).map((e) => ({
     eventId: e.id,
     label: summarizeEvent(e).label,
     month: e.month,
@@ -214,14 +157,3 @@ export function fundingBlockMessage(blocks: readonly GoalFundingBlock[]): string
 }
 
 
-/**
- * Move a goal one slot earlier ("up", funded sooner) or later ("down"); a no-op at the
- * ends. Since priority is array position, this is the only reprioritization primitive.
- */
-export function reorderGoal(
-  goals: readonly GoalPlan[],
-  id: string,
-  direction: "up" | "down",
-): readonly GoalPlan[] {
-  return withGoalReordered(goals, id, direction);
-}

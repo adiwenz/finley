@@ -23,6 +23,8 @@ export {
   mapJob,
   withJobPatch,
   withMonthlyIncome,
+  monthlyIncomeCentsOf,
+  deferralFractionOf,
   withDeferralFraction,
   withPayChange,
   withoutPayChange,
@@ -75,6 +77,7 @@ export {
   orderBudgetLines,
   resolveBudget,
   withLinePatch,
+  withLineOverride,
   withoutLine,
 } from "./budgetLine";
 export {
@@ -116,6 +119,10 @@ export type {
   TakeLoanInput,
   BuyHomeInput,
   PayOffDebtInput,
+  HomePurchaseInput,
+  HomePurchaseAssessment,
+  RetirementOutlook,
+  ResolvedExpenseRow,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
@@ -125,20 +132,13 @@ export * from "./projectionBase";
 // Which events spend from a goal's fund account — the integrity question behind removing a
 // goal, since the account is derived from the goal and falls away with it.
 export * from "./goalFunding";
-// The per-mode retirement searches stay module-internal; `solveRetirement` returns all three
-// ages at once. `projectScenario` + `planSurvives` are public because the app's acceptance
-// tests use them as an independent survival oracle (panel age == first surviving age).
-// `projectScenarioParts` is deliberately NOT public: its only caller is `Projection.run`, a
-// sibling inside the engine, and its result carries `HouseholdSimInput` — a low-level simulator
-// artifact the facade migration exists to stop publishing. Exporting it would pin that type to
-// the public surface through a type the app has no reason to name.
-export {
-  solveRetirement,
-  evaluateAtAge,
-  evaluateFullRetirementAtAge,
-  projectScenario,
-  planSurvives,
-} from "./retirementSolver";
+// The retirement searches are NOT public. `Projection.retirement` is the one public query
+// over a scenario and a context; the search for the earliest feasible ages and the evaluation
+// at the plan's target age are how it is implemented, not two more things to call. Each,
+// along with `projectScenario`/`planSurvives` under them, is tested where it lives — a second
+// copy of that arithmetic outside the engine would only pin the engine's own tests twice.
+// `projectScenarioParts` is internal for a further reason: its result carries
+// `HouseholdSimInput`, a low-level simulator artifact this facade exists to stop publishing.
 export * from "./retirementTypes";
 export * from "./earlyRetireeHealthCheck";
 export * from "./ids";

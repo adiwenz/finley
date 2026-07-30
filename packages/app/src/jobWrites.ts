@@ -3,49 +3,51 @@
  *
  * A member's jobs live on one of two planes: the primary person's are standing plan data
  * (`Plan.jobs`), a partner's ride the `RelationshipEvent` that brought them into the
- * household. The routing lives here once rather than re-derived in each panel.
+ * household. Which plane is a fact about the member, so the routing lives here once rather
+ * than being re-derived in each panel — but it is only routing. Both planes are facade
+ * methods; nothing here builds a job list, and nothing here mints an id.
  *
- * **Atomic across the planes.** One edit can rewrite two members' lists (moving a job
- * between them) that sit on different planes, so the ledger side goes first as one
- * all-or-nothing batch and the plan side only if accepted: a conflict can't land half an
- * edit, leaving a job removed from one member and missing from the other.
+ * **Atomic across the planes.** One edit can rewrite two members' lists (moving a job between
+ * them) that sit on different planes, so every write goes through ONE `Projection` handle: the
+ * facade throws on a refusal and the whole handle is discarded, so a conflict cannot land a job
+ * removed from one member and missing from the other.
  */
 
-import type { Dispatch, SetStateAction } from "react";
-import type { Plan } from "@finley/engine";
-import type { JobListWrite } from "./jobEditing";
-import type { EventRevision } from "./hooks/useLedger";
+import type { JobWrite } from "./jobEditing";
+import type { Transact } from "./hooks/useProjection";
 
-export interface JobWriteTargets {
-  readonly setBudget: Dispatch<SetStateAction<Plan>>;
-  /** Revise ledger events in one all-or-nothing write; `false` = rejected, nothing changed. */
-  readonly onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
-}
+/** Whether this owner's jobs are authored on the plan rather than on their own event. */
+const onPlan = (write: JobWrite): boolean => write.owner.writeTarget === "plan";
 
-/**
- * Returns whether it committed — `false` leaves **both** planes exactly as they were.
- *
- * Plan writes revise the LATEST plan (functional update), so two edits in one tick compose
- * instead of discarding each other.
- */
-export function commitJobWrites(
-  writes: readonly JobListWrite[],
-  { setBudget, onReviseEvents }: JobWriteTargets,
-): boolean {
-  const revisions: EventRevision[] = [];
-  for (const { owner, revise } of writes) {
-    if (owner.writeTarget.kind !== "event") continue;
-    const event = owner.writeTarget.event;
-    revisions.push({
-      id: event.id,
-      next: { ...event, person: { ...event.person, jobs: [...revise(event.person.jobs)] } },
-    });
-  }
-  if (revisions.length > 0 && !onReviseEvents(revisions)) return false;
-  for (const { owner, revise } of writes) {
-    if (owner.writeTarget.kind === "plan") {
-      setBudget((current) => ({ ...current, jobs: [...revise(current.jobs)] }));
-    }
-  }
-  return true;
+export function commitJobWrites(writes: readonly JobWrite[], transact: Transact): boolean {
+  return (
+    transact((p) => {
+      // Removals first. A move is a remove plus an add carrying the SAME id, and the facade
+      // refuses an id the household already holds — so landing the job before letting go of it
+      // would be refused as a duplicate of itself. The two are one transaction either way.
+      for (const write of writes) {
+        if (write.kind !== "remove") continue;
+        if (onPlan(write)) p.removeJob(write.jobId);
+        else p.removePartnerJob(write.jobId);
+      }
+
+      for (const write of writes) {
+        switch (write.kind) {
+          case "add":
+            if (onPlan(write)) p.addJob(write.owner.id, write.job);
+            else p.addPartnerJob(write.owner.id, write.job);
+            break;
+          case "replace":
+            if (onPlan(write)) p.replaceJob(write.jobId, write.job);
+            else p.replacePartnerJob(write.jobId, write.job);
+            break;
+          case "remove":
+            break; // already applied above
+        }
+      }
+      // The transaction's own result, so a refusal (which returns `undefined`) is
+      // distinguishable from a write that simply had nothing to return.
+      return true;
+    }) === true
+  );
 }

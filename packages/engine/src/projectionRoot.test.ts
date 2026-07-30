@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Projection, type ProjectionState } from "./projectionRoot";
-import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, salariedJob, spendLine, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -14,6 +14,8 @@ import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { PersonId } from "./job";
+import type { BudgetLine } from "./budgetLine";
+import { RETIREMENT_ID } from "./ids";
 
 const P1 = "p1" as PersonId;
 
@@ -216,6 +218,35 @@ describe("Projection root — one root for standing + ledger writes", () => {
     expect(auto).not.toHaveProperty("creditLimitCents");
   });
 
+  it("derives the mortgage liability id parent-suffixed from the property id", () => {
+    // Parent-suffixed `${propertyId}-mortgage`, so sorting groups the mortgage under its home
+    // (matching the `${partnerId}-job-N` convention), not `mortgage-${propertyId}`.
+    const p = freshProjection();
+    const homeId = p.buyHome({
+      month: 0,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(100000),
+      downPaymentCents: dollarsToCents(10000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6,
+      mortgageTermMonths: 360,
+    });
+    expect(homeId).toBe("home-1");
+    const event = p.state.scenario.ledger.events[0];
+    expect(event.type).toBe("HomePurchaseEvent");
+    if (event.type === "HomePurchaseEvent") {
+      expect(event.mortgageLiabilityId).toBe("home-1-mortgage");
+    }
+  });
+
+  it("answers the funding question from the current ledger's liquid balances", () => {
+    // `funding()` reuses the handle's own base and validation jurisdiction, so a down-payment
+    // picker and the §4.5 gate decide on the same numbers.
+    const p = freshProjection();
+    const savings = p.funding().sourcesAt(0).find((s) => s.id === "savings");
+    expect(savings?.balanceCents).toBe(samplePlan.openingBalanceCents);
+  });
+
   it("a refused ledger transaction leaves the state and the id counter untouched", () => {
     const p = freshProjection();
     const before = p.state;
@@ -323,9 +354,11 @@ describe("Projection root — removing a goal guards its fund account", () => {
     expect(unblocked.plan.goals.map((g) => g.id)).not.toContain(goalId);
   });
 
-  it("treats an id that is not a goal as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold, distinctly from refusing a funded one", () => {
     const p = freshProjection();
-    expect(() => p.removeGoal("no-such-goal")).not.toThrow();
+    // A different refusal from the funding guard above: nothing is being protected, the goal
+    // simply is not there, and the caller's next line assumes a removal that never happened.
+    expect(() => p.removeGoal("no-such-goal")).toThrow(/no goal "no-such-goal"/);
     expect(p.plan.goals).toEqual(samplePlan.goals);
   });
 });
@@ -369,10 +402,11 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
     ]);
   });
 
-  it("treats an id that is not a goal as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold", () => {
     const p = freshProjection();
-    expect(() => p.updateGoal("no-such-goal", { name: "x" })).not.toThrow();
-    expect(p.plan.goals).toEqual(samplePlan.goals);
+    const before = p.state;
+    expect(() => p.updateGoal("no-such-goal", { name: "x" })).toThrow(/no goal "no-such-goal"/);
+    expect(p.state).toBe(before);
   });
 });
 
@@ -409,11 +443,15 @@ describe("Projection root — reordering a goal changes its funding priority", (
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
   });
 
-  it("is a no-op at the ends and for an unknown id", () => {
+  it("refuses a move that cannot happen — at either end, or for an id that is not there", () => {
     const { p, a, c } = seededProjection();
-    p.reorderGoal(a, "up"); // already first
-    p.reorderGoal(c, "down"); // already last
-    p.reorderGoal("no-such-goal", "up");
+    const before = p.state;
+
+    expect(() => p.reorderGoal(a, "up")).toThrow(/already first/);
+    expect(() => p.reorderGoal(c, "down")).toThrow(/already last/);
+    expect(() => p.reorderGoal("no-such-goal", "up")).toThrow(/no goal "no-such-goal"/);
+
+    expect(p.state).toBe(before);
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
   });
 });
@@ -460,16 +498,31 @@ describe("Projection root — editing and removing a job", () => {
     expect(p.plan.jobs.map((j) => j.id)).toEqual([keep]);
   });
 
-  it("treats an id that is not a job as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold, rather than reporting a write it did not make", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
-    const before = p.plan.jobs;
-    p.updateJob("no-such-job", { name: "x" });
-    p.removeJob("no-such-job");
-    p.setJobMonthlyIncome("no-such-job", 1);
-    p.setJobDeferralFraction("no-such-job", 0.5);
-    expect(p.plan.jobs).toEqual(before);
+    const before = p.state;
+
+    expect(() => p.updateJob("no-such-job", { name: "x" })).toThrow(/no job "no-such-job"/);
+    expect(() => p.removeJob("no-such-job")).toThrow(/no job "no-such-job"/);
+    expect(() => p.setJobMonthlyIncome("no-such-job", 1)).toThrow(/no job "no-such-job"/);
+    expect(() => p.setJobDeferralFraction("no-such-job", 0.5)).toThrow(/no job "no-such-job"/);
+
+    // Same state object throughout: a refusal commits nothing.
+    expect(p.state).toBe(before);
     expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+  });
+
+  it("refuses a partner's job id on the plan plane, and the reverse", () => {
+    // The two families do not reach across: a job is authored where its owner is, and asking
+    // the wrong plane is the same caller error as asking for a job that does not exist.
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 });
+    const planJob = p.addJob(P1, openEndedJob);
+    const partnerJob = p.addPartnerJob(partnerId, openEndedJob);
+
+    expect(() => p.updateJob(partnerJob, { name: "x" })).toThrow(/no job/);
+    expect(() => p.updatePartnerJob(planJob, { name: "x" })).toThrow(/no partner holds a job/);
   });
 
   it("setJobMonthlyIncome takes monthly cents and stores the annualized salary", () => {
@@ -500,6 +553,278 @@ describe("Projection root — editing and removing a job", () => {
     const jobId = p.addJob(P1, matchedJob);
     p.setJobDeferralFraction(jobId, 0);
     expect(p.plan.jobs[0]).not.toHaveProperty("deferral");
+  });
+
+  it("carries every input field onto an added job, not just the ones a new job is authored from", () => {
+    const p = freshProjection();
+    // What a job moving between household members arrives holding: an existing job's
+    // accumulated adjustments, not a blank draft's fields.
+    const jobId = p.addJob(P1, {
+      ...matchedJob,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+    expect(p.plan.jobs[0]).toMatchObject({
+      id: jobId,
+      name: "Day job",
+      deferral: matchedJob.deferral,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+  });
+
+  it("replaceJob rewrites wholesale, so an absent field CLEARS rather than carrying through", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, matchedJob);
+
+    // The same form re-submitted with the name blanked and the 401(k) rate zeroed. A patch
+    // could not say this: naming no `deferral` means "unchanged" to updateJob.
+    p.replaceJob(jobId, openEndedJob);
+
+    expect(p.plan.jobs[0]).toEqual({
+      id: jobId,
+      // Identity survives the rewrite; the owner is not a field an edit restates.
+      ownerId: P1,
+      startYear: openEndedJob.startYear,
+      endYear: null,
+      salary: openEndedJob.salary,
+    });
+  });
+
+  it("refuses a supplied id the household already holds, on either plane", () => {
+    const p = freshProjection();
+    p.addJob(P1, { ...openEndedJob, id: "day-job" });
+    expect(() => p.addJob(P1, { ...openEndedJob, id: "day-job" })).toThrow(/already holds a job/);
+
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    // One namespace across both planes: the primary's id is not free for a partner either,
+    // because a job's id keys its income band whichever plane it sits on.
+    expect(() => p.addPartnerJob(partnerId, { ...openEndedJob, id: "day-job" })).toThrow(
+      /already holds a job/,
+    );
+    expect(p.plan.jobs).toHaveLength(1);
+  });
+
+  it("replaceJob keeps the job's list position, and refuses an unknown id", () => {
+    const p = freshProjection();
+    const first = p.addJob(P1, openEndedJob);
+    const second = p.addJob(P1, openEndedJob);
+    p.replaceJob(first, { ...openEndedJob, name: "Renamed" });
+    expect(() => p.replaceJob("no-such-job", { ...openEndedJob, name: "Nowhere" })).toThrow(
+      /no job "no-such-job"/,
+    );
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([first, second]);
+    expect(p.plan.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
+  });
+});
+
+describe("Projection root — jobs on a partner's plane", () => {
+  const matchedJob = {
+    ...openEndedJob,
+    name: "Day job",
+    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
+  } as const;
+
+  /** A projection holding one partner, and that partner's id. */
+  function withPartner(): { p: Projection; partnerId: PersonId } {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    return { p, partnerId };
+  }
+
+  const partnerJobs = (p: Projection) => partnerEvent(p).person.jobs;
+
+  it("adds a job to a partner, minting off the SAME counter the plan plane mints from", () => {
+    const { p, partnerId } = withPartner();
+    const planJobId = p.addJob(P1, openEndedJob);
+    const partnerJobId = p.addPartnerJob(partnerId, openEndedJob);
+
+    // One run of ids, not a per-owner namespace: the partner's is `job-N`, and it is a
+    // number the plan plane will never issue again.
+    expect(partnerJobId).toMatch(/^job-\d+$/);
+    expect(partnerJobId).not.toBe(planJobId);
+    expect(p.addJob(P1, openEndedJob)).not.toBe(partnerJobId);
+
+    // It landed on the partner's event, owned by them — and nowhere near the plan.
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([partnerJobId]);
+    expect(partnerJobs(p)[0]?.ownerId).toBe(partnerId);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJobId, expect.any(String)]);
+  });
+
+  it("carries every input field onto a partner's job", () => {
+    const { p, partnerId } = withPartner();
+    const jobId = p.addPartnerJob(partnerId, {
+      ...matchedJob,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+    expect(partnerJobs(p)[0]).toMatchObject({
+      id: jobId,
+      name: "Day job",
+      deferral: matchedJob.deferral,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+  });
+
+  it("patches a partner's job field-wise, and replaces it wholesale", () => {
+    const { p, partnerId } = withPartner();
+    const jobId = p.addPartnerJob(partnerId, matchedJob);
+
+    p.updatePartnerJob(jobId, { name: "Night job" });
+    expect(partnerJobs(p)[0]).toMatchObject({
+      name: "Night job",
+      deferral: matchedJob.deferral, // unnamed, so carried through
+    });
+
+    // Replace states the whole job, so the fields it omits are gone.
+    p.replacePartnerJob(jobId, openEndedJob);
+    expect(partnerJobs(p)[0]).toEqual({
+      id: jobId,
+      ownerId: partnerId,
+      startYear: openEndedJob.startYear,
+      endYear: null,
+      salary: openEndedJob.salary,
+    });
+  });
+
+  it("keeps a partner's other jobs and their order across an edit", () => {
+    const { p, partnerId } = withPartner();
+    const first = p.addPartnerJob(partnerId, openEndedJob);
+    const second = p.addPartnerJob(partnerId, openEndedJob);
+    p.updatePartnerJob(first, { name: "Renamed" });
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([first, second]);
+    expect(partnerJobs(p).map((j) => j.name)).toEqual(["Renamed", undefined]);
+  });
+
+  it("removes a partner's job, leaving the plan and their other jobs alone", () => {
+    const { p, partnerId } = withPartner();
+    const planJob = p.addJob(P1, openEndedJob);
+    const keep = p.addPartnerJob(partnerId, openEndedJob);
+    p.removePartnerJob(p.addPartnerJob(partnerId, openEndedJob));
+
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([keep]);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJob]);
+  });
+
+  it("refuses a partner or a job it cannot find, rather than writing nothing quietly", () => {
+    const { p } = withPartner();
+    expect(() => p.addPartnerJob("nobody" as PersonId, openEndedJob)).toThrow(/no partner/);
+    expect(() => p.updatePartnerJob("job-99", { name: "x" })).toThrow(/no partner holds a job/);
+    expect(() => p.replacePartnerJob("job-99", openEndedJob)).toThrow(/no partner holds a job/);
+    expect(() => p.removePartnerJob("job-99")).toThrow(/no partner holds a job/);
+  });
+
+  it("leaves the state untouched when the revision is refused", () => {
+    const { p, partnerId } = withPartner();
+    p.addPartnerJob(partnerId, openEndedJob);
+    const before = p.state;
+    expect(() => p.addPartnerJob("nobody" as PersonId, openEndedJob)).toThrow();
+    // Same state object: a refused write consumes no id and commits nothing.
+    expect(p.state).toBe(before);
+  });
+});
+
+describe("Projection root — moving a job between the two planes", () => {
+  const richJob = {
+    ...openEndedJob,
+    name: "Software Engineer",
+    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
+    incomeOverrides: [{ month: 6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
+    payChanges: [{ month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
+  } as const;
+
+  /** The move, as the app performs it: let go on one plane, land on the other, same id. */
+  it("moves a job from the plan to a partner, whole and with its id intact", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
+
+    p.removeJob(jobId);
+    const landed = p.addPartnerJob(partnerId, moving);
+
+    expect(landed).toBe(jobId); // the same job, not a new one
+    expect(p.plan.jobs).toEqual([]);
+    expect(partnerEvent(p).person.jobs).toEqual([{ ...richJob, id: jobId, ownerId: partnerId }]);
+  });
+
+  it("moves a job from a partner back to the plan, whole and with its id intact", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addPartnerJob(partnerId, richJob);
+    const { ownerId: _drop, ...moving } = { ...partnerEvent(p).person.jobs[0]! };
+
+    p.removePartnerJob(jobId);
+    const landed = p.addJob(P1, moving);
+
+    expect(landed).toBe(jobId);
+    expect(partnerEvent(p).person.jobs).toEqual([]);
+    expect(p.plan.jobs).toEqual([{ ...richJob, id: jobId, ownerId: P1 }]);
+  });
+
+  it("refuses a move that lands before it lets go, rather than duplicating the id", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
+
+    // Add-then-remove is the wrong order: for the moment between them the household would
+    // hold two jobs with one id, and the ids key the income bands.
+    expect(() => p.addPartnerJob(partnerId, moving)).toThrow(/already holds a job/);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(partnerEvent(p).person.jobs).toEqual([]);
+  });
+});
+
+describe("Projection root — one counter across both planes, across a round trip", () => {
+  it("never reissues a partner job's id after a state round trip", () => {
+    const authored = freshProjection();
+    const partnerId = authored.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerJobId = authored.addPartnerJob(partnerId, openEndedJob);
+    const planJobId = authored.addJob(P1, openEndedJob);
+
+    // Out through the serialization boundary and back — a fresh handle, no memory of what
+    // the first one issued beyond what the state itself carries.
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
+      nullJurisdiction,
+    );
+
+    const held = new Set([partnerId, partnerJobId, planJobId]);
+    const minted = [
+      reloaded.addPartnerJob(partnerId, openEndedJob),
+      reloaded.addJob(P1, openEndedJob),
+      reloaded.marry({ month: 36, name: "Kim", birthYear: 1990 }),
+    ];
+    for (const id of minted) expect(held.has(id)).toBe(false);
+    expect(new Set(minted).size).toBe(minted.length);
+  });
+
+  it("steps past a partner job an imported scenario already holds", () => {
+    // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
+    // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
+    const seeded = freshProjection();
+    const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    seeded.addPartnerJob(partnerId, { ...openEndedJob, id: "job-9" });
+
+    const reloaded = Projection.fromState(seeded.toState(), nullJurisdiction);
+    expect(reloaded.addPartnerJob(partnerId, openEndedJob)).toBe("job-10");
+    expect(reloaded.addJob(P1, openEndedJob)).toBe("job-11");
+  });
+
+  it("keeps the counter monotonic while writes alternate between the planes", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const minted: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      minted.push(p.addJob(P1, openEndedJob));
+      minted.push(p.addPartnerJob(partnerId, openEndedJob));
+    }
+    // Strictly increasing across the alternation — neither plane restarts or rewinds.
+    const numbers = minted.map((id) => Number(id.replace("job-", "")));
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+    expect(new Set(numbers).size).toBe(numbers.length);
   });
 });
 
@@ -605,13 +930,57 @@ describe("Projection root — editing and removing a budget line", () => {
     expect(p.plan.budgetLines.map((l) => l.id)).toEqual([keep]);
   });
 
-  it("treats an id that is not a line as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold", () => {
     const p = freshProjection();
     p.addBudgetLine(expenseLine);
-    const before = p.plan.budgetLines;
-    p.updateBudgetLine("no-such-line", { label: "x" });
-    p.removeBudgetLine("no-such-line");
-    expect(p.plan.budgetLines).toEqual(before);
+    const before = p.state;
+
+    const missing = /no budget line "no-such-line"/;
+    expect(() => p.updateBudgetLine("no-such-line", { label: "x" })).toThrow(missing);
+    expect(() => p.removeBudgetLine("no-such-line")).toThrow(missing);
+    expect(() =>
+      p.addBudgetLineOverride("no-such-line", {
+        month: 3,
+        monthlyCents: dollarsToCents(100),
+        scope: "thisMonthOnly",
+      }),
+    ).toThrow(missing);
+
+    expect(p.state).toBe(before);
+  });
+
+  it("accumulates dated overrides, one per (scope, month), without a read-modify-write", () => {
+    const p = freshProjection();
+    const lineId = p.addBudgetLine(expenseLine);
+
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2500),
+      scope: "thisMonthOnly",
+    });
+    // A different month, and the same month at the other scope: both stand beside the first.
+    p.addBudgetLineOverride(lineId, {
+      month: 12,
+      monthlyCents: dollarsToCents(2600),
+      scope: "thisMonthOnly",
+    });
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2700),
+      scope: "fromHereForward",
+    });
+    // Re-authoring one replaces it rather than stacking a second answer for that month.
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2550),
+      scope: "thisMonthOnly",
+    });
+
+    expect(p.plan.budgetLines[0]?.overrides).toEqual([
+      { month: 12, monthlyCents: dollarsToCents(2600), scope: "thisMonthOnly" },
+      { month: 6, monthlyCents: dollarsToCents(2700), scope: "fromHereForward" },
+      { month: 6, monthlyCents: dollarsToCents(2550), scope: "thisMonthOnly" },
+    ]);
   });
 });
 
@@ -1841,5 +2210,338 @@ describe("Projection root — authoring validates against the construction-time 
     expect(p.run(nullJurisdiction).jurisdictionId).toBe(nullJurisdiction.id);
     expect(p.run(flatCapitalGains(0.5)).jurisdictionId).toBe("test-capital-gains");
     expect(p.run(mockJurisdiction()).jurisdictionId).toBe("mock");
+  });
+});
+
+// ── Reads ────────────────────────────────────────────────────────────────────
+//
+// The facade answers questions about a household as well as authoring one. Two homes, split
+// by what each needs: a question about the plan as authored is a `Projection` method, while
+// one that needs the simulated future rides the `ProjectionResult` a `run` produced — asked
+// off the pass already in hand rather than provoking another.
+
+describe("Projection reads — over authored state", () => {
+  it("names an account per goal beside the standing three, as goals are added", () => {
+    const p = freshProjection();
+    const before = p.accountDescriptors();
+    const goalId = p.addGoal({
+      name: "Car",
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+      annualReturnPct: 3,
+    });
+    const added = p
+      .accountDescriptors()
+      .filter((d) => !before.some((b) => b.id === d.id));
+    const goal = p.plan.goals.find((g) => g.id === goalId)!;
+    expect(added).toEqual([{ id: goalFundAccountId(goal), label: "Car", kind: "goal" }]);
+  });
+
+  it("names the events a goal's fund account pays for, and nothing else", () => {
+    const p = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    const homeId = p.buyHome({
+      month: 12,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(100000),
+      downPaymentCents: dollarsToCents(10000),
+      downPaymentSourceIds: [goalFundAccountId(samplePlan.goals[0])],
+      mortgageApr: 0.05,
+      mortgageTermMonths: 360,
+    });
+    expect(p.eventsFundedByGoal("emergency").map((e) => e.id)).toEqual([homeId]);
+    expect(p.eventsFundedByGoal("no-such-goal")).toEqual([]);
+  });
+
+  it("resolves a spend line to its base amount, its overrides, and the growth to that month", () => {
+    const line = (id: string, monthlyCents: number, overrides?: BudgetLine["overrides"]) => ({
+      id,
+      label: id,
+      target: { kind: "expense" } as const,
+      amountSource: { kind: "literal" as const, monthlyCents },
+      category: "needs" as const,
+      ...(overrides ? { overrides } : {}),
+    });
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          inflationPct: 0,
+          budgetLines: [
+            line("housing", dollarsToCents(1600), [
+              { month: 24, monthlyCents: dollarsToCents(2000), scope: "fromHereForward" },
+              { month: 6, monthlyCents: dollarsToCents(900), scope: "thisMonthOnly" },
+            ]),
+            {
+              id: "brokerage-contrib",
+              label: "Investing",
+              target: { kind: "account", accountId: "brokerage", taxTreatment: "postTax" },
+              amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+              category: "savings",
+            },
+          ],
+        },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+
+    const at = (month: number) => p.expenseRowsAt(month)[0];
+    expect(at(0)).toMatchObject({ monthlyCents: dollarsToCents(1600), overridden: false });
+    // A one-month override shows at its own month and nowhere else.
+    expect(at(6)).toMatchObject({ monthlyCents: dollarsToCents(900), overridden: true });
+    expect(at(7)?.monthlyCents).toBe(dollarsToCents(1600));
+    // A from-here-forward one carries to every later month.
+    expect(at(24)?.monthlyCents).toBe(dollarsToCents(2000));
+    expect(at(400)?.monthlyCents).toBe(dollarsToCents(2000));
+    // Contribution lines have no month-resolved amount, so they are absent entirely.
+    expect(p.expenseRowsAt(0).map((r) => r.lineId)).toEqual(["housing"]);
+  });
+
+  it("grows a row into the selected month's dollars, so editor and graph agree", () => {
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          inflationPct: 3,
+          budgetLines: [spendLine(dollarsToCents(600))],
+        },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+    expect(p.expenseRowsAt(0)[0]?.monthlyCents).toBe(dollarsToCents(600));
+    const tenYearsOn = p.expenseRowsAt(120)[0]?.monthlyCents ?? 0;
+    expect(Math.abs(tenYearsOn - dollarsToCents(600) * Math.pow(1.03, 10))).toBeLessThanOrEqual(2);
+  });
+
+  it("reads standing pay per job, per person and across the household — both planes", () => {
+    const p = freshProjection();
+    const mine = p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+    });
+    const partnerId = p.marry({
+      month: 0,
+      name: "Sam",
+      birthYear: SAMPLE_START_YEAR - 38,
+      jobs: [
+        { ...openEndedJob, salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
+      ],
+    });
+    const theirs = partnerEvent(p).person.jobs[0].id;
+
+    expect(p.jobMonthlyIncomeCents(mine)).toBe(dollarsToCents(10000));
+    // Found on the ledger plane by id alone — the caller never says which.
+    expect(p.jobMonthlyIncomeCents(theirs)).toBe(dollarsToCents(5000));
+    expect(p.personMonthlyIncomeCents(P1)).toBe(dollarsToCents(10000));
+    expect(p.personMonthlyIncomeCents(partnerId)).toBe(dollarsToCents(5000));
+    // Sizing a household budget off one earner is the mistake this exists to prevent.
+    expect(p.householdMonthlyIncomeCents()).toBe(dollarsToCents(15000));
+  });
+
+  it("refuses a job id no one in the household holds, rather than reading 0", () => {
+    expect(() => freshProjection().jobMonthlyIncomeCents("job-9")).toThrow(/no job "job-9"/);
+  });
+
+  it("blends a person's deferral across their jobs, weighted by gross", () => {
+    const p = freshProjection();
+    // $120k at 10% and $40k at 0% → 7.5% of the $160k gross, not the 5% a flat mean gives.
+    p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+      deferral: { deferralFraction: 0.1, fundAccountId: RETIREMENT_ID },
+    });
+    const plain = p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(40000), realGrowthPct: 0 },
+    });
+    expect(p.personDeferralFraction(P1)).toBeCloseTo(0.075, 6);
+    // A job electing nothing reads as 0, never as "absent".
+    expect(p.jobDeferralFraction(plain)).toBe(0);
+  });
+
+  it("reads a person who earns nothing as 0, not NaN", () => {
+    expect(freshProjection().personDeferralFraction(P1)).toBe(0);
+    expect(freshProjection().personMonthlyIncomeCents(P1)).toBe(0);
+  });
+});
+
+describe("Projection.retirement — the whole question, one search", () => {
+  const covered = mockJurisdiction({
+    publicHealthCoverageAge: 65,
+    healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
+  });
+
+  const outlookOf = (plan: typeof samplePlan, jurisdiction = nullJurisdiction) =>
+    Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).retirement(
+      jurisdiction,
+    );
+
+  it("evaluates the plan's OWN target age, not one it was told", () => {
+    expect(outlookOf({ ...samplePlan, retirementAge: 62 }).target.retirementAge).toBe(62);
+  });
+
+  it("falls back to the earliest feasible age when the pinned age cannot be reached", () => {
+    // Pinned absurdly early: the target fails, so its nearest-feasible age is the age the
+    // SAME search found — the one rule that keeps headline and target describing one household.
+    const outlook = outlookOf({ ...samplePlan, retirementAge: 40 });
+    expect(outlook.target.feasible).toBe(false);
+    expect(outlook.target.nearestFeasibleAge).toBe(outlook.solution.fullRetirementAge);
+  });
+
+  it("keeps a reachable pinned age as its own nearest-feasible age", () => {
+    const outlook = outlookOf({ ...samplePlan, retirementAge: 80 });
+    expect(outlook.target.feasible).toBe(true);
+    expect(outlook.target.nearestFeasibleAge).toBe(80);
+  });
+
+  it("dates the full-retirement age in months from now, for a chart's reference line", () => {
+    const outlook = outlookOf(samplePlan);
+    const age = outlook.solution.fullRetirementAge;
+    expect(age).not.toBeNull();
+    expect(outlook.fullRetirementMonth).toBe((age! - samplePlan.currentAge) * 12);
+  });
+
+  it("flags a health gap only when retirement lands before the coverage age", () => {
+    // Retiring at 60 with $600/mo authored against a $1,000/mo benchmark: a 5-year gap.
+    const flag = outlookOf(samplePlan, covered).earlyRetireeHealth;
+    expect(flag.gapYears).toBe(5);
+    expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
+
+    // Retiring at the coverage age closes the window, whatever the authored line says.
+    expect(outlookOf({ ...samplePlan, retirementAge: 65 }, covered).earlyRetireeHealth.gapYears)
+      .toBe(0);
+    // A jurisdiction naming no coverage age has no window to be early for.
+    expect(outlookOf(samplePlan).earlyRetireeHealth.gapYears).toBe(0);
+  });
+
+  it("leaves run() alone — a simulation is not a search", () => {
+    const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
+    const result = p.run(nullJurisdiction);
+    // Nothing on a run answers the retirement question, so a caller that only wants the graph
+    // never pays for the search.
+    expect("retirement" in result).toBe(false);
+    expect(result.series.months.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ProjectionResult reads — over one run", () => {
+  const RUN_JURISDICTION = nullJurisdiction;
+
+  function ranPlan(plan: typeof samplePlan) {
+    return Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).run(
+      RUN_JURISDICTION,
+    );
+  }
+
+  it("reports who is in the household at a month, and only from the month they joined", () => {
+    const p = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38 });
+    const result = p.run(RUN_JURISDICTION);
+    expect(result.membersAt(0).map((m) => m.id)).toEqual(["p1"]);
+    expect(result.membersAt(24).map((m) => m.name)).toContain("Sam");
+    // The snapshot roster reads the same membership, so the two cannot disagree.
+    expect(result.snapshot(24).persons.map((m) => m.id)).toEqual(
+      result.membersAt(24).map((m) => m.id),
+    );
+  });
+
+  it("scores every plan goal against the run, in funding order", () => {
+    const result = ranPlan(samplePlan);
+    const scored = result.goalProgress();
+    expect(scored.map((s) => s.goal.id)).toEqual(["emergency"]);
+    expect(scored[0].goal.priority).toBe(0);
+    expect(scored[0].progress.onTrackFraction).toBeGreaterThan(0);
+  });
+
+});
+
+/**
+ * The soft debt-to-income read on a purchase nobody has authored yet. The threshold
+ * arithmetic is `affordability`'s; these pin the DERIVATION — that the household's real gross
+ * income and its already-serviced debt are what the guidelines are measured against.
+ */
+describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
+  const purchase = {
+    month: 0,
+    purchasePriceCents: dollarsToCents(300000),
+    downPaymentCents: dollarsToCents(60000),
+    apr: 0.065,
+    termMonths: 360,
+  };
+
+  const ranWith = (monthlyIncomeCents: number) =>
+    Projection.create(
+      {
+        plan: { ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    ).run(nullJurisdiction);
+
+  it("flags a purchase that pushes housing past the front-end guideline", () => {
+    // ~$1,517/mo of mortgage against $5,000/mo gross is over 28%.
+    const dti = ranWith(dollarsToCents(5000)).assessHomePurchase(purchase);
+    expect(dti.monthlyGrossCents).toBe(dollarsToCents(5000));
+    expect(dti.assessment.frontEndExceeded).toBe(true);
+    expect(dti.exceeded).toBe(true);
+  });
+
+  it("stays quiet when the same mortgage is small against the income", () => {
+    const dti = ranWith(dollarsToCents(20000)).assessHomePurchase(purchase);
+    expect(dti.assessment.frontEndExceeded).toBe(false);
+    expect(dti.assessment.backEndExceeded).toBe(false);
+    expect(dti.exceeded).toBe(false);
+  });
+
+  it("quotes the mortgage the purchase would add, financed on the balance after the deposit", () => {
+    const dti = ranWith(dollarsToCents(5000)).assessHomePurchase(purchase);
+    // $240,000 at 6.5% over 30 years — around $1,500/mo.
+    expect(dti.monthlyMortgageCents).toBeGreaterThan(dollarsToCents(1400));
+    expect(dti.monthlyMortgageCents).toBeLessThan(dollarsToCents(1600));
+  });
+
+  it("flags nothing at zero gross income rather than dividing by it", () => {
+    const dti = Projection.create(
+      { plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    )
+      .run(nullJurisdiction)
+      .assessHomePurchase(purchase);
+    expect(dti.monthlyGrossCents).toBe(0);
+    expect(dti.assessment.frontEndRatio).toBe(0);
+    expect(dti.exceeded).toBe(false);
+  });
+
+  it("counts debt already being serviced toward the back-end ratio", () => {
+    const p = Projection.create(
+      {
+        plan: { ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+    // Read a year in, where the loan taken at month 0 is being serviced.
+    const later = { ...purchase, month: 12 };
+    const clean = p.run(nullJurisdiction).assessHomePurchase(later);
+    p.takeLoan({
+      month: 0,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(60000),
+      apr: 6,
+      termMonths: 60,
+    });
+    const withLoan = p.run(nullJurisdiction).assessHomePurchase(later);
+    // Housing is unchanged — the loan is not a mortgage — but total debt is not.
+    expect(withLoan.assessment.frontEndRatio).toBeCloseTo(clean.assessment.frontEndRatio, 5);
+    expect(withLoan.assessment.backEndRatio).toBeGreaterThan(clean.assessment.backEndRatio);
   });
 });

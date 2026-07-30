@@ -1,35 +1,70 @@
 /**
- * Job draft <-> standing {@link Job} round-trip, focused on the optional human `name`:
- * stored only when typed (trimmed), never as an empty/whitespace title, and read back
- * into the edit draft as "" when absent — so an unnamed job stays unnamed and reports
- * fall back to its stable id.
+ * The draft <-> job seam, focused on the optional human `name`: stored only when typed
+ * (trimmed), never as an empty/whitespace title, and read back into the edit draft as "" when
+ * absent — so an unnamed job stays unnamed and reports fall back to its stable id.
+ *
+ * Two functions, each one direction. {@link jobInputFromDraft} builds authoring input and
+ * carries no id, because the facade mints it. {@link jobToDraftFor} only reads, so a job
+ * fixture here is stated outright — nothing is being authored to need one minted.
  */
 import { describe, it, expect } from "vitest";
+import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
+import { blankJobDraftFor, jobInputFromDraft, jobToDraftFor, type JobDraft } from "./planPeople";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import { addJobFromDraft, blankJobDraft, jobToDraft, primaryJobs, type JobDraft } from "./planPeople";
+import { readerOf } from "./testing/projectionHarness";
 
-const draft = (over: Partial<JobDraft> = {}): JobDraft => ({ ...blankJobDraft(PLAN_DEFAULTS), ...over });
-const lastJob = (plan = PLAN_DEFAULTS, d: JobDraft = draft()) =>
-  primaryJobs(addJobFromDraft(plan, d)).at(-1)!;
+/**
+ * A handle holding just this job. {@link jobToDraftFor} reads pay and deferral through the
+ * facade, so the form opens on exactly what a write-back would set.
+ */
+const draftOf = (j: Job) => jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [j] }), BIRTH_YEAR, j);
 
-describe("planPeople — a job's optional name on the draft round-trip", () => {
-  it("stores a typed name (trimmed) on the standing job", () => {
-    expect(lastJob(PLAN_DEFAULTS, draft({ name: "  Software Engineer  " })).name).toBe(
+const BIRTH_YEAR = 1991;
+
+const draft = (over: Partial<JobDraft> = {}): JobDraft => ({
+  ...blankJobDraftFor(PRIMARY_PERSON_ID, 35),
+  ...over,
+});
+
+const job = (over: Partial<Job> = {}): Job => ({
+  id: "job-1",
+  ownerId: PRIMARY_PERSON_ID,
+  startYear: BIRTH_YEAR + 22,
+  endYear: null,
+  salary: { startingSalaryCents: 60_000_00, realGrowthPct: 0 },
+  ...over,
+});
+
+describe("jobInputFromDraft — a job's optional name on the way in", () => {
+  it("stores a typed name, trimmed", () => {
+    expect(jobInputFromDraft(BIRTH_YEAR, draft({ name: "  Software Engineer  " })).name).toBe(
       "Software Engineer",
     );
   });
 
   it("omits the name entirely when the draft's name is blank or whitespace", () => {
-    expect(lastJob(PLAN_DEFAULTS, draft({ name: "" })).name).toBeUndefined();
-    expect(lastJob(PLAN_DEFAULTS, draft({ name: "   " })).name).toBeUndefined();
+    expect(jobInputFromDraft(BIRTH_YEAR, draft({ name: "" })).name).toBeUndefined();
+    expect(jobInputFromDraft(BIRTH_YEAR, draft({ name: "   " })).name).toBeUndefined();
     // Absent, not present-and-empty: an unnamed job carries no `name` key at all.
-    expect("name" in lastJob(PLAN_DEFAULTS, draft({ name: "" }))).toBe(false);
+    expect("name" in jobInputFromDraft(BIRTH_YEAR, draft({ name: "" }))).toBe(false);
   });
 
-  it("reads a name back into the edit draft, and \"\" for an unnamed job", () => {
-    const named = lastJob(PLAN_DEFAULTS, draft({ name: "Barista" }));
-    expect(jobToDraft(PLAN_DEFAULTS, named).name).toBe("Barista");
-    // The default plan's job is unnamed: draft name is "", not undefined.
-    expect(jobToDraft(PLAN_DEFAULTS, primaryJobs(PLAN_DEFAULTS)[0]).name).toBe("");
+  it("names no id, so the facade's mint is the only one there is", () => {
+    expect("id" in jobInputFromDraft(BIRTH_YEAR, draft())).toBe(false);
+  });
+});
+
+describe("jobToDraftFor — reading a job back into the edit form", () => {
+  it("reads a name back as itself", () => {
+    expect(draftOf(job({ name: "Barista" })).name).toBe("Barista");
+  });
+
+  it('reads an unnamed job back as "", not undefined — the form binds a string', () => {
+    expect(draftOf(job()).name).toBe("");
+  });
+
+  it("round-trips a name through both directions unchanged", () => {
+    const input = jobInputFromDraft(BIRTH_YEAR, draft({ name: "Barista" }));
+    expect(draftOf(job(input)).name).toBe("Barista");
   });
 });

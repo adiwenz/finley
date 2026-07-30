@@ -234,3 +234,27 @@ export function withLinePatch(
 export function withoutLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
   return lines.filter((l) => l.id !== id);
 }
+
+/**
+ * Layer a dated override onto one line. At most one per (scope, month) — re-authoring the
+ * same month at the same scope REPLACES rather than stacking, so the two scopes stay
+ * independent (a `thisMonthOnly` correction does not erase the `fromHereForward` step it sits
+ * on top of, and {@link overrideValueAt} still resolves them in that order).
+ *
+ * Appended, not sorted: `overrideValueAt` scans for the latest qualifying entry rather than
+ * trusting order, and preserving authoring order keeps a re-authored month where the user
+ * last put it. An unknown id changes nothing.
+ */
+export function withLineOverride(
+  lines: readonly BudgetLine[],
+  id: string,
+  override: BudgetLineOverride,
+): readonly BudgetLine[] {
+  return lines.map((line) => {
+    if (line.id !== id) return line;
+    const kept = (line.overrides ?? []).filter(
+      (o) => !(o.scope === override.scope && o.month === override.month),
+    );
+    return { ...line, overrides: [...kept, override] };
+  });
+}

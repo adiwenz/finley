@@ -12,32 +12,43 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import type { Household, NewLifeEvent } from "@finley/engine";
+import type { Projection, ProjectionResult } from "@finley/engine";
 import { LoanForm } from "./loanForm";
 import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 
 afterEach(cleanup);
 
-/** You plus a partner from month 0 — all the separation form's `membersAt` read needs
- *  (it touches only `memberships[].person.{id,name}`). */
+/**
+ * A stubbed {@link Projection} whose transaction methods only record their input, plus the
+ * `onAdd` that runs a form's write against it. The forms author through the facade now, so a
+ * test asserts the *input* a form hands `takeLoan` / `separate` / `haveChild`, not a raw event.
+ */
+function stubProjection() {
+  const p = {
+    takeLoan: vi.fn(),
+    separate: vi.fn(),
+    haveChild: vi.fn(),
+  };
+  const onAdd = (write: (projection: Projection) => void) => write(p as unknown as Projection);
+  return { p, onAdd };
+}
+
+/** You plus a partner from month 0 — all the separation form reads of a run
+ *  (`membersAt`, and only each person's `{id,name}`). */
 const withPartner = {
-  memberships: [
-    { person: { id: "p1", name: "You" }, startMonth: 0, endMonth: null },
-    { person: { id: "p2", name: "Partner" }, startMonth: 0, endMonth: null },
+  membersAt: () => [
+    { id: "p1", name: "You" },
+    { id: "p2", name: "Partner" },
   ],
-  children: [],
-  series: [],
-  liabilities: [],
-  properties: [],
-} as unknown as Household;
+} as unknown as ProjectionResult;
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 
 describe("LoanForm — kind gates the term", () => {
   it("drops the term field for a revolving credit card, and restores the typed term when switched back", () => {
-    render(<LoanForm defaultMonth={0} nextId={0} horizonMonths={660} onAdd={vi.fn()} />);
+    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
 
     // Type a term that differs from the default so a reset would be visible.
     fireEvent.change(spin(/Term/i), { target: { value: "7" } });
@@ -55,24 +66,24 @@ describe("LoanForm — kind gates the term", () => {
     expect(Number(spin(/Term/i).value)).toBe(7);
   });
 
-  it("submits a credit card with a credit limit and no term; an amortizing loan with a term", () => {
-    const onAdd = vi.fn<(e: NewLifeEvent) => void>();
-    render(<LoanForm defaultMonth={0} nextId={3} horizonMonths={660} onAdd={onAdd} />);
+  it("takes out a credit card with a credit limit and no term; an amortizing loan with a term", () => {
+    const { p, onAdd } = stubProjection();
+    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
     fireEvent.change(spin(/Amount/i), { target: { value: "10000" } });
     fireEvent.change(spin(/Term/i), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
-    expect(onAdd).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: "LoanEvent", kind: "auto", termMonths: 72 }),
+    expect(p.takeLoan).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "auto", termMonths: 72 }),
     );
-    expect(onAdd.mock.calls[0][0]).not.toHaveProperty("creditLimitCents");
+    expect(p.takeLoan.mock.calls[0][0]).not.toHaveProperty("creditLimitCents");
 
     fireEvent.change(screen.getByRole("combobox", { name: /Type/i }), {
       target: { value: "creditCard" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
-    const cc = onAdd.mock.calls[1][0];
-    expect(cc).toMatchObject({ type: "LoanEvent", kind: "creditCard" });
+    const cc = p.takeLoan.mock.calls[1][0];
+    expect(cc).toMatchObject({ kind: "creditCard" });
     expect(cc).toHaveProperty("creditLimitCents");
     expect(cc).not.toHaveProperty("termMonths");
   });
@@ -80,14 +91,13 @@ describe("LoanForm — kind gates the term", () => {
 
 describe("SeparationForm — alimony amount gates its duration", () => {
   it("reveals the alimony-years field only once an alimony amount is entered, and folds it into the event", () => {
-    const onAdd = vi.fn<(e: NewLifeEvent) => void>();
+    const { p, onAdd } = stubProjection();
     render(
       <SeparationForm
         defaultMonth={0}
-        nextId={0}
         horizonMonths={660}
         onAdd={onAdd}
-        household={withPartner}
+        result={withPartner}
       />,
     );
 
@@ -98,9 +108,8 @@ describe("SeparationForm — alimony amount gates its duration", () => {
     fireEvent.change(spin(/Alimony years/i), { target: { value: "3" } });
 
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
-    expect(onAdd).toHaveBeenCalledWith(
+    expect(p.separate).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "SeparationEvent",
         partnerPersonId: "p2",
         alimonyMonthlyCents: 500_00,
         alimonyDurationMonths: 36,
@@ -110,18 +119,17 @@ describe("SeparationForm — alimony amount gates its duration", () => {
 });
 
 describe("ChildForm — single-draft consolidation preserves submit", () => {
-  it("submits a ChildEvent carrying the edited name, month and annual cost", () => {
-    const onAdd = vi.fn<(e: NewLifeEvent) => void>();
-    render(<ChildForm defaultMonth={0} nextId={2} horizonMonths={660} onAdd={onAdd} />);
+  it("has a child, carrying the edited name, month and annual cost", () => {
+    const { p, onAdd } = stubProjection();
+    render(<ChildForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Child's name/i), { target: { value: "Robin" } });
     fireEvent.change(spin(/Annual cost/i), { target: { value: "20000" } });
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
 
-    expect(onAdd).toHaveBeenCalledWith(
+    expect(p.haveChild).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "ChildEvent",
-        childName: "Robin",
+        name: "Robin",
         annualCostCents: 20000 * 100,
       }),
     );

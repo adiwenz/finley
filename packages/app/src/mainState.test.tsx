@@ -42,8 +42,12 @@ describe("App — event ledger", () => {
     expect(labels).not.toContain("Added an expense");
   });
 
-  it("adds an event without rebuilding the projection base", () => {
-    const spy = vi.spyOn(engine, "createProjectionBase");
+  it("adds an event, reprojecting the single state through the facade", () => {
+    // The app holds one `ProjectionState` and reads it through a `Projection` rebuilt on every
+    // state change (`fromState`, which every write also routes through). A ledger edit changes
+    // that state, so it reprojects — the base is no longer memoized apart from the ledger, as it
+    // was on the low-level pipeline.
+    const spy = vi.spyOn(engine.Projection, "fromState");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 
@@ -52,8 +56,7 @@ describe("App — event ledger", () => {
     // The default "Took out a loan" event has one timeline marker (one Remove).
     expect(screen.getAllByText("Remove")).toHaveLength(1);
     expect(screen.queryByText(/No life events yet/)).toBeNull();
-    // The base is memoized on budget identity, which a ledger edit must not churn.
-    expect(spy.mock.calls.length).toBe(callsAfterMount);
+    expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
   it("removes an event", () => {
@@ -255,20 +258,21 @@ describe("App — starter simulations", () => {
 });
 
 describe("App — budget edits", () => {
-  it("rebuilds the projection base on a budget edit but not on scrub", () => {
-    const spy = vi.spyOn(engine, "createProjectionBase");
+  it("reprojects on a budget edit but not on scrub", () => {
+    // The read handle is memoized on the state object, so scrubbing (which touches only the
+    // cursor, never the state) reprojects nothing, while a plan edit produces a new state and
+    // rebuilds it. `fromState` is where each rebuild goes in.
+    const spy = vi.spyOn(engine.Projection, "fromState");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 
-    // Scrubbing the timeline changes no plan input, so nothing rebuilds the base.
+    // Scrubbing the timeline changes no state, so nothing reprojects.
     fireEvent.change(screen.getByLabelText(/Scrub to a month/), {
       target: { value: "120" },
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
-    // A budget edit rebuilds it more than once — the net-worth graph, plus the sweep the
-    // retirement panel runs to find the feasible age — so only the fact of a rebuild is
-    // asserted.
+    // A budget edit produces a new state, so the read handle rebuilds.
     fireEvent.change(screen.getByLabelText(/Savings return/), {
       target: { value: "5" },
     });
@@ -280,8 +284,10 @@ describe("App — budget edits", () => {
 
   it("drives the whole projection from a line-item budget edit", () => {
     // Guards a regression: the panel once held the budget in its own state and projected
-    // it separately, so raising spending past income moved its chart and nothing else.
-    const spy = vi.spyOn(engine, "createProjectionBase");
+    // it separately, so raising spending past income moved its chart and nothing else. The
+    // edited plan must reach the single state the whole app projects — read here off the state
+    // the read handle is rebuilt from.
+    const spy = vi.spyOn(engine.Projection, "fromState");
     render(<App />);
     const callsAfterMount = spy.mock.calls.length;
 
@@ -290,7 +296,9 @@ describe("App — budget edits", () => {
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
-    const lastPlan = spy.mock.calls.at(-1)?.[0];
-    expect(lastPlan?.budgetLines.find((l) => l.id === "housing")?.overrides).toHaveLength(1);
+    const lastState = spy.mock.calls.at(-1)?.[0];
+    expect(
+      lastState?.scenario.plan.budgetLines.find((l) => l.id === "housing")?.overrides,
+    ).toHaveLength(1);
   });
 });

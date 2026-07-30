@@ -21,7 +21,7 @@ import { firstDeferralLimitCrossing } from "./deferralLimit";
 import { jobOwnersOf } from "./jobOwners";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
-import { setJobDeferralFraction, setJobMonthlyIncome } from "./planPeople";
+import { setJobDeferralFraction, setJobMonthlyIncome } from "./testing/planFixtures";
 
 /** The defaults with the default job's salary + deferral set — both ride the job, not the plan. */
 function budget(opts: {

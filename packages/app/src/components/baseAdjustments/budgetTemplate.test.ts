@@ -5,6 +5,7 @@ import {
   DEFAULT_TEMPLATE_TOTAL_CENTS,
   defaultBudgetTemplate,
   redistributeToTiers,
+  tierRebalanceWrites,
   toBudgetLines,
 } from "./budgetTemplate";
 
@@ -95,5 +96,50 @@ describe("redistributeToTiers — the non-destructive 50/30/20 quickstart", () =
   it("leaves a seeded savings line open-ended when there is no retirement month", () => {
     const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income);
     expect(after.find((l) => l.category === "savings")?.span).toBeUndefined();
+  });
+});
+
+describe("tierRebalanceWrites — the same rebalance, as facade writes", () => {
+  const income = dollarsToCents(5_000);
+
+  it("names one rescale per moved line and one seed per empty tier", () => {
+    const before = toBudgetLines(defaultBudgetTemplate());
+    const { rescale, seeds } = tierRebalanceWrites(before, income, 240);
+
+    // The template's lines all move (needs and wants are both rescaled); savings has none
+    // to scale, so it is the one seed.
+    expect(rescale.map((r) => r.id).sort()).toEqual(before.map((l) => l.id).sort());
+    expect(seeds).toHaveLength(1);
+    expect(seeds[0].category).toBe("savings");
+    expect(seeds[0].span).toEqual({ endMonth: 240 });
+  });
+
+  it("applying the writes reproduces redistributeToTiers exactly", () => {
+    // The panel applies these one at a time through `Projection`; the result has to be the
+    // budget the rule describes, or the quickstart means something different in the app than
+    // it does in its own test.
+    const before = toBudgetLines(defaultBudgetTemplate());
+    const { rescale, seeds } = tierRebalanceWrites(before, income, 240);
+
+    const byId = new Map(rescale.map((r) => [r.id, r.monthlyCents]));
+    const applied: BudgetLine[] = [
+      ...before.map((l) =>
+        byId.has(l.id)
+          ? { ...l, amountSource: { kind: "literal" as const, monthlyCents: byId.get(l.id)! } }
+          : l,
+      ),
+      ...(seeds as BudgetLine[]),
+    ];
+
+    expect(applied).toEqual(redistributeToTiers(before, income, 240));
+  });
+
+  it("writes nothing for a budget already on target", () => {
+    // Idempotent: re-running the quickstart on its own output has nothing left to move, so
+    // it does not churn the plan through a transaction that changes no number.
+    const settled = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income, 240);
+    const { rescale, seeds } = tierRebalanceWrites(settled, income, 240);
+    expect(rescale).toEqual([]);
+    expect(seeds).toEqual([]);
   });
 });

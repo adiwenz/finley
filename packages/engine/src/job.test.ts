@@ -7,7 +7,14 @@ import { describe, it, expect } from "vitest";
 import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
 import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
 import { samplePlan, salariedJob } from "./testing/samplePlan";
-import { deriveRealGrowthPct, type Job } from "./job";
+import {
+  deferralFractionOf,
+  deriveRealGrowthPct,
+  monthlyIncomeCentsOf,
+  withDeferralFraction,
+  withMonthlyIncome,
+  type Job,
+} from "./job";
 import type { Person } from "./person";
 import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan } from "./plan";
@@ -263,5 +270,40 @@ describe("Job — human name drives the income band label (display only)", () =>
       samplePlan.inflationPct / 100,
     )[0];
     expect(compiled.sourceId).toBe("job:job-main");
+  });
+});
+
+describe("stating pay and deferral, and reading them back", () => {
+  const job: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: START_YEAR,
+    endYear: null,
+    salary: { startingSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
+  };
+
+  it("round-trips a monthly figure through the annual one it is stored as", () => {
+    // The form states monthly, the job stores annual, and a number typed in has to come back
+    // out as the number typed — the two halves round together or it does not.
+    for (const monthly of [dollarsToCents(5_000), dollarsToCents(4_333.33), 1, 0]) {
+      expect(monthlyIncomeCentsOf(withMonthlyIncome(job, monthly))).toBe(monthly);
+    }
+  });
+
+  it("reads the STARTING monthly salary, before growth and pay changes", () => {
+    const raised: Job = {
+      ...job,
+      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+    };
+    expect(monthlyIncomeCentsOf(raised)).toBe(dollarsToCents(6_000));
+  });
+
+  it("reads an absent deferral as the 0% it is elected at", () => {
+    // The pair of `withDeferralFraction(0)`, which REMOVES the deferral rather than storing a
+    // zero: no deferral and a 0% deferral have to read the same or the form shows a rate the
+    // person never elected.
+    expect(deferralFractionOf(job)).toBe(0);
+    expect(deferralFractionOf(withDeferralFraction(job, 0))).toBe(0);
+    expect(deferralFractionOf(withDeferralFraction(job, 0.1))).toBe(0.1);
   });
 });

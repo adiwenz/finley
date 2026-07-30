@@ -6,7 +6,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { dollarsToCents, scenarioOf } from "@finley/engine";
+import { Projection, dollarsToCents, scenarioOf } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "../../config";
 import { RetirementPanel } from "./retirementPanel";
 import { retirementView } from "../../retirementView";
 import { PLAN_DEFAULTS } from "../../planDefaults";
@@ -14,7 +16,7 @@ import type { Plan } from "@finley/engine";
 
 function render(budget: Plan) {
   return renderToStaticMarkup(
-    <RetirementPanel view={retirementView(scenarioOf(budget))} budget={budget} />,
+    <RetirementPanel view={retirementView(Projection.fromScenario(scenarioOf(budget), START_YEAR, usJurisdiction))} budget={budget} />,
   );
 }
 

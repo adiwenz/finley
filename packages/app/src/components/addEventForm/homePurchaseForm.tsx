@@ -5,14 +5,14 @@ import {
   dollarsToCents,
   DTI_FRONT_END_THRESHOLD,
   DTI_BACK_END_THRESHOLD,
+  PRIMARY_PERSON_ID,
   type FundingLookup,
-  type Household,
-  type ProjectionSeries,
+  type HomePurchaseAssessment,
+  type ProjectionResult,
 } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
-import { assessHomePurchaseDti } from "./homePurchaseDti";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
 /** Opening values — a plausible starter purchase to edit, not a recommendation. */
@@ -43,15 +43,13 @@ interface HomePurchaseDraft {
 
 export function HomePurchaseForm({
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
-  household,
-  series,
+  result,
   funding,
 }: FormProps & {
-  household: Household;
-  series: ProjectionSeries;
+  /** The live run — the DTI advisory is read off it, never re-simulated here. */
+  result: ProjectionResult;
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
 }) {
@@ -97,7 +95,7 @@ export function HomePurchaseForm({
 
   // SOFT warning: never gates `submit`. The only hard block, down-payment coverage, is
   // enforced in the engine event handler.
-  const dti = assessHomePurchaseDti(household, series, {
+  const dti = result.assessHomePurchase({
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),
     downPaymentCents: dollarsToCents(draft.down),
@@ -106,20 +104,19 @@ export function HomePurchaseForm({
   });
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "HomePurchaseEvent",
-      month: draft.month,
-      propertyId: `home-${nextId}`,
-      ownerId: "p1",
-      purchasePriceCents: dollarsToCents(draft.price),
-      downPaymentCents: dollarsToCents(draft.down),
-      // Chosen order = the drain order the simulator resolves the down payment against.
-      downPaymentSourceIds: sourceIds,
-      mortgageLiabilityId: `mortgage-${nextId}`,
-      mortgageApr: draft.apr / 100,
-      mortgageTermMonths: draft.termYears * 12,
-    });
+    // `buyHome` mints the property id and derives `<propertyId>-mortgage` from it.
+    onAdd((p) =>
+      p.buyHome({
+        month: draft.month,
+        ownerId: PRIMARY_PERSON_ID,
+        purchasePriceCents: dollarsToCents(draft.price),
+        downPaymentCents: dollarsToCents(draft.down),
+        // Chosen order = the drain order the simulator resolves the down payment against.
+        downPaymentSourceIds: sourceIds,
+        mortgageApr: draft.apr / 100,
+        mortgageTermMonths: draft.termYears * 12,
+      }),
+    );
   }
 
   return (
@@ -150,7 +147,7 @@ export function HomePurchaseForm({
 }
 
 /** Affordability advisory — amber, and does NOT block, unlike the red hard-block alert. */
-function DtiWarning({ dti }: { dti: ReturnType<typeof assessHomePurchaseDti> }) {
+function DtiWarning({ dti }: { dti: HomePurchaseAssessment }) {
   const { assessment, monthlyMortgageCents } = dti;
   const frontPct = Math.round(assessment.frontEndRatio * 100);
   const backPct = Math.round(assessment.backEndRatio * 100);

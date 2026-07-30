@@ -7,16 +7,15 @@
 
 import {
   dollarsToCents,
-  emptyLedger,
-  addEvent,
+  Projection,
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
   type Plan,
   type Job,
   type BudgetLine,
-  type Ledger,
-  type LedgerBaseConfig,
+  type LifeEvent,
   type NewLifeEvent,
+  type ProjectionState,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
@@ -226,21 +225,18 @@ export function presetById(id: string): Preset {
 }
 
 /**
- * Replays seeds through the same {@link addEvent} path the live UI uses, so they validate like
- * hand-added events. A rejected seed is a preset bug, not user error, so it throws rather than
- * silently dropping the event.
+ * The state to load for a preset — plan plus its seed timeline — as the app's single
+ * {@link ProjectionState}. The authored events are stamped in order into a ledger: identical
+ * to replaying each through {@link addEvent} for a valid preset (both assign
+ * `sequenceNumber = nextSequenceNumber` and step it), and every preset is validated against the
+ * live engine in `presets.test.ts`, so no affordability replay is owed here. `fromScenario`
+ * floors both counters past the preset's literal ids, so the first authored write mints clear
+ * of them.
  */
-export function buildPresetLedger(
-  base: LedgerBaseConfig,
-  events: readonly NewLifeEvent[],
-): Ledger {
-  let ledger = emptyLedger;
-  for (const event of events) {
-    const result = addEvent(ledger, base, event, usJurisdiction);
-    if (!result.ok) {
-      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
-    }
-    ledger = result.ledger;
-  }
-  return ledger;
+export function presetState(preset: Preset): ProjectionState {
+  const events = preset.events.map((event, i) => ({ ...event, sequenceNumber: i }) as LifeEvent);
+  const p = Projection.create({ plan: preset.plan, startYear: START_YEAR }, usJurisdiction);
+  p.resetLedger({ events, nextSequenceNumber: preset.events.length });
+  return p.toState();
 }
+

@@ -6,20 +6,21 @@
  * app-side lever, its 62–70 bound, and the estimates-not-advice disclaimer beside it.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { useState } from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { useTestProjection } from "../../testing/projectionHarness";
 import type { Plan } from "@finley/engine";
 
 afterEach(cleanup);
 
-/** A controlled harness so edits round-trip through real budget state. */
+/** A controlled harness so edits round-trip through the real facade. */
 function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
-  const [budget, setBudget] = useState<Plan>(initial);
+  const { state, transact } = useTestProjection(initial);
+  const budget = state.scenario.plan;
   return (
     <>
-      <BudgetEditor budget={budget} setBudget={setBudget} />
+      <BudgetEditor budget={budget} transact={transact} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="health-inflation">{budget.healthInflationPct}</output>

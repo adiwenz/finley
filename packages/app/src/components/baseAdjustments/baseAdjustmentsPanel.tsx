@@ -14,44 +14,35 @@
  * {@link import("@finley/engine").JobIncomeOverride}.
  */
 
-import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
-  type BudgetLine,
   type Household,
-  type Job,
   type Ledger,
   type Plan,
+  type Projection,
   type ProjectionSeries,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
-import { redistributeToTiers } from "./budgetTemplate";
+import { tierRebalanceWrites } from "./budgetTemplate";
 import { BudgetLineForm } from "./budgetLineForm";
 import { PayChangeEditor } from "./payChangeEditor";
 import {
-  addLineFromDraft,
+  budgetLineInputFromDraft,
+  budgetLinePatchFromDraft,
   blankLineDraft,
   contributionLinesOf,
-  expenseLinesOf,
-  removeLine,
-  updateLineFromDraft,
   type BudgetLineDraft,
 } from "./budgetLines";
-import { withIncomeOverride, withPayChange } from "../../planPeople";
 import { jobOwnersOf } from "../../jobOwners";
-import { ownedJobsOf, reviseJob } from "../../jobEditing";
-import { commitJobWrites } from "../../jobWrites";
-import type { EventRevision } from "../../hooks/useLedger";
+import { ownedJobsOf } from "../../jobEditing";
+import type { Transact } from "../../hooks/useProjection";
 import {
-  applyLineOverride,
-  resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
   type EditScope,
-  type MonthEditContext,
   type MonthEditRoute,
 } from "./monthEdit";
 import { buildIncomeChartData } from "./incomeByCategory";
@@ -72,7 +63,12 @@ function describeMonth(month: number, currentAge: number): string {
 
 export interface BaseAdjustmentsPanelProps {
   readonly plan: Plan;
-  readonly setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * One transaction per edit. Every write this panel makes — a line added, renamed, deleted or
+   * overridden at a month, a job's raise on either plane — goes through the facade, so the id
+   * mint and the ledger's validation stay on the far side of it.
+   */
+  readonly transact: Transact;
   /**
    * Passed in, not re-projected: projecting the bare plan drops every life event, so the
    * chart disagreed with the net-worth graph beside it.
@@ -89,32 +85,24 @@ export interface BaseAdjustmentsPanelProps {
    */
   readonly household: Household;
   readonly ledger: Ledger;
-  /** Revise ledger events in one all-or-nothing write. */
-  readonly onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
+  /**
+   * The two reads this panel makes: what each expense line resolves to at the selected month,
+   * and the household's standing pay the quickstart sizes its tiers against. Writes go through
+   * {@link transact}.
+   */
+  readonly projection: Pick<Projection, "expenseRowsAt" | "householdMonthlyIncomeCents">;
 }
 
 export function BaseAdjustmentsPanel({
   plan,
-  setBudget,
+  transact,
   series,
   personNames,
   household,
   ledger,
-  onReviseEvents,
+  projection,
 }: BaseAdjustmentsPanelProps) {
   const lines = plan.budgetLines;
-  // Rows are shown in the selected month's dollars — the same price growth the projection
-  // uses to get there and back.
-  const editCtx: MonthEditContext = useMemo(
-    () => ({ annualInflationRate: plan.inflationPct / 100 }),
-    [plan.inflationPct],
-  );
-  const setLines = useCallback(
-    (next: (prev: readonly BudgetLine[]) => readonly BudgetLine[]): void =>
-      setBudget((p) => ({ ...p, budgetLines: [...next(p.budgetLines)] })),
-    [setBudget],
-  );
-
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
   /** The route carries only the line id, so the row's label rides along with it. */
@@ -137,13 +125,14 @@ export function BaseAdjustmentsPanel({
     [series],
   );
 
-  // Only expense lines get month-resolved amounts; contribution lines are a flat literal
-  // into an account.
-  const expenseLines = useMemo(() => expenseLinesOf(lines), [lines]);
+  // Contribution lines are a flat literal into an account, so they have no month-resolved
+  // amount to preview — only expense rows do, and those come off the facade.
   const contributionLines = useMemo(() => contributionLinesOf(lines), [lines]);
+  // Resolved by the facade off the very series the simulator charges, so the month a user
+  // scrubs to and the month the projection runs cannot show different numbers.
   const rows = useMemo(
-    () => resolveRowsAtMonth(expenseLines, selectedMonth, editCtx.annualInflationRate),
-    [expenseLines, selectedMonth, editCtx],
+    () => projection.expenseRowsAt(selectedMonth),
+    [projection, selectedMonth],
   );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
@@ -151,11 +140,11 @@ export function BaseAdjustmentsPanel({
   const [lineAuthoring, setLineAuthoring] = useState<LineAuthoring | null>(null);
 
   function addLine(draft: BudgetLineDraft): void {
-    setLines((prev) => addLineFromDraft(prev, draft));
+    transact((p) => p.addBudgetLine(budgetLineInputFromDraft(draft)));
     setLineAuthoring(null);
   }
   function editLine(id: string, draft: BudgetLineDraft): void {
-    setLines((prev) => updateLineFromDraft(prev, id, draft));
+    transact((p) => p.updateBudgetLine(id, budgetLinePatchFromDraft(draft)));
     setLineAuthoring(null);
   }
   /** Expense rows and the contributions list share one slot, so the toggle is arbitrated here. */
@@ -163,7 +152,7 @@ export function BaseAdjustmentsPanel({
     setLineAuthoring((a) => (a?.kind === "edit" && a.id === id ? null : { kind: "edit", id }));
   }
   function deleteLine(id: string): void {
-    setLines((prev) => removeLine(prev, id));
+    transact((p) => p.removeBudgetLine(id));
     if (lineAuthoring?.kind === "edit" && lineAuthoring.id === id) setLineAuthoring(null);
   }
 
@@ -178,15 +167,6 @@ export function BaseAdjustmentsPanel({
     [owners],
   );
 
-  /**
-   * `revise` is handed the whole existing job, so its other overrides and pay changes ride
-   * through. Routing (plan vs. the partner's `RelationshipEvent`) and the all-or-nothing
-   * commit belong to {@link commitJobWrites}.
-   */
-  function adjustJob(jobId: string, revise: (job: Job) => Job): void {
-    const result = reviseJob(owners, jobId, revise);
-    if (result.ok) commitJobWrites(result.writes, { setBudget, onReviseEvents });
-  }
 
   /**
    * A staged-but-uncommitted edit is dropped: framed against the old month's numbers,
@@ -213,7 +193,7 @@ export function BaseAdjustmentsPanel({
     const route = routeMonthEdit({ ...pending, month: selectedMonth, scope });
     setLastRoute({ route, label: pending.label });
     if (route.kind === "lineOverride") {
-      setLines((prev) => [...applyLineOverride(prev, route.lineId, route.override)]);
+      transact((p) => p.addBudgetLineOverride(route.lineId, route.override));
     }
     setPending(null);
   }
@@ -225,14 +205,17 @@ export function BaseAdjustmentsPanel({
     // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the
     // whole household's standing pay — one earner's jobs would size a two-earner
     // household's spending to half its income.
-    const monthlyIncomeCents = owners.reduce(
-      (sum, o) =>
-        sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
-      0,
-    );
-    setLines((prev) => redistributeToTiers(prev, monthlyIncomeCents, retirementMonth));
+    const monthlyIncomeCents = projection.householdMonthlyIncomeCents();
+    // One transaction: the whole rebalance lands together or not at all.
+    const { rescale, seeds } = tierRebalanceWrites(lines, monthlyIncomeCents, retirementMonth);
+    transact((p) => {
+      for (const { id, monthlyCents } of rescale) {
+        p.updateBudgetLine(id, { amountSource: { kind: "literal", monthlyCents } });
+      }
+      for (const seed of seeds) p.addBudgetLine(seed);
+    });
     setPending(null);
-  }, [plan, retirementMonth, setLines]);
+  }, [lines, projection, retirementMonth, transact]);
 
   // `length - 1`: every row is a processed month now (the opening snapshot left the array), so
   // the last selectable month is the last INDEX, not the count. Clamping to the count would
@@ -299,8 +282,10 @@ export function BaseAdjustmentsPanel({
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={selectedMonth}
-          onApplyOverride={(jobId, override) => adjustJob(jobId, (j) => withIncomeOverride(j, override))}
-          onApplyPayChange={(jobId, payChange) => adjustJob(jobId, (j) => withPayChange(j, payChange))}
+          // Addressed by job id alone: the facade finds it on whichever plane its owner is
+          // authored on, and carries the job's other adjustments through.
+          onApplyOverride={(jobId, override) => transact((p) => p.addJobIncomeOverride(jobId, override))}
+          onApplyPayChange={(jobId, payChange) => transact((p) => p.addJobPayChange(jobId, payChange))}
         />
 
         <SpendingEditor

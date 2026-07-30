@@ -4,17 +4,19 @@
  * The two members' job arrays live on different planes: the primary person's are standing
  * plan data (`Plan.jobs`, the value-editing plane), a partner's ride the
  * `RelationshipEvent` that brought them into the household (the ledger). The Jobs panel
- * gets one uniform list of owners instead, each with a `writeTarget` naming the plane to
- * write back to.
+ * gets one uniform list of owners instead, each with a `writeTarget` naming the plane its
+ * jobs are written on.
  */
 
 import type { Household, Ledger, Job, PersonId, RelationshipEvent } from "@finley/engine";
 
-export type JobWriteTarget =
-  /** The standing plan (`Plan.jobs`) — the primary person, always in the household. */
-  | { readonly kind: "plan" }
-  /** The `RelationshipEvent` a partner joined with; their jobs ride its `person`. */
-  | { readonly kind: "event"; readonly event: RelationshipEvent };
+/**
+ * Which plane a member's jobs are authored on — the name of a plane, not a handle to one. A
+ * caller only needs to know which of `Projection`'s two families of job methods to call;
+ * `Projection` finds the `RelationshipEvent` by person id at write time, off the state it is
+ * committing against rather than a snapshot from the last render.
+ */
+export type JobWriteTarget = "plan" | "event";
 
 export interface JobOwner {
   readonly id: PersonId;
@@ -59,7 +61,7 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       jobs: m.person.jobs,
       startMonth: m.startMonth,
       endMonth: m.endMonth,
-      writeTarget: joinedByEvent && event ? { kind: "event", event } : { kind: "plan" },
+      writeTarget: joinedByEvent && event ? "event" : "plan",
     });
   }
   return owners;

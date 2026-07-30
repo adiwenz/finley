@@ -9,18 +9,19 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   emptyLedger,
-  replayLedger,
   dollarsToCents,
-  nullJurisdiction,
-  createProjectionBase,
   goalFundAccountId,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "../../config";
 import { monthLabel } from "../../format";
 import { GoalsPanel } from "./goalsPanel";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { Plan, GoalPlan, Ledger, LifeEvent } from "@finley/engine";
+import type {
+  Plan,
+  GoalPlan,
+  Ledger,
+  LifeEvent,
+} from "@finley/engine";
 
 afterEach(cleanup);
 
@@ -58,32 +59,29 @@ const ledgerOf = (...events: readonly LifeEvent[]): Ledger => ({
   nextSequenceNumber: events.length + 1,
 });
 
-function project(budget: Plan) {
-  return replayLedger(
-    emptyLedger,
-    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
-    nullJurisdiction,
-  );
-}
-
-function renderPanel(ledger: Ledger, setBudget = vi.fn()) {
+/**
+ * The panel with a spying `transact`. The refusal under test is the panel's own — it reads
+ * the blockers so it can name them — so what these pin is that no transaction is even
+ * attempted, which is the observable the spy answers. (`Projection.removeGoal` enforces the
+ * same rule on the far side; that is the engine's test.)
+ */
+function renderPanel(ledger: Ledger, transact = vi.fn()) {
   const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
-  const series = project(budget);
   const panel = (l: Ledger) => (
-    <GoalsPanel budget={budget} series={series} setBudget={setBudget} ledger={l} />
+    <GoalsPanel budget={budget} projection={readerOf(budget, l)} result={runOf(budget, l)} transact={transact} />
   );
   const { rerender } = render(panel(ledger));
   // The ledger is the only prop under test, so re-rendering means handing over a new one —
   // the panel keeps its own state across the swap, which is the point.
-  return { setBudget, rerender: (next: Ledger) => rerender(panel(next)) };
+  return { transact, rerender: (next: Ledger) => rerender(panel(next)) };
 }
 
 describe("GoalsPanel — refuse to delete a goal that funds an event", () => {
   it("refuses the deletion and names the blocking event", () => {
     const ledger = ledgerOf(homePurchase([goalFundAccountId(goal)]));
-    const { setBudget } = renderPanel(ledger);
+    const { transact } = renderPanel(ledger);
     fireEvent.click(screen.getByLabelText("Delete Home down payment"));
-    expect(setBudget).not.toHaveBeenCalled();
+    expect(transact).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain(
       "This account cannot be deleted because it funds",
     );
@@ -92,9 +90,9 @@ describe("GoalsPanel — refuse to delete a goal that funds an event", () => {
 
   it("deletes normally when the goal's fund account funds nothing", () => {
     const ledger = ledgerOf(homePurchase(["savings"]));
-    const { setBudget } = renderPanel(ledger);
+    const { transact } = renderPanel(ledger);
     fireEvent.click(screen.getByLabelText("Delete Home down payment"));
-    expect(setBudget).toHaveBeenCalledTimes(1);
+    expect(transact).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -105,11 +103,11 @@ describe("GoalsPanel — a refusal answers one delete, and does not outlive it",
     homePurchase([goalFundAccountId(goal)], over);
 
   it("does not revive once a LATER event funds the same goal", () => {
-    const { setBudget, rerender } = renderPanel(ledgerOf(fundedByGoal()));
+    const { transact, rerender } = renderPanel(ledgerOf(fundedByGoal()));
 
     // 1. The delete is blocked, and the warning names the blocker.
     fireEvent.click(screen.getByLabelText(DELETE));
-    expect(setBudget).not.toHaveBeenCalled();
+    expect(transact).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("Bought a home");
 
     // 2. That event leaves the ledger — nothing blocks the goal, so the warning goes.
@@ -125,7 +123,7 @@ describe("GoalsPanel — a refusal answers one delete, and does not outlive it",
     // Asking again does refuse — on the new blocker, at its own month.
     fireEvent.click(screen.getByLabelText(DELETE));
     expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(84)}`);
-    expect(setBudget).not.toHaveBeenCalled();
+    expect(transact).not.toHaveBeenCalled();
   });
 
   it("does not revive when the blocker is REPLACED in a single update", () => {

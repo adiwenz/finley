@@ -1,6 +1,6 @@
 /**
  * The **pay change at this month** control. Owns the disclosed form's transient state, so
- * {@link BaseAdjustmentsPanel} carries none of it. It never sees `Plan` or `setBudget`; it
+ * {@link BaseAdjustmentsPanel} carries none of it. It never sees `Plan` or a transaction; it
  * hands the parent a finished {@link JobIncomeOverride} or {@link JobPayChange} to apply,
  * against a month the parent selects.
  *

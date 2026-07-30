@@ -12,23 +12,24 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   emptyLedger,
-  interpretLedger,
-  replayLedger,
   createProjectionBase,
   fundingLookup,
-  nullJurisdiction,
-  type NewLifeEvent,
+  type BuyHomeInput,
+  type Projection,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
 /** The form at `month`, wired to the engine exactly as the app wires it. */
 function renderForm(month: number) {
-  const onAdd = vi.fn();
+  // The form writes through the facade; the stub captures the `buyHome` input the thunk builds.
+  const buyHome = vi.fn();
+  const onAdd = (write: (p: Projection) => void) => write({ buyHome } as unknown as Projection);
   const base = createProjectionBase(PLAN_DEFAULTS, {
     jurisdiction: usJurisdiction,
     startYear: START_YEAR,
@@ -36,21 +37,17 @@ function renderForm(month: number) {
   render(
     <HomePurchaseForm
       defaultMonth={month}
-      nextId={0}
       horizonMonths={660}
       onAdd={onAdd}
-      household={interpretLedger(emptyLedger, base)}
-      series={replayLedger(emptyLedger, base, nullJurisdiction)}
+      result={runOf(PLAN_DEFAULTS)}
       funding={fundingLookup(emptyLedger, base, usJurisdiction)}
     />,
   );
-  return { onAdd };
+  return { buyHome };
 }
 
-function submittedPurchase(onAdd: ReturnType<typeof vi.fn>) {
-  const event: NewLifeEvent = onAdd.mock.calls[0][0];
-  if (event.type !== "HomePurchaseEvent") throw new Error(`submitted a ${event.type}`);
-  return event;
+function submittedPurchase(buyHome: ReturnType<typeof vi.fn>): BuyHomeInput {
+  return buyHome.mock.calls[0][0] as BuyHomeInput;
 }
 
 const box = (name: RegExp) => screen.getByRole("checkbox", { name });
@@ -68,7 +65,7 @@ const MONTH = 120;
 
 describe("down-payment source picker", () => {
   it("records the accounts in the ORDER they were picked, not display order", () => {
-    const { onAdd } = renderForm(MONTH);
+    const { buyHome } = renderForm(MONTH);
     fireEvent.click(box(/Home down payment/)); // drop the default pick
     // Pick bottom-up: drain order is CLICK order, so cash savings comes first even though
     // the emergency fund is listed above it.
@@ -76,14 +73,14 @@ describe("down-payment source picker", () => {
     fireEvent.click(box(/Emergency fund/));
     addEvent();
 
-    expect(submittedPurchase(onAdd).downPaymentSourceIds).toEqual(["savings", "goal-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["savings", "goal-emergency"]);
   });
 
   it("defaults to the largest single account, so the form works untouched", () => {
-    const { onAdd } = renderForm(MONTH);
+    const { buyHome } = renderForm(MONTH);
     addEvent();
     // Whatever holds the most at that month — the engine orders the pool, not the form.
-    expect(submittedPurchase(onAdd).downPaymentSourceIds).toEqual(["goal-home"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["goal-home"]);
   });
 
   it("asks for at least one account when everything is deselected", () => {
@@ -176,7 +173,7 @@ describe("down-payment source picker — an account that empties at a later mont
   });
 
   it("leaves it off the submitted event", () => {
-    const { onAdd } = renderForm(FUNDED_MONTH);
+    const { buyHome } = renderForm(FUNDED_MONTH);
     fireEvent.click(box(/Home down payment/)); // drop the default
     fireEvent.click(box(/Cash savings/));
     setMonth(DRAINED_MONTH);
@@ -185,7 +182,7 @@ describe("down-payment source picker — an account that empties at a later mont
 
     // The drained id must not ride along to the engine, where it would be silently worth $0
     // against the §4.5 gate.
-    expect(submittedPurchase(onAdd).downPaymentSourceIds).toEqual(["goal-emergency"]);
+    expect(submittedPurchase(buyHome).downPaymentSourceIds).toEqual(["goal-emergency"]);
   });
 
   it("lists every account at $0 when none of them holds anything, and picks no default", () => {

@@ -6,15 +6,25 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type BudgetLine } from "@finley/engine";
-import {
-  applyLineOverride,
-  resolveRowsAtMonth,
-  routeMonthEdit,
-  type MonthEdit,
-} from "./monthEdit";
+import { dollarsToCents, withLineOverride, type BudgetLine } from "@finley/engine";
+import { routeMonthEdit, type MonthEdit } from "./monthEdit";
+import { PLAN_DEFAULTS } from "../../planDefaults";
+import { readerOf } from "../../testing/projectionHarness";
 
 const CPI = { annualInflationRate: 0.03 };
+
+/**
+ * The lines as a plan, resolved at a month by the facade — the panel's own read. Stated as a
+ * whole plan because that is what `expenseRowsAt` resolves against: the price growth comes
+ * from `inflationPct`, not a context the caller carries.
+ */
+function rowsAt(lines: readonly BudgetLine[], month: number, annualInflationRate = 0) {
+  return readerOf({
+    ...PLAN_DEFAULTS,
+    budgetLines: [...lines],
+    inflationPct: annualInflationRate * 100,
+  }).expenseRowsAt(month);
+}
 
 /** Whole-cent rounding in the growth math can land a round-trip a cent off. */
 const expectCents = (actual: number | undefined, expected: number) =>
@@ -95,7 +105,7 @@ describe("routeMonthEdit — income row", () => {
   });
 });
 
-describe("resolveRowsAtMonth", () => {
+describe("Projection.expenseRowsAt — a standing line at a month", () => {
   const lines = [
     line("housing", dollarsToCents(1_600), [
       { month: 24, monthlyCents: dollarsToCents(2_000), scope: "fromHereForward" },
@@ -105,25 +115,25 @@ describe("resolveRowsAtMonth", () => {
   ];
 
   it("shows the base amount at a month before any override", () => {
-    const rows = resolveRowsAtMonth(lines, 0, 0);
+    const rows = rowsAt(lines, 0);
     expect(rows[0]).toMatchObject({ monthlyCents: dollarsToCents(1_600), overridden: false });
   });
 
   it("shows a one-month override only at its own month", () => {
-    expect(resolveRowsAtMonth(lines, 6, 0)[0]).toMatchObject({
+    expect(rowsAt(lines, 6)[0]).toMatchObject({
       monthlyCents: dollarsToCents(900),
       overridden: true,
     });
-    expect(resolveRowsAtMonth(lines, 7, 0)[0]?.monthlyCents).toBe(dollarsToCents(1_600));
+    expect(rowsAt(lines, 7)[0]?.monthlyCents).toBe(dollarsToCents(1_600));
   });
 
   it("carries a from-here-forward override to every later month", () => {
-    expect(resolveRowsAtMonth(lines, 24, 0)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
-    expect(resolveRowsAtMonth(lines, 400, 0)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
+    expect(rowsAt(lines, 24)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
+    expect(rowsAt(lines, 400)[0]?.monthlyCents).toBe(dollarsToCents(2_000));
   });
 
   it("leaves an unadjusted line flat across the horizon", () => {
-    expect(resolveRowsAtMonth(lines, 300, 0)[1]).toMatchObject({
+    expect(rowsAt(lines, 300)[1]).toMatchObject({
       monthlyCents: dollarsToCents(600),
       overridden: false,
     });
@@ -132,9 +142,9 @@ describe("resolveRowsAtMonth", () => {
   it("shows each row in the selected month's dollars, grown with inflation", () => {
     // The editor sits under the graph and must agree with it: a $600 line authored today
     // does cost more in ten years, and the row has to say so.
-    const [, food] = resolveRowsAtMonth(lines, 120, CPI.annualInflationRate);
+    const [, food] = rowsAt(lines, 120, CPI.annualInflationRate);
     expectCents(food?.monthlyCents, Math.round(dollarsToCents(600) * Math.pow(1.03, 10)));
-    expect(resolveRowsAtMonth(lines, 0, CPI.annualInflationRate)[1]?.monthlyCents).toBe(
+    expect(rowsAt(lines, 0, CPI.annualInflationRate)[1]?.monthlyCents).toBe(
       dollarsToCents(600),
     );
   });
@@ -149,8 +159,8 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ row: { kind: "line", lineId: "housing" }, month, scope, newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = applyLineOverride([base], "housing", route.override);
-    return resolveRowsAtMonth(next, month, CPI.annualInflationRate)[0]!.monthlyCents;
+    const next = withLineOverride([base], "housing", route.override);
+    return rowsAt(next, month, CPI.annualInflationRate)[0]!.monthlyCents;
   };
 
   it("charges the typed amount at the edited month for a one-month change", () => {
@@ -168,23 +178,23 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ month: 120, scope: "fromHereForward", newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = applyLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
-    const atEdit = resolveRowsAtMonth(next, 120, CPI.annualInflationRate)[0]!.monthlyCents;
-    const tenYearsLater = resolveRowsAtMonth(next, 240, CPI.annualInflationRate)[0]!.monthlyCents;
+    const next = withLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
+    const atEdit = rowsAt(next, 120, CPI.annualInflationRate)[0]!.monthlyCents;
+    const tenYearsLater = rowsAt(next, 240, CPI.annualInflationRate)[0]!.monthlyCents;
     expectCents(atEdit, dollarsToCents(3_000));
     expectCents(tenYearsLater, Math.round(atEdit * Math.pow(1.03, 10)));
   });
 });
 
-describe("applyLineOverride", () => {
+describe("withLineOverride — the dated-override rule, as this editor lands on it", () => {
   it("replaces an override at the same month/scope rather than stacking duplicates", () => {
     const start = [line("housing", dollarsToCents(1_600))];
-    const once = applyLineOverride(start, "housing", {
+    const once = withLineOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
     });
-    const twice = applyLineOverride(once, "housing", {
+    const twice = withLineOverride(once, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_200),
       scope: "fromHereForward",
@@ -199,18 +209,18 @@ describe("applyLineOverride", () => {
     // month 100 leaves the line at the month-100 amount for the rest of the horizon — the
     // more recent decision outranks the one it reaches over. Pinned so it stays a decision.
     let lines: readonly BudgetLine[] = [line("housing", dollarsToCents(1_600))];
-    lines = applyLineOverride(lines, "housing", {
+    lines = withLineOverride(lines, "housing", {
       month: 300,
       monthlyCents: dollarsToCents(5_000),
       scope: "fromHereForward",
     });
-    lines = applyLineOverride(lines, "housing", {
+    lines = withLineOverride(lines, "housing", {
       month: 100,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
     });
     const at = (month: number) =>
-      resolveRowsAtMonth(lines, month, 0).find((r) => r.lineId === "housing")?.monthlyCents;
+      rowsAt(lines, month).find((r) => r.lineId === "housing")?.monthlyCents;
     expect(at(99)).toBe(dollarsToCents(1_600));
     expect(at(100)).toBe(dollarsToCents(2_000));
     expect(at(300)).toBe(dollarsToCents(2_000)); // superseded, not $5,000
@@ -223,7 +233,7 @@ describe("applyLineOverride", () => {
       ]),
       line("food", dollarsToCents(600)),
     ];
-    const next = applyLineOverride(start, "housing", {
+    const next = withLineOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
@@ -232,7 +242,7 @@ describe("applyLineOverride", () => {
     expect(next[1]).toEqual(start[1]);
   });
 
-  // The behavior above is explained in `applyLineOverride`'s JSDoc. That prose must stay in
+  // The routing prose in `monthEdit.ts` must stay in
   // app/public terms: `SimCashFlowSeries` is an engine implementation detail — how the
   // compiler happens to represent a schedule today — so app prose should describe the
   // observable effect instead. Pins the boundary against a reword reaching back inside.

@@ -56,7 +56,7 @@ describe("jobOwnersOf", () => {
     expect(owners).toHaveLength(1);
     expect(owners[0].name).toBe(PLAN_DEFAULTS.name);
     expect(owners[0].jobs).toEqual(PLAN_DEFAULTS.jobs);
-    expect(owners[0].writeTarget.kind).toBe("plan");
+    expect(owners[0].writeTarget).toBe("plan");
   });
 
   it("adds a partner after them, writing to the event they joined with", () => {
@@ -68,8 +68,7 @@ describe("jobOwnersOf", () => {
     // Their ages resolve against their OWN birth year, and their jobs are ledger data.
     expect(partner.birthYear).toBe(START_YEAR - 40);
     expect(partner.startMonth).toBe(60);
-    expect(partner.writeTarget.kind).toBe("event");
-    if (partner.writeTarget.kind === "event") expect(partner.writeTarget.event.id).toBe("r1");
+    expect(partner.writeTarget).toBe("event");
   });
 
   it("keeps a separated partner listed, with the month they left", () => {

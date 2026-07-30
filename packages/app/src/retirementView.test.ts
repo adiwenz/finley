@@ -1,10 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   dollarsToCents,
-  projectScenario,
-  planSurvives,
-  solveRetirement,
   scenarioOf,
+  Projection,
   createProjectionBase,
   addEvent,
   emptyLedger,
@@ -14,12 +12,13 @@ import {
   buildWithdrawalSources,
   type WithdrawalState,
   type JurisdictionContext,
+  type Jurisdiction,
   type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import { setJobMonthlyIncome } from "./planPeople";
+import { setJobMonthlyIncome } from "./testing/planFixtures";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
@@ -27,38 +26,72 @@ const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_
 
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
-  return retirementView(scenarioOf(plan));
+  return retirementView(Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction));
 }
 
-function survivesAt(budget: Plan, age: number): boolean {
-  return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
-}
+describe("retirementView — one query behind every figure", () => {
+  /**
+   * Counts how many searches a render costs. Two members is the whole of what the view reads,
+   * so the stand-in states them outright rather than wrapping a projection.
+   */
+  function countingReader(plan: Plan) {
+    const real = Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction);
+    let calls = 0;
+    return {
+      reader: {
+        plan: real.plan,
+        retirement: (j: Jurisdiction) => {
+          calls += 1;
+          return real.retirement(j);
+        },
+      },
+      calls: () => calls,
+    };
+  }
+
+  it("asks the facade once, and every figure it shows comes out of that answer", () => {
+    const { reader, calls } = countingReader(PLAN_DEFAULTS);
+    const view = retirementView(reader);
+    expect(calls()).toBe(1);
+
+    // Each field is the corresponding field of the one outlook, not a second derivation.
+    const outlook = reader.retirement(usJurisdiction);
+    expect(view.headlineAge).toBe(outlook.solution.fullRetirementAge);
+    expect(view.headlineMonth).toBe(outlook.fullRetirementMonth);
+    expect(view.target).toEqual(outlook.target);
+    expect(view.earlyRetireeHealth).toEqual(outlook.earlyRetireeHealth);
+  });
+
+  it("keeps the on-track rounding on this side of the boundary — floored, clamped", () => {
+    // The engine reports a fraction; rounding DOWN to a tenth is the app's rule, so a plan
+    // 99.97% of the way cannot show a "100%" it has not earned.
+    const view = viewOf(PLAN_DEFAULTS);
+    expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
+    expect(view.targetOnTrackPct).toBeGreaterThanOrEqual(0);
+    expect(view.targetOnTrackPct).toBe(
+      Math.floor(view.target.onTrackFraction * 1000) / 10 > 100
+        ? 100
+        : Math.floor(view.target.onTrackFraction * 1000) / 10,
+    );
+  });
+});
 
 describe("retirementView — headline age driven off the real projection", () => {
-  it("reports a feasible headline age that actually survives in the projection", () => {
-    const view = viewOf(PLAN_DEFAULTS);
-    expect(view.headlineAge).not.toBeNull();
-    const age = view.headlineAge as number;
-    expect(survivesAt(PLAN_DEFAULTS, age)).toBe(true);
-    // A year earlier does not — the headline is genuinely the threshold.
-    expect(survivesAt(PLAN_DEFAULTS, age - 1)).toBe(false);
+  it("reports the full-retirement age the facade found, not a second search", () => {
+    const projection = Projection.fromScenario(
+      scenarioOf(PLAN_DEFAULTS),
+      START_YEAR,
+      usJurisdiction,
+    );
+    expect(retirementView(projection).headlineAge).toBe(
+      projection.retirement(usJurisdiction).solution.fullRetirementAge,
+    );
   });
 
   it("the month offset is (age − now) × 12, floored at 0 — the chart reference line", () => {
     const view = viewOf(PLAN_DEFAULTS);
     const age = view.headlineAge as number;
     expect(view.headlineMonth).toBe((age - PLAN_DEFAULTS.currentAge) * 12);
-  });
-
-  it("panel age == the first projection age that survives (panel and graph agree)", () => {
-    let firstSurviving: number | null = null;
-    for (let age = PLAN_DEFAULTS.currentAge; age <= PLAN_DEFAULTS.lifeExpectancy; age++) {
-      if (survivesAt(PLAN_DEFAULTS, age)) {
-        firstSurviving = age;
-        break;
-      }
-    }
-    expect(viewOf(PLAN_DEFAULTS).headlineAge).toBe(firstSurviving);
   });
 
   it("reports no feasible headline when the money can never last", () => {
@@ -92,9 +125,6 @@ describe("retirementView — target mode against the pinned age", () => {
     expect(view.target.feasible).toBe(false);
     expect(view.targetOnTrackPct).toBeLessThan(100);
     expect(view.target.nearestFeasibleAge).toBe(view.headlineAge);
-    expect(view.target.nearestFeasibleAge).toBe(
-      solveRetirement(scenarioOf(pinnedTooEarly), CTX).fullRetirementAge,
-    );
   });
 
   it("keeps the on-track % within [0, 100]", () => {
@@ -229,7 +259,9 @@ describe("retirementView — the timeline events count toward retirement", () =>
     if (!added.ok) return;
 
     const baselineAge = viewOf(plan).headlineAge;
-    const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
+    const withChildAge = retirementView(
+      Projection.fromScenario({ plan, ledger: added.ledger }, START_YEAR, usJurisdiction),
+    ).headlineAge;
     // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
     // so the down-payment fund counts toward the nest egg.
     expect(baselineAge).toBe(60);

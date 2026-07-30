@@ -10,9 +10,11 @@
 
 import { describe, it, expect } from "vitest";
 import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
-import { editJob } from "./jobEditing";
+import { editJob, type JobWrite } from "./jobEditing";
 import type { JobOwner } from "./jobOwners";
 import { jobToDraftFor, type JobDraft } from "./planPeople";
+import { PLAN_DEFAULTS } from "./planDefaults";
+import { readerOf } from "./testing/projectionHarness";
 
 const ALEX_BIRTH_YEAR = 1991; // 35 in 2026
 const SAM_BIRTH_YEAR = 1986; // 40 in 2026
@@ -34,7 +36,7 @@ const owner = (over: Partial<JobOwner> & Pick<JobOwner, "id" | "name" | "birthYe
   retirementTargetAge: 65,
   startMonth: -Infinity,
   endMonth: null,
-  writeTarget: { kind: "plan" },
+  writeTarget: "plan",
   ...over,
 });
 
@@ -48,21 +50,47 @@ function household(jobs: readonly Job[] = [richJob], samJobs: readonly Job[] = [
       birthYear: SAM_BIRTH_YEAR,
       jobs: samJobs,
       startMonth: 0,
-      // `editJob` is plane-agnostic, so a stub event suffices.
-      writeTarget: { kind: "event", event: { id: "r1" } as never },
+      // `editJob` is plane-agnostic; the plane only routes the commit.
+      writeTarget: "event",
     }),
   ];
 }
 
 const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): JobDraft => ({
-  ...jobToDraftFor(birthYear, job),
+  ...jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [job] }), birthYear, job),
   ...over,
 });
 
+/**
+ * The intents read back as the lists they describe, so an assertion can talk about "Alex's
+ * jobs after the edit" rather than about a write shape.
+ *
+ * Test-side scaffolding, not the production interpreter: `Projection` applies these for real,
+ * on whichever plane the owner is authored on, and the engine's tests pin that. What is being
+ * checked here is which intents {@link editJob} decides on.
+ */
 function applied(result: ReturnType<typeof editJob>): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
   const lists = new Map<string, readonly Job[]>();
-  for (const { owner: o, revise } of result.writes) lists.set(o.id, revise(o.jobs));
+  const apply = (jobs: readonly Job[], write: JobWrite): readonly Job[] => {
+    switch (write.kind) {
+      case "add": {
+        // Only ever a job moving between members, which keeps its id — `editJob` never
+        // authors a new one, so an intent without an id would be a bug in it.
+        if (write.job.id === undefined) throw new Error("editJob emitted a job with no id");
+        return [...jobs, { ...write.job, id: write.job.id, ownerId: write.owner.id } as Job];
+      }
+      case "replace":
+        return jobs.map((j) =>
+          j.id === write.jobId ? ({ ...write.job, id: j.id, ownerId: j.ownerId } as Job) : j,
+        );
+      case "remove":
+        return jobs.filter((j) => j.id !== write.jobId);
+    }
+  };
+  for (const write of result.writes) {
+    lists.set(write.owner.id, apply(lists.get(write.owner.id) ?? write.owner.jobs, write));
+  }
   return lists;
 }
 

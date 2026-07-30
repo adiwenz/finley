@@ -5,23 +5,20 @@
  * retirement solver, which runs the same `simulateHousehold` the net-worth graph does — so
  * panel and graph can never disagree.
  *
- * The Medicare / early-retiree health flags stay here: a today's-dollars read on the
- * authored health line, independent of the projection.
+ * The whole answer comes from one `retirement()` call, so the headline and the pinned-age
+ * verdict are always two readings of the same search. What is left in this module is
+ * presentation: the on-track rounding rule, and the two authored health figures the panel
+ * shows beside the flag.
  */
 
-import {
-  assessEarlyRetireeHealthCost,
-  solveRetirement,
-  evaluateFullRetirementAtAge,
-  type Jurisdiction,
-  type ProjectionContext,
-  type RetirementEvaluation,
-  type EarlyRetireeHealthFlag,
-  type Scenario,
+import type {
+  Jurisdiction,
+  Plan,
+  Projection,
+  RetirementEvaluation,
+  EarlyRetireeHealthFlag,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "./config";
-import type { Plan } from "@finley/engine";
 
 export interface RetirementView {
   /** Mode-1 headline: the earliest age everyone can retire, or null if unreachable. */
@@ -55,57 +52,26 @@ export interface RetirementView {
 }
 
 /**
- * The pre-65 early-retiree health flag, in **today's dollars**: the panel and the authored
- * health line are both today's-dollars, so the benchmark is priced at the base year rather
- * than indexed out to the retirement year, which would pit a nominal 2040s cost against a
- * today's-dollars budget. (The rules seam still indexes forward for the nominal
- * projection.) Retiring at/after Medicare eligibility never flags.
+ * What this view reads, and nothing else. Narrow on purpose: it says the view cannot author,
+ * and a test standing in for it states two members rather than a whole projection.
  */
-function earlyRetireeHealthFlag(
-  budget: Plan,
-  jurisdiction: Jurisdiction,
-): EarlyRetireeHealthFlag {
-  return assessEarlyRetireeHealthCost({
-    retirementAge: budget.retirementAge,
-    // The jurisdiction owns the coverage age (65 under US law). Absent → 0, so the
-    // gap window is empty and the flag never fires.
-    publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
-    authoredHealthMonthlyCents: budget.healthMonthlyCents,
-    selfFundedBenchmarkMonthlyCents:
-      jurisdiction.healthCostBenchmarkMonthlyCents?.({
-        age: budget.retirementAge,
-        year: START_YEAR,
-      }) ?? 0,
-  });
-}
+type RetirementSource = Pick<Projection, "plan" | "retirement">;
 
 export function retirementView(
-  scenario: Scenario,
+  projection: RetirementSource,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
-  // net-worth graph does.
-  const { plan: budget } = scenario;
-  const ctx: ProjectionContext = { jurisdiction, startYear: START_YEAR };
-  // The headline is the FULL retirement age: everyone stops all their jobs.
-  const solution = solveRetirement(scenario, ctx);
-  const headlineAge = solution.fullRetirementAge;
-  const headlineMonth =
-    headlineAge === null ? null : Math.max(0, (headlineAge - budget.currentAge) * 12);
-  // The target asks the SAME full-retirement question at the pinned age, so when the pin
-  // can't make it the nearest-feasible age is the headline — one rule for pin and fallback,
-  // reusing the solver's search rather than a second one that could drift.
-  const evaluation = evaluateFullRetirementAtAge(scenario, budget.retirementAge, ctx);
-  const target: RetirementEvaluation = {
-    ...evaluation,
-    nearestFeasibleAge: evaluation.feasible ? evaluation.retirementAge : headlineAge,
-  };
+  // net-worth graph does, because it asks the same handle.
+  const budget: Plan = projection.plan;
+  const { solution, fullRetirementMonth, target, earlyRetireeHealth } =
+    projection.retirement(jurisdiction);
   return {
-    headlineAge,
-    headlineMonth,
+    headlineAge: solution.fullRetirementAge,
+    headlineMonth: fullRetirementMonth,
     target,
     targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
-    earlyRetireeHealth: earlyRetireeHealthFlag(budget, jurisdiction),
+    earlyRetireeHealth,
     residualHealthMonthlyCents: budget.enrollsInPublicHealthCoverage
       ? budget.postCoverageHealthMonthlyCents
       : 0,

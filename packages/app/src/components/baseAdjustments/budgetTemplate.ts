@@ -148,3 +148,48 @@ export function redistributeToTiers(
 
   return [...scaled, ...seeds];
 }
+
+/**
+ * The same rebalance, decomposed into the writes that perform it: which existing lines change
+ * amount, and which tiers need a line seeded.
+ *
+ * Derived by diffing {@link redistributeToTiers}' own output rather than recomputing the
+ * split, so the 50/30/20 rule has one implementation and the writes cannot drift from it. The
+ * panel needs this shape because the plan is authored through `Projection`, which takes one
+ * line at a time and no whole `budgetLines` array.
+ */
+export interface TierRebalance {
+  /** Existing literal lines whose amount moves, by id. Unchanged lines are omitted. */
+  readonly rescale: readonly { readonly id: string; readonly monthlyCents: number }[];
+  /** One per tier that had no lines at all — nothing to scale, so it is seeded instead. */
+  readonly seeds: readonly BudgetLineInput[];
+}
+
+export function tierRebalanceWrites(
+  lines: readonly BudgetLine[],
+  monthlyIncomeCents: number,
+  retirementMonth?: number,
+): TierRebalance {
+  const before = new Map(lines.map((l) => [l.id, l]));
+  const rescale: { id: string; monthlyCents: number }[] = [];
+  const seeds: BudgetLineInput[] = [];
+
+  for (const line of redistributeToTiers(lines, monthlyIncomeCents, retirementMonth)) {
+    const prior = before.get(line.id);
+    if (prior === undefined) {
+      seeds.push(line);
+      continue;
+    }
+    // Non-literal lines pass through the rebalance untouched, so only a moved literal amount
+    // is a write at all.
+    if (
+      line.amountSource.kind === "literal" &&
+      (prior.amountSource.kind !== "literal" ||
+        prior.amountSource.monthlyCents !== line.amountSource.monthlyCents)
+    ) {
+      rescale.push({ id: line.id, monthlyCents: line.amountSource.monthlyCents });
+    }
+  }
+
+  return { rescale, seeds };
+}

@@ -12,18 +12,37 @@
  * edit cannot leave a job in neither list. The caller commits.
  */
 
-import type { Job, PersonId } from "@finley/engine";
+import type { Job, JobInput, PersonId } from "@finley/engine";
 import { applyJobDraft, type JobDraft } from "./planPeople";
 import type { JobOwner } from "./jobOwners";
 
 /**
- * One member's job list, rewritten. `revise` is a pure transform rather than a finished
- * list so the caller can apply it as a *functional* state update — two edits in one tick
- * then compose instead of the second discarding the first.
+ * One change to one member's jobs, named as an intent rather than a list transform: the write
+ * authority is `Projection`, which takes intents (`addJob` / `addPartnerJob`, `replaceJob` /
+ * `replacePartnerJob`, `removeJob` / `removePartnerJob`) and never a list.
+ * `jobWrites.ts` routes each of these to its owner's plane.
+ *
+ * `add` covers both a brand-new job and an existing one arriving from another member: the
+ * difference is whether the {@link JobInput} carries an `id`, which is exactly the question
+ * the id mint already answers (an id supplied is kept, an absent one is minted).
  */
-export interface JobListWrite {
-  readonly owner: JobOwner;
-  readonly revise: (jobs: readonly Job[]) => readonly Job[];
+export type JobWrite =
+  | { readonly kind: "add"; readonly owner: JobOwner; readonly job: JobInput }
+  | {
+      readonly kind: "replace";
+      readonly owner: JobOwner;
+      readonly jobId: string;
+      readonly job: JobInput;
+    }
+  | { readonly kind: "remove"; readonly owner: JobOwner; readonly jobId: string };
+
+/**
+ * A job as authoring input: its `ownerId` drops away (the plane it lands on stamps it), its
+ * `id` rides along so a job crossing between members stays the same job.
+ */
+export function jobInputOf(job: Job): JobInput {
+  const { ownerId: _drop, ...rest } = job;
+  return rest;
 }
 
 /**
@@ -36,7 +55,7 @@ export type JobEditResult =
       readonly ok: true;
       /** Same id, new fields, whichever owner now holds it. */
       readonly job: Job;
-      readonly writes: readonly JobListWrite[];
+      readonly writes: readonly JobWrite[];
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -68,27 +87,6 @@ export function ownedJobsOf(owners: readonly JobOwner[]): readonly OwnedJob[] {
   );
 }
 
-/**
- * Rewrite one job wherever it lives in the household — the owner-aware counterpart to
- * `plan.jobs.map(...)`. `revise` gets the whole existing {@link Job}, so overrides, pay
- * changes and every other field survive by default.
- */
-export function reviseJob(
-  owners: readonly JobOwner[],
-  jobId: string,
-  revise: (job: Job) => Job,
-): JobEditResult {
-  const found = ownedJobsOf(owners).find((o) => o.job.id === jobId);
-  if (found === undefined) return { ok: false, reason: `no job "${jobId}" in this household` };
-  const revised = revise(found.job);
-  return {
-    ok: true,
-    job: revised,
-    writes: [
-      { owner: found.owner, revise: (jobs) => jobs.map((j) => (j.id === jobId ? revised : j)) },
-    ],
-  };
-}
 
 /**
  * Apply `draft` to the job `jobId` currently held by `sourceOwnerId`.
@@ -124,23 +122,26 @@ export function editJob(
     return {
       ok: true,
       job: edited,
-      writes: [{ owner: source, revise: (jobs) => jobs.map((j) => (j.id === jobId ? edited : j)) }],
+      writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
     };
   }
 
-  // Ids are minted per owner (`job-N` / `p-1-job-N`), so a moved job should not collide —
-  // but it keeps its id across the move, and two jobs sharing an id would make the income
-  // bands ambiguous.
+  // Asked before acting, so the refusal can name the member. The facade refuses the same
+  // duplicate outright (one counter issues every job id across both planes, and it checks);
+  // this is that rule read ahead of time, because two jobs sharing an id would make the
+  // income bands ambiguous and the panel would rather say whose job is in the way.
   if (target.jobs.some((j) => j.id === edited.id)) {
     return { ok: false, reason: `${target.name} already holds a job "${edited.id}"` };
   }
 
+  // The job keeps its id across the move (`jobInputOf` carries it), so the target's plane
+  // re-lands the same job rather than minting a second one.
   return {
     ok: true,
     job: edited,
     writes: [
-      { owner: target, revise: (jobs) => [...jobs, edited] },
-      { owner: source, revise: (jobs) => jobs.filter((j) => j.id !== jobId) },
+      { kind: "add", owner: target, job: jobInputOf(edited) },
+      { kind: "remove", owner: source, jobId },
     ],
   };
 }

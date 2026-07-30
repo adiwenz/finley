@@ -1,7 +1,7 @@
 /** A partner leaves the household — a SeparationEvent. */
 
 import { useState } from "react";
-import { dollarsToCents, membersAt, type Household } from "@finley/engine";
+import { dollarsToCents, type ProjectionResult } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { monthLabel } from "../../format";
 import { MonthSelect, type FormProps } from "./formControls";
@@ -16,12 +16,11 @@ interface SeparationDraft {
 }
 
 export function SeparationForm({
-  household,
+  result,
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
-}: FormProps & { household: Household }) {
+}: FormProps & { result: ProjectionResult }) {
   const [draft, setDraft] = useState<SeparationDraft>(() => ({
     month: defaultMonth,
     partnerId: "",
@@ -33,24 +32,24 @@ export function SeparationForm({
   // Only partners in the household by the chosen separation month — you can't separate
   // from someone you haven't partnered with yet. Derived during render so it tracks the
   // month picker without a reset effect, and the selection can't drift out of sync.
-  const eligible = membersAt(household, draft.month).filter((p) => p.id !== "p1");
+  const eligible = result.membersAt(draft.month).filter((p) => p.id !== "p1");
   const noPartners = eligible.length === 0;
   const selectedId = eligible.some((p) => p.id === draft.partnerId)
     ? draft.partnerId
     : eligible[0]?.id ?? "";
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "SeparationEvent",
-      month: draft.month,
-      partnerPersonId: selectedId,
-      alimonyMonthlyCents: dollarsToCents(draft.alimony),
-      // The years field appears only once there's an alimony amount to time, so a zero
-      // amount means no duration whatever stale years value sits behind it.
-      alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
-      childSupportMonthlyCents: 0,
-    });
+    onAdd((p) =>
+      p.separate({
+        month: draft.month,
+        partnerPersonId: selectedId,
+        alimonyMonthlyCents: dollarsToCents(draft.alimony),
+        // The years field appears only once there's an alimony amount to time, so a zero
+        // amount means no duration whatever stale years value sits behind it.
+        alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
+        // childSupport defaults to 0 in the facade — the no-support separation is the plain case.
+      }),
+    );
   }
 
   return (
