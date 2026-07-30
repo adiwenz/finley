@@ -4,7 +4,13 @@
  * `run(jurisdiction)` leaving the plan untouched. Barrel/purity is covered elsewhere.
  */
 import { describe, it, expect } from "vitest";
-import { Projection, type ProjectionState } from "./projectionRoot";
+import {
+  Projection,
+  type ProjectionState,
+  CURRENT_FORMAT_VERSION,
+  SUPPORTED_VERSION_RANGE,
+  UnsupportedVersionError,
+} from "./projectionRoot";
 import { samplePlan, salariedJob, spendLine, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
@@ -1493,6 +1499,75 @@ describe("Projection root — importing a pre-built ledger rejects one that will
   });
 });
 
+describe("Projection root — the serialized format declares its version", () => {
+  // A lone separation with no marriage to end — un-replayable, reused to prove the version gate
+  // fires before replay even reaches it.
+  const unreplayable: Ledger = {
+    events: [
+      {
+        id: "sep-1",
+        type: "SeparationEvent",
+        month: 24,
+        sequenceNumber: 1,
+        partnerPersonId: "nobody",
+        alimonyMonthlyCents: dollarsToCents(0),
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: dollarsToCents(0),
+      },
+    ],
+    nextSequenceNumber: 2,
+  };
+
+  it("stamps the current version on the serialized state", () => {
+    expect(freshProjection().toState().version).toBe(CURRENT_FORMAT_VERSION);
+  });
+
+  it("round-trips a current-version plan unchanged", () => {
+    const authored = freshProjection().toState();
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored)) as ProjectionState,
+      nullJurisdiction,
+    );
+    expect(reloaded.toState().version).toBe(CURRENT_FORMAT_VERSION);
+  });
+
+  it("rejects a non-current version with UnsupportedVersionError carrying file version and supported range", () => {
+    const state: ProjectionState = {
+      ...freshProjection().toState(),
+      version: CURRENT_FORMAT_VERSION + 1,
+    };
+    let thrown: unknown;
+    try {
+      Projection.fromState(state, nullJurisdiction);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnsupportedVersionError);
+    const error = thrown as UnsupportedVersionError;
+    expect(error.fileVersion).toBe(CURRENT_FORMAT_VERSION + 1);
+    expect(error.supported).toEqual(SUPPORTED_VERSION_RANGE);
+  });
+
+  it("rejects an unversioned plan as an unsupported version", () => {
+    const { version: _drop, ...unversioned } = freshProjection().toState();
+    expect(() =>
+      Projection.fromState(unversioned as ProjectionState, nullJurisdiction),
+    ).toThrow(UnsupportedVersionError);
+  });
+
+  it("reports a version mismatch before replay — a foreign shape is never replayed", () => {
+    // Both wrong: an unsupported version AND an un-replayable ledger. The version bucket wins,
+    // because replaying a shape this build cannot read is meaningless.
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      version: CURRENT_FORMAT_VERSION + 1,
+      scenario: withLedger(base.scenario, unreplayable),
+    };
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(UnsupportedVersionError);
+  });
+});
+
 describe("Projection root — the id counter starts clear of the plan it is given", () => {
   function planWith(overrides: Partial<typeof samplePlan>) {
     return { ...samplePlan, jobs: [], budgetLines: [], goals: [], ...overrides };
@@ -1815,6 +1890,7 @@ describe("Projection root — transact wraps one write over plain state", () => 
     const seeded: ProjectionState = {
       startYear: SAMPLE_START_YEAR,
       nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
       scenario: {
         plan: { ...samplePlan, jobs: [{ ...openEndedJob, id: "job-5", ownerId: P1 }], budgetLines: [], goals: [] },
         ledger: emptyLedger,
@@ -1856,6 +1932,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     const stale: ProjectionState = {
       startYear: SAMPLE_START_YEAR,
       nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
       scenario: {
         plan: {
           ...samplePlan,

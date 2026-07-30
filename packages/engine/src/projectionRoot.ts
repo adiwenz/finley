@@ -111,6 +111,65 @@ export interface ProjectionState {
   /** The frozen "now" — calendar year of month 0. An input, never a wall-clock read. */
   readonly startYear: number;
   readonly nextSeq: number;
+  /**
+   * The format version of the shape that wrote this state — self-describing, so a loader knows
+   * whether it can read it. {@link Projection.toState} stamps {@link CURRENT_FORMAT_VERSION};
+   * {@link Projection.fromState} rejects any other with {@link UnsupportedVersionError} before it
+   * touches replay, since a shape this build cannot read is not worth replaying.
+   */
+  readonly version: number;
+}
+
+/**
+ * The format version this build writes and the sole one it reads. Bump when the serialized shape
+ * changes incompatibly; when that first happens, {@link SUPPORTED_VERSION_RANGE} widens and a
+ * migration transforms an older supported version up to current.
+ */
+export const CURRENT_FORMAT_VERSION = 1;
+
+/**
+ * The versions {@link Projection.fromState} accepts. Seam-only until v2: exactly the current
+ * version, because no migration transforms exist yet — a non-current file is rejected, not
+ * transformed. Carried on {@link UnsupportedVersionError} so the app can tell the user which
+ * versions this build reads.
+ */
+export const SUPPORTED_VERSION_RANGE = {
+  min: CURRENT_FORMAT_VERSION,
+  max: CURRENT_FORMAT_VERSION,
+} as const;
+
+/**
+ * The version-rejection bucket, distinct from the generic invalid-plan `Error` a shape/replay
+ * failure throws: it names a file the app cannot open because it is the wrong *version*, so the
+ * UX is "update to open this" rather than "can't open". Carries the file's declared version
+ * (`undefined` when the plan predates versioning) and the range this build supports.
+ */
+export class UnsupportedVersionError extends Error {
+  constructor(
+    readonly fileVersion: number | undefined,
+    readonly supported: { readonly min: number; readonly max: number },
+  ) {
+    super(
+      `Projection: cannot load — plan format version ${fileVersion ?? "unknown"} is unsupported; ` +
+        `this build reads ${supported.min}–${supported.max}`,
+    );
+    this.name = "UnsupportedVersionError";
+  }
+}
+
+/**
+ * Reject any version outside {@link SUPPORTED_VERSION_RANGE}, including an unversioned plan. Runs
+ * before replay on every {@link Projection.fromState}: replaying a shape this build cannot read
+ * would fail with a meaningless per-event conflict instead of the true cause.
+ */
+function assertSupportedVersion(version: number | undefined): void {
+  if (
+    version === undefined ||
+    version < SUPPORTED_VERSION_RANGE.min ||
+    version > SUPPORTED_VERSION_RANGE.max
+  ) {
+    throw new UnsupportedVersionError(version, SUPPORTED_VERSION_RANGE);
+  }
 }
 
 export type JobInput = Omit<Job, "id" | "ownerId"> & { readonly id?: string };
@@ -574,7 +633,7 @@ export class Projection {
    */
   static fromScenario(scenario: Scenario, startYear: number, jurisdiction: Jurisdiction): Projection {
     const projection = new Projection(
-      withNormalizedCounters({ scenario, startYear, nextSeq: 1 }),
+      withNormalizedCounters({ scenario, startYear, nextSeq: 1, version: CURRENT_FORMAT_VERSION }),
       jurisdiction,
     );
     projection.assertReplayable(projection.ledger);
@@ -1601,6 +1660,9 @@ export class Projection {
    * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
   static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
+    // Version before replay: a foreign shape must be refused as unsupported, not dragged through
+    // a replay that would blame some arbitrary event for a mismatch the whole file carries.
+    assertSupportedVersion(state.version);
     const projection = new Projection(withNormalizedCounters(state), jurisdiction);
     projection.assertReplayable(projection.ledger);
     return projection;
