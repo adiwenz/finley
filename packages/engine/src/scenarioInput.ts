@@ -14,6 +14,14 @@
  * build-time-only, author-chosen name: entries that CREATE something may declare one, entries
  * that POINT at something use it (`ownerRef`, `liabilityRef`, `accountRef`, …), never an id. It
  * never lands in `Plan` or `Ledger`, so it cannot collide with an id or outlive the build.
+ *
+ * An entry that creates something may ALSO carry an `id`, a separate and rarer escape hatch:
+ * unlike a `ref`, a pinned `id` overrides what the engine would mint and DOES land in `Plan` or
+ * `Ledger`. It exists for fixtures — presets, seed data — that must keep a stable id across
+ * edits: a budget line whose label-key the whole app charts on, a liability whose id names a
+ * chart series. Prefer omitting it and letting the counter mint; reach for it only where a test
+ * or a stable key depends on the exact value. A pinned id of minted shape (`job-3`) would still
+ * advance the floor, so a fixture pins a NON-minted-shaped name (`loan-student`, `housing`).
  */
 
 import type { Plan, GoalPlan } from "./plan";
@@ -73,12 +81,17 @@ export interface GoalEntry extends Omit<GoalPlan, "id"> {
  */
 export interface BudgetLineEntry extends Omit<BudgetLine, "id" | "target"> {
   readonly ref?: Ref;
+  /** Pins the minted id — see the module doc; a preset keeps its stable label-key this way. */
+  readonly id?: string;
   readonly target: BudgetTargetInput;
 }
 
-/** Fields every {@link EventEntry} shares: its build-time `ref` and the month it applies at. */
+/** Fields every {@link EventEntry} shares: its build-time `ref`, an optional pinned `id`, and
+ * the month it applies at. `id` pins what the entry mints — see the module doc; a preset's
+ * `takeLoan` keeps its liability id stable this way, while omitting it lets the counter mint. */
 interface EventEntryCommon {
   readonly ref?: Ref;
+  readonly id?: string;
   readonly month: number;
 }
 

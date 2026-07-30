@@ -22,7 +22,7 @@ const DEFAULT_WORK_START_AGE = 18;
  * deferral rides on it when the user sets one. `ownerRef` is omitted, so the job binds to the
  * primary person.
  */
-const DEFAULT_INPUT: ScenarioInput = {
+export const DEFAULT_INPUT: ScenarioInput = {
   name: "Alex",
   startYear: START_YEAR,
   jobs: [

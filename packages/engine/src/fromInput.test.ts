@@ -142,6 +142,31 @@ describe("Projection.fromInput", () => {
     expect(result.error.reason).toContain("already separated");
   });
 
+  it("pins an entry's minted id when it carries an `id`, minting the rest", () => {
+    // The `id` override is the deliberate exception for fixtures that must stay stable across
+    // edits: unlike a `ref` (build-time only), a pinned `id` lands in Plan and Ledger. A budget
+    // line keeps its authored label-key; a loan's liability id survives so a chart series keyed
+    // on it does not drift. The job, carrying no `id`, still mints.
+    const p = built({
+      ...base,
+      jobs: [
+        { startYear: 2026, endYear: null, salary: { startingSalaryCents: 6_000_000, realGrowthPct: 0 } },
+      ],
+      budgetLines: [
+        { id: "housing", label: "Housing", category: "needs", target: { kind: "expense" },
+          amountSource: { kind: "literal", monthlyCents: 150_000 } },
+      ],
+      events: [
+        { type: "takeLoan", id: "loan-student", month: 0, ownerRef: PRIMARY_PERSON_ID,
+          openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
+      ],
+    });
+    expect(p.plan.budgetLines[0]!.id).toBe("housing");
+    expect(p.plan.jobs[0]!.id).toMatch(/^job-\d+$/);
+    const loan = p.ledger.events.find((e) => e.type === "LoanEvent");
+    expect(loan?.type === "LoanEvent" && loan.liabilityId).toBe("loan-student");
+  });
+
   it("passes a bad ref graph straight through as a refusal", () => {
     const result = Projection.fromInput(
       {

@@ -1678,6 +1678,7 @@ export class Projection {
                 month: entry.month,
                 name: entry.name,
                 birthYear: entry.birthYear,
+                ...(entry.id !== undefined ? { id: entry.id } : {}),
                 ...(entry.retirementTargetAge !== undefined ? { retirementTargetAge: entry.retirementTargetAge } : {}),
                 ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
                 ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
@@ -1692,6 +1693,7 @@ export class Projection {
                 name: entry.name,
                 annualCostCents: entry.annualCostCents,
                 ...(entry.birthMonth !== undefined ? { birthMonth: entry.birthMonth } : {}),
+                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1701,6 +1703,7 @@ export class Projection {
               ownerId: idFor(entry.ownerRef),
               openingBalanceCents: entry.openingBalanceCents,
               apr: entry.apr,
+              ...(entry.id !== undefined ? { id: entry.id } : {}),
             };
             bind(
               entry.ref,
@@ -1724,6 +1727,7 @@ export class Projection {
                 mortgageApr: entry.mortgageApr,
                 mortgageTermMonths: entry.mortgageTermMonths,
                 ...(entry.appreciationMode !== undefined ? { appreciationMode: entry.appreciationMode } : {}),
+                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1736,6 +1740,7 @@ export class Projection {
                 ...(entry.alimonyMonthlyCents !== undefined ? { alimonyMonthlyCents: entry.alimonyMonthlyCents } : {}),
                 ...(entry.alimonyDurationMonths !== undefined ? { alimonyDurationMonths: entry.alimonyDurationMonths } : {}),
                 ...(entry.childSupportMonthlyCents !== undefined ? { childSupportMonthlyCents: entry.childSupportMonthlyCents } : {}),
+                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1747,6 +1752,7 @@ export class Projection {
                 liabilityId: idFor(entry.liabilityRef),
                 accountId: idFor(entry.accountRef),
                 amountCents: entry.amountCents,
+                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;

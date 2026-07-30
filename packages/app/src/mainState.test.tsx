@@ -8,7 +8,7 @@ import { render, screen, fireEvent, act, cleanup, within } from "@testing-librar
 import { App } from "./main";
 import * as engine from "@finley/engine";
 import { dollarsToCents } from "@finley/engine";
-import { presetById } from "./presets";
+import { presetById, presetState } from "./presets";
 
 beforeAll(() => {
   // Recharts' ResponsiveContainer measures via ResizeObserver, absent in jsdom.
@@ -213,7 +213,7 @@ describe("App — starter simulations", () => {
     // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment (~$500/mo on
     // $45k at 6% over 10 years): the Base panel charts the whole scenario, not the bare
     // plan.
-    const riley = presetById("student-loan").plan;
+    const riley = presetState(presetById("student-loan")).scenario.plan;
     const rileyBudget = riley.budgetLines.reduce(
       (sum, l) =>
         sum + (l.target.kind === "expense" && l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
