@@ -125,6 +125,26 @@ export type {
   ResolvedExpenseRow,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
+// The declarative, id-free authoring entry point: a `ScenarioInput` describes a whole scenario
+// with author-chosen `Ref`s in every pointer position, and `Projection.fromInput` mints the ids.
+export type {
+  Ref,
+  BudgetTargetInput,
+  JobEntry,
+  GoalEntry,
+  BudgetLineEntry,
+  MarryEntry,
+  HaveChildEntry,
+  TakeLoanEntry,
+  BuyHomeEntry,
+  SeparateEntry,
+  PayOffDebtEntry,
+  EventEntry,
+  ScenarioInput,
+  FromInputResult,
+  ScenarioInputError,
+} from "./scenarioInput";
+export { eventEntryType } from "./scenarioInput";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
 // from a projection.
 export * from "./scenario";
