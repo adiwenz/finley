@@ -51,7 +51,6 @@ function render(budget: Plan, month = 0) {
   return renderToStaticMarkup(
     <HomePurchaseForm
       defaultMonth={month}
-      nextId={0}
       horizonMonths={660}
       onAdd={noop}
       household={household}

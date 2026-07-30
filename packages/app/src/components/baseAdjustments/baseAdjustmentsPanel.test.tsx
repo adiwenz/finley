@@ -22,7 +22,7 @@ import {
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import type { EventRevision } from "../../hooks/useLedger";
+import type { EventRevision } from "../../hooks/useProjection";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
@@ -62,7 +62,7 @@ function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Pl
       e.type === "RelationshipEvent" ? ([[e.person.id, e.person.name]] as [string, string][]) : [],
     ),
   ]);
-  // Stands in for `useLedger.reviseEvents`: all-or-nothing, and it answers synchronously.
+  // Stands in for `useProjection.reviseEvents`: all-or-nothing, and it answers synchronously.
   const ledgerRef = useRef(ledger);
   ledgerRef.current = ledger;
   const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
@@ -86,6 +86,13 @@ function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Pl
         household={household}
         ledger={ledger}
         onReviseEvents={onReviseEvents}
+        onAddLine={(line) => {
+          // Mirrors the app: a new line is minted through the facade, then committed to plan
+          // state — the one line write that creates rather than reshapes.
+          const p = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction);
+          p.addBudgetLine(line);
+          setPlan(p.state.scenario.plan);
+        }}
       />
       <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -874,6 +881,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
         household={interpretLedger(emptyLedger, base)}
         ledger={emptyLedger}
         onReviseEvents={() => true}
+        onAddLine={() => {}}
       />,
     );
 

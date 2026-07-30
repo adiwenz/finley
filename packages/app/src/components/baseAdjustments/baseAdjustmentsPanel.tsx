@@ -19,6 +19,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
   type BudgetLine,
+  type BudgetLineInput,
   type Household,
   type Job,
   type Ledger,
@@ -32,7 +33,7 @@ import { redistributeToTiers } from "./budgetTemplate";
 import { BudgetLineForm } from "./budgetLineForm";
 import { PayChangeEditor } from "./payChangeEditor";
 import {
-  addLineFromDraft,
+  budgetLineInputFromDraft,
   blankLineDraft,
   contributionLinesOf,
   expenseLinesOf,
@@ -44,7 +45,7 @@ import { withIncomeOverride, withPayChange } from "../../planPeople";
 import { jobOwnersOf } from "../../jobOwners";
 import { ownedJobsOf, reviseJob } from "../../jobEditing";
 import { commitJobWrites } from "../../jobWrites";
-import type { EventRevision } from "../../hooks/useLedger";
+import type { EventRevision } from "../../hooks/useProjection";
 import {
   applyLineOverride,
   resolveRowsAtMonth,
@@ -91,6 +92,12 @@ export interface BaseAdjustmentsPanelProps {
   readonly ledger: Ledger;
   /** Revise ledger events in one all-or-nothing write. */
   readonly onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
+  /**
+   * Author a new budget line through the facade, which mints its `line-N` id — the one line
+   * write that creates rather than reshapes, so it does not go through {@link setBudget} like
+   * edit, delete and the month override do.
+   */
+  readonly onAddLine: (line: BudgetLineInput) => void;
 }
 
 export function BaseAdjustmentsPanel({
@@ -101,6 +108,7 @@ export function BaseAdjustmentsPanel({
   household,
   ledger,
   onReviseEvents,
+  onAddLine,
 }: BaseAdjustmentsPanelProps) {
   const lines = plan.budgetLines;
   // Rows are shown in the selected month's dollars — the same price growth the projection
@@ -151,7 +159,7 @@ export function BaseAdjustmentsPanel({
   const [lineAuthoring, setLineAuthoring] = useState<LineAuthoring | null>(null);
 
   function addLine(draft: BudgetLineDraft): void {
-    setLines((prev) => addLineFromDraft(prev, draft));
+    onAddLine(budgetLineInputFromDraft(draft));
     setLineAuthoring(null);
   }
   function editLine(id: string, draft: BudgetLineDraft): void {

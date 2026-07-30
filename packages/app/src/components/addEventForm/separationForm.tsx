@@ -18,7 +18,6 @@ interface SeparationDraft {
 export function SeparationForm({
   household,
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
 }: FormProps & { household: Household }) {
@@ -40,17 +39,17 @@ export function SeparationForm({
     : eligible[0]?.id ?? "";
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "SeparationEvent",
-      month: draft.month,
-      partnerPersonId: selectedId,
-      alimonyMonthlyCents: dollarsToCents(draft.alimony),
-      // The years field appears only once there's an alimony amount to time, so a zero
-      // amount means no duration whatever stale years value sits behind it.
-      alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
-      childSupportMonthlyCents: 0,
-    });
+    onAdd((p) =>
+      p.separate({
+        month: draft.month,
+        partnerPersonId: selectedId,
+        alimonyMonthlyCents: dollarsToCents(draft.alimony),
+        // The years field appears only once there's an alimony amount to time, so a zero
+        // amount means no duration whatever stale years value sits behind it.
+        alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
+        // childSupport defaults to 0 in the facade — the no-support separation is the plain case.
+      }),
+    );
   }
 
   return (

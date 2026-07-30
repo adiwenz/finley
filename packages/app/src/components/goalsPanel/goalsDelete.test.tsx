@@ -70,7 +70,13 @@ function renderPanel(ledger: Ledger, setBudget = vi.fn()) {
   const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
   const series = project(budget);
   const panel = (l: Ledger) => (
-    <GoalsPanel budget={budget} series={series} setBudget={setBudget} ledger={l} />
+    <GoalsPanel
+      budget={budget}
+      series={series}
+      setBudget={setBudget}
+      ledger={l}
+      onAddGoal={vi.fn()}
+    />
   );
   const { rerender } = render(panel(ledger));
   // The ledger is the only prop under test, so re-rendering means handing over a new one —

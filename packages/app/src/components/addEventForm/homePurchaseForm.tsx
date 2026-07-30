@@ -5,6 +5,7 @@ import {
   dollarsToCents,
   DTI_FRONT_END_THRESHOLD,
   DTI_BACK_END_THRESHOLD,
+  PRIMARY_PERSON_ID,
   type FundingLookup,
   type Household,
   type ProjectionSeries,
@@ -43,7 +44,6 @@ interface HomePurchaseDraft {
 
 export function HomePurchaseForm({
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
   household,
@@ -106,20 +106,19 @@ export function HomePurchaseForm({
   });
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "HomePurchaseEvent",
-      month: draft.month,
-      propertyId: `home-${nextId}`,
-      ownerId: "p1",
-      purchasePriceCents: dollarsToCents(draft.price),
-      downPaymentCents: dollarsToCents(draft.down),
-      // Chosen order = the drain order the simulator resolves the down payment against.
-      downPaymentSourceIds: sourceIds,
-      mortgageLiabilityId: `mortgage-${nextId}`,
-      mortgageApr: draft.apr / 100,
-      mortgageTermMonths: draft.termYears * 12,
-    });
+    // `buyHome` mints the property id and derives `<propertyId>-mortgage` from it.
+    onAdd((p) =>
+      p.buyHome({
+        month: draft.month,
+        ownerId: PRIMARY_PERSON_ID,
+        purchasePriceCents: dollarsToCents(draft.price),
+        downPaymentCents: dollarsToCents(draft.down),
+        // Chosen order = the drain order the simulator resolves the down payment against.
+        downPaymentSourceIds: sourceIds,
+        mortgageApr: draft.apr / 100,
+        mortgageTermMonths: draft.termYears * 12,
+      }),
+    );
   }
 
   return (

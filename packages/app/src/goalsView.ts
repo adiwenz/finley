@@ -137,23 +137,6 @@ export function goalDisposal(
 }
 
 /**
- * Deterministic (same list → same id), so the transforms that mint it stay pure. Ids only
- * drive each goal's derived `goal-<id>` fund account, so they need not be meaningful.
- */
-export function freshGoalId(goals: readonly GoalPlan[]): string {
-  const used = new Set(goals.map((g) => g.id));
-  let n = 1;
-  while (used.has(`goal${n}`)) n++;
-  return `goal${n}`;
-}
-
-/** Append a goal at lowest priority — priority is array index. A direct value-plane
- * override, no timeline event. */
-export function addGoal(goals: readonly GoalPlan[], draft: GoalDraft): GoalPlan[] {
-  return [...goals, { id: freshGoalId(goals), ...draft }];
-}
-
-/**
  * Replace one goal's authorable fields from a form draft, keeping its id and list position
  * so priority is unchanged. A draft is a WHOLE goal minus its id, so this is a replace, not
  * the engine's field-wise patch.

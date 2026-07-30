@@ -18,7 +18,6 @@ import {
   goalRows,
   reorderGoal,
   setGoalRate,
-  addGoal,
   updateGoal,
   removeGoal,
   goalFundingBlocks,
@@ -38,6 +37,12 @@ interface GoalsPanelProps {
    * named as an event's funding source, and dropping the goal would strand that reference.
    */
   ledger: Ledger;
+  /**
+   * Author a new goal through the facade, which mints its `goal-N` id — the one goal write
+   * that creates rather than reshapes, so it does not go through {@link setBudget} like edit,
+   * reorder and remove do.
+   */
+  onAddGoal: (draft: GoalDraft) => void;
 }
 
 /** Which authoring form, if any, is disclosed: a goal id (edit), "new" (add), or none. */
@@ -57,7 +62,7 @@ interface RefusedDelete {
   readonly blockerEventIds: readonly string[];
 }
 
-export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProps) {
+export function GoalsPanel({ budget, series, setBudget, ledger, onAddGoal }: GoalsPanelProps) {
   const rows = goalRows(budget, series);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   const [refused, setRefused] = useState<RefusedDelete | null>(null);
@@ -85,7 +90,7 @@ export function GoalsPanel({ budget, series, setBudget, ledger }: GoalsPanelProp
   }
 
   function add(draft: GoalDraft) {
-    setBudget((current) => ({ ...current, goals: addGoal(current.goals, draft) }));
+    onAddGoal(draft);
     setAuthoring(null);
   }
 

@@ -1,24 +1,17 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  interpretLedger,
-  buildHouseholdSimInput,
-  simulateHousehold,
-  summarizeSimulation,
-  createProjectionBase,
-  firstInsolventMonth,
+  Projection,
   planAccountDescriptors,
   liabilityKindLabel,
   SYNTHETIC_CARD_ID,
-  fundingLookup,
-  type ProjectionContext,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers } from "./ledgerView";
-import { planHorizonMonths, START_YEAR } from "./config";
+import { planHorizonMonths } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { Timeline } from "./components/timeline/timeline";
@@ -30,66 +23,42 @@ import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
 import { JobsPanel } from "./components/jobsPanel/jobsPanel";
 import { retirementView } from "./retirementView";
-import { useLedger } from "./hooks/useLedger";
-import type { Plan } from "@finley/engine";
-import { PLAN_DEFAULTS, DEFAULT_SCRUB_MONTH } from "./planDefaults";
-import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
+import { useProjection } from "./hooks/useProjection";
+import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
+import { PRESETS, presetById, presetState, type Preset } from "./presets";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
 /**
- * The projection environment: the real US jurisdiction and the frozen "now"
- * (`START_YEAR`). Both are app constants, so a stable module-level object keeps
- * `createProjectionBase`'s memo keyed on `budget` alone.
+ * The state a fresh session opens on — the first preset's plan with no timeline. Built once
+ * at module load, so every render starts from the same immutable {@link ProjectionState}.
  */
-const PROJECTION_CTX: ProjectionContext = {
-  jurisdiction: usJurisdiction,
-  startYear: START_YEAR,
-};
+const INITIAL_STATE = presetState(PRESETS[0]);
 
 export function App() {
   const [presetId, setPresetId] = useState(PRESETS[0].id);
-  const [budget, setBudget] = useState<Plan>(PLAN_DEFAULTS);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
+  const { state, conflict, setBudget, transact, reviseEvents, removeEvent, loadState } =
+    useProjection(INITIAL_STATE);
+  const budget = state.scenario.plan;
+  const ledger = state.scenario.ledger;
 
-  const base = useMemo(() => createProjectionBase(budget, PROJECTION_CTX), [budget]);
-  const { ledger, conflict, recordEvent, reviseEvents, removeEvent, resetLedger } = useLedger(base);
-
-  // Load a starter simulation wholesale: plan AND seed timeline together. The ledger is
-  // built against the *incoming* plan's base — computed here, since the memoized one still
-  // reflects the old plan this render — so a preset's events replay against the numbers
-  // they were authored for. The scrub cursor snaps back to "now".
+  // Load a starter simulation wholesale: plan AND seed timeline together, floored on the way
+  // in by the facade. The scrub cursor snaps back to "now".
   function loadPreset(preset: Preset) {
-    const nextBase = createProjectionBase(preset.plan, PROJECTION_CTX);
     setPresetId(preset.id);
-    setBudget(preset.plan);
-    resetLedger(buildPresetLedger(nextBase, preset.events));
+    loadState(presetState(preset));
     setScrubMonth(DEFAULT_SCRUB_MONTH);
   }
 
-  // One replay-derived household feeds both the projection and the snapshot, so the two
-  // can never disagree about the ledger's meaning.
-  const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // Resolve the simulator input once: sharing it lets the debug report reuse the very
-  // series the chart draws, with no second run.
-  const simInput = useMemo(() => buildHouseholdSimInput(household, base), [household, base]);
-  const series = useMemo(
-    () => simulateHousehold(simInput, usJurisdiction),
-    [simInput],
-  );
-  // Echo the whole authored config into the report's meta, so knobs the engine input
-  // compiles away — life expectancy, retirement age, health lines — survive into the
-  // debug output and download.
-  const report = useMemo(
-    () =>
-      summarizeSimulation(
-        simInput,
-        series,
-        { plan: budget, jurisdictionId: usJurisdiction.id },
-        usJurisdiction,
-      ),
-    [simInput, series, budget],
-  );
+  // One handle over the current state answers every read: the graph, snapshot roster, and debug
+  // report come off a single `run`, and the funding picker off the same handle's `funding` — so
+  // the picker shows the numbers the §4.5 gate will decide on. Keyed on `state`, so scrubbing
+  // (which touches no state) recomputes nothing.
+  const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
+  const result = useMemo(() => projection.run(usJurisdiction), [projection]);
+  const funding = useMemo(() => projection.funding(), [projection]);
+  const { series, household, report } = result;
 
   // Who's in the household, by id — so a chart can name whose income a band is when the
   // label alone can't (two members' government benefits).
@@ -97,14 +66,8 @@ export function App() {
     () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
     [household],
   );
-  // What the authoring forms ask about money-out events: which accounts could pay at a
-  // month, and what a chosen set nets after capital-gains tax. Built from the SAME
-  // ledger+base+jurisdiction `recordEvent` validates against, so the down-payment picker
-  // shows the numbers the §4.5 gate will decide on. Memoized: projects the ledger once,
-  // then answers both questions cheaply.
-  const funding = useMemo(() => fundingLookup(ledger, base, usJurisdiction), [ledger, base]);
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
-  const insolventMonth = firstInsolventMonth(series);
+  const insolventMonth = result.firstInsolventMonth;
   // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
   // live ledger — so "when can we retire?" reflects every event the user added (a child, a
   // new expense, a separation), not the bare plan.
@@ -215,9 +178,8 @@ export function App() {
               series={series}
               funding={funding}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
-              nextId={ledger.nextSequenceNumber}
               horizonMonths={horizonMonths}
-              onAdd={recordEvent}
+              onAdd={transact}
             />
           </div>
 
@@ -229,7 +191,13 @@ export function App() {
           </div>
 
           <div className="card">
-            <GoalsPanel budget={budget} series={series} setBudget={setBudget} ledger={ledger} />
+            <GoalsPanel
+              budget={budget}
+              series={series}
+              setBudget={setBudget}
+              ledger={ledger}
+              onAddGoal={(draft) => transact((p) => p.addGoal(draft))}
+            />
           </div>
 
           <div className="card">
@@ -261,6 +229,7 @@ export function App() {
           household={household}
           ledger={ledger}
           onReviseEvents={reviseEvents}
+          onAddLine={(line) => transact((p) => p.addBudgetLine(line))}
         />
       </div>
 

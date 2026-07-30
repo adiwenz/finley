@@ -9,6 +9,9 @@ import {
   dollarsToCents,
   emptyLedger,
   addEvent,
+  scenarioOf,
+  withLedger,
+  Projection,
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
   type Plan,
@@ -16,7 +19,9 @@ import {
   type BudgetLine,
   type Ledger,
   type LedgerBaseConfig,
+  type LifeEvent,
   type NewLifeEvent,
+  type ProjectionState,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
@@ -223,6 +228,24 @@ export const PRESETS: readonly Preset[] = [
 
 export function presetById(id: string): Preset {
   return PRESETS.find((p) => p.id === id) ?? PRESETS[0];
+}
+
+/**
+ * The state to load for a preset — plan plus its seed timeline — as the app's single
+ * {@link ProjectionState}. The authored events are stamped in order into a ledger: identical
+ * to replaying each through {@link addEvent} for a valid preset (both assign
+ * `sequenceNumber = nextSequenceNumber` and step it), and every preset is validated against the
+ * live engine in `presets.test.ts`, so no affordability replay is owed here. `fromScenario`
+ * floors both counters past the preset's literal ids, so the first authored write mints clear
+ * of them.
+ */
+export function presetState(preset: Preset): ProjectionState {
+  const events = preset.events.map((event, i) => ({ ...event, sequenceNumber: i }) as LifeEvent);
+  const scenario = withLedger(scenarioOf(preset.plan), {
+    events,
+    nextSequenceNumber: preset.events.length,
+  });
+  return Projection.fromScenario(scenario, START_YEAR, usJurisdiction).toState();
 }
 
 /**

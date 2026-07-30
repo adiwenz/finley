@@ -216,6 +216,35 @@ describe("Projection root — one root for standing + ledger writes", () => {
     expect(auto).not.toHaveProperty("creditLimitCents");
   });
 
+  it("derives the mortgage liability id parent-suffixed from the property id", () => {
+    // Parent-suffixed `${propertyId}-mortgage`, so sorting groups the mortgage under its home
+    // (matching the `${partnerId}-job-N` convention), not `mortgage-${propertyId}`.
+    const p = freshProjection();
+    const homeId = p.buyHome({
+      month: 0,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(100000),
+      downPaymentCents: dollarsToCents(10000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6,
+      mortgageTermMonths: 360,
+    });
+    expect(homeId).toBe("home-1");
+    const event = p.state.scenario.ledger.events[0];
+    expect(event.type).toBe("HomePurchaseEvent");
+    if (event.type === "HomePurchaseEvent") {
+      expect(event.mortgageLiabilityId).toBe("home-1-mortgage");
+    }
+  });
+
+  it("answers the funding question from the current ledger's liquid balances", () => {
+    // `funding()` reuses the handle's own base and validation jurisdiction, so a down-payment
+    // picker and the §4.5 gate decide on the same numbers.
+    const p = freshProjection();
+    const savings = p.funding().sourcesAt(0).find((s) => s.id === "savings");
+    expect(savings?.balanceCents).toBe(samplePlan.openingBalanceCents);
+  });
+
   it("a refused ledger transaction leaves the state and the id counter untouched", () => {
     const p = freshProjection();
     const before = p.state;

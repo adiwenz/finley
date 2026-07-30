@@ -29,7 +29,7 @@ import {
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
 import { editJob, ownedJobsOf, reviseJob, type JobListWrite } from "../../jobEditing";
 import { commitJobWrites } from "../../jobWrites";
-import type { EventRevision } from "../../hooks/useLedger";
+import type { EventRevision } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";

@@ -17,6 +17,7 @@ import {
   withoutPayChange,
   type Job,
   type JobIncomeOverride,
+  type JobInput,
   type JobPayChange,
   type PersonId,
   type Plan,
@@ -210,6 +211,16 @@ export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft
   return draft.deferralPct > 0
     ? { ...base, deferral: { deferralFraction: draft.deferralPct / 100, fundAccountId: RETIREMENT_ID } }
     : base;
+}
+
+/**
+ * A draft as a {@link JobInput} for `Projection.marry`, which mints the job's id and stamps its
+ * owner to the person it creates — so neither is supplied here. `birthYear` is the partner's,
+ * resolving the draft's ages against their own clock.
+ */
+export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
+  const { id: _id, ownerId: _ownerId, ...rest } = buildJobFromDraft("", birthYear, draft);
+  return rest;
 }
 
 // Authoring against a bare job list. Jobs are a list wherever they live — the primary's

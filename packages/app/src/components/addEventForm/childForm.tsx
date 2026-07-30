@@ -15,7 +15,7 @@ interface ChildDraft {
   readonly annualCost: number;
 }
 
-export function ChildForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
+export function ChildForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
   const [draft, setDraft] = useState<ChildDraft>(() => ({
     month: defaultMonth,
     name: "",
@@ -24,15 +24,15 @@ export function ChildForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormPr
   const patch = (fields: Partial<ChildDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "ChildEvent",
-      month: draft.month,
-      childId: `child-${nextId}`,
-      childName: draft.name || "Child",
-      birthMonth: draft.month,
-      annualCostCents: dollarsToCents(draft.annualCost),
-    });
+    // `birthMonth` defaults to `month` in the facade, so recording a birth as it happens needs
+    // only the month; the child id (and its 18-year cost stream) is minted by `haveChild`.
+    onAdd((p) =>
+      p.haveChild({
+        month: draft.month,
+        name: draft.name || "Child",
+        annualCostCents: dollarsToCents(draft.annualCost),
+      }),
+    );
   }
 
   return (

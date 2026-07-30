@@ -1,7 +1,7 @@
 /** A new liability is taken on — a LoanEvent. */
 
 import { useRef, useState } from "react";
-import { dollarsToCents, type LiabilityKind } from "@finley/engine";
+import { dollarsToCents, PRIMARY_PERSON_ID, type LiabilityKind } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, type FormProps } from "./formControls";
 
@@ -17,7 +17,7 @@ type LoanDraft =
   | (LoanCommon & { readonly kind: "creditCard" })
   | (LoanCommon & { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly termYears: number });
 
-export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
+export function LoanForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
   const [draft, setDraft] = useState<LoanDraft>(() => ({
     month: defaultMonth,
     kind: "auto",
@@ -53,18 +53,17 @@ export function LoanForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormPro
 
   function submit() {
     const common = {
-      id: `e${nextId}`,
-      type: "LoanEvent",
       month: draft.month,
-      liabilityId: `loan-${nextId}`,
-      ownerId: "p1",
+      ownerId: PRIMARY_PERSON_ID,
       openingBalanceCents: dollarsToCents(draft.amount),
       apr: draft.apr / 100,
     } as const;
-    onAdd(
-      draft.kind === "creditCard"
-        ? { ...common, kind: draft.kind, creditLimitCents: dollarsToCents(draft.amount * 2) }
-        : { ...common, kind: draft.kind, termMonths: draft.termYears * 12 },
+    onAdd((p) =>
+      p.takeLoan(
+        draft.kind === "creditCard"
+          ? { ...common, kind: draft.kind, creditLimitCents: dollarsToCents(draft.amount * 2) }
+          : { ...common, kind: draft.kind, termMonths: draft.termYears * 12 },
+      ),
     );
   }
 

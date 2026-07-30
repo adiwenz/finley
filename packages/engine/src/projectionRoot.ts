@@ -58,7 +58,8 @@ import type { Person } from "./person";
 import type { ProjectionSeries } from "./projection/simulate";
 import type { LiabilityKind } from "./liability";
 import type { GrowthMode } from "./cashFlowSeries";
-import { addEvent } from "./ledger/addEvent";
+import { addEvent, fundingLookup } from "./ledger/addEvent";
+import type { FundingLookup } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
 import { validateGoalRemoval } from "./goalFunding";
@@ -821,8 +822,9 @@ export class Projection {
   }
 
   /**
-   * The mortgage liability id derives from the minted property id
-   * (`mortgage-<propertyId>`). Subject to the down-payment hard block.
+   * The mortgage liability id derives from the minted property id, parent-suffixed
+   * (`<propertyId>-mortgage`) so a sort groups it under its home. Subject to the down-payment
+   * hard block.
    */
   buyHome(input: BuyHomeInput): string {
     const { id, nextSeq } = mint(this.state, "home", input.id);
@@ -836,7 +838,7 @@ export class Projection {
         purchasePriceCents: input.purchasePriceCents,
         downPaymentCents: input.downPaymentCents,
         downPaymentSourceIds: input.downPaymentSourceIds,
-        mortgageLiabilityId: `mortgage-${id}`,
+        mortgageLiabilityId: `${id}-mortgage`,
         mortgageApr: input.mortgageApr,
         mortgageTermMonths: input.mortgageTermMonths,
         ...(input.appreciationMode !== undefined
@@ -942,6 +944,17 @@ export class Projection {
       household,
       report,
     });
+  }
+
+  /**
+   * The funding question against the ledger so far — which liquid accounts could pay a
+   * money-out event at a month, and what a chosen set nets after tax. Built from the SAME
+   * {@link baseConfig} and {@link validationJurisdiction} the affordability gate decides on,
+   * so an authoring picker and the §4.5 down-payment gate can never tell the user different
+   * stories. Read-only, like {@link run}.
+   */
+  funding(): FundingLookup {
+    return fundingLookup(this.state.scenario.ledger, this.baseConfig(), this.validationJurisdiction);
   }
 
   // State round-trip

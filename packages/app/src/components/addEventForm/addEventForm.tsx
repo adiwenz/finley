@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type {
   LifeEvent,
-  NewLifeEvent,
+  Projection,
   FundingLookup,
   Household,
   ProjectionSeries,
@@ -42,7 +42,6 @@ export function AddEventForm({
   series,
   funding,
   defaultMonth,
-  nextId,
   horizonMonths,
   onAdd,
 }: {
@@ -56,13 +55,12 @@ export function AddEventForm({
    */
   funding: FundingLookup;
   defaultMonth: number;
-  nextId: number;
   horizonMonths: number;
-  onAdd: (event: NewLifeEvent) => void;
+  onAdd: (write: (projection: Projection) => void) => void;
 }) {
   const [kind, setKind] = useState<EventKind>("LoanEvent");
 
-  const formProps = { defaultMonth, nextId, horizonMonths, onAdd };
+  const formProps = { defaultMonth, horizonMonths, onAdd };
 
   return (
     <div className={styles.authoring}>

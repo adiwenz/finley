@@ -2,13 +2,20 @@
 
 import { useState } from "react";
 import { MonthSelect, type FormProps } from "./formControls";
-import { blankJobDraftFor, buildJobFromDraft, yearOfMonth, type JobDraft } from "../../planPeople";
+import { blankJobDraftFor, jobInputFromDraft, yearOfMonth, type JobDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
 
 /** A generic-adult starting point, until the user says otherwise. */
 const PARTNER_DEFAULT_AGE = 40;
+
+/**
+ * A placeholder owner for the partner's job drafts. The real owner is the person
+ * `Projection.marry` mints, so this is never persisted — {@link jobInputFromDraft} drops it —
+ * it only scopes the draft's ages while authoring.
+ */
+const PARTNER_DRAFT_OWNER = "partner";
 
 /** The form's live state — one draft, not a hook per field. */
 interface RelationshipDraft {
@@ -28,7 +35,7 @@ interface RelationshipDraft {
   readonly jobs: readonly JobDraft[];
 }
 
-export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }: FormProps) {
+export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
   const [draft, setDraft] = useState<RelationshipDraft>(() => ({
     month: defaultMonth,
     name: "",
@@ -40,7 +47,6 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
   const [addingJob, setAddingJob] = useState(false);
   const patch = (fields: Partial<RelationshipDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
-  const partnerId = `p-${nextId}`;
   const joinYear = yearOfMonth(draft.month);
   /**
    * Their birth year — what the engine reasons in. Derived from the age at the join year,
@@ -60,23 +66,20 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
   }
 
   function submit() {
-    onAdd({
-      id: `e${nextId}`,
-      type: "RelationshipEvent",
-      month: draft.month,
-      // The partner's jobs, scoped to them as owner, drive their earned income, 401(k)
-      // deferral, and covered earnings just as the primary earner's do.
-      person: {
-        id: partnerId,
+    // `marry` mints the partner's person id and every job id, and stamps each job's owner to
+    // that person — so the form hands over jobs as inputs, scoped only by the partner's birth
+    // year, and invents no id of its own. Their jobs drive earned income, 401(k) deferral, and
+    // covered earnings just as the primary earner's do.
+    onAdd((p) =>
+      p.marry({
+        month: draft.month,
         name: draft.name || "Partner",
         birthYear: partnerBirthYear,
         retirementTargetAge: draft.retirementAge,
         benefitClaimingAge: draft.claimingAge,
-        jobs: draft.jobs.map((job, i) =>
-          buildJobFromDraft(`${partnerId}-job-${i + 1}`, partnerBirthYear, job),
-        ),
-      },
-    });
+        jobs: draft.jobs.map((job) => jobInputFromDraft(partnerBirthYear, job)),
+      }),
+    );
   }
 
   return (
@@ -135,7 +138,7 @@ export function RelationshipForm({ defaultMonth, nextId, horizonMonths, onAdd }:
             // Scoped to the partner: no owner picker (they are the only one here) and the
             // ages are theirs. Seeded at the join age, so a fresh job starts the year they
             // arrive.
-            initial={blankJobDraftFor(partnerId, draft.age)}
+            initial={blankJobDraftFor(PARTNER_DRAFT_OWNER, draft.age)}
             submitLabel="Add"
             onSubmit={addJob}
             onCancel={() => setAddingJob(false)}

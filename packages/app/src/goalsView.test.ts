@@ -13,10 +13,8 @@ import {
   goalRows,
   reorderGoal,
   dispositionLabel,
-  addGoal,
   updateGoal,
   removeGoal,
-  freshGoalId,
   goalDisposal,
   goalFundingBlocks,
   fundingBlockMessage,
@@ -195,54 +193,9 @@ describe("goalDisposal — disposition/date pairing", () => {
   });
 });
 
-describe("freshGoalId", () => {
-  it("returns an id not already used by any goal", () => {
-    const goals = [goalA, goalB];
-    const id = freshGoalId(goals);
-    expect(goals.some((g) => g.id === id)).toBe(false);
-  });
-
-  it("is deterministic for the same goal list", () => {
-    expect(freshGoalId([goalA])).toBe(freshGoalId([goalA]));
-  });
-
-  it("avoids colliding with an existing generated id", () => {
-    const first = freshGoalId([]);
-    const seeded: GoalPlan = { ...goalA, id: first };
-    expect(freshGoalId([seeded])).not.toBe(first);
-  });
-});
-
-describe("addGoal", () => {
-  it("appends a new goal at lowest priority with a fresh id, returning a new array", () => {
-    const goals = [goalA];
-    const next = addGoal(goals, {
-      name: "Goal C",
-      targetCents: dollarsToCents(1000),
-      disposition: "retain",
-      targetDate: 12,
-      annualReturnPct: 0,
-    });
-    expect(next).toHaveLength(2);
-    expect(next[1]).toMatchObject({ name: "Goal C", targetCents: dollarsToCents(1000) });
-    expect(goals.some((g) => g.id === next[1].id)).toBe(false); // fresh, unique id
-    expect(goals).toEqual([goalA]); // original untouched (immutability)
-  });
-
-  it("makes the new goal scorable — its derived fund account is projected", () => {
-    const budget = { ...baseBudget, goals: addGoal([goalA], {
-      name: "Goal C",
-      targetCents: dollarsToCents(6000),
-      disposition: "retain",
-      targetDate: 12,
-      annualReturnPct: 0,
-    }) };
-    const rows = goalRows(budget, project(budget));
-    // Lowest priority: it appears last and, starved behind Goal A, reads 0%.
-    expect(rows).toHaveLength(2);
-    expect(rows[1]).toMatchObject({ name: "Goal C", priority: 1 });
-  });
-});
+// Minting a goal id and appending it at lowest priority now lives on `Projection.addGoal`
+// (covered in the engine's `projectionRoot.test`); the Goals panel routes its add through the
+// facade, so what stays here is the plan-shape editing the panel still calls directly.
 
 describe("updateGoal", () => {
   it("edits an existing goal's fields, keeping its id and list position", () => {

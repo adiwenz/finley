@@ -23,7 +23,7 @@ import {
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import type { EventRevision } from "../../hooks/useLedger";
+import type { EventRevision } from "../../hooks/useProjection";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";

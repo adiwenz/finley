@@ -1,15 +1,18 @@
 /** Shared controls and props for the per-event authoring forms. */
 
-import type { NewLifeEvent } from "@finley/engine";
+import type { Projection } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
 export interface FormProps {
   defaultMonth: number;
-  nextId: number;
   /** The plan's horizon in months (to life expectancy) — bounds the year picker. */
   horizonMonths: number;
-  onAdd: (event: NewLifeEvent) => void;
+  /**
+   * Run one transaction against a momentary {@link Projection}. The facade mints every id, so
+   * a form describes the event in the caller's terms and never invents an id of its own.
+   */
+  onAdd: (write: (projection: Projection) => void) => void;
 }
 
 /** The "When" year picker, shared by every event form. Spans the plan's horizon. */

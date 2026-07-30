@@ -14,7 +14,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Plan } from "@finley/engine";
 import type { JobListWrite } from "./jobEditing";
-import type { EventRevision } from "./hooks/useLedger";
+import type { EventRevision } from "./hooks/useProjection";
 
 export interface JobWriteTargets {
   readonly setBudget: Dispatch<SetStateAction<Plan>>;

@@ -14,6 +14,7 @@ import {
   withoutLine,
   type BudgetCategory,
   type BudgetLine,
+  type BudgetLineInput,
   type TaxTreatment,
 } from "@finley/engine";
 
@@ -68,16 +69,9 @@ function treatmentFor(accountId: string): TaxTreatment {
   return contributionTargets.find((t) => t.accountId === accountId)?.taxTreatment ?? "postTax";
 }
 
-function nextLineId(lines: readonly BudgetLine[]): string {
-  const ids = new Set(lines.map((l) => l.id));
-  let n = lines.length + 1;
-  while (ids.has(`line-${n}`)) n++;
-  return `line-${n}`;
-}
-
-function lineFromDraft(id: string, draft: BudgetLineDraft): BudgetLine {
+/** The line minus its id — the shape the facade's `addBudgetLine` mints an id onto. */
+function lineBody(draft: BudgetLineDraft): Omit<BudgetLine, "id"> {
   const base = {
-    id,
     label: draft.label.trim() || "Untitled",
     amountSource: { kind: "literal" as const, monthlyCents: Math.max(0, draft.monthlyCents) },
   };
@@ -95,8 +89,9 @@ function lineFromDraft(id: string, draft: BudgetLineDraft): BudgetLine {
     : { ...base, category: draft.category, target: { kind: "expense" as const } };
 }
 
-export function addLineFromDraft(lines: readonly BudgetLine[], draft: BudgetLineDraft): BudgetLine[] {
-  return [...lines, lineFromDraft(nextLineId(lines), draft)];
+/** A draft as the input the facade mints a `line-N` id onto — the add path goes through it. */
+export function budgetLineInputFromDraft(draft: BudgetLineDraft): BudgetLineInput {
+  return lineBody(draft);
 }
 
 /**
@@ -109,7 +104,7 @@ export function updateLineFromDraft(
   id: string,
   draft: BudgetLineDraft,
 ): readonly BudgetLine[] {
-  return withLinePatch(lines, id, lineFromDraft(id, draft));
+  return withLinePatch(lines, id, lineBody(draft));
 }
 
 export function removeLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
