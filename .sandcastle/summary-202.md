@@ -76,8 +76,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   believes it made has not happened; reporting nothing is how that stays invisible. One
   `planSite` guard covers jobs, goals and budget lines, `partnerJobSite` covers a partner's
   jobs, and `addPartnerJob` never had the choice anyway — it returns a minted id, so there is no
-  value a quiet no-op could hand back. `reorderGoal` still no-ops at the ends: a goal that
-  cannot move further is a real answer, a goal that is not there is a question about nothing.
+  value a quiet no-op could hand back. `reorderGoal` refuses at the ends on the same reading:
+  priority IS the list order, so "move the first goal up" is a caller believing it changed the
+  funding order when it did not. The Goals panel disables the control there instead of clicking
+  into a refusal, which a test now pins.
 - **Job writes are intents, routed per plane, facade methods on both.** `jobEditing` returns
   `add` / `replace` / `remove` rather than a `(jobs) => jobs` transform, because the write
   authority is the facade and a list callback had nowhere to be applied that wasn't the app
@@ -155,9 +157,11 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   methods inside it. `applyJobWrite` and `nextJobIdFor` are gone — the app has no job-list
   interpreter and no id authority left.
 - `jobOwners.ts`: `JobWriteTarget` is `"plan" | "event"`.
-- `planPeople.ts`: `jobInputFromDraft` is the only draft → job builder, and it produces a
-  `JobInput` — no `id` field and no way to supply one, since the facade mints it and stamps the
-  owner. The plan-level writers (`setJobMonthlyIncome`, `addJobPayChange`, …) live in
+- `planPeople.ts`: two functions span the draft seam and neither touches an id —
+  `jobInputFromDraft` (a `JobInput`, so there is no `id` field to fill and no parameter to pass
+  one through; the facade mints it and stamps the owner) and `jobToDraftFor`, which only reads.
+  The plan-level wrappers `jobToDraft`, `blankJobDraft` and `primaryBirthYear` are deleted: each
+  was a thin shim over the `*For` version, alive only because a test called it. The plan-level writers (`setJobMonthlyIncome`, `addJobPayChange`, …) live in
   `testing/planFixtures.ts` — they are fixture builders, and in the app layer they would be a
   second write path the guard could not rule out. Every one of them ADJUSTS a job the plan
   already holds; none creates one, because creating means minting and the counter belongs to

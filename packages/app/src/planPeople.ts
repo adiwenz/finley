@@ -18,10 +18,6 @@ import {
 } from "@finley/engine";
 import { START_YEAR } from "./config";
 
-export function primaryBirthYear(plan: Plan): number {
-  return START_YEAR - plan.currentAge;
-}
-
 /** The calendar year a 0-based simulation month falls in. */
 export function yearOfMonth(month: number): number {
   return START_YEAR + Math.floor(month / 12);
@@ -110,10 +106,6 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
   };
 }
 
-export function blankJobDraft(plan: Plan): JobDraft {
-  return blankJobDraftFor(PRIMARY_PERSON_ID, plan.currentAge);
-}
-
 /**
  * Read an existing job back into a {@link JobDraft}. Ages resolve against the OWNER's
  * birth year, which the caller supplies.
@@ -128,10 +120,6 @@ export function jobToDraftFor(birthYear: number, job: Job): JobDraft {
     realGrowthPct: job.salary.realGrowthPct,
     deferralPct: Math.round((job.deferral?.deferralFraction ?? 0) * 100),
   };
-}
-
-export function jobToDraft(plan: Plan, job: Job): JobDraft {
-  return jobToDraftFor(primaryBirthYear(plan), job);
 }
 
 /**

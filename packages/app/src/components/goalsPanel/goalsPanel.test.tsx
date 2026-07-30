@@ -129,6 +129,19 @@ describe("GoalsPanel", () => {
     expect(html).toContain("Move Home down payment down");
   });
 
+  it("disables the reorder control at each end, rather than asking for a refused move", () => {
+    // `Projection.reorderGoal` refuses a move that cannot happen, so the panel must not offer
+    // one: an enabled button here would surface as a conflict message on a dead click.
+    const html = renderToStaticMarkup(
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
+    );
+    // First goal cannot go up, last cannot go down; the inner moves stay live.
+    expect(html).toMatch(/aria-label="Move Emergency fund up"[^>]*disabled/);
+    expect(html).toMatch(/aria-label="Move Home down payment down"[^>]*disabled/);
+    expect(html).not.toMatch(/aria-label="Move Emergency fund down"[^>]*disabled/);
+    expect(html).not.toMatch(/aria-label="Move Home down payment up"[^>]*disabled/);
+  });
+
   it("offers per-goal edit and delete authoring controls", () => {
     const html = renderToStaticMarkup(
       <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,

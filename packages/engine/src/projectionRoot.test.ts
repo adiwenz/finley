@@ -441,14 +441,16 @@ describe("Projection root — reordering a goal changes its funding priority", (
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
   });
 
-  it("is a no-op at the ends, but refuses an unknown id", () => {
-    // Two different things: a goal that cannot move further is a real answer to a real
-    // question, while a goal that is not there is a question about nothing.
+  it("refuses a move that cannot happen — at either end, or for an id that is not there", () => {
     const { p, a, c } = seededProjection();
-    p.reorderGoal(a, "up"); // already first
-    p.reorderGoal(c, "down"); // already last
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+    const before = p.state;
+
+    expect(() => p.reorderGoal(a, "up")).toThrow(/already first/);
+    expect(() => p.reorderGoal(c, "down")).toThrow(/already last/);
     expect(() => p.reorderGoal("no-such-goal", "up")).toThrow(/no goal "no-such-goal"/);
+
+    expect(p.state).toBe(before);
+    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
   });
 });
 

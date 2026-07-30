@@ -848,9 +848,19 @@ export class Projection {
   /**
    * See {@link withGoalReordered}. {@link addGoal} only appends, so this is the sole way an
    * API caller reprioritizes a goal after authoring it.
+   *
+   * Refused at the ends, like any other edit that cannot happen: "move the first goal up" is a
+   * caller believing it changed the funding order when it did not, and priority IS the order.
+   * A UI offering the control disables it there rather than calling and ignoring the answer.
    */
   reorderGoal(id: string, direction: "up" | "down"): void {
     const plan = this.planSite("goals", id);
+    const index = plan.goals.findIndex((g) => g.id === id);
+    const edge = direction === "up" ? 0 : plan.goals.length - 1;
+    if (index === edge) {
+      const place = direction === "up" ? "first" : "last";
+      throw new Error(`Projection: cannot reorder goal — "${id}" is already ${place}`);
+    }
     this.commitPlan({ ...plan, goals: withGoalReordered(plan.goals, id, direction) });
   }
 
