@@ -80,6 +80,13 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   priority IS the list order, so "move the first goal up" is a caller believing it changed the
   funding order when it did not. The Goals panel disables the control there instead of clicking
   into a refusal, which a test now pins.
+- **The app imports no engine function that writes.** `Projection` is the whole authoring
+  surface; everything else the app takes from `@finley/engine` either derives something from a
+  scenario, converts a unit, or is a constant. The per-job adjustments (`addJobPayChange`,
+  `addJobIncomeOverride`, `setJobMonthlyIncome`, …) are owner-aware for this: a job id is unique
+  across the household, so "give job-3 a raise" has one answer and the caller does not have to
+  know which plane job-3 is on to ask for it. That retired `jobEditing.reviseJob` and the
+  `withPayChange` / `withIncomeOverride` re-exports the panels applied themselves.
 - **Job writes are intents, routed per plane, facade methods on both.** `jobEditing` returns
   `add` / `replace` / `remove` rather than a `(jobs) => jobs` transform, because the write
   authority is the facade and a list callback had nowhere to be applied that wasn't the app
@@ -154,8 +161,9 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 
 **App — preset & wiring**
 
-- `presets.ts`: added `presetState(preset): ProjectionState` (facade-based); `buildPresetLedger`
-  retained for the `presets.test` oracle.
+- `presets.ts`: added `presetState(preset): ProjectionState`, built with `Projection.create` +
+  `resetLedger` so no scenario is assembled by hand. `buildPresetLedger` — the replay oracle the
+  preset tests check that state against — moved into `presets.test.ts`, its only caller.
 - `jobEditing.ts` / `jobWrites.ts`: `JobListWrite` (a list transform) becomes the `JobWrite`
   intent union; `commitJobWrites` takes the hook's `transact` and dispatches both planes to facade
   methods inside it. `applyJobWrite` and `nextJobIdFor` are gone — the app has no job-list

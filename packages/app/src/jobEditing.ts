@@ -87,25 +87,6 @@ export function ownedJobsOf(owners: readonly JobOwner[]): readonly OwnedJob[] {
   );
 }
 
-/**
- * Rewrite one job wherever it lives in the household — the owner-aware counterpart to
- * `plan.jobs.map(...)`. `revise` gets the whole existing {@link Job}, so overrides, pay
- * changes and every other field survive by default.
- */
-export function reviseJob(
-  owners: readonly JobOwner[],
-  jobId: string,
-  revise: (job: Job) => Job,
-): JobEditResult {
-  const found = ownedJobsOf(owners).find((o) => o.job.id === jobId);
-  if (found === undefined) return { ok: false, reason: `no job "${jobId}" in this household` };
-  const revised = revise(found.job);
-  return {
-    ok: true,
-    job: revised,
-    writes: [{ kind: "replace", owner: found.owner, jobId, job: jobInputOf(revised) }],
-  };
-}
 
 /**
  * Apply `draft` to the job `jobId` currently held by `sourceOwnerId`.

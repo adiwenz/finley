@@ -189,19 +189,3 @@ export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput 
     : base;
 }
 
-// ── The one-job transforms ──
-//
-// The transforms themselves live in the engine (`@finley/engine`'s `job` module), because
-// the published `Projection` API applies the SAME edits and a rule with two implementations
-// is a rule that can drift — "a 0% deferral is removed, not recorded" is the sharp one.
-// Re-exported here so the panels and `jobEditing`'s owner-aware routing keep one import site.
-//
-// There are no plan-level wrappers: authoring a job is `Projection.addJob` / `replaceJob` /
-// the per-adjustment methods, so a `(plan) => plan` wrapper beside them would be a second
-// write path into `Plan.jobs`. The fixture-building versions live in `testing/planFixtures`.
-export {
-  withIncomeOverride,
-  withPayChange,
-  withoutPayChange,
-  withoutIncomeOverride,
-} from "@finley/engine";

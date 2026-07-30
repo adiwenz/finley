@@ -19,6 +19,8 @@
  *  3. No function that produces a `Plan` at all — a write path whatever it does inside.
  *  4. No rebuilding of a partner's `jobs` on the event that carries them.
  *  5. No minted job id — one counter inside `Projection` issues every one, on both planes.
+ *  6. No engine function that WRITES: `Projection` is the whole authoring surface, so anything
+ *     the app imports from `@finley/engine` has to be something it reads with.
  *
  * Seed data and test fixtures are exempt by location, not by name: {@link SEED_MODULES} state
  * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Both are
@@ -114,6 +116,62 @@ const PARTNER_JOBS_REBUILD = /\.\.\.\s*[\w.]*\bperson\b[\s\S]{0,200}?\bjobs\s*:/
  */
 const JOB_ID_MINT = /`[^`]*\bjob-\$\{/;
 
+/**
+ * Every value the app may import from `@finley/engine`. `Projection` is the authoring surface;
+ * everything else on this list either DERIVES something from a scenario, converts a unit, or is
+ * a constant — none of them can change authored state, which is what makes importing them
+ * different in kind from importing `addEvent` or `withPayChange`.
+ *
+ * A new name belongs here only if it is a read. A writing one is the second write path this
+ * whole guard exists to keep closed, and `Projection` should grow the method instead.
+ */
+const IMPORTABLE = new Set([
+  // The authoring surface itself.
+  "Projection",
+  // Units and formatting.
+  "dollarsToCents",
+  "centsToDollars",
+  // Named constants.
+  "PRIMARY_PERSON_ID",
+  "RETIREMENT_ID",
+  "SYNTHETIC_CARD_ID",
+  "CONTRIBUTION_TARGETS",
+  "DTI_FRONT_END_THRESHOLD",
+  "DTI_BACK_END_THRESHOLD",
+  // Reads over a job, the counterparts of the transforms `Projection` applies.
+  "monthlyIncomeCentsOf",
+  "deferralFractionOf",
+  // Derivations a panel renders: none takes or returns authored state to write back.
+  "assessDti",
+  "assessEarlyRetireeHealthCost",
+  "buildPlanAccounts",
+  "buildPlanGoals",
+  "buildSnapshot",
+  "compileExpenseBudgetLines",
+  "computeGoalProgress",
+  "evaluateFullRetirementAtAge",
+  "eventsFundedByGoal",
+  "liabilityKindLabel",
+  "membersAt",
+  "mortgagePaymentForPurchaseCents",
+  "planAccountDescriptors",
+  "solveRetirement",
+]);
+
+/** Value (non-`type`) names a module imports or re-exports from the engine. */
+function engineValueImports(source: string): string[] {
+  const names: string[] = [];
+  const block = /(?:import|export)\s*\{([^}]*)\}\s*from\s*"@finley\/engine"/gs;
+  for (const match of source.matchAll(block)) {
+    for (const part of match[1].split(",")) {
+      const name = part.trim();
+      if (name === "" || name.startsWith("type ")) continue;
+      names.push(name.split(" as ")[0].trim());
+    }
+  }
+  return names;
+}
+
 describe("app write path — no direct plan writes outside the facade", () => {
   it("scans a plausible number of modules (the scan itself must not silently empty)", () => {
     // A broken path filter would pass every assertion below by checking nothing.
@@ -160,6 +218,15 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("imports no engine function that writes", () => {
+    const offenders = productionModules().flatMap(({ path, source }) =>
+      engineValueImports(source)
+        .filter((name) => !IMPORTABLE.has(name))
+        .map((name) => `${path}: ${name}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it("keeps the guard honest — the patterns do fire on the shape they ban", () => {
     expect(PLAN_REBUILD.test("setPlan((p) => ({ ...p, goals: next(p.goals) }))")).toBe(true);
     expect(PLAN_REBUILD.test("return { ...plan, budgetLines: [...lines] };")).toBe(true);
@@ -178,6 +245,14 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(PLAN_JOBS_REBUILD.test("setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }))")).toBe(
       false,
     );
+    // The import scan reads values only, and sees a re-export as plainly as an import.
+    expect(engineValueImports('import { addEvent, type Ledger } from "@finley/engine";')).toEqual([
+      "addEvent",
+    ]);
+    expect(engineValueImports('export { withPayChange } from "@finley/engine";')).toEqual([
+      "withPayChange",
+    ]);
+    expect(engineValueImports('import type { Plan } from "@finley/engine";')).toEqual([]);
     // Reading a partner's jobs is not writing them.
     expect(PARTNER_JOBS_REBUILD.test("for (const j of event.person.jobs) ids.add(j.id);")).toBe(
       false,

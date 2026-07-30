@@ -19,7 +19,6 @@ import {
   dollarsToCents,
   monthlyIncomeCentsOf,
   type Household,
-  type Job,
   type Ledger,
   type Plan,
   type ProjectionSeries,
@@ -38,10 +37,8 @@ import {
   expenseLinesOf,
   type BudgetLineDraft,
 } from "./budgetLines";
-import { withIncomeOverride, withPayChange } from "../../planPeople";
 import { jobOwnersOf } from "../../jobOwners";
-import { ownedJobsOf, reviseJob } from "../../jobEditing";
-import { commitJobWrites } from "../../jobWrites";
+import { ownedJobsOf } from "../../jobEditing";
 import type { Transact } from "../../hooks/useProjection";
 import {
   resolveRowsAtMonth,
@@ -171,15 +168,6 @@ export function BaseAdjustmentsPanel({
     [owners],
   );
 
-  /**
-   * `revise` is handed the whole existing job, so its other overrides and pay changes ride
-   * through. Routing (plan vs. the partner's `RelationshipEvent`) and the all-or-nothing
-   * commit belong to {@link commitJobWrites}.
-   */
-  function adjustJob(jobId: string, revise: (job: Job) => Job): void {
-    const result = reviseJob(owners, jobId, revise);
-    if (result.ok) commitJobWrites(result.writes, transact);
-  }
 
   /**
    * A staged-but-uncommitted edit is dropped: framed against the old month's numbers,
@@ -299,8 +287,10 @@ export function BaseAdjustmentsPanel({
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={selectedMonth}
-          onApplyOverride={(jobId, override) => adjustJob(jobId, (j) => withIncomeOverride(j, override))}
-          onApplyPayChange={(jobId, payChange) => adjustJob(jobId, (j) => withPayChange(j, payChange))}
+          // Addressed by job id alone: the facade finds it on whichever plane its owner is
+          // authored on, and carries the job's other adjustments through.
+          onApplyOverride={(jobId, override) => transact((p) => p.addJobIncomeOverride(jobId, override))}
+          onApplyPayChange={(jobId, payChange) => transact((p) => p.addJobPayChange(jobId, payChange))}
         />
 
         <SpendingEditor

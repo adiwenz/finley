@@ -23,7 +23,6 @@ import {
 } from "@finley/engine";
 import {
   jobInputFromDraft,
-  withoutPayChange,
   blankJobDraftFor,
   jobToDraftFor,
   jobStartAgeFor,
@@ -32,7 +31,7 @@ import {
   type JobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
-import { editJob, ownedJobsOf, reviseJob, type JobWrite } from "../../jobEditing";
+import { editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
 import { commitJobWrites } from "../../jobWrites";
 import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
@@ -117,9 +116,8 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
   }
 
   function removePayChange(id: string, month: number) {
-    // Any member's job can carry one, so this routes by owner like every other job write.
-    const result = reviseJob(owners, id, (job) => withoutPayChange(job, month));
-    if (result.ok) commit(result.writes);
+    // Addressed by job id alone — the facade finds it on whichever plane its owner is on.
+    transact((p) => p.removeJobPayChange(id, month));
   }
 
   return (

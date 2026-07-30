@@ -24,7 +24,32 @@ import {
   solveRetirement,
   evaluateFullRetirementAtAge,
 } from "@finley/engine";
-import { PRESETS, presetById, buildPresetLedger, type Preset } from "./presets";
+import {
+  addEvent,
+  emptyLedger,
+  type Ledger,
+  type LedgerBaseConfig,
+  type NewLifeEvent,
+} from "@finley/engine";
+import { PRESETS, presetById, type Preset } from "./presets";
+
+/**
+ * Replays a preset's seeds through the same `addEvent` path the live UI's authoring writes
+ * take, so they validate like hand-added events. The oracle these tests check `presetState`
+ * against: a rejected seed is a preset bug, not user error, so it throws rather than silently
+ * dropping the event.
+ */
+function buildPresetLedger(base: LedgerBaseConfig, events: readonly NewLifeEvent[]): Ledger {
+  let ledger = emptyLedger;
+  for (const event of events) {
+    const result = addEvent(ledger, base, event, usJurisdiction);
+    if (!result.ok) {
+      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
+    }
+    ledger = result.ledger;
+  }
+  return ledger;
+}
 import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
 import { START_YEAR } from "./config";
 

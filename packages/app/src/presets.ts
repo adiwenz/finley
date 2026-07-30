@@ -7,18 +7,12 @@
 
 import {
   dollarsToCents,
-  emptyLedger,
-  addEvent,
-  scenarioOf,
-  withLedger,
   Projection,
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
   type Plan,
   type Job,
   type BudgetLine,
-  type Ledger,
-  type LedgerBaseConfig,
   type LifeEvent,
   type NewLifeEvent,
   type ProjectionState,
@@ -241,29 +235,8 @@ export function presetById(id: string): Preset {
  */
 export function presetState(preset: Preset): ProjectionState {
   const events = preset.events.map((event, i) => ({ ...event, sequenceNumber: i }) as LifeEvent);
-  const scenario = withLedger(scenarioOf(preset.plan), {
-    events,
-    nextSequenceNumber: preset.events.length,
-  });
-  return Projection.fromScenario(scenario, START_YEAR, usJurisdiction).toState();
+  const p = Projection.create({ plan: preset.plan, startYear: START_YEAR }, usJurisdiction);
+  p.resetLedger({ events, nextSequenceNumber: preset.events.length });
+  return p.toState();
 }
 
-/**
- * Replays seeds through the same {@link addEvent} path the live UI uses, so they validate like
- * hand-added events. A rejected seed is a preset bug, not user error, so it throws rather than
- * silently dropping the event.
- */
-export function buildPresetLedger(
-  base: LedgerBaseConfig,
-  events: readonly NewLifeEvent[],
-): Ledger {
-  let ledger = emptyLedger;
-  for (const event of events) {
-    const result = addEvent(ledger, base, event, usJurisdiction);
-    if (!result.ok) {
-      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
-    }
-    ledger = result.ledger;
-  }
-  return ledger;
-}

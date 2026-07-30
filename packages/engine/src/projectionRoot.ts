@@ -727,9 +727,32 @@ export class Projection {
     );
   }
 
+  // Adjustments to ONE job, addressed by its id alone.
+  //
+  // Owner-aware: a job id is unique across the household (see {@link assertJobIdFree}), so
+  // "give job-3 a raise" has one answer and the caller does not have to know which plane
+  // job-3 is authored on to ask for it. The methods that CREATE or replace a job stay
+  // plane-explicit, because creating one needs the person it belongs to.
+
+  /** Whichever plane holds `jobId`, or a refusal naming it. */
+  private editJobAnywhere(jobId: string, f: (job: Job) => Job): void {
+    if (this.state.scenario.plan.jobs.some((j) => j.id === jobId)) {
+      this.editJob(jobId, f);
+      return;
+    }
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type !== "RelationshipEvent") continue;
+      if (event.person.jobs.some((j) => j.id === jobId)) {
+        this.editPartnerJob(jobId, f);
+        return;
+      }
+    }
+    throw new Error(`Projection: cannot edit a job — no job "${jobId}" in this household`);
+  }
+
   /** See {@link withMonthlyIncome} — monthly cents in, annualized salary stored. */
   setJobMonthlyIncome(id: string, monthlyCents: number): void {
-    this.editJob(id, (j) => withMonthlyIncome(j, monthlyCents));
+    this.editJobAnywhere(id, (j) => withMonthlyIncome(j, monthlyCents));
   }
 
   /**
@@ -738,27 +761,27 @@ export class Projection {
    * an asymmetry a `deferral` patch, which replaces the whole object, cannot express.
    */
   setJobDeferralFraction(id: string, fraction: number): void {
-    this.editJob(id, (j) => withDeferralFraction(j, fraction));
+    this.editJobAnywhere(id, (j) => withDeferralFraction(j, fraction));
   }
 
   /** See {@link withPayChange} — a permanent raise or cut, at most one per (job, month). */
   addJobPayChange(jobId: string, payChange: JobPayChange): void {
-    this.editJob(jobId, (j) => withPayChange(j, payChange));
+    this.editJobAnywhere(jobId, (j) => withPayChange(j, payChange));
   }
 
   /** See {@link withoutPayChange}. */
   removeJobPayChange(jobId: string, month: number): void {
-    this.editJob(jobId, (j) => withoutPayChange(j, month));
+    this.editJobAnywhere(jobId, (j) => withoutPayChange(j, month));
   }
 
   /** See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment. */
   addJobIncomeOverride(jobId: string, override: JobIncomeOverride): void {
-    this.editJob(jobId, (j) => withIncomeOverride(j, override));
+    this.editJobAnywhere(jobId, (j) => withIncomeOverride(j, override));
   }
 
   /** See {@link withoutIncomeOverride}. */
   removeJobIncomeOverride(jobId: string, month: number): void {
-    this.editJob(jobId, (j) => withoutIncomeOverride(j, month));
+    this.editJobAnywhere(jobId, (j) => withoutIncomeOverride(j, month));
   }
 
   /** Returns the minted `"line-N"` id. */
