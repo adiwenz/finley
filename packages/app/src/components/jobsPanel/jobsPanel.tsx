@@ -1,7 +1,12 @@
 /**
  * Every household member's {@link Job}s; none is privileged — there is no "career job".
- * Dated changes are authored in Base + Adjustments; permanent pay changes are only listed
- * and removable here, since the headline shows starting salary.
+ *
+ * A job's permanent pay changes are listed, added and removed here, beside the employment
+ * they belong to — a raise is a fact about a job, and looking for one anywhere else means
+ * knowing in advance which month it lands in. The headline stays the *starting* salary,
+ * qualified with "to start" once a change exists, so the two never contradict each other.
+ * Base + Adjustments still authors the same thing from the other direction (a month is
+ * already selected there), and single-month perturbations only from there.
  *
  * The primary person's jobs are standing plan data; a partner's ride the `RelationshipEvent`
  * that brought them in, so editing those revises that event ({@link
@@ -15,6 +20,7 @@
 import { useMemo, useState } from "react";
 import {
   PRIMARY_PERSON_ID,
+  dollarsToCents,
   monthlyIncomeCentsOf,
   type Job,
   type Household,
@@ -37,6 +43,7 @@ import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
+import { PayChangeForm, type PayChangeDraft } from "./payChangeForm";
 import styles from "./jobsPanel.module.css";
 
 interface JobsPanelProps {
@@ -52,7 +59,11 @@ interface JobsPanelProps {
   ledger: Ledger;
 }
 
-type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
+type Authoring =
+  | { kind: "edit"; id: string }
+  | { kind: "payChange"; id: string }
+  | { kind: "new" }
+  | null;
 
 /** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
 function describeSpan(owner: JobOwner, job: Job): string {
@@ -120,13 +131,26 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
     transact((p) => p.removeJobPayChange(id, month));
   }
 
+  /**
+   * The form dates a change by the owner's age; the plan stores a month. `month 0` is the
+   * owner's age today, so the offset is whole years from there — floored at 0, since a change
+   * cannot take effect before "now".
+   */
+  function addPayChange(owner: JobOwner, id: string, draft: PayChangeDraft) {
+    const month = Math.max(0, (draft.age - ownerAgeAtMonth(owner.birthYear, 0)) * 12);
+    transact((p) =>
+      p.addJobPayChange(id, { month, kind: draft.kind, cents: dollarsToCents(draft.dollars) }),
+    );
+    setAuthoring(null);
+  }
+
   return (
     <>
       <h2>Jobs &amp; income</h2>
       <p className="hint">
         {severalOwners
-          ? "Earned income comes from the household’s jobs — each one belongs to a person. Add as many as you like. A “from here forward” raise is just editing a job (or adding a new one)."
-          : "Earned income comes from your jobs — add as many as you like. A “from here forward” raise is just editing a job (or adding a new one)."}
+          ? "Earned income comes from the household’s jobs — each one belongs to a person. Add as many as you like, and date a raise or a cut on any of them."
+          : "Earned income comes from your jobs — add as many as you like, and date a raise or a cut on any of them."}
       </p>
 
       {rows.length === 0 ? (
@@ -186,10 +210,30 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
                   >
                     Edit
                   </button>
+                  <button
+                    type="button"
+                    aria-label={`Change pay on ${label}`}
+                    onClick={() =>
+                      setAuthoring((a) =>
+                        a?.kind === "payChange" && a.id === job.id
+                          ? null
+                          : { kind: "payChange", id: job.id },
+                      )
+                    }
+                  >
+                    Change pay
+                  </button>
                   <button type="button" aria-label={`Delete ${label}`} onClick={() => remove(owner, job.id)}>
                     Delete
                   </button>
                 </div>
+                {authoring?.kind === "payChange" && authoring.id === job.id && (
+                  <PayChangeForm
+                    currentAge={ownerAgeAtMonth(owner.birthYear, 0)}
+                    onSubmit={(draft) => addPayChange(owner, job.id, draft)}
+                    onCancel={() => setAuthoring(null)}
+                  />
+                )}
                 {authoring?.kind === "edit" && authoring.id === job.id && (
                   <JobForm
                     initial={jobToDraftFor(owner.birthYear, job)}

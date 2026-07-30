@@ -28,6 +28,7 @@ import { START_YEAR } from "../../config";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { runOf } from "../../testing/projectionHarness";
 
 const noop = () => {};
 
@@ -47,14 +48,13 @@ function build(budget: Plan): {
 }
 
 function render(budget: Plan, month = 0) {
-  const { household, series, funding } = build(budget);
+  const { funding } = build(budget);
   return renderToStaticMarkup(
     <HomePurchaseForm
       defaultMonth={month}
       horizonMonths={660}
       onAdd={noop}
-      household={household}
-      series={series}
+      result={runOf(budget)}
       funding={funding}
     />,
   );

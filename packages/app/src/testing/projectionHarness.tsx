@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { Projection, emptyLedger, scenarioOf, withLedger } from "@finley/engine";
-import type { Ledger, Plan } from "@finley/engine";
+import type { Jurisdiction, Ledger, Plan, ProjectionResult } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "../hooks/useProjection";
@@ -28,4 +28,26 @@ export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): Use
     ).toState(),
   );
   return useProjection(initial);
+}
+
+/**
+ * One completed run over a fixture plan — what a panel taking a `ProjectionResult` reads. Built
+ * the same way the app builds its own (`fromScenario` → `run`), so a test cannot accidentally
+ * assemble a result the app could never produce.
+ *
+ * `jurisdiction` defaults to the app's, which is what a panel test wants. Pass
+ * `nullJurisdiction` where a fixture pins arithmetic on a stated surplus: withholding would
+ * make "$5,000 gross − $3,500 spending = $1,500 to save" untrue, and the assertion would then
+ * be pinning the tax tables rather than the behaviour under test.
+ */
+export function runOf(
+  plan: Plan,
+  ledger: Ledger = emptyLedger,
+  jurisdiction: Jurisdiction = usJurisdiction,
+): ProjectionResult {
+  return Projection.fromScenario(
+    withLedger(scenarioOf(plan), ledger),
+    START_YEAR,
+    jurisdiction,
+  ).run(jurisdiction);
 }

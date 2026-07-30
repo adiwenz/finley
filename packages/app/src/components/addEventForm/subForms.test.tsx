@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import type { Household, Projection } from "@finley/engine";
+import type { Projection, ProjectionResult } from "@finley/engine";
 import { LoanForm } from "./loanForm";
 import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
@@ -34,18 +34,14 @@ function stubProjection() {
   return { p, onAdd };
 }
 
-/** You plus a partner from month 0 — all the separation form's `membersAt` read needs
- *  (it touches only `memberships[].person.{id,name}`). */
+/** You plus a partner from month 0 — all the separation form reads of a run
+ *  (`membersAt`, and only each person's `{id,name}`). */
 const withPartner = {
-  memberships: [
-    { person: { id: "p1", name: "You" }, startMonth: 0, endMonth: null },
-    { person: { id: "p2", name: "Partner" }, startMonth: 0, endMonth: null },
+  membersAt: () => [
+    { id: "p1", name: "You" },
+    { id: "p2", name: "Partner" },
   ],
-  children: [],
-  series: [],
-  liabilities: [],
-  properties: [],
-} as unknown as Household;
+} as unknown as ProjectionResult;
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -101,7 +97,7 @@ describe("SeparationForm — alimony amount gates its duration", () => {
         defaultMonth={0}
         horizonMonths={660}
         onAdd={onAdd}
-        household={withPartner}
+        result={withPartner}
       />,
     );
 

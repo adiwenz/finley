@@ -1,11 +1,6 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  Projection,
-  planAccountDescriptors,
-  liabilityKindLabel,
-  SYNTHETIC_CARD_ID,
-} from "@finley/engine";
+import { Projection, liabilityKindLabel, SYNTHETIC_CARD_ID } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
@@ -71,8 +66,8 @@ export function App() {
   // live ledger — so "when can we retire?" reflects every event the user added (a child, a
   // new expense, a separation), not the bare plan.
   const retirement = useMemo(
-    () => retirementView({ plan: budget, ledger }, usJurisdiction),
-    [budget, ledger],
+    () => retirementView(projection, usJurisdiction),
+    [projection],
   );
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
@@ -91,10 +86,10 @@ export function App() {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
     return buildNetWorthBreakdown(series, {
-      accounts: planAccountDescriptors(budget),
+      accounts: projection.accountDescriptors(),
       liabilityLabels,
     });
-  }, [series, budget, household]);
+  }, [series, projection, household]);
 
   return (
     <>
@@ -161,20 +156,14 @@ export function App() {
           </div>
 
           <div className="card">
-            <SnapshotPanel
-              ledger={ledger}
-              household={household}
-              series={series}
-              month={scrubMonth}
-            />
+            <SnapshotPanel ledger={ledger} result={result} month={scrubMonth} />
           </div>
         </div>
 
         <div className="side-col">
           <div className="card">
             <AddEventForm
-              household={household}
-              series={series}
+              result={result}
               funding={funding}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
@@ -187,7 +176,7 @@ export function App() {
           </div>
 
           <div className="card">
-            <GoalsPanel budget={budget} series={series} transact={transact} ledger={ledger} />
+            <GoalsPanel budget={budget} result={result} transact={transact} />
           </div>
 
           <div className="card">

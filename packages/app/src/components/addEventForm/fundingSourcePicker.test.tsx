@@ -12,11 +12,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   emptyLedger,
-  interpretLedger,
-  replayLedger,
   createProjectionBase,
   fundingLookup,
-  nullJurisdiction,
   type BuyHomeInput,
   type Projection,
 } from "@finley/engine";
@@ -24,6 +21,7 @@ import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
@@ -41,8 +39,7 @@ function renderForm(month: number) {
       defaultMonth={month}
       horizonMonths={660}
       onAdd={onAdd}
-      household={interpretLedger(emptyLedger, base)}
-      series={replayLedger(emptyLedger, base, nullJurisdiction)}
+      result={runOf(PLAN_DEFAULTS)}
       funding={fundingLookup(emptyLedger, base, usJurisdiction)}
     />,
   );

@@ -11,8 +11,7 @@
  */
 
 import { useState } from "react";
-import type { ProjectionSeries } from "@finley/engine";
-import type { Plan, Ledger } from "@finley/engine";
+import type { Plan, ProjectionResult } from "@finley/engine";
 import {
   goalRows,
   goalFundingBlocks,
@@ -26,17 +25,17 @@ import { formatDollars, monthLabel } from "../../format";
 
 interface GoalsPanelProps {
   budget: Plan;
-  series: ProjectionSeries;
+  /**
+   * This plan's run. Scores each goal, and answers the deletion guard: a goal's derived fund
+   * account may be named as a timeline event's funding source, and dropping the goal would
+   * strand that reference.
+   */
+  result: ProjectionResult;
   /**
    * Every goal write — add, edit, rate, reorder, delete — through the facade, which owns the
    * `goal-N` mint, the array-position-is-priority rule, and the funding guard below.
    */
   transact: Transact;
-  /**
-   * The event ledger, read only to guard deletion: a goal's derived fund account may be
-   * named as an event's funding source, and dropping the goal would strand that reference.
-   */
-  ledger: Ledger;
 }
 
 /** Which authoring form, if any, is disclosed: a goal id (edit), "new" (add), or none. */
@@ -56,8 +55,8 @@ interface RefusedDelete {
   readonly blockerEventIds: readonly string[];
 }
 
-export function GoalsPanel({ budget, series, transact, ledger }: GoalsPanelProps) {
-  const rows = goalRows(budget, series);
+export function GoalsPanel({ budget, result, transact }: GoalsPanelProps) {
+  const rows = goalRows(budget, result);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   const [refused, setRefused] = useState<RefusedDelete | null>(null);
 
@@ -65,7 +64,7 @@ export function GoalsPanel({ budget, series, transact, ledger }: GoalsPanelProps
   // or re-pointing them clears the message live, and nothing else can put it back.
   const refusalMessage = refused
     ? fundingBlockMessage(
-        goalFundingBlocks(budget.goals, refused.goalId, ledger).filter((b) =>
+        goalFundingBlocks(result, refused.goalId).filter((b) =>
           refused.blockerEventIds.includes(b.eventId),
         ),
       )
@@ -98,7 +97,7 @@ export function GoalsPanel({ budget, series, transact, ledger }: GoalsPanelProps
     // Asked before acting, so the panel can name the blocking events. The facade refuses the
     // same removal outright (`Projection.removeGoal` throws on a stranded funding reference);
     // this is the same rule read ahead of time to say which events to fix first.
-    const blocks = goalFundingBlocks(budget.goals, id, ledger);
+    const blocks = goalFundingBlocks(result, id);
     if (blocks.length > 0) {
       setRefused({ goalId: id, blockerEventIds: blocks.map((b) => b.eventId) });
       return;

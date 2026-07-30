@@ -5,21 +5,13 @@
  * shared priority list exists to show.
  */
 
-import {
-  computeGoalProgress,
-  buildPlanAccounts,
-  buildPlanGoals,
-  eventsFundedByGoal,
-  type ProjectionSeries,
-} from "@finley/engine";
 import type {
   Plan,
-  GoalPlan,
+  ProjectionResult,
   GoalDisposition,
   GoalDisposal,
   GoalAccountType,
   GoalCompletion,
-  Ledger,
 } from "@finley/engine";
 import { summarizeEvent } from "./ledgerView";
 import { monthLabel } from "./format";
@@ -59,16 +51,14 @@ export interface GoalRow {
 }
 
 /**
- * Rows in priority order. The projection MUST be built from the SAME `budget`, so its
- * fund-account balances line up with the goals' `fundAccountId`s.
+ * Rows in priority order, scored against `result` — one run of the very plan they belong to,
+ * so a goal's fund-account balance and its target are read off the same pass.
+ *
+ * `budget` supplies only what the run compiles away: a goal's editable annual return. The
+ * two lists are index-aligned because both are `budget.goals` in order.
  */
-export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] {
-  const goals = buildPlanGoals(budget);
-  const accounts = buildPlanAccounts(budget);
-  // `goals` is `budget.goals` mapped in order, so the plan goal at the same index carries
-  // this row's editable rate.
-  return goals.map((goal, i) => {
-    const progress = computeGoalProgress(goal, projection, accounts);
+export function goalRows(budget: Plan, result: ProjectionResult): GoalRow[] {
+  return result.goalProgress().map(({ goal, progress }, i) => {
     return {
       id: goal.id,
       name: goal.name,
@@ -139,16 +129,12 @@ export interface GoalFundingBlock {
 }
 
 /**
- * The blocking events in the words a person reads. Which events block is the engine's
- * question ({@link eventsFundedByGoal} — already in timeline order); this only names them,
- * with the same labels the timeline shows.
+ * The blocking events in the words a person reads. Which events block is the facade's
+ * question (`eventsFundedByGoal` — already in timeline order); this only names them, with the
+ * same labels the timeline shows.
  */
-export function goalFundingBlocks(
-  goals: readonly GoalPlan[],
-  id: string,
-  ledger: Ledger,
-): GoalFundingBlock[] {
-  return eventsFundedByGoal(goals, id, ledger).map((e) => ({
+export function goalFundingBlocks(result: ProjectionResult, id: string): GoalFundingBlock[] {
+  return result.eventsFundedByGoal(id).map((e) => ({
     eventId: e.id,
     label: summarizeEvent(e).label,
     month: e.month,

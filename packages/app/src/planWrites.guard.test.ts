@@ -12,19 +12,29 @@
  * embedded in their `RelationshipEvent`.
  *
  * Scanned as source text rather than types, because the shapes being banned are a *spread* and
- * a *template literal*, neither of which has a signature to constrain. Five things are checked:
+ * a *template literal*, neither of which has a signature to constrain. Six things are checked:
  *
  *  1. No plan-shaped setter prop (`Dispatch<SetStateAction<Plan>>`).
  *  2. No expression rebuilding a plan's collections, or swapping one into a scenario.
  *  3. No function that produces a `Plan` at all — a write path whatever it does inside.
  *  4. No rebuilding of a partner's `jobs` on the event that carries them.
  *  5. No minted job id — one counter inside `Projection` issues every one, on both planes.
- *  6. No engine function that WRITES: `Projection` is the whole authoring surface, so anything
- *     the app imports from `@finley/engine` has to be something it reads with.
+ *  6. Nothing named from `@finley/engine` that `projectionRoot.ts` does not export — the app's
+ *     whole engine surface is the facade module, values and types alike.
+ *
+ * (6) is the general rule the others are specific cases of, and it is checked against the
+ * facade module's own text rather than a list kept here: widening what the app may name means
+ * editing `projectionRoot.ts` and justifying it there, where the surface is. Two things follow
+ * from stating it that way. Nothing that WRITES can be imported, because nothing that writes
+ * is exported there — asserted directly below, so the rule cannot be satisfied by a facade
+ * that quietly re-exports `withPayChange`. And no simulator internal can enter the app's
+ * vocabulary, because types are scanned beside values.
  *
  * Seed data and test fixtures are exempt by location, not by name: {@link SEED_MODULES} state
- * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Both are
- * listed here so adding one is a deliberate act with a reason beside it.
+ * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Seeds are
+ * exempt from (1)–(5) only — declaring a plan is no reason to reach around the facade for the
+ * vocabulary to declare it in. Both lists are here so adding to one is a deliberate act with a
+ * reason beside it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -60,13 +70,17 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-/** Every app module that ships, minus the seed data and the test-only helpers. */
-function productionModules(): { path: string; source: string }[] {
+/** Every app module that ships. */
+function shippedModules(): { path: string; source: string }[] {
   return sourceFiles(appSrc)
     .map((full) => ({ path: relative(appSrc, full).replaceAll("\\", "/"), full }))
-    .filter(({ path }) => !SEED_MODULES.includes(path))
     .filter(({ path }) => !TEST_ONLY_DIRS.some((dir) => path.startsWith(dir)))
     .map(({ path, full }) => ({ path, source: readFileSync(full, "utf8") }));
+}
+
+/** The same, minus the seed data — which states a plan rather than editing one. */
+function productionModules(): { path: string; source: string }[] {
+  return shippedModules().filter(({ path }) => !SEED_MODULES.includes(path));
 }
 
 /** Comments stripped, so prose describing the old shape can't fail the scan. */
@@ -117,56 +131,65 @@ const PARTNER_JOBS_REBUILD = /\.\.\.\s*[\w.]*\bperson\b[\s\S]{0,200}?\bjobs\s*:/
 const JOB_ID_MINT = /`[^`]*\bjob-\$\{/;
 
 /**
- * Every value the app may import from `@finley/engine`. `Projection` is the authoring surface;
- * everything else on this list either DERIVES something from a scenario, converts a unit, or is
- * a constant — none of them can change authored state, which is what makes importing them
- * different in kind from importing `addEvent` or `withPayChange`.
- *
- * A new name belongs here only if it is a read. A writing one is the second write path this
- * whole guard exists to keep closed, and `Projection` should grow the method instead.
+ * The engine's facade module, read as text. The rule below is stated against what this file
+ * exports rather than a list kept here, so "the app's whole engine surface" has ONE definition
+ * and it lives beside the surface itself: to let the app name something new, you edit
+ * `projectionRoot.ts` and say why there.
  */
-const IMPORTABLE = new Set([
-  // The authoring surface itself.
-  "Projection",
-  // Units and formatting.
-  "dollarsToCents",
-  "centsToDollars",
-  // Named constants.
-  "PRIMARY_PERSON_ID",
-  "RETIREMENT_ID",
-  "SYNTHETIC_CARD_ID",
-  "CONTRIBUTION_TARGETS",
-  "DTI_FRONT_END_THRESHOLD",
-  "DTI_BACK_END_THRESHOLD",
-  // Reads over a job, the counterparts of the transforms `Projection` applies.
-  "monthlyIncomeCentsOf",
-  "deferralFractionOf",
-  // Derivations a panel renders: none takes or returns authored state to write back.
-  "assessDti",
-  "assessEarlyRetireeHealthCost",
-  "buildPlanAccounts",
-  "buildPlanGoals",
-  "buildSnapshot",
-  "compileExpenseBudgetLines",
-  "computeGoalProgress",
-  "evaluateFullRetirementAtAge",
-  "eventsFundedByGoal",
-  "liabilityKindLabel",
-  "membersAt",
-  "mortgagePaymentForPurchaseCents",
-  "planAccountDescriptors",
-  "solveRetirement",
-]);
+const facadeSource = readFileSync(
+  fileURLToPath(new URL("../../engine/src/projectionRoot.ts", import.meta.url)),
+  "utf8",
+);
 
-/** Value (non-`type`) names a module imports or re-exports from the engine. */
-function engineValueImports(source: string): string[] {
+/** Every name `projectionRoot.ts` exports — declared there, or re-exported through it. */
+function facadeExports(source: string): Set<string> {
+  const names = new Set<string>();
+  // Re-export blocks: `export { a, b } from "./x"`, `export type { a } from "./y"`.
+  for (const match of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"[^"]*"/gs)) {
+    for (const part of match[1].split(",")) {
+      const name = part.trim();
+      if (name !== "") names.add(name.replace(/^type\s+/, "").split(" as ").pop()!.trim());
+    }
+  }
+  // Declarations in the module itself.
+  for (const match of source.matchAll(
+    /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:class|interface|function|const|let|type|enum)\s+(\w+)/gm,
+  )) {
+    names.add(match[1]);
+  }
+  return names;
+}
+
+/**
+ * Engine authoring transforms, named to prove the check below has teeth. Each is a second
+ * write path if an app can reach it, so none may ever appear on the facade's surface.
+ */
+const WRITES_THAT_MUST_STAY_INTERNAL = [
+  "addEvent",
+  "updateEvent",
+  "removeEvent",
+  "withPayChange",
+  "withIncomeOverride",
+  "withJobPatch",
+  "withGoalPatch",
+  "withLinePatch",
+  "withPlan",
+  "withLedger",
+];
+
+/**
+ * Every name a module imports or re-exports from the engine — types included. A type is part
+ * of the surface too: naming a simulator internal is how an app comes to depend on one, and
+ * keeping that vocabulary out of the app is half of what the facade is for.
+ */
+function engineImports(source: string): string[] {
   const names: string[] = [];
-  const block = /(?:import|export)\s*\{([^}]*)\}\s*from\s*"@finley\/engine"/gs;
+  const block = /(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"@finley\/engine"/gs;
   for (const match of source.matchAll(block)) {
     for (const part of match[1].split(",")) {
       const name = part.trim();
-      if (name === "" || name.startsWith("type ")) continue;
-      names.push(name.split(" as ")[0].trim());
+      if (name === "") continue;
+      names.push(name.replace(/^type\s+/, "").split(" as ")[0].trim());
     }
   }
   return names;
@@ -218,13 +241,24 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("imports no engine function that writes", () => {
-    const offenders = productionModules().flatMap(({ path, source }) =>
-      engineValueImports(source)
-        .filter((name) => !IMPORTABLE.has(name))
+  it("names nothing from the engine that the facade module does not export", () => {
+    const facade = facadeExports(facadeSource);
+    // Every shipped module, seeds included: stating a starter plan is a reason to be exempt
+    // from the no-rebuild checks, not a reason to reach past the facade for the vocabulary.
+    const offenders = shippedModules().flatMap(({ path, source }) =>
+      engineImports(source)
+        .filter((name) => !facade.has(name))
         .map((name) => `${path}: ${name}`),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps every authoring transform off the facade's surface", () => {
+    const facade = facadeExports(facadeSource);
+    // Reading the facade's exports is only worth anything if it actually found them.
+    expect(facade.has("Projection")).toBe(true);
+    expect(facade.size).toBeGreaterThan(30);
+    expect(WRITES_THAT_MUST_STAY_INTERNAL.filter((name) => facade.has(name))).toEqual([]);
   });
 
   it("keeps the guard honest — the patterns do fire on the shape they ban", () => {
@@ -245,14 +279,24 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(PLAN_JOBS_REBUILD.test("setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }))")).toBe(
       false,
     );
-    // The import scan reads values only, and sees a re-export as plainly as an import.
-    expect(engineValueImports('import { addEvent, type Ledger } from "@finley/engine";')).toEqual([
+    // The import scan reads types beside values, and a re-export as plainly as an import.
+    expect(engineImports('import { addEvent, type Ledger } from "@finley/engine";')).toEqual([
       "addEvent",
+      "Ledger",
     ]);
-    expect(engineValueImports('export { withPayChange } from "@finley/engine";')).toEqual([
+    expect(engineImports('export { withPayChange } from "@finley/engine";')).toEqual([
       "withPayChange",
     ]);
-    expect(engineValueImports('import type { Plan } from "@finley/engine";')).toEqual([]);
+    expect(engineImports('import type { Plan, Job } from "@finley/engine";')).toEqual([
+      "Plan",
+      "Job",
+    ]);
+    // …and the facade scan reads both halves of its own module: what it declares, and what it
+    // re-exports through itself.
+    const facade = facadeExports(
+      'export class Projection {}\nexport type { Job } from "./job";\nexport { dollarsToCents } from "./cashFlowSeries";',
+    );
+    expect([...facade].sort()).toEqual(["Job", "Projection", "dollarsToCents"]);
     // Reading a partner's jobs is not writing them.
     expect(PARTNER_JOBS_REBUILD.test("for (const j of event.person.jobs) ids.add(j.id);")).toBe(
       false,

@@ -62,12 +62,33 @@ import { addEvent, fundingLookup } from "./ledger/addEvent";
 import type { FundingLookup } from "./ledger/addEvent";
 import { removeEvent } from "./ledger/removeEvent";
 import { updateEvent } from "./ledger/updateEvent";
-import { validateGoalRemoval } from "./goalFunding";
-import { projectScenarioParts } from "./retirementSolver";
+import { eventsFundedByGoal, validateGoalRemoval } from "./goalFunding";
+import {
+  evaluateFullRetirementAtAge,
+  projectScenarioParts,
+  solveRetirement,
+} from "./retirementSolver";
+import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import { summarizeSimulation } from "./projection/report";
 import type { SimulationReport } from "./projection/report";
 import type { Household } from "./ledger/household";
-import { createProjectionBase, firstInsolventMonth } from "./projectionBase";
+import {
+  buildPlanAccounts,
+  buildPlanGoals,
+  createProjectionBase,
+  firstInsolventMonth,
+  planAccountDescriptors,
+} from "./projectionBase";
+import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+import { buildSnapshot, membersAt } from "./projection/snapshot";
+import type { HouseholdSnapshot } from "./projection/snapshot";
+import { computeGoalProgress } from "./goal";
+import type { GoalProgress, SimGoal } from "./goal";
+import { assessDti, mortgagePaymentForPurchaseCents } from "./affordability";
+import type { DtiAssessment } from "./affordability";
+import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
+import type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+import type { Cents } from "./money";
 // Type-only: with the validation jurisdiction required, this module no longer names a fallback.
 import type { Jurisdiction } from "./jurisdiction";
 
@@ -204,6 +225,90 @@ export interface ProjectionResult {
   readonly household: Household;
   /** The debug panel / download view of this run — summarized off {@link series}, not a second pass. */
   readonly report: SimulationReport;
+
+  // Reads over this pass. Methods rather than more fields, because each is a question a
+  // caller asks about ONE month or ONE goal — computing all of them eagerly would price
+  // every run at the cost of every panel. They close over the artifacts above, so no
+  // caller has to hold `household` and `series` side by side to ask.
+
+  /** Household cross-section at `month` — who is present, what is owned, what is owed. */
+  readonly snapshot: (month: number) => HouseholdSnapshot;
+  /** Who is in the household at `month`; a partner joins and leaves on their own dates. */
+  readonly membersAt: (month: number) => Person[];
+  /**
+   * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
+   * Paired, because a row needs both and the two lists are index-aligned only by construction.
+   */
+  readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
+  /**
+   * The timeline events a goal's fund account pays for — what blocks its deletion, in
+   * timeline order.
+   */
+  readonly eventsFundedByGoal: (goalId: string) => readonly LifeEvent[];
+  /** The soft debt-to-income read on a purchase that has not been authored yet. */
+  readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
+}
+
+/** A purchase being *considered* — the same numbers a `buyHome` transaction would carry. */
+export interface HomePurchaseInput {
+  /** The month it would land; gross income and existing debt are read there. */
+  readonly month: number;
+  readonly purchasePriceCents: Cents;
+  readonly downPaymentCents: Cents;
+  /** Fractional annual rate (0.065), matching `HomePurchaseEvent.mortgageApr`. */
+  readonly apr: number;
+  readonly termMonths: number;
+}
+
+/**
+ * The soft guideline read, never a gate: authoring a home purchase is refused on funding, not
+ * on debt-to-income, so this classifies and the caller decides whether to say anything.
+ */
+export interface HomePurchaseAssessment {
+  readonly assessment: DtiAssessment;
+  /** The level monthly mortgage payment the purchase would add. */
+  readonly monthlyMortgageCents: Cents;
+  /** Gross monthly income the ratios are measured against (0 → nothing is flagged). */
+  readonly monthlyGrossCents: Cents;
+  /** True when either the front- or back-end guideline is exceeded. */
+  readonly exceeded: boolean;
+}
+
+/**
+ * Feed the guideline arithmetic the household's real numbers at the purchase month: gross
+ * income is every active income stream's rate, and the debt already being serviced is the
+ * projected month's scheduled liability payments — 0 where nothing is owed or the month sits
+ * past the horizon. Housing counts only the new mortgage; total debt counts it on top of the
+ * rest. With zero gross income {@link assessDti} flags nothing, so an unearning month cannot
+ * produce a divide-by-zero warning.
+ */
+function assessHomePurchase(
+  household: Household,
+  series: ProjectionSeries,
+  input: HomePurchaseInput,
+): HomePurchaseAssessment {
+  const monthlyMortgageCents = mortgagePaymentForPurchaseCents(
+    input.purchasePriceCents,
+    input.downPaymentCents,
+    input.apr,
+    input.termMonths,
+  );
+  const monthlyGrossCents = buildSnapshot(household, input.month, series).income.reduce(
+    (sum, s) => sum + s.monthlyCents,
+    0,
+  );
+  const existingDebtCents = series.months[input.month]?.flows?.liabilityPaymentsCents ?? 0;
+  const assessment = assessDti(
+    monthlyGrossCents,
+    monthlyMortgageCents,
+    existingDebtCents + monthlyMortgageCents,
+  );
+  return {
+    assessment,
+    monthlyMortgageCents,
+    monthlyGrossCents,
+    exceeded: assessment.frontEndExceeded || assessment.backEndExceeded,
+  };
 }
 
 export interface ProjectionInit {
@@ -1171,12 +1276,92 @@ export class Projection {
       { plan: s.scenario.plan, jurisdictionId: jurisdiction.id },
       jurisdiction,
     );
+    const plan = s.scenario.plan;
     return Object.freeze({
       jurisdictionId: jurisdiction.id,
       series,
       firstInsolventMonth: firstInsolventMonth(series),
       household,
       report,
+      snapshot: (month: number) => buildSnapshot(household, month, series),
+      membersAt: (month: number) => membersAt(household, month),
+      goalProgress: () => {
+        const accounts = buildPlanAccounts(plan);
+        return buildPlanGoals(plan).map((goal) => ({
+          goal,
+          progress: computeGoalProgress(goal, series, accounts),
+        }));
+      },
+      eventsFundedByGoal: (goalId: string) =>
+        eventsFundedByGoal(plan.goals, goalId, s.scenario.ledger),
+      assessHomePurchase: (input: HomePurchaseInput) =>
+        assessHomePurchase(household, series, input),
+    });
+  }
+
+  /**
+   * The accounts this plan implies, named and typed — the three standing ones plus a fund
+   * account per goal. Derived from the plan, so a goal added a moment ago already has one.
+   */
+  accountDescriptors(): readonly PlanAccountDescriptor[] {
+    return planAccountDescriptors(this.plan);
+  }
+
+  /**
+   * The context the retirement searches run in. Their own question, not {@link run}'s: each
+   * re-simulates the scenario at a *candidate* retirement age, so none of them can be answered
+   * off a completed pass.
+   */
+  private projectionContext(jurisdiction: Jurisdiction): ProjectionContext {
+    return { jurisdiction, startYear: this.state.startYear };
+  }
+
+  /**
+   * The earliest ages this household can retire — partial and full — or `null` where the
+   * money never lasts. Searched over the whole scenario, plan and timeline together, so an
+   * added child or a separation moves the answer.
+   */
+  solveRetirement(jurisdiction: Jurisdiction): RetirementSolution {
+    return solveRetirement(this.state.scenario, this.projectionContext(jurisdiction));
+  }
+
+  /**
+   * The same full-retirement question asked at ONE age — whether the plan survives it, and how
+   * far along it is. `nearestFeasibleAge` is deliberately absent: what to fall back to when an
+   * age fails is the caller's policy, not the search's finding.
+   */
+  evaluateRetirementAtAge(
+    age: number,
+    jurisdiction: Jurisdiction,
+  ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
+    return evaluateFullRetirementAtAge(
+      this.state.scenario,
+      age,
+      this.projectionContext(jurisdiction),
+    );
+  }
+
+  /**
+   * The pre-coverage health gap: retiring before the jurisdiction's public-coverage age with an
+   * authored health line under the self-funded benchmark. Priced in **today's dollars** — at
+   * the plan's own start year rather than indexed out to the retirement year — because the
+   * authored line it is compared against is today's-dollars too, and pitting a nominal cost
+   * against a real budget would flag every plan. Never fires at or after the coverage age.
+   *
+   * A jurisdiction naming no coverage age has no gap window at all, so the flag stays quiet
+   * rather than treating "unknown" as "never covered".
+   */
+  earlyRetireeHealth(jurisdiction: Jurisdiction): EarlyRetireeHealthFlag {
+    const plan = this.plan;
+    return assessEarlyRetireeHealthCost({
+      retirementAge: plan.retirementAge,
+      publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
+      authoredHealthMonthlyCents: plan.healthMonthlyCents,
+      selfFundedBenchmarkMonthlyCents:
+        jurisdiction.healthCostBenchmarkMonthlyCents?.({
+          age: plan.retirementAge,
+          year: this.state.startYear,
+        }) ?? 0,
     });
   }
 
@@ -1231,3 +1416,82 @@ export class Projection {
     return new Projection(withNormalizedCounters(state), jurisdiction);
   }
 }
+
+// ---------------------------------------------------------------------------
+// The facade's vocabulary
+// ---------------------------------------------------------------------------
+//
+// What an application may name. `Projection` is the whole authoring surface and the whole
+// read surface over authored state, but a caller still has to spell the types its methods
+// take and return, quote a well-known id, and turn a number a user typed into cents. Those
+// are re-exported here so that ONE module states an app's entire dependency on the engine —
+// and so adding to it is a deliberate edit with a reason beside it.
+//
+// The line, drawn once: anything that reads the household, the run series, or the plan and
+// ledger as a whole is a METHOD above. What appears below is total over values the caller
+// already holds — a `Job`, a list of budget lines, a dollar amount — or is a constant.
+//
+// Nothing that WRITES appears here, and nothing that writes may be added. The authoring
+// transforms (`withPayChange`, `withGoalPatch`, `addEvent`, `updateEvent`, …) stay on the
+// functional barrel, where the engine's own internals and its tests reach them. An app that
+// could import one would have a second write path around the id counter, the goal-funding
+// guard and the affordability gate — which is the arrangement this module exists to replace.
+
+// The authored model, and the artifacts a run produces.
+export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan";
+export type {
+  Job,
+  JobPatch,
+  JobDeferral,
+  JobIncomeOverride,
+  JobPayChange,
+  PersonId,
+  SalaryTrajectory,
+} from "./job";
+export type { Person } from "./person";
+export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
+export type {
+  BudgetLine,
+  BudgetLinePatch,
+  BudgetLineOverride,
+  BudgetCategory,
+  TaxTreatment,
+} from "./budgetLine";
+export type { Scenario } from "./scenario";
+export type { Ledger } from "./ledger/ledger";
+export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export type { Household } from "./ledger/household";
+export type { FundingLookup } from "./ledger/addEvent";
+export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
+export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
+export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type { SharedContributionScheme } from "./projection/waterfall.types";
+export type { SpendingItem } from "./projection/spendingItems";
+export type { SimulationReport } from "./projection/report";
+export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+export type { DtiAssessment } from "./affordability";
+export type { LiabilityKind } from "./liability";
+export type { Jurisdiction } from "./jurisdiction";
+export type { Cents } from "./money";
+
+// Money as the user types it. Neither reads nor writes anything — a form has cents to hand
+// the facade before there is any state for the facade to hold.
+export { dollarsToCents, centsToDollars } from "./cashFlowSeries";
+
+// Reads over one value the caller already has. Each is the read counterpart of a `Projection`
+// setter (`setJobMonthlyIncome`, `setJobDeferralFraction`), so a panel showing what it is
+// about to change and the write that changes it agree by construction.
+export { monthlyIncomeCentsOf, deferralFractionOf } from "./job";
+export { liabilityKindLabel } from "./liability";
+// Resolves the lines it is GIVEN, which is why it is here and not a method: a month-by-month
+// editor previews a working list that has not been authored yet.
+export { compileExpenseBudgetLines } from "./compileBudget";
+
+// Ids and thresholds the engine owns and an app has to quote back: the primary person, the
+// standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
+export { RETIREMENT_ID } from "./ids";
+export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
+export { SYNTHETIC_CARD_ID } from "./liability";
+export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";

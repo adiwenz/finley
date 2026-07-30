@@ -5,6 +5,7 @@ import {
   planSurvives,
   solveRetirement,
   scenarioOf,
+  Projection,
   createProjectionBase,
   addEvent,
   emptyLedger,
@@ -27,7 +28,7 @@ const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_
 
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
-  return retirementView(scenarioOf(plan));
+  return retirementView(Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction));
 }
 
 function survivesAt(budget: Plan, age: number): boolean {
@@ -229,7 +230,9 @@ describe("retirementView — the timeline events count toward retirement", () =>
     if (!added.ok) return;
 
     const baselineAge = viewOf(plan).headlineAge;
-    const withChildAge = retirementView({ plan, ledger: added.ledger }).headlineAge;
+    const withChildAge = retirementView(
+      Projection.fromScenario({ plan, ledger: added.ledger }, START_YEAR, usJurisdiction),
+    ).headlineAge;
     // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
     // so the down-payment fund counts toward the nest egg.
     expect(baselineAge).toBe(60);

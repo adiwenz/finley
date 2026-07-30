@@ -80,13 +80,32 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   priority IS the list order, so "move the first goal up" is a caller believing it changed the
   funding order when it did not. The Goals panel disables the control there instead of clicking
   into a refusal, which a test now pins.
-- **The app imports no engine function that writes.** `Projection` is the whole authoring
-  surface; everything else the app takes from `@finley/engine` either derives something from a
-  scenario, converts a unit, or is a constant. The per-job adjustments (`addJobPayChange`,
-  `addJobIncomeOverride`, `setJobMonthlyIncome`, …) are owner-aware for this: a job id is unique
-  across the household, so "give job-3 a raise" has one answer and the caller does not have to
-  know which plane job-3 is on to ask for it. That retired `jobEditing.reviseJob` and the
-  `withPayChange` / `withIncomeOverride` re-exports the panels applied themselves.
+- **The app names nothing from the engine that `projectionRoot.ts` does not export.** One module
+  now states the app's entire dependency on the engine — values and types alike — and the guard
+  is checked against that module's own text rather than a list kept in the test. The line: a
+  question about the household, the run, or the plan and ledger as a whole is a METHOD; what the
+  facade re-exports is total over a value the caller already holds (a `Job`, a list of budget
+  lines, a dollar amount) or is a constant. Twenty read functions became methods, taking the
+  app's engine imports from 33 values to 13. Nothing that writes is exported there, which is
+  what makes the rule enough on its own — asserted directly, so a facade that quietly re-exported
+  `withPayChange` would fail.
+  - On `Projection`: `accountDescriptors`, `solveRetirement`, `evaluateRetirementAtAge`,
+    `earlyRetireeHealth`.
+  - On `ProjectionResult`, closing over the pass already in hand rather than provoking another:
+    `snapshot`, `membersAt`, `goalProgress`, `eventsFundedByGoal`, `assessHomePurchase`.
+  - The per-job adjustments (`addJobPayChange`, `addJobIncomeOverride`, `setJobMonthlyIncome`, …)
+    are owner-aware: a job id is unique across the household, so "give job-3 a raise" has one
+    answer and the caller does not have to know which plane job-3 is on to ask for it. That
+    retired `jobEditing.reviseJob` and the `withPayChange` / `withIncomeOverride` re-exports the
+    panels applied themselves.
+- **A raise is authored where the job is.** The Jobs panel lists a job's permanent pay changes,
+  so it now adds and removes them too — "Change pay" on any row, dated in the OWNER'S age like
+  every other date in that panel. Looking for a raise anywhere else means knowing in advance
+  which month it lands in. Base + Adjustments still authors the same `JobPayChange` from the
+  other direction (a month is already selected there) and remains the only place a single-month
+  perturbation — a bonus, a missed paycheck — can be authored, because that belongs to a month
+  rather than to the employment. The headline stays the *starting* salary, qualified with "to
+  start" once a change exists, so the two never contradict each other.
 - **Job writes are intents, routed per plane, facade methods on both.** `jobEditing` returns
   `add` / `replace` / `remove` rather than a `(jobs) => jobs` transform, because the write
   authority is the facade and a list callback had nowhere to be applied that wasn't the app

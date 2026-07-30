@@ -2210,3 +2210,206 @@ describe("Projection root — authoring validates against the construction-time 
     expect(p.run(mockJurisdiction()).jurisdictionId).toBe("mock");
   });
 });
+
+// ── Reads ────────────────────────────────────────────────────────────────────
+//
+// The facade answers questions about a household as well as authoring one. Two homes, split
+// by what each needs: a question about the plan as authored is a `Projection` method, while
+// one that needs the simulated future rides the `ProjectionResult` a `run` produced — asked
+// off the pass already in hand rather than provoking another.
+
+describe("Projection reads — over authored state", () => {
+  it("names an account per goal beside the standing three, as goals are added", () => {
+    const p = freshProjection();
+    const before = p.accountDescriptors();
+    const goalId = p.addGoal({
+      name: "Car",
+      targetCents: dollarsToCents(30000),
+      targetDate: 36,
+      disposition: "retain",
+      annualReturnPct: 3,
+    });
+    const added = p
+      .accountDescriptors()
+      .filter((d) => !before.some((b) => b.id === d.id));
+    const goal = p.plan.goals.find((g) => g.id === goalId)!;
+    expect(added).toEqual([{ id: goalFundAccountId(goal), label: "Car", kind: "goal" }]);
+  });
+
+  it("flags a health gap only when retirement lands before the coverage age", () => {
+    // Retiring at 60 with $600/mo authored against a $1,000/mo benchmark: a 5-year gap.
+    const covered = mockJurisdiction({
+      publicHealthCoverageAge: 65,
+      healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
+    });
+    const early = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    const flag = early.earlyRetireeHealth(covered);
+    expect(flag.gapYears).toBe(5);
+    expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
+
+    // Retiring at the coverage age closes the window, whatever the authored line says.
+    const onTime = Projection.create(
+      { plan: { ...samplePlan, retirementAge: 65 }, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    expect(onTime.earlyRetireeHealth(covered).gapYears).toBe(0);
+
+    // A jurisdiction naming no coverage age has no window to be early for.
+    expect(early.earlyRetireeHealth(nullJurisdiction).gapYears).toBe(0);
+  });
+
+  it("evaluates the age it was asked about, against the whole scenario", () => {
+    const p = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    expect(p.evaluateRetirementAtAge(62, nullJurisdiction).retirementAge).toBe(62);
+    // The solution's own ages are drawn from the same search, so a feasible pin is never
+    // earlier than the earliest age the search found.
+    const solution = p.solveRetirement(nullJurisdiction);
+    if (solution.fullRetirementAge !== null) {
+      expect(p.evaluateRetirementAtAge(solution.fullRetirementAge, nullJurisdiction).feasible).toBe(
+        true,
+      );
+    }
+  });
+});
+
+describe("ProjectionResult reads — over one run", () => {
+  const RUN_JURISDICTION = nullJurisdiction;
+
+  function ranPlan(plan: typeof samplePlan) {
+    return Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).run(
+      RUN_JURISDICTION,
+    );
+  }
+
+  it("reports who is in the household at a month, and only from the month they joined", () => {
+    const p = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38 });
+    const result = p.run(RUN_JURISDICTION);
+    expect(result.membersAt(0).map((m) => m.id)).toEqual(["p1"]);
+    expect(result.membersAt(24).map((m) => m.name)).toContain("Sam");
+    // The snapshot roster reads the same membership, so the two cannot disagree.
+    expect(result.snapshot(24).persons.map((m) => m.id)).toEqual(
+      result.membersAt(24).map((m) => m.id),
+    );
+  });
+
+  it("scores every plan goal against the run, in funding order", () => {
+    const result = ranPlan(samplePlan);
+    const scored = result.goalProgress();
+    expect(scored.map((s) => s.goal.id)).toEqual(["emergency"]);
+    expect(scored[0].goal.priority).toBe(0);
+    expect(scored[0].progress.onTrackFraction).toBeGreaterThan(0);
+  });
+
+  it("names the events a goal's fund account pays for, and nothing else", () => {
+    const p = Projection.create(
+      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    );
+    const fundId = goalFundAccountId(samplePlan.goals[0]);
+    const homeId = p.buyHome({
+      month: 12,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(100000),
+      downPaymentCents: dollarsToCents(10000),
+      downPaymentSourceIds: [fundId],
+      mortgageApr: 0.05,
+      mortgageTermMonths: 360,
+    });
+    const result = p.run(RUN_JURISDICTION);
+    expect(result.eventsFundedByGoal("emergency").map((e) => e.id)).toEqual([homeId]);
+    expect(result.eventsFundedByGoal("no-such-goal")).toEqual([]);
+  });
+});
+
+/**
+ * The soft debt-to-income read on a purchase nobody has authored yet. The threshold
+ * arithmetic is `affordability`'s; these pin the DERIVATION — that the household's real gross
+ * income and its already-serviced debt are what the guidelines are measured against.
+ */
+describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
+  const purchase = {
+    month: 0,
+    purchasePriceCents: dollarsToCents(300000),
+    downPaymentCents: dollarsToCents(60000),
+    apr: 0.065,
+    termMonths: 360,
+  };
+
+  const ranWith = (monthlyIncomeCents: number) =>
+    Projection.create(
+      {
+        plan: { ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    ).run(nullJurisdiction);
+
+  it("flags a purchase that pushes housing past the front-end guideline", () => {
+    // ~$1,517/mo of mortgage against $5,000/mo gross is over 28%.
+    const dti = ranWith(dollarsToCents(5000)).assessHomePurchase(purchase);
+    expect(dti.monthlyGrossCents).toBe(dollarsToCents(5000));
+    expect(dti.assessment.frontEndExceeded).toBe(true);
+    expect(dti.exceeded).toBe(true);
+  });
+
+  it("stays quiet when the same mortgage is small against the income", () => {
+    const dti = ranWith(dollarsToCents(20000)).assessHomePurchase(purchase);
+    expect(dti.assessment.frontEndExceeded).toBe(false);
+    expect(dti.assessment.backEndExceeded).toBe(false);
+    expect(dti.exceeded).toBe(false);
+  });
+
+  it("quotes the mortgage the purchase would add, financed on the balance after the deposit", () => {
+    const dti = ranWith(dollarsToCents(5000)).assessHomePurchase(purchase);
+    // $240,000 at 6.5% over 30 years — around $1,500/mo.
+    expect(dti.monthlyMortgageCents).toBeGreaterThan(dollarsToCents(1400));
+    expect(dti.monthlyMortgageCents).toBeLessThan(dollarsToCents(1600));
+  });
+
+  it("flags nothing at zero gross income rather than dividing by it", () => {
+    const dti = Projection.create(
+      { plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR },
+      nullJurisdiction,
+    )
+      .run(nullJurisdiction)
+      .assessHomePurchase(purchase);
+    expect(dti.monthlyGrossCents).toBe(0);
+    expect(dti.assessment.frontEndRatio).toBe(0);
+    expect(dti.exceeded).toBe(false);
+  });
+
+  it("counts debt already being serviced toward the back-end ratio", () => {
+    const p = Projection.create(
+      {
+        plan: { ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+    // Read a year in, where the loan taken at month 0 is being serviced.
+    const later = { ...purchase, month: 12 };
+    const clean = p.run(nullJurisdiction).assessHomePurchase(later);
+    p.takeLoan({
+      month: 0,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(60000),
+      apr: 6,
+      termMonths: 60,
+    });
+    const withLoan = p.run(nullJurisdiction).assessHomePurchase(later);
+    // Housing is unchanged — the loan is not a mortgage — but total debt is not.
+    expect(withLoan.assessment.frontEndRatio).toBeCloseTo(clean.assessment.frontEndRatio, 5);
+    expect(withLoan.assessment.backEndRatio).toBeGreaterThan(clean.assessment.backEndRatio);
+  });
+});

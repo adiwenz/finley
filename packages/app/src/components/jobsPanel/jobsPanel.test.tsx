@@ -545,6 +545,84 @@ describe("JobsPanel — permanent pay changes", () => {
   });
 });
 
+describe("JobsPanel — authoring a raise", () => {
+  /** Open the disclosed form on a job, by the label its row carries. */
+  function openPayChange(label: string) {
+    fireEvent.click(screen.getByRole("button", { name: `Change pay on ${label}` }));
+  }
+
+  const applyPayChange = (kind: "setTo" | "changeBy", age: number, dollars: number) => {
+    fireEvent.change(screen.getByRole("combobox", { name: /Pay change kind/i }), {
+      target: { value: kind },
+    });
+    fireEvent.change(spin(/From age/i), { target: { value: String(age) } });
+    fireEvent.change(spin(/Amount/i), { target: { value: String(dollars) } });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+  };
+
+  it("dates a raise by the owner's age and lists it back", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 45, 8000);
+
+    // Authored at age 45 with the owner 35 now → month 120, read back as age 45.
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 120, kind: "setTo", cents: dollarsToCents(8000) },
+    ]);
+    const row = screen.getByLabelText("Job 1");
+    expect(within(row).getByText(/Pay set to \$8,000\/mo from age 45/)).toBeTruthy();
+    // The headline is the STARTING salary, now qualified because a change exists.
+    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+  });
+
+  it("authors a cut as a negative delta", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("changeBy", 40, -500);
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
+    ]);
+    expect(screen.getByText(/Pay cut \$500\/mo from age 40/)).toBeTruthy();
+  });
+
+  it("writes a partner's raise to the event carrying their job, not the plan", () => {
+    render(<Harness events={[partnerJoining([partnerJob(4_000)])]} />);
+    openPayChange("Sam · Job 1");
+    applyPayChange("setTo", 50, 6000);
+
+    // The partner is 40 now, so age 50 is month 120 — read against THEIR birth year.
+    expect(partnerJobs()[0].payChanges).toEqual([
+      { month: 120, kind: "setTo", cents: dollarsToCents(6000) },
+    ]);
+    // Nothing landed on the plan plane.
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+  });
+
+  it("cannot date a change before now — the form floors it at month 0", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 20, 7000);
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 0, kind: "setTo", cents: dollarsToCents(7000) },
+    ]);
+  });
+
+  it("closes without writing when cancelled", () => {
+    render(<Harness />);
+    openPayChange("Job 1");
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+    expect(screen.queryByRole("group", { name: /Pay change/i })).toBeNull();
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+  });
+
+  it("leaves the plan untouched when the facade refuses the write", () => {
+    render(<Harness rejectRevisions />);
+    openPayChange("Job 1");
+    applyPayChange("setTo", 45, 8000);
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+  });
+});
+
 describe("JobsPanel — 401(k) elective-limit nudge", () => {
   /** A partner joining with one job that defers `pct` of `monthlyDollars`. */
   const partnerDeferring = (monthlyDollars: number, pct: number): NewLifeEvent =>

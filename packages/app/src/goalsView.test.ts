@@ -1,15 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   emptyLedger,
-  replayLedger,
-  dollarsToCents,
   nullJurisdiction,
-  createProjectionBase,
+  dollarsToCents,
   withGoalReordered,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { monthLabel } from "./format";
+import { runOf } from "./testing/projectionHarness";
 import {
   goalRows,
   dispositionLabel,
@@ -17,8 +15,15 @@ import {
   goalFundingBlocks,
   fundingBlockMessage,
 } from "./goalsView";
-import { goalFundAccountId } from "@finley/engine";
-import type { Plan, GoalPlan, Ledger, LifeEvent } from "@finley/engine";
+import {
+  goalFundAccountId,
+} from "@finley/engine";
+import type {
+  Plan,
+  GoalPlan,
+  Ledger,
+  LifeEvent,
+} from "@finley/engine";
 
 const baseBudget: Plan = {
   name: "Alex",
@@ -78,18 +83,13 @@ const goalB: GoalPlan = {
   annualReturnPct: 0,
 };
 
-function project(budget: Plan) {
-  return replayLedger(
-    emptyLedger,
-    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
-    nullJurisdiction,
-  );
-}
+/** The surplus these rows are scored against is stated, not withheld — see {@link runOf}. */
+const taxFreeRun = (plan: Plan) => runOf(plan, emptyLedger, nullJurisdiction);
 
 describe("goalRows — projection-based on-track %", () => {
   it("scores each goal by projected fund at target ÷ target, not saved-so-far", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     // $1,500/mo surplus, all to priority-0 Goal A. months[12] is the end of month 12, so 13
     // processed months (0–12) have funded it — now that month 0 saves — → $19,500 of $30,000.
     expect(rows[0]).toMatchObject({ id: "a", priority: 0, onTrackPct: 65 });
@@ -100,7 +100,7 @@ describe("goalRows — projection-based on-track %", () => {
   it("reprioritizing visibly moves the OTHER goal's number (tradeoff)", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
     const reordered = { ...budget, goals: withGoalReordered(budget.goals, "b", "up") };
-    const rows = goalRows(reordered, project(reordered));
+    const rows = goalRows(reordered, taxFreeRun(reordered));
     // Now B is funded first: it takes the 65%, and A drops to 0.
     expect(rows.find((r) => r.id === "b")?.onTrackPct).toBe(65);
     expect(rows.find((r) => r.id === "a")?.onTrackPct).toBe(0);
@@ -119,20 +119,20 @@ describe("goalRows — projection-based on-track %", () => {
       annualReturnPct: 10,
     };
     const budget = { ...baseBudget, goals: [smallGoal] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].onTrackPct).toBe(100);
   });
 
   it("flags a near-term goal accumulating in an equity-like account", () => {
     // A 7% return account + a 12-month horizon is exactly the risk v1 can't model.
     const budget = { ...baseBudget, goals: [{ ...goalA, annualReturnPct: 7 }] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].shortHorizonRiskFlag).toBe(true);
   });
 
   it("does NOT flag the same goal in a low-return account", () => {
     const budget = { ...baseBudget, goals: [{ ...goalA, annualReturnPct: 1 }] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].shortHorizonRiskFlag).toBe(false);
   });
 });
@@ -149,7 +149,7 @@ describe("goalRows — surfaces derived completion (In Progress → Funded) and 
       annualReturnPct: 0,
     };
     const budget = { ...baseBudget, goals: [funded] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].completion).toBe("funded");
     // A funded goal is by definition not behind pace.
     expect(rows[0].behindPace).toBe(false);
@@ -158,7 +158,7 @@ describe("goalRows — surfaces derived completion (In Progress → Funded) and 
   it("marks an underfunded goal In Progress and behind pace (onTrackFraction < 1)", () => {
     // $30,000 by month 12 off a $1,500/mo surplus → only 60% funded in time.
     const budget = { ...baseBudget, goals: [goalA] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].completion).toBe("inProgress");
     expect(rows[0].behindPace).toBe(true);
   });
@@ -169,7 +169,7 @@ describe("goalRows — surfaces each goal's disposition", () => {
     // What BECOMES of a goal's money at target must be explicit.
     const nestEggGoal: GoalPlan = { ...goalA, id: "nest", disposition: "drawDown" };
     const budget = { ...baseBudget, goals: [nestEggGoal] };
-    const rows = goalRows(budget, project(budget));
+    const rows = goalRows(budget, taxFreeRun(budget));
     expect(rows[0].disposition).toBe("drawDown");
     expect(rows[0].dispositionLabel).toBe("Drawn down over time");
   });
@@ -228,30 +228,42 @@ function ledgerOf(...events: LifeEvent[]): Ledger {
   return { events, nextSequenceNumber: events.length };
 }
 
+/**
+ * Which events block a goal is asked of a completed run, so the fixture states the goals and
+ * the timeline and lets the facade pair them — the same route the panel takes.
+ */
+function blocksFor(goals: readonly GoalPlan[], id: string, ledger: Ledger) {
+  return goalFundingBlocks(runOf({ ...baseBudget, goals }, ledger), id);
+}
+
 describe("goalFundingBlocks — events naming a goal's fund account as a funding source", () => {
   it("names the event blocking a goal whose fund account it draws from", () => {
     // The home purchase at month 72 funds its down payment from Goal A's derived account.
     const buy = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
-    const blocks = goalFundingBlocks([goalA, goalB], "a", ledgerOf(buy));
+    const blocks = blocksFor([goalA, goalB], "a", ledgerOf(buy));
     expect(blocks).toEqual([{ eventId: "buy1", label: "Bought a home", month: 72 }]);
   });
 
   it("returns nothing when no event references the goal's fund account", () => {
     const buy = homePurchase("buy1", 72, 0, ["savings"]);
-    expect(goalFundingBlocks([goalA, goalB], "a", ledgerOf(buy))).toEqual([]);
+    expect(blocksFor([goalA, goalB], "a", ledgerOf(buy))).toEqual([]);
   });
 
   it("unblocks once the referencing event is removed from the ledger", () => {
-    const referenced = goalFundingBlocks([goalA], "a", ledgerOf(homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)])));
+    const referenced = blocksFor(
+      [goalA],
+      "a",
+      ledgerOf(homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)])),
+    );
     expect(referenced).toHaveLength(1);
     // The event gone from the log, nothing points at the fund account any more.
-    expect(goalFundingBlocks([goalA], "a", emptyLedger)).toEqual([]);
+    expect(blocksFor([goalA], "a", emptyLedger)).toEqual([]);
   });
 
   it("lists every blocking event, sorted by (month, sequence)", () => {
     const later = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
     const earlier = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
-    const blocks = goalFundingBlocks([goalA], "a", ledgerOf(later, earlier));
+    const blocks = blocksFor([goalA], "a", ledgerOf(later, earlier));
     expect(blocks).toEqual([
       { eventId: "buy1", label: "Bought a home", month: 72 },
       { eventId: "buy2", label: "Bought a home", month: 90 },
@@ -260,17 +272,17 @@ describe("goalFundingBlocks — events naming a goal's fund account as a funding
 });
 
 describe("fundingBlockMessage — the refuse-to-delete text", () => {
-  const blocksFor = (goals: readonly GoalPlan[], id: string, ledger: Ledger) =>
-    fundingBlockMessage(goalFundingBlocks(goals, id, ledger));
+  const messageFor = (goals: readonly GoalPlan[], id: string, ledger: Ledger) =>
+    fundingBlockMessage(blocksFor(goals, id, ledger));
 
   it("is null when the goal's fund account is unreferenced (deletion may proceed)", () => {
     const buy = homePurchase("buy1", 72, 0, ["savings"]);
-    expect(blocksFor([goalA], "a", ledgerOf(buy))).toBeNull();
+    expect(messageFor([goalA], "a", ledgerOf(buy))).toBeNull();
   });
 
   it("names each blocking event by label and month", () => {
     const buy = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
-    expect(blocksFor([goalA], "a", ledgerOf(buy))).toBe(
+    expect(messageFor([goalA], "a", ledgerOf(buy))).toBe(
       `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(72)}`,
     );
   });
@@ -278,7 +290,7 @@ describe("fundingBlockMessage — the refuse-to-delete text", () => {
   it("names a narrowed set of blockers — the panel formats one refusal's own", () => {
     const early = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
     const late = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
-    const blocks = goalFundingBlocks([goalA], "a", ledgerOf(early, late));
+    const blocks = blocksFor([goalA], "a", ledgerOf(early, late));
     expect(fundingBlockMessage(blocks.filter((b) => b.eventId === "buy2"))).toBe(
       `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(90)}`,
     );

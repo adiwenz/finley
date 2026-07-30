@@ -1,27 +1,20 @@
 /** Snapshot panel — the household cross-section at the scrubbed month. */
 
-import {
-  buildSnapshot,
-  type Ledger,
-  type ProjectionSeries,
-  type Household,
-} from "@finley/engine";
+import type { Ledger, ProjectionResult } from "@finley/engine";
 import { formatDollars, monthLabel } from "../../format";
 import { seriesLabel, splitMarkers } from "../../ledgerView";
 import styles from "./snapshotPanel.module.css";
 
 export function SnapshotPanel({
   ledger,
-  household,
-  series,
+  result,
   month,
 }: {
   ledger: Ledger;
-  household: Household;
-  series: ProjectionSeries;
+  result: ProjectionResult;
   month: number;
 }) {
-  const snap = buildSnapshot(household, month, series);
+  const snap = result.snapshot(month);
   const { passed, upcoming } = splitMarkers(ledger, month);
 
   return (

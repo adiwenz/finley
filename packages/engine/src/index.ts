@@ -119,6 +119,8 @@ export type {
   TakeLoanInput,
   BuyHomeInput,
   PayOffDebtInput,
+  HomePurchaseInput,
+  HomePurchaseAssessment,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped

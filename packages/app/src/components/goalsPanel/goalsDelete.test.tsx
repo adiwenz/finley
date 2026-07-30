@@ -9,18 +9,19 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   emptyLedger,
-  replayLedger,
   dollarsToCents,
-  nullJurisdiction,
-  createProjectionBase,
   goalFundAccountId,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "../../config";
 import { monthLabel } from "../../format";
 import { GoalsPanel } from "./goalsPanel";
+import { runOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type { Plan, GoalPlan, Ledger, LifeEvent } from "@finley/engine";
+import type {
+  Plan,
+  GoalPlan,
+  Ledger,
+  LifeEvent,
+} from "@finley/engine";
 
 afterEach(cleanup);
 
@@ -58,14 +59,6 @@ const ledgerOf = (...events: readonly LifeEvent[]): Ledger => ({
   nextSequenceNumber: events.length + 1,
 });
 
-function project(budget: Plan) {
-  return replayLedger(
-    emptyLedger,
-    createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
-    nullJurisdiction,
-  );
-}
-
 /**
  * The panel with a spying `transact`. The refusal under test is the panel's own — it reads
  * the blockers so it can name them — so what these pin is that no transaction is even
@@ -74,9 +67,8 @@ function project(budget: Plan) {
  */
 function renderPanel(ledger: Ledger, transact = vi.fn()) {
   const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
-  const series = project(budget);
   const panel = (l: Ledger) => (
-    <GoalsPanel budget={budget} series={series} transact={transact} ledger={l} />
+    <GoalsPanel budget={budget} result={runOf(budget, l)} transact={transact} />
   );
   const { rerender } = render(panel(ledger));
   // The ledger is the only prop under test, so re-rendering means handing over a new one —
