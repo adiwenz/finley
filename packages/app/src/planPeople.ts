@@ -141,8 +141,8 @@ export function jobToDraft(plan: Plan, job: Job): JobDraft {
  * later. `birthYear` is the **owner named by the draft**, so reassigning a job re-reads
  * its ages against the new owner's clock.
  *
- * An edit must never round-trip through {@link buildJobFromDraft}: a draft is a
- * projection of a job, so minting one silently drops the rest.
+ * An edit must never round-trip through {@link jobInputFromDraft}: a draft is a
+ * projection of a job, so building one afresh silently drops the rest.
  */
 export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job {
   const name = draft.name.trim();
@@ -176,16 +176,20 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
 }
 
 /**
- * Build a {@link Job} from a draft (ages → years, % → fraction); `birthYear` is the
- * draft owner's. For an *existing* job use {@link applyJobDraft} — this mints a new one
- * and carries only what a draft holds.
+ * A draft as a {@link JobInput} (ages → years, % → fraction) — the shape every job-creating
+ * facade write takes (`Projection.marry`, `Projection.addJob`, `Projection.addPartnerJob`).
+ *
+ * There is no `id` here and no way to supply one: the facade mints it, and it stamps the
+ * `ownerId` onto whichever person the job lands on. `birthYear` is that person's, resolving
+ * the draft's ages against their own clock.
+ *
+ * For an *existing* job use {@link applyJobDraft}: this builds a new one, carrying only what a
+ * draft holds.
  */
-export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft): Job {
+export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
   const name = draft.name.trim();
-  const base: Job = {
-    id,
+  const base: JobInput = {
     ...(name ? { name } : {}),
-    ownerId: draft.ownerId,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: { startingSalaryCents: draft.monthlyCents * 12, realGrowthPct: draft.realGrowthPct },
@@ -193,17 +197,6 @@ export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft
   return draft.deferralPct > 0
     ? { ...base, deferral: { deferralFraction: draft.deferralPct / 100, fundAccountId: RETIREMENT_ID } }
     : base;
-}
-
-/**
- * A draft as a {@link JobInput} — the shape every job-creating facade write takes
- * (`Projection.marry`, `Projection.addJob`). Neither `id` nor `ownerId` is supplied: the
- * facade mints the one and stamps the other onto whichever person the job lands on.
- * `birthYear` is that person's, resolving the draft's ages against their own clock.
- */
-export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
-  const { id: _id, ownerId: _ownerId, ...rest } = buildJobFromDraft("", birthYear, draft);
-  return rest;
 }
 
 // ── The one-job transforms ──

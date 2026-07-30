@@ -500,22 +500,24 @@ export class Projection {
    * setter routes through here, so each is the transform's name and nothing else.
    */
   private editJob(id: string, f: (job: Job) => Job): void {
-    const plan = this.planJobSite(id);
+    const plan = this.planSite("jobs", id);
     this.commitPlan({ ...plan, jobs: mapJob(plan.jobs, id, f) });
   }
 
   /**
-   * The plan, once it is known to hold `id` — or a refusal naming the id.
+   * The plan, once it is known to hold `id` in `collection` — or a refusal naming the id.
    *
-   * An edit aimed at a job that is not there is a caller error, not a smaller edit: it means
-   * the id came from somewhere that no longer agrees with this state, and the write the caller
-   * believes it made has not happened. Both planes answer the same way ({@link partnerJobSite}
-   * for a partner's), so a caller never has to know which one refused it in order to handle it.
+   * An edit aimed at something that is not there is a caller error, not a smaller edit: the id
+   * came from somewhere that no longer agrees with this state, so the write the caller believes
+   * it made has not happened. One contract across every authored collection and both planes
+   * ({@link partnerJobSite} for a partner's jobs), so a caller never has to know which kind of
+   * thing it asked for in order to handle the answer.
    */
-  private planJobSite(id: string): Plan {
+  private planSite(collection: "jobs" | "goals" | "budgetLines", id: string): Plan {
     const plan = this.state.scenario.plan;
-    if (!plan.jobs.some((j) => j.id === id)) {
-      throw new Error(`Projection: cannot edit a job — no job "${id}" on this plan`);
+    const noun = collection === "budgetLines" ? "budget line" : collection.slice(0, -1);
+    if (!plan[collection].some((entry: { id: string }) => entry.id === id)) {
+      throw new Error(`Projection: cannot edit a ${noun} — no ${noun} "${id}" on this plan`);
     }
     return plan;
   }
@@ -578,7 +580,7 @@ export class Projection {
    * not hold.
    */
   removeJob(id: string): void {
-    const plan = this.planJobSite(id);
+    const plan = this.planSite("jobs", id);
     this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
   }
 
@@ -605,7 +607,7 @@ export class Projection {
   }
 
   /** The event and job for a partner-owned job id, or a refusal naming the id — see
-   * {@link planJobSite} for why an id that is not there is refused rather than skipped. */
+   * {@link planSite} for why an id that is not there is refused rather than skipped. */
   private partnerJobSite(jobId: string): { event: RelationshipEvent; job: Job } {
     for (const event of this.state.scenario.ledger.events) {
       if (event.type !== "RelationshipEvent") continue;
@@ -770,9 +772,12 @@ export class Projection {
     return id;
   }
 
-  /** See {@link withLinePatch} — span, dated overrides and priority carry through. */
+  /**
+   * See {@link withLinePatch} — span, dated overrides and priority carry through. Refused for
+   * an id the plan does not hold.
+   */
   updateBudgetLine(id: string, patch: BudgetLinePatch): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("budgetLines", id);
     this.commitPlan({ ...plan, budgetLines: withLinePatch(plan.budgetLines, id, patch) });
   }
 
@@ -787,16 +792,16 @@ export class Projection {
    * exists to keep out of callers.
    */
   addBudgetLineOverride(lineId: string, override: BudgetLineOverride): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("budgetLines", lineId);
     this.commitPlan({ ...plan, budgetLines: withLineOverride(plan.budgetLines, lineId, override) });
   }
 
   /**
-   * Drop a budget line. No guard: a line derives no account an event can reference. Removing
-   * an id that is not a line is a no-op.
+   * Drop a budget line. Nothing to guard beyond its existence: a line derives no account an
+   * event can reference, so no ledger reference can dangle.
    */
   removeBudgetLine(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("budgetLines", id);
     this.commitPlan({ ...plan, budgetLines: withoutLine(plan.budgetLines, id) });
   }
 
@@ -814,10 +819,10 @@ export class Projection {
   /**
    * See {@link withGoalPatch}. Editing keeps the `id`, so the `goal-<id>` fund account is
    * stable and no funding reference can dangle — which is why, unlike {@link removeGoal}, this
-   * needs no guard.
+   * needs no funding guard. Refused for an id the plan does not hold.
    */
   updateGoal(id: string, patch: GoalPatch): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
     this.commitPlan({ ...plan, goals: withGoalPatch(plan.goals, id, patch) });
   }
 
@@ -827,11 +832,12 @@ export class Projection {
    * reference the ledger keeps, so the removal is a no-op and this throws with the state
    * untouched — the same contract {@link commitEvent} gives a refused transaction.
    *
-   * Removing a goal that no event funds, or an id that is not a goal, is a plain no-op-safe
-   * plan swap. Callers wanting to ask before acting call {@link validateGoalRemoval}.
+   * Removing a goal that no event funds is a plain plan swap; an id the plan does not hold is
+   * refused like any other edit. Callers wanting to ask before acting call
+   * {@link validateGoalRemoval}.
    */
   removeGoal(id: string): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
     const check = validateGoalRemoval(plan.goals, id, this.state.scenario.ledger);
     if (!check.ok) {
       throw new Error(`Projection: cannot remove goal — ${check.reason}`);
@@ -844,7 +850,7 @@ export class Projection {
    * API caller reprioritizes a goal after authoring it.
    */
   reorderGoal(id: string, direction: "up" | "down"): void {
-    const plan = this.state.scenario.plan;
+    const plan = this.planSite("goals", id);
     this.commitPlan({ ...plan, goals: withGoalReordered(plan.goals, id, direction) });
   }
 

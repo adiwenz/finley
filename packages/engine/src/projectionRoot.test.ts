@@ -352,9 +352,11 @@ describe("Projection root — removing a goal guards its fund account", () => {
     expect(unblocked.plan.goals.map((g) => g.id)).not.toContain(goalId);
   });
 
-  it("treats an id that is not a goal as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold, distinctly from refusing a funded one", () => {
     const p = freshProjection();
-    expect(() => p.removeGoal("no-such-goal")).not.toThrow();
+    // A different refusal from the funding guard above: nothing is being protected, the goal
+    // simply is not there, and the caller's next line assumes a removal that never happened.
+    expect(() => p.removeGoal("no-such-goal")).toThrow(/no goal "no-such-goal"/);
     expect(p.plan.goals).toEqual(samplePlan.goals);
   });
 });
@@ -398,10 +400,11 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
     ]);
   });
 
-  it("treats an id that is not a goal as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold", () => {
     const p = freshProjection();
-    expect(() => p.updateGoal("no-such-goal", { name: "x" })).not.toThrow();
-    expect(p.plan.goals).toEqual(samplePlan.goals);
+    const before = p.state;
+    expect(() => p.updateGoal("no-such-goal", { name: "x" })).toThrow(/no goal "no-such-goal"/);
+    expect(p.state).toBe(before);
   });
 });
 
@@ -438,12 +441,14 @@ describe("Projection root — reordering a goal changes its funding priority", (
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
   });
 
-  it("is a no-op at the ends and for an unknown id", () => {
+  it("is a no-op at the ends, but refuses an unknown id", () => {
+    // Two different things: a goal that cannot move further is a real answer to a real
+    // question, while a goal that is not there is a question about nothing.
     const { p, a, c } = seededProjection();
     p.reorderGoal(a, "up"); // already first
     p.reorderGoal(c, "down"); // already last
-    p.reorderGoal("no-such-goal", "up");
     expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+    expect(() => p.reorderGoal("no-such-goal", "up")).toThrow(/no goal "no-such-goal"/);
   });
 });
 
@@ -921,18 +926,23 @@ describe("Projection root — editing and removing a budget line", () => {
     expect(p.plan.budgetLines.map((l) => l.id)).toEqual([keep]);
   });
 
-  it("treats an id that is not a line as a no-op rather than an error", () => {
+  it("refuses an id the plan does not hold", () => {
     const p = freshProjection();
     p.addBudgetLine(expenseLine);
-    const before = p.plan.budgetLines;
-    p.updateBudgetLine("no-such-line", { label: "x" });
-    p.removeBudgetLine("no-such-line");
-    p.addBudgetLineOverride("no-such-line", {
-      month: 3,
-      monthlyCents: dollarsToCents(100),
-      scope: "thisMonthOnly",
-    });
-    expect(p.plan.budgetLines).toEqual(before);
+    const before = p.state;
+
+    const missing = /no budget line "no-such-line"/;
+    expect(() => p.updateBudgetLine("no-such-line", { label: "x" })).toThrow(missing);
+    expect(() => p.removeBudgetLine("no-such-line")).toThrow(missing);
+    expect(() =>
+      p.addBudgetLineOverride("no-such-line", {
+        month: 3,
+        monthlyCents: dollarsToCents(100),
+        scope: "thisMonthOnly",
+      }),
+    ).toThrow(missing);
+
+    expect(p.state).toBe(before);
   });
 
   it("accumulates dated overrides, one per (scope, month), without a read-modify-write", () => {
