@@ -71,13 +71,22 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - **Derived ids parent-suffixed.** `mortgage-home-3` → `home-3-mortgage`, matching the existing
   `p-3-job-1` convention so a sort groups derived ids under their parent. (Partner-job ids are
   now minted by `marry` as `job-N`, so the app-side `${partnerId}-job-N` scheme is moot.)
-- **Job writes are intents, routed per plane.** `jobEditing` returns `add` / `replace` / `remove`
-  rather than a `(jobs) => jobs` transform, because the plan plane's write authority is the facade
-  and a list callback had nowhere to be applied that wasn't the app rebuilding `Plan.jobs`.
-  `commitJobWrites` runs both planes inside one handle: the plan side through `addJob` /
-  `replaceJob` / `removeJob`, the partner side through `reviseTransaction`. `nextJobIdFor` survives
-  for the ledger plane only — a partner's jobs are a field of their `RelationshipEvent`, which the
-  facade has no per-job method for; the counter's floor recognizes its `job-N` shape either way.
+- **Job writes are intents, routed per plane, facade methods on both.** `jobEditing` returns
+  `add` / `replace` / `remove` rather than a `(jobs) => jobs` transform, because the write
+  authority is the facade and a list callback had nowhere to be applied that wasn't the app
+  rebuilding a job list. `commitJobWrites` is now pure dispatch inside one handle — `addJob` /
+  `replaceJob` / `removeJob` for the plan, `addPartnerJob` / `replacePartnerJob` /
+  `updatePartnerJob` / `removePartnerJob` for a partner. It builds nothing and mints nothing.
+- **Removals are applied before adds.** A move is a remove plus an add carrying the same id, and
+  the facade refuses an id the household already holds; landing the job before letting go of it
+  would be refused as a duplicate of itself. Both are still one transaction.
+- **One job-id namespace across both planes.** A partner's jobs were numbered `p-1-job-N`, which
+  read as tidy and was not: `seqFloor` does not recognize that shape, so nothing stopped a later
+  mint from issuing an id an imported partner already held. Partner jobs now mint `job-N` off the
+  shared counter, and `Projection` refuses a supplied id already in use on either plane.
+- **`JobWriteTarget` names a plane, it no longer carries the event.** Holding the
+  `RelationshipEvent` handed the app a snapshot that was stale by construction and an invitation
+  to rebuild `person.jobs` from it; `Projection` finds the event by person id at write time.
 
 ## Changes Made
 
@@ -91,6 +100,11 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   array it is handed).
 - `budgetLine.ts`: added `withLineOverride` — the one-per-(scope, month) rule, moved down from the
   app.
+- `projectionRoot.ts`: partner-owned jobs — `addPartnerJob` (mints off the shared counter),
+  `replacePartnerJob`, `updatePartnerJob`, `removePartnerJob`. Each locates the person's
+  `RelationshipEvent`, rewrites that person's `jobs`, and commits through the same `updateEvent`
+  replay `reviseTransaction` validates with, landing ledger and counter as one state. `addJob` and
+  `addPartnerJob` refuse a supplied id the household already holds, on either plane.
 - `projectionRoot.test.ts` / `budgetLine.test.ts`: tests for each of the above.
 
 **App — state model & hook**
@@ -130,7 +144,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - `presets.ts`: added `presetState(preset): ProjectionState` (facade-based); `buildPresetLedger`
   retained for the `presets.test` oracle.
 - `jobEditing.ts` / `jobWrites.ts`: `JobListWrite` (a list transform) becomes the `JobWrite`
-  intent union; `commitJobWrites` takes the hook's `transact` and commits both planes atomically.
+  intent union; `commitJobWrites` takes the hook's `transact` and dispatches both planes to facade
+  methods inside it. `applyJobWrite` and `nextJobIdFor` are gone — the app has no job-list
+  interpreter and no id authority left.
+- `jobOwners.ts`: `JobWriteTarget` is `"plan" | "event"`.
 - `planPeople.ts`: the plan-level writers (`addJobFromDraft`, `setJobMonthlyIncome`, …) moved to
   `testing/planFixtures.ts` — they were fixture builders, and leaving them in the app layer would
   have left a second write path the guard could not rule out.
@@ -145,5 +162,6 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - `npm run check:purity` — engine purity holds.
 - `npx vitest run` — **1104 passed | 45 todo (88 files)**.
 - `packages/app/src/planWrites.guard.test.ts` scans app production source and fails on a
-  `setBudget`, a `Dispatch<SetStateAction<Plan>>` prop, a plan-collection rebuild, or any
-  function returning a `Plan`. Seed modules and `src/testing/` are exempt by location.
+  `setBudget`, a `Dispatch<SetStateAction<Plan>>` prop, a plan-collection rebuild, any function
+  returning a `Plan`, a rebuild of a partner's `jobs` on the event carrying them, or a minted job
+  id. Seed modules and `src/testing/` are exempt by location.

@@ -50,7 +50,7 @@ import type { BudgetLine, BudgetLineOverride, BudgetLinePatch } from "./budgetLi
 import { withLineOverride, withLinePatch, withoutLine } from "./budgetLine";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
-import type { LifeEvent, NewLifeEvent } from "./ledger/eventTypes";
+import type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
 import { causedByEventId } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
@@ -513,9 +513,12 @@ export class Projection {
    * from: a job arriving here may be an *existing* one moving between household members, and
    * it keeps its one-month overrides, permanent pay changes and display name across the move.
    * Naming the fields to copy is how those silently vanished.
+   *
+   * For a partner, {@link addPartnerJob}: their jobs are not plan data at all.
    */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
+    if (job.id !== undefined) this.assertJobIdFree(job.id);
     const { id, nextSeq } = mint(s, "job", job.id);
     const { id: _drop, ...rest } = job;
     const newJob: Job = { ...rest, id, ownerId: personId };
@@ -562,6 +565,150 @@ export class Projection {
   removeJob(id: string): void {
     const plan = this.state.scenario.plan;
     this.commitPlan({ ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
+  }
+
+  // Jobs on the other plane
+  //
+  // A household member's jobs live on one of two planes, and which one is a fact about the
+  // member, not about the edit: the primary person's are standing plan data, a partner's ride
+  // the `RelationshipEvent` that brought them into the household. The methods above write the
+  // first plane; the four below write the second, through the same replay-validated path
+  // {@link reviseTransaction} uses.
+  //
+  // They exist so that no caller ever has to rebuild `event.person.jobs` itself. That rebuild
+  // is the whole authoring surface of a partner's income, and doing it outside here means
+  // minting ids off a counter this class does not control — which is how a partner's `job-3`
+  // and a home purchase's `job-3` come to be two different things.
+
+  /** The `RelationshipEvent` a partner joined on, or a refusal naming the person. */
+  private relationshipFor(personId: PersonId): RelationshipEvent {
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type === "RelationshipEvent" && event.person.id === personId) return event;
+    }
+    throw new Error(
+      `Projection: cannot author a partner job — no partner "${personId}" in this timeline`,
+    );
+  }
+
+  /** The event and job for a partner-owned job id, or a refusal naming the id. */
+  private partnerJobSite(jobId: string): { event: RelationshipEvent; job: Job } {
+    for (const event of this.state.scenario.ledger.events) {
+      if (event.type !== "RelationshipEvent") continue;
+      const job = event.person.jobs.find((j) => j.id === jobId);
+      if (job !== undefined) return { event, job };
+    }
+    throw new Error(
+      `Projection: cannot edit a partner job — no partner holds a job "${jobId}"`,
+    );
+  }
+
+  /**
+   * Every job id in the scenario, both planes. One namespace, because one counter issues them
+   * — a job's id keys its income band's `sourceId`, so two jobs sharing one make the bands
+   * ambiguous no matter which plane each sits on.
+   */
+  private jobIdsInUse(): Set<string> {
+    const s = this.state.scenario;
+    const ids = new Set(s.plan.jobs.map((j) => j.id));
+    for (const event of s.ledger.events) {
+      if (event.type === "RelationshipEvent") for (const j of event.person.jobs) ids.add(j.id);
+    }
+    return ids;
+  }
+
+  /**
+   * Refuses a caller-supplied id already in use. Only a supplied id can collide: a minted one
+   * comes off a counter floored past everything the scenario holds.
+   */
+  private assertJobIdFree(id: string): void {
+    if (this.jobIdsInUse().has(id)) {
+      throw new Error(`Projection: cannot add a job — this household already holds a job "${id}"`);
+    }
+  }
+
+  /**
+   * Commit a partner's rewritten job list. Routed through {@link updateEvent} — the same
+   * whole-ledger replay {@link reviseTransaction} validates with — so a revision that would
+   * strand a later event is refused with the state untouched, and the ledger and the counter
+   * land as ONE new state (a refused write consumes no id).
+   */
+  private commitPartnerJobs(
+    event: RelationshipEvent,
+    jobs: readonly Job[],
+    nextSeq?: number,
+  ): void {
+    const s = this.state;
+    const next: NewLifeEvent = { ...event, person: { ...event.person, jobs } };
+    const result = updateEvent(s.scenario.ledger, event.id, next, this.baseConfig());
+    if (!result.ok) {
+      throw new Error(`Projection: cannot revise transaction — ${result.conflict}`);
+    }
+    this.commit({
+      ...s,
+      scenario: withLedger(s.scenario, result.ledger),
+      ...(nextSeq !== undefined ? { nextSeq } : {}),
+    });
+  }
+
+  /**
+   * Add a job to a partner — the ledger-plane counterpart of {@link addJob}, returning the
+   * minted `"job-N"` id.
+   *
+   * The id comes off the SAME counter every other minted id does. A partner's jobs used to be
+   * numbered in a namespace of their own (`p-1-job-1`), which read as tidy and was not: the
+   * counter's floor does not recognize that shape, so nothing stopped a later mint from
+   * issuing an id an imported partner already held.
+   *
+   * A supplied `id` is kept verbatim (that is how a job keeps its identity moving between
+   * members) and refused if the household already holds it.
+   */
+  addPartnerJob(personId: PersonId, job: JobInput): string {
+    const event = this.relationshipFor(personId);
+    if (job.id !== undefined) this.assertJobIdFree(job.id);
+    const { id, nextSeq } = mint(this.state, "job", job.id);
+    const { id: _drop, ...rest } = job;
+    const newJob: Job = { ...rest, id, ownerId: personId };
+    this.commitPartnerJobs(event, [...event.person.jobs, newJob], nextSeq);
+    return id;
+  }
+
+  /**
+   * Rewrite one partner-owned job wholesale, keeping its id, owner and list position — see
+   * {@link replaceJob}, of which this is the ledger-plane counterpart, for why an absent field
+   * clears rather than carries through.
+   */
+  replacePartnerJob(jobId: string, job: JobInput): void {
+    const { event } = this.partnerJobSite(jobId);
+    const { id: _drop, ...rest } = job;
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.map((j) =>
+        j.id === jobId ? ({ ...rest, id: j.id, ownerId: j.ownerId } as Job) : j,
+      ),
+    );
+  }
+
+  /** Apply one of `job`'s authoring transforms to a partner-owned job — see {@link editJob}. */
+  private editPartnerJob(jobId: string, f: (job: Job) => Job): void {
+    const { event } = this.partnerJobSite(jobId);
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.map((j) => (j.id === jobId ? f(j) : j)),
+    );
+  }
+
+  /** See {@link updateJob} — the field-wise patch, on a partner's plane. */
+  updatePartnerJob(jobId: string, patch: JobPatch): void {
+    this.editPartnerJob(jobId, (j) => withJobPatch(j, patch));
+  }
+
+  /** Drop a partner-owned job. See {@link removeJob}: there is nothing to guard. */
+  removePartnerJob(jobId: string): void {
+    const { event } = this.partnerJobSite(jobId);
+    this.commitPartnerJobs(
+      event,
+      event.person.jobs.filter((j) => j.id !== jobId),
+    );
   }
 
   /** See {@link withMonthlyIncome} — monthly cents in, annualized salary stored. */

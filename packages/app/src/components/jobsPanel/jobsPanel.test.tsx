@@ -281,6 +281,41 @@ describe("JobsPanel — every member's jobs", () => {
     expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
   });
 
+  it("reassigns a partner's job back to the primary person, ages following the new owner", () => {
+    // The reverse direction: off the RelationshipEvent and onto the plan, which the facade
+    // has to sequence as let-go-then-land or refuse the arriving id as a duplicate.
+    render(<Harness events={withPartner([partnerJob(2500, "Nursing")])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Nursing/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(partnerJobs()).toEqual([]);
+    const { plan } = authored();
+    // The same job — its id survived the crossing, so its income band did too.
+    expect(plan.jobs.map((j) => j.id)).toEqual(["job-1", "p-1-job-1"]);
+    const moved = plan.jobs.find((j) => j.id === "p-1-job-1")!;
+    expect(moved.ownerId).toBe(PRIMARY_PERSON_ID);
+    expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(2500 * 12));
+    // Sam's age-40 start, re-read against Alex's clock: the same age, a different year.
+    expect(moved.startYear).toBe(START_YEAR - PLAN_DEFAULTS.currentAge + 40);
+    // Sam is still in the household, so titles stay owner-qualified — under Alex now.
+    expect(screen.getByLabelText("Alex · Nursing")).toBeTruthy();
+  });
+
+  it("mints a partner's new job off the shared counter, not a per-owner scheme", () => {
+    render(<Harness events={withPartner([])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    const { plan } = authored();
+    const minted = partnerJobs()[0].id;
+    // One namespace with the plan's jobs, and clear of every id already in the household.
+    expect(minted).toMatch(/^job-\d+$/);
+    expect(plan.jobs.map((j) => j.id)).not.toContain(minted);
+  });
+
   it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
     // One edit to the existing job, so all of it rides along; minting from the form draft
     // instead loses id, bonus, raise and match.
@@ -413,7 +448,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
 
     // The same job, edited — not a new one built from the draft.
     const job = moved[0];
-    expect(job.id).toBe("job-1"); // a minted id would read "p-1-job-2"
+    expect(job.id).toBe("job-1"); // the id it arrived with, not one minted on landing
     expect(job.ownerId).toBe("p-1");
     expect(job.name).toBe("Software Engineer");
     expect(job.salary.startingSalaryCents).toBe(dollarsToCents(72_000)); // $6,000/mo, edited

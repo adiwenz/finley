@@ -1,5 +1,5 @@
 /**
- * The write-path guard: in app production code, a `Plan` is read, never rebuilt.
+ * The write-path guard: in app production code, authored state is read, never rebuilt.
  *
  * Every authored edit goes through `Projection` — it owns the id mint, the goal-funding
  * guard, the ledger's affordability gate and the counter floor. A panel that reassembles
@@ -7,13 +7,19 @@
  * this migration closed, and nothing else would notice: the app would simply stop enforcing
  * rules it no longer routes through.
  *
- * Scanned as source text rather than types, because the shape being banned is a *spread*, and
- * a spread has no signature to constrain. Four things are checked:
+ * Both planes are covered, because a household member's jobs live on one or the other and the
+ * hazard is the same on each: the primary person's on `Plan.jobs`, a partner's on the `person`
+ * embedded in their `RelationshipEvent`.
+ *
+ * Scanned as source text rather than types, because the shapes being banned are a *spread* and
+ * a *template literal*, neither of which has a signature to constrain. Six things are checked:
  *
  *  1. No `setBudget` — the plan setter itself.
  *  2. No plan-shaped setter prop under another name (`Dispatch<SetStateAction<Plan>>`).
  *  3. No expression rebuilding a plan's collections, or swapping one into a scenario.
  *  4. No function that produces a `Plan` at all — a write path whatever it does inside.
+ *  5. No rebuilding of a partner's `jobs` on the event that carries them.
+ *  6. No minted job id — one counter inside `Projection` issues every one, on both planes.
  *
  * Seed data and test fixtures are exempt by location, not by name: {@link SEED_MODULES} state
  * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Both are
@@ -93,6 +99,22 @@ const PLAN_PRODUCER = /\)\s*:\s*Plan\s*[{;]/;
  */
 const SCENARIO_REBUILD = /\b(withPlan|withLedger)\s*\(/;
 
+/**
+ * Rebuilding the `jobs` array on an event's embedded person — the partner plane's counterpart
+ * to a plan rebuild. A partner's jobs are a field of their `RelationshipEvent`, so the only way
+ * to write one without `Projection` is to reassemble that person and revise the event; both
+ * halves of that shape are matched.
+ */
+const PARTNER_JOBS_REBUILD = /\.\.\.\s*[\w.]*\bperson\b[\s\S]{0,200}?\bjobs\s*:/;
+
+/**
+ * Minting a job id. The app has no id authority at all now — one counter inside `Projection`
+ * issues every job id across both planes, and only ids of a shape its floor recognizes are
+ * safe from being handed out twice. A locally-invented `job-N` (or a per-owner `p-1-job-N`) is
+ * exactly the id the counter cannot see coming.
+ */
+const JOB_ID_MINT = /`[^`]*\bjob-\$\{/;
+
 describe("app write path — no direct plan writes outside the facade", () => {
   it("scans a plausible number of modules (the scan itself must not silently empty)", () => {
     // A broken path filter would pass every assertion below by checking nothing.
@@ -132,15 +154,40 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("rebuilds no partner's job list on the event it rides", () => {
+    const offenders = productionModules()
+      .filter(({ source }) => PARTNER_JOBS_REBUILD.test(code(source)))
+      .map(({ path }) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  it("mints no job id", () => {
+    const offenders = productionModules()
+      .filter(({ source }) => JOB_ID_MINT.test(code(source)))
+      .map(({ path }) => path);
+    expect(offenders).toEqual([]);
+  });
+
   it("keeps the guard honest — the patterns do fire on the shape they ban", () => {
     expect(PLAN_REBUILD.test("setBudget((p) => ({ ...p, goals: next(p.goals) }))")).toBe(true);
     expect(PLAN_REBUILD.test("return { ...plan, budgetLines: [...lines] };")).toBe(true);
     expect(PLAN_JOBS_REBUILD.test("return { ...plan, jobs: mapJob(plan.jobs, id, f) };")).toBe(true);
     expect(SCENARIO_REBUILD.test("withPlan(s.scenario, nextPlan)")).toBe(true);
     expect(PLAN_PRODUCER.test("export function addJobFromDraft(plan: Plan): Plan {")).toBe(true);
+    expect(
+      PARTNER_JOBS_REBUILD.test(
+        "p.reviseTransaction(event.id, { ...event, person: { ...event.person, jobs: [...jobs] } });",
+      ),
+    ).toBe(true);
+    expect(JOB_ID_MINT.test("return `${prefix}-job-${n}`;")).toBe(true);
+    expect(JOB_ID_MINT.test("while (ids.has(`job-${n}`)) n++;")).toBe(true);
     // …and not on an unrelated spread, nor on a form appending to its own draft.
     expect(PLAN_REBUILD.test("return { ...draft, label: draft.label.trim() };")).toBe(false);
     expect(PLAN_JOBS_REBUILD.test("setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }))")).toBe(
+      false,
+    );
+    // Reading a partner's jobs is not writing them.
+    expect(PARTNER_JOBS_REBUILD.test("for (const j of event.person.jobs) ids.add(j.id);")).toBe(
       false,
     );
   });

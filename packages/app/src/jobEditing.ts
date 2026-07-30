@@ -145,9 +145,10 @@ export function editJob(
     };
   }
 
-  // Ids are minted per owner (`job-N` / `p-1-job-N`), so a moved job should not collide —
-  // but it keeps its id across the move, and two jobs sharing an id would make the income
-  // bands ambiguous.
+  // Asked before acting, so the refusal can name the member. The facade refuses the same
+  // duplicate outright (one counter issues every job id across both planes, and it checks);
+  // this is that rule read ahead of time, because two jobs sharing an id would make the
+  // income bands ambiguous and the panel would rather say whose job is in the way.
   if (target.jobs.some((j) => j.id === edited.id)) {
     return { ok: false, reason: `${target.name} already holds a job "${edited.id}"` };
   }

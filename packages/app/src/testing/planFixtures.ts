@@ -21,16 +21,26 @@ import {
   type JobPayChange,
   type Plan,
 } from "@finley/engine";
-import {
-  buildJobFromDraft,
-  nextJobIdFor,
-  primaryBirthYear,
-  type JobDraft,
-} from "../planPeople";
+import { buildJobFromDraft, primaryBirthYear, type JobDraft } from "../planPeople";
+
+/**
+ * A free `job-N` for a fixture, scanning the list it is being added to.
+ *
+ * Deliberately NOT the app's id authority — there isn't one any more. `Projection` mints every
+ * authored job id off one counter across both planes; this only has to produce something that
+ * does not collide inside a hand-built plan, and `fromScenario` floors the counter past it
+ * when that plan reaches a projection.
+ */
+function freeJobId(jobs: readonly Plan["jobs"][number][]): string {
+  const taken = new Set(jobs.map((j) => j.id));
+  let n = jobs.length + 1;
+  while (taken.has(`job-${n}`)) n++;
+  return `job-${n}`;
+}
 
 /** Append a job to the primary person from a draft. */
 export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
-  const id = nextJobIdFor(draft.ownerId, plan.jobs);
+  const id = freeJobId(plan.jobs);
   return { ...plan, jobs: [...plan.jobs, buildJobFromDraft(id, primaryBirthYear(plan), draft)] };
 }
 

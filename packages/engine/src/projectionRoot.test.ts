@@ -567,6 +567,20 @@ describe("Projection root — editing and removing a job", () => {
     });
   });
 
+  it("refuses a supplied id the household already holds, on either plane", () => {
+    const p = freshProjection();
+    p.addJob(P1, { ...openEndedJob, id: "day-job" });
+    expect(() => p.addJob(P1, { ...openEndedJob, id: "day-job" })).toThrow(/already holds a job/);
+
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    // One namespace across both planes: the primary's id is not free for a partner either,
+    // because a job's id keys its income band whichever plane it sits on.
+    expect(() => p.addPartnerJob(partnerId, { ...openEndedJob, id: "day-job" })).toThrow(
+      /already holds a job/,
+    );
+    expect(p.plan.jobs).toHaveLength(1);
+  });
+
   it("replaceJob keeps the job's list position, and an unknown id is a no-op", () => {
     const p = freshProjection();
     const first = p.addJob(P1, openEndedJob);
@@ -575,6 +589,216 @@ describe("Projection root — editing and removing a job", () => {
     p.replaceJob("no-such-job", { ...openEndedJob, name: "Nowhere" });
     expect(p.plan.jobs.map((j) => j.id)).toEqual([first, second]);
     expect(p.plan.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
+  });
+});
+
+describe("Projection root — jobs on a partner's plane", () => {
+  const matchedJob = {
+    ...openEndedJob,
+    name: "Day job",
+    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
+  } as const;
+
+  /** A projection holding one partner, and that partner's id. */
+  function withPartner(): { p: Projection; partnerId: PersonId } {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    return { p, partnerId };
+  }
+
+  const partnerJobs = (p: Projection) => partnerEvent(p).person.jobs;
+
+  it("adds a job to a partner, minting off the SAME counter the plan plane mints from", () => {
+    const { p, partnerId } = withPartner();
+    const planJobId = p.addJob(P1, openEndedJob);
+    const partnerJobId = p.addPartnerJob(partnerId, openEndedJob);
+
+    // One run of ids, not a per-owner namespace: the partner's is `job-N`, and it is a
+    // number the plan plane will never issue again.
+    expect(partnerJobId).toMatch(/^job-\d+$/);
+    expect(partnerJobId).not.toBe(planJobId);
+    expect(p.addJob(P1, openEndedJob)).not.toBe(partnerJobId);
+
+    // It landed on the partner's event, owned by them — and nowhere near the plan.
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([partnerJobId]);
+    expect(partnerJobs(p)[0]?.ownerId).toBe(partnerId);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJobId, expect.any(String)]);
+  });
+
+  it("carries every input field onto a partner's job", () => {
+    const { p, partnerId } = withPartner();
+    const jobId = p.addPartnerJob(partnerId, {
+      ...matchedJob,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+    expect(partnerJobs(p)[0]).toMatchObject({
+      id: jobId,
+      name: "Day job",
+      deferral: matchedJob.deferral,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+  });
+
+  it("patches a partner's job field-wise, and replaces it wholesale", () => {
+    const { p, partnerId } = withPartner();
+    const jobId = p.addPartnerJob(partnerId, matchedJob);
+
+    p.updatePartnerJob(jobId, { name: "Night job" });
+    expect(partnerJobs(p)[0]).toMatchObject({
+      name: "Night job",
+      deferral: matchedJob.deferral, // unnamed, so carried through
+    });
+
+    // Replace states the whole job, so the fields it omits are gone.
+    p.replacePartnerJob(jobId, openEndedJob);
+    expect(partnerJobs(p)[0]).toEqual({
+      id: jobId,
+      ownerId: partnerId,
+      startYear: openEndedJob.startYear,
+      endYear: null,
+      salary: openEndedJob.salary,
+    });
+  });
+
+  it("keeps a partner's other jobs and their order across an edit", () => {
+    const { p, partnerId } = withPartner();
+    const first = p.addPartnerJob(partnerId, openEndedJob);
+    const second = p.addPartnerJob(partnerId, openEndedJob);
+    p.updatePartnerJob(first, { name: "Renamed" });
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([first, second]);
+    expect(partnerJobs(p).map((j) => j.name)).toEqual(["Renamed", undefined]);
+  });
+
+  it("removes a partner's job, leaving the plan and their other jobs alone", () => {
+    const { p, partnerId } = withPartner();
+    const planJob = p.addJob(P1, openEndedJob);
+    const keep = p.addPartnerJob(partnerId, openEndedJob);
+    p.removePartnerJob(p.addPartnerJob(partnerId, openEndedJob));
+
+    expect(partnerJobs(p).map((j) => j.id)).toEqual([keep]);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJob]);
+  });
+
+  it("refuses a partner or a job it cannot find, rather than writing nothing quietly", () => {
+    const { p } = withPartner();
+    expect(() => p.addPartnerJob("nobody" as PersonId, openEndedJob)).toThrow(/no partner/);
+    expect(() => p.updatePartnerJob("job-99", { name: "x" })).toThrow(/no partner holds a job/);
+    expect(() => p.replacePartnerJob("job-99", openEndedJob)).toThrow(/no partner holds a job/);
+    expect(() => p.removePartnerJob("job-99")).toThrow(/no partner holds a job/);
+  });
+
+  it("leaves the state untouched when the revision is refused", () => {
+    const { p, partnerId } = withPartner();
+    p.addPartnerJob(partnerId, openEndedJob);
+    const before = p.state;
+    expect(() => p.addPartnerJob("nobody" as PersonId, openEndedJob)).toThrow();
+    // Same state object: a refused write consumes no id and commits nothing.
+    expect(p.state).toBe(before);
+  });
+});
+
+describe("Projection root — moving a job between the two planes", () => {
+  const richJob = {
+    ...openEndedJob,
+    name: "Software Engineer",
+    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
+    incomeOverrides: [{ month: 6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
+    payChanges: [{ month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
+  } as const;
+
+  /** The move, as the app performs it: let go on one plane, land on the other, same id. */
+  it("moves a job from the plan to a partner, whole and with its id intact", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
+
+    p.removeJob(jobId);
+    const landed = p.addPartnerJob(partnerId, moving);
+
+    expect(landed).toBe(jobId); // the same job, not a new one
+    expect(p.plan.jobs).toEqual([]);
+    expect(partnerEvent(p).person.jobs).toEqual([{ ...richJob, id: jobId, ownerId: partnerId }]);
+  });
+
+  it("moves a job from a partner back to the plan, whole and with its id intact", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addPartnerJob(partnerId, richJob);
+    const { ownerId: _drop, ...moving } = { ...partnerEvent(p).person.jobs[0]! };
+
+    p.removePartnerJob(jobId);
+    const landed = p.addJob(P1, moving);
+
+    expect(landed).toBe(jobId);
+    expect(partnerEvent(p).person.jobs).toEqual([]);
+    expect(p.plan.jobs).toEqual([{ ...richJob, id: jobId, ownerId: P1 }]);
+  });
+
+  it("refuses a move that lands before it lets go, rather than duplicating the id", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
+
+    // Add-then-remove is the wrong order: for the moment between them the household would
+    // hold two jobs with one id, and the ids key the income bands.
+    expect(() => p.addPartnerJob(partnerId, moving)).toThrow(/already holds a job/);
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(partnerEvent(p).person.jobs).toEqual([]);
+  });
+});
+
+describe("Projection root — one counter across both planes, across a round trip", () => {
+  it("never reissues a partner job's id after a state round trip", () => {
+    const authored = freshProjection();
+    const partnerId = authored.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerJobId = authored.addPartnerJob(partnerId, openEndedJob);
+    const planJobId = authored.addJob(P1, openEndedJob);
+
+    // Out through the serialization boundary and back — a fresh handle, no memory of what
+    // the first one issued beyond what the state itself carries.
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
+      nullJurisdiction,
+    );
+
+    const held = new Set([partnerId, partnerJobId, planJobId]);
+    const minted = [
+      reloaded.addPartnerJob(partnerId, openEndedJob),
+      reloaded.addJob(P1, openEndedJob),
+      reloaded.marry({ month: 36, name: "Kim", birthYear: 1990 }),
+    ];
+    for (const id of minted) expect(held.has(id)).toBe(false);
+    expect(new Set(minted).size).toBe(minted.length);
+  });
+
+  it("steps past a partner job an imported scenario already holds", () => {
+    // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
+    // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
+    const seeded = freshProjection();
+    const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    seeded.addPartnerJob(partnerId, { ...openEndedJob, id: "job-9" });
+
+    const reloaded = Projection.fromState(seeded.toState(), nullJurisdiction);
+    expect(reloaded.addPartnerJob(partnerId, openEndedJob)).toBe("job-10");
+    expect(reloaded.addJob(P1, openEndedJob)).toBe("job-11");
+  });
+
+  it("keeps the counter monotonic while writes alternate between the planes", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const minted: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      minted.push(p.addJob(P1, openEndedJob));
+      minted.push(p.addPartnerJob(partnerId, openEndedJob));
+    }
+    // Strictly increasing across the alternation — neither plane restarts or rewinds.
+    const numbers = minted.map((id) => Number(id.replace("job-", "")));
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+    expect(new Set(numbers).size).toBe(numbers.length);
   });
 });
 

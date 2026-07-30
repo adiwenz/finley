@@ -135,18 +135,6 @@ export function jobToDraft(plan: Plan, job: Job): JobDraft {
 }
 
 /**
- * A collision-free id for a job added to `jobs`, namespaced by owner: the primary
- * person's stay `job-N` (what existing plans hold), a partner's carry their person id.
- */
-export function nextJobIdFor(ownerId: PersonId, jobs: readonly Job[]): string {
-  const prefix = ownerId === PRIMARY_PERSON_ID ? "job" : `${ownerId}-job`;
-  const ids = new Set(jobs.map((j) => j.id));
-  let n = jobs.length + 1;
-  while (ids.has(`${prefix}-${n}`)) n++;
-  return `${prefix}-${n}`;
-}
-
-/**
  * Apply a form draft to an **existing** job in place: form fields overwrite, everything
  * else carries through untouched — `id`, {@link JobIncomeOverride}s, {@link JobPayChange}s,
  * the deferral's `fundAccountId` and employer match, and any field added to {@link Job}
