@@ -7,7 +7,7 @@
 
 import type {
   Plan,
-  ProjectionReader,
+  Projection,
   ProjectionResult,
   GoalDisposition,
   GoalDisposal,
@@ -134,7 +134,10 @@ export interface GoalFundingBlock {
  * question (`eventsFundedByGoal` — already in timeline order); this only names them, with the
  * same labels the timeline shows.
  */
-export function goalFundingBlocks(projection: ProjectionReader, id: string): GoalFundingBlock[] {
+export function goalFundingBlocks(
+  projection: Pick<Projection, "eventsFundedByGoal">,
+  id: string,
+): GoalFundingBlock[] {
   return projection.eventsFundedByGoal(id).map((e) => ({
     eventId: e.id,
     label: summarizeEvent(e).label,

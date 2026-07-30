@@ -277,10 +277,7 @@ export interface HomePurchaseAssessment {
   readonly exceeded: boolean;
 }
 
-/**
- * "When can this household retire, and does the age it picked work?" — the whole answer, from
- * one search. See {@link Projection.retirement}.
- */
+/** What {@link Projection.retirement} answers: the whole retirement question, in one value. */
 export interface RetirementOutlook {
   /** The earliest ages the search reached, partial and full; `null` where the money runs out. */
   readonly solution: RetirementSolution;
@@ -535,35 +532,7 @@ function withNormalizedCounters(state: ProjectionState): ProjectionState {
   };
 }
 
-/**
- * The reading half of {@link Projection}, as an interface.
- *
- * A `Projection` is a mutable handle: a write swaps the state it holds. Handing one to a view
- * would let that view author outside the transaction that commits — a write onto a handle
- * nobody reads back is silently discarded, which is exactly the failure the facade exists to
- * make impossible. Taking this instead makes authoring from a view a compile error, and says
- * what the view is for.
- *
- * Everything here is total and side-effect-free: nothing on it can change authored state.
- */
-export interface ProjectionReader {
-  readonly plan: Plan;
-  readonly ledger: Ledger;
-  run(jurisdiction: Jurisdiction): ProjectionResult;
-  funding(): FundingLookup;
-  retirement(jurisdiction: Jurisdiction): RetirementOutlook;
-  accountDescriptors(): readonly PlanAccountDescriptor[];
-  eventsFundedByGoal(goalId: string): readonly LifeEvent[];
-  expenseRowsAt(month: number): readonly ResolvedExpenseRow[];
-  jobMonthlyIncomeCents(jobId: string): Cents;
-  jobDeferralFraction(jobId: string): number;
-  personMonthlyIncomeCents(personId: PersonId): Cents;
-  householdMonthlyIncomeCents(): Cents;
-  personDeferralFraction(personId: PersonId): number;
-  toState(): ProjectionState;
-}
-
-export class Projection implements ProjectionReader {
+export class Projection {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
 
@@ -1410,14 +1379,15 @@ export class Projection implements ProjectionReader {
   }
 
   /**
-   * "When can this household retire, and does the age it picked work?" — asked once, answered
-   * whole.
+   * One cohesive public query over one scenario and one context: "when can this household
+   * retire, and does the age it picked work?" Internally it performs both the search for the
+   * earliest feasible ages and the evaluation at the plan's target age; neither is a separate
+   * call a caller can make, because neither is a separate answer.
    *
-   * One call rather than three, because the three answers are not independent: the pinned age
-   * and the earliest feasible age come out of the SAME search, and a caller assembling them
-   * itself has to re-implement what to fall back to when the pin fails. Splitting that across
-   * the boundary is how a panel and a chart come to disagree about a household that cannot
-   * retire at all.
+   * Cohesive because the parts are not independent. The target's fallback when the pinned age
+   * fails is an age the SAME search found, so a caller assembling the pieces itself would have
+   * to re-derive that rule — which is how a panel and a chart come to disagree about a
+   * household that cannot retire at all.
    *
    * Separate from {@link run} on purpose. `run` is one simulation; this is a *search* over
    * many, each at a candidate age — so a caller that only wants the graph never pays for it.

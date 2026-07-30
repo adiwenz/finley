@@ -123,7 +123,6 @@ export type {
   HomePurchaseAssessment,
   RetirementOutlook,
   ResolvedExpenseRow,
-  ProjectionReader,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
@@ -133,10 +132,10 @@ export * from "./projectionBase";
 // Which events spend from a goal's fund account — the integrity question behind removing a
 // goal, since the account is derived from the goal and falls away with it.
 export * from "./goalFunding";
-// The retirement searches are NOT public. `Projection.retirement` is how the question is
-// asked: it runs the search once and returns the headline, the pinned-age verdict and the
-// health flag together, so the three cannot be assembled inconsistently by a caller. Each
-// search, and `projectScenario`/`planSurvives` under it, is tested where it lives — a second
+// The retirement searches are NOT public. `Projection.retirement` is the one public query
+// over a scenario and a context; the search for the earliest feasible ages and the evaluation
+// at the plan's target age are how it is implemented, not two more things to call. Each,
+// along with `projectScenario`/`planSurvives` under them, is tested where it lives — a second
 // copy of that arithmetic outside the engine would only pin the engine's own tests twice.
 // `projectScenarioParts` is internal for a further reason: its result carries
 // `HouseholdSimInput`, a low-level simulator artifact this facade exists to stop publishing.

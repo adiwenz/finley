@@ -14,7 +14,7 @@
 import type {
   Jurisdiction,
   Plan,
-  ProjectionReader,
+  Projection,
   RetirementEvaluation,
   EarlyRetireeHealthFlag,
 } from "@finley/engine";
@@ -51,8 +51,14 @@ export interface RetirementView {
   readonly enrollsInPublicHealthCoverage: boolean;
 }
 
+/**
+ * What this view reads, and nothing else. Narrow on purpose: it says the view cannot author,
+ * and a test standing in for it states two members rather than a whole projection.
+ */
+type RetirementSource = Pick<Projection, "plan" | "retirement">;
+
 export function retirementView(
-  projection: ProjectionReader,
+  projection: RetirementSource,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the

@@ -8,7 +8,10 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { PRIMARY_PERSON_ID } from "@finley/engine";
-import type { Plan, ProjectionReader, SimulationReport } from "@finley/engine";
+import type { Plan, Projection, SimulationReport } from "@finley/engine";
+
+/** The two figures this inspector reads through the facade rather than re-deriving. */
+type PlanFigures = Pick<Projection, "personMonthlyIncomeCents" | "personDeferralFraction">;
 import { primaryJobs } from "../../planPeople";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
@@ -98,7 +101,7 @@ function Configuration({
 }: {
   budget: Plan;
   /** Standing pay and the blended deferral are read through the facade, not re-derived here. */
-  projection: ProjectionReader;
+  projection: PlanFigures;
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
@@ -188,7 +191,7 @@ export function DebugPanel({
 }: {
   report: SimulationReport;
   budget: Plan;
-  projection: ProjectionReader;
+  projection: PlanFigures;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
   const { columns, months, inputs } = report;

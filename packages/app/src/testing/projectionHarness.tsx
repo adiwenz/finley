@@ -14,7 +14,6 @@ import type {
   Jurisdiction,
   Ledger,
   Plan,
-  ProjectionReader,
   ProjectionResult,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -37,10 +36,11 @@ export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): Use
 }
 
 /**
- * A read handle over a fixture plan — what a panel taking a {@link ProjectionReader} is
- * handed. Built through `fromScenario`, so the counters are floored exactly as the app's are.
+ * A handle over a fixture plan, for the reads a panel makes. Each panel's prop names only the
+ * members it uses, so this satisfies every one of them. Built through `fromScenario`, so the
+ * counters are floored exactly as the app's are.
  */
-export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionReader {
+export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): Projection {
   return Projection.fromScenario(withLedger(scenarioOf(plan), ledger), START_YEAR, usJurisdiction);
 }
 

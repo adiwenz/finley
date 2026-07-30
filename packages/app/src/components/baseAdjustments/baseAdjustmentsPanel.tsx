@@ -20,7 +20,7 @@ import {
   type Household,
   type Ledger,
   type Plan,
-  type ProjectionReader,
+  type Projection,
   type ProjectionSeries,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
@@ -86,10 +86,11 @@ export interface BaseAdjustmentsPanelProps {
   readonly household: Household;
   readonly ledger: Ledger;
   /**
-   * The reading half of the facade: what each expense line resolves to at the selected month,
-   * and the household's standing pay the quickstart sizes its tiers against.
+   * The two reads this panel makes: what each expense line resolves to at the selected month,
+   * and the household's standing pay the quickstart sizes its tiers against. Writes go through
+   * {@link transact}.
    */
-  readonly projection: ProjectionReader;
+  readonly projection: Pick<Projection, "expenseRowsAt" | "householdMonthlyIncomeCents">;
 }
 
 export function BaseAdjustmentsPanel({

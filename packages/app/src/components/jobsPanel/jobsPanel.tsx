@@ -25,7 +25,7 @@ import {
   type Household,
   type Ledger,
   type Plan,
-  type ProjectionReader,
+  type Projection,
 } from "@finley/engine";
 import {
   jobInputFromDraft,
@@ -57,8 +57,11 @@ interface JobsPanelProps {
   /** The roster whose members can hold jobs, and the timeline they join and leave on. */
   household: Household;
   ledger: Ledger;
-  /** The reading half of the facade: what each job pays and defers, as authored. */
-  projection: ProjectionReader;
+  /**
+   * What each job pays and defers, as authored — the two reads this panel makes. Writes go
+   * through {@link transact}, so nothing wider than this belongs in a prop.
+   */
+  projection: Pick<Projection, "jobMonthlyIncomeCents" | "jobDeferralFraction">;
 }
 
 type Authoring =

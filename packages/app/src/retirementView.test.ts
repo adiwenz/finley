@@ -14,7 +14,6 @@ import {
   type JurisdictionContext,
   type Jurisdiction,
   type ProjectionContext,
-  type ProjectionReader,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
@@ -31,19 +30,23 @@ function viewOf(plan: Plan) {
 }
 
 describe("retirementView — one query behind every figure", () => {
-  /** Counts how many searches a render costs; `retirement` is the only one it may run. */
+  /**
+   * Counts how many searches a render costs. Two members is the whole of what the view reads,
+   * so the stand-in states them outright rather than wrapping a projection.
+   */
   function countingReader(plan: Plan) {
     const real = Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction);
     let calls = 0;
-    const reader: ProjectionReader = Object.create(real, {
-      retirement: {
-        value: (j: Jurisdiction) => {
+    return {
+      reader: {
+        plan: real.plan,
+        retirement: (j: Jurisdiction) => {
           calls += 1;
           return real.retirement(j);
         },
       },
-    });
-    return { reader, calls: () => calls };
+      calls: () => calls,
+    };
   }
 
   it("asks the facade once, and every figure it shows comes out of that answer", () => {

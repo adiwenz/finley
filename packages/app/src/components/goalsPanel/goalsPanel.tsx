@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import type { Plan, ProjectionReader, ProjectionResult } from "@finley/engine";
+import type { Plan, Projection, ProjectionResult } from "@finley/engine";
 import {
   goalRows,
   goalFundingBlocks,
@@ -28,11 +28,11 @@ interface GoalsPanelProps {
   /** This plan's run — what each goal is scored against. */
   result: ProjectionResult;
   /**
-   * The reading half of the facade. Answers the deletion guard: a goal's derived fund account
-   * may be named as a timeline event's funding source, and dropping the goal would strand that
-   * reference. Reading, not running — the blockers are authored state.
+   * The deletion guard, and only that: a goal's derived fund account may be named as a
+   * timeline event's funding source, and dropping the goal would strand that reference. The
+   * blockers are authored state, so this is read off the projection rather than the run.
    */
-  projection: ProjectionReader;
+  projection: Pick<Projection, "eventsFundedByGoal">;
   /**
    * Every goal write — add, edit, rate, reorder, delete — through the facade, which owns the
    * `goal-N` mint, the array-position-is-priority rule, and the funding guard below.

@@ -15,7 +15,7 @@ import {
   type JobPayChange,
   type PersonId,
   type Plan,
-  type ProjectionReader,
+  type Projection,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
 
@@ -89,7 +89,7 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
  * opens on exactly what `setJobMonthlyIncome` / `setJobDeferralFraction` would write back.
  */
 export function jobToDraftFor(
-  projection: ProjectionReader,
+  projection: Pick<Projection, "jobMonthlyIncomeCents" | "jobDeferralFraction">,
   birthYear: number,
   job: Job,
 ): JobDraft {

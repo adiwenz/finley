@@ -107,10 +107,14 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
     could re-derive a number and check the panel matched it, which pins the engine's own tests
     a second time in a place that cannot fix them. Each is tested where it lives
     (`retirementSolver.test.ts`); the app tests now ask the facade the question the app asks.
-- **`ProjectionReader` is the reading half, as a type.** A `Projection` is a mutable handle, and
-  a write onto one nobody reads back is silently discarded — the exact failure this migration
-  exists to prevent. Panels take the reader instead, so authoring from a view is a compile
-  error and the prop says what it is for.
+- **A read-only prop names its reads, one by one.** `Projection` is the only public API, and
+  every write goes through `transact`. Where a component only reads, its prop is a
+  `Pick<Projection, …>` of exactly the members it calls — `Pick<Projection,
+  "eventsFundedByGoal">` for the Goals panel's deletion guard, two job reads for the Jobs
+  panel, two figures for the debug inspector. No second interface to keep in step with the
+  class, no wrapper or proxy object, and authoring from a view is still a compile error. The
+  prop's type is the list of questions that component asks, which is more than a named
+  interface said.
 - **Compilation internals stay in.** `compileExpenseBudgetLines` is gone from the app surface;
   `expenseRowsAt(month)` returns the resolved amount and whether an override is what is showing
   — what the caller wanted — instead of a `SimOwnedSeries` with an owner tag that means nothing
