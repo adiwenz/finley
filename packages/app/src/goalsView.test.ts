@@ -7,7 +7,7 @@ import {
 } from "@finley/engine";
 import { START_YEAR } from "./config";
 import { monthLabel } from "./format";
-import { runOf } from "./testing/projectionHarness";
+import { readerOf, runOf } from "./testing/projectionHarness";
 import {
   goalRows,
   dispositionLabel,
@@ -233,7 +233,7 @@ function ledgerOf(...events: LifeEvent[]): Ledger {
  * the timeline and lets the facade pair them — the same route the panel takes.
  */
 function blocksFor(goals: readonly GoalPlan[], id: string, ledger: Ledger) {
-  return goalFundingBlocks(runOf({ ...baseBudget, goals }, ledger), id);
+  return goalFundingBlocks(readerOf({ ...baseBudget, goals }, ledger), id);
 }
 
 describe("goalFundingBlocks — events naming a goal's fund account as a funding source", () => {

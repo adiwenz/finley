@@ -47,7 +47,8 @@ function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Pl
   const { state, transact } = useTestProjection(initial, initialLedger);
   const plan = state.scenario.plan;
   const ledger = state.scenario.ledger;
-  const { series, household } = Projection.fromState(state, usJurisdiction).run(usJurisdiction);
+  const projection = Projection.fromState(state, usJurisdiction);
+  const { series, household } = projection.run(usJurisdiction);
   const personNames = new Map<string, string>([
     [PRIMARY_PERSON_ID, plan.name],
     ...ledger.events.flatMap((e) =>
@@ -63,6 +64,7 @@ function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Pl
         personNames={personNames}
         household={household}
         ledger={ledger}
+        projection={projection}
       />
       <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -850,6 +852,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
         personNames={new Map()}
         household={household}
         ledger={emptyLedger}
+        projection={projection}
       />,
     );
 

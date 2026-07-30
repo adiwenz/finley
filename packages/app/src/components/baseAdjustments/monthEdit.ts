@@ -13,23 +13,7 @@
  * change. Income is never a budget line.
  */
 
-import {
-  compileExpenseBudgetLines,
-  type BudgetLine,
-  type BudgetLineOverride,
-} from "@finley/engine";
-
-/** Owner tag for the editor's throwaway compilation; expense owners are inert today. */
-const EDITOR_OWNER = "editor";
-
-/**
- * The price growth the editor shows rows in. Routing needs no conversion, so only
- * {@link resolveRowsAtMonth} reads this.
- */
-export interface MonthEditContext {
-  /** Annual price growth, e.g. `0.03` — the plan's CPI. */
-  readonly annualInflationRate: number;
-}
+import type { BudgetLineOverride } from "@finley/engine";
 
 /** The engine's own {@link BudgetLineOverride} scopes, so a spend edit routes untranslated. */
 export type EditScope = "thisMonthOnly" | "fromHereForward";
@@ -92,63 +76,5 @@ export function routeMonthEdit(edit: MonthEdit): MonthEditRoute {
   }
 
   return { kind: "incomeOverride", month: edit.month, monthlyCents: edit.newAmountCents };
-}
-
-/**
- * Grow an amount authored at `fromMonth` to `toMonth`. Display-only: income overrides live
- * in panel state and never reach the projection, so this approximation need not agree with
- * the engine to the cent.
- */
-export function inflateFromTo(
-  cents: number,
-  fromMonth: number,
-  toMonth: number,
-  ctx: MonthEditContext,
-): number {
-  const years = Math.max(0, toMonth - fromMonth) / 12;
-  return Math.round(cents * Math.pow(1 + ctx.annualInflationRate, years));
-}
-
-export interface ResolvedRow {
-  readonly lineId: string;
-  readonly label: string;
-  readonly category: BudgetLine["category"];
-  /** In the selected month's dollars — the figure the projection charges and the graph draws. */
-  readonly monthlyCents: number;
-  /** True when a dated override — not the base amount — is what is showing here. */
-  readonly overridden: boolean;
-}
-
-/**
- * Resolve every standing line to what it is **at `month`**: base amount, any dated override
- * layered on, and the price growth accrued by then — so scrubbing to year 30 shows year-30
- * dollars, matching the graph above. Reads amounts off the very series the simulator runs
- * instead of recomputing growth, so editor and projection cannot drift apart.
- */
-export function resolveRowsAtMonth(
-  lines: readonly BudgetLine[],
-  month: number,
-  annualInflationRate: number,
-): readonly ResolvedRow[] {
-  const compiled = new Map(
-    compileExpenseBudgetLines(lines, EDITOR_OWNER, annualInflationRate).map((s) => [
-      s.lineId,
-      s.series,
-    ]),
-  );
-  return lines.map((line) => {
-    const overridden = (line.overrides ?? []).some(
-      (o) =>
-        (o.scope === "thisMonthOnly" && o.month === month) ||
-        (o.scope === "fromHereForward" && o.month <= month),
-    );
-    return {
-      lineId: line.id,
-      label: line.label,
-      category: line.category,
-      monthlyCents: compiled.get(line.id)?.getMonthlyCents(month) ?? 0,
-      overridden,
-    };
-  });
 }
 

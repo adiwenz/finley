@@ -89,10 +89,27 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   app's engine imports from 33 values to 13. Nothing that writes is exported there, which is
   what makes the rule enough on its own — asserted directly, so a facade that quietly re-exported
   `withPayChange` would fail.
-  - On `Projection`: `accountDescriptors`, `solveRetirement`, `evaluateRetirementAtAge`,
-    `earlyRetireeHealth`.
+  - On `Projection` — questions about the plan as authored: `retirement`, `accountDescriptors`,
+    `eventsFundedByGoal`, `expenseRowsAt`, `jobMonthlyIncomeCents`, `jobDeferralFraction`,
+    `personMonthlyIncomeCents`, `personDeferralFraction`, `householdMonthlyIncomeCents`.
   - On `ProjectionResult`, closing over the pass already in hand rather than provoking another:
-    `snapshot`, `membersAt`, `goalProgress`, `eventsFundedByGoal`, `assessHomePurchase`.
+    `snapshot`, `membersAt`, `goalProgress`, `assessHomePurchase`.
+- **`retirement()` is one query, because the answers are not independent.** The headline age and
+  the pinned-age verdict come out of the SAME search, and what to fall back to when the pin
+  fails is part of the finding, not the caller's policy — assembling that across the boundary is
+  how a panel and a chart come to describe different households. So `solveRetirement`,
+  `evaluateRetirementAtAge` and `earlyRetireeHealth` are private, and one call returns the
+  solution, the target evaluation with `nearestFeasibleAge` resolved, the health flag, and the
+  chart's month offset. `run()` is untouched: a simulation is not a search, so a caller that
+  only wants the graph never pays for one — pinned by a test.
+- **`ProjectionReader` is the reading half, as a type.** A `Projection` is a mutable handle, and
+  a write onto one nobody reads back is silently discarded — the exact failure this migration
+  exists to prevent. Panels take the reader instead, so authoring from a view is a compile
+  error and the prop says what it is for.
+- **Compilation internals stay in.** `compileExpenseBudgetLines` is gone from the app surface;
+  `expenseRowsAt(month)` returns the resolved amount and whether an override is what is showing
+  — what the caller wanted — instead of a `SimOwnedSeries` with an owner tag that means nothing
+  outside the pipeline. `resolveRowsAtMonth` and the app's editor-inflation helper went with it.
   - The per-job adjustments (`addJobPayChange`, `addJobIncomeOverride`, `setJobMonthlyIncome`, …)
     are owner-aware: a job id is unique across the household, so "give job-3 a raise" has one
     answer and the caller does not have to know which plane job-3 is on to ask for it. That

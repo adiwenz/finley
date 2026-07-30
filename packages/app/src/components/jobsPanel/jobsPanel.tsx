@@ -8,10 +8,10 @@
  * Base + Adjustments still authors the same thing from the other direction (a month is
  * already selected there), and single-month perturbations only from there.
  *
- * The primary person's jobs are standing plan data; a partner's ride the `RelationshipEvent`
- * that brought them in, so editing those revises that event ({@link
- * import("@finley/engine").updateEvent}). {@link jobOwnersOf} hides the difference behind one
- * owner list; without it a partner's jobs are write-once.
+ * A job belongs to a person, and every person's jobs are authored the same way: through
+ * `Projection`, which owns the id. Where a job is *stored* differs — the primary person's
+ * stand on the plan, a partner's are ledger-backed — and that is internal to the facade;
+ * {@link jobOwnersOf} presents one owner list, and nothing here decides a plane.
  *
  * Topping the per-person 401(k) elective limit is not an error: contributions stop at the cap
  * and the overflow is paid as taxable income.
@@ -21,11 +21,11 @@ import { useMemo, useState } from "react";
 import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
-  monthlyIncomeCentsOf,
   type Job,
   type Household,
   type Ledger,
   type Plan,
+  type ProjectionReader,
 } from "@finley/engine";
 import {
   jobInputFromDraft,
@@ -49,14 +49,16 @@ import styles from "./jobsPanel.module.css";
 interface JobsPanelProps {
   budget: Plan;
   /**
-   * One transaction per edit, spanning both planes — {@link commitJobWrites} routes each
-   * write to the plane its owner is authored on, all inside a single facade handle.
+   * One transaction per edit, whoever the job belongs to. {@link commitJobWrites} names the
+   * facade method for each write; where the job is stored, and what id it gets, are the
+   * facade's to decide.
    */
   transact: Transact;
-  /** The roster whose members can hold jobs. */
+  /** The roster whose members can hold jobs, and the timeline they join and leave on. */
   household: Household;
-  /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
+  /** The reading half of the facade: what each job pays and defers, as authored. */
+  projection: ProjectionReader;
 }
 
 type Authoring =
@@ -82,11 +84,11 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
   return `Pay ${verb} ${formatDollars(Math.abs(change.cents))}/mo ${at}`;
 }
 
-export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProps) {
+export function JobsPanel({ budget, transact, household, ledger, projection }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
-  // One list across the household in join order, primary person first. Every row carries
-  // its owner (which routes its edits) and the label the app names that job by
-  // (owner-qualified once a second earner exists).
+  // One list across the household in join order, primary person first. Every row carries its
+  // owner — whose birth year every age on it reads against — and the label the app names that
+  // job by (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
   const [authoring, setAuthoring] = useState<Authoring>(null);
   // Per PERSON, not per household: the elective limit belongs to the earner.
@@ -98,13 +100,12 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
   /** The picker's options — the form needs who they are, not where their jobs live. */
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
-  /** Route every rewrite to its owner's plane, atomically ({@link commitJobWrites}). */
+  /** One transaction per edit, whichever owner it is for ({@link commitJobWrites}). */
   const commit = (writes: readonly JobWrite[]): boolean => commitJobWrites(writes, transact);
 
   function add(draft: JobDraft) {
     const target = owners.find((o) => o.id === draft.ownerId);
-    // No id: a new job's is minted by whichever plane it lands on — the facade's counter for
-    // the primary person, the partner's own list for a partner.
+    // No id: the facade mints one, from a single counter shared by every job in the household.
     if (target) commit([{ kind: "add", owner: target, job: jobInputFromDraft(target.birthYear, draft) }]);
     setAuthoring(null);
   }
@@ -127,7 +128,7 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
   }
 
   function removePayChange(id: string, month: number) {
-    // Addressed by job id alone — the facade finds it on whichever plane its owner is on.
+    // Addressed by job id alone: an id names one job in the household.
     transact((p) => p.removeJobPayChange(id, month));
   }
 
@@ -158,7 +159,7 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
       ) : (
         <ul className={styles.list}>
           {rows.map(({ owner, job, label }) => {
-            const monthlyCents = monthlyIncomeCentsOf(job);
+            const monthlyCents = projection.jobMonthlyIncomeCents(job.id);
             const overrideCount = job.incomeOverrides?.length ?? 0;
             // Permanent pay changes, oldest first — listed in full, not just counted.
             const payChanges = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
@@ -236,7 +237,7 @@ export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProp
                 )}
                 {authoring?.kind === "edit" && authoring.id === job.id && (
                   <JobForm
-                    initial={jobToDraftFor(owner.birthYear, job)}
+                    initial={jobToDraftFor(projection, owner.birthYear, job)}
                     submitLabel="Save"
                     owners={pickableOwners}
                     onSubmit={(draft) => edit(owner, job.id, draft)}

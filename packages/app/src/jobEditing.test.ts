@@ -13,6 +13,8 @@ import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
 import { editJob, type JobWrite } from "./jobEditing";
 import type { JobOwner } from "./jobOwners";
 import { jobToDraftFor, type JobDraft } from "./planPeople";
+import { PLAN_DEFAULTS } from "./planDefaults";
+import { readerOf } from "./testing/projectionHarness";
 
 const ALEX_BIRTH_YEAR = 1991; // 35 in 2026
 const SAM_BIRTH_YEAR = 1986; // 40 in 2026
@@ -55,7 +57,7 @@ function household(jobs: readonly Job[] = [richJob], samJobs: readonly Job[] = [
 }
 
 const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): JobDraft => ({
-  ...jobToDraftFor(birthYear, job),
+  ...jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [job] }), birthYear, job),
   ...over,
 });
 

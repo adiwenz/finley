@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Projection, type ProjectionState } from "./projectionRoot";
-import { samplePlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, salariedJob, spendLine, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -14,6 +14,8 @@ import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { PersonId } from "./job";
+import type { BudgetLine } from "./budgetLine";
+import { RETIREMENT_ID } from "./ids";
 
 const P1 = "p1" as PersonId;
 
@@ -2236,45 +2238,194 @@ describe("Projection reads — over authored state", () => {
     expect(added).toEqual([{ id: goalFundAccountId(goal), label: "Car", kind: "goal" }]);
   });
 
-  it("flags a health gap only when retirement lands before the coverage age", () => {
-    // Retiring at 60 with $600/mo authored against a $1,000/mo benchmark: a 5-year gap.
-    const covered = mockJurisdiction({
-      publicHealthCoverageAge: 65,
-      healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
-    });
-    const early = Projection.create(
-      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    );
-    const flag = early.earlyRetireeHealth(covered);
-    expect(flag.gapYears).toBe(5);
-    expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
-
-    // Retiring at the coverage age closes the window, whatever the authored line says.
-    const onTime = Projection.create(
-      { plan: { ...samplePlan, retirementAge: 65 }, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    );
-    expect(onTime.earlyRetireeHealth(covered).gapYears).toBe(0);
-
-    // A jurisdiction naming no coverage age has no window to be early for.
-    expect(early.earlyRetireeHealth(nullJurisdiction).gapYears).toBe(0);
-  });
-
-  it("evaluates the age it was asked about, against the whole scenario", () => {
+  it("names the events a goal's fund account pays for, and nothing else", () => {
     const p = Projection.create(
       { plan: samplePlan, startYear: SAMPLE_START_YEAR },
       nullJurisdiction,
     );
-    expect(p.evaluateRetirementAtAge(62, nullJurisdiction).retirementAge).toBe(62);
-    // The solution's own ages are drawn from the same search, so a feasible pin is never
-    // earlier than the earliest age the search found.
-    const solution = p.solveRetirement(nullJurisdiction);
-    if (solution.fullRetirementAge !== null) {
-      expect(p.evaluateRetirementAtAge(solution.fullRetirementAge, nullJurisdiction).feasible).toBe(
-        true,
-      );
-    }
+    const homeId = p.buyHome({
+      month: 12,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(100000),
+      downPaymentCents: dollarsToCents(10000),
+      downPaymentSourceIds: [goalFundAccountId(samplePlan.goals[0])],
+      mortgageApr: 0.05,
+      mortgageTermMonths: 360,
+    });
+    expect(p.eventsFundedByGoal("emergency").map((e) => e.id)).toEqual([homeId]);
+    expect(p.eventsFundedByGoal("no-such-goal")).toEqual([]);
+  });
+
+  it("resolves a spend line to its base amount, its overrides, and the growth to that month", () => {
+    const line = (id: string, monthlyCents: number, overrides?: BudgetLine["overrides"]) => ({
+      id,
+      label: id,
+      target: { kind: "expense" } as const,
+      amountSource: { kind: "literal" as const, monthlyCents },
+      category: "needs" as const,
+      ...(overrides ? { overrides } : {}),
+    });
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          inflationPct: 0,
+          budgetLines: [
+            line("housing", dollarsToCents(1600), [
+              { month: 24, monthlyCents: dollarsToCents(2000), scope: "fromHereForward" },
+              { month: 6, monthlyCents: dollarsToCents(900), scope: "thisMonthOnly" },
+            ]),
+            {
+              id: "brokerage-contrib",
+              label: "Investing",
+              target: { kind: "account", accountId: "brokerage", taxTreatment: "postTax" },
+              amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+              category: "savings",
+            },
+          ],
+        },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+
+    const at = (month: number) => p.expenseRowsAt(month)[0];
+    expect(at(0)).toMatchObject({ monthlyCents: dollarsToCents(1600), overridden: false });
+    // A one-month override shows at its own month and nowhere else.
+    expect(at(6)).toMatchObject({ monthlyCents: dollarsToCents(900), overridden: true });
+    expect(at(7)?.monthlyCents).toBe(dollarsToCents(1600));
+    // A from-here-forward one carries to every later month.
+    expect(at(24)?.monthlyCents).toBe(dollarsToCents(2000));
+    expect(at(400)?.monthlyCents).toBe(dollarsToCents(2000));
+    // Contribution lines have no month-resolved amount, so they are absent entirely.
+    expect(p.expenseRowsAt(0).map((r) => r.lineId)).toEqual(["housing"]);
+  });
+
+  it("grows a row into the selected month's dollars, so editor and graph agree", () => {
+    const p = Projection.create(
+      {
+        plan: {
+          ...samplePlan,
+          inflationPct: 3,
+          budgetLines: [spendLine(dollarsToCents(600))],
+        },
+        startYear: SAMPLE_START_YEAR,
+      },
+      nullJurisdiction,
+    );
+    expect(p.expenseRowsAt(0)[0]?.monthlyCents).toBe(dollarsToCents(600));
+    const tenYearsOn = p.expenseRowsAt(120)[0]?.monthlyCents ?? 0;
+    expect(Math.abs(tenYearsOn - dollarsToCents(600) * Math.pow(1.03, 10))).toBeLessThanOrEqual(2);
+  });
+
+  it("reads standing pay per job, per person and across the household — both planes", () => {
+    const p = freshProjection();
+    const mine = p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+    });
+    const partnerId = p.marry({
+      month: 0,
+      name: "Sam",
+      birthYear: SAMPLE_START_YEAR - 38,
+      jobs: [
+        { ...openEndedJob, salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
+      ],
+    });
+    const theirs = partnerEvent(p).person.jobs[0].id;
+
+    expect(p.jobMonthlyIncomeCents(mine)).toBe(dollarsToCents(10000));
+    // Found on the ledger plane by id alone — the caller never says which.
+    expect(p.jobMonthlyIncomeCents(theirs)).toBe(dollarsToCents(5000));
+    expect(p.personMonthlyIncomeCents(P1)).toBe(dollarsToCents(10000));
+    expect(p.personMonthlyIncomeCents(partnerId)).toBe(dollarsToCents(5000));
+    // Sizing a household budget off one earner is the mistake this exists to prevent.
+    expect(p.householdMonthlyIncomeCents()).toBe(dollarsToCents(15000));
+  });
+
+  it("refuses a job id no one in the household holds, rather than reading 0", () => {
+    expect(() => freshProjection().jobMonthlyIncomeCents("job-9")).toThrow(/no job "job-9"/);
+  });
+
+  it("blends a person's deferral across their jobs, weighted by gross", () => {
+    const p = freshProjection();
+    // $120k at 10% and $40k at 0% → 7.5% of the $160k gross, not the 5% a flat mean gives.
+    p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+      deferral: { deferralFraction: 0.1, fundAccountId: RETIREMENT_ID },
+    });
+    const plain = p.addJob(P1, {
+      ...openEndedJob,
+      salary: { startingSalaryCents: dollarsToCents(40000), realGrowthPct: 0 },
+    });
+    expect(p.personDeferralFraction(P1)).toBeCloseTo(0.075, 6);
+    // A job electing nothing reads as 0, never as "absent".
+    expect(p.jobDeferralFraction(plain)).toBe(0);
+  });
+
+  it("reads a person who earns nothing as 0, not NaN", () => {
+    expect(freshProjection().personDeferralFraction(P1)).toBe(0);
+    expect(freshProjection().personMonthlyIncomeCents(P1)).toBe(0);
+  });
+});
+
+describe("Projection.retirement — the whole question, one search", () => {
+  const covered = mockJurisdiction({
+    publicHealthCoverageAge: 65,
+    healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
+  });
+
+  const outlookOf = (plan: typeof samplePlan, jurisdiction = nullJurisdiction) =>
+    Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).retirement(
+      jurisdiction,
+    );
+
+  it("evaluates the plan's OWN target age, not one it was told", () => {
+    expect(outlookOf({ ...samplePlan, retirementAge: 62 }).target.retirementAge).toBe(62);
+  });
+
+  it("falls back to the earliest feasible age when the pinned age cannot be reached", () => {
+    // Pinned absurdly early: the target fails, so its nearest-feasible age is the age the
+    // SAME search found — the one rule that keeps headline and target describing one household.
+    const outlook = outlookOf({ ...samplePlan, retirementAge: 40 });
+    expect(outlook.target.feasible).toBe(false);
+    expect(outlook.target.nearestFeasibleAge).toBe(outlook.solution.fullRetirementAge);
+  });
+
+  it("keeps a reachable pinned age as its own nearest-feasible age", () => {
+    const outlook = outlookOf({ ...samplePlan, retirementAge: 80 });
+    expect(outlook.target.feasible).toBe(true);
+    expect(outlook.target.nearestFeasibleAge).toBe(80);
+  });
+
+  it("dates the full-retirement age in months from now, for a chart's reference line", () => {
+    const outlook = outlookOf(samplePlan);
+    const age = outlook.solution.fullRetirementAge;
+    expect(age).not.toBeNull();
+    expect(outlook.fullRetirementMonth).toBe((age! - samplePlan.currentAge) * 12);
+  });
+
+  it("flags a health gap only when retirement lands before the coverage age", () => {
+    // Retiring at 60 with $600/mo authored against a $1,000/mo benchmark: a 5-year gap.
+    const flag = outlookOf(samplePlan, covered).earlyRetireeHealth;
+    expect(flag.gapYears).toBe(5);
+    expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
+
+    // Retiring at the coverage age closes the window, whatever the authored line says.
+    expect(outlookOf({ ...samplePlan, retirementAge: 65 }, covered).earlyRetireeHealth.gapYears)
+      .toBe(0);
+    // A jurisdiction naming no coverage age has no window to be early for.
+    expect(outlookOf(samplePlan).earlyRetireeHealth.gapYears).toBe(0);
+  });
+
+  it("leaves run() alone — a simulation is not a search", () => {
+    const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
+    const result = p.run(nullJurisdiction);
+    // Nothing on a run answers the retirement question, so a caller that only wants the graph
+    // never pays for the search.
+    expect("retirement" in result).toBe(false);
+    expect(result.series.months.length).toBeGreaterThan(0);
   });
 });
 
@@ -2310,25 +2461,6 @@ describe("ProjectionResult reads — over one run", () => {
     expect(scored[0].progress.onTrackFraction).toBeGreaterThan(0);
   });
 
-  it("names the events a goal's fund account pays for, and nothing else", () => {
-    const p = Projection.create(
-      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    );
-    const fundId = goalFundAccountId(samplePlan.goals[0]);
-    const homeId = p.buyHome({
-      month: 12,
-      ownerId: P1,
-      purchasePriceCents: dollarsToCents(100000),
-      downPaymentCents: dollarsToCents(10000),
-      downPaymentSourceIds: [fundId],
-      mortgageApr: 0.05,
-      mortgageTermMonths: 360,
-    });
-    const result = p.run(RUN_JURISDICTION);
-    expect(result.eventsFundedByGoal("emergency").map((e) => e.id)).toEqual([homeId]);
-    expect(result.eventsFundedByGoal("no-such-goal")).toEqual([]);
-  });
 });
 
 /**

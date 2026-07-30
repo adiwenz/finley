@@ -10,7 +10,13 @@
 
 import { useState } from "react";
 import { Projection, emptyLedger, scenarioOf, withLedger } from "@finley/engine";
-import type { Jurisdiction, Ledger, Plan, ProjectionResult } from "@finley/engine";
+import type {
+  Jurisdiction,
+  Ledger,
+  Plan,
+  ProjectionReader,
+  ProjectionResult,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "../hooks/useProjection";
@@ -28,6 +34,14 @@ export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): Use
     ).toState(),
   );
   return useProjection(initial);
+}
+
+/**
+ * A read handle over a fixture plan — what a panel taking a {@link ProjectionReader} is
+ * handed. Built through `fromScenario`, so the counters are floored exactly as the app's are.
+ */
+export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionReader {
+  return Projection.fromScenario(withLedger(scenarioOf(plan), ledger), START_YEAR, usJurisdiction);
 }
 
 /**

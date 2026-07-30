@@ -37,7 +37,9 @@ import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
 import { withGoalPatch, withGoalReordered, withoutGoal, withPlanPatch } from "./plan";
 import type { Job, JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
 import {
+  deferralFractionOf,
   mapJob,
+  monthlyIncomeCentsOf,
   withDeferralFraction,
   withIncomeOverride,
   withJobPatch,
@@ -46,8 +48,14 @@ import {
   withoutPayChange,
   withPayChange,
 } from "./job";
-import type { BudgetLine, BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
+import type {
+  BudgetCategory,
+  BudgetLine,
+  BudgetLineOverride,
+  BudgetLinePatch,
+} from "./budgetLine";
 import { withLineOverride, withLinePatch, withoutLine } from "./budgetLine";
+import { compileExpenseBudgetLines } from "./compileBudget";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
 import type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
@@ -240,11 +248,6 @@ export interface ProjectionResult {
    * Paired, because a row needs both and the two lists are index-aligned only by construction.
    */
   readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
-  /**
-   * The timeline events a goal's fund account pays for — what blocks its deletion, in
-   * timeline order.
-   */
-  readonly eventsFundedByGoal: (goalId: string) => readonly LifeEvent[];
   /** The soft debt-to-income read on a purchase that has not been authored yet. */
   readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
 }
@@ -273,6 +276,45 @@ export interface HomePurchaseAssessment {
   /** True when either the front- or back-end guideline is exceeded. */
   readonly exceeded: boolean;
 }
+
+/**
+ * "When can this household retire, and does the age it picked work?" — the whole answer, from
+ * one search. See {@link Projection.retirement}.
+ */
+export interface RetirementOutlook {
+  /** The earliest ages the search reached, partial and full; `null` where the money runs out. */
+  readonly solution: RetirementSolution;
+  /**
+   * {@link solution}'s full-retirement age as months from "now", or `null` with the age — what
+   * a chart draws its retirement reference line at.
+   */
+  readonly fullRetirementMonth: number | null;
+  /**
+   * The plan's own `retirementAge`, evaluated as a full retirement. `nearestFeasibleAge` is
+   * resolved here: the pinned age when it survives, else the earliest age the same search
+   * found.
+   */
+  readonly target: RetirementEvaluation;
+  /** Whether retiring on this plan opens a pre-coverage health gap, and how large. */
+  readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
+}
+
+/** One expense line as it stands at a month. See {@link Projection.expenseRowsAt}. */
+export interface ResolvedExpenseRow {
+  readonly lineId: string;
+  readonly label: string;
+  readonly category: BudgetCategory;
+  /** In that month's dollars — the figure the projection charges and the graph draws. */
+  readonly monthlyCents: Cents;
+  /** True when a dated override, rather than the base amount, is what is showing. */
+  readonly overridden: boolean;
+}
+
+/**
+ * Owner tag for the throwaway compilation behind {@link Projection.expenseRowsAt}. Expense
+ * owners are inert in the pipeline; the preview never reaches a simulation.
+ */
+const EXPENSE_PREVIEW_OWNER = "expense-preview";
 
 /**
  * Feed the guideline arithmetic the household's real numbers at the purchase month: gross
@@ -493,7 +535,35 @@ function withNormalizedCounters(state: ProjectionState): ProjectionState {
   };
 }
 
-export class Projection {
+/**
+ * The reading half of {@link Projection}, as an interface.
+ *
+ * A `Projection` is a mutable handle: a write swaps the state it holds. Handing one to a view
+ * would let that view author outside the transaction that commits — a write onto a handle
+ * nobody reads back is silently discarded, which is exactly the failure the facade exists to
+ * make impossible. Taking this instead makes authoring from a view a compile error, and says
+ * what the view is for.
+ *
+ * Everything here is total and side-effect-free: nothing on it can change authored state.
+ */
+export interface ProjectionReader {
+  readonly plan: Plan;
+  readonly ledger: Ledger;
+  run(jurisdiction: Jurisdiction): ProjectionResult;
+  funding(): FundingLookup;
+  retirement(jurisdiction: Jurisdiction): RetirementOutlook;
+  accountDescriptors(): readonly PlanAccountDescriptor[];
+  eventsFundedByGoal(goalId: string): readonly LifeEvent[];
+  expenseRowsAt(month: number): readonly ResolvedExpenseRow[];
+  jobMonthlyIncomeCents(jobId: string): Cents;
+  jobDeferralFraction(jobId: string): number;
+  personMonthlyIncomeCents(personId: PersonId): Cents;
+  householdMonthlyIncomeCents(): Cents;
+  personDeferralFraction(personId: PersonId): number;
+  toState(): ProjectionState;
+}
+
+export class Projection implements ProjectionReader {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
   private current: ProjectionState;
 
@@ -1292,8 +1362,6 @@ export class Projection {
           progress: computeGoalProgress(goal, series, accounts),
         }));
       },
-      eventsFundedByGoal: (goalId: string) =>
-        eventsFundedByGoal(plan.goals, goalId, s.scenario.ledger),
       assessHomePurchase: (input: HomePurchaseInput) =>
         assessHomePurchase(household, series, input),
     });
@@ -1310,35 +1378,11 @@ export class Projection {
   /**
    * The context the retirement searches run in. Their own question, not {@link run}'s: each
    * re-simulates the scenario at a *candidate* retirement age, so none of them can be answered
-   * off a completed pass.
+   * off a completed pass — which is why {@link retirement} is a separate call and `run` never
+   * pays for one it was not asked for.
    */
   private projectionContext(jurisdiction: Jurisdiction): ProjectionContext {
     return { jurisdiction, startYear: this.state.startYear };
-  }
-
-  /**
-   * The earliest ages this household can retire — partial and full — or `null` where the
-   * money never lasts. Searched over the whole scenario, plan and timeline together, so an
-   * added child or a separation moves the answer.
-   */
-  solveRetirement(jurisdiction: Jurisdiction): RetirementSolution {
-    return solveRetirement(this.state.scenario, this.projectionContext(jurisdiction));
-  }
-
-  /**
-   * The same full-retirement question asked at ONE age — whether the plan survives it, and how
-   * far along it is. `nearestFeasibleAge` is deliberately absent: what to fall back to when an
-   * age fails is the caller's policy, not the search's finding.
-   */
-  evaluateRetirementAtAge(
-    age: number,
-    jurisdiction: Jurisdiction,
-  ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-    return evaluateFullRetirementAtAge(
-      this.state.scenario,
-      age,
-      this.projectionContext(jurisdiction),
-    );
   }
 
   /**
@@ -1351,7 +1395,7 @@ export class Projection {
    * A jurisdiction naming no coverage age has no gap window at all, so the flag stays quiet
    * rather than treating "unknown" as "never covered".
    */
-  earlyRetireeHealth(jurisdiction: Jurisdiction): EarlyRetireeHealthFlag {
+  private earlyRetireeHealth(jurisdiction: Jurisdiction): EarlyRetireeHealthFlag {
     const plan = this.plan;
     return assessEarlyRetireeHealthCost({
       retirementAge: plan.retirementAge,
@@ -1363,6 +1407,156 @@ export class Projection {
           year: this.state.startYear,
         }) ?? 0,
     });
+  }
+
+  /**
+   * "When can this household retire, and does the age it picked work?" — asked once, answered
+   * whole.
+   *
+   * One call rather than three, because the three answers are not independent: the pinned age
+   * and the earliest feasible age come out of the SAME search, and a caller assembling them
+   * itself has to re-implement what to fall back to when the pin fails. Splitting that across
+   * the boundary is how a panel and a chart come to disagree about a household that cannot
+   * retire at all.
+   *
+   * Separate from {@link run} on purpose. `run` is one simulation; this is a *search* over
+   * many, each at a candidate age — so a caller that only wants the graph never pays for it.
+   */
+  retirement(jurisdiction: Jurisdiction): RetirementOutlook {
+    const ctx = this.projectionContext(jurisdiction);
+    const plan = this.plan;
+    const solution = solveRetirement(this.state.scenario, ctx);
+    const evaluation = evaluateFullRetirementAtAge(this.state.scenario, plan.retirementAge, ctx);
+    return Object.freeze({
+      solution,
+      // The headline is the FULL retirement age: everyone stops all their jobs.
+      fullRetirementMonth:
+        solution.fullRetirementAge === null
+          ? null
+          : Math.max(0, (solution.fullRetirementAge - plan.currentAge) * 12),
+      target: {
+        ...evaluation,
+        // One rule for the pin and its fallback: an age the plan cannot reach falls back to the
+        // earliest age the same search found, so the two can never name different households.
+        nearestFeasibleAge: evaluation.feasible
+          ? evaluation.retirementAge
+          : solution.fullRetirementAge,
+      },
+      earlyRetireeHealth: this.earlyRetireeHealth(jurisdiction),
+    });
+  }
+
+  /**
+   * Every job in the household, both planes at once: the primary person's stand on the plan, a
+   * partner's ride the {@link RelationshipEvent} that brought them in. Ownership is on the job,
+   * so a caller reading pay or deferral never has to know which plane it came off.
+   */
+  private householdJobs(): readonly Job[] {
+    const s = this.state.scenario;
+    const jobs: Job[] = [...s.plan.jobs];
+    for (const event of s.ledger.events) {
+      if (event.type === "RelationshipEvent") jobs.push(...event.person.jobs);
+    }
+    return jobs;
+  }
+
+  /**
+   * What a job pays a month **as authored** — its starting salary, not what any given month
+   * resolves to once growth, spans and overrides are applied. That is deliberately the figure a
+   * job's headline shows: a dated change is listed beside it rather than folded into it.
+   */
+  jobMonthlyIncomeCents(jobId: string): Cents {
+    return monthlyIncomeCentsOf(this.jobOrThrow(jobId));
+  }
+
+  /** A job id names one job across both planes, or it names nothing — never a silent 0. */
+  private jobOrThrow(jobId: string): Job {
+    const job = this.householdJobs().find((j) => j.id === jobId);
+    if (job === undefined) {
+      throw new Error(`Projection: cannot read a job — no job "${jobId}" in this household`);
+    }
+    return job;
+  }
+
+  /**
+   * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a
+   * caller never has to distinguish "no deferral" from "deferring nothing" — the read
+   * counterpart of {@link setJobDeferralFraction}, which erases a 0 rather than recording it.
+   */
+  jobDeferralFraction(jobId: string): number {
+    return deferralFractionOf(this.jobOrThrow(jobId));
+  }
+
+  /** The same, summed over one person's jobs — nobody holds a single privileged job. */
+  personMonthlyIncomeCents(personId: PersonId): Cents {
+    return this.householdJobs()
+      .filter((j) => j.ownerId === personId)
+      .reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
+  }
+
+  /** Standing pay across every earner. Sizing a household's budget off one earner's is wrong. */
+  householdMonthlyIncomeCents(): Cents {
+    return this.householdJobs().reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
+  }
+
+  /**
+   * One person's pre-tax 401(k) deferral as a fraction of their gross, blended across their
+   * jobs — each job elects its own, so the household-level figure is a weighted average and not
+   * any one election. 0 when they earn nothing.
+   */
+  personDeferralFraction(personId: PersonId): number {
+    const jobs = this.householdJobs().filter((j) => j.ownerId === personId);
+    const grossCents = jobs.reduce((sum, j) => sum + j.salary.startingSalaryCents, 0);
+    if (grossCents <= 0) return 0;
+    const deferredCents = jobs.reduce(
+      (sum, j) => sum + j.salary.startingSalaryCents * deferralFractionOf(j),
+      0,
+    );
+    return deferredCents / grossCents;
+  }
+
+  /**
+   * Every expense line resolved to what it is **at `month`**: base amount, any dated override
+   * layered on, and the price growth accrued by then. The amounts come off the very series the
+   * simulator charges, so an editor showing a month and the projection running it cannot drift.
+   *
+   * Resolved rows, not the compiled series they are read from: a caller wants the number and
+   * whether an override is what is showing, and the compiler's `SimOwnedSeries` is an internal
+   * with a lifetime and an owner tag that mean nothing outside the pipeline.
+   *
+   * Contribution lines are absent by construction — they pay a literal amount into an account
+   * and have no month-resolved value to preview.
+   */
+  expenseRowsAt(month: number): readonly ResolvedExpenseRow[] {
+    const plan = this.plan;
+    const lines = plan.budgetLines.filter((line) => line.target.kind === "expense");
+    const compiled = new Map(
+      compileExpenseBudgetLines(lines, EXPENSE_PREVIEW_OWNER, plan.inflationPct / 100).map((s) => [
+        s.lineId,
+        s.series,
+      ]),
+    );
+    return lines.map((line) => ({
+      lineId: line.id,
+      label: line.label,
+      category: line.category,
+      monthlyCents: compiled.get(line.id)?.getMonthlyCents(month) ?? 0,
+      overridden: (line.overrides ?? []).some(
+        (o) =>
+          (o.scope === "thisMonthOnly" && o.month === month) ||
+          (o.scope === "fromHereForward" && o.month <= month),
+      ),
+    }));
+  }
+
+  /**
+   * The timeline events a goal's fund account pays for — what blocks its deletion, in timeline
+   * order. {@link removeGoal} refuses on the same reading; this is it asked ahead of time, so a
+   * caller can say which events to fix first instead of only that it cannot.
+   */
+  eventsFundedByGoal(goalId: string): readonly LifeEvent[] {
+    const s = this.state.scenario;
+    return eventsFundedByGoal(s.plan.goals, goalId, s.ledger);
   }
 
   /**
@@ -1427,9 +1621,11 @@ export class Projection {
 // are re-exported here so that ONE module states an app's entire dependency on the engine —
 // and so adding to it is a deliberate edit with a reason beside it.
 //
-// The line, drawn once: anything that reads the household, the run series, or the plan and
-// ledger as a whole is a METHOD above. What appears below is total over values the caller
-// already holds — a `Job`, a list of budget lines, a dollar amount — or is a constant.
+// The line, drawn once: if answering the question needs the projection — the plan, the
+// ledger, the household, the run — it is a METHOD above, and it returns what the caller
+// actually wanted rather than a compiler artifact to finish assembling. What appears below
+// could not be a method without inventing a reason to hold one: a unit conversion with no
+// state to convert against, a label for an enum value, an id the engine names.
 //
 // Nothing that WRITES appears here, and nothing that writes may be added. The authoring
 // transforms (`withPayChange`, `withGoalPatch`, `addEvent`, `updateEvent`, …) stay on the
@@ -1477,17 +1673,12 @@ export type { Jurisdiction } from "./jurisdiction";
 export type { Cents } from "./money";
 
 // Money as the user types it. Neither reads nor writes anything — a form has cents to hand
-// the facade before there is any state for the facade to hold.
+// the facade before there is any state for the facade to hold, so a `Projection` method
+// would be an instance in search of a use.
 export { dollarsToCents, centsToDollars } from "./cashFlowSeries";
 
-// Reads over one value the caller already has. Each is the read counterpart of a `Projection`
-// setter (`setJobMonthlyIncome`, `setJobDeferralFraction`), so a panel showing what it is
-// about to change and the write that changes it agree by construction.
-export { monthlyIncomeCentsOf, deferralFractionOf } from "./job";
+// A total function of one enum value, with no projection to ask.
 export { liabilityKindLabel } from "./liability";
-// Resolves the lines it is GIVEN, which is why it is here and not a method: a month-by-month
-// editor previews a working list that has not been authored yet.
-export { compileExpenseBudgetLines } from "./compileBudget";
 
 // Ids and thresholds the engine owns and an app has to quote back: the primary person, the
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.

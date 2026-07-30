@@ -9,14 +9,13 @@
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
-  deferralFractionOf,
-  monthlyIncomeCentsOf,
   type Job,
   type JobIncomeOverride,
   type JobInput,
   type JobPayChange,
   type PersonId,
   type Plan,
+  type ProjectionReader,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
 
@@ -28,30 +27,6 @@ export function yearOfMonth(month: number): number {
 /** The primary person's jobs, in plan order. */
 export function primaryJobs(plan: Plan): readonly Job[] {
   return plan.jobs.filter((j) => j.ownerId === PRIMARY_PERSON_ID);
-}
-
-/**
- * Total earned income across the primary person's jobs, as today's-dollars monthly
- * cents. A display figure only: the projection compiles each job's own series (growth,
- * spans, overrides), so this is "standing income now", not what any month pays.
- */
-export function totalMonthlyIncomeCents(plan: Plan): number {
-  return primaryJobs(plan).reduce(
-    (sum, j) => sum + monthlyIncomeCentsOf(j),
-    0,
-  );
-}
-
-/** Blended pre-tax 401(k) deferral across the primary person's jobs, as a fraction of gross. */
-export function blendedDeferralFraction(plan: Plan): number {
-  const jobs = primaryJobs(plan);
-  const grossCents = jobs.reduce((s, j) => s + j.salary.startingSalaryCents, 0);
-  if (grossCents <= 0) return 0;
-  const deferredCents = jobs.reduce(
-    (s, j) => s + j.salary.startingSalaryCents * deferralFractionOf(j),
-    0,
-  );
-  return deferredCents / grossCents;
 }
 
 /**
@@ -109,18 +84,23 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
 }
 
 /**
- * Read an existing job back into a {@link JobDraft}. Ages resolve against the OWNER's
- * birth year, which the caller supplies.
+ * Read an existing job back into a {@link JobDraft}. Ages resolve against the OWNER's birth
+ * year, which the caller supplies; pay and deferral are read through the facade, so the form
+ * opens on exactly what `setJobMonthlyIncome` / `setJobDeferralFraction` would write back.
  */
-export function jobToDraftFor(birthYear: number, job: Job): JobDraft {
+export function jobToDraftFor(
+  projection: ProjectionReader,
+  birthYear: number,
+  job: Job,
+): JobDraft {
   return {
     name: job.name ?? "",
     ownerId: job.ownerId,
-    monthlyCents: monthlyIncomeCentsOf(job),
+    monthlyCents: projection.jobMonthlyIncomeCents(job.id),
     startAge: jobStartAgeFor(birthYear, job),
     endAge: jobEndAgeFor(birthYear, job),
     realGrowthPct: job.salary.realGrowthPct,
-    deferralPct: Math.round(deferralFractionOf(job) * 100),
+    deferralPct: Math.round(projection.jobDeferralFraction(job.id) * 100),
   };
 }
 

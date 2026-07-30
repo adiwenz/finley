@@ -17,10 +17,10 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
-  monthlyIncomeCentsOf,
   type Household,
   type Ledger,
   type Plan,
+  type ProjectionReader,
   type ProjectionSeries,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
@@ -34,18 +34,15 @@ import {
   budgetLinePatchFromDraft,
   blankLineDraft,
   contributionLinesOf,
-  expenseLinesOf,
   type BudgetLineDraft,
 } from "./budgetLines";
 import { jobOwnersOf } from "../../jobOwners";
 import { ownedJobsOf } from "../../jobEditing";
 import type { Transact } from "../../hooks/useProjection";
 import {
-  resolveRowsAtMonth,
   routeMonthEdit,
   type EditRow,
   type EditScope,
-  type MonthEditContext,
   type MonthEditRoute,
 } from "./monthEdit";
 import { buildIncomeChartData } from "./incomeByCategory";
@@ -88,6 +85,11 @@ export interface BaseAdjustmentsPanelProps {
    */
   readonly household: Household;
   readonly ledger: Ledger;
+  /**
+   * The reading half of the facade: what each expense line resolves to at the selected month,
+   * and the household's standing pay the quickstart sizes its tiers against.
+   */
+  readonly projection: ProjectionReader;
 }
 
 export function BaseAdjustmentsPanel({
@@ -97,14 +99,9 @@ export function BaseAdjustmentsPanel({
   personNames,
   household,
   ledger,
+  projection,
 }: BaseAdjustmentsPanelProps) {
   const lines = plan.budgetLines;
-  // Rows are shown in the selected month's dollars — the same price growth the projection
-  // uses to get there and back.
-  const editCtx: MonthEditContext = useMemo(
-    () => ({ annualInflationRate: plan.inflationPct / 100 }),
-    [plan.inflationPct],
-  );
   const [selectedMonth, setSelectedMonth] = useState(0);
   const [pending, setPending] = useState<PendingEdit | null>(null);
   /** The route carries only the line id, so the row's label rides along with it. */
@@ -127,13 +124,14 @@ export function BaseAdjustmentsPanel({
     [series],
   );
 
-  // Only expense lines get month-resolved amounts; contribution lines are a flat literal
-  // into an account.
-  const expenseLines = useMemo(() => expenseLinesOf(lines), [lines]);
+  // Contribution lines are a flat literal into an account, so they have no month-resolved
+  // amount to preview — only expense rows do, and those come off the facade.
   const contributionLines = useMemo(() => contributionLinesOf(lines), [lines]);
+  // Resolved by the facade off the very series the simulator charges, so the month a user
+  // scrubs to and the month the projection runs cannot show different numbers.
   const rows = useMemo(
-    () => resolveRowsAtMonth(expenseLines, selectedMonth, editCtx.annualInflationRate),
-    [expenseLines, selectedMonth, editCtx],
+    () => projection.expenseRowsAt(selectedMonth),
+    [projection, selectedMonth],
   );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
@@ -206,11 +204,7 @@ export function BaseAdjustmentsPanel({
     // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the
     // whole household's standing pay — one earner's jobs would size a two-earner
     // household's spending to half its income.
-    const monthlyIncomeCents = owners.reduce(
-      (sum, o) =>
-        sum + o.jobs.reduce((s, j) => s + monthlyIncomeCentsOf(j), 0),
-      0,
-    );
+    const monthlyIncomeCents = projection.householdMonthlyIncomeCents();
     // One transaction: the whole rebalance lands together or not at all.
     const { rescale, seeds } = tierRebalanceWrites(lines, monthlyIncomeCents, retirementMonth);
     transact((p) => {
@@ -220,7 +214,7 @@ export function BaseAdjustmentsPanel({
       for (const seed of seeds) p.addBudgetLine(seed);
     });
     setPending(null);
-  }, [lines, owners, retirementMonth, transact]);
+  }, [lines, projection, retirementMonth, transact]);
 
   // `length - 1`: every row is a processed month now (the opening snapshot left the array), so
   // the last selectable month is the last INDEX, not the count. Clamping to the count would

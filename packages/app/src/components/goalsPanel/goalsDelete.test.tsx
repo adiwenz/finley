@@ -14,7 +14,7 @@ import {
 } from "@finley/engine";
 import { monthLabel } from "../../format";
 import { GoalsPanel } from "./goalsPanel";
-import { runOf } from "../../testing/projectionHarness";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import type {
   Plan,
@@ -68,7 +68,7 @@ const ledgerOf = (...events: readonly LifeEvent[]): Ledger => ({
 function renderPanel(ledger: Ledger, transact = vi.fn()) {
   const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
   const panel = (l: Ledger) => (
-    <GoalsPanel budget={budget} result={runOf(budget, l)} transact={transact} />
+    <GoalsPanel budget={budget} projection={readerOf(budget, l)} result={runOf(budget, l)} transact={transact} />
   );
   const { rerender } = render(panel(ledger));
   // The ledger is the only prop under test, so re-rendering means handing over a new one —

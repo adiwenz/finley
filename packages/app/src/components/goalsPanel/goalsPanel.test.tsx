@@ -12,7 +12,7 @@ import {
   dollarsToCents,
 } from "@finley/engine";
 import { GoalsPanel } from "./goalsPanel";
-import { runOf } from "../../testing/projectionHarness";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import type { Transact } from "../../hooks/useProjection";
@@ -26,7 +26,7 @@ const noWrites: Transact = () => undefined;
 describe("GoalsPanel", () => {
   it("shows each goal's projection-based on-track % and name", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     expect(html).toContain("Emergency fund");
     expect(html).toContain("Home down payment");
@@ -35,7 +35,7 @@ describe("GoalsPanel", () => {
 
   it("surfaces each goal's disposition — the fate of the money at target", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     // Both default goals are `retain` savings reserves (planDefaults).
     expect(html).toContain("Kept as a reserve");
@@ -57,7 +57,7 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} result={runOf(budget)} transact={noWrites} />,
+      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
     );
     expect(html).toContain("Funded");
     // Funded is terminal: the pacing % ("am I on pace to get there") is dropped so it can't
@@ -81,7 +81,7 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} result={runOf(budget)} transact={noWrites} />,
+      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
     );
     expect(html).toContain("In progress");
     expect(html).toContain("Behind pace");
@@ -105,14 +105,14 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} result={runOf(budget)} transact={noWrites} />,
+      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
     );
     expect(html).toContain("market-risk account");
   });
 
   it("offers priority-reorder controls per goal", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     expect(html).toContain("Move Emergency fund up");
     expect(html).toContain("Move Home down payment down");
@@ -122,7 +122,7 @@ describe("GoalsPanel", () => {
     // `Projection.reorderGoal` refuses a move that cannot happen, so the panel must not offer
     // one: an enabled button here would surface as a conflict message on a dead click.
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     // First goal cannot go up, last cannot go down; the inner moves stay live.
     expect(html).toMatch(/aria-label="Move Emergency fund up"[^>]*disabled/);
@@ -133,7 +133,7 @@ describe("GoalsPanel", () => {
 
   it("offers per-goal edit and delete authoring controls", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     expect(html).toContain("Edit Emergency fund");
     expect(html).toContain("Delete Emergency fund");
@@ -141,7 +141,7 @@ describe("GoalsPanel", () => {
 
   it("discloses the add-goal form on demand, not always open", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
     );
     // The disclosure trigger is present; the form itself is closed until clicked.
     expect(html).toContain("+ Add a goal");
@@ -151,7 +151,7 @@ describe("GoalsPanel", () => {
   it("invites a first goal when the plan has none", () => {
     const empty: Plan = { ...PLAN_DEFAULTS, goals: [] };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={empty} result={runOf(empty)} transact={noWrites} />,
+      <GoalsPanel budget={empty} projection={readerOf(empty)} result={runOf(empty)} transact={noWrites} />,
     );
     expect(html).toContain("No goals yet");
     expect(html).toContain("+ Add a goal");

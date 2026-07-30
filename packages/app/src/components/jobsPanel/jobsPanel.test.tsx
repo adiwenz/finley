@@ -56,10 +56,8 @@ function Harness({
   });
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
-  const household = useMemo(
-    () => Projection.fromState(state, usJurisdiction).run(usJurisdiction).household,
-    [state],
-  );
+  const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
+  const household = useMemo(() => projection.run(usJurisdiction).household, [projection]);
 
   return (
     <>
@@ -68,6 +66,7 @@ function Harness({
         transact={rejectRevisions ? refuseEveryWrite : transact}
         household={household}
         ledger={ledger}
+        projection={projection}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>

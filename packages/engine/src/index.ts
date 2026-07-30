@@ -121,6 +121,9 @@ export type {
   PayOffDebtInput,
   HomePurchaseInput,
   HomePurchaseAssessment,
+  RetirementOutlook,
+  ResolvedExpenseRow,
+  ProjectionReader,
 } from "./projectionRoot";
 export { Projection } from "./projectionRoot";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
@@ -131,8 +134,11 @@ export * from "./projectionBase";
 // goal, since the account is derived from the goal and falls away with it.
 export * from "./goalFunding";
 // The per-mode retirement searches stay module-internal; `solveRetirement` returns all three
-// ages at once. `projectScenario` + `planSurvives` are public because the app's acceptance
-// tests use them as an independent survival oracle (panel age == first surviving age).
+// ages at once. None of these is how an application asks the retirement question — that is
+// `Projection.retirement`, which runs the search once and returns the headline, the pinned-age
+// verdict and the health flag together, so the three cannot be assembled inconsistently.
+// They stay public for one reason: an acceptance test needs an oracle INDEPENDENT of the
+// facade, to check that what a panel shows is what a plain simulation says.
 // `projectScenarioParts` is deliberately NOT public: its only caller is `Projection.run`, a
 // sibling inside the engine, and its result carries `HouseholdSimInput` — a low-level simulator
 // artifact the facade migration exists to stop publishing. Exporting it would pin that type to

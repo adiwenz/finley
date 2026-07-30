@@ -11,8 +11,8 @@ import { NumInput } from "../numInput/numInput";
 import { BudgetLineForm } from "./budgetLineForm";
 import { lineToDraft } from "./budgetLines";
 import { formatDollars } from "../../format";
-import type { BudgetLine } from "@finley/engine";
-import type { EditRow, EditScope, MonthEditRoute, ResolvedRow } from "./monthEdit";
+import type { BudgetLine, ResolvedExpenseRow } from "@finley/engine";
+import type { EditRow, EditScope, MonthEditRoute } from "./monthEdit";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
 
@@ -61,7 +61,7 @@ function describeRoute(route: MonthEditRoute, label: string): string {
 }
 
 interface SpendingRowProps {
-  readonly row: ResolvedRow;
+  readonly row: ResolvedExpenseRow;
   /** The authored line behind this row — absent while a row outlives its line. */
   readonly line: BudgetLine | undefined;
   readonly pending: PendingEdit | null;
@@ -113,7 +113,7 @@ function SpendingRow({ row, line, pending, formOpen, edit, form }: SpendingRowPr
 
 export interface SpendingEditorProps {
   /** Each expense line resolved to the selected month (amount, tier, adjusted flag). */
-  readonly rows: readonly ResolvedRow[];
+  readonly rows: readonly ResolvedExpenseRow[];
   /** The standing lines, for the disclosed edit form's initial draft. */
   readonly lines: readonly BudgetLine[];
   readonly selectedMonth: number;

@@ -5,15 +5,16 @@
  * retirement solver, which runs the same `simulateHousehold` the net-worth graph does — so
  * panel and graph can never disagree.
  *
- * Everything read here comes off one {@link Projection} handle. What is left in this module
- * is presentation and nothing else: rounding, the age→month conversion the chart's reference
- * line needs, and the fallback policy for a pinned age the plan cannot reach.
+ * The whole answer comes from one `retirement()` call, so the headline and the pinned-age
+ * verdict are always two readings of the same search. What is left in this module is
+ * presentation: the on-track rounding rule, and the two authored health figures the panel
+ * shows beside the flag.
  */
 
 import type {
   Jurisdiction,
   Plan,
-  Projection,
+  ProjectionReader,
   RetirementEvaluation,
   EarlyRetireeHealthFlag,
 } from "@finley/engine";
@@ -51,30 +52,20 @@ export interface RetirementView {
 }
 
 export function retirementView(
-  projection: Projection,
+  projection: ProjectionReader,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
   // net-worth graph does, because it asks the same handle.
   const budget: Plan = projection.plan;
-  // The headline is the FULL retirement age: everyone stops all their jobs.
-  const headlineAge = projection.solveRetirement(jurisdiction).fullRetirementAge;
-  const headlineMonth =
-    headlineAge === null ? null : Math.max(0, (headlineAge - budget.currentAge) * 12);
-  // The target asks the SAME full-retirement question at the pinned age, so when the pin
-  // can't make it the nearest-feasible age is the headline — one rule for pin and fallback,
-  // reusing the solver's search rather than a second one that could drift.
-  const evaluation = projection.evaluateRetirementAtAge(budget.retirementAge, jurisdiction);
-  const target: RetirementEvaluation = {
-    ...evaluation,
-    nearestFeasibleAge: evaluation.feasible ? evaluation.retirementAge : headlineAge,
-  };
+  const { solution, fullRetirementMonth, target, earlyRetireeHealth } =
+    projection.retirement(jurisdiction);
   return {
-    headlineAge,
-    headlineMonth,
+    headlineAge: solution.fullRetirementAge,
+    headlineMonth: fullRetirementMonth,
     target,
     targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
-    earlyRetireeHealth: projection.earlyRetireeHealth(jurisdiction),
+    earlyRetireeHealth,
     residualHealthMonthlyCents: budget.enrollsInPublicHealthCoverage
       ? budget.postCoverageHealthMonthlyCents
       : 0,

@@ -10,6 +10,14 @@
 import { describe, it, expect } from "vitest";
 import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
 import { blankJobDraftFor, jobInputFromDraft, jobToDraftFor, type JobDraft } from "./planPeople";
+import { PLAN_DEFAULTS } from "./planDefaults";
+import { readerOf } from "./testing/projectionHarness";
+
+/**
+ * A handle holding just this job. {@link jobToDraftFor} reads pay and deferral through the
+ * facade, so the form opens on exactly what a write-back would set.
+ */
+const draftOf = (j: Job) => jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [j] }), BIRTH_YEAR, j);
 
 const BIRTH_YEAR = 1991;
 
@@ -48,15 +56,15 @@ describe("jobInputFromDraft — a job's optional name on the way in", () => {
 
 describe("jobToDraftFor — reading a job back into the edit form", () => {
   it("reads a name back as itself", () => {
-    expect(jobToDraftFor(BIRTH_YEAR, job({ name: "Barista" })).name).toBe("Barista");
+    expect(draftOf(job({ name: "Barista" })).name).toBe("Barista");
   });
 
   it('reads an unnamed job back as "", not undefined — the form binds a string', () => {
-    expect(jobToDraftFor(BIRTH_YEAR, job()).name).toBe("");
+    expect(draftOf(job()).name).toBe("");
   });
 
   it("round-trips a name through both directions unchanged", () => {
     const input = jobInputFromDraft(BIRTH_YEAR, draft({ name: "Barista" }));
-    expect(jobToDraftFor(BIRTH_YEAR, job(input)).name).toBe("Barista");
+    expect(draftOf(job(input)).name).toBe("Barista");
   });
 });

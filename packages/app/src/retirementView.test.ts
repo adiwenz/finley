@@ -15,7 +15,9 @@ import {
   buildWithdrawalSources,
   type WithdrawalState,
   type JurisdictionContext,
+  type Jurisdiction,
   type ProjectionContext,
+  type ProjectionReader,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
@@ -34,6 +36,49 @@ function viewOf(plan: Plan) {
 function survivesAt(budget: Plan, age: number): boolean {
   return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
 }
+
+describe("retirementView — one query behind every figure", () => {
+  /** Counts how many searches a render costs; `retirement` is the only one it may run. */
+  function countingReader(plan: Plan) {
+    const real = Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction);
+    let calls = 0;
+    const reader: ProjectionReader = Object.create(real, {
+      retirement: {
+        value: (j: Jurisdiction) => {
+          calls += 1;
+          return real.retirement(j);
+        },
+      },
+    });
+    return { reader, calls: () => calls };
+  }
+
+  it("asks the facade once, and every figure it shows comes out of that answer", () => {
+    const { reader, calls } = countingReader(PLAN_DEFAULTS);
+    const view = retirementView(reader);
+    expect(calls()).toBe(1);
+
+    // Each field is the corresponding field of the one outlook, not a second derivation.
+    const outlook = reader.retirement(usJurisdiction);
+    expect(view.headlineAge).toBe(outlook.solution.fullRetirementAge);
+    expect(view.headlineMonth).toBe(outlook.fullRetirementMonth);
+    expect(view.target).toEqual(outlook.target);
+    expect(view.earlyRetireeHealth).toEqual(outlook.earlyRetireeHealth);
+  });
+
+  it("keeps the on-track rounding on this side of the boundary — floored, clamped", () => {
+    // The engine reports a fraction; rounding DOWN to a tenth is the app's rule, so a plan
+    // 99.97% of the way cannot show a "100%" it has not earned.
+    const view = viewOf(PLAN_DEFAULTS);
+    expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
+    expect(view.targetOnTrackPct).toBeGreaterThanOrEqual(0);
+    expect(view.targetOnTrackPct).toBe(
+      Math.floor(view.target.onTrackFraction * 1000) / 10 > 100
+        ? 100
+        : Math.floor(view.target.onTrackFraction * 1000) / 10,
+    );
+  });
+});
 
 describe("retirementView — headline age driven off the real projection", () => {
   it("reports a feasible headline age that actually survives in the projection", () => {

@@ -176,7 +176,12 @@ export function App() {
           </div>
 
           <div className="card">
-            <GoalsPanel budget={budget} result={result} transact={transact} />
+            <GoalsPanel
+              budget={budget}
+              result={result}
+              projection={projection}
+              transact={transact}
+            />
           </div>
 
           <div className="card">
@@ -186,7 +191,13 @@ export function App() {
       </div>
 
       <div className="card">
-        <JobsPanel budget={budget} transact={transact} household={household} ledger={ledger} />
+        <JobsPanel
+          budget={budget}
+          transact={transact}
+          household={household}
+          ledger={ledger}
+          projection={projection}
+        />
       </div>
 
       <div className="card">
@@ -201,11 +212,12 @@ export function App() {
           personNames={personNames}
           household={household}
           ledger={ledger}
+          projection={projection}
         />
       </div>
 
       <div className="card">
-        <DebugPanel report={report} budget={budget} />
+        <DebugPanel report={report} budget={budget} projection={projection} />
       </div>
 
       <div className="card">

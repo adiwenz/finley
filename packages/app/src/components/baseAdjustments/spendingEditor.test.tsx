@@ -8,9 +8,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, type BudgetLine } from "@finley/engine";
+import { dollarsToCents, type BudgetLine, type ResolvedExpenseRow } from "@finley/engine";
 import { SpendingEditor, type PendingEdit } from "./spendingEditor";
-import type { ResolvedRow } from "./monthEdit";
 
 afterEach(cleanup);
 
@@ -22,7 +21,7 @@ const HOUSING_LINE: BudgetLine = {
   category: "needs",
 };
 
-const HOUSING_ROW: ResolvedRow = {
+const HOUSING_ROW: ResolvedExpenseRow = {
   lineId: "housing",
   label: "Housing",
   category: "needs",
@@ -70,7 +69,7 @@ describe("SpendingEditor — the row", () => {
   });
 
   it("leaves other rows on their resolved amount while one is staged", () => {
-    const dining: ResolvedRow = { ...HOUSING_ROW, lineId: "dining", label: "Dining", category: "wants" };
+    const dining: ResolvedExpenseRow = { ...HOUSING_ROW, lineId: "dining", label: "Dining", category: "wants" };
     renderEditor({
       rows: [HOUSING_ROW, dining],
       pending: {

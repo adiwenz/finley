@@ -7,9 +7,9 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import type { SimulationReport } from "@finley/engine";
-import type { Plan } from "@finley/engine";
-import { blendedDeferralFraction, primaryJobs, totalMonthlyIncomeCents } from "../../planPeople";
+import { PRIMARY_PERSON_ID } from "@finley/engine";
+import type { Plan, ProjectionReader, SimulationReport } from "@finley/engine";
+import { primaryJobs } from "../../planPeople";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
@@ -92,10 +92,13 @@ function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
 /** Every configurable knob, grouped — the authored plan plus resolved run facts. */
 function Configuration({
   budget,
+  projection,
   inputs,
   jurisdictionId,
 }: {
   budget: Plan;
+  /** Standing pay and the blended deferral are read through the facade, not re-derived here. */
+  projection: ProjectionReader;
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
@@ -119,7 +122,7 @@ function Configuration({
         rows={[
           [
             `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
-            formatDollars(totalMonthlyIncomeCents(budget)),
+            formatDollars(projection.personMonthlyIncomeCents(PRIMARY_PERSON_ID)),
           ],
           ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
           ["Opening balance", formatDollars(budget.openingBalanceCents)],
@@ -132,7 +135,7 @@ function Configuration({
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],
-          ["Retirement deferral (blended)", pct(Math.round(blendedDeferralFraction(budget) * 100))],
+          ["Retirement deferral (blended)", pct(Math.round(projection.personDeferralFraction(PRIMARY_PERSON_ID) * 100))],
         ]}
       />
       <ConfigGroup
@@ -181,9 +184,11 @@ function Configuration({
 export function DebugPanel({
   report,
   budget,
+  projection,
 }: {
   report: SimulationReport;
   budget: Plan;
+  projection: ProjectionReader;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
   const { columns, months, inputs } = report;
@@ -232,7 +237,12 @@ export function DebugPanel({
           .join(", ")}
       </p>
 
-      <Configuration budget={budget} inputs={inputs} jurisdictionId={jurisdictionId} />
+      <Configuration
+        budget={budget}
+        projection={projection}
+        inputs={inputs}
+        jurisdictionId={jurisdictionId}
+      />
 
       <div className={styles.scroll}>
         <table className={styles.table}>
