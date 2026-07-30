@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { resolveRefs } from "./scenarioRefs";
-import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID } from "./projectionBase";
-import { RETIREMENT_ID } from "./ids";
+import {
+  resolveRefs,
+  PRIMARY_PERSON_REF,
+  SAVINGS_REF,
+  BROKERAGE_REF,
+  RETIREMENT_REF,
+} from "./scenarioRefs";
+import { SAVINGS_ID } from "./projectionBase";
+import { ref } from "./scenarioInput";
 import type { ScenarioInput } from "./scenarioInput";
 
 /** A minimal, ref-free scenario; each test layers only the entries it exercises on top. */
@@ -29,9 +35,9 @@ describe("resolveRefs", () => {
     const input: ScenarioInput = {
       ...base,
       events: [
-        { type: "takeLoan", ref: "student", month: 0, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
-        { type: "payOffDebt", month: 60, liabilityRef: "student", accountRef: RETIREMENT_ID,
+        { type: "payOffDebt", month: 60, liabilityRef: ref("student"), accountRef: RETIREMENT_REF,
           amountCents: 500_000 },
       ],
     };
@@ -43,13 +49,13 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       jobs: [
-        { ownerRef: PRIMARY_PERSON_ID, startYear: 2026, endYear: null,
+        { ownerRef: PRIMARY_PERSON_REF, startYear: 2026, endYear: null,
           salary: { startingSalaryCents: 8_000_000, realGrowthPct: 1 },
-          deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_ID } },
+          deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF } },
       ],
       events: [
-        { type: "buyHome", month: 12, ownerRef: PRIMARY_PERSON_ID, purchasePriceCents: 40_000_000,
-          downPaymentCents: 8_000_000, downPaymentSourceRefs: [SAVINGS_ID, BROKERAGE_ID],
+        { type: "buyHome", month: 12, ownerRef: PRIMARY_PERSON_REF, purchasePriceCents: 40_000_000,
+          downPaymentCents: 8_000_000, downPaymentSourceRefs: [SAVINGS_REF, BROKERAGE_REF],
           mortgageApr: 0.06, mortgageTermMonths: 360 },
       ],
     });
@@ -62,12 +68,12 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       goals: [
-        { ref: "house", name: "House", targetCents: 5_000_000, annualReturnPct: 3,
+        { ref: ref("house"), name: "House", targetCents: 5_000_000, annualReturnPct: 3,
           disposition: "retain", targetDate: "asap" },
       ],
       budgetLines: [
         { label: "House fund", category: "savings", amountSource: { kind: "fillToLimit" },
-          target: { kind: "account", accountRef: "house", taxTreatment: "postTax" } },
+          target: { kind: "account", accountRef: ref("house"), taxTreatment: "postTax" } },
       ],
     });
     expect(result.ok).toBe(true);
@@ -77,9 +83,9 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       events: [
-        { type: "takeLoan", ref: "debt", month: 0, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("debt"), month: 0, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 100_000, apr: 0.2, kind: "creditCard", creditLimitCents: 500_000 },
-        { type: "takeLoan", ref: "debt", month: 6, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("debt"), month: 6, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 200_000, apr: 0.1, kind: "studentLoan", termMonths: 120 },
       ],
     });
@@ -93,7 +99,7 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       goals: [
-        { ref: SAVINGS_ID, name: "Rainy day", targetCents: 1_000_000, annualReturnPct: 2,
+        { ref: SAVINGS_REF, name: "Rainy day", targetCents: 1_000_000, annualReturnPct: 2,
           disposition: "retain", targetDate: "asap" },
       ],
     });
@@ -106,7 +112,7 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       events: [
-        { type: "payOffDebt", month: 12, liabilityRef: "ghost", accountRef: SAVINGS_ID,
+        { type: "payOffDebt", month: 12, liabilityRef: ref("ghost"), accountRef: SAVINGS_REF,
           amountCents: 100_000 },
       ],
     });
@@ -122,9 +128,9 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       events: [
-        { type: "payOffDebt", month: 12, liabilityRef: "loan", accountRef: SAVINGS_ID,
+        { type: "payOffDebt", month: 12, liabilityRef: ref("loan"), accountRef: SAVINGS_REF,
           amountCents: 100_000 },
-        { type: "takeLoan", ref: "loan", month: 40, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("loan"), month: 40, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 300_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
       ],
     });
@@ -140,9 +146,9 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       events: [
-        { type: "payOffDebt", month: 40, liabilityRef: "loan", accountRef: SAVINGS_ID,
+        { type: "payOffDebt", month: 40, liabilityRef: ref("loan"), accountRef: SAVINGS_REF,
           amountCents: 100_000 },
-        { type: "takeLoan", ref: "loan", month: 12, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("loan"), month: 12, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 300_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
       ],
     });

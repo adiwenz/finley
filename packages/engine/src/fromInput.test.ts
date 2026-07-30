@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Projection } from "./projectionRoot";
 import { nullJurisdiction } from "./jurisdiction";
-import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID, goalFundAccountId } from "./projectionBase";
+import { PRIMARY_PERSON_ID, goalFundAccountId } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
+import { ref } from "./scenarioInput";
+import {
+  PRIMARY_PERSON_REF,
+  SAVINGS_REF,
+  BROKERAGE_REF,
+  RETIREMENT_REF,
+  WELL_KNOWN_REF_IDS,
+} from "./scenarioRefs";
 import type { ScenarioInput } from "./scenarioInput";
 
 /** A minimal, ref-free scenario; each test layers only the entries it exercises on top. */
@@ -38,16 +46,16 @@ describe("Projection.fromInput", () => {
       ...base,
       jobs: [
         {
-          ref: "primaryJob",
-          ownerRef: PRIMARY_PERSON_ID,
+          ref: ref("primaryJob"),
+          ownerRef: PRIMARY_PERSON_REF,
           startYear: 2026,
           endYear: null,
           salary: { startingSalaryCents: 8_000_000, realGrowthPct: 1 },
-          deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_ID },
+          deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF },
         },
       ],
       goals: [
-        { ref: "emergency", name: "Emergency", targetCents: 1_000_000, annualReturnPct: 2,
+        { ref: ref("emergency"), name: "Emergency", targetCents: 1_000_000, annualReturnPct: 2,
           disposition: "retain", targetDate: "asap" },
       ],
     });
@@ -66,12 +74,12 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       goals: [
-        { ref: "house", name: "House", targetCents: 5_000_000, annualReturnPct: 3,
+        { ref: ref("REF-house"), name: "House", targetCents: 5_000_000, annualReturnPct: 3,
           disposition: "retain", targetDate: "asap" },
       ],
       budgetLines: [
         { label: "House fund", category: "savings", amountSource: { kind: "fillToLimit" },
-          target: { kind: "account", accountRef: "house", taxTreatment: "postTax" } },
+          target: { kind: "account", accountRef: ref("REF-house"), taxTreatment: "postTax" } },
       ],
     });
     const [goal] = p.plan.goals;
@@ -91,9 +99,9 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "payOffDebt", month: 60, liabilityRef: "student", accountRef: SAVINGS_ID,
+        { type: "payOffDebt", month: 60, liabilityRef: ref("student"), accountRef: SAVINGS_REF,
           amountCents: 500_000 },
-        { type: "takeLoan", ref: "student", month: 0, ownerRef: PRIMARY_PERSON_ID,
+        { type: "takeLoan", ref: ref("student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
           openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
       ],
     });
@@ -106,14 +114,14 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", ref: "sam", month: 12, name: "Sam", birthYear: 1994,
+        { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994,
           jobs: [
             { startYear: 2027, endYear: null,
               salary: { startingSalaryCents: 6_000_000, realGrowthPct: 1 },
-              deferral: { deferralFraction: 0.05, fundAccountRef: RETIREMENT_ID } },
+              deferral: { deferralFraction: 0.05, fundAccountRef: RETIREMENT_REF } },
           ] },
-        { type: "buyHome", month: 36, ownerRef: PRIMARY_PERSON_ID, purchasePriceCents: 40_000_000,
-          downPaymentCents: 4_000_000, downPaymentSourceRefs: [SAVINGS_ID, BROKERAGE_ID],
+        { type: "buyHome", month: 36, ownerRef: PRIMARY_PERSON_REF, purchasePriceCents: 40_000_000,
+          downPaymentCents: 4_000_000, downPaymentSourceRefs: [SAVINGS_REF, BROKERAGE_REF],
           mortgageApr: 0.06, mortgageTermMonths: 360 },
       ],
     });
@@ -128,9 +136,9 @@ describe("Projection.fromInput", () => {
       {
         ...base,
         events: [
-          { type: "marry", ref: "sam", month: 12, name: "Sam", birthYear: 1994 },
-          { type: "separate", month: 24, partnerRef: "sam" },
-          { type: "separate", month: 36, partnerRef: "sam" },
+          { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994 },
+          { type: "separate", month: 24, partnerRef: ref("sam") },
+          { type: "separate", month: 36, partnerRef: ref("sam") },
         ],
       },
       nullJurisdiction,
@@ -142,39 +150,14 @@ describe("Projection.fromInput", () => {
     expect(result.error.reason).toContain("already separated");
   });
 
-  it("pins an entry's minted id when it carries an `id`, minting the rest", () => {
-    // The `id` override is the deliberate exception for fixtures that must stay stable across
-    // edits: unlike a `ref` (build-time only), a pinned `id` lands in Plan and Ledger. A budget
-    // line keeps its authored label-key; a loan's liability id survives so a chart series keyed
-    // on it does not drift. The job, carrying no `id`, still mints.
-    const p = built({
-      ...base,
-      jobs: [
-        { startYear: 2026, endYear: null, salary: { startingSalaryCents: 6_000_000, realGrowthPct: 0 } },
-      ],
-      budgetLines: [
-        { id: "housing", label: "Housing", category: "needs", target: { kind: "expense" },
-          amountSource: { kind: "literal", monthlyCents: 150_000 } },
-      ],
-      events: [
-        { type: "takeLoan", id: "loan-student", month: 0, ownerRef: PRIMARY_PERSON_ID,
-          openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
-      ],
-    });
-    expect(p.plan.budgetLines[0]!.id).toBe("housing");
-    expect(p.plan.jobs[0]!.id).toMatch(/^job-\d+$/);
-    const loan = p.ledger.events.find((e) => e.type === "LoanEvent");
-    expect(loan?.type === "LoanEvent" && loan.liabilityId).toBe("loan-student");
-  });
-
   it("passes a bad ref graph straight through as a refusal", () => {
     const result = Projection.fromInput(
       {
         ...base,
         events: [
-          { type: "payOffDebt", month: 12, liabilityRef: "student", accountRef: SAVINGS_ID,
+          { type: "payOffDebt", month: 12, liabilityRef: ref("student"), accountRef: SAVINGS_REF,
             amountCents: 500_000 },
-          { type: "takeLoan", ref: "student", month: 60, ownerRef: PRIMARY_PERSON_ID,
+          { type: "takeLoan", ref: ref("student"), month: 60, ownerRef: PRIMARY_PERSON_REF,
             openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
         ],
       },
@@ -186,5 +169,163 @@ describe("Projection.fromInput", () => {
     if (result.ok) throw new Error("expected refusal");
     expect(result.error.ref).toBe("student");
     expect(result.error.eventIndex).toBe(0);
+  });
+});
+
+/**
+ * A document names no ids, so identity has exactly one source: the counter behind
+ * `Projection`'s authoring methods. These pin that the input cannot smuggle a name past it and
+ * that what it issues collides with nothing — not with the ids the engine already holds, not
+ * with each other, and not with what the next authored write will mint.
+ */
+describe("Projection.fromInput — the engine allocates every id", () => {
+  /**
+   * The names {@link populated} uses. Deliberately unlike any label, person name or liability
+   * kind in the document, so searching the built state for one cannot match by coincidence.
+   */
+  const AUTHORED_REFS = [
+    "REF-dayJob",
+    "REF-emergency",
+    "REF-rent",
+    "REF-food",
+    "REF-student",
+    "REF-sam",
+    "REF-house",
+  ];
+
+  /** A scenario exercising every entry kind that names something durable. */
+  const populated: ScenarioInput = {
+    ...base,
+    jobs: [
+      { ref: ref("REF-dayJob"), startYear: 2026, endYear: null,
+        salary: { startingSalaryCents: 9_000_000, realGrowthPct: 0 } },
+    ],
+    goals: [
+      { ref: ref("REF-emergency"), name: "Emergency", targetCents: 1_000_000, annualReturnPct: 2,
+        disposition: "retain", targetDate: "asap" },
+    ],
+    budgetLines: [
+      { ref: ref("REF-rent"), label: "Rent", category: "needs", target: { kind: "expense" },
+        amountSource: { kind: "literal", monthlyCents: 150_000 } },
+      { ref: ref("REF-food"), label: "Food", category: "needs", target: { kind: "expense" },
+        amountSource: { kind: "literal", monthlyCents: 60_000 } },
+    ],
+    events: [
+      { type: "takeLoan", ref: ref("REF-student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
+        openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
+      { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994,
+        jobs: [{ startYear: 2027, endYear: null,
+          salary: { startingSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
+      { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },
+      { type: "buyHome", ref: ref("REF-house"), month: 36, ownerRef: PRIMARY_PERSON_REF,
+        purchasePriceCents: 30_000_000, downPaymentCents: 2_000_000,
+        downPaymentSourceRefs: [SAVINGS_REF], mortgageApr: 0.06, mortgageTermMonths: 360 },
+    ],
+  };
+
+  /**
+   * Every durable id the built scenario holds — one entry per thing NAMED, so a genuine
+   * collision shows up as a duplicate.
+   *
+   * An event and the entity it creates deliberately share one id (`takeLoan` mints the loan's
+   * event and liability as a single name, `haveChild` the event and the child, and so on), so
+   * those aliases are counted once here; `sharesIdWithItsEntity` below pins that they really are
+   * aliases rather than something this helper is hiding. A mortgage is the one derived id — the
+   * author never names it — so it counts separately.
+   */
+  function allIds(p: Projection): string[] {
+    const ids = [
+      ...p.plan.jobs.map((j) => j.id),
+      ...p.plan.goals.map((g) => g.id),
+      ...p.plan.budgetLines.map((l) => l.id),
+    ];
+    for (const e of p.ledger.events) {
+      ids.push(e.id);
+      if (e.type === "RelationshipEvent") ids.push(...e.person.jobs.map((j) => j.id));
+      if (e.type === "HomePurchaseEvent") ids.push(e.mortgageLiabilityId);
+    }
+    return ids;
+  }
+
+  /** The event↔entity aliases {@link allIds} folds together, stated rather than assumed. */
+  function sharesIdWithItsEntity(p: Projection): void {
+    for (const e of p.ledger.events) {
+      if (e.type === "RelationshipEvent") expect(e.person.id).toBe(e.id);
+      if (e.type === "ChildEvent") expect(e.childId).toBe(e.id);
+      if (e.type === "LoanEvent") expect(e.liabilityId).toBe(e.id);
+      if (e.type === "HomePurchaseEvent") expect(e.propertyId).toBe(e.id);
+    }
+  }
+
+  it("issues every id off the counter, in the shape the allocator mints", () => {
+    const p = built(populated);
+    // `<kind>-<n>`, the one shape `mint` produces. A mortgage is parent-suffixed off its
+    // property, so it is the single derived exception.
+    for (const id of allIds(p)) {
+      expect(id).toMatch(/^[a-z]+-\d+(-mortgage)?$/);
+    }
+    // No ref leaked through as an id: the names the document used are gone.
+    for (const name of AUTHORED_REFS) expect(allIds(p)).not.toContain(name);
+  });
+
+  it("persists no ref anywhere in the built state, as an id or otherwise", () => {
+    // Stronger than the id check above: a ref is input-local scaffolding, so it must not survive
+    // into `Plan` or `Ledger` in ANY field — not a label, not a name, not a dangling pointer.
+    // Searching the whole serialized state is the only way to state that without enumerating
+    // fields, and the REF- prefix makes a hit unambiguous.
+    const serialized = JSON.stringify(built(populated).toJSON());
+    for (const name of AUTHORED_REFS) expect(serialized).not.toContain(name);
+  });
+
+  it("issues each id once, and never one the engine already holds", () => {
+    const p = built(populated);
+    sharesIdWithItsEntity(p);
+    const ids = allIds(p);
+    expect(new Set(ids).size).toBe(ids.length);
+    // The standing accounts, the primary person and the synthetic card exist before any entry
+    // applies; minting onto one would give two things a single id.
+    for (const reserved of WELL_KNOWN_REF_IDS) expect(ids).not.toContain(reserved);
+  });
+
+  it("leaves the counter clear of what it issued, so later writes cannot collide", () => {
+    const p = built(populated);
+    const before = allIds(p);
+
+    // Keep authoring through the same handle: `fromInput` advanced the counter as it minted, so
+    // these draw from where it left off rather than re-issuing a live id.
+    p.addJob(PRIMARY_PERSON_ID, {
+      startYear: 2030,
+      endYear: null,
+      salary: { startingSalaryCents: 1_000_000, realGrowthPct: 0 },
+    });
+    p.addGoal({ name: "Later", targetCents: 100_000, annualReturnPct: 1,
+      disposition: "retain", targetDate: "asap" });
+    p.addBudgetLine({ label: "Gym", category: "wants", target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: 5_000 } });
+    p.takeLoan({ month: 48, ownerId: PRIMARY_PERSON_ID, openingBalanceCents: 500_000,
+      apr: 0.07, kind: "auto", termMonths: 60 });
+
+    const after = allIds(p);
+    expect(new Set(after).size).toBe(after.length);
+    // Everything the build issued is still there, untouched by the later mints.
+    for (const id of before) expect(after).toContain(id);
+  });
+
+  it("round-trips through fromState, which is where ids that already exist belong", () => {
+    // The division of labour: `fromInput` authors and mints; `fromState` (fed by `toJSON`)
+    // restores state whose ids were issued earlier and floors the counter past them. A round
+    // trip changes no id.
+    const p = built(populated);
+    const restored = Projection.fromState(
+      JSON.parse(JSON.stringify(p.toJSON())),
+      nullJurisdiction,
+    );
+    expect(allIds(restored)).toEqual(allIds(p));
+
+    // And the restored handle keeps minting clear of them.
+    restored.addBudgetLine({ label: "Books", category: "wants", target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: 2_000 } });
+    const ids = allIds(restored);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

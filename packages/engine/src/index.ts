@@ -144,10 +144,18 @@ export type {
   FromInputResult,
   ScenarioInputError,
 } from "./scenarioInput";
-export { eventEntryType } from "./scenarioInput";
+export { eventEntryType, ref } from "./scenarioInput";
 // Ref resolution runs standalone, before anything is minted: it proves every ref names something
 // addressable at the point it is used and hands back the month-ordered event schedule.
-export { resolveRefs, WELL_KNOWN_REF_IDS } from "./scenarioRefs";
+export {
+  resolveRefs,
+  WELL_KNOWN_REF_IDS,
+  PRIMARY_PERSON_REF,
+  SAVINGS_REF,
+  RETIREMENT_REF,
+  BROKERAGE_REF,
+  SYNTHETIC_CARD_REF,
+} from "./scenarioRefs";
 export type { ResolveRefsResult, ScheduledEvent } from "./scenarioRefs";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
 // from a projection.

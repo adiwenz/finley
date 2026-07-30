@@ -236,9 +236,14 @@ describe("App — starter simulations", () => {
     const servicedRow = JSON.parse(
       screen.getByTestId("perline-second-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
+    // Both band keys come off the built scenario: the engine minted the loan's liability id and
+    // every budget line id, so the chart's series names are read, never assumed.
+    const riley = presetState(presetById("student-loan")).scenario;
+    const loan = riley.ledger.events.find((e) => e.type === "LoanEvent");
+    const housing = riley.plan.budgetLines.find((l) => l.label === "Housing");
+    expect(servicedRow[`debt:${loan!.id}`]).toBeGreaterThan(dollarsToCents(400));
     // And the budget lines are unchanged by its arrival.
-    expect(servicedRow["line:housing"]).toBeGreaterThan(0);
+    expect(servicedRow[`line:${housing!.id}`]).toBeGreaterThan(0);
   });
 
   it("swaps back to a plan-only scenario, clearing the prior seed timeline", () => {
@@ -297,8 +302,9 @@ describe("App — budget edits", () => {
 
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
     const lastState = spy.mock.calls.at(-1)?.[0];
+    // Found by the label the user edited — the line's id is the engine's, not "housing".
     expect(
-      lastState?.scenario.plan.budgetLines.find((l) => l.id === "housing")?.overrides,
+      lastState?.scenario.plan.budgetLines.find((l) => l.label === "Housing")?.overrides,
     ).toHaveLength(1);
   });
 });

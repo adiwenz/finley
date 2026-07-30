@@ -14,7 +14,8 @@ The work landed across six tasks on `sandcastle/issue-194`:
 
 1. **Declare the input types** (`scenarioInput.ts`) — `ScenarioInput`, the `JobEntry`/`GoalEntry`/
    `BudgetLineEntry` plan-plane entries, and `EventEntry`, a discriminated union over `type` with
-   an exhaustiveness check (`eventEntryType`). `Ref` is a build-time-only name distinct from an id.
+   an exhaustiveness check (`eventEntryType`). `Ref` is a BRANDED, build-time-only name, distinct
+   from an id at compile time and built with `ref()`.
 2. **Resolve refs** (`scenarioRefs.ts`) — standalone validation over a `ScenarioInput`: duplicate,
    unresolvable and forward refs are refused; well-known refs (`PRIMARY_PERSON_ID`, the standing
    accounts, the synthetic card) resolve to themselves; a goal ref binds to its derived fund
@@ -25,7 +26,7 @@ The work landed across six tasks on `sandcastle/issue-194`:
 4. **Re-prefix the goal fund account** — `goalFundAccountId(goal)` became `` `fund-${goal.id}` ``
    so a minted `goal-N` yields `fund-goal-N` rather than colliding shapes.
 5. **Convert `PLAN_DEFAULTS`** — built from a `DEFAULT_INPUT` `ScenarioInput` through `fromInput`;
-   its job and goals carry minted ids. Budget lines keep their stable label-keys.
+   its job, goals AND budget lines all carry minted ids.
 6. **Convert the presets and delete `buildPresetLedger`** (this task) — see below.
 
 ## Task 6 — what changed
@@ -36,69 +37,76 @@ through the `buildPresetLedger` test helper (and `presetState`'s `resetLedger` l
 gone.
 
 - **`presets.ts`** — `Preset` now carries `input: ScenarioInput` instead of `plan`/`events`. The
-  four teaching scenarios inherit `DEFAULT_INPUT`'s scalars, drop the goals, and author their own
-  jobs, budgets and (for `student-loan`) the seed loan. The healthy default preset reuses
-  `DEFAULT_INPUT` + `PLAN_DEFAULTS`'s budget lines re-declared as entries, so it reproduces
-  `PLAN_DEFAULTS` rather than becoming a second source of truth for it. `presetState` is now one
-  `Projection.fromInput(...)` under `usJurisdiction`; a refusal throws (a preset-authoring bug).
-- **The `id?` override** — the deliberate exception the issue calls for. Entries may pin their
-  minted id: `BudgetLineEntry` and `EventEntryCommon` gained an optional `id`, threaded through
-  `fromInput` to each authoring method's existing `id?` override. Presets pin only where a stable
-  key is load-bearing: budget label-keys (`housing`, …), and the student loan's `loan-student`
-  liability id, which the net-worth and per-line spending charts key their series on. Job, goal
-  and event ids are all minted.
-- **`planDefaults.ts`** — `DEFAULT_INPUT` is now exported so presets reuse it without duplicating
-  the default plan's scalars.
+  three teaching scenarios (`paycheck-to-paycheck`, `living-on-credit`, `student-loan`) inherit
+  `DEFAULT_INPUT`'s scalars, drop the goals, trim health, and author their own jobs, budgets and
+  (for `student-loan`) the seed loan. `taxed-in-retirement` is NOT one of them: it keeps the
+  default household's goals and health and varies only job, budget, return and life expectancy.
+  The healthy default preset IS `DEFAULT_INPUT`, so it reproduces `PLAN_DEFAULTS` exactly.
+  `presetState` is one `Projection.fromInput(...)` under `usJurisdiction`; a refusal throws (a
+  preset-authoring bug).
+- **No entry may name an id.** `ScenarioInput` is an authoring API: refs connect entries while a
+  document is applied, and `Projection`'s own authoring methods mint every durable id off the
+  shared counter. Restoring state whose ids already exist is `Projection.fromState`'s job.
+- **`planDefaults.ts`** — `DEFAULT_INPUT` is exported (so presets reuse it) and now carries the
+  Base budget lines as entries, so `PLAN_DEFAULTS` is the built plan wholesale rather than a
+  built plan with budget lines layered on afterwards.
 
 ## RGR Verification Details
 
-- **Engine `id?` override (RED → GREEN).** Added a `fromInput` test asserting a `takeLoan` entry
-  carrying `id: "loan-student"` yields a liability with that exact id while a job carrying no `id`
-  still mints (`^job-\d+$`). RED: the loan minted `loan-2`. GREEN: added `id?` to
-  `BudgetLineEntry`/`EventEntryCommon` and threaded it through each event authoring call in
-  `fromInput`. (A budget entry's `id` already flowed through `addBudgetLine`.)
 - **Preset conversion (RED → GREEN).** Added a `presets.test.ts` case asserting the student-loan
-  preset's seed loan is authored through `fromInput`: its event id equals the pinned liability id
-  `loan-student`, replacing the old hand-stamped `e0`. RED: event id was `e0`. GREEN: converted
-  the presets, and rewrote the test harness (`projectionOf`/`planOf`/`project`) to build through
-  `fromInput` instead of the deleted `buildPresetLedger`. Every pre-existing behavioural assertion
-  (each preset's financial *shape*, the two-graphs-are-one-quantity invariant, panel/graph
-  agreement) stayed green, and the App-rendered `debt:loan-student` band test in `mainState`
-  confirms the pinned id reaches the real chart.
+  preset's seed loan is authored through `fromInput` and that both its ids are minted
+  (`^loan-\d+$`), the event and its liability sharing one. RED: the event id was the hand-stamped
+  `e0`. GREEN: converted the presets, and rewrote the test harness
+  (`projectionOf`/`planOf`/`project`) to build through `fromInput` instead of the deleted
+  `buildPresetLedger`. Every pre-existing behavioural assertion (each preset's financial *shape*,
+  the two-graphs-are-one-quantity invariant, panel/graph agreement) stayed green.
+- **Allocator regression tests.** `fromInput.test.ts` pins that every id comes off the counter in
+  the shape `mint` issues, that ids are unique and never one the engine already holds
+  (`WELL_KNOWN_REF_IDS`), that the counter is left clear so later authored writes cannot collide,
+  that a `fromState` round trip changes no id, and that no ref survives anywhere in the
+  serialized state.
 
 ## Key Decisions & Why
 
-- **`id?` is a pin, not a ref.** Unlike a `ref` (build-time only, never in `Plan`/`Ledger`), a
-  pinned `id` overrides what the engine would mint and *does* land in state. It exists for
-  fixtures that must keep a stable key across edits. A pin of minted shape (`job-3`) would still
-  advance the floor, so fixtures pin non-minted-shaped names (`loan-student`, `housing`) — leaving
-  the counter the sole authority for real minting.
-- **The default preset reproduces `PLAN_DEFAULTS`, it does not re-author it.** Reusing the exported
-  `DEFAULT_INPUT` plus that plan's budget lines keeps one source of truth for the healthy default;
-  a test asserts `planOf(PRESETS[0])` deep-equals `PLAN_DEFAULTS`.
-- **Budget lines keep label-keys** (task 5's convention) via `id?` pins rather than minted
-  `line-N`, because the app's whole expense-editing surface — chart series, dated overrides,
-  `allocations()` — keys on them.
+- **Authoring and import are different APIs.** `fromInput` describes a scenario for the first time
+  and mints; `fromState` restores state whose ids were issued earlier and floors the counter past
+  them. Collapsing the two — letting an input carry ids — is what gives identity two authorities,
+  so `ScenarioInput` has no `id` field anywhere.
+- **`Ref` is branded.** `string & { [REF_BRAND]: true }`, built with `ref(name)`. The distinction
+  from an id is now enforced by the compiler rather than asserted in a comment: an id read off a
+  live `Plan` will not type-check in a ref position. The five names that address something the
+  engine provides are exported pre-branded (`PRIMARY_PERSON_REF`, …) so fixtures reach for a
+  constant instead of wrapping a raw id.
+- **The default preset reproduces `PLAN_DEFAULTS`, it does not re-author it.** It IS
+  `DEFAULT_INPUT`; a test asserts `planOf(PRESETS[0])` deep-equals `PLAN_DEFAULTS`.
+- **Budget line ids are minted (`line-N`), not label-keys.** The app's expense surface keys on
+  whatever the engine issued, read back off the built plan — no surface and no test may assume a
+  line's id spells its label.
 
 ## Changes Made
 
-- `packages/engine/src/scenarioInput.ts` — `id?` on `BudgetLineEntry` and `EventEntryCommon`, with
-  module-doc rationale for the pin escape hatch.
-- `packages/engine/src/projectionRoot.ts` — `fromInput` threads `entry.id` into each event
-  authoring call (`marry`, `haveChild`, `takeLoan`, `buyHome`, `separate`, `payOffDebt`).
-- `packages/engine/src/fromInput.test.ts` — added the `id?`-pin test.
-- `packages/app/src/presets.ts` — presets are `ScenarioInput` values; `Preset.input` replaces
-  `plan`/`events`; `presetState` builds through `fromInput`.
-- `packages/app/src/planDefaults.ts` — export `DEFAULT_INPUT`.
-- `packages/app/src/presets.test.ts` — deleted `buildPresetLedger`; harness builds through
-  `fromInput`; added the seed-loan authoring test.
-- `packages/app/src/mainState.test.tsx` — reads the student-loan plan via `presetState` rather than
-  the removed `Preset.plan`.
+- `packages/engine/src/scenarioInput.ts` — branded `Ref` + the `ref()` constructor; no `id` field
+  on any entry.
+- `packages/engine/src/scenarioRefs.ts` — pre-branded `PRIMARY_PERSON_REF`/`SAVINGS_REF`/
+  `RETIREMENT_REF`/`BROKERAGE_REF`/`SYNTHETIC_CARD_REF` beside `WELL_KNOWN_REF_IDS`.
+- `packages/engine/src/projectionRoot.ts` — `fromInput` passes no id to any authoring call; the
+  ref registry is local to the call. Facade re-exports the entry types, `ref` and the well-known
+  refs.
+- `packages/engine/src/fromInput.test.ts` — the allocator/collision/round-trip/no-persisted-ref
+  suite.
+- `packages/app/src/presets.ts` — presets are `ScenarioInput` values, id-free; `taxed-in-retirement`
+  restored to the default household's goals and $700/$500 health.
+- `packages/app/src/planDefaults.ts` — export `DEFAULT_INPUT`, budget lines included; `PLAN_DEFAULTS`
+  is the built plan wholesale.
+- `packages/app/src/presets.test.ts` — harness builds through `fromInput`; seed-loan minting test;
+  a focused `taxed-in-retirement` equivalence suite over its authored goals and health values.
+- `packages/app/src/mainState.test.tsx`, `baseAdjustmentsPanel.test.tsx` — chart series keys and
+  budget lines are looked up by label off the built state, never by an assumed id.
 
 ## Verification & Testing
 
 - `npm run check:purity` — engine purity guard passes.
 - `npm run typecheck` — clean.
-- `npm run test` — **1175 tests green** (45 todo) across 90 files, including the engine
+- `npm run test` — **1182 tests green** (45 todo) across 90 files, including the engine
   `fromInput`/`scenarioInput`/`scenarioRefs` suites, the app `presets` and `mainState`
   integration suites, and the `planWrites.guard` facade-surface scan.

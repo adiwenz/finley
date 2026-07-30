@@ -123,6 +123,14 @@ const selectMonth = (month: number) =>
 const editRow = (name: RegExp | string, dollars: number) =>
   fireEvent.change(spin(name), { target: { value: String(dollars) } });
 
+/**
+ * A budget line's band key on the per-line graph. The engine mints every line id, so a test
+ * finds the line by the label a reader sees and reads its key off the plan — never assuming the
+ * id spells the label.
+ */
+const lineKey = (label: string, plan: Plan = PLAN_DEFAULTS): string =>
+  `line:${plan.budgetLines.find((l) => l.label === label)!.id}`;
+
 describe("BaseAdjustmentsPanel — Base", () => {
   it("prepopulates the base from the default template", () => {
     renderPanel(PLAN_DEFAULTS);
@@ -823,7 +831,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(firstRow[lineKey("Housing")]).toBeGreaterThan(0);
     expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
   });
 
@@ -864,7 +872,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     // Servicing the loan is spending, banded like anything else the month costs, and the budget
     // lines beside it are untouched by its arrival.
     expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
-    expect(servicedRow["line:housing"]).toBeGreaterThan(0);
+    expect(servicedRow[lineKey("Housing")]).toBeGreaterThan(0);
     // Origination month itself: the debt exists but nothing is due yet.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
@@ -882,7 +890,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
           string,
           number
         >
-      )["line:housing"];
+      )[lineKey("Housing")];
     const before = housingBand();
 
     editRow(/Housing/, 2_400);

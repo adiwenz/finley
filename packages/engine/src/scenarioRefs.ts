@@ -24,6 +24,7 @@
 import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import { SYNTHETIC_CARD_ID } from "./liability";
+import { ref } from "./scenarioInput";
 import type {
   ScenarioInput,
   EventEntry,
@@ -33,11 +34,22 @@ import type {
 } from "./scenarioInput";
 
 /**
- * The ids a ref may name without any entry declaring them: the primary person and synthetic card
- * exist before the timeline runs, and the three standing accounts fall out of the plan's scalar
- * fields — there is no input object to hang a `ref` on, yet a down payment or contribution must
- * still be able to name them.
+ * The things a ref may name without any entry declaring them: the primary person and synthetic
+ * card exist before the timeline runs, and the three standing accounts fall out of the plan's
+ * scalar fields — there is no input object to hang a `ref` on, yet a down payment or contribution
+ * must still be able to name them.
+ *
+ * Exported pre-branded so authoring reads `ownerRef: PRIMARY_PERSON_REF` rather than wrapping a
+ * raw id at every call site. Each happens to spell the id it resolves to — these are the one
+ * place where a ref and an id coincide, because the engine, not the document, named the thing.
  */
+export const PRIMARY_PERSON_REF: Ref = ref(PRIMARY_PERSON_ID);
+export const SAVINGS_REF: Ref = ref(SAVINGS_ID);
+export const RETIREMENT_REF: Ref = ref(RETIREMENT_ID);
+export const BROKERAGE_REF: Ref = ref(BROKERAGE_ID);
+export const SYNTHETIC_CARD_REF: Ref = ref(SYNTHETIC_CARD_ID);
+
+/** The same set, as the raw ids resolution matches against. */
 export const WELL_KNOWN_REF_IDS: ReadonlySet<string> = new Set([
   PRIMARY_PERSON_ID,
   SAVINGS_ID,
@@ -173,7 +185,7 @@ export function resolveRefs(input: ScenarioInput): ResolveRefsResult {
   // Build the name → order map, refusing the first duplicate in application order. Seeding with the
   // well-known ids makes shadowing one a duplicate too: a document cannot redefine a reserved name.
   const declaredAt = new Map<Ref, number>();
-  for (const ref of WELL_KNOWN_REF_IDS) declaredAt.set(ref, PLAN_ORDER);
+  for (const id of WELL_KNOWN_REF_IDS) declaredAt.set(ref(id), PLAN_ORDER);
   for (const d of decls) {
     if (WELL_KNOWN_REF_IDS.has(d.ref))
       return error(`${d.loc.describe} declares ref "${d.ref}", which is a reserved well-known id`, d.ref, d.loc);

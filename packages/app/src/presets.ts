@@ -9,13 +9,14 @@
 import {
   dollarsToCents,
   Projection,
-  PRIMARY_PERSON_ID,
+  ref,
+  PRIMARY_PERSON_REF,
   type BudgetLine,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { PLAN_DEFAULTS, DEFAULT_INPUT } from "./planDefaults";
+import { DEFAULT_INPUT } from "./planDefaults";
 
 /**
  * A named starting point: one {@link ScenarioInput} the app builds into a scenario. Authored
@@ -40,18 +41,15 @@ type BudgetEntry = NonNullable<ScenarioInput["budgetLines"]>[number];
 type JobEntry = NonNullable<ScenarioInput["jobs"]>[number];
 
 /**
- * A budget line authored ID-free but for a pinned label-key. The key is not a minted-shaped id,
- * so it leaves the counter untouched (the same `id ?? label` convention the Base editor keys on)
- * while the chart, overrides and `allocations()` keep a stable handle across edits.
+ * A budget line authored ID-free — the engine mints the id every surface then keys on. The label
+ * is what a reader identifies the line by; nothing in the app or its tests may assume the id.
  */
 function expenseLine(
-  id: string,
   label: string,
   category: BudgetLine["category"],
   monthlyDollars: number,
 ): BudgetEntry {
   return {
-    id,
     label,
     target: { kind: "expense" },
     amountSource: { kind: "literal", monthlyCents: dollarsToCents(monthlyDollars) },
@@ -68,29 +66,29 @@ function expenseLine(
 
 /** $3,600/mo. Sam and Jordan run the same household on different paychecks — that IS the pair. */
 const MODEST_BUDGET = [
-  expenseLine("housing", "Housing", "needs", 1_650),
-  expenseLine("groceries", "Groceries", "needs", 720),
-  expenseLine("transport", "Transportation", "needs", 460),
-  expenseLine("dining", "Dining & fun", "wants", 570),
-  expenseLine("subscriptions", "Subscriptions", "wants", 200),
+  expenseLine("Housing", "needs", 1_650),
+  expenseLine("Groceries", "needs", 720),
+  expenseLine("Transportation", "needs", 460),
+  expenseLine("Dining & fun", "wants", 570),
+  expenseLine("Subscriptions", "wants", 200),
 ];
 
 /** $3,000/mo — a new graduate living below a solid salary to dig out from under a loan. */
 const LEAN_BUDGET = [
-  expenseLine("housing", "Housing", "needs", 1_400),
-  expenseLine("groceries", "Groceries", "needs", 600),
-  expenseLine("transport", "Transportation", "needs", 400),
-  expenseLine("dining", "Dining & fun", "wants", 450),
-  expenseLine("subscriptions", "Subscriptions", "wants", 150),
+  expenseLine("Housing", "needs", 1_400),
+  expenseLine("Groceries", "needs", 600),
+  expenseLine("Transportation", "needs", 400),
+  expenseLine("Dining & fun", "wants", 450),
+  expenseLine("Subscriptions", "wants", 150),
 ];
 
 /** $5,500/mo — high enough that cash never piles up, forcing the 401(k) to fund retirement. */
 const COMFORTABLE_BUDGET = [
-  expenseLine("housing", "Housing", "needs", 2_500),
-  expenseLine("groceries", "Groceries", "needs", 950),
-  expenseLine("transport", "Transportation", "needs", 650),
-  expenseLine("dining", "Dining & fun", "wants", 1_000),
-  expenseLine("subscriptions", "Subscriptions", "wants", 400),
+  expenseLine("Housing", "needs", 2_500),
+  expenseLine("Groceries", "needs", 950),
+  expenseLine("Transportation", "needs", 650),
+  expenseLine("Dining & fun", "wants", 1_000),
+  expenseLine("Subscriptions", "wants", 400),
 ];
 
 /** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. Its
@@ -147,8 +145,8 @@ const LIVING_ON_CREDIT = teachingInput(MODEST_BUDGET, {
 /**
  * A new graduate on a solid salary carrying a $45k loan: net worth opens underwater and climbs
  * back above zero within a decade — the "negative but improving" case. The loan is the one seed
- * event, taken at "now"; its liability id is pinned to "loan-student" so the charts keyed on it
- * keep a stable series, while the event id is minted with it.
+ * event, taken at "now". Its `ref` names it only while the document is applied; the engine mints
+ * the event and liability ids, and a caller that needs them reads them off the built ledger.
  */
 const STUDENT_LOAN = teachingInput(LEAN_BUDGET, {
   name: "Riley",
@@ -157,9 +155,9 @@ const STUDENT_LOAN = teachingInput(LEAN_BUDGET, {
   events: [
     {
       type: "takeLoan",
-      id: "loan-student",
+      ref: ref("studentLoan"),
       month: 0,
-      ownerRef: PRIMARY_PERSON_ID,
+      ownerRef: PRIMARY_PERSON_REF,
       kind: "studentLoan",
       openingBalanceCents: dollarsToCents(45000),
       apr: 0.06,
@@ -178,28 +176,28 @@ const STUDENT_LOAN = teachingInput(LEAN_BUDGET, {
  * leaving SS barely taxed); life expectancy 72 stops short of the age-73 RMDs that would spike
  * the tax chart annually. The deferral omits its fund-account ref, so it funds the standing
  * 401(k).
+ *
+ * NOT a {@link teachingInput}: this one keeps the default's two goals and its $700/$500 health
+ * figures. The three scenarios above teach an income/expense gap, which a goal's accumulation
+ * would blur; this one teaches what retirement withdrawals are taxed, and it was tuned against
+ * the default household — goals and all. `presets.test.ts` pins those values so the distinction
+ * cannot be flattened by folding this back into the teaching helper.
  */
-const TAXED_IN_RETIREMENT = teachingInput(COMFORTABLE_BUDGET, {
+const TAXED_IN_RETIREMENT: ScenarioInput = {
+  ...DEFAULT_INPUT,
   name: "Morgan",
   jobs: [{ ...salariedJob(dollarsToCents(8000)), deferral: { deferralFraction: 0.12 } }],
+  budgetLines: COMFORTABLE_BUDGET,
   retirementReturnPct: 4,
   lifeExpectancy: 72,
-});
+};
 
 /**
- * The healthy default a fresh plan already opens on, expressed as its input: the exact
- * {@link DEFAULT_INPUT} the plan defaults build from, plus that plan's budget lines re-declared
- * as entries so this preset reproduces {@link PLAN_DEFAULTS} rather than authoring a second
- * source of truth for it.
+ * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
+ * defaults are built from, budget lines included. One document, so this preset reproduces
+ * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
  */
-const DEFAULT_SCENARIO: ScenarioInput = {
-  ...DEFAULT_INPUT,
-  budgetLines: PLAN_DEFAULTS.budgetLines.map((line) =>
-    line.target.kind === "account"
-      ? { ...line, target: { kind: "account", accountRef: line.target.accountId, taxTreatment: line.target.taxTreatment } }
-      : { ...line, target: { kind: "expense" } },
-  ),
-};
+const DEFAULT_SCENARIO: ScenarioInput = DEFAULT_INPUT;
 
 /** In picker order; the first is the healthy default a fresh plan already opens with. */
 export const PRESETS: readonly Preset[] = [

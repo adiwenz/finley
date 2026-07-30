@@ -15,13 +15,16 @@
  * that POINT at something use it (`ownerRef`, `liabilityRef`, `accountRef`, …), never an id. It
  * never lands in `Plan` or `Ledger`, so it cannot collide with an id or outlive the build.
  *
- * An entry that creates something may ALSO carry an `id`, a separate and rarer escape hatch:
- * unlike a `ref`, a pinned `id` overrides what the engine would mint and DOES land in `Plan` or
- * `Ledger`. It exists for fixtures — presets, seed data — that must keep a stable id across
- * edits: a budget line whose label-key the whole app charts on, a liability whose id names a
- * chart series. Prefer omitting it and letting the counter mint; reach for it only where a test
- * or a stable key depends on the exact value. A pinned id of minted shape (`job-3`) would still
- * advance the floor, so a fixture pins a NON-minted-shaped name (`loan-student`, `housing`).
+ * **No entry may name an id.** There is no pin, no override, no escape hatch: `Projection`'s own
+ * authoring methods mint every durable id off the shared counter, which is what makes the counter
+ * the single authority for identity. An input that wants two entries connected says so with a
+ * ref, and reads the minted id back off the built `Plan`/`Ledger`.
+ *
+ * This is an AUTHORING api, not an import one. Restoring persisted state — ids already issued,
+ * counter already advanced — is {@link import("./projectionRoot").Projection.fromState}'s job
+ * (fed by `toJSON`); it takes a whole `ProjectionState` and floors the counter past everything it
+ * holds. Reach for that when the ids matter, and for this when the scenario is being described
+ * for the first time.
  */
 
 import type { Plan, GoalPlan } from "./plan";
@@ -34,12 +37,31 @@ import type { GrowthMode } from "./cashFlowSeries";
 // resolves without a runtime edge.
 import type { Projection } from "./projectionRoot";
 
+declare const REF_BRAND: unique symbol;
+
 /**
  * An author-chosen, build-time-only name for something declared in a {@link ScenarioInput}.
- * Distinct from an id at the type level so a pointer field cannot be handed a live id by
- * mistake, and so the shape reads as "a name I invented", not "an id the engine issued".
+ *
+ * Branded, so the distinction from an id is real at compile time rather than a comment: a bare
+ * `string` — and in particular an id read off a live `Plan` — will not type-check in a `Ref`
+ * position, so a pointer field cannot be handed an id by mistake. The brand exists only in the
+ * type system; at runtime a `Ref` IS its string.
+ *
+ * Build one with {@link ref}. The handful of names that address something the engine provides
+ * rather than something the document declares are exported pre-branded from `./scenarioRefs`
+ * ({@link import("./scenarioRefs").PRIMARY_PERSON_REF} and friends), so fixtures reach for a
+ * constant instead of wrapping a raw id.
  */
-export type Ref = string;
+export type Ref = string & { readonly [REF_BRAND]: true };
+
+/**
+ * Name something in a {@link ScenarioInput}. The name is arbitrary and local to one document —
+ * it is matched against the other refs in that same input and then discarded, so two documents
+ * may freely use the same names and neither leaks into `Plan` or `Ledger`.
+ */
+export function ref(name: string): Ref {
+  return name as Ref;
+}
 
 /** Every {@link Plan} field except the three id-bearing collections, which become entries. */
 type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines">;
@@ -81,17 +103,16 @@ export interface GoalEntry extends Omit<GoalPlan, "id"> {
  */
 export interface BudgetLineEntry extends Omit<BudgetLine, "id" | "target"> {
   readonly ref?: Ref;
-  /** Pins the minted id — see the module doc; a preset keeps its stable label-key this way. */
-  readonly id?: string;
   readonly target: BudgetTargetInput;
 }
 
-/** Fields every {@link EventEntry} shares: its build-time `ref`, an optional pinned `id`, and
- * the month it applies at. `id` pins what the entry mints — see the module doc; a preset's
- * `takeLoan` keeps its liability id stable this way, while omitting it lets the counter mint. */
+/**
+ * Fields every {@link EventEntry} shares: its build-time `ref` and the month it applies at. No
+ * `id` — the authoring method the entry routes through mints one (and, for `takeLoan`/`buyHome`,
+ * the liability or property id with it).
+ */
 interface EventEntryCommon {
   readonly ref?: Ref;
-  readonly id?: string;
   readonly month: number;
 }
 

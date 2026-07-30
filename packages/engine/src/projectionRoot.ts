@@ -88,10 +88,14 @@ import {
   firstInsolventMonth,
   goalFundAccountId,
   planAccountDescriptors,
-  PRIMARY_PERSON_ID,
 } from "./projectionBase";
-import { RETIREMENT_ID } from "./ids";
-import { resolveRefs, WELL_KNOWN_REF_IDS } from "./scenarioRefs";
+import {
+  resolveRefs,
+  WELL_KNOWN_REF_IDS,
+  PRIMARY_PERSON_REF,
+  RETIREMENT_REF,
+} from "./scenarioRefs";
+import { ref } from "./scenarioInput";
 import type { FromInputResult, JobEntry, Ref, ScenarioInput } from "./scenarioInput";
 import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
 import { buildSnapshot, membersAt } from "./projection/snapshot";
@@ -1602,7 +1606,13 @@ export class Projection {
    * Refs are translated to ids through a registry filled as entries apply, seeded so a well-known
    * ref ({@link WELL_KNOWN_REF_IDS}) resolves to itself. `resolveRefs` has already proved every
    * ref resolves at the point it is used, so a lookup miss here is an engine bug, not a bad
-   * document — surfaced as a thrown internal error rather than a refusal.
+   * document — surfaced as a thrown internal error rather than a refusal. The registry is local to
+   * this call and dies with it: a ref names things while the document is being applied and is
+   * never written into `Plan` or `Ledger`.
+   *
+   * An input names no ids at all, so nothing here can collide with an id the counter will later
+   * issue. State that ARRIVES with ids — a reload, a round-trip through {@link toJSON} — belongs
+   * to {@link fromState}, which floors the counter past them instead of minting.
    *
    * All-or-nothing: the handle is local until the last write lands, so a refused document — a bad
    * ref graph, or any refusal a method raises — returns `{ ok: false }` naming the offending entry
@@ -1621,14 +1631,14 @@ export class Projection {
     );
 
     const registry = new Map<Ref, string>();
-    for (const id of WELL_KNOWN_REF_IDS) registry.set(id, id);
-    const idFor = (ref: Ref): string => {
-      const id = registry.get(ref);
-      if (id === undefined) throw new Error(`fromInput: ref "${ref}" was accepted but never bound`);
+    for (const id of WELL_KNOWN_REF_IDS) registry.set(ref(id), id);
+    const idFor = (name: Ref): string => {
+      const id = registry.get(name);
+      if (id === undefined) throw new Error(`fromInput: ref "${name}" was accepted but never bound`);
       return id;
     };
-    const bind = (ref: Ref | undefined, id: string): void => {
-      if (ref !== undefined) registry.set(ref, id);
+    const bind = (name: Ref | undefined, id: string): void => {
+      if (name !== undefined) registry.set(name, id);
     };
 
     // An id-free job to a {@link JobInput}: the deferral's account ref becomes an account id
@@ -1638,7 +1648,7 @@ export class Projection {
       const { ref: _ref, ownerRef: _ownerRef, deferral, ...rest } = job;
       if (deferral === undefined) return rest;
       const { fundAccountRef, ...deferralRest } = deferral;
-      return { ...rest, deferral: { ...deferralRest, fundAccountId: idFor(fundAccountRef ?? RETIREMENT_ID) } };
+      return { ...rest, deferral: { ...deferralRest, fundAccountId: idFor(fundAccountRef ?? RETIREMENT_REF) } };
     };
 
     const refusal = (reason: string): FromInputResult => ({ ok: false, error: { reason } });
@@ -1654,7 +1664,7 @@ export class Projection {
         bind(ref, goalFundAccountId({ ...rest, id: projection.addGoal(rest) }));
       }
       for (const job of jobs ?? []) {
-        bind(job.ref, projection.addJob(idFor(job.ownerRef ?? PRIMARY_PERSON_ID), toJobInput(job)));
+        bind(job.ref, projection.addJob(idFor(job.ownerRef ?? PRIMARY_PERSON_REF), toJobInput(job)));
       }
       for (const line of budgetLines ?? []) {
         const { ref, target, ...rest } = line;
@@ -1678,7 +1688,6 @@ export class Projection {
                 month: entry.month,
                 name: entry.name,
                 birthYear: entry.birthYear,
-                ...(entry.id !== undefined ? { id: entry.id } : {}),
                 ...(entry.retirementTargetAge !== undefined ? { retirementTargetAge: entry.retirementTargetAge } : {}),
                 ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
                 ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
@@ -1693,7 +1702,6 @@ export class Projection {
                 name: entry.name,
                 annualCostCents: entry.annualCostCents,
                 ...(entry.birthMonth !== undefined ? { birthMonth: entry.birthMonth } : {}),
-                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1703,7 +1711,6 @@ export class Projection {
               ownerId: idFor(entry.ownerRef),
               openingBalanceCents: entry.openingBalanceCents,
               apr: entry.apr,
-              ...(entry.id !== undefined ? { id: entry.id } : {}),
             };
             bind(
               entry.ref,
@@ -1727,7 +1734,6 @@ export class Projection {
                 mortgageApr: entry.mortgageApr,
                 mortgageTermMonths: entry.mortgageTermMonths,
                 ...(entry.appreciationMode !== undefined ? { appreciationMode: entry.appreciationMode } : {}),
-                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1740,7 +1746,6 @@ export class Projection {
                 ...(entry.alimonyMonthlyCents !== undefined ? { alimonyMonthlyCents: entry.alimonyMonthlyCents } : {}),
                 ...(entry.alimonyDurationMonths !== undefined ? { alimonyDurationMonths: entry.alimonyDurationMonths } : {}),
                 ...(entry.childSupportMonthlyCents !== undefined ? { childSupportMonthlyCents: entry.childSupportMonthlyCents } : {}),
-                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1752,7 +1757,6 @@ export class Projection {
                 liabilityId: idFor(entry.liabilityRef),
                 accountId: idFor(entry.accountRef),
                 amountCents: entry.amountCents,
-                ...(entry.id !== undefined ? { id: entry.id } : {}),
               }),
             );
             break;
@@ -1851,3 +1855,18 @@ export { RETIREMENT_ID } from "./ids";
 export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
 export { SYNTHETIC_CARD_ID } from "./liability";
 export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";
+
+// Declarative authoring: the app's seed plans and starter scenarios are `ScenarioInput`
+// documents, so they need the entry types, the `ref` constructor that names things inside one,
+// and the pre-branded refs for what the engine provides rather than the document declaring it.
+// Naming these is not reaching past the facade — `fromInput` is a facade method, and an input
+// carries no ids, so nothing here lets a caller author identity.
+export type { BudgetLineEntry, JobEntry, GoalEntry, EventEntry } from "./scenarioInput";
+export { ref } from "./scenarioInput";
+export {
+  PRIMARY_PERSON_REF,
+  SAVINGS_REF,
+  RETIREMENT_REF,
+  BROKERAGE_REF,
+  SYNTHETIC_CARD_REF,
+} from "./scenarioRefs";

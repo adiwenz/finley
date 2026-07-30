@@ -1,18 +1,36 @@
 /** Opening values for a fresh plan. */
 
-import { dollarsToCents, Projection } from "@finley/engine";
-import type { Plan, ScenarioInput } from "@finley/engine";
+import { dollarsToCents, Projection, ref } from "@finley/engine";
+import type { BudgetLineEntry, Plan, ScenarioInput } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
-import { defaultBudgetTemplate, toBudgetLines } from "./components/baseAdjustments/budgetTemplate";
+import { defaultBudgetTemplate } from "./components/baseAdjustments/budgetTemplate";
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
 
 /**
+ * The prepopulated Base, as ID-free entries. {@link defaultBudgetTemplate} authors the labels and
+ * amounts; its template ids are dropped here, because a line's durable id is the engine's to mint
+ * — the chart, dated overrides and `allocations()` key on whatever it issues, read back off the
+ * built plan rather than assumed.
+ */
+const DEFAULT_BUDGET_ENTRIES: readonly BudgetLineEntry[] = defaultBudgetTemplate().map(
+  ({ id: _id, target, ...rest }): BudgetLineEntry => ({
+    ...rest,
+    // A contribution line names its standing account by ref; a well-known account resolves to
+    // itself, so the built line lands on the same account the template named.
+    target:
+      target.kind === "account"
+        ? { kind: "account", accountRef: ref(target.accountId), taxTreatment: target.taxTreatment }
+        : { kind: "expense" },
+  }),
+);
+
+/**
  * The default plan authored ID-free: the engine mints every id as `fromInput` applies this,
- * so no hand-written `job-1`/`emergency`/`home` string can become a second source of identity
- * beside the counter. Budget lines are the exception — see {@link PLAN_DEFAULTS}.
+ * so no hand-written `job-1`/`emergency`/`home`/`housing` string can become a second source of
+ * identity beside the counter.
  *
  * The single open-ended {@link import("@finley/engine").JobEntry} is the source of truth for
  * earned income. Not a privileged "career" job: just the one a fresh plan opens with, and a
@@ -32,6 +50,9 @@ export const DEFAULT_INPUT: ScenarioInput = {
       salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],
+  // Budget lines are the sole expense authoring surface, so a fresh plan opens with the
+  // prepopulated Base and the Base + Adjustments editor drives the projection.
+  budgetLines: DEFAULT_BUDGET_ENTRIES,
   openingBalanceCents: dollarsToCents(10000),
   // A cash buffer, not an investment: the engine never sells this account (it is the
   // liquid one, excluded from liquidation) and spending is charged straight against it.
@@ -92,16 +113,11 @@ const built = Projection.fromInput(DEFAULT_INPUT, usJurisdiction);
 if (!built.ok) throw new Error(`PLAN_DEFAULTS is not a valid ScenarioInput: ${built.error.reason}`);
 
 /**
- * A fresh plan's opening values. Its job and goals carry engine-minted ids; its budget lines
- * keep the stable label-keys {@link defaultBudgetTemplate} assigns, since the chart, overrides
- * and `allocations()` key on them and those keys are authored, not engine identity (the same
- * `id ?? label` convention `toBudgetLines` applies). Budget lines are the sole expense authoring
- * surface, so a fresh plan opens with the prepopulated Base and the Base + Adjustments editor
- * drives the projection.
+ * A fresh plan's opening values — the built plan exactly as `fromInput` produced it, nothing
+ * layered on afterwards. Every id in it (job, goals, budget lines) came off the engine's counter,
+ * so identity has one authority and a caller that needs a particular line reads it back from here
+ * rather than assuming a key.
  */
-export const PLAN_DEFAULTS: Plan = {
-  ...built.projection.plan,
-  budgetLines: toBudgetLines(defaultBudgetTemplate()),
-};
+export const PLAN_DEFAULTS: Plan = built.projection.plan;
 
 export const DEFAULT_SCRUB_MONTH = 0;

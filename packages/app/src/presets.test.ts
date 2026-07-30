@@ -10,6 +10,7 @@ import {
   Projection,
   firstInsolventMonth,
   dollarsToCents,
+  ref,
   CONTRIBUTION_TARGETS,
   type BudgetLine,
   type Plan,
@@ -107,11 +108,14 @@ describe("default simulations", () => {
     const preset = presetById("student-loan");
     const account = CONTRIBUTION_TARGETS[0];
     // Authored as an entry: the account is named by ref (a well-known standing account resolves
-    // to itself), and the label-key is pinned so the built line reads "seed-savings".
+    // to itself) and the line's own id is minted, like every other.
     const savings = {
-      id: "seed-savings",
       label: "Savings",
-      target: { kind: "account" as const, accountRef: account.accountId, taxTreatment: account.taxTreatment },
+      target: {
+        kind: "account" as const,
+        accountRef: ref(account.accountId),
+        taxTreatment: account.taxTreatment,
+      },
       amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(400) },
       category: "savings" as const,
     };
@@ -199,26 +203,73 @@ describe("default simulations", () => {
     expect(defaultMaxSSTax).toBeLessThan(dollarsToCents(150));
   });
 
-  it("authors the seed loan through fromInput, pinning only the stable liability id", () => {
+  it("authors the seed loan through fromInput, letting the engine mint its ids", () => {
     // The preset is a single declarative `ScenarioInput` built through `fromInput`, not a
-    // hand-built ledger. The liability id is pinned to "loan-student" so the net-worth and
-    // spending charts keep their stable series key; the authoring method mints the event id and
-    // liability id as one, so the old separate literal event id ("e0") is gone.
+    // hand-built ledger. It names the loan only by `ref`, so both the event id and the liability
+    // id come off the counter — no authored string ("e0", "loan-student") survives into state.
     const loan = presetState(presetById("student-loan")).scenario.ledger.events.find(
       (e) => e.type === "LoanEvent",
     );
-    expect(loan?.type === "LoanEvent" && loan.liabilityId).toBe("loan-student");
-    expect(loan?.id).toBe("loan-student");
+    expect(loan?.id).toMatch(/^loan-\d+$/);
+    expect(loan?.type === "LoanEvent" && loan.liabilityId).toMatch(/^loan-\d+$/);
+    // The authoring method mints the event and its liability as ONE id.
+    expect(loan?.type === "LoanEvent" && loan.liabilityId).toBe(loan?.id);
   });
 
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {
-    const series = project(presetById("student-loan"));
+    const preset = presetById("student-loan");
+    const series = project(preset);
     // Net worth starts negative — assets minus the student-loan liability.
     expect(realNetWorthAt(series, 0)!).toBeLessThan(0);
-    // The loan is a real amortizing student-loan liability at "now", not a cash hack.
-    expect(series.months[0]?.liabilityBalancesCents).toHaveProperty("loan-student");
+    // The loan is a real amortizing student-loan liability at "now", not a cash hack. Its id is
+    // read back off the built ledger rather than assumed.
+    const loan = presetState(preset).scenario.ledger.events.find((e) => e.type === "LoanEvent");
+    expect(series.months[0]?.liabilityBalancesCents).toHaveProperty(loan!.id);
     // A solid income services it.
     expect(realNetWorthAt(series, 120)!).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `taxed-in-retirement` is NOT one of the three teaching scenarios: it keeps the default
+ * household's two goals and its $700/$500 health figures, because it was tuned against that
+ * household to show retirement withdrawals being taxed. Folding it into the teaching helper —
+ * which drops the goals and trims health to $450/$350 so an income/expense gap reads cleanly —
+ * silently changed the scenario while every simulation-shape assertion above stayed green. These
+ * assert the authored inputs directly, so the two can never be conflated again.
+ */
+describe("taxed-in-retirement — authored inputs, not just projected shape", () => {
+  const plan = () => planOf(presetById("taxed-in-retirement"));
+
+  it("keeps the default household's two goals", () => {
+    const goals = plan().goals;
+    expect(goals.map((g) => g.name)).toEqual(["Emergency fund", "Home down payment"]);
+    // Same targets and horizons as the plan a fresh session opens on — this preset varies the
+    // job, the budget, the return and the life expectancy, and nothing else.
+    expect(goals.map((g) => g.targetCents)).toEqual(
+      PLAN_DEFAULTS.goals.map((g) => g.targetCents),
+    );
+    expect(goals.map((g) => g.targetDate)).toEqual(PLAN_DEFAULTS.goals.map((g) => g.targetDate));
+  });
+
+  it("keeps the $700/$500 healthcare assumptions", () => {
+    expect(plan().healthMonthlyCents).toBe(dollarsToCents(700));
+    expect(plan().postCoverageHealthMonthlyCents).toBe(dollarsToCents(500));
+    // Stated as the default's values, not as literals that could drift apart from them.
+    expect(plan().healthMonthlyCents).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+    expect(plan().postCoverageHealthMonthlyCents).toBe(
+      PLAN_DEFAULTS.postCoverageHealthMonthlyCents,
+    );
+  });
+
+  it("varies only the job, budget, retirement return and life expectancy", () => {
+    // The three teaching scenarios DO drop the goals and trim health; this pins that
+    // taxed-in-retirement is not one of them.
+    const teaching = planOf(presetById("paycheck-to-paycheck"));
+    expect(teaching.goals).toEqual([]);
+    expect(teaching.healthMonthlyCents).toBe(dollarsToCents(450));
+    expect(plan().retirementReturnPct).toBe(4);
+    expect(plan().lifeExpectancy).toBe(72);
   });
 });
 
