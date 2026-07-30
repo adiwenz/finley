@@ -5,16 +5,14 @@ import {
   dollarsToCents,
   nullJurisdiction,
   createProjectionBase,
+  withGoalReordered,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "./config";
 import { monthLabel } from "./format";
 import {
   goalRows,
-  reorderGoal,
   dispositionLabel,
-  updateGoal,
-  removeGoal,
   goalDisposal,
   goalFundingBlocks,
   fundingBlockMessage,
@@ -101,7 +99,7 @@ describe("goalRows — projection-based on-track %", () => {
 
   it("reprioritizing visibly moves the OTHER goal's number (tradeoff)", () => {
     const budget = { ...baseBudget, goals: [goalA, goalB] };
-    const reordered = { ...budget, goals: reorderGoal(budget.goals, "b", "up") };
+    const reordered = { ...budget, goals: withGoalReordered(budget.goals, "b", "up") };
     const rows = goalRows(reordered, project(reordered));
     // Now B is funded first: it takes the 65%, and A drops to 0.
     expect(rows.find((r) => r.id === "b")?.onTrackPct).toBe(65);
@@ -193,85 +191,11 @@ describe("goalDisposal — disposition/date pairing", () => {
   });
 });
 
-// Minting a goal id and appending it at lowest priority now lives on `Projection.addGoal`
-// (covered in the engine's `projectionRoot.test`); the Goals panel routes its add through the
-// facade, so what stays here is the plan-shape editing the panel still calls directly.
+// Every goal edit — add, patch, reorder, remove — now lives on `Projection` and is covered in
+// the engine's `projectionRoot.test`. What stays here is what the panel itself still answers:
+// how a goal reads (`goalRows`, `dispositionLabel`), and which events refuse its deletion.
 
-describe("updateGoal", () => {
-  it("edits an existing goal's fields, keeping its id and list position", () => {
-    const goals = [goalA, goalB];
-    const next = updateGoal(goals, "a", {
-      name: "Renamed",
-      targetCents: dollarsToCents(40000),
-      disposition: "retain",
-      targetDate: "asap",
-      annualReturnPct: 3,
-    });
-    expect(next[0]).toMatchObject({
-      id: "a",
-      name: "Renamed",
-      targetCents: dollarsToCents(40000),
-      disposition: "retain",
-      targetDate: "asap",
-      annualReturnPct: 3,
-    });
-    expect(next[1]).toBe(goalB); // untouched goal keeps its identity
-    expect(goals[0]).toBe(goalA); // original element untouched
-  });
 
-  it("re-runs live: editing the target moves the on-track % (feedback loop)", () => {
-    const before = { ...baseBudget, goals: [goalA] };
-    // goalA: $30k by month 12, $1,500/mo surplus over 13 processed months (0–12) → $19.5k → 65%.
-    expect(goalRows(before, project(before))[0].onTrackPct).toBe(65);
-    // Halve the target: the same $19.5k now clears it → capped 100%.
-    const after = {
-      ...baseBudget,
-      goals: updateGoal(before.goals, "a", {
-        name: "Goal A",
-        targetCents: dollarsToCents(15000),
-        disposition: "retain",
-        targetDate: 12,
-        annualReturnPct: 0,
-      }),
-    };
-    expect(goalRows(after, project(after))[0].onTrackPct).toBe(100);
-  });
-
-  it("is a no-op (new array) when the id is not found", () => {
-    const goals = [goalA];
-    const next = updateGoal(goals, "missing", {
-      name: "x",
-      targetCents: 0,
-      disposition: "retain",
-      targetDate: 1,
-      annualReturnPct: 0,
-    });
-    expect(next).toEqual(goals);
-    expect(next).not.toBe(goals);
-  });
-});
-
-describe("removeGoal", () => {
-  it("drops the goal and returns a new array", () => {
-    const goals = [goalA, goalB];
-    const next = removeGoal(goals, "a");
-    expect(next.map((g) => g.id)).toEqual(["b"]);
-    expect(goals).toHaveLength(2); // original untouched
-  });
-
-  it("removes the goal's derived fund account from the projection", () => {
-    const before = { ...baseBudget, goals: [goalA, goalB] };
-    const beforeSeries = project(before);
-    expect(beforeSeries.months[0].accountBalancesCents).toHaveProperty(
-      goalFundAccountId(goalA),
-    );
-    const after = { ...baseBudget, goals: removeGoal(before.goals, "a") };
-    const afterSeries = project(after);
-    expect(afterSeries.months[0].accountBalancesCents).not.toHaveProperty(
-      goalFundAccountId(goalA),
-    );
-  });
-});
 
 /**
  * A home purchase drawing its down payment from `sourceIds`, in drain order. Today's only
@@ -361,17 +285,3 @@ describe("fundingBlockMessage — the refuse-to-delete text", () => {
   });
 });
 
-describe("reorderGoal", () => {
-  it("moves a goal up and leaves a new array (immutability)", () => {
-    const goals = [goalA, goalB];
-    const next = reorderGoal(goals, "b", "up");
-    expect(next.map((g) => g.id)).toEqual(["b", "a"]);
-    expect(goals.map((g) => g.id)).toEqual(["a", "b"]); // original untouched
-  });
-
-  it("is a no-op at the ends", () => {
-    const goals = [goalA, goalB];
-    expect(reorderGoal(goals, "a", "up").map((g) => g.id)).toEqual(["a", "b"]);
-    expect(reorderGoal(goals, "b", "down").map((g) => g.id)).toEqual(["a", "b"]);
-  });
-});

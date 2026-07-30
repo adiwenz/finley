@@ -26,7 +26,7 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { setJobMonthlyIncome } from "../../planPeople";
+import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { HomePurchaseForm } from "./homePurchaseForm";
 
 const noop = () => {};

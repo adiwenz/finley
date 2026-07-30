@@ -20,9 +20,11 @@ import { START_YEAR } from "../../config";
 import { GoalsPanel } from "./goalsPanel";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import type { Transact } from "../../hooks/useProjection";
 import type { Plan } from "@finley/engine";
 
-const noop = () => {};
+/** Render-only tests: nothing is written, so the transaction runner never runs one. */
+const noWrites: Transact = () => undefined;
 
 function project(budget: Plan) {
   return replayLedger(
@@ -35,7 +37,7 @@ function project(budget: Plan) {
 describe("GoalsPanel", () => {
   it("shows each goal's projection-based on-track % and name", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("Emergency fund");
     expect(html).toContain("Home down payment");
@@ -44,7 +46,7 @@ describe("GoalsPanel", () => {
 
   it("surfaces each goal's disposition — the fate of the money at target", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
     );
     // Both default goals are `retain` savings reserves (planDefaults).
     expect(html).toContain("Kept as a reserve");
@@ -66,7 +68,7 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={budget} series={project(budget)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("Funded");
     // Funded is terminal: the pacing % ("am I on pace to get there") is dropped so it can't
@@ -90,7 +92,7 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={budget} series={project(budget)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("In progress");
     expect(html).toContain("Behind pace");
@@ -114,14 +116,14 @@ describe("GoalsPanel", () => {
       ],
     };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} series={project(budget)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={budget} series={project(budget)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("market-risk account");
   });
 
   it("offers priority-reorder controls per goal", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("Move Emergency fund up");
     expect(html).toContain("Move Home down payment down");
@@ -129,7 +131,7 @@ describe("GoalsPanel", () => {
 
   it("offers per-goal edit and delete authoring controls", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("Edit Emergency fund");
     expect(html).toContain("Delete Emergency fund");
@@ -137,7 +139,7 @@ describe("GoalsPanel", () => {
 
   it("discloses the add-goal form on demand, not always open", () => {
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={PLAN_DEFAULTS} series={project(PLAN_DEFAULTS)} transact={noWrites} ledger={emptyLedger} />,
     );
     // The disclosure trigger is present; the form itself is closed until clicked.
     expect(html).toContain("+ Add a goal");
@@ -147,7 +149,7 @@ describe("GoalsPanel", () => {
   it("invites a first goal when the plan has none", () => {
     const empty: Plan = { ...PLAN_DEFAULTS, goals: [] };
     const html = renderToStaticMarkup(
-      <GoalsPanel budget={empty} series={project(empty)} setBudget={noop} ledger={emptyLedger} onAddGoal={noop} />,
+      <GoalsPanel budget={empty} series={project(empty)} transact={noWrites} ledger={emptyLedger} />,
     );
     expect(html).toContain("No goals yet");
     expect(html).toContain("+ Add a goal");
@@ -156,7 +158,7 @@ describe("GoalsPanel", () => {
 
 describe("BudgetEditor — person-partitioned panel with the four levers", () => {
   const html = renderToStaticMarkup(
-    <BudgetEditor budget={PLAN_DEFAULTS} setBudget={noop} />,
+    <BudgetEditor budget={PLAN_DEFAULTS} transact={noWrites} />,
   );
 
   it("partitions into a member section plus a Shared section", () => {

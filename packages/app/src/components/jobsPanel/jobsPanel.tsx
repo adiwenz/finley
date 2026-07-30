@@ -13,11 +13,9 @@
  */
 
 import { useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
 import { PRIMARY_PERSON_ID, type Job, type Household, type Ledger, type Plan } from "@finley/engine";
 import {
-  addJobToList,
-  removeJobFromList,
+  jobInputFromDraft,
   withoutPayChange,
   blankJobDraftFor,
   jobToDraftFor,
@@ -27,9 +25,9 @@ import {
   type JobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
-import { editJob, ownedJobsOf, reviseJob, type JobListWrite } from "../../jobEditing";
+import { editJob, ownedJobsOf, reviseJob, type JobWrite } from "../../jobEditing";
 import { commitJobWrites } from "../../jobWrites";
-import type { EventRevision } from "../../hooks/useProjection";
+import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
@@ -37,16 +35,15 @@ import styles from "./jobsPanel.module.css";
 
 interface JobsPanelProps {
   budget: Plan;
-  setBudget: Dispatch<SetStateAction<Plan>>;
+  /**
+   * One transaction per edit, spanning both planes — {@link commitJobWrites} routes each
+   * write to the plane its owner is authored on, all inside a single facade handle.
+   */
+  transact: Transact;
   /** The roster whose members can hold jobs. */
   household: Household;
   /** The ledger, where a partner's jobs live (on their `RelationshipEvent`). */
   ledger: Ledger;
-  /**
-   * Revise ledger events in one all-or-nothing write — how a partner's jobs are written
-   * back. `false` means rejected: the ledger is untouched and the panel writes nothing else.
-   */
-  onReviseEvents: (revisions: readonly EventRevision[]) => boolean;
 }
 
 type Authoring = { kind: "edit"; id: string } | { kind: "new" } | null;
@@ -68,7 +65,7 @@ function describePayChange(owner: JobOwner, change: NonNullable<Job["payChanges"
   return `Pay ${verb} ${formatDollars(Math.abs(change.cents))}/mo ${at}`;
 }
 
-export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents }: JobsPanelProps) {
+export function JobsPanel({ budget, transact, household, ledger }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household in join order, primary person first. Every row carries
   // its owner (which routes its edits) and the label the app names that job by
@@ -85,17 +82,13 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
   const pickableOwners = useMemo(() => owners.map((o) => ({ id: o.id, name: o.name })), [owners]);
 
   /** Route every rewrite to its owner's plane, atomically ({@link commitJobWrites}). */
-  const commit = (writes: readonly JobListWrite[]): boolean =>
-    commitJobWrites(writes, { setBudget, onReviseEvents });
-
-  /** Rewrite one member's job list — the single-owner shorthand for {@link commit}. */
-  function write(owner: JobOwner, revise: (jobs: readonly Job[]) => readonly Job[]): boolean {
-    return commit([{ owner, revise }]);
-  }
+  const commit = (writes: readonly JobWrite[]): boolean => commitJobWrites(writes, transact);
 
   function add(draft: JobDraft) {
     const target = owners.find((o) => o.id === draft.ownerId);
-    if (target) write(target, (jobs) => addJobToList(jobs, target.birthYear, draft));
+    // No id: a new job's is minted by whichever plane it lands on — the facade's counter for
+    // the primary person, the partner's own list for a partner.
+    if (target) commit([{ kind: "add", owner: target, job: jobInputFromDraft(target.birthYear, draft) }]);
     setAuthoring(null);
   }
 
@@ -112,7 +105,7 @@ export function JobsPanel({ budget, setBudget, household, ledger, onReviseEvents
   }
 
   function remove(owner: JobOwner, id: string) {
-    write(owner, (jobs) => removeJobFromList(jobs, id));
+    commit([{ kind: "remove", owner, jobId: id }]);
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
   }
 

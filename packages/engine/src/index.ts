@@ -75,6 +75,7 @@ export {
   orderBudgetLines,
   resolveBudget,
   withLinePatch,
+  withLineOverride,
   withoutLine,
 } from "./budgetLine";
 export {

@@ -5,27 +5,23 @@
  * this month" or "from here forward". These tests drive the keyboard equivalent of the
  * chart click, since Recharts needs a real layout width jsdom lacks.
  */
-import { useRef, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
   Projection,
-  createProjectionBase,
   dollarsToCents,
   emptyLedger,
-  interpretLedger,
-  projectScenario,
-  updateEvent,
   type Job,
   type Ledger,
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import type { EventRevision } from "../../hooks/useProjection";
+import { useTestProjection } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
-import { addJobFromDraft, blankJobDraft, setJobMonthlyIncome } from "../../planPeople";
+import { blankJobDraft } from "../../planPeople";
+import { addJobFromDraft, setJobMonthlyIncome } from "../../testing/planFixtures";
 import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 import { BudgetTooltip } from "./perLineBudgetChart";
 
@@ -45,54 +41,29 @@ const setOneOffAmount = (dollars: number) =>
 const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
 /**
- * Stands in for `App`: owns the plan/ledger state the panel is controlled by, and runs the
+ * Stands in for `App`: holds the one `ProjectionState` the panel writes through, and runs the
  * app's ONE projection (plan *and* ledger) that every surface is fed from.
  */
 function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
-  const [plan, setPlan] = useState(initial);
-  // A pay change on a partner's job revises the RelationshipEvent it rides.
-  const [ledger, setLedger] = useState(initialLedger);
-  const ctx = { jurisdiction: usJurisdiction, startYear: START_YEAR };
-  const base = createProjectionBase(plan, ctx);
-  const household = interpretLedger(ledger, base);
-  const series = projectScenario({ plan, ledger }, ctx);
+  const { state, transact } = useTestProjection(initial, initialLedger);
+  const plan = state.scenario.plan;
+  const ledger = state.scenario.ledger;
+  const { series, household } = Projection.fromState(state, usJurisdiction).run(usJurisdiction);
   const personNames = new Map<string, string>([
     [PRIMARY_PERSON_ID, plan.name],
     ...ledger.events.flatMap((e) =>
       e.type === "RelationshipEvent" ? ([[e.person.id, e.person.name]] as [string, string][]) : [],
     ),
   ]);
-  // Stands in for `useProjection.reviseEvents`: all-or-nothing, and it answers synchronously.
-  const ledgerRef = useRef(ledger);
-  ledgerRef.current = ledger;
-  const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
-    let next = ledgerRef.current;
-    for (const revision of revisions) {
-      const result = updateEvent(next, revision.id, revision.next, base);
-      if (!result.ok) return false;
-      next = result.ledger;
-    }
-    ledgerRef.current = next;
-    setLedger(next);
-    return true;
-  };
   return (
     <>
       <BaseAdjustmentsPanel
         plan={plan}
-        setBudget={setPlan}
+        transact={transact}
         series={series}
         personNames={personNames}
         household={household}
         ledger={ledger}
-        onReviseEvents={onReviseEvents}
-        onAddLine={(line) => {
-          // Mirrors the app: a new line is minted through the facade, then committed to plan
-          // state — the one line write that creates rather than reshapes.
-          const p = Projection.fromScenario({ plan, ledger }, START_YEAR, usJurisdiction);
-          p.addBudgetLine(line);
-          setPlan(p.state.scenario.plan);
-        }}
       />
       <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -868,20 +839,15 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     });
     // Rendered bare, no Harness: the panel's job-owner props are the roster it authors pay
     // changes against, and this test authors none.
-    const base = createProjectionBase(PLAN_DEFAULTS, {
-      jurisdiction: usJurisdiction,
-      startYear: START_YEAR,
-    });
+    const { series, household } = projection.run(usJurisdiction);
     render(
       <BaseAdjustmentsPanel
         plan={PLAN_DEFAULTS}
-        setBudget={() => {}}
-        series={projection.run(usJurisdiction).series}
+        transact={() => undefined}
+        series={series}
         personNames={new Map()}
-        household={interpretLedger(emptyLedger, base)}
+        household={household}
         ledger={emptyLedger}
-        onReviseEvents={() => true}
-        onAddLine={() => {}}
       />,
     );
 

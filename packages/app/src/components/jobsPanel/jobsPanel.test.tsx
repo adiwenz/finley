@@ -6,16 +6,14 @@
  * the 401(k) elective-limit nudge fires here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
-  createProjectionBase,
+  Projection,
   dollarsToCents,
-  interpretLedger,
   projectScenario,
-  updateEvent,
   type Job,
   type Ledger,
   type NewLifeEvent,
@@ -23,17 +21,24 @@ import {
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import type { EventRevision } from "../../hooks/useProjection";
+import type { Transact } from "../../hooks/useProjection";
+import { useTestProjection } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
-import { addJobPayChange, setJobDeferralFraction, primaryJobs } from "../../planPeople";
+import { primaryJobs } from "../../planPeople";
+import { addJobPayChange, setJobDeferralFraction } from "../../testing/planFixtures";
 import { JobsPanel } from "./jobsPanel";
 
 afterEach(cleanup);
 
+/** A refused transaction: the facade threw, so nothing on either plane changed. */
+const refuseEveryWrite: Transact = () => undefined;
+
 /**
  * Controlled harness standing in for `App`, with a probe for each plane a job can live on: the
- * primary person's on the plan, a partner's on their `RelationshipEvent`.
+ * primary person's on the plan, a partner's on their `RelationshipEvent`. Writes go through a
+ * real `useProjection`, so an edit spanning both planes is committed the way the app commits
+ * it — one transaction, all of it or none.
  */
 function Harness({
   initial = PLAN_DEFAULTS,
@@ -42,44 +47,27 @@ function Harness({
 }: {
   initial?: Plan;
   events?: readonly NewLifeEvent[];
-  /** Stands in for a revision conflict: every ledger revision is refused, as `App` would. */
+  /** Stands in for a conflict: the transaction is refused, as the facade would refuse it. */
   rejectRevisions?: boolean;
 }) {
-  const [budget, setBudget] = useState<Plan>(initial);
-  const [ledger, setLedger] = useState<Ledger>(() => ({
+  const { state, transact } = useTestProjection(initial, {
     events: events.map((e, i) => ({ ...e, sequenceNumber: i })),
     nextSequenceNumber: events.length,
-  }));
-  const base = useMemo(
-    () => createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR }),
-    [budget],
+  });
+  const budget = state.scenario.plan;
+  const ledger = state.scenario.ledger;
+  const household = useMemo(
+    () => Projection.fromState(state, usJurisdiction).run(usJurisdiction).household,
+    [state],
   );
-  const household = useMemo(() => interpretLedger(ledger, base), [ledger, base]);
-  // Readable synchronously: `onReviseEvents` answers whether it committed before the panel
-  // writes the plan side, as `useLedger` does.
-  const ledgerRef = useRef(ledger);
-  ledgerRef.current = ledger;
-  const onReviseEvents = (revisions: readonly EventRevision[]): boolean => {
-    if (rejectRevisions) return false;
-    let next = ledgerRef.current;
-    for (const revision of revisions) {
-      const result = updateEvent(next, revision.id, revision.next, base);
-      if (!result.ok) return false;
-      next = result.ledger;
-    }
-    ledgerRef.current = next;
-    setLedger(next);
-    return true;
-  };
 
   return (
     <>
       <JobsPanel
         budget={budget}
-        setBudget={setBudget}
+        transact={rejectRevisions ? refuseEveryWrite : transact}
         household={household}
         ledger={ledger}
-        onReviseEvents={onReviseEvents}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>

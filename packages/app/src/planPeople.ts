@@ -9,12 +9,6 @@
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
-  mapJob,
-  withDeferralFraction,
-  withIncomeOverride,
-  withMonthlyIncome,
-  withPayChange,
-  withoutPayChange,
   type Job,
   type JobIncomeOverride,
   type JobInput,
@@ -214,79 +208,29 @@ export function buildJobFromDraft(id: string, birthYear: number, draft: JobDraft
 }
 
 /**
- * A draft as a {@link JobInput} for `Projection.marry`, which mints the job's id and stamps its
- * owner to the person it creates — so neither is supplied here. `birthYear` is the partner's,
- * resolving the draft's ages against their own clock.
+ * A draft as a {@link JobInput} — the shape every job-creating facade write takes
+ * (`Projection.marry`, `Projection.addJob`). Neither `id` nor `ownerId` is supplied: the
+ * facade mints the one and stamps the other onto whichever person the job lands on.
+ * `birthYear` is that person's, resolving the draft's ages against their own clock.
  */
 export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
   const { id: _id, ownerId: _ownerId, ...rest } = buildJobFromDraft("", birthYear, draft);
   return rest;
 }
 
-// Authoring against a bare job list. Jobs are a list wherever they live — the primary's
-// on `Plan.jobs`, a partner's on the `Person` inside their RelationshipEvent — so both
-// planes get identical behaviour; the Plan-level helpers below are thin wrappers.
-
-/** Append a job built from `draft` to `jobs`, minting an id in the owner's namespace. */
-export function addJobToList(jobs: readonly Job[], birthYear: number, draft: JobDraft): readonly Job[] {
-  return [...jobs, buildJobFromDraft(nextJobIdFor(draft.ownerId, jobs), birthYear, draft)];
-}
-
-export function updateJobInList(
-  jobs: readonly Job[],
-  id: string,
-  birthYear: number,
-  draft: JobDraft,
-): readonly Job[] {
-  return jobs.map((j) => (j.id === id ? applyJobDraft(j, birthYear, draft) : j));
-}
-
-export function removeJobFromList(jobs: readonly Job[], id: string): readonly Job[] {
-  return jobs.filter((j) => j.id !== id);
-}
-
-/**
- * Append a job to the primary person from a draft — plan-level shorthand for fixtures
- * and one-shot plan edits. The Jobs panel uses the list helpers above.
- */
-export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
-  return { ...plan, jobs: [...addJobToList(plan.jobs, primaryBirthYear(plan), draft)] };
-}
-
-// ── Adjustments on ONE job ──
+// ── The one-job transforms ──
 //
 // The transforms themselves live in the engine (`@finley/engine`'s `job` module), because
 // the published `Projection` API applies the SAME edits and a rule with two implementations
 // is a rule that can drift — "a 0% deferral is removed, not recorded" is the sharp one.
-// Re-exported here so the panels and `jobEditing`'s owner-aware routing keep one import
-// site, and wrapped below at plan level for callers holding a whole {@link Plan}.
+// Re-exported here so the panels and `jobEditing`'s owner-aware routing keep one import site.
+//
+// There are no plan-level wrappers: authoring a job is `Projection.addJob` / `replaceJob` /
+// the per-adjustment methods, so a `(plan) => plan` wrapper beside them would be a second
+// write path into `Plan.jobs`. The fixture-building versions live in `testing/planFixtures`.
 export {
   withIncomeOverride,
   withPayChange,
   withoutPayChange,
   withoutIncomeOverride,
 } from "@finley/engine";
-
-export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncomeOverride): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withIncomeOverride(j, override)) };
-}
-
-export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withPayChange(j, payChange)) };
-}
-
-export function removeJobPayChange(plan: Plan, jobId: string, month: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withoutPayChange(j, month)) };
-}
-
-// ── Thin single-job setters, for fixtures and callers that build a one-job plan ──
-
-/** Set a job's monthly salary (today's dollars). */
-export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withMonthlyIncome(j, monthlyCents)) };
-}
-
-/** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */
-export function setJobDeferralFraction(plan: Plan, id: string, fraction: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withDeferralFraction(j, fraction)) };
-}

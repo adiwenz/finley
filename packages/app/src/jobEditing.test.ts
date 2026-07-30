@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
 import { editJob } from "./jobEditing";
+import { applyJobWrite } from "./jobWrites";
 import type { JobOwner } from "./jobOwners";
 import { jobToDraftFor, type JobDraft } from "./planPeople";
 
@@ -59,10 +60,17 @@ const draftFor = (birthYear: number, job: Job, over: Partial<JobDraft> = {}): Jo
   ...over,
 });
 
+/**
+ * The writes materialized, per owner — through the same interpreter the ledger plane commits
+ * with, so these assertions read the intents exactly as production does.
+ */
 function applied(result: ReturnType<typeof editJob>): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
   const lists = new Map<string, readonly Job[]>();
-  for (const { owner: o, revise } of result.writes) lists.set(o.id, revise(o.jobs));
+  for (const write of result.writes) {
+    const prior = lists.get(write.owner.id) ?? write.owner.jobs;
+    lists.set(write.owner.id, applyJobWrite(prior, write, write.owner.id));
+  }
   return lists;
 }
 

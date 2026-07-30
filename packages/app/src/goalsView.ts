@@ -10,9 +10,6 @@ import {
   buildPlanAccounts,
   buildPlanGoals,
   eventsFundedByGoal,
-  withGoalPatch,
-  withGoalReordered,
-  withoutGoal,
   type ProjectionSeries,
 } from "@finley/engine";
 import type {
@@ -89,18 +86,10 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
   });
 }
 
-// The list edits themselves live in the engine (`@finley/engine`'s `plan` module): the
-// published `Projection` API reprioritizes and patches goals too, and priority-is-array-index
-// is the kind of rule that must not have two implementations. What stays here is the panel's
-// vocabulary — a form-shaped {@link GoalDraft}, and the rate as its own control.
-
-export function setGoalRate(
-  goals: readonly GoalPlan[],
-  id: string,
-  annualReturnPct: number,
-): readonly GoalPlan[] {
-  return withGoalPatch(goals, id, { annualReturnPct });
-}
+// Every goal edit — add, patch, reorder, remove — is a `Projection` method, because each one
+// either mints an id or enforces a rule (priority is array position; a goal funding an event
+// cannot be deleted). What stays here is the panel's vocabulary: a form-shaped
+// {@link GoalDraft}, and the words a refused deletion is read in.
 
 /**
  * The user-authorable shape of a goal — every {@link GoalPlan} field EXCEPT the stable
@@ -136,26 +125,7 @@ export function goalDisposal(
   return { disposition, targetDate };
 }
 
-/**
- * Replace one goal's authorable fields from a form draft, keeping its id and list position
- * so priority is unchanged. A draft is a WHOLE goal minus its id, so this is a replace, not
- * the engine's field-wise patch.
- */
-export function updateGoal(
-  goals: readonly GoalPlan[],
-  id: string,
-  draft: GoalDraft,
-): readonly GoalPlan[] {
-  return withGoalPatch(goals, id, draft);
-}
 
-/**
- * Drop a goal. Its derived `goal-<id>` fund account falls away with it —
- * `buildPlanAccounts` mints one account per remaining goal.
- */
-export function removeGoal(goals: readonly GoalPlan[], id: string): readonly GoalPlan[] {
-  return withoutGoal(goals, id);
-}
 
 /**
  * One event that blocks a goal's deletion, in the shape the block message renders. Carries
@@ -197,14 +167,3 @@ export function fundingBlockMessage(blocks: readonly GoalFundingBlock[]): string
 }
 
 
-/**
- * Move a goal one slot earlier ("up", funded sooner) or later ("down"); a no-op at the
- * ends. Since priority is array position, this is the only reprioritization primitive.
- */
-export function reorderGoal(
-  goals: readonly GoalPlan[],
-  id: string,
-  direction: "up" | "down",
-): readonly GoalPlan[] {
-  return withGoalReordered(goals, id, direction);
-}

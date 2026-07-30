@@ -6,9 +6,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type BudgetLine } from "@finley/engine";
+import { dollarsToCents, withLineOverride, type BudgetLine } from "@finley/engine";
 import {
-  applyLineOverride,
   resolveRowsAtMonth,
   routeMonthEdit,
   type MonthEdit,
@@ -149,7 +148,7 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ row: { kind: "line", lineId: "housing" }, month, scope, newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = applyLineOverride([base], "housing", route.override);
+    const next = withLineOverride([base], "housing", route.override);
     return resolveRowsAtMonth(next, month, CPI.annualInflationRate)[0]!.monthlyCents;
   };
 
@@ -168,7 +167,7 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ month: 120, scope: "fromHereForward", newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = applyLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
+    const next = withLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
     const atEdit = resolveRowsAtMonth(next, 120, CPI.annualInflationRate)[0]!.monthlyCents;
     const tenYearsLater = resolveRowsAtMonth(next, 240, CPI.annualInflationRate)[0]!.monthlyCents;
     expectCents(atEdit, dollarsToCents(3_000));
@@ -176,15 +175,15 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
   });
 });
 
-describe("applyLineOverride", () => {
+describe("withLineOverride — the dated-override rule, as this editor lands on it", () => {
   it("replaces an override at the same month/scope rather than stacking duplicates", () => {
     const start = [line("housing", dollarsToCents(1_600))];
-    const once = applyLineOverride(start, "housing", {
+    const once = withLineOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
     });
-    const twice = applyLineOverride(once, "housing", {
+    const twice = withLineOverride(once, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_200),
       scope: "fromHereForward",
@@ -199,12 +198,12 @@ describe("applyLineOverride", () => {
     // month 100 leaves the line at the month-100 amount for the rest of the horizon — the
     // more recent decision outranks the one it reaches over. Pinned so it stays a decision.
     let lines: readonly BudgetLine[] = [line("housing", dollarsToCents(1_600))];
-    lines = applyLineOverride(lines, "housing", {
+    lines = withLineOverride(lines, "housing", {
       month: 300,
       monthlyCents: dollarsToCents(5_000),
       scope: "fromHereForward",
     });
-    lines = applyLineOverride(lines, "housing", {
+    lines = withLineOverride(lines, "housing", {
       month: 100,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
@@ -223,7 +222,7 @@ describe("applyLineOverride", () => {
       ]),
       line("food", dollarsToCents(600)),
     ];
-    const next = applyLineOverride(start, "housing", {
+    const next = withLineOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
@@ -232,7 +231,7 @@ describe("applyLineOverride", () => {
     expect(next[1]).toEqual(start[1]);
   });
 
-  // The behavior above is explained in `applyLineOverride`'s JSDoc. That prose must stay in
+  // The routing prose in `monthEdit.ts` must stay in
   // app/public terms: `SimCashFlowSeries` is an engine implementation detail — how the
   // compiler happens to represent a schedule today — so app prose should describe the
   // observable effect instead. Pins the boundary against a reword reaching back inside.

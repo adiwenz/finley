@@ -530,6 +530,52 @@ describe("Projection root — editing and removing a job", () => {
     p.setJobDeferralFraction(jobId, 0);
     expect(p.plan.jobs[0]).not.toHaveProperty("deferral");
   });
+
+  it("carries every input field onto an added job, not just the ones a new job is authored from", () => {
+    const p = freshProjection();
+    // What a job moving between household members arrives holding: an existing job's
+    // accumulated adjustments, not a blank draft's fields.
+    const jobId = p.addJob(P1, {
+      ...matchedJob,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+    expect(p.plan.jobs[0]).toMatchObject({
+      id: jobId,
+      name: "Day job",
+      deferral: matchedJob.deferral,
+      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+    });
+  });
+
+  it("replaceJob rewrites wholesale, so an absent field CLEARS rather than carrying through", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, matchedJob);
+
+    // The same form re-submitted with the name blanked and the 401(k) rate zeroed. A patch
+    // could not say this: naming no `deferral` means "unchanged" to updateJob.
+    p.replaceJob(jobId, openEndedJob);
+
+    expect(p.plan.jobs[0]).toEqual({
+      id: jobId,
+      // Identity survives the rewrite; the owner is not a field an edit restates.
+      ownerId: P1,
+      startYear: openEndedJob.startYear,
+      endYear: null,
+      salary: openEndedJob.salary,
+    });
+  });
+
+  it("replaceJob keeps the job's list position, and an unknown id is a no-op", () => {
+    const p = freshProjection();
+    const first = p.addJob(P1, openEndedJob);
+    const second = p.addJob(P1, openEndedJob);
+    p.replaceJob(first, { ...openEndedJob, name: "Renamed" });
+    p.replaceJob("no-such-job", { ...openEndedJob, name: "Nowhere" });
+    expect(p.plan.jobs.map((j) => j.id)).toEqual([first, second]);
+    expect(p.plan.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
+  });
 });
 
 describe("Projection root — pay changes and one-month income overrides", () => {
@@ -640,7 +686,46 @@ describe("Projection root — editing and removing a budget line", () => {
     const before = p.plan.budgetLines;
     p.updateBudgetLine("no-such-line", { label: "x" });
     p.removeBudgetLine("no-such-line");
+    p.addBudgetLineOverride("no-such-line", {
+      month: 3,
+      monthlyCents: dollarsToCents(100),
+      scope: "thisMonthOnly",
+    });
     expect(p.plan.budgetLines).toEqual(before);
+  });
+
+  it("accumulates dated overrides, one per (scope, month), without a read-modify-write", () => {
+    const p = freshProjection();
+    const lineId = p.addBudgetLine(expenseLine);
+
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2500),
+      scope: "thisMonthOnly",
+    });
+    // A different month, and the same month at the other scope: both stand beside the first.
+    p.addBudgetLineOverride(lineId, {
+      month: 12,
+      monthlyCents: dollarsToCents(2600),
+      scope: "thisMonthOnly",
+    });
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2700),
+      scope: "fromHereForward",
+    });
+    // Re-authoring one replaces it rather than stacking a second answer for that month.
+    p.addBudgetLineOverride(lineId, {
+      month: 6,
+      monthlyCents: dollarsToCents(2550),
+      scope: "thisMonthOnly",
+    });
+
+    expect(p.plan.budgetLines[0]?.overrides).toEqual([
+      { month: 12, monthlyCents: dollarsToCents(2600), scope: "thisMonthOnly" },
+      { month: 6, monthlyCents: dollarsToCents(2700), scope: "fromHereForward" },
+      { month: 6, monthlyCents: dollarsToCents(2550), scope: "thisMonthOnly" },
+    ]);
   });
 });
 

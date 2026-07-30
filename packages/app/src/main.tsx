@@ -38,8 +38,7 @@ const INITIAL_STATE = presetState(PRESETS[0]);
 export function App() {
   const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
-  const { state, conflict, setBudget, transact, reviseEvents, removeEvent, loadState } =
-    useProjection(INITIAL_STATE);
+  const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
@@ -184,20 +183,11 @@ export function App() {
           </div>
 
           <div className="card inputs">
-            <BudgetEditor
-              budget={budget}
-              setBudget={setBudget}
-            />
+            <BudgetEditor budget={budget} transact={transact} />
           </div>
 
           <div className="card">
-            <GoalsPanel
-              budget={budget}
-              series={series}
-              setBudget={setBudget}
-              ledger={ledger}
-              onAddGoal={(draft) => transact((p) => p.addGoal(draft))}
-            />
+            <GoalsPanel budget={budget} series={series} transact={transact} ledger={ledger} />
           </div>
 
           <div className="card">
@@ -207,13 +197,7 @@ export function App() {
       </div>
 
       <div className="card">
-        <JobsPanel
-          budget={budget}
-          setBudget={setBudget}
-          household={household}
-          ledger={ledger}
-          onReviseEvents={reviseEvents}
-        />
+        <JobsPanel budget={budget} transact={transact} household={household} ledger={ledger} />
       </div>
 
       <div className="card">
@@ -223,13 +207,11 @@ export function App() {
             spending), so there is nothing else to pass. */}
         <BaseAdjustmentsPanel
           plan={budget}
-          setBudget={setBudget}
+          transact={transact}
           series={series}
           personNames={personNames}
           household={household}
           ledger={ledger}
-          onReviseEvents={reviseEvents}
-          onAddLine={(line) => transact((p) => p.addBudgetLine(line))}
         />
       </div>
 

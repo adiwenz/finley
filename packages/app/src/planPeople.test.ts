@@ -6,7 +6,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import { addJobFromDraft, blankJobDraft, jobToDraft, primaryJobs, type JobDraft } from "./planPeople";
+import { blankJobDraft, jobToDraft, primaryJobs, type JobDraft } from "./planPeople";
+import { addJobFromDraft } from "./testing/planFixtures";
 
 const draft = (over: Partial<JobDraft> = {}): JobDraft => ({ ...blankJobDraft(PLAN_DEFAULTS), ...over });
 const lastJob = (plan = PLAN_DEFAULTS, d: JobDraft = draft()) =>

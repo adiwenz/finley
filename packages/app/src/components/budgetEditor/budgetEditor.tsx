@@ -12,23 +12,28 @@
  * and 401(k) deferral all live per-job there.
  */
 
-import type { Dispatch, SetStateAction } from "react";
 import {
   dollarsToCents,
   type SharedContributionScheme,
   type SurplusCashDestination,
 } from "@finley/engine";
-import type { Plan } from "@finley/engine";
+import type { Plan, PlanPatch } from "@finley/engine";
+import type { Transact } from "../../hooks/useProjection";
 import { NumInput } from "../numInput/numInput";
 
 interface BudgetEditorProps {
   budget: Plan;
-  setBudget: Dispatch<SetStateAction<Plan>>;
+  transact: Transact;
 }
 
-export function BudgetEditor({ budget, setBudget }: BudgetEditorProps) {
-  function updateBudget(patch: Partial<Plan>) {
-    setBudget((current) => ({ ...current, ...patch }));
+export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
+  /**
+   * Every control here writes a standing scalar, which is exactly what `updatePlan` takes —
+   * {@link PlanPatch} cannot reach the collections, so no knob on this panel can touch a goal,
+   * job or budget line by accident.
+   */
+  function updateBudget(patch: PlanPatch) {
+    transact((p) => p.updatePlan(patch));
   }
 
   return (

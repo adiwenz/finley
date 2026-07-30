@@ -10,11 +10,10 @@
 
 import {
   CONTRIBUTION_TARGETS,
-  withLinePatch,
-  withoutLine,
   type BudgetCategory,
   type BudgetLine,
   type BudgetLineInput,
+  type BudgetLinePatch,
   type TaxTreatment,
 } from "@finley/engine";
 
@@ -95,18 +94,11 @@ export function budgetLineInputFromDraft(draft: BudgetLineDraft): BudgetLineInpu
 }
 
 /**
- * Rewrites the line from the form's draft, but preserves what the form doesn't edit: span,
- * overrides, priority. A draft is a projection of a line, so this rebuilds and re-attaches
- * rather than patching field-wise like the engine's {@link withLinePatch}.
+ * A draft as the patch the facade applies to an existing line. Every field a draft states is
+ * named, so switching kind can't leave half the old line behind; what the form doesn't edit —
+ * span, dated overrides, priority — is absent from the patch and carried through by
+ * `Projection.updateBudgetLine`.
  */
-export function updateLineFromDraft(
-  lines: readonly BudgetLine[],
-  id: string,
-  draft: BudgetLineDraft,
-): readonly BudgetLine[] {
-  return withLinePatch(lines, id, lineBody(draft));
-}
-
-export function removeLine(lines: readonly BudgetLine[], id: string): readonly BudgetLine[] {
-  return withoutLine(lines, id);
+export function budgetLinePatchFromDraft(draft: BudgetLineDraft): BudgetLinePatch {
+  return lineBody(draft);
 }

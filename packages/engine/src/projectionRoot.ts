@@ -46,8 +46,8 @@ import {
   withoutPayChange,
   withPayChange,
 } from "./job";
-import type { BudgetLine, BudgetLinePatch } from "./budgetLine";
-import { withLinePatch, withoutLine } from "./budgetLine";
+import type { BudgetLine, BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
+import { withLineOverride, withLinePatch, withoutLine } from "./budgetLine";
 import type { Scenario } from "./scenario";
 import { scenarioOf, withPlan, withLedger } from "./scenario";
 import type { LifeEvent, NewLifeEvent } from "./ledger/eventTypes";
@@ -506,20 +506,39 @@ export class Projection {
 
   // Standing edits
 
-  /** Returns the minted `"job-N"` id. */
+  /**
+   * Returns the minted `"job-N"` id.
+   *
+   * Every {@link JobInput} field carries through, not just the ones a job is usually authored
+   * from: a job arriving here may be an *existing* one moving between household members, and
+   * it keeps its one-month overrides, permanent pay changes and display name across the move.
+   * Naming the fields to copy is how those silently vanished.
+   */
   addJob(personId: PersonId, job: JobInput): string {
     const s = this.state;
     const { id, nextSeq } = mint(s, "job", job.id);
-    const newJob: Job = {
-      id,
-      ownerId: personId,
-      startYear: job.startYear,
-      endYear: job.endYear,
-      salary: job.salary,
-      ...(job.deferral !== undefined ? { deferral: job.deferral } : {}),
-    };
+    const { id: _drop, ...rest } = job;
+    const newJob: Job = { ...rest, id, ownerId: personId };
     this.commitPlan({ ...s.scenario.plan, jobs: [...(s.scenario.plan.jobs ?? []), newJob] }, nextSeq);
     return id;
+  }
+
+  /**
+   * Rewrite one job wholesale, keeping its `id` and its list position — the counterpart to
+   * {@link updateJob}'s field-wise patch, for a caller holding a whole new definition rather
+   * than a diff.
+   *
+   * The difference is what an *absent* field means. A patch carries only what it names, so it
+   * can never clear a field; this replaces, so a job arriving with no `deferral` and no `name`
+   * comes out with neither. That is what a form re-submitted with the 401(k) rate zeroed and
+   * the name blanked has to mean.
+   *
+   * `ownerId` stays as it was — reassignment is a two-plane move, not a field edit (a partner's
+   * jobs do not live on the plan at all). Rewriting an id that is not a job is a no-op.
+   */
+  replaceJob(id: string, job: JobInput): void {
+    const { id: _drop, ...rest } = job;
+    this.editJob(id, (prior) => ({ ...rest, id: prior.id, ownerId: prior.ownerId }));
   }
 
   /**
@@ -594,6 +613,21 @@ export class Projection {
   updateBudgetLine(id: string, patch: BudgetLinePatch): void {
     const plan = this.state.scenario.plan;
     this.commitPlan({ ...plan, budgetLines: withLinePatch(plan.budgetLines, id, patch) });
+  }
+
+  /**
+   * Layer a dated amount override onto one line — the "just this month" / "from here forward"
+   * answer, which is a fact about the line rather than a new authored amount (see
+   * {@link withLineOverride} for the one-per-(scope, month) rule).
+   *
+   * Beside {@link updateBudgetLine} rather than inside it: a patch REPLACES the `overrides`
+   * array it is given, so routing an override through one would drop every other dated change
+   * on the line unless the caller re-sent them all — exactly the read-modify-write this API
+   * exists to keep out of callers.
+   */
+  addBudgetLineOverride(lineId: string, override: BudgetLineOverride): void {
+    const plan = this.state.scenario.plan;
+    this.commitPlan({ ...plan, budgetLines: withLineOverride(plan.budgetLines, lineId, override) });
   }
 
   /**

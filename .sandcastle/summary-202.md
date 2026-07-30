@@ -47,13 +47,14 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   to itself, so `useState` would bail out and re-render nothing; forcing it with a version counter
   makes React's state a lie and invalidates every memo on any write. React holds the plain value;
   writes pick up a handle, mutate, and drop it.
-- **`useProjection` owns the discipline.** `transact` wraps one facade write and turns a refused
-  write (the facade throws) into the `conflict` message; `reviseEvents` runs an all-or-nothing
-  ledger revision and reports acceptance *synchronously* (off a ref) so a cross-plane job write
-  can skip the plan side on a refusal; `setBudget` reshapes the plan through the domain transforms
-  directly (they mint nothing), carrying the ledger reference through so plan-only edits leave
-  ledger-keyed memos able to skip.
-- **The counter is floored on the way in, not in `setBudget`.** Every facade write builds through
+- **`useProjection` owns the discipline, and `transact` is the whole of it.** One write primitive:
+  it runs any facade write — plan or ledger, one call or a batch — off `stateRef.current`, commits
+  the resulting `ProjectionState` whole, and turns a refused write (the facade throws) into the
+  `conflict` message, cleared only on a write that succeeds. There is deliberately no plan-shaped
+  setter beside it: a `setPlan` would take a `Plan` the hook could only accept on faith, while the
+  id mint, the goal-funding guard and the affordability gate all live on the far side of the
+  facade. A write spanning both planes is therefore one transaction, not two coordinated ones.
+- **The counter is floored on the way in.** Every facade write builds through
   `fromState`, which floors the counter past every id the scenario already holds — including
   primary jobs the app still mints via `nextJobIdFor`. So the engine steps over an app-minted
   `job-N` before its next mint regardless, closing the collision the single-scenario model would
@@ -70,32 +71,50 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - **Derived ids parent-suffixed.** `mortgage-home-3` → `home-3-mortgage`, matching the existing
   `p-3-job-1` convention so a sort groups derived ids under their parent. (Partner-job ids are
   now minted by `marry` as `job-N`, so the app-side `${partnerId}-job-N` scheme is moot.)
-- **Job authoring left as-is, deliberately.** The issue's minter list names exactly `nextId`,
-  `freshGoalId`, and `nextLineId`; `nextJobIdFor` is not on it. Its `job-N` shape is recognized by
-  the counter's floor, and the two-plane job write is out of this issue's scope.
+- **Job writes are intents, routed per plane.** `jobEditing` returns `add` / `replace` / `remove`
+  rather than a `(jobs) => jobs` transform, because the plan plane's write authority is the facade
+  and a list callback had nowhere to be applied that wasn't the app rebuilding `Plan.jobs`.
+  `commitJobWrites` runs both planes inside one handle: the plan side through `addJob` /
+  `replaceJob` / `removeJob`, the partner side through `reviseTransaction`. `nextJobIdFor` survives
+  for the ledger plane only — a partner's jobs are a field of their `RelationshipEvent`, which the
+  facade has no per-job method for; the counter's floor recognizes its `job-N` shape either way.
 
 ## Changes Made
 
 **Engine**
 
 - `projectionRoot.ts`: `buyHome` derives `` `${id}-mortgage` ``; added `funding(): FundingLookup`.
-- `projectionRoot.test.ts`: mortgage-id and `funding()` tests.
+  `addJob` now carries every `JobInput` field through (it dropped `name`, `incomeOverrides` and
+  `payChanges`, which a job moving between members has to keep); added `replaceJob` (a wholesale
+  rewrite keeping the id, so an absent field CLEARS where a patch could only ever add) and
+  `addBudgetLineOverride` (beside `updateBudgetLine`, because a patch replaces the `overrides`
+  array it is handed).
+- `budgetLine.ts`: added `withLineOverride` — the one-per-(scope, month) rule, moved down from the
+  app.
+- `projectionRoot.test.ts` / `budgetLine.test.ts`: tests for each of the above.
 
 **App — state model & hook**
 
-- `hooks/useProjection.ts` (new): the single authoring hook — `state`, `conflict`, `setBudget`,
-  `transact`, `reviseEvents`, `removeEvent`, `loadState`. Replaces `useLedger.ts` (deleted).
+- `hooks/useProjection.ts` (new): the single authoring hook — `state`, `conflict`, `transact`,
+  `removeEvent`, `loadState`. Replaces `useLedger.ts` (deleted).
 - `main.tsx`: holds one `ProjectionState`; reads via a `Projection` memo (`run` + `funding`) keyed
-  on `state`; preset load via `presetState` + `loadState`; wires `onAddGoal` / `onAddLine` /
-  `onAdd` through `transact`. The five low-level pipeline calls are gone.
+  on `state`; preset load via `presetState` + `loadState`; hands every panel the same `transact`.
+  The five low-level pipeline calls are gone.
 
 **App — creation through the facade**
 
 - `goalsView.ts`: removed `addGoal` and `freshGoalId`.
-- `baseAdjustments/budgetLines.ts`: removed `nextLineId` and `addLineFromDraft`; added
-  `budgetLineInputFromDraft`; `updateLineFromDraft` patches via a shared `lineBody`.
-- `goalsPanel.tsx` / `baseAdjustmentsPanel.tsx`: `add` routes through new `onAddGoal` / `onAddLine`
-  props; edit/reorder/delete still call the domain transforms directly.
+- `baseAdjustments/budgetLines.ts`: removed `nextLineId`, `addLineFromDraft` and `removeLine`;
+  a draft becomes facade input (`budgetLineInputFromDraft`) or a facade patch
+  (`budgetLinePatchFromDraft`), both off a shared `lineBody`.
+- `baseAdjustments/budgetTemplate.ts`: added `tierRebalanceWrites`, the 50/30/20 quickstart
+  decomposed into the writes that perform it (rescales by id, plus a seed per empty tier) —
+  derived by diffing `redistributeToTiers`' own output, so the rule keeps one implementation.
+- `baseAdjustments/monthEdit.ts`: `applyLineOverride` moved into the engine as `withLineOverride`.
+- `goalsView.ts`: also removed `setGoalRate`, `updateGoal`, `removeGoal` and `reorderGoal`.
+- `goalsPanel.tsx` / `baseAdjustmentsPanel.tsx` / `jobsPanel.tsx` / `budgetEditor.tsx`: every
+  edit — add, patch, reorder, delete, month override, quickstart, pay change — runs through
+  `transact`. No panel holds a plan setter or rebuilds a plan.
 
 **App — no id minting in forms**
 
@@ -110,8 +129,11 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 
 - `presets.ts`: added `presetState(preset): ProjectionState` (facade-based); `buildPresetLedger`
   retained for the `presets.test` oracle.
-- `jobWrites.ts` / `jobsPanel.tsx` / `baseAdjustmentsPanel.tsx`: `EventRevision` now imported from
-  `useProjection`.
+- `jobEditing.ts` / `jobWrites.ts`: `JobListWrite` (a list transform) becomes the `JobWrite`
+  intent union; `commitJobWrites` takes the hook's `transact` and commits both planes atomically.
+- `planPeople.ts`: the plan-level writers (`addJobFromDraft`, `setJobMonthlyIncome`, …) moved to
+  `testing/planFixtures.ts` — they were fixture builders, and leaving them in the app layer would
+  have left a second write path the guard could not rule out.
 
 **Tests** updated to the new seams: `mainState`, `subForms`, `relationshipForm`,
 `fundingSourcePicker`, `homePurchaseForm`, `goalsView`, `goalsPanel`, `goalsDelete`,
@@ -121,4 +143,7 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 
 - `npm run typecheck` — clean.
 - `npm run check:purity` — engine purity holds.
-- `npx vitest run` — **1088 passed | 45 todo (86 files)**; engine 623, app 382.
+- `npx vitest run` — **1104 passed | 45 todo (88 files)**.
+- `packages/app/src/planWrites.guard.test.ts` scans app production source and fails on a
+  `setBudget`, a `Dispatch<SetStateAction<Plan>>` prop, a plan-collection rebuild, or any
+  function returning a `Plan`. Seed modules and `src/testing/` are exempt by location.
