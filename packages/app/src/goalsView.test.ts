@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  nullJurisdiction,
-  dollarsToCents,
-  withGoalReordered,
-} from "@finley/engine";
+import { nullJurisdiction, dollarsToCents } from "@finley/engine";
 import { START_YEAR } from "./config";
 import { monthLabel } from "./format";
 import { readerOf, runOf } from "./testing/projectionHarness";
@@ -15,9 +10,6 @@ import {
   goalFundingBlocks,
   fundingBlockMessage,
 } from "./goalsView";
-import {
-  goalFundAccountId,
-} from "@finley/engine";
 import type {
   Plan,
   GoalPlan,
@@ -84,7 +76,7 @@ const goalB: GoalPlan = {
 };
 
 /** The surplus these rows are scored against is stated, not withheld — see {@link runOf}. */
-const taxFreeRun = (plan: Plan) => runOf(plan, emptyLedger, nullJurisdiction);
+const taxFreeRun = (plan: Plan) => runOf(plan, undefined, nullJurisdiction);
 
 describe("goalRows — projection-based on-track %", () => {
   it("scores each goal by projected fund at target ÷ target, not saved-so-far", () => {
@@ -98,9 +90,11 @@ describe("goalRows — projection-based on-track %", () => {
   });
 
   it("reprioritizing visibly moves the OTHER goal's number (tradeoff)", () => {
-    const budget = { ...baseBudget, goals: [goalA, goalB] };
-    const reordered = { ...budget, goals: withGoalReordered(budget.goals, "b", "up") };
-    const rows = goalRows(reordered, taxFreeRun(reordered));
+    // Reprioritizing is a `Projection` edit: reorder B up, then read the reordered plan and
+    // its tax-free run back off the same handle — the panel's own path.
+    const p = readerOf({ ...baseBudget, goals: [goalA, goalB] });
+    p.reorderGoal("b", "up");
+    const rows = goalRows(p.plan, p.run(nullJurisdiction));
     // Now B is funded first: it takes the 65%, and A drops to 0.
     expect(rows.find((r) => r.id === "b")?.onTrackPct).toBe(65);
     expect(rows.find((r) => r.id === "a")?.onTrackPct).toBe(0);
@@ -229,17 +223,32 @@ function ledgerOf(...events: LifeEvent[]): Ledger {
 }
 
 /**
- * Which events block a goal is asked of a completed run, so the fixture states the goals and
- * the timeline and lets the facade pair them — the same route the panel takes.
+ * A goal's derived fund-account id, read off the public account descriptors — the same
+ * `goal-<id>` account the projection builds for it, obtained without reaching for the engine's
+ * internal `goalFundAccountId`. A single-goal plan has exactly one `kind: "goal"` descriptor,
+ * so it is unambiguously this goal's.
  */
-function blocksFor(goals: readonly GoalPlan[], id: string, ledger: Ledger) {
+function fundAccountIdOf(goal: GoalPlan): string {
+  const descriptor = readerOf({ ...baseBudget, goals: [goal] })
+    .accountDescriptors()
+    .find((d) => d.kind === "goal");
+  if (!descriptor) throw new Error(`No fund account for goal "${goal.id}"`);
+  return descriptor.id;
+}
+
+/**
+ * Which events block a goal is asked of a completed run, so the fixture states the goals and
+ * the timeline and lets the facade pair them — the same route the panel takes. Omitting the
+ * ledger runs against the plan's own (empty) timeline.
+ */
+function blocksFor(goals: readonly GoalPlan[], id: string, ledger?: Ledger) {
   return goalFundingBlocks(readerOf({ ...baseBudget, goals }, ledger), id);
 }
 
 describe("goalFundingBlocks — events naming a goal's fund account as a funding source", () => {
   it("names the event blocking a goal whose fund account it draws from", () => {
     // The home purchase at month 72 funds its down payment from Goal A's derived account.
-    const buy = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
+    const buy = homePurchase("buy1", 72, 0, ["savings", fundAccountIdOf(goalA)]);
     const blocks = blocksFor([goalA, goalB], "a", ledgerOf(buy));
     expect(blocks).toEqual([{ eventId: "buy1", label: "Bought a home", month: 72 }]);
   });
@@ -253,16 +262,16 @@ describe("goalFundingBlocks — events naming a goal's fund account as a funding
     const referenced = blocksFor(
       [goalA],
       "a",
-      ledgerOf(homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)])),
+      ledgerOf(homePurchase("buy1", 72, 0, [fundAccountIdOf(goalA)])),
     );
     expect(referenced).toHaveLength(1);
     // The event gone from the log, nothing points at the fund account any more.
-    expect(blocksFor([goalA], "a", emptyLedger)).toEqual([]);
+    expect(blocksFor([goalA], "a")).toEqual([]);
   });
 
   it("lists every blocking event, sorted by (month, sequence)", () => {
-    const later = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
-    const earlier = homePurchase("buy1", 72, 0, ["savings", goalFundAccountId(goalA)]);
+    const later = homePurchase("buy2", 90, 1, [fundAccountIdOf(goalA)]);
+    const earlier = homePurchase("buy1", 72, 0, ["savings", fundAccountIdOf(goalA)]);
     const blocks = blocksFor([goalA], "a", ledgerOf(later, earlier));
     expect(blocks).toEqual([
       { eventId: "buy1", label: "Bought a home", month: 72 },
@@ -281,15 +290,15 @@ describe("fundingBlockMessage — the refuse-to-delete text", () => {
   });
 
   it("names each blocking event by label and month", () => {
-    const buy = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
+    const buy = homePurchase("buy1", 72, 0, [fundAccountIdOf(goalA)]);
     expect(messageFor([goalA], "a", ledgerOf(buy))).toBe(
       `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(72)}`,
     );
   });
 
   it("names a narrowed set of blockers — the panel formats one refusal's own", () => {
-    const early = homePurchase("buy1", 72, 0, [goalFundAccountId(goalA)]);
-    const late = homePurchase("buy2", 90, 1, [goalFundAccountId(goalA)]);
+    const early = homePurchase("buy1", 72, 0, [fundAccountIdOf(goalA)]);
+    const late = homePurchase("buy2", 90, 1, [fundAccountIdOf(goalA)]);
     const blocks = blocksFor([goalA], "a", ledgerOf(early, late));
     expect(fundingBlockMessage(blocks.filter((b) => b.eventId === "buy2"))).toBe(
       `This account cannot be deleted because it funds:\n- Bought a home in ${monthLabel(90)}`,

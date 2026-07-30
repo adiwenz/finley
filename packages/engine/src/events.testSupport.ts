@@ -1,4 +1,7 @@
-import { addEvent, type Ledger, type LedgerBaseConfig, type NewLifeEvent } from "./index";
+import { addEvent } from "./ledger/addEvent";
+import type { Ledger } from "./ledger/ledger";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
+import type { NewLifeEvent } from "./ledger/eventTypes";
 import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import type { Person } from "./person";
 import { planAccount, type PlanAccount } from "./planAccount";

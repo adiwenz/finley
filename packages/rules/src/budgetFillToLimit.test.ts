@@ -1,54 +1,42 @@
 /**
- * The `fill-to-limit` amount source against the REAL rules-side contribution caps: a
- * `fill-to-limit` budget line, resolved through the engine's jurisdiction seam, tracks the
- * legislated 401(k) elective-deferral limit AND auto-follows the age-50 catch-up bump, with
- * no authoring change to the line.
+ * The rules half of `fill-to-limit`: US-2026 supplies the legislated 401(k) elective-deferral
+ * cap and its age catch-up bumps through the jurisdiction interface.
  *
- * The engine ships the resolver and seam bridge (`fillToLimitSeamFor`); `rules` supplies the
- * `retirementDeferralLimitCents` plug. Here is the one place the two halves meet.
+ * `fillToLimitSeamFor(jurisdiction)` — the engine's bridge — is exactly
+ * {@link import("@finley/engine").Jurisdiction.retirementDeferralLimitCents}, so this reads that
+ * public seam directly. The engine half (a `fillToLimit` budget line spreads the returned cap
+ * across the year and auto-follows the age band with no authoring change) is proven against the
+ * resolver in `@finley/engine`'s `budgetLine.test.ts`; here is where the real caps live.
  */
 import { describe, it, expect } from "vitest";
-import {
-  type BudgetLine,
-  resolveBudgetLineMonthlyCents,
-  fillToLimitSeamFor,
-} from "@finley/engine";
+import type { DeferralLimitContext } from "@finley/engine";
 import { usJurisdiction } from "./index";
 import { contributionLimits } from "./contributionLimits";
 
-const maxOut401k: BudgetLine = {
-  id: "max-401k",
-  label: "Max out 401(k)",
-  target: { kind: "account", accountId: "retirement", taxTreatment: "preTax" },
-  category: "savings",
-  amountSource: { kind: "fillToLimit" },
+const capAt = (year: number, age?: number): number => {
+  const seam = usJurisdiction.retirementDeferralLimitCents;
+  if (seam === undefined) throw new Error("US-2026 must expose retirementDeferralLimitCents");
+  return seam({ year, age } satisfies DeferralLimitContext);
 };
 
-describe("fill-to-limit against the real US contribution caps", () => {
-  const annualLimitCents = fillToLimitSeamFor(usJurisdiction);
-  const resolveAt = (year: number, age?: number): number =>
-    resolveBudgetLineMonthlyCents(maxOut401k, { month: 0, year, age, annualLimitCents });
-
-  it("exposes a cap seam from the US jurisdiction", () => {
-    expect(annualLimitCents).toBeDefined();
+describe("US-2026 retirement deferral cap — the fill-to-limit plug", () => {
+  it("exposes the deferral-limit seam from the jurisdiction", () => {
+    expect(usJurisdiction.retirementDeferralLimitCents).toBeDefined();
   });
 
-  it("spreads the legislated base elective-deferral limit across the year (under 50)", () => {
-    const cap = contributionLimits(2026).elective401kCents;
-    expect(resolveAt(2026, 40)).toBe(Math.round(cap / 12));
+  it("returns the legislated base elective-deferral limit (under 50)", () => {
+    expect(capAt(2026, 40)).toBe(contributionLimits(2026).elective401kCents);
   });
 
-  it("auto-follows the age-50 catch-up bump with no authoring change", () => {
+  it("adds the age-50 catch-up with no authoring change", () => {
     const l = contributionLimits(2026);
-    const under50 = resolveAt(2026, 49);
-    const at50 = resolveAt(2026, 50);
-    expect(under50).toBe(Math.round(l.elective401kCents / 12));
-    expect(at50).toBe(Math.round((l.elective401kCents + l.catchUp50Cents) / 12));
-    expect(at50).toBeGreaterThan(under50);
+    expect(capAt(2026, 49)).toBe(l.elective401kCents);
+    expect(capAt(2026, 50)).toBe(l.elective401kCents + l.catchUp50Cents);
+    expect(capAt(2026, 50)).toBeGreaterThan(capAt(2026, 49));
   });
 
   it("applies the larger SECURE 2.0 catch-up in the 60–63 band", () => {
     const l = contributionLimits(2026);
-    expect(resolveAt(2026, 61)).toBe(Math.round((l.elective401kCents + l.catchUp60to63Cents) / 12));
+    expect(capAt(2026, 61)).toBe(l.elective401kCents + l.catchUp60to63Cents);
   });
 });

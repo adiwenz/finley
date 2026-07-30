@@ -12,14 +12,7 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
-import {
-  Projection,
-  dollarsToCents,
-  emptyLedger,
-  goalFundAccountId,
-  scenarioOf,
-  withLedger,
-} from "@finley/engine";
+import { Projection, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../planDefaults";
 import { START_YEAR } from "../config";
@@ -29,7 +22,7 @@ import type { GoalPlan, LifeEvent, ProjectionState } from "@finley/engine";
 afterEach(cleanup);
 
 const stateOf = (plan = PLAN_DEFAULTS): ProjectionState =>
-  Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction).toState();
+  Projection.create({ plan, startYear: START_YEAR }, usJurisdiction).toState();
 
 const BLOCKED_GOAL: GoalPlan = {
   id: "down-payment",
@@ -44,11 +37,21 @@ const BLOCKED_GOAL: GoalPlan = {
  * A goal the facade refuses to remove: a home purchase already spends from its derived fund
  * account, so dropping the goal would strand that reference.
  *
- * Authored as a scenario rather than through `buyHome`, so the fixture states the reference it
- * is about and nothing else — routing it through the authoring gate would make the setup
- * depend on the purchase being affordable, which is a different test's subject.
+ * Seeded as a prebuilt ledger rather than through `buyHome`, so the fixture states the
+ * reference it is about and nothing else — routing it through the authoring gate would make the
+ * setup depend on the purchase being affordable, which is a different test's subject.
  */
 function blockedGoalState(): ProjectionState {
+  const projection = Projection.create(
+    { plan: { ...PLAN_DEFAULTS, goals: [BLOCKED_GOAL] }, startYear: START_YEAR },
+    usJurisdiction,
+  );
+  // The goal's derived fund account id, read off the run rather than recomputed — the account
+  // the purchase below spends from, so removing the goal would strand it.
+  const fundAccountId = projection
+    .run(usJurisdiction)
+    .goalProgress()
+    .find((g) => g.goal.id === BLOCKED_GOAL.id)!.goal.fundAccountId;
   const purchase: LifeEvent = {
     type: "HomePurchaseEvent",
     id: "buy1",
@@ -58,16 +61,16 @@ function blockedGoalState(): ProjectionState {
     ownerId: "p1",
     purchasePriceCents: dollarsToCents(500_000),
     downPaymentCents: dollarsToCents(100_000),
-    downPaymentSourceIds: [goalFundAccountId(BLOCKED_GOAL)],
+    downPaymentSourceIds: [fundAccountId],
     mortgageLiabilityId: "mtg1",
     mortgageApr: 0,
     mortgageTermMonths: 360,
   };
-  const scenario = withLedger(scenarioOf({ ...PLAN_DEFAULTS, goals: [BLOCKED_GOAL] }), {
-    events: [purchase],
-    nextSequenceNumber: 1,
-  });
-  return Projection.fromScenario(scenario, START_YEAR, usJurisdiction).toState();
+  // Seeded as a prebuilt ledger rather than through `buyHome`, so the fixture states the
+  // reference it is about and nothing else — routing it through the authoring gate would make
+  // the setup depend on the purchase being affordable, which is a different test's subject.
+  projection.resetLedger({ events: [purchase], nextSequenceNumber: 1 });
+  return projection.toState();
 }
 
 /** The hook under test, with its state and conflict rendered for assertion. */
@@ -289,7 +292,7 @@ describe("useProjection — removing a timeline transaction", () => {
     act(() => {
       hook().removeEvent(eventId);
     });
-    expect(hook().state.scenario.ledger.events).toEqual(emptyLedger.events);
+    expect(hook().state.scenario.ledger.events).toEqual([]);
     expect(conflict()).toBe("");
   });
 });

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, snapshotAt, type LedgerBaseConfig } from "./index";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { snapshotAt } from "./projection/snapshot";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { makeLiquidAccount, baseConfig, add } from "./events.testSupport";

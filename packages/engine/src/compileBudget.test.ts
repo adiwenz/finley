@@ -4,7 +4,10 @@
  * simulator proving a line-item budget drives spending — spans and dated overrides included.
  */
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, dollarsToCents, nullJurisdiction } from "./index";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { dollarsToCents } from "./cashFlowSeries";
+import { nullJurisdiction } from "./jurisdiction";
 import { compileExpenseBudgetLines, fillToLimitSeamFor } from "./compileBudget";
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";

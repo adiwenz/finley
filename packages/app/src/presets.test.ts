@@ -7,56 +7,34 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  interpretLedger,
-  buildHouseholdSimInput,
-  simulateHousehold,
-  createProjectionBase,
-  firstInsolventMonth,
+  Projection,
   dollarsToCents,
   CONTRIBUTION_TARGETS,
   type BudgetLine,
-  type ProjectionContext,
+  type ProjectionResult,
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import {
-  Projection,
-  addEvent,
-  emptyLedger,
-  type Ledger,
-  type LedgerBaseConfig,
-  type NewLifeEvent,
-} from "@finley/engine";
-import { PRESETS, presetById, type Preset } from "./presets";
+import { PRESETS, presetById, presetState, type Preset } from "./presets";
+import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
 
 /**
- * Replays a preset's seeds through the same `addEvent` path the live UI's authoring writes
- * take, so they validate like hand-added events. The oracle these tests check `presetState`
- * against: a rejected seed is a preset bug, not user error, so it throws rather than silently
- * dropping the event.
+ * A preset's projection over the app's sanctioned facade path: `presetState` (which runs the
+ * full ledger validation and THROWS on a bad seed — so the "a rejected seed is a preset bug"
+ * oracle is preserved) then `Projection.fromState`.
  */
-function buildPresetLedger(base: LedgerBaseConfig, events: readonly NewLifeEvent[]): Ledger {
-  let ledger = emptyLedger;
-  for (const event of events) {
-    const result = addEvent(ledger, base, event, usJurisdiction);
-    if (!result.ok) {
-      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
-    }
-    ledger = result.ledger;
-  }
-  return ledger;
+function projectionOf(preset: Preset): Projection {
+  return Projection.fromState(presetState(preset), usJurisdiction);
 }
-import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
-import { START_YEAR } from "./config";
 
-const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
+/** One completed run over a preset — the result carrying both series and firstInsolventMonth. */
+function runOfPreset(preset: Preset): ProjectionResult {
+  return projectionOf(preset).run(usJurisdiction);
+}
 
-/** Reproduce the app's projection pipeline for a preset (plan + its seed events). */
+/** The projected series for a preset (plan + its seed events). */
 function project(preset: Preset): ProjectionSeries {
-  const base = createProjectionBase(preset.plan, CTX);
-  const ledger = buildPresetLedger(base, preset.events);
-  const household = interpretLedger(ledger, base);
-  return simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
+  return runOfPreset(preset).series;
 }
 
 const realNetWorthAt = (series: ProjectionSeries, month: number): number | null =>
@@ -153,27 +131,29 @@ describe("default simulations", () => {
   });
 
   it("default: builds real wealth across the working years and stays solvent", () => {
-    const series = project(presetById("default"));
+    const result = runOfPreset(presetById("default"));
+    const series = result.series;
     const opening = realNetWorthAt(series, 0)!;
     const midCareer = realNetWorthAt(series, 120)!;
     expect(midCareer).toBeGreaterThan(opening * 3);
-    expect(firstInsolventMonth(series)).toBeGreaterThan(120);
+    expect(result.firstInsolventMonth).toBeGreaterThan(120);
   });
 
   it("paycheck-to-paycheck: survives working years but barely accumulates and can't fund retirement", () => {
-    const paycheck = project(presetById("paycheck-to-paycheck"));
+    const paycheck = runOfPreset(presetById("paycheck-to-paycheck"));
     const wealthy = project(presetById("default"));
-    const paycheckMid = realNetWorthAt(paycheck, 120)!;
+    const paycheckMid = realNetWorthAt(paycheck.series, 120)!;
     const wealthyMid = realNetWorthAt(wealthy, 120)!;
     // Afloat while earning — no debt spiral — but only a sliver of the default's wealth.
     expect(paycheckMid).toBeGreaterThan(0);
     expect(paycheckMid).toBeLessThan(wealthyMid * 0.25);
     // No emergency cushion means retirement is unfundable: insolvency lands around it.
-    expect(firstInsolventMonth(paycheck)).not.toBeNull();
+    expect(paycheck.firstInsolventMonth).not.toBeNull();
   });
 
   it("living-on-credit: overspends from the start, accruing compounding credit-card debt", () => {
-    const series = project(presetById("living-on-credit"));
+    const result = runOfPreset(presetById("living-on-credit"));
+    const series = result.series;
     expect(realNetWorthAt(series, 24)!).toBeLessThan(0);
     // The shortfall cascade routes each month's shortfall onto a synthetic credit-card
     // liability that compounds.
@@ -182,7 +162,7 @@ describe("default simulations", () => {
     expect(early).toBeGreaterThan(0);
     expect(later).toBeGreaterThan(early);
     // The debt is unfinanceable long-term: the plan runs out of credit.
-    expect(firstInsolventMonth(series)).not.toBeNull();
+    expect(result.firstInsolventMonth).not.toBeNull();
   });
 
   it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {
@@ -227,9 +207,7 @@ describe("default simulations", () => {
 describe("the two graphs are one quantity", () => {
   /** The app's own wiring: the graph reads the engine's itemized spending, nothing else. */
   function budgetChart(preset: Preset) {
-    const base = createProjectionBase(preset.plan, CTX);
-    const household = interpretLedger(buildPresetLedger(base, preset.events), base);
-    const series = simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
+    const series = projectionOf(preset).run(usJurisdiction).series;
     return { series, data: buildPerLineBudgetData(series) };
   }
 
@@ -257,13 +235,7 @@ describe("the panel and the graph agree", () => {
     "%s: retirement is called infeasible only when the projection actually runs out",
     (id) => {
       const preset = presetById(id);
-      const base = createProjectionBase(preset.plan, CTX);
-      const ledger = buildPresetLedger(base, preset.events);
-      const projection = Projection.fromScenario(
-        { plan: preset.plan, ledger },
-        START_YEAR,
-        usJurisdiction,
-      );
+      const projection = projectionOf(preset);
       const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
@@ -275,12 +247,7 @@ describe("the panel and the graph agree", () => {
 
   it("student-loan: an underwater opening still has a feasible retirement age", () => {
     const preset = presetById("student-loan");
-    const base = createProjectionBase(preset.plan, CTX);
-    const projection = Projection.fromScenario(
-      { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) },
-      START_YEAR,
-      usJurisdiction,
-    );
+    const projection = projectionOf(preset);
     expect(projection.run(usJurisdiction).series.months[0]!.netWorthRealCents).toBeLessThan(0);
     expect(projection.retirement(usJurisdiction).solution.fullRetirementAge).not.toBeNull();
   });

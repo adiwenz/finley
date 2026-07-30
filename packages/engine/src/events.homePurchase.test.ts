@@ -1,15 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  addEvent,
-  fundingLookup,
-  interpretLedger,
-  buildProjection,
-  removeEvent,
-  type Ledger,
-  type LedgerBaseConfig,
-  type NewLifeEvent,
-} from "./index";
+import { emptyLedger, type Ledger } from "./ledger/ledger";
+import { addEvent, fundingLookup } from "./ledger/addEvent";
+import { interpretLedger } from "./ledger/interpret";
+import { buildProjection } from "./projection/buildHouseholdInput";
+import { removeEvent } from "./ledger/removeEvent";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
+import type { NewLifeEvent } from "./ledger/eventTypes";
 import { CAPITAL_GAINS_TAX_PROFILE } from "./simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";

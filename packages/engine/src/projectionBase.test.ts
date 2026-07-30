@@ -5,17 +5,17 @@
  * under `usJurisdiction`.
  */
 import { describe, it, expect } from "vitest";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { dollarsToCents } from "./cashFlowSeries";
+import { nullJurisdiction } from "./jurisdiction";
+import { SYNTHETIC_CARD_ID } from "./liability";
 import {
-  emptyLedger,
-  replayLedger,
-  dollarsToCents,
-  nullJurisdiction,
-  SYNTHETIC_CARD_ID,
   CASH_INTEREST_TAX_PROFILE,
   CAPITAL_GAINS_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
-} from "./index";
+} from "./simAccount";
 import {
   createProjectionBase,
   buildPlanAccounts,

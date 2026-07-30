@@ -1,38 +1,8 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  addEvent,
-  asSeriesId,
-  asPersonId,
-  type Ledger,
-  type LedgerBaseConfig,
-  type NewLifeEvent,
-  type SnapshotSeries,
-  type Person,
-} from "@finley/engine";
+import type { SnapshotSeries } from "@finley/engine";
+import { PLAN_DEFAULTS } from "./planDefaults";
+import { readerOf, runOf } from "./testing/projectionHarness";
 import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
-
-const personLit = (id: string, name: string): Person => ({
-  id,
-  name,
-  birthYear: 1990,
-  retirementTargetAge: 65,
-  benefitClaimingAge: 67,
-  jobs: [],
-});
-
-const addBase: LedgerBaseConfig = {
-  horizonMonths: 360,
-  annualInflationRate: 0,
-  initialPersons: [personLit("p1", "Alex")],
-};
-
-/** Build a ledger fixture, asserting each event passes validation. */
-function add(ledger: Ledger, event: NewLifeEvent): Ledger {
-  const result = addEvent(ledger, addBase, event);
-  if (!result.ok) throw new Error(`fixture event rejected: ${result.conflict}`);
-  return result.ledger;
-}
 
 describe("summarizeEvent — one plain-language label per structural change", () => {
   it("labels a child event", () => {
@@ -67,23 +37,12 @@ describe("summarizeEvent — one plain-language label per structural change", ()
 
 describe("timelineMarkers", () => {
   it("returns markers sorted by (month, sequenceNumber)", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "c1",
-      type: "ChildEvent",
-      month: 24,
-      childId: "kid1",
-      childName: "Robin",
-      birthMonth: 24,
-      annualCostCents: 0,
-    });
-    ledger = add(ledger, {
-      id: "j1",
-      type: "RelationshipEvent",
-      month: 12,
-      person: personLit("p2", "Sam"),
-    });
-    const markers = timelineMarkers(ledger);
+    // Built through the Projection's typed event methods — each asserts validation the way the
+    // old `add` helper did, since a refused write throws.
+    const p = readerOf(PLAN_DEFAULTS);
+    p.haveChild({ id: "c1", month: 24, name: "Robin", annualCostCents: 0 });
+    p.marry({ id: "j1", month: 12, name: "Sam", birthYear: 1990 });
+    const markers = timelineMarkers(p.ledger);
     expect(markers.map((m) => m.month)).toEqual([12, 24]);
     expect(markers[0].id).toBe("j1");
   });
@@ -91,36 +50,24 @@ describe("timelineMarkers", () => {
 
 describe("splitMarkers", () => {
   it("splits events into passed and upcoming relative to the scrub month", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "c1",
-      type: "ChildEvent",
-      month: 12,
-      childId: "kid1",
-      childName: "Robin",
-      birthMonth: 12,
-      annualCostCents: 0,
-    });
-    ledger = add(ledger, {
-      id: "c2",
-      type: "ChildEvent",
-      month: 48,
-      childId: "kid2",
-      childName: "Sky",
-      birthMonth: 48,
-      annualCostCents: 0,
-    });
-    const { passed, upcoming } = splitMarkers(ledger, 24);
+    const p = readerOf(PLAN_DEFAULTS);
+    p.haveChild({ id: "c1", month: 12, name: "Robin", annualCostCents: 0 });
+    p.haveChild({ id: "c2", month: 48, name: "Sky", annualCostCents: 0 });
+    const { passed, upcoming } = splitMarkers(p.ledger, 24);
     expect(passed.map((m) => m.id)).toEqual(["c1"]);
     expect(upcoming.map((m) => m.id)).toEqual(["c2"]);
   });
 });
 
 describe("seriesLabel — engine series role → snapshot-panel text", () => {
+  // A real series off a run, for its branded `id`/`ownerId` — `seriesLabel` reads neither, but
+  // the `SnapshotSeries` fixture needs valid ones, taken from public data rather than branded by hand.
+  const sample = runOf(PLAN_DEFAULTS).snapshot(0).income[0];
+
   function series(overrides: Partial<SnapshotSeries>): SnapshotSeries {
     return {
-      id: asSeriesId("s1"),
-      ownerId: asPersonId("p1"),
+      id: sample.id,
+      ownerId: sample.ownerId,
       seriesType: "expense",
       role: "base",
       monthlyCents: 0,

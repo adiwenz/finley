@@ -10,52 +10,24 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  emptyLedger,
-  interpretLedger,
-  replayLedger,
-  createProjectionBase,
-  dollarsToCents,
-  fundingLookup,
-  nullJurisdiction,
-  type FundingLookup,
-  type Household,
-  type Plan,
-  type ProjectionSeries,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "../../config";
+import { dollarsToCents, type Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { HomePurchaseForm } from "./homePurchaseForm";
-import { runOf } from "../../testing/projectionHarness";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 
 const noop = () => {};
 
-function build(budget: Plan): {
-  household: Household;
-  series: ProjectionSeries;
-  funding: FundingLookup;
-} {
-  const base = createProjectionBase(budget, { jurisdiction: usJurisdiction, startYear: START_YEAR });
-  return {
-    household: interpretLedger(emptyLedger, base),
-    series: replayLedger(emptyLedger, base, nullJurisdiction),
-    // The engine under the SAME jurisdiction the app runs, so what the form renders is what
-    // `addEvent` would decide.
-    funding: fundingLookup(emptyLedger, base, usJurisdiction),
-  };
-}
-
 function render(budget: Plan, month = 0) {
-  const { funding } = build(budget);
+  // The funding lookup comes off a real projection over the SAME jurisdiction the app runs
+  // (the harness's `usJurisdiction`), so what the form renders is what `addEvent` would decide.
   return renderToStaticMarkup(
     <HomePurchaseForm
       defaultMonth={month}
       horizonMonths={660}
       onAdd={noop}
       result={runOf(budget)}
-      funding={funding}
+      funding={readerOf(budget).funding()}
     />,
   );
 }

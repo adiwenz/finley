@@ -5,10 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  createProjectionBase,
   dollarsToCents,
-  emptyLedger,
-  interpretLedger,
+  Projection,
   type Job,
   type Ledger,
   type LifeEvent,
@@ -18,10 +16,10 @@ import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { jobOwnersOf } from "./jobOwners";
 
-const base = createProjectionBase(PLAN_DEFAULTS, {
-  jurisdiction: usJurisdiction,
-  startYear: START_YEAR,
-});
+const newProjection = () =>
+  Projection.create({ plan: PLAN_DEFAULTS, startYear: START_YEAR }, usJurisdiction);
+
+const emptyLedger: Ledger = newProjection().ledger;
 
 const partnerJob: Job = {
   id: "p-1-job-1",
@@ -48,7 +46,13 @@ const joining = (month: number, jobs: readonly Job[]): LifeEvent => ({
 
 const ledgerOf = (...events: LifeEvent[]): Ledger => ({ events, nextSequenceNumber: events.length });
 
-const ownersOf = (ledger: Ledger) => jobOwnersOf(interpretLedger(ledger, base), ledger);
+const householdOf = (ledger: Ledger) => {
+  const p = newProjection();
+  p.resetLedger(ledger);
+  return p.run(usJurisdiction).household;
+};
+
+const ownersOf = (ledger: Ledger) => jobOwnersOf(householdOf(ledger), ledger);
 
 describe("jobOwnersOf", () => {
   it("gives the primary person alone on a single-earner plan, writing to the plan", () => {
@@ -91,7 +95,7 @@ describe("jobOwnersOf", () => {
   it("omits a member with no event to write back to, rather than listing them unwritably", () => {
     // A member the ledger cannot account for has no authoring plane, so offering to edit
     // their jobs would be offering an edit that goes nowhere.
-    const household = interpretLedger(ledgerOf(joining(60, [partnerJob])), base);
+    const household = householdOf(ledgerOf(joining(60, [partnerJob])));
     expect(jobOwnersOf(household, emptyLedger).map((o) => o.name)).toEqual([PLAN_DEFAULTS.name]);
   });
 });

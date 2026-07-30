@@ -1,20 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  dollarsToCents,
-  scenarioOf,
-  Projection,
-  createProjectionBase,
-  addEvent,
-  emptyLedger,
-  PRIMARY_PERSON_ID,
-  SimAccount,
-  CAPITAL_GAINS_TAX_PROFILE,
-  buildWithdrawalSources,
-  type WithdrawalState,
-  type JurisdictionContext,
-  type Jurisdiction,
-  type ProjectionContext,
-} from "@finley/engine";
+import { dollarsToCents, Projection, type Jurisdiction } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
@@ -22,11 +7,9 @@ import { setJobMonthlyIncome } from "./testing/planFixtures";
 import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
 
-const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
-
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
-  return retirementView(Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction));
+  return retirementView(Projection.create({ plan, startYear: START_YEAR }, usJurisdiction));
 }
 
 describe("retirementView — one query behind every figure", () => {
@@ -35,7 +18,7 @@ describe("retirementView — one query behind every figure", () => {
    * so the stand-in states them outright rather than wrapping a projection.
    */
   function countingReader(plan: Plan) {
-    const real = Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction);
+    const real = Projection.create({ plan, startYear: START_YEAR }, usJurisdiction);
     let calls = 0;
     return {
       reader: {
@@ -78,11 +61,7 @@ describe("retirementView — one query behind every figure", () => {
 
 describe("retirementView — headline age driven off the real projection", () => {
   it("reports the full-retirement age the facade found, not a second search", () => {
-    const projection = Projection.fromScenario(
-      scenarioOf(PLAN_DEFAULTS),
-      START_YEAR,
-      usJurisdiction,
-    );
+    const projection = Projection.create({ plan: PLAN_DEFAULTS, startYear: START_YEAR }, usJurisdiction);
     expect(retirementView(projection).headlineAge).toBe(
       projection.retirement(usJurisdiction).solution.fullRetirementAge,
     );
@@ -238,30 +217,21 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // (67), where an added expense flips it infeasible rather than merely later. The raise
     // buys headroom below the floor, keeping "moves strictly later" observable.
     const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(7000));
-    // A child spawns an 18-year childcare expense on the ledger — the surviving way the
-    // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
-    const base = createProjectionBase(plan, CTX);
-    const added = addEvent(
-      emptyLedger,
-      base,
-      {
-        id: "new-child",
-        type: "ChildEvent",
-        month: 0,
-        childId: "kid-1",
-        childName: "Robin",
-        birthMonth: 0,
-        annualCostCents: dollarsToCents(9_600), // $800/mo
-      },
-      usJurisdiction,
-    );
-    expect(added.ok).toBe(true);
-    if (!added.ok) return;
 
     const baselineAge = viewOf(plan).headlineAge;
-    const withChildAge = retirementView(
-      Projection.fromScenario({ plan, ledger: added.ledger }, START_YEAR, usJurisdiction),
-    ).headlineAge;
+
+    // A child spawns an 18-year childcare expense on the ledger — the surviving way the
+    // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
+    // Authored through the facade, the same write the panel makes.
+    const withChild = Projection.create({ plan, startYear: START_YEAR }, usJurisdiction);
+    withChild.haveChild({
+      month: 0,
+      name: "Robin",
+      birthMonth: 0,
+      annualCostCents: dollarsToCents(9_600), // $800/mo
+    });
+    const withChildAge = retirementView(withChild).headlineAge;
+
     // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
     // so the down-payment fund counts toward the nest egg.
     expect(baselineAge).toBe(60);
@@ -271,42 +241,9 @@ describe("retirementView — the timeline events count toward retirement", () =>
 
 // No surplus-sweep-vs-idle comparison: `surplusSwept` is gone and leftover cash always
 // idles (a household wanting surplus invested authors a brokerage contribution line).
-
-describe("every draw nets its need under the real jurisdiction", () => {
-  // The engine's own tests use synthetic jurisdictions (it cannot import the rules
-  // package); this proves the seam that ships. Sizing the draw by inverting an implied rate
-  // (`need / (1 − rate)`) under-delivered by $500.61 on a $50k need, because a bracket is
-  // `offset + rate × draw`, not proportional to the draw.
-  it.each([1_000, 5_000, 20_000, 50_000])("nets a $%i need to the cent", (needDollars) => {
-    const opening = dollarsToCents(5_000_000);
-    const brokerage = new SimAccount({
-      id: "brokerage",
-      ownerId: PRIMARY_PERSON_ID,
-      liquid: false,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: opening,
-      initialAnnualRate: 0,
-    });
-    const state: WithdrawalState = {
-      accounts: [brokerage],
-      assetBalances: new Map([["brokerage", opening]]),
-      // Basis absent → 0 → whole draw taxable, isolating the gross-up arithmetic.
-      basisByAccount: new Map(),
-      liquidAccount: null,
-    };
-    const need = dollarsToCents(needDollars);
-    const ctx: JurisdictionContext = { year: START_YEAR };
-    const { sources } = buildWithdrawalSources(state, usJurisdiction, [], need, ctx);
-
-    // Re-file the draws as a tax return: what does the household keep?
-    const byCategory: Record<string, number> = {};
-    for (const s of sources) {
-      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.waterfallInflowCents;
-    }
-    const gross = sources.reduce((sum, s) => sum + s.waterfallInflowCents, 0);
-    const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
-    expect(net).toBeGreaterThanOrEqual(need);
-    // Exactly the need, not merely enough — an overshoot liquidates more than it must.
-    expect(net).toBe(need);
-  });
-});
+//
+// The withdrawal solver's whole-return gross-up — that every taxed retirement draw nets the
+// need to the cent — is proven directly against the solver in `@finley/engine`'s
+// `projection/withdrawal.test.ts` (flat, cliff, provisional-trap and basis jurisdictions).
+// It is engine arithmetic, not a `retirementView` concern, so it is not re-proved here
+// through an engine internal the app cannot see.

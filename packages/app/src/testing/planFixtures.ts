@@ -4,42 +4,49 @@
  * These take a {@link Plan} and return a new one — a shape the app itself does not have, since
  * every authored edit goes through `Projection`, which owns the id mint and the rules. A test
  * needs a way to state "a plan with a $9,000/mo job on it" without narrating the authoring
- * gestures that would produce it, so the plan-level writers live here — outside the app layer,
- * where the guard test can prove nothing in production reaches for them.
+ * gestures that would produce it.
+ *
+ * Each builder makes exactly the edit its name describes by driving the real `Projection` API
+ * over a throwaway handle and reading the plan back — so the fixture is the *authored* result,
+ * and nothing here reaches for an engine internal the app itself could not name. Authoring
+ * validates against `nullJurisdiction`: these adjust standing numbers, never the affordability
+ * gate, so the jurisdiction is immaterial and the tax-free one keeps the setup independent of
+ * the rules package.
  *
  * All of them ADJUST a job the plan already holds. None creates one, because creating means
  * minting, and the counter that mints belongs to `Projection`.
  *
- * A fixture that wants the *authored* result rather than a stated one should use
- * `useTestProjection` (see `./projectionHarness`) and write through the facade.
+ * A fixture that wants to hold the handle open rather than snapshot a plan should use
+ * `useTestProjection` (see `./projectionHarness`) and write through the facade directly.
  */
 
-import {
-  mapJob,
-  withDeferralFraction,
-  withIncomeOverride,
-  withMonthlyIncome,
-  withPayChange,
-  type JobIncomeOverride,
-  type JobPayChange,
-  type Plan,
-} from "@finley/engine";
+import { Projection, nullJurisdiction } from "@finley/engine";
+import type { JobIncomeOverride, JobPayChange, Plan } from "@finley/engine";
+import { START_YEAR } from "../config";
+
+/** The plan after one authored edit, made through the facade over a throwaway handle. */
+function edited(plan: Plan, edit: (projection: Projection) => void): Plan {
+  const projection = Projection.create({ plan, startYear: START_YEAR }, nullJurisdiction);
+  edit(projection);
+  return projection.plan;
+}
+
 /** Attach a permanent pay change to one job. */
 export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withPayChange(j, payChange)) };
+  return edited(plan, (p) => p.addJobPayChange(jobId, payChange));
 }
 
 /** Attach a one-month income override to one job. */
 export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncomeOverride): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withIncomeOverride(j, override)) };
+  return edited(plan, (p) => p.addJobIncomeOverride(jobId, override));
 }
 
 /** Set a job's monthly salary (today's dollars). */
 export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withMonthlyIncome(j, monthlyCents)) };
+  return edited(plan, (p) => p.setJobMonthlyIncome(id, monthlyCents));
 }
 
 /** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */
 export function setJobDeferralFraction(plan: Plan, id: string, fraction: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withDeferralFraction(j, fraction)) };
+  return edited(plan, (p) => p.setJobDeferralFraction(id, fraction));
 }

@@ -1716,7 +1716,12 @@ export type { Household } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
-export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type {
+  ProjectionSeries,
+  ProjectionMonth,
+  ProjectionIncomeSource,
+  IncomeSourceCategory,
+} from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 export type { SpendingItem } from "./projection/spendingItems";
 export type { SimulationReport } from "./projection/report";
@@ -1725,8 +1730,28 @@ export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes
 export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";
-export type { Jurisdiction } from "./jurisdiction";
 export type { Cents } from "./money";
+
+// The jurisdiction interface — the open-core seam the `rules` package implements against. The
+// engine defines the contract and runs standalone under `nullJurisdiction`; a jurisdiction
+// supplies the facts. These are the argument and result shapes its methods speak in, so a rule
+// set cannot be written without naming them. Types only, plus the null implementation the
+// engine ships so `create(init, nullJurisdiction)` needs no rules package.
+export type { Jurisdiction } from "./jurisdiction";
+export type {
+  GovernmentBenefitClaim,
+  GovernmentBenefitContext,
+  DeferralLimitContext,
+  RmdContext,
+  HealthCostContext,
+  WithdrawalTaxBasis,
+  ReturnTaxTreatment,
+} from "./jurisdiction";
+export type { TaxCategory } from "./cashFlowSeries";
+export type { AccountReturnKind } from "./simAccount";
+export type { EarningsRecord } from "./earningsRecord";
+export type { ModelAssumption } from "./projection/assumptions";
+export { nullJurisdiction } from "./jurisdiction";
 
 // Money as the user types it. Neither reads nor writes anything — a form has cents to hand
 // the facade before there is any state for the facade to hold, so a `Projection` method

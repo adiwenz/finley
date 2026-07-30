@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { simulateHousehold, SimCashFlowSeries, SimAccount, dollarsToCents, CAPITAL_GAINS_TAX_PROFILE } from "@finley/engine";
+import { dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "./index";
 
-// Proves rules can consume the engine (app → rules → engine) and that US-2026 implements
-// the interface.
+// Proves rules can consume the engine (app → rules → engine) and that US-2026 implements the
+// interface. The engine-side proof that these seams drive a full simulation to the right
+// numbers lives where the simulator does — `@finley/engine`'s projection tests — and end to
+// end under this jurisdiction in the app's projection tests; here we pin the interface itself.
 describe("usJurisdiction (US-2026)", () => {
   it("implements the jurisdiction interface", () => {
     expect(usJurisdiction.id).toBe("US-2026");
@@ -54,38 +56,5 @@ describe("usJurisdiction (US-2026)", () => {
       { year: 2026 },
     );
     expect(monthly).toBe(Math.round(dollarsToCents(13_170) / 12));
-  });
-
-  it("drives the engine's household simulator end to end", () => {
-    // $100/mo into a non-compounding cash account, no expenses; the placeholder US-2026
-    // jurisdiction takes no tax, so net worth = 100 * 12.
-    const series = simulateHousehold(
-      {
-        horizonMonths: 12,
-        annualInflationRate: 0.02,
-        persons: [{ id: "p1", name: "You" }],
-        accounts: [
-          new SimAccount({
-            id: "cash",
-            ownerId: "p1",
-            liquid: true,
-            taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-            openingBalanceCents: 0,
-            initialAnnualRate: 0,
-          }),
-        ],
-        incomeSeries: [
-          {
-            series: new SimCashFlowSeries(0, dollarsToCents(100), { type: "fixed" }, { baselineUnit: "monthly" }),
-            ownerId: "p1",
-          },
-        ],
-        expenseSeries: [],
-      },
-      usJurisdiction,
-    );
-    // 12 flow-months of $100 land at months[11] (the 12th processed month) now that month 0
-    // is processed rather than a flow-free opening slot.
-    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1200));
   });
 });

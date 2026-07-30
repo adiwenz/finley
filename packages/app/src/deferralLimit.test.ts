@@ -7,10 +7,8 @@
 import { describe, expect, it } from "vitest";
 import {
   PRIMARY_PERSON_ID,
-  createProjectionBase,
+  Projection,
   dollarsToCents,
-  emptyLedger,
-  interpretLedger,
   type Job,
   type Ledger,
   type LifeEvent,
@@ -35,9 +33,13 @@ function budget(opts: {
   return plan;
 }
 
-function crossingFor(plan: Plan, ledger: Ledger = emptyLedger) {
-  const base = createProjectionBase(plan, { jurisdiction: usJurisdiction, startYear: START_YEAR });
-  return firstDeferralLimitCrossing(jobOwnersOf(interpretLedger(ledger, base), ledger), plan.inflationPct);
+function crossingFor(plan: Plan, ledger?: Ledger) {
+  const p = Projection.create({ plan, startYear: START_YEAR }, usJurisdiction);
+  if (ledger) p.resetLedger(ledger);
+  // No ledger seeded → the projection's own (empty) ledger stands in for the roster scan.
+  const effectiveLedger = ledger ?? p.ledger;
+  const household = p.run(usJurisdiction).household;
+  return firstDeferralLimitCrossing(jobOwnersOf(household, effectiveLedger), plan.inflationPct);
 }
 
 const job = (

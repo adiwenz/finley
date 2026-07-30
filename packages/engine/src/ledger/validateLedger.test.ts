@@ -1,12 +1,8 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  validateLedger,
-  type Ledger,
-  type LedgerBaseConfig,
-  type LifeEvent,
-  type ValidateLedgerResult,
-} from "../index";
+import { emptyLedger, type Ledger } from "./ledger";
+import { validateLedger, type ValidateLedgerResult } from "./validateLedger";
+import type { LedgerBaseConfig } from "./ledgerBase";
+import type { LifeEvent } from "./eventTypes";
 import { dollarsToCents } from "../cashFlowSeries";
 import { baseConfig, add } from "../events.testSupport";
 

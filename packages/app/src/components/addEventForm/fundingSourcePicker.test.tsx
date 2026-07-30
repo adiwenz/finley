@@ -10,18 +10,10 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import {
-  emptyLedger,
-  createProjectionBase,
-  fundingLookup,
-  type BuyHomeInput,
-  type Projection,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "../../config";
+import { type BuyHomeInput, type Projection } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { HomePurchaseForm } from "./homePurchaseForm";
-import { runOf } from "../../testing/projectionHarness";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
@@ -30,17 +22,13 @@ function renderForm(month: number) {
   // The form writes through the facade; the stub captures the `buyHome` input the thunk builds.
   const buyHome = vi.fn();
   const onAdd = (write: (p: Projection) => void) => write({ buyHome } as unknown as Projection);
-  const base = createProjectionBase(PLAN_DEFAULTS, {
-    jurisdiction: usJurisdiction,
-    startYear: START_YEAR,
-  });
   render(
     <HomePurchaseForm
       defaultMonth={month}
       horizonMonths={660}
       onAdd={onAdd}
       result={runOf(PLAN_DEFAULTS)}
-      funding={fundingLookup(emptyLedger, base, usJurisdiction)}
+      funding={readerOf(PLAN_DEFAULTS).funding()}
     />,
   );
   return { buyHome };

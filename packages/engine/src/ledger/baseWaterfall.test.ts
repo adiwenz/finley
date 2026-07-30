@@ -5,7 +5,9 @@
  * the waterfall.
  */
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, type LedgerBaseConfig } from "../index";
+import { emptyLedger } from "./ledger";
+import { replayLedger } from "../projection/buildHouseholdInput";
+import type { LedgerBaseConfig } from "./ledgerBase";
 import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
 import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import { nullJurisdiction } from "../jurisdiction";
