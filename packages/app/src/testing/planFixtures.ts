@@ -1,11 +1,11 @@
 /**
  * Plan-shaped builders, for tests only.
  *
- * These take a {@link Plan} and return a new one. That is the shape the app itself no longer
- * has: every authored edit goes through `Projection`, which owns the id mint and the rules.
- * A test still needs a way to state "a plan with a $9,000/mo job on it" without narrating the
- * authoring gestures that would produce it, so the plan-level writers live here — outside the
- * app layer, where the guard test can prove nothing in production reaches for them.
+ * These take a {@link Plan} and return a new one — a shape the app itself does not have, since
+ * every authored edit goes through `Projection`, which owns the id mint and the rules. A test
+ * needs a way to state "a plan with a $9,000/mo job on it" without narrating the authoring
+ * gestures that would produce it, so the plan-level writers live here — outside the app layer,
+ * where the guard test can prove nothing in production reaches for them.
  *
  * A fixture that wants the *authored* result rather than a stated one should use
  * `useTestProjection` (see `./projectionHarness`) and write through the facade.
@@ -24,23 +24,14 @@ import {
 import { buildJobFromDraft, primaryBirthYear, type JobDraft } from "../planPeople";
 
 /**
- * A free `job-N` for a fixture, scanning the list it is being added to.
+ * Append a job to the primary person from a draft, under the `id` the fixture names.
  *
- * Deliberately NOT the app's id authority — there isn't one any more. `Projection` mints every
- * authored job id off one counter across both planes; this only has to produce something that
- * does not collide inside a hand-built plan, and `fromScenario` floors the counter past it
- * when that plan reaches a projection.
+ * The id is a parameter because nothing outside `Projection` issues one: the counter that mints
+ * every authored job id lives there, across both planes. A fixture is stating a job that already
+ * exists, so it says which job — and `fromScenario` floors the counter past whatever it says on
+ * the way into a projection.
  */
-function freeJobId(jobs: readonly Plan["jobs"][number][]): string {
-  const taken = new Set(jobs.map((j) => j.id));
-  let n = jobs.length + 1;
-  while (taken.has(`job-${n}`)) n++;
-  return `job-${n}`;
-}
-
-/** Append a job to the primary person from a draft. */
-export function addJobFromDraft(plan: Plan, draft: JobDraft): Plan {
-  const id = freeJobId(plan.jobs);
+export function addJobFromDraft(plan: Plan, id: string, draft: JobDraft): Plan {
   return { ...plan, jobs: [...plan.jobs, buildJobFromDraft(id, primaryBirthYear(plan), draft)] };
 }
 

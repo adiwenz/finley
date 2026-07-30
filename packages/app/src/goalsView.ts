@@ -88,7 +88,7 @@ export function goalRows(budget: Plan, projection: ProjectionSeries): GoalRow[] 
 
 // Every goal edit — add, patch, reorder, remove — is a `Projection` method, because each one
 // either mints an id or enforces a rule (priority is array position; a goal funding an event
-// cannot be deleted). What stays here is the panel's vocabulary: a form-shaped
+// cannot be deleted). What lives here is the panel's vocabulary: a form-shaped
 // {@link GoalDraft}, and the words a refused deletion is read in.
 
 /**

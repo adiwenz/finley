@@ -222,8 +222,7 @@ export function BaseAdjustmentsPanel({
         sum + o.jobs.reduce((s, j) => s + Math.round(j.salary.startingSalaryCents / 12), 0),
       0,
     );
-    // One transaction: the whole rebalance lands together or not at all, as it did when it
-    // was a single list swap.
+    // One transaction: the whole rebalance lands together or not at all.
     const { rescale, seeds } = tierRebalanceWrites(lines, monthlyIncomeCents, retirementMonth);
     transact((p) => {
       for (const { id, monthlyCents } of rescale) {

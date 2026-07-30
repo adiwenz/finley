@@ -3,9 +3,9 @@
  * ledger), so an edit made in a panel round-trips through the same facade the app writes
  * through — the id mint, the counter floor and the ledger's validation all included.
  *
- * Panels take a `transact`, not a plan setter, so a test can no longer stand in a bare
- * `useState<Plan>`: it would accept writes the facade would refuse and mint ids the facade
- * would not. Using the hook itself keeps the tests honest about both.
+ * Panels take a `transact`, not a plan setter, so a bare `useState<Plan>` cannot stand in for
+ * one: it would accept writes the facade refuses and mint ids the facade would not. Using the
+ * hook itself keeps the tests honest about both.
  */
 
 import { useState } from "react";

@@ -244,16 +244,15 @@ collapses from ~660 to the blocked month.
 Both mutation planes unify onto `Projection` as the single authoring root — see §12 for the
 cheaper alternatives that were rejected.
 
-`projectionRoot.ts` is already most of the way there: it holds `plan` and `ledger` in a single
-`scenario` field (*"so a timeline cannot be silently dropped"*), routes every write through one
-`commit()`, and serializes. What it lacks is coverage — the app mutates the plan through
-`setBudget` in about a dozen distinct ways `Projection` has no method for, so a second, ad-hoc
-authoring root grew up in React state.
+`projectionRoot.ts` holds `plan` and `ledger` in a single `scenario` field (*"so a timeline
+cannot be silently dropped"*), routes every write through one `commit()`, and serializes. Both
+planes are already unified on it: React holds one `ProjectionState`, and every authored edit —
+plan scalar, goal, budget line, or a job on either plane — is a `Projection` method call inside
+a single `useProjection.transact`. The app builds no plan and mints no id.
 
-The case for closing that gap is already written in the app: `commitJobWrites` writes the plan
-*and* revises ledger events, and `useLedger.reviseEvents` returns a boolean specifically so the
-caller can skip the plan write when the ledger refuses — a two-phase commit hand-rolled in a
-React callback (`useLedger.ts:26-31`). The seam belongs in the engine.
+That is the base this section builds on rather than a gap it has to close. What `Projection`
+does not yet have is the *preview* half: every method below either commits or throws, so a
+caller cannot ask what a change would cost before making it.
 
 ```
 previewPlanChange(plan, change)   → structural validation + PlanChangeImpact.  Persists nothing.
@@ -277,7 +276,8 @@ interface PlanChangeImpact {
 ```
 
 Impact is `diff(currentProjection, candidateProjection)`. The current projection is already
-memoized (`main.tsx:76`), so an impact costs **one** extra projection.
+memoized (`main.tsx`, keyed on the state the facade last committed), so an impact costs **one**
+extra projection.
 
 **Measured budget** (sample plan, 540 months):
 

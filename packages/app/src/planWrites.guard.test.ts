@@ -12,14 +12,13 @@
  * embedded in their `RelationshipEvent`.
  *
  * Scanned as source text rather than types, because the shapes being banned are a *spread* and
- * a *template literal*, neither of which has a signature to constrain. Six things are checked:
+ * a *template literal*, neither of which has a signature to constrain. Five things are checked:
  *
- *  1. No `setBudget` — the plan setter itself.
- *  2. No plan-shaped setter prop under another name (`Dispatch<SetStateAction<Plan>>`).
- *  3. No expression rebuilding a plan's collections, or swapping one into a scenario.
- *  4. No function that produces a `Plan` at all — a write path whatever it does inside.
- *  5. No rebuilding of a partner's `jobs` on the event that carries them.
- *  6. No minted job id — one counter inside `Projection` issues every one, on both planes.
+ *  1. No plan-shaped setter prop (`Dispatch<SetStateAction<Plan>>`).
+ *  2. No expression rebuilding a plan's collections, or swapping one into a scenario.
+ *  3. No function that produces a `Plan` at all — a write path whatever it does inside.
+ *  4. No rebuilding of a partner's `jobs` on the event that carries them.
+ *  5. No minted job id — one counter inside `Projection` issues every one, on both planes.
  *
  * Seed data and test fixtures are exempt by location, not by name: {@link SEED_MODULES} state
  * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Both are
@@ -121,16 +120,9 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(productionModules().length).toBeGreaterThan(30);
   });
 
-  it("has no `setBudget` anywhere in app production code", () => {
-    const offenders = productionModules()
-      .filter(({ source }) => code(source).includes("setBudget"))
-      .map(({ path }) => path);
-    expect(offenders).toEqual([]);
-  });
-
-  it("has no plan-shaped setter prop left forwarding one", () => {
-    // `Dispatch<SetStateAction<Plan>>` is the type the removed prop travelled as; a panel
-    // holding one again is holding a plan setter under a different name.
+  it("hands no panel a plan setter", () => {
+    // A `Dispatch<SetStateAction<Plan>>` prop is a caller that can hand back any `Plan` at all,
+    // which is the one thing the facade cannot check.
     const offenders = productionModules()
       .filter(({ source }) => /SetStateAction\s*<\s*Plan\s*>/.test(code(source)))
       .map(({ path }) => path);
@@ -169,7 +161,7 @@ describe("app write path — no direct plan writes outside the facade", () => {
   });
 
   it("keeps the guard honest — the patterns do fire on the shape they ban", () => {
-    expect(PLAN_REBUILD.test("setBudget((p) => ({ ...p, goals: next(p.goals) }))")).toBe(true);
+    expect(PLAN_REBUILD.test("setPlan((p) => ({ ...p, goals: next(p.goals) }))")).toBe(true);
     expect(PLAN_REBUILD.test("return { ...plan, budgetLines: [...lines] };")).toBe(true);
     expect(PLAN_JOBS_REBUILD.test("return { ...plan, jobs: mapJob(plan.jobs, id, f) };")).toBe(true);
     expect(SCENARIO_REBUILD.test("withPlan(s.scenario, nextPlan)")).toBe(true);

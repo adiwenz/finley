@@ -509,10 +509,9 @@ export class Projection {
   /**
    * Returns the minted `"job-N"` id.
    *
-   * Every {@link JobInput} field carries through, not just the ones a job is usually authored
-   * from: a job arriving here may be an *existing* one moving between household members, and
-   * it keeps its one-month overrides, permanent pay changes and display name across the move.
-   * Naming the fields to copy is how those silently vanished.
+   * Every {@link JobInput} field carries through: a job arriving here may be an *existing* one
+   * moving between household members, and it keeps its one-month overrides, permanent pay
+   * changes and display name across the move.
    *
    * For a partner, {@link addPartnerJob}: their jobs are not plan data at all.
    */
@@ -575,10 +574,9 @@ export class Projection {
   // first plane; the four below write the second, through the same replay-validated path
   // {@link reviseTransaction} uses.
   //
-  // They exist so that no caller ever has to rebuild `event.person.jobs` itself. That rebuild
-  // is the whole authoring surface of a partner's income, and doing it outside here means
-  // minting ids off a counter this class does not control — which is how a partner's `job-3`
-  // and a home purchase's `job-3` come to be two different things.
+  // They exist so that no caller ever has to rebuild `event.person.jobs` itself: that array is
+  // the whole authoring surface of a partner's income, and rebuilding it outside this class
+  // means minting ids off a counter this class does not control.
 
   /** The `RelationshipEvent` a partner joined on, or a refusal naming the person. */
   private relationshipFor(personId: PersonId): RelationshipEvent {
@@ -654,10 +652,9 @@ export class Projection {
    * Add a job to a partner — the ledger-plane counterpart of {@link addJob}, returning the
    * minted `"job-N"` id.
    *
-   * The id comes off the SAME counter every other minted id does. A partner's jobs used to be
-   * numbered in a namespace of their own (`p-1-job-1`), which read as tidy and was not: the
-   * counter's floor does not recognize that shape, so nothing stopped a later mint from
-   * issuing an id an imported partner already held.
+   * The id comes off the SAME counter every other minted id does, in the same `job-N` shape:
+   * one namespace across both planes, which is what lets {@link seqFloor} recognize a partner's
+   * job on the way back in and step the counter past it.
    *
    * A supplied `id` is kept verbatim (that is how a job keeps its identity moving between
    * members) and refused if the household already holds it.

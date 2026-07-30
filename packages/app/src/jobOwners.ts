@@ -11,12 +11,10 @@
 import type { Household, Ledger, Job, PersonId, RelationshipEvent } from "@finley/engine";
 
 /**
- * Which plane a member's jobs are authored on — the name of a plane, not a handle to it.
- *
- * It used to carry the `RelationshipEvent` itself, which was both stale by construction (a
- * snapshot of the ledger at the last render) and an invitation to rebuild `person.jobs` from
- * it. `Projection` finds the event by person id at write time; a caller only needs to know
- * which of its two families of job methods to call.
+ * Which plane a member's jobs are authored on — the name of a plane, not a handle to one. A
+ * caller only needs to know which of `Projection`'s two families of job methods to call;
+ * `Projection` finds the `RelationshipEvent` by person id at write time, off the state it is
+ * committing against rather than a snapshot from the last render.
  */
 export type JobWriteTarget = "plan" | "event";
 

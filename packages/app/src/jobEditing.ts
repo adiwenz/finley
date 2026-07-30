@@ -17,10 +17,10 @@ import { applyJobDraft, type JobDraft } from "./planPeople";
 import type { JobOwner } from "./jobOwners";
 
 /**
- * One change to one member's jobs, named as an intent rather than a list transform. The
- * facade is the write authority on the plan plane and takes intents (`addJob`, `replaceJob`,
- * `removeJob`), so a `(jobs) => jobs` callback had nowhere to be applied that wasn't the app
- * rebuilding `Plan.jobs` itself. `jobWrites.ts` routes each of these to its owner's plane.
+ * One change to one member's jobs, named as an intent rather than a list transform: the write
+ * authority is `Projection`, which takes intents (`addJob` / `addPartnerJob`, `replaceJob` /
+ * `replacePartnerJob`, `removeJob` / `removePartnerJob`) and never a list.
+ * `jobWrites.ts` routes each of these to its owner's plane.
  *
  * `add` covers both a brand-new job and an existing one arriving from another member: the
  * difference is whether the {@link JobInput} carries an `id`, which is exactly the question

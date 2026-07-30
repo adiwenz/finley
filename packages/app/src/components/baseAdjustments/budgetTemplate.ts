@@ -156,8 +156,7 @@ export function redistributeToTiers(
  * Derived by diffing {@link redistributeToTiers}' own output rather than recomputing the
  * split, so the 50/30/20 rule has one implementation and the writes cannot drift from it. The
  * panel needs this shape because the plan is authored through `Projection`, which takes one
- * line at a time — handing it a whole rebuilt `budgetLines` array is exactly the direct plan
- * write the facade exists to replace.
+ * line at a time and no whole `budgetLines` array.
  */
 export interface TierRebalance {
   /** Existing literal lines whose amount moves, by id. Unchanged lines are omitted. */

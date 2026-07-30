@@ -11,7 +11,7 @@ import { addJobFromDraft } from "./testing/planFixtures";
 
 const draft = (over: Partial<JobDraft> = {}): JobDraft => ({ ...blankJobDraft(PLAN_DEFAULTS), ...over });
 const lastJob = (plan = PLAN_DEFAULTS, d: JobDraft = draft()) =>
-  primaryJobs(addJobFromDraft(plan, d)).at(-1)!;
+  primaryJobs(addJobFromDraft(plan, "job-added", d)).at(-1)!;
 
 describe("planPeople — a job's optional name on the draft round-trip", () => {
   it("stores a typed name (trimmed) on the standing job", () => {

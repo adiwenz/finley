@@ -626,7 +626,7 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
   });
 
   it("defaults to the first job with several jobs, unless another is picked", () => {
-    const twoJobs = addJobFromDraft(PLAN_DEFAULTS, blankJobDraft(PLAN_DEFAULTS));
+    const twoJobs = addJobFromDraft(PLAN_DEFAULTS, "job-2", blankJobDraft(PLAN_DEFAULTS));
     renderPanel(twoJobs);
     selectMonth(6);
 

@@ -50,10 +50,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - **`useProjection` owns the discipline, and `transact` is the whole of it.** One write primitive:
   it runs any facade write — plan or ledger, one call or a batch — off `stateRef.current`, commits
   the resulting `ProjectionState` whole, and turns a refused write (the facade throws) into the
-  `conflict` message, cleared only on a write that succeeds. There is deliberately no plan-shaped
-  setter beside it: a `setPlan` would take a `Plan` the hook could only accept on faith, while the
-  id mint, the goal-funding guard and the affordability gate all live on the far side of the
-  facade. A write spanning both planes is therefore one transaction, not two coordinated ones.
+  `conflict` message, cleared only on a write that succeeds. The hook exposes no plan-shaped
+  setter: one would take a `Plan` the hook could only accept on faith, while the id mint, the
+  goal-funding guard and the affordability gate all live on the far side of the facade. A write
+  spanning both planes is therefore one transaction, not two coordinated ones.
 - **The counter is floored on the way in.** Every facade write builds through
   `fromState`, which floors the counter past every id the scenario already holds — including
   primary jobs the app still mints via `nextJobIdFor`. So the engine steps over an app-minted
@@ -84,9 +84,9 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   read as tidy and was not: `seqFloor` does not recognize that shape, so nothing stopped a later
   mint from issuing an id an imported partner already held. Partner jobs now mint `job-N` off the
   shared counter, and `Projection` refuses a supplied id already in use on either plane.
-- **`JobWriteTarget` names a plane, it no longer carries the event.** Holding the
-  `RelationshipEvent` handed the app a snapshot that was stale by construction and an invitation
-  to rebuild `person.jobs` from it; `Projection` finds the event by person id at write time.
+- **`JobWriteTarget` names a plane and carries no handle to one.** A caller only needs to know
+  which family of job methods to call; `Projection` finds the `RelationshipEvent` by person id at
+  write time, off the state it is committing against rather than a render-old snapshot.
 
 ## Changes Made
 
@@ -148,9 +148,10 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
   methods inside it. `applyJobWrite` and `nextJobIdFor` are gone — the app has no job-list
   interpreter and no id authority left.
 - `jobOwners.ts`: `JobWriteTarget` is `"plan" | "event"`.
-- `planPeople.ts`: the plan-level writers (`addJobFromDraft`, `setJobMonthlyIncome`, …) moved to
-  `testing/planFixtures.ts` — they were fixture builders, and leaving them in the app layer would
-  have left a second write path the guard could not rule out.
+- `planPeople.ts`: the plan-level writers (`addJobFromDraft`, `setJobMonthlyIncome`, …) live in
+  `testing/planFixtures.ts` — they are fixture builders, and in the app layer they would be a
+  second write path the guard could not rule out. `addJobFromDraft` takes the id it should use,
+  since nothing outside `Projection` issues one.
 
 **Tests** updated to the new seams: `mainState`, `subForms`, `relationshipForm`,
 `fundingSourcePicker`, `homePurchaseForm`, `goalsView`, `goalsPanel`, `goalsDelete`,
@@ -162,6 +163,6 @@ were removed (that behavior is now `Projection.addGoal`, covered in the engine).
 - `npm run check:purity` — engine purity holds.
 - `npx vitest run` — **1104 passed | 45 todo (88 files)**.
 - `packages/app/src/planWrites.guard.test.ts` scans app production source and fails on a
-  `setBudget`, a `Dispatch<SetStateAction<Plan>>` prop, a plan-collection rebuild, any function
-  returning a `Plan`, a rebuild of a partner's `jobs` on the event carrying them, or a minted job
-  id. Seed modules and `src/testing/` are exempt by location.
+  `Dispatch<SetStateAction<Plan>>` prop, a plan-collection rebuild, any function returning a
+  `Plan`, a rebuild of a partner's `jobs` on the event carrying them, or a minted job id. Seed
+  modules and `src/testing/` are exempt by location.
