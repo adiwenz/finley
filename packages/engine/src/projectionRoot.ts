@@ -53,6 +53,7 @@ import type {
   BudgetLine,
   BudgetLineOverride,
   BudgetLinePatch,
+  BudgetTarget,
 } from "./budgetLine";
 import { withLineOverride, withLinePatch, withoutLine } from "./budgetLine";
 import { compileExpenseBudgetLines } from "./compileBudget";
@@ -85,8 +86,13 @@ import {
   buildPlanGoals,
   createProjectionBase,
   firstInsolventMonth,
+  goalFundAccountId,
   planAccountDescriptors,
+  PRIMARY_PERSON_ID,
 } from "./projectionBase";
+import { RETIREMENT_ID } from "./ids";
+import { resolveRefs, WELL_KNOWN_REF_IDS } from "./scenarioRefs";
+import type { FromInputResult, JobEntry, Ref, ScenarioInput } from "./scenarioInput";
 import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
 import { buildSnapshot, membersAt } from "./projection/snapshot";
 import type { HouseholdSnapshot } from "./projection/snapshot";
@@ -1578,6 +1584,186 @@ export class Projection {
    */
   static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {
     return new Projection(withNormalizedCounters(state), jurisdiction);
+  }
+
+  /**
+   * Build a projection from a declarative, id-free {@link ScenarioInput}: every id is minted
+   * through this handle's own counter, so no caller ever names one. The authoring counterpart to
+   * {@link fromScenario} — that IMPORTS a scenario whose ids are already present and floors the
+   * counter past them; this AUTHORS one, advancing the counter as it mints.
+   *
+   * Two phases, mirroring {@link resolveRefs}'s resolution model. First the plan plane
+   * (`jobs`, `goals`, `budgetLines`) — no month, applied as one block through the standing-edit
+   * methods; then `events` in the month-sorted `order` {@link resolveRefs} returns, each applied
+   * through the matching authoring method so its write-time gate (an unaffordable down payment,
+   * separating before marrying) fires exactly as it does for a live edit. No {@link validateLedger}
+   * gate here: this path validates per event as it mints, not the whole ledger after the fact.
+   *
+   * Refs are translated to ids through a registry filled as entries apply, seeded so a well-known
+   * ref ({@link WELL_KNOWN_REF_IDS}) resolves to itself. `resolveRefs` has already proved every
+   * ref resolves at the point it is used, so a lookup miss here is an engine bug, not a bad
+   * document — surfaced as a thrown internal error rather than a refusal.
+   *
+   * All-or-nothing: the handle is local until the last write lands, so a refused document — a bad
+   * ref graph, or any refusal a method raises — returns `{ ok: false }` naming the offending entry
+   * and yields no partial projection.
+   */
+  static fromInput(input: ScenarioInput, jurisdiction: Jurisdiction): FromInputResult {
+    const resolved = resolveRefs(input);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+
+    // Everything but the entry planes and the frozen `startYear` IS the plan's scalars; the three
+    // id-bearing collections start empty and are filled by the minting methods below.
+    const { startYear, jobs, goals, budgetLines, events: _events, ...scalars } = input;
+    const projection = Projection.create(
+      { plan: { ...scalars, jobs: [], goals: [], budgetLines: [] }, startYear },
+      jurisdiction,
+    );
+
+    const registry = new Map<Ref, string>();
+    for (const id of WELL_KNOWN_REF_IDS) registry.set(id, id);
+    const idFor = (ref: Ref): string => {
+      const id = registry.get(ref);
+      if (id === undefined) throw new Error(`fromInput: ref "${ref}" was accepted but never bound`);
+      return id;
+    };
+    const bind = (ref: Ref | undefined, id: string): void => {
+      if (ref !== undefined) registry.set(ref, id);
+    };
+
+    // An id-free job to a {@link JobInput}: the deferral's account ref becomes an account id
+    // (absent, it funds the standing 401(k)). `ownerRef` is resolved by the caller — a plan job
+    // names its owner, a partner's job takes the owner `marry` mints — so it is dropped here.
+    const toJobInput = (job: JobEntry): JobInput => {
+      const { ref: _ref, ownerRef: _ownerRef, deferral, ...rest } = job;
+      if (deferral === undefined) return rest;
+      const { fundAccountRef, ...deferralRest } = deferral;
+      return { ...rest, deferral: { ...deferralRest, fundAccountId: idFor(fundAccountRef ?? RETIREMENT_ID) } };
+    };
+
+    const refusal = (reason: string): FromInputResult => ({ ok: false, error: { reason } });
+    const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+    try {
+      // Goals before jobs and budget lines: both can name a goal's fund account, and a goal
+      // points at nothing, so this order binds every account ref before it is read. The plan
+      // plane is mutually visible in `resolveRefs`, but application still needs a valid topological
+      // order, and goals-first is one.
+      for (const goal of goals ?? []) {
+        const { ref, ...rest } = goal;
+        bind(ref, goalFundAccountId({ ...rest, id: projection.addGoal(rest) }));
+      }
+      for (const job of jobs ?? []) {
+        bind(job.ref, projection.addJob(idFor(job.ownerRef ?? PRIMARY_PERSON_ID), toJobInput(job)));
+      }
+      for (const line of budgetLines ?? []) {
+        const { ref, target, ...rest } = line;
+        const resolvedTarget: BudgetTarget =
+          target.kind === "account"
+            ? { kind: "account", accountId: idFor(target.accountRef), taxTreatment: target.taxTreatment }
+            : { kind: "expense" };
+        bind(ref, projection.addBudgetLine({ ...rest, target: resolvedTarget }));
+      }
+    } catch (e) {
+      return refusal(messageOf(e));
+    }
+
+    for (const { entry, index } of resolved.order) {
+      try {
+        switch (entry.type) {
+          case "marry":
+            bind(
+              entry.ref,
+              projection.marry({
+                month: entry.month,
+                name: entry.name,
+                birthYear: entry.birthYear,
+                ...(entry.retirementTargetAge !== undefined ? { retirementTargetAge: entry.retirementTargetAge } : {}),
+                ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+                ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
+              }),
+            );
+            break;
+          case "haveChild":
+            bind(
+              entry.ref,
+              projection.haveChild({
+                month: entry.month,
+                name: entry.name,
+                annualCostCents: entry.annualCostCents,
+                ...(entry.birthMonth !== undefined ? { birthMonth: entry.birthMonth } : {}),
+              }),
+            );
+            break;
+          case "takeLoan": {
+            const common = {
+              month: entry.month,
+              ownerId: idFor(entry.ownerRef),
+              openingBalanceCents: entry.openingBalanceCents,
+              apr: entry.apr,
+            };
+            bind(
+              entry.ref,
+              projection.takeLoan(
+                entry.kind === "creditCard"
+                  ? { ...common, kind: "creditCard", creditLimitCents: entry.creditLimitCents }
+                  : { ...common, kind: entry.kind, termMonths: entry.termMonths },
+              ),
+            );
+            break;
+          }
+          case "buyHome":
+            bind(
+              entry.ref,
+              projection.buyHome({
+                month: entry.month,
+                ownerId: idFor(entry.ownerRef),
+                purchasePriceCents: entry.purchasePriceCents,
+                downPaymentCents: entry.downPaymentCents,
+                downPaymentSourceIds: entry.downPaymentSourceRefs.map(idFor),
+                mortgageApr: entry.mortgageApr,
+                mortgageTermMonths: entry.mortgageTermMonths,
+                ...(entry.appreciationMode !== undefined ? { appreciationMode: entry.appreciationMode } : {}),
+              }),
+            );
+            break;
+          case "separate":
+            bind(
+              entry.ref,
+              projection.separate({
+                month: entry.month,
+                partnerPersonId: idFor(entry.partnerRef),
+                ...(entry.alimonyMonthlyCents !== undefined ? { alimonyMonthlyCents: entry.alimonyMonthlyCents } : {}),
+                ...(entry.alimonyDurationMonths !== undefined ? { alimonyDurationMonths: entry.alimonyDurationMonths } : {}),
+                ...(entry.childSupportMonthlyCents !== undefined ? { childSupportMonthlyCents: entry.childSupportMonthlyCents } : {}),
+              }),
+            );
+            break;
+          case "payOffDebt":
+            bind(
+              entry.ref,
+              projection.payOffDebt({
+                month: entry.month,
+                liabilityId: idFor(entry.liabilityRef),
+                accountId: idFor(entry.accountRef),
+                amountCents: entry.amountCents,
+              }),
+            );
+            break;
+          default: {
+            const exhaustive: never = entry;
+            return exhaustive;
+          }
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          error: { reason: messageOf(e), eventIndex: index, ...(entry.ref !== undefined ? { ref: entry.ref } : {}) },
+        };
+      }
+    }
+
+    return { ok: true, projection };
   }
 }
 
