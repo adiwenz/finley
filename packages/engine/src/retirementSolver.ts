@@ -16,21 +16,51 @@ import { simulateHousehold } from "./projection/simulate";
 import { withPlan } from "./scenario";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
-import type { ProjectionSeries } from "./projection/simulate";
+import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
 import type { Job } from "./job";
 import type { Plan } from "./plan";
+import type { Household } from "./ledger/household";
+
+/**
+ * Every intermediate one pipeline pass produces, kept rather than discarded. The `run()`
+ * facade needs the {@link Household} (snapshot roster) and the {@link HouseholdSimInput} (to
+ * summarize the report) beside the series, and it must get all three from ONE simulate pass —
+ * the app deliberately shares a single input between graph and debug report.
+ *
+ * Engine-internal: exported for `Projection.run`, a sibling module, but deliberately absent
+ * from the package barrel. {@link HouseholdSimInput} is a simulator artifact, and the facade's
+ * whole point is that a caller outside the engine never has to hold one — `run()` consumes the
+ * sim input here and hands out the finished `SimulationReport` instead. Publishing this
+ * type would make that artifact part of the public contract and block ever withdrawing it.
+ */
+export interface ScenarioProjection {
+  readonly household: Household;
+  readonly simInput: HouseholdSimInput;
+  readonly series: ProjectionSeries;
+}
+
+/**
+ * Run the full projection for a {@link Scenario} — its plan's standing numbers with the
+ * scenario's timeline events replayed on top — keeping each stage's output. The interpreted
+ * household and the sim input are computed here on the way to the series regardless, so
+ * returning them rather than dropping them costs nothing and spares the caller a second run.
+ */
+export function projectScenarioParts(scenario: Scenario, ctx: ProjectionContext): ScenarioProjection {
+  const base = createProjectionBase(scenario.plan, ctx);
+  const household = interpretLedger(scenario.ledger, base);
+  const simInput = buildHouseholdSimInput(household, base);
+  const series = simulateHousehold(simInput, ctx.jurisdiction);
+  return { household, simInput, series };
+}
 
 /**
  * Run the full projection for a {@link Scenario} — its plan's standing numbers with the
  * scenario's timeline events replayed on top.
  */
 export function projectScenario(scenario: Scenario, ctx: ProjectionContext): ProjectionSeries {
-  const base = createProjectionBase(scenario.plan, ctx);
-  const household = interpretLedger(scenario.ledger, base);
-  const simInput = buildHouseholdSimInput(household, base);
-  return simulateHousehold(simInput, ctx.jurisdiction);
+  return projectScenarioParts(scenario, ctx).series;
 }
 
 /**

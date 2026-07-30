@@ -128,6 +128,10 @@ export * from "./goalFunding";
 // The per-mode retirement searches stay module-internal; `solveRetirement` returns all three
 // ages at once. `projectScenario` + `planSurvives` are public because the app's acceptance
 // tests use them as an independent survival oracle (panel age == first surviving age).
+// `projectScenarioParts` is deliberately NOT public: its only caller is `Projection.run`, a
+// sibling inside the engine, and its result carries `HouseholdSimInput` — a low-level simulator
+// artifact the facade migration exists to stop publishing. Exporting it would pin that type to
+// the public surface through a type the app has no reason to name.
 export {
   solveRetirement,
   evaluateAtAge,
