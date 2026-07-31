@@ -151,24 +151,31 @@ describe("default simulations", () => {
     expect(after.months[120]?.netWorthRealCents).not.toBe(before.months[120]?.netWorthRealCents);
   });
 
-  it("default: builds real wealth across the working years and stays solvent", () => {
+  it("default: FICA consumes the savings surplus, so real net worth erodes across the working years yet stays solvent to retirement", () => {
     const series = project(presetById("default"));
     const opening = realNetWorthAt(series, 0)!;
     const midCareer = realNetWorthAt(series, 120)!;
-    expect(midCareer).toBeGreaterThan(opening * 3);
-    expect(firstInsolventMonthOf(presetById("default"))).toBeGreaterThan(120);
+    // Withholding the 7.65% employee FICA share removes the default plan's entire savings
+    // surplus (its whole margin was the payroll tax it used to dodge), so real net worth
+    // drifts DOWN rather than compounding up — the plan holds together on wages but no
+    // longer builds wealth. Remove FICA and this flips back to multiplying, so the bound
+    // guards the fix.
+    expect(midCareer).toBeGreaterThan(0);
+    expect(midCareer).toBeLessThan(opening);
+    // Still solvent through the working years, only running dry around retirement.
+    expect(firstInsolventMonthOf(presetById("default"))).toBeGreaterThan(240);
   });
 
-  it("paycheck-to-paycheck: survives working years but barely accumulates and can't fund retirement", () => {
-    const paycheck = project(presetById("paycheck-to-paycheck"));
-    const wealthy = project(presetById("default"));
-    const paycheckMid = realNetWorthAt(paycheck, 120)!;
-    const wealthyMid = realNetWorthAt(wealthy, 120)!;
-    // Afloat while earning — no debt spiral — but only a sliver of the default's wealth.
-    expect(paycheckMid).toBeGreaterThan(0);
-    expect(paycheckMid).toBeLessThan(wealthyMid * 0.25);
-    // No emergency cushion means retirement is unfundable: insolvency lands around it.
-    expect(firstInsolventMonthOf(presetById("paycheck-to-paycheck"))).not.toBeNull();
+  it("paycheck-to-paycheck: FICA tips it from barely-surviving into insolvency during the working years", () => {
+    const paycheckInsolvent = firstInsolventMonthOf(presetById("paycheck-to-paycheck"));
+    const defaultInsolvent = firstInsolventMonthOf(presetById("default"));
+    // Afloat at the very start — no debt spiral yet.
+    expect(realNetWorthAt(project(presetById("paycheck-to-paycheck")), 0)!).toBeGreaterThan(0);
+    // With no cushion to absorb the 7.65% it never withheld before, the plan goes under
+    // mid-career — well inside the working years, and far sooner than the default plan.
+    expect(paycheckInsolvent).not.toBeNull();
+    expect(paycheckInsolvent!).toBeLessThan(120);
+    expect(paycheckInsolvent!).toBeLessThan(defaultInsolvent!);
   });
 
   it("living-on-credit: overspends from the start, accruing compounding credit-card debt", () => {

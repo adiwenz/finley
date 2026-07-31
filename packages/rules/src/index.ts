@@ -15,6 +15,7 @@ import {
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
+import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -84,6 +85,11 @@ export const usJurisdiction: Jurisdiction = {
   computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
   computeTaxByCategoryCents: (taxableByCategory, ctx) =>
     computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
+  // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
+  // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
+  // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.
+  computePayrollTaxCents: (earnedByCategory, ctx) =>
+    payrollTaxCents(earnedByCategory.wages ?? 0, ctx.year),
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
@@ -94,5 +100,5 @@ export const usJurisdiction: Jurisdiction = {
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
   healthCostBenchmarkMonthlyCents,
-  modelAssumptions: [...FEDERAL_TAX_ASSUMPTIONS, ...RMD_ASSUMPTIONS],
+  modelAssumptions: [...FEDERAL_TAX_ASSUMPTIONS, ...RMD_ASSUMPTIONS, ...PAYROLL_TAX_ASSUMPTIONS],
 };

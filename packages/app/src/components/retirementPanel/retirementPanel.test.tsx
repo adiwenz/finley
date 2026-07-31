@@ -44,14 +44,14 @@ describe("RetirementPanel", () => {
   });
 
   it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction", () => {
-    // The default plan pinned at 65 is infeasible (floor 72 — the home goal is a drawable
+    // The default plan pinned at 65 is infeasible (floor 78 — the home goal is a drawable
     // `retain` reserve) yet net worth stays positive throughout: the shape that printed the
-    // self-contradicting "100% of the way there". The floor moved out a year when health
-    // stopped stepping down at 65 — the $700 line now runs for life.
+    // self-contradicting "100% of the way there". Withholding FICA on wages removes the
+    // plan's slim savings surplus, so the feasible floor moves several years out.
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");
     expect(html).toContain("of the way there");
-    expect(html).toContain("the nearest feasible age is 72");
+    expect(html).toContain("the nearest feasible age is 78");
     expect(html).not.toContain("100% of the way there");
   });
 

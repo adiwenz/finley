@@ -250,6 +250,41 @@ describe("buildSimulationReport", () => {
     expect(roundTripped).toEqual(report);
   });
 
+  it("withholds payroll tax on wages and accumulates it across the year so a wage cap binds", () => {
+    // A synthetic FICA: 10% of year-to-date wages, capped at the first $12,000. Wages are
+    // $3,000/mo, so the cap is reached after month 3 and no more is charged from month 4 on.
+    const mkWages = (cents: number) =>
+      new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
+    const cappedFica = {
+      ...nullJurisdiction,
+      computePayrollTaxCents: (byCategory: Record<string, number>) =>
+        Math.round(Math.min(byCategory.wages ?? 0, dollarsToCents(12000)) * 0.1),
+    };
+    const report = buildSimulationReport(
+      baseInput({ incomeSeries: [{ series: mkWages(dollarsToCents(3000)), ownerId: "p1" }] }),
+      cappedFica as typeof nullJurisdiction,
+    );
+    // Months 0..3: 10% of each $3,000 slice under the cap = $300. Month 4 onward: the
+    // year-to-date total is already at the $12,000 cap, so the difference charged is 0 —
+    // proving the seam is fed CUMULATIVE, not annualized-monthly, earnings.
+    expect(report.months[0].payrollTaxCents).toBe(dollarsToCents(300));
+    expect(report.months[3].payrollTaxCents).toBe(dollarsToCents(300));
+    expect(report.months[4].payrollTaxCents).toBe(0);
+    expect(report.months[11].payrollTaxCents).toBe(0);
+  });
+
+  it("charges no payroll tax on non-wage income (e.g. a retirement-account withdrawal, ordinaryIncome)", () => {
+    // baseInput's income series carries no taxCategory → defaults to ordinaryIncome, the
+    // withdrawal category. A wages-only FICA seam must leave it untouched.
+    const wagesOnlyFica = {
+      ...nullJurisdiction,
+      computePayrollTaxCents: (byCategory: Record<string, number>) =>
+        Math.round((byCategory.wages ?? 0) * 0.0765),
+    };
+    const report = buildSimulationReport(baseInput(), wagesOnlyFica as typeof nullJurisdiction);
+    for (const m of report.months) expect(m.payrollTaxCents).toBe(0);
+  });
+
   it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {
     // A jurisdiction's own simplifications merge onto the report after the engine's neutral
     // ones, so a US tax caveat rides `rules`, never the neutral engine.

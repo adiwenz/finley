@@ -138,6 +138,12 @@ export interface ReportMonth {
   readonly governmentRetirementBenefitCents: Cents;
   /** Tax charged through the jurisdiction seam, summed over persons. */
   readonly taxCents: Cents;
+  /**
+   * Employee payroll tax (US: FICA) withheld this month, summed over persons — a separate
+   * line from {@link taxCents} (earned income only, on pre-deferral gross). 0 at month 0 and
+   * whenever the jurisdiction charges none.
+   */
+  readonly payrollTaxCents: Cents;
   /** `{}` when no tax, else Σ === `taxCents`; absent only for the flow-free month 0. */
   readonly taxByCategoryCents?: Readonly<Record<string, Cents>>;
   /**
@@ -317,6 +323,7 @@ export function summarizeSimulation(
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       taxCents: flows?.taxCents ?? 0,
+      payrollTaxCents: flows?.payrollTaxCents ?? 0,
       taxByCategoryCents: flows?.taxByCategoryCents,
       taxBySourceCents: flows?.taxBySourceCents,
       deferralBySourceCents: flows?.deferralBySourceCents,

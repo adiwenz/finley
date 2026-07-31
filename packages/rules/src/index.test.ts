@@ -10,6 +10,7 @@ import type {
 } from "@finley/engine";
 import { usJurisdiction } from "./index";
 import { contributionLimits } from "./contributionLimits";
+import { payrollTaxCents } from "./payrollTax";
 
 // Proves rules can consume the engine (app → rules → engine) and that US-2026 implements
 // the interface. Each seam is called directly on the jurisdiction object and its return
@@ -146,5 +147,29 @@ describe("usJurisdiction (US-2026)", () => {
     expect(usJurisdiction.retirementDeferralLimitCents!(ctx)).toBe(
       contributionLimits(2026).elective401kCents,
     );
+  });
+
+  it("charges employee FICA on wages through the payroll seam, and nothing on non-wage income", () => {
+    // $60,000 of wages (the default plan's income) → the whole-year employee FICA. The
+    // tables live in payrollTax.ts; the seam just routes `wages` to them per year.
+    const annual = usJurisdiction.computePayrollTaxCents!(
+      { wages: dollarsToCents(60_000) },
+      { year: 2026 },
+    );
+    expect(annual).toBe(payrollTaxCents(dollarsToCents(60_000), 2026));
+    // 7.65% employee share, well under the OASDI wage cap at $60k.
+    expect(annual).toBe(dollarsToCents(60_000 * 0.0765));
+
+    // ordinaryIncome is a 401(k)/RMD withdrawal category, NOT earned income — no FICA, so
+    // the seam never levies payroll tax on retirement-account draws.
+    expect(
+      usJurisdiction.computePayrollTaxCents!({ ordinaryIncome: dollarsToCents(60_000) }, { year: 2026 }),
+    ).toBe(0);
+  });
+
+  it("discloses the payroll-tax simplifications through modelAssumptions", () => {
+    const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
+    expect(ids).toContain("oasdiWageBaseWageIndexed");
+    expect(ids).toContain("additionalMedicareThresholdUnindexed");
   });
 });

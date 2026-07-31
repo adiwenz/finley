@@ -127,6 +127,23 @@ export interface Jurisdiction {
   returnTaxTreatment?(returnKind: AccountReturnKind, ctx: JurisdictionContext): ReturnTaxTreatment;
 
   /**
+   * Employee payroll tax (US: FICA) on a person's CUMULATIVE year-to-date EARNED income by
+   * category, distinct from {@link computeTaxCents}: its base is the FULL pre-deferral gross
+   * (a 401(k) deferral cuts income tax, never payroll tax) and its category set is earned
+   * income only, so a retirement-account withdrawal booked `ordinaryIncome` bears none.
+   *
+   * The engine feeds year-to-date totals and charges the DIFFERENCE month to month, so a
+   * capped component (OASDI's wage base) binds on cumulative earnings rather than annualized
+   * monthly slices. MUST therefore be monotone non-decreasing in each category's amount, so
+   * the difference is never a credit. Which categories are earned is the jurisdiction's call
+   * (US: `wages` only). Absent → no payroll tax.
+   */
+  computePayrollTaxCents?(
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Cents;
+
+  /**
    * Which income categories count toward the covered-earnings {@link EarningsRecord}
    * behind the benefit formula. US: wages + self-employment ordinary income — never the
    * benefit itself (circular), gains, or tax-exempt income. Absent → `wages` only.

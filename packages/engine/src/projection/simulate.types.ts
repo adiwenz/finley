@@ -99,6 +99,13 @@ export interface ProjectionMonthFlows {
    */
   readonly taxCents: Cents;
   /**
+   * Employee payroll tax (US: FICA) withheld this month, summed across persons. A SEPARATE
+   * line from {@link taxCents} — its base is pre-deferral gross and it applies to earned
+   * income only — already deducted from take-home, so after-tax gross is
+   * `totalIncomeCents − taxCents − payrollTaxCents`. 0 when the jurisdiction charges none.
+   */
+  readonly payrollTaxCents: Cents;
+  /**
    * The jurisdiction owns the split — US tax is not linearly separable by category — so
    * the engine carries it rather than synthesizing one. Always present: `{}` in a zero-tax
    * month, otherwise Σ equals `taxCents`.

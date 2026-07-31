@@ -45,6 +45,7 @@ export function buildFlows(
   taxByCategoryCents: Readonly<Record<string, Cents>> = {},
   taxBySourceCents: Readonly<Record<string, Cents>> = {},
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
+  payrollTaxCents: Cents = 0,
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -134,6 +135,7 @@ export function buildFlows(
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
+    payrollTaxCents,
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
     taxBySourceCents,

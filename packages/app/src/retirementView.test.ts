@@ -104,9 +104,9 @@ describe("retirementView — headline age driven off the real projection", () =>
 
 describe("retirementView — target mode against the pinned age", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
-    // Real single-filer federal tax plus a cash-realistic 1% emergency-fund return lift the
-    // default plan's feasible floor to 75.
-    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 75 };
+    // Real single-filer federal tax, a cash-realistic 1% emergency-fund return, and employee
+    // FICA withheld on wages lift the default plan's feasible floor to 78.
+    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 78 };
     const view = viewOf(pinnedAtFloor);
     expect(view.target.feasible).toBe(true);
     expect(view.target.nearestFeasibleAge).toBe(pinnedAtFloor.retirementAge);
@@ -186,9 +186,9 @@ describe("retirementView — the timeline events count toward retirement", () =>
   // The panel must reason about the plan plus the ledger, as the graph does: if it still
   // projected an empty ledger, a costly new expense would not budge the headline age.
   it("a recurring expense added to the ledger pushes the headline age later", () => {
-    // Real single-filer federal tax pins the default $5k plan at the Social-Security floor
-    // (67), where an added expense flips it infeasible rather than merely later. The raise
-    // buys headroom below the floor, keeping "moves strictly later" observable.
+    // Real single-filer federal tax plus FICA pins the default $5k plan above the
+    // Social-Security floor, where an added expense flips it infeasible rather than merely
+    // later. The raise buys headroom below the floor, keeping "moves strictly later" observable.
     const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(7000));
     // A child spawns an 18-year childcare expense on the timeline — the surviving way the
     // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
@@ -204,12 +204,11 @@ describe("retirementView — the timeline events count toward retirement", () =>
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView(withChild).headlineAge;
-    // The bare-plan baseline retires at 61 — the home goal is a drawable `retain` reserve, so
-    // the down-payment fund counts toward the nest egg. One year later than when health
-    // stepped down to $500 at 65: the plan's $700 line now runs for life, so retirement costs
-    // more and the floor moves out.
-    expect(baselineAge).toBe(61);
-    expect(withChildAge as number).toBeGreaterThan(61);
+    // The bare-plan baseline retires at 63 — the home goal is a drawable `retain` reserve, so
+    // the down-payment fund counts toward the nest egg. FICA withheld on the $7k wages trims
+    // take-home and pushes the floor out, and the childcare expense pushes it further still.
+    expect(baselineAge).toBe(63);
+    expect(withChildAge as number).toBeGreaterThan(63);
   });
 });
 
