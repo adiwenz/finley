@@ -214,7 +214,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
   function goalFund(plan: Plan) {
     return createProjectionBase(plan, ctx())
       .initialAccounts!.map((a) => a.sim)
-      .find((a) => a.id === "goal-emergency")!;
+      .find((a) => a.id === "fund-emergency")!;
   }
 
   function withEmergencyType(accountType: GoalPlan["accountType"]): Plan {

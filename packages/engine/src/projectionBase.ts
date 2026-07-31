@@ -35,12 +35,12 @@ export interface ProjectionContext {
 
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
-const SAVINGS_ID = "savings";
+export const SAVINGS_ID = "savings";
 // RETIREMENT_ID — the account this module mints for a job's 401(k) deferral to fund — lives
 // in `ids` so `job` can name the same default without importing this module (which would
 // cycle back through `compilePerson`). Imported above; not re-exported, so the barrel has
 // exactly one source for it.
-const BROKERAGE_ID = "brokerage";
+export const BROKERAGE_ID = "brokerage";
 
 // Shared by {@link buildPlanAccounts} and {@link planAccountDescriptors} so a label
 // can't drift between the two.
@@ -63,9 +63,13 @@ export const CONTRIBUTION_TARGETS: readonly {
   { accountId: SAVINGS_ID, label: "Cash savings", taxTreatment: "postTax" },
 ];
 
-/** One fund account per goal, so two goals never share a balance. */
+/**
+ * One fund account per goal, so two goals never share a balance. Prefixed `fund-`, not
+ * `goal-`: once ids are minted the goal id already reads `goal-N`, and a `goal-` fund
+ * prefix would double it to `goal-goal-N`.
+ */
 export function goalFundAccountId(goal: GoalPlan): string {
-  return `goal-${goal.id}`;
+  return `fund-${goal.id}`;
 }
 
 /**

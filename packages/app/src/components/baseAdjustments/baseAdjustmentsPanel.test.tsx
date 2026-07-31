@@ -17,7 +17,7 @@ import {
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { useTestProjection } from "../../testing/projectionHarness";
+import { useTestProjection, stateOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { setJobMonthlyIncome } from "../../testing/planFixtures";
@@ -122,6 +122,14 @@ const selectMonth = (month: number) =>
 /** Typing an amount stages the how-long question. */
 const editRow = (name: RegExp | string, dollars: number) =>
   fireEvent.change(spin(name), { target: { value: String(dollars) } });
+
+/**
+ * A budget line's band key on the per-line graph. The engine mints every line id, so a test
+ * finds the line by the label a reader sees and reads its key off the plan — never assuming the
+ * id spells the label.
+ */
+const lineKey = (label: string, plan: Plan = PLAN_DEFAULTS): string =>
+  `line:${plan.budgetLines.find((l) => l.label === label)!.id}`;
 
 describe("BaseAdjustmentsPanel — Base", () => {
   it("prepopulates the base from the default template", () => {
@@ -778,7 +786,7 @@ describe("BaseAdjustmentsPanel — long-horizon points", () => {
 describe("BaseAdjustmentsPanel — per-line graph", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(1_500)),
+    ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
     healthMonthlyCents: 0,
@@ -804,7 +812,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
 
   it("reports a comfortable budget as financed throughout", () => {
     const richPlan: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, "job-1", dollarsToCents(8_000)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
       healthMonthlyCents: 0,
@@ -823,17 +831,13 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(firstRow["line:housing"]).toBeGreaterThan(0);
+    expect(firstRow[lineKey("Housing")]).toBeGreaterThan(0);
     expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
   });
 
   it("bands a liability's payment from the timeline, with no extra props", () => {
-    const projection = Projection.create(
-      { plan: PLAN_DEFAULTS, startYear: START_YEAR },
-      usJurisdiction,
-    );
-    projection.takeLoan({
-      id: "loan-student",
+    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    const loanId = projection.takeLoan({
       month: 0,
       ownerId: PRIMARY_PERSON_ID,
       openingBalanceCents: dollarsToCents(45_000),
@@ -863,13 +867,13 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     ) as Record<string, number>;
     // Servicing the loan is spending, banded like anything else the month costs, and the budget
     // lines beside it are untouched by its arrival.
-    expect(servicedRow["debt:loan-student"]).toBeGreaterThan(dollarsToCents(400));
-    expect(servicedRow["line:housing"]).toBeGreaterThan(0);
+    expect(servicedRow[`debt:${loanId}`]).toBeGreaterThan(dollarsToCents(400));
+    expect(servicedRow[lineKey("Housing")]).toBeGreaterThan(0);
     // Origination month itself: the debt exists but nothing is due yet.
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
-    expect(firstRow["debt:loan-student"] ?? 0).toBe(0);
+    expect(firstRow[`debt:${loanId}`] ?? 0).toBe(0);
   });
 
   it("redraws when the budget changes — the memoized graphs must not go stale", () => {
@@ -882,7 +886,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
           string,
           number
         >
-      )["line:housing"];
+      )[lineKey("Housing")];
     const before = housingBand();
 
     editRow(/Housing/, 2_400);

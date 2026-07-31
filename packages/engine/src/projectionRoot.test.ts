@@ -11,7 +11,7 @@ import {
   UnsupportedVersionError,
 } from "./projectionRoot";
 import { validateLedger } from "./ledger/validateLedger";
-import { samplePlan, salariedJob, spendLine, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
@@ -19,7 +19,7 @@ import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
-import type { PersonId } from "./job";
+import type { Job, PersonId } from "./job";
 import type { BudgetLine } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
 
@@ -28,13 +28,7 @@ const P1 = "p1" as PersonId;
 function freshProjection(): Projection {
   // Empty job and budget-line lists so minted ids and roster lengths reflect only what each
   // test adds — the sample plan seeds a spend line that would otherwise skew the counts.
-  return Projection.create(
-    {
-      plan: { ...samplePlan, jobs: [], budgetLines: [] },
-      startYear: SAMPLE_START_YEAR,
-    },
-    nullJurisdiction,
-  );
+  return Projection.fromState(stateOf({ ...samplePlan, jobs: [], budgetLines: [] }), nullJurisdiction);
 }
 
 const openEndedJob = {
@@ -55,6 +49,18 @@ const expenseLine = {
   target: { kind: "expense" } as const,
   amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(2000) },
   category: "needs" as const,
+};
+
+/**
+ * A goal, for the counter tests. `GoalInput` still takes an optional `id` — jobs and budget
+ * lines do not — so a goal is what an "authored id claims the counter" case is written against.
+ */
+const carGoalInput = {
+  name: "Car",
+  targetCents: dollarsToCents(30000),
+  targetDate: 36,
+  disposition: "retain" as const,
+  annualReturnPct: 3,
 };
 
 describe("Projection root — creating writes mint deterministic ids", () => {
@@ -78,11 +84,17 @@ describe("Projection root — creating writes mint deterministic ids", () => {
     expect(p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
   });
 
-  it("honours a caller `{ id }` override without consuming the counter", () => {
+  it("mints a job id whatever the caller passes — `JobInput` cannot name one", () => {
+    // Jobs take no `id` at all: authoring one is the engine's to name, and relocating an
+    // existing one is `reassignJob`, which names the id as an argument instead.
     const p = freshProjection();
-    expect(p.addJob(P1, { ...openEndedJob, id: "day-job" })).toBe("day-job");
-    // The counter did not advance, so the next mint is still "-1".
-    expect(p.addBudgetLine(expenseLine)).toBe("line-1");
+    expect(p.addJob(P1, openEndedJob)).toBe("job-1");
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    expect(p.addPartnerJob(partnerId, openEndedJob)).toMatch(/^job-\d+$/);
+    // Including the jobs a partner arrives with, nested inside the marriage.
+    const q = freshProjection();
+    q.marry({ month: 24, name: "Kim", birthYear: 1990, jobs: [openEndedJob] });
+    expect(partnerEvent(q).person.jobs[0]?.id).toMatch(/^job-\d+$/);
   });
 
   it("routes the added job onto the standing plan, owned by the person", () => {
@@ -184,16 +196,12 @@ describe("Projection root — one root for standing + ledger writes", () => {
 
   it("marry() preserves a partner job's explicit id override and steps the counter past it", () => {
     const p = freshProjection();
-    p.marry({
-      month: 24,
-      name: "Partner",
-      birthYear: 1988,
-      // `job-5` is one of our own ids, so it must be returned verbatim AND advance the counter.
-      jobs: [{ ...openEndedJob, id: "job-5" }],
-    });
-    expect(partnerEvent(p).person.jobs[0]?.id).toBe("job-5");
-    // The next mint clears the override rather than colliding with it.
-    expect(p.addJob(P1, openEndedJob)).toBe("job-6");
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, jobs: [openEndedJob] });
+    // The partner's job is minted like any other, off the same counter the marriage drew from.
+    const nested = partnerEvent(p).person.jobs[0]?.id;
+    expect(nested).toMatch(/^job-\d+$/);
+    // The next mint clears it rather than colliding with it.
+    expect(p.addJob(P1, openEndedJob)).not.toBe(nested);
   });
 
   it("takeLoan() carries the kind-determined field for each arm of the union", () => {
@@ -323,19 +331,24 @@ describe("Projection root — removing a goal guards its fund account", () => {
 
   it("leaves the other goals alone", () => {
     const p = freshProjection();
-    const keep = p.addGoal({ ...carGoal, id: "keep" });
-    p.removeGoal(p.addGoal({ ...carGoal, id: "drop" }));
+    const keep = p.addGoal(carGoal);
+    p.removeGoal(p.addGoal(carGoal));
     expect(p.plan.goals.map((g) => g.id)).toEqual([...samplePlan.goals.map((g) => g.id), keep]);
   });
 
   it("refuses while an event spends from the goal's fund account", () => {
     const p0 = freshProjection();
-    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const goalId = p0.addGoal(carGoal);
     const p = withPurchaseFundedBy(p0, goalId);
     const before = p.state;
 
+    // The message names the goal, its derived fund account and the event holding it — all by
+    // the ids the engine minted, so the assertion builds them from the handle it was given.
     expect(() => p.removeGoal(goalId)).toThrow(
-      /cannot remove goal — Cannot remove goal "house-fund": its fund account "goal-house-fund" funds "e1" \(HomePurchaseEvent, month 24\)/,
+      new RegExp(
+        `cannot remove goal — Cannot remove goal "${goalId}": its fund account ` +
+          `"fund-${goalId}" funds "e1" \\(HomePurchaseEvent, month 24\\)`,
+      ),
     );
     // Refused means untouched, not partially applied.
     expect(p.state).toBe(before);
@@ -344,7 +357,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
 
   it("allows the removal once the referencing event leaves the ledger", () => {
     const p0 = freshProjection();
-    const goalId = p0.addGoal({ ...carGoal, id: "house-fund" });
+    const goalId = p0.addGoal(carGoal);
     const blocked = withPurchaseFundedBy(p0, goalId);
     expect(() => blocked.removeGoal(goalId)).toThrow();
 
@@ -380,11 +393,11 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
 
   it("patches only the named fields, leaving the rest of the goal intact", () => {
     const p = freshProjection();
-    const goalId = p.addGoal({ ...carGoal, id: "car" });
+    const goalId = p.addGoal(carGoal);
     p.updateGoal(goalId, { name: "New car", annualReturnPct: 5 });
     const goal = p.plan.goals.find((g) => g.id === goalId);
     expect(goal).toMatchObject({
-      id: "car",
+      id: goalId,
       name: "New car",
       annualReturnPct: 5,
       // Untouched fields survive the patch.
@@ -396,8 +409,8 @@ describe("Projection root — editing a goal keeps its id and priority", () => {
 
   it("holds the goal's list position, so its funding priority is unchanged", () => {
     const p = freshProjection();
-    const first = p.addGoal({ ...carGoal, id: "first" });
-    const second = p.addGoal({ ...carGoal, id: "second" });
+    const first = p.addGoal(carGoal);
+    const second = p.addGoal(carGoal);
     const before = p.plan.goals.map((g) => g.id);
     p.updateGoal(first, { name: "Renamed" });
     expect(p.plan.goals.map((g) => g.id)).toEqual(before);
@@ -427,30 +440,24 @@ describe("Projection root — reordering a goal changes its funding priority", (
 
   function seededProjection(): { p: Projection; a: string; b: string; c: string } {
     // Start from an empty goal list so priority (array index) reflects only what we add.
-    const p = Projection.create(
-      {
-        plan: { ...samplePlan, jobs: [], budgetLines: [], goals: [] },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
-    return { p, a: p.addGoal({ ...goal, id: "a" }), b: p.addGoal({ ...goal, id: "b" }), c: p.addGoal({ ...goal, id: "c" }) };
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [], budgetLines: [], goals: [] }), nullJurisdiction);
+    return { p, a: p.addGoal(goal), b: p.addGoal(goal), c: p.addGoal(goal) };
   }
 
   it("moves a goal one slot earlier when funded sooner", () => {
-    const { p, b } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     p.reorderGoal(b, "up");
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["b", "a", "c"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([b, a, c]);
   });
 
   it("moves a goal one slot later when funded later", () => {
-    const { p, b } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     p.reorderGoal(b, "down");
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "c", "b"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([a, c, b]);
   });
 
   it("refuses a move that cannot happen — at either end, or for an id that is not there", () => {
-    const { p, a, c } = seededProjection();
+    const { p, a, b, c } = seededProjection();
     const before = p.state;
 
     expect(() => p.reorderGoal(a, "up")).toThrow(/already first/);
@@ -458,7 +465,7 @@ describe("Projection root — reordering a goal changes its funding priority", (
     expect(() => p.reorderGoal("no-such-goal", "up")).toThrow(/no goal "no-such-goal"/);
 
     expect(p.state).toBe(before);
-    expect(p.plan.goals.map((g) => g.id)).toEqual(["a", "b", "c"]);
+    expect(p.plan.goals.map((g) => g.id)).toEqual([a, b, c]);
   });
 });
 
@@ -597,18 +604,21 @@ describe("Projection root — editing and removing a job", () => {
     });
   });
 
-  it("refuses a supplied id the household already holds, on either plane", () => {
+  it("keeps one job-id namespace across both planes", () => {
+    // No caller can supply a job id, so a duplicate cannot be authored — but the two planes
+    // must still draw from ONE counter, since a job's id keys its income band whichever plane
+    // it sits on.
     const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "day-job" });
-    expect(() => p.addJob(P1, { ...openEndedJob, id: "day-job" })).toThrow(/already holds a job/);
-
     const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
-    // One namespace across both planes: the primary's id is not free for a partner either,
-    // because a job's id keys its income band whichever plane it sits on.
-    expect(() => p.addPartnerJob(partnerId, { ...openEndedJob, id: "day-job" })).toThrow(
-      /already holds a job/,
-    );
-    expect(p.plan.jobs).toHaveLength(1);
+    const ids = [
+      p.addJob(P1, openEndedJob),
+      p.addPartnerJob(partnerId, openEndedJob),
+      p.addJob(P1, openEndedJob),
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+    // Two on the plan, one on the partner's event — three distinct ids from one counter.
+    expect(p.plan.jobs).toHaveLength(2);
+    expect(partnerEvent(p).person.jobs).toHaveLength(1);
   });
 
   it("replaceJob keeps the job's list position, and refuses an unknown id", () => {
@@ -740,18 +750,21 @@ describe("Projection root — moving a job between the two planes", () => {
     payChanges: [{ month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
   } as const;
 
-  /** The move, as the app performs it: let go on one plane, land on the other, same id. */
+  /** A job as authoring input — its id and owner are the engine's, not the caller's. */
+  const inputOf = (job: Job) => {
+    const { id: _id, ownerId: _owner, ...rest } = job;
+    return rest;
+  };
+
   it("moves a job from the plan to a partner, whole and with its id intact", () => {
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addJob(P1, richJob);
-    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
 
-    p.removeJob(jobId);
-    const landed = p.addPartnerJob(partnerId, moving);
+    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
 
-    expect(landed).toBe(jobId); // the same job, not a new one
     expect(p.plan.jobs).toEqual([]);
+    // The same job, not a new one: id, overrides, pay changes and employer match all survive.
     expect(partnerEvent(p).person.jobs).toEqual([{ ...richJob, id: jobId, ownerId: partnerId }]);
   });
 
@@ -759,27 +772,52 @@ describe("Projection root — moving a job between the two planes", () => {
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addPartnerJob(partnerId, richJob);
-    const { ownerId: _drop, ...moving } = { ...partnerEvent(p).person.jobs[0]! };
 
-    p.removePartnerJob(jobId);
-    const landed = p.addJob(P1, moving);
+    p.reassignJob(jobId, P1, inputOf(partnerEvent(p).person.jobs[0]!));
 
-    expect(landed).toBe(jobId);
     expect(partnerEvent(p).person.jobs).toEqual([]);
     expect(p.plan.jobs).toEqual([{ ...richJob, id: jobId, ownerId: P1 }]);
   });
 
-  it("refuses a move that lands before it lets go, rather than duplicating the id", () => {
+  it("never leaves the id live on both planes at once", () => {
+    // The old remove-then-add dance could not be reordered without briefly duplicating the id,
+    // which keys the income bands. One method owns both halves, so there is no ordering left
+    // for a caller to get wrong.
     const p = freshProjection();
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const jobId = p.addJob(P1, richJob);
-    const { ownerId: _drop, ...moving } = { ...p.plan.jobs[0]! };
 
-    // Add-then-remove is the wrong order: for the moment between them the household would
-    // hold two jobs with one id, and the ids key the income bands.
-    expect(() => p.addPartnerJob(partnerId, moving)).toThrow(/already holds a job/);
+    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
+
+    const everywhere = [
+      ...p.plan.jobs.map((j) => j.id),
+      ...partnerEvent(p).person.jobs.map((j) => j.id),
+    ];
+    expect(everywhere).toEqual([jobId]);
+  });
+
+  it("applies the fields the move lands with, so re-owning and editing are one write", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+
+    p.reassignJob(jobId, partnerId, { ...inputOf(p.plan.jobs[0]!), name: "Consulting" });
+
+    const moved = partnerEvent(p).person.jobs[0]!;
+    expect(moved.id).toBe(jobId);
+    expect(moved.name).toBe("Consulting");
+    expect(moved.incomeOverrides).toEqual(richJob.incomeOverrides);
+  });
+
+  it("refuses an unknown job, and an owner who is not in the household", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const jobId = p.addJob(P1, richJob);
+
+    expect(() => p.reassignJob("no-such-job", partnerId, richJob)).toThrow(/no-such-job/);
+    // Refused BEFORE the source gives the job up, so a bad owner cannot strip a held job.
+    expect(() => p.reassignJob(jobId, "ghost" as PersonId, richJob)).toThrow();
     expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
-    expect(partnerEvent(p).person.jobs).toEqual([]);
   });
 });
 
@@ -810,11 +848,31 @@ describe("Projection root — one counter across both planes, across a round tri
   it("steps past a partner job an imported scenario already holds", () => {
     // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
     // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
+    //
+    // The id arrives by IMPORT, which is now the only way one can: no authoring path lets a
+    // caller name a job, so `fromState` is exactly what the floor exists for.
     const seeded = freshProjection();
     const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    seeded.addPartnerJob(partnerId, { ...openEndedJob, id: "job-9" });
+    const state = seeded.toState();
+    const imported: ProjectionState = {
+      ...state,
+      scenario: withLedger(state.scenario, {
+        ...state.scenario.ledger,
+        events: state.scenario.ledger.events.map((e) =>
+          e.type === "RelationshipEvent"
+            ? {
+                ...e,
+                person: {
+                  ...e.person,
+                  jobs: [{ ...openEndedJob, id: "job-9", ownerId: partnerId }],
+                },
+              }
+            : e,
+        ),
+      }),
+    };
 
-    const reloaded = Projection.fromState(seeded.toState(), nullJurisdiction);
+    const reloaded = Projection.fromState(imported, nullJurisdiction);
     expect(reloaded.addPartnerJob(partnerId, openEndedJob)).toBe("job-10");
     expect(reloaded.addJob(P1, openEndedJob)).toBe("job-11");
   });
@@ -1031,7 +1089,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       targetDate: 36,
       disposition: "retain",
       annualReturnPct: 3,
-      id: "car",
     });
     const jobId = p.addJob(P1, openEndedJob);
     const lineId = p.addBudgetLine(expenseLine);
@@ -1189,36 +1246,15 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     );
   });
 
-  it("revises a transaction in place, keeping its id and its place in the log", () => {
+  it("revises a transaction's data in place, keeping its id and its place in the log", () => {
     const { p, partnerId } = marriedProjection();
     const [before] = p.ledger.events;
 
-    p.reviseTransaction(partnerId, {
-      id: partnerId,
-      type: "RelationshipEvent",
-      month: 36,
-      person: {
-        id: partnerId,
-        name: "Partner",
-        birthYear: 1988,
-        retirementTargetAge: 65,
-        benefitClaimingAge: 67,
-        // The motivating case: a partner's jobs live ON their event, so without a revision
-        // they would be write-once.
-        jobs: [
-          {
-            id: "partner-job-1",
-            ownerId: partnerId,
-            startYear: SAMPLE_START_YEAR,
-            endYear: null,
-            salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 },
-          },
-        ],
-      },
-    });
+    p.reviseTransaction(partnerId, { type: "marry", month: 36, name: "Partner (renamed)" });
 
     const [after] = p.ledger.events;
     expect(after).toMatchObject({ id: partnerId, month: 36 });
+    expect(after?.type === "RelationshipEvent" && after.person.name).toBe("Partner (renamed)");
     expect(after?.sequenceNumber).toBe(before?.sequenceNumber);
     expect(p.ledger.events).toHaveLength(1);
   });
@@ -1229,31 +1265,158 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     const before = p.state;
 
     // Moving the marriage past the separation leaves the separation with nothing to end.
-    expect(() =>
-      p.reviseTransaction(partnerId, {
-        id: partnerId,
-        type: "RelationshipEvent",
-        month: 48,
-        person: {
-          id: partnerId,
-          name: "Partner",
-          birthYear: 1988,
-          retirementTargetAge: 65,
-          benefitClaimingAge: 67,
-          jobs: [],
-        },
-      }),
-    ).toThrow(/cannot revise transaction — /);
+    expect(() => p.reviseTransaction(partnerId, { type: "marry", month: 48 })).toThrow(
+      /cannot revise transaction — /,
+    );
     expect(p.state).toBe(before);
   });
 
-  it("resetLedger advances both counters past what the import already occupies", () => {
+  it("refuses a revision naming the wrong verb for the event", () => {
+    const { p, partnerId } = marriedProjection();
+    expect(() => p.reviseTransaction(partnerId, { type: "takeLoan", apr: 9 })).toThrow(
+      /is a RelationshipEvent, which a "takeLoan" revision does not address/,
+    );
+  });
+
+  it("refuses a revision for an id the ledger does not hold", () => {
     const p = freshProjection();
-    // An id counter sitting exactly where the import already is: a fresh Projection's
-    // `nextSeq` is 1, and the imported event is `child-1` at sequenceNumber 1. Before the
-    // fix, the next haveChild() minted `child-1` a second time — refused by the duplicate
-    // -child guard — and the next append reused sequence number 1.
-    const imported: Ledger = {
+    expect(() => p.reviseTransaction("no-such-event", { type: "marry", month: 1 })).toThrow(
+      /no transaction "no-such-event"/,
+    );
+  });
+
+  it("refuses the companion field belonging to the other loan arm", () => {
+    const p = freshProjection();
+    const loanId = p.takeLoan({
+      month: 3, ownerId: P1, kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000), apr: 4, termMonths: 48,
+    });
+    // `kind` is fixed by the event, so a term loan has no credit limit to revise.
+    expect(() => p.reviseTransaction(loanId, { type: "takeLoan", creditLimitCents: 1 })).toThrow(
+      /takes termMonths, not the other/,
+    );
+  });
+});
+
+/**
+ * A revision changes DATA. It cannot re-point identity, because it never carries any: the
+ * event is rebuilt from what is already in the log, so the event id and every durable id
+ * hanging off it survive by construction rather than by the caller being careful.
+ */
+describe("Projection root — a revision cannot replace an identity", () => {
+  const marriedProjection = (): { p: Projection; partnerId: string } => {
+    const p = freshProjection();
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+  };
+
+  it("keeps the event id, the person id and every nested job id across a marry revision", () => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const jobId = p.addPartnerJob(partnerId, openEndedJob);
+    const before = partnerEvent(p);
+
+    p.reviseTransaction(partnerId, {
+      type: "marry",
+      month: 30,
+      name: "Renamed",
+      birthYear: 1990,
+      retirementTargetAge: 62,
+      benefitClaimingAge: 70,
+    });
+
+    const after = partnerEvent(p);
+    // The data moved…
+    expect(after.month).toBe(30);
+    expect(after.person.name).toBe("Renamed");
+    expect(after.person.birthYear).toBe(1990);
+    expect(after.person.retirementTargetAge).toBe(62);
+    // …and every identity stayed, including the job list a revision never mentions.
+    expect(after.id).toBe(before.id);
+    expect(after.person.id).toBe(partnerId);
+    expect(after.person.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(after.person.jobs).toEqual(before.person.jobs);
+  });
+
+  it("keeps the child id across a haveChild revision", () => {
+    const p = freshProjection();
+    const childId = p.haveChild({ month: 12, name: "Robin", annualCostCents: dollarsToCents(12_000) });
+
+    p.reviseTransaction(childId, { type: "haveChild", name: "Robin (renamed)", annualCostCents: 1 });
+
+    const event = p.ledger.events.find((e) => e.id === childId);
+    expect(event?.type === "ChildEvent" && event.childName).toBe("Robin (renamed)");
+    // `childId` is the same id as the event's own — a revision re-points neither.
+    expect(event?.type === "ChildEvent" && event.childId).toBe(childId);
+  });
+
+  it("keeps the liability and owner ids across a takeLoan revision", () => {
+    const p = freshProjection();
+    const loanId = p.takeLoan({
+      month: 3, ownerId: P1, kind: "auto",
+      openingBalanceCents: dollarsToCents(10_000), apr: 4, termMonths: 48,
+    });
+
+    p.reviseTransaction(loanId, { type: "takeLoan", apr: 9, openingBalanceCents: 1, termMonths: 12 });
+
+    const event = p.ledger.events.find((e) => e.id === loanId);
+    expect(event?.type === "LoanEvent" && event.apr).toBe(9);
+    expect(event?.type === "LoanEvent" && event.liabilityId).toBe(loanId);
+    expect(event?.type === "LoanEvent" && event.ownerId).toBe(P1);
+    // `kind` is identity-adjacent: a card and a term loan are different instruments.
+    expect(event?.type === "LoanEvent" && event.kind).toBe("auto");
+  });
+
+  it("keeps the property and derived mortgage ids across a buyHome revision", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.buyHome({
+      month: 12, ownerId: P1,
+      purchasePriceCents: dollarsToCents(200_000),
+      downPaymentCents: dollarsToCents(40_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6, mortgageTermMonths: 360,
+    });
+    const before = p.ledger.events.find((e) => e.id === homeId);
+    const mortgageId = before?.type === "HomePurchaseEvent" ? before.mortgageLiabilityId : "";
+    expect(mortgageId).toBe(`${homeId}-mortgage`);
+
+    p.reviseTransaction(homeId, { type: "buyHome", mortgageApr: 5, mortgageTermMonths: 240 });
+
+    const after = p.ledger.events.find((e) => e.id === homeId);
+    expect(after?.type === "HomePurchaseEvent" && after.mortgageApr).toBe(5);
+    expect(after?.type === "HomePurchaseEvent" && after.propertyId).toBe(homeId);
+    // The mortgage is a liability the author never named; a revision must not re-mint it.
+    expect(after?.type === "HomePurchaseEvent" && after.mortgageLiabilityId).toBe(mortgageId);
+  });
+
+  it("offers no way to name an identity, at the type level", () => {
+    const { p, partnerId } = marriedProjection();
+
+    // Each of these is the shape the old `NewLifeEvent` parameter accepted. If a revision
+    // variant ever grows an identity field again, the `@ts-expect-error` goes unused and the
+    // build fails — which is the point.
+    // @ts-expect-error — a revision cannot name the event id
+    p.reviseTransaction(partnerId, { type: "marry", id: "stolen" });
+    // @ts-expect-error — a revision cannot replace the person
+    p.reviseTransaction(partnerId, { type: "marry", person: { id: "stolen" } });
+    // @ts-expect-error — a revision cannot replace the nested job list
+    p.reviseTransaction(partnerId, { type: "marry", jobs: [] });
+
+    // Untouched by any of the refused shapes above.
+    expect(partnerEvent(p).person.id).toBe(partnerId);
+  });
+});
+
+/**
+ * Adopting a ledger that already holds ids is RESTORATION, and `fromState` is the only door
+ * for it — `resetLedger` (which swapped a caller's ledger straight in) is gone. These pin that
+ * the counters still clear whatever the adopted timeline occupies.
+ */
+describe("Projection root — restoring a timeline that already holds ids", () => {
+  it("advances both counters past what the restored ledger already occupies", () => {
+    // A counter sitting exactly where the state already is: `nextSeq` 1 beside an imported
+    // `child-1` at sequenceNumber 1. Unfloored, the next haveChild() would mint `child-1` a
+    // second time and the next append would reuse sequence number 1.
+    const restored: Ledger = {
       events: [
         {
           id: "child-1",
@@ -1268,33 +1431,32 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
       ],
       nextSequenceNumber: 2,
     };
-    p.resetLedger(imported);
+    const p = Projection.fromState(
+      stateOf({ ...samplePlan, jobs: [], budgetLines: [] }, restored),
+      nullJurisdiction,
+    );
 
     const newChildId = p.haveChild({ month: 36, name: "Sam", annualCostCents: dollarsToCents(9_000) });
 
-    // A distinct id, and a place in the log after the event it was imported alongside.
+    // A distinct id, and a place in the log after the event it was restored alongside.
     expect(newChildId).not.toBe("child-1");
     const ids = p.ledger.events.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
-    const imported0 = p.ledger.events.find((e) => e.id === "child-1");
+    const restored0 = p.ledger.events.find((e) => e.id === "child-1");
     const added = p.ledger.events.find((e) => e.id === newChildId);
-    expect(added?.sequenceNumber).toBeGreaterThan(imported0?.sequenceNumber ?? 0);
+    expect(added?.sequenceNumber).toBeGreaterThan(restored0?.sequenceNumber ?? 0);
 
-    // Both events remain individually addressable: a revision lands on the imported one and
+    // Both events remain individually addressable: a revision lands on the restored one and
     // leaves the new one alone, and a removal takes only the event it names.
     p.reviseTransaction("child-1", {
-      id: "child-1",
-      type: "ChildEvent",
-      month: 12,
-      childId: "child-1",
-      childName: "Robin (renamed)",
-      birthMonth: 12,
+      type: "haveChild",
+      name: "Robin (renamed)",
       annualCostCents: dollarsToCents(15_000),
     });
     expect(p.ledger.events.find((e) => e.id === "child-1")).toMatchObject({
       childName: "Robin (renamed)",
       // A revision keeps its place in the log.
-      sequenceNumber: imported0?.sequenceNumber,
+      sequenceNumber: restored0?.sequenceNumber,
     });
     expect(p.ledger.events.find((e) => e.id === newChildId)).toMatchObject({ childName: "Sam" });
 
@@ -1302,28 +1464,30 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     expect(p.ledger.events.map((e) => e.id)).toEqual([newChildId]);
   });
 
-  it("resetLedger clears a sequence number an import would otherwise hand out twice", () => {
+  it("clears a sequence number a restored ledger would otherwise hand out twice", () => {
     // A ledger whose own `nextSequenceNumber` violates the Ledger invariant — it is not above
-    // every event's `sequenceNumber`. Nothing validates data arriving from outside, so before
-    // the fix `addEvent` stamped 3, then 4, and the 4 collided with the imported event.
-    const p = freshProjection();
-    p.resetLedger({
-      events: [
-        {
-          id: "imported-loan",
-          type: "LoanEvent",
-          month: 6,
-          sequenceNumber: 4,
-          kind: "auto",
-          liabilityId: "imported-loan",
-          ownerId: P1,
-          openingBalanceCents: dollarsToCents(20_000),
-          apr: 5,
-          termMonths: 60,
-        },
-      ],
-      nextSequenceNumber: 3,
-    });
+    // every event's `sequenceNumber`. This is the malformed-persisted-state case: unfloored,
+    // `addEvent` would stamp 3, then 4, and the 4 would collide with the restored event.
+    const p = Projection.fromState(
+      stateOf({ ...samplePlan, jobs: [], budgetLines: [] }, {
+        events: [
+          {
+            id: "restored-loan",
+            type: "LoanEvent",
+            month: 6,
+            sequenceNumber: 4,
+            kind: "auto",
+            liabilityId: "restored-loan",
+            ownerId: P1,
+            openingBalanceCents: dollarsToCents(20_000),
+            apr: 5,
+            termMonths: 60,
+          },
+        ],
+        nextSequenceNumber: 3,
+      }),
+      nullJurisdiction,
+    );
 
     const loanId = p.takeLoan({
       month: 12,
@@ -1339,113 +1503,143 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
     expect(p.ledger.events.find((e) => e.id === loanId)?.sequenceNumber).toBeGreaterThan(4);
   });
 
-  it("resetLedger never walks the id counter backwards", () => {
-    // Ids this Projection already issued stay spent, even when the import is emptier than
-    // what came before — otherwise a reset would re-mint over the plan's own jobs.
-    const p = freshProjection();
-    p.addJob(P1, openEndedJob); // job-1
-    p.addJob(P1, openEndedJob); // job-2
-    p.resetLedger(emptyLedger);
-    expect(p.addJob(P1, openEndedJob)).toBe("job-3");
-  });
-
-  it("resetLedger reads named id fields, not every string it can reach", () => {
+  it("reads named id fields, not every string it can reach", () => {
     // `childName` is a person's words. A scan over every string in the ledger would read
     // "goal-50000" as a counter reading and advance the mint by fifty thousand on the
     // strength of a name.
-    const p = freshProjection();
-    p.resetLedger({
-      events: [
-        {
-          id: "imported-child",
-          type: "ChildEvent",
-          month: 12,
-          sequenceNumber: 0,
-          childId: "imported-child",
-          childName: "room-50000",
-          birthMonth: 12,
-          annualCostCents: 0,
-        },
-        {
-          id: "imported-child-2",
-          type: "ChildEvent",
-          month: 18,
-          sequenceNumber: 1,
-          childId: "imported-child-2",
-          // Mint-SHAPED and a real minted kind — still a name, still ignored.
-          childName: "goal-50000",
-          birthMonth: 18,
-          annualCostCents: 0,
-        },
-      ],
-      nextSequenceNumber: 2,
-    });
+    const p = Projection.fromState(
+      stateOf({ ...samplePlan, jobs: [], budgetLines: [], goals: [] }, {
+        events: [
+          {
+            id: "restored-child",
+            type: "ChildEvent",
+            month: 12,
+            sequenceNumber: 0,
+            childId: "restored-child",
+            childName: "room-50000",
+            birthMonth: 12,
+            annualCostCents: 0,
+          },
+          {
+            id: "restored-child-2",
+            type: "ChildEvent",
+            month: 18,
+            sequenceNumber: 1,
+            childId: "restored-child-2",
+            // Mint-SHAPED and a real minted kind — still a name, still ignored.
+            childName: "goal-50000",
+            birthMonth: 18,
+            annualCostCents: 0,
+          },
+        ],
+        nextSequenceNumber: 2,
+      }),
+      nullJurisdiction,
+    );
 
     // Only the two sequence numbers moved the floor, so the next goal is goal-2, not goal-50001.
-    expect(p.addGoal({
-      name: "Car",
-      targetCents: dollarsToCents(30000),
-      targetDate: 36,
-      disposition: "retain",
-      annualReturnPct: 3,
-    })).toBe("goal-2");
-  });
-
-  it("resetLedger swaps the timeline while the plan stays put", () => {
-    const p = freshProjection();
-    p.setRetirementTarget(58);
-    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
-
-    p.resetLedger(emptyLedger);
-
-    expect(p.ledger.events).toHaveLength(0);
-    // Unlike fromState, the standing plan authored alongside the timeline survives.
-    expect(p.plan.retirementAge).toBe(58);
+    expect(p.addGoal(carGoalInput)).toBe("goal-2");
   });
 });
 
-describe("Projection root — fromScenario imports a plan and its timeline together", () => {
-  it("carries the timeline and floors the shared counter past the ids it already holds", () => {
-    // A scenario that arrives already built: a plan holding `job-4`, a ledger whose event holds
-    // `loan-2` at sequence number 2. fromScenario keeps the timeline — unlike create, which
-    // always starts from an empty ledger — and floors the shared counter past both.
-    const scenario = {
-      plan: {
-        ...samplePlan,
-        goals: [],
-        budgetLines: [],
-        jobs: [{ ...openEndedJob, id: "job-4", ownerId: P1 }],
+describe("Projection root — fromState restores a plan and its timeline together", () => {
+  it("carries the timeline and floors both counters past the ids it already holds", () => {
+    // State that arrives already built: a plan holding `job-4`, a ledger whose event holds
+    // `loan-2` at sequence number 2, and — the reason normalization is not optional — a
+    // `nextSeq` and a `nextSequenceNumber` that both understate what the state contains. This
+    // is the shape a hand-edited or stale serialization takes, and `fromState` is the only
+    // door it can come through.
+    const state: ProjectionState = {
+      scenario: {
+        plan: {
+          ...samplePlan,
+          goals: [],
+          budgetLines: [],
+          jobs: [{ ...openEndedJob, id: "job-4", ownerId: P1 }],
+        },
+        ledger: {
+          events: [
+            {
+              id: "loan-2",
+              type: "LoanEvent" as const,
+              month: 6,
+              sequenceNumber: 2,
+              kind: "auto" as const,
+              liabilityId: "loan-2",
+              ownerId: P1,
+              openingBalanceCents: dollarsToCents(20000),
+              apr: 5,
+              termMonths: 60,
+            },
+          ],
+          nextSequenceNumber: 0,
+        },
       },
-      ledger: {
-        events: [
-          {
-            id: "loan-2",
-            type: "LoanEvent" as const,
-            month: 6,
-            sequenceNumber: 2,
-            kind: "auto" as const,
-            liabilityId: "loan-2",
-            ownerId: P1,
-            openingBalanceCents: dollarsToCents(20000),
-            apr: 5,
-            termMonths: 60,
-          },
-        ],
-        nextSequenceNumber: 0,
-      },
+      startYear: SAMPLE_START_YEAR,
+      nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
     };
 
-    const p = Projection.fromScenario(scenario, SAMPLE_START_YEAR, nullJurisdiction);
+    const p = Projection.fromState(state, nullJurisdiction);
 
-    // The imported event survived the construction.
+    // The restored event survived the construction — unlike `fromInput`, which authors from a
+    // document and always starts from an empty ledger.
     expect(p.ledger.events.map((e) => e.id)).toEqual(["loan-2"]);
-    // The id floor cleared `job-4`, so the next mint is `job-5`.
+    // The id floor cleared `job-4`, so the next mint is `job-5` — not `job-1`, which the
+    // state's own `nextSeq` would have handed out on top of a live id.
     expect(p.addJob(P1, openEndedJob)).toBe("job-5");
     // One shared counter: the sequence side was lifted to that same floor, so the next append
-    // lands at or above 5 — well clear of the imported event still sitting at 2.
+    // lands at or above 5 — well clear of the restored event still sitting at 2.
     const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
     const appended = p.ledger.events.find((e) => e.id === eventId);
     expect(appended?.sequenceNumber).toBeGreaterThanOrEqual(5);
+  });
+
+  it("keeps every id and event across a round trip, and never lowers a counter", () => {
+    const authored = freshProjection();
+    authored.addJob(P1, openEndedJob);
+    authored.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+    const before = authored.toState();
+    const after = Projection.fromState(before, nullJurisdiction).toState();
+
+    // What the round trip must preserve: the plan, and every event with its id and its place
+    // in the sequence.
+    expect(after.scenario.plan).toEqual(before.scenario.plan);
+    expect(after.scenario.ledger.events).toEqual(before.scenario.ledger.events);
+    // Counters only ever rise. `nextSequenceNumber` DOES rise here, and legitimately: the two
+    // counters share one floor (see `seqFloor`), but `commit` maintains only `nextSeq` as a
+    // write lands, so restoring is where the sequence side catches up. Raising it is always
+    // safe — the invariant is "strictly above every event" — and it never reissues a number.
+    expect(after.nextSeq).toBeGreaterThanOrEqual(before.nextSeq);
+    expect(after.scenario.ledger.nextSequenceNumber).toBeGreaterThanOrEqual(
+      before.scenario.ledger.nextSequenceNumber,
+    );
+  });
+
+  it("is idempotent from the second trip on, so restoring cannot walk a counter upward", () => {
+    // The catch-up above happens once. If it repeated, every reload would inflate the counters
+    // a little further — so this is the property that makes the raise safe rather than a drift.
+    const authored = freshProjection();
+    authored.addJob(P1, openEndedJob);
+    authored.takeLoan({
+      month: 6,
+      ownerId: P1,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 60,
+    });
+
+    const once = Projection.fromState(authored.toState(), nullJurisdiction).toState();
+    const twice = Projection.fromState(once, nullJurisdiction).toState();
+    expect(twice).toEqual(once);
   });
 });
 
@@ -1489,22 +1683,17 @@ describe("Projection root — importing a pre-built ledger rejects one that will
     );
   });
 
-  it("fromScenario rejects an un-replayable ledger, naming the offending event", () => {
+  it("refuses before any handle escapes, so nothing partial is observable", () => {
+    // `fromState` is now the ONLY import path — `fromScenario` and `resetLedger` are gone — so
+    // the gate has one door to cover rather than three. It throws during construction, which is
+    // stronger than the old "a refused reset commits nothing": there is no handle to inspect.
     const base = freshProjection().toState();
-    const scenario = withLedger(base.scenario, unreplayable);
-    expect(() =>
-      Projection.fromScenario(scenario, SAMPLE_START_YEAR, nullJurisdiction),
-    ).toThrow(/cannot load — event "sep-1" \(SeparationEvent\) fails —/);
-  });
-
-  it("resetLedger rejects an un-replayable ledger and leaves the state untouched", () => {
-    const p = freshProjection();
-    const before = p.state;
-    expect(() => p.resetLedger(unreplayable)).toThrow(
-      /cannot load — event "sep-1" \(SeparationEvent\) fails —/,
-    );
-    // No partial projection escapes: a refused reset commits nothing.
-    expect(p.state).toBe(before);
+    const state: ProjectionState = { ...base, scenario: withLedger(base.scenario, unreplayable) };
+    let escaped: Projection | undefined;
+    expect(() => {
+      escaped = Projection.fromState(state, nullJurisdiction);
+    }).toThrow(/cannot load — event "sep-1" \(SeparationEvent\) fails —/);
+    expect(escaped).toBeUndefined();
   });
 
   it("names the offending event even when the reason itself carries no id", () => {
@@ -1555,14 +1744,8 @@ describe("Projection root — importing a pre-built ledger rejects one that will
       /cannot load — event "bogus-1" \(Frobnicate\) fails — unknown event type/,
     );
 
-    // Every import path refuses it, and a refused reset still commits nothing.
-    expect(() =>
-      Projection.fromScenario(withLedger(base.scenario, unknownType), SAMPLE_START_YEAR, nullJurisdiction),
-    ).toThrow(/unknown event type/);
-    const p = freshProjection();
-    const before = p.state;
-    expect(() => p.resetLedger(unknownType)).toThrow(/unknown event type/);
-    expect(p.state).toBe(before);
+    // `fromState` is the only import path left, so covering it covers every way an unknown
+    // type can arrive.
   });
 });
 
@@ -1669,13 +1852,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
   it("mints past a job the supplied plan already holds", () => {
     // The app's own PLAN_DEFAULTS ships a `job-1`; before the fix a counter starting at 1
     // minted a second one and the plan carried two jobs under one id.
-    const p = Projection.create(
-      {
-        plan: planWith({ jobs: [jobAt("job-1")] }),
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-1")] })), nullJurisdiction);
 
     const added = p.addJob(P1, openEndedJob);
     expect(added).not.toBe("job-1");
@@ -1685,9 +1862,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 
   it("takes the floor from every plan collection, not just the one it is minting into", () => {
-    const p = Projection.create(
-      {
-        plan: planWith({
+    const p = Projection.fromState(stateOf(planWith({
           jobs: [jobAt("job-3")],
           goals: [{
             id: "goal-7",
@@ -1698,21 +1873,17 @@ describe("Projection root — the id counter starts clear of the plan it is give
             annualReturnPct: 3,
           }],
           budgetLines: [{ ...expenseLine, id: "line-5" }],
-        }),
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+        })), nullJurisdiction);
 
     // One counter across all kinds, so the highest id in ANY collection sets the floor.
     expect(p.addJob(P1, openEndedJob)).toBe("job-8");
     expect(p.addBudgetLine(expenseLine)).toBe("line-9");
   });
 
-  it("counts ids nested inside an imported partner's own jobs", () => {
-    const p = freshProjection();
-    p.resetLedger({
-      events: [
+  it("counts ids nested inside a restored partner's own jobs", () => {
+    const p = Projection.fromState(
+      stateOf(planWith({}), {
+        events: [
         {
           id: "person-4",
           type: "RelationshipEvent",
@@ -1729,9 +1900,11 @@ describe("Projection root — the id counter starts clear of the plan it is give
             jobs: [jobAt("job-9")],
           },
         },
-      ],
-      nextSequenceNumber: 1,
-    });
+        ],
+        nextSequenceNumber: 1,
+      }),
+      nullJurisdiction,
+    );
 
     expect(p.addJob(P1, openEndedJob)).toBe("job-10");
   });
@@ -1741,13 +1914,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
     // never pass — and incrementing a non-safe integer is a no-op, so the mint would hand out
     // the SAME id forever. Ignoring it is both safe and correct: `mint` cannot have issued a
     // number it cannot count to.
-    const p = Projection.create(
-      {
-        plan: planWith({ jobs: [jobAt("job-9007199254740993")] }),
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-9007199254740993")] })), nullJurisdiction);
 
     const first = p.addJob(P1, openEndedJob);
     const second = p.addJob(P1, openEndedJob);
@@ -1757,56 +1924,48 @@ describe("Projection root — the id counter starts clear of the plan it is give
     const ids = p.plan.jobs.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
 
-    // Same guard on the import path, where the id sits in a real id field.
-    p.resetLedger({
-      events: [
-        {
-          id: "loan-9007199254740993",
-          type: "LoanEvent",
-          month: 6,
-          sequenceNumber: 0,
-          kind: "auto",
-          liabilityId: "loan-9007199254740993",
-          ownerId: P1,
-          openingBalanceCents: dollarsToCents(20_000),
-          apr: 5,
-          termMonths: 60,
-        },
-      ],
-      nextSequenceNumber: 1,
-    });
+    // Same guard on the ledger side, where the id sits in a real id field of a restored event.
+    const q = Projection.fromState(
+      stateOf(planWith({}), {
+        events: [
+          {
+            id: "loan-9007199254740993",
+            type: "LoanEvent",
+            month: 6,
+            sequenceNumber: 0,
+            kind: "auto",
+            liabilityId: "loan-9007199254740993",
+            ownerId: P1,
+            openingBalanceCents: dollarsToCents(20_000),
+            apr: 5,
+            termMonths: 60,
+          },
+        ],
+        nextSequenceNumber: 1,
+      }),
+      nullJurisdiction,
+    );
 
-    const a = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
-    const b = p.takeLoan({ month: 18, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    const a = q.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    const b = q.takeLoan({ month: 18, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
     expect(a).not.toBe(b);
-    const eventIds = p.ledger.events.map((e) => e.id);
+    const eventIds = q.ledger.events.map((e) => e.id);
     expect(new Set(eventIds).size).toBe(eventIds.length);
   });
 
-  it("never walks the counter backwards, through create or a later reset", () => {
-    const p = Projection.create(
-      {
-        plan: planWith({ jobs: [jobAt("job-6")] }),
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+  it("never walks the counter backwards, however little the restored state admits to", () => {
+    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-6")] })), nullJurisdiction);
     expect(p.addJob(P1, openEndedJob)).toBe("job-7");
 
-    // An emptier import must not release ids already spent — neither the plan's `job-6` nor
-    // the `job-7` just minted.
-    p.resetLedger(emptyLedger);
-    expect(p.addJob(P1, openEndedJob)).toBe("job-8");
+    // Restoring a state that UNDERSTATES its counter must not release ids already spent —
+    // neither the plan's `job-6` nor the `job-7` just minted. `stateOf` seeds `nextSeq: 1`,
+    // so this is that case exactly: the floor is read off what the state holds, not trusted.
+    const reloaded = Projection.fromState(stateOf(p.plan), nullJurisdiction);
+    expect(reloaded.addJob(P1, openEndedJob)).toBe("job-8");
   });
 
   it("still addresses the right entity after the counter has been advanced", () => {
-    const p = Projection.create(
-      {
-        plan: planWith({ jobs: [jobAt("job-1")] }),
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-1")] })), nullJurisdiction);
     const added = p.addJob(P1, openEndedJob);
 
     p.updateJob(added, { name: "Second job" });
@@ -1818,55 +1977,49 @@ describe("Projection root — the id counter starts clear of the plan it is give
   });
 });
 
-describe("Projection root — an authored id claims the counter", () => {
-  const partnerJob = (id: string) => ({
-    id,
-    ownerId: "partner" as PersonId,
-    startYear: SAMPLE_START_YEAR,
-    endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 },
+/**
+ * No authoring input carries an `id`, so the counter is the only thing that issues one. What
+ * still needs flooring is an id that arrives WITHOUT passing through the mint: a revision that
+ * introduces a whole event, or an imported state (covered in the round-trip suite above).
+ */
+describe("Projection root — the counter floors ids it did not mint", () => {
+  it("mints from one counter across every kind, so two things never share a number", () => {
+    const p = freshProjection();
+    const ids = [
+      p.addGoal(carGoalInput),
+      p.addJob(P1, openEndedJob),
+      p.addBudgetLine(expenseLine),
+      p.takeLoan({
+        month: 6,
+        ownerId: P1,
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(20000),
+        apr: 5,
+        termMonths: 60,
+      }),
+    ];
+    // Distinct, and each says what it names — one counter, so the numbers never repeat.
+    expect(ids).toEqual(["goal-1", "job-2", "line-3", "loan-4"]);
   });
 
-  it("steps over an explicitly authored id rather than minting onto it", () => {
-    const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "job-2" });
+  /** A handle over a plan that already holds a job named elsewhere — the import case. */
+  const importedHolding = (jobId: string) =>
+    Projection.fromState(stateOf({
+          ...samplePlan,
+          goals: [],
+          budgetLines: [],
+          jobs: [{ ...openEndedJob, id: jobId, ownerId: P1 }],
+        }), nullJurisdiction);
 
-    const second = p.addJob(P1, openEndedJob);
-    const third = p.addJob(P1, openEndedJob);
-
-    // Before the fix the override consumed nothing, so the mint walked 1, 2 — straight back
-    // onto the authored id.
-    expect(second).toBe("job-3");
-    expect(third).toBe("job-4");
-    const ids = p.plan.jobs.map((j) => j.id);
-    expect(ids).toEqual(["job-2", "job-3", "job-4"]);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it("claims the shared counter, so an override of one kind moves every kind", () => {
-    const p = freshProjection();
-    p.addGoal({
-      name: "Car",
-      targetCents: dollarsToCents(30000),
-      targetDate: 36,
-      disposition: "retain",
-      annualReturnPct: 3,
-      id: "goal-6",
-    });
-    // One counter across all kinds — `goal-6` spends 6 for jobs and loans too.
-    expect(p.addJob(P1, openEndedJob)).toBe("job-7");
-  });
-
-  it("leaves the counter alone for an id it did not mint", () => {
-    const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "external-payroll-job" });
-    // Not a shape `mint` produces, so no future id can collide with it and nothing is spent.
+  it("leaves the counter alone for an imported id it could not have minted", () => {
+    const p = importedHolding("external-payroll-job");
+    // Not a shape `mint` produces, so no id it goes on to issue can collide with it and
+    // nothing is spent stepping over it.
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");
   });
 
-  it("leaves the counter alone for a suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
-    const p = freshProjection();
-    p.addJob(P1, { ...openEndedJob, id: "job-9007199254740993" });
+  it("ignores an imported suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
+    const p = importedHolding("job-9007199254740993");
 
     const a = p.addJob(P1, openEndedJob);
     const b = p.addJob(P1, openEndedJob);
@@ -1878,48 +2031,34 @@ describe("Projection root — an authored id claims the counter", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("floors the counter on ids a transaction CARRIES, not just the one it mints", () => {
-    // A partner arrives already holding `job-9`. It never passes through the mint, so only a
-    // floor taken from the committed state sees it.
-    const p = freshProjection();
-    p.marry({
-      month: 24,
-      name: "Partner",
-      birthYear: 1988,
-      id: "partner",
-      jobs: [partnerJob("job-9")],
-    });
-
-    expect(p.addJob(P1, openEndedJob)).toBe("job-10");
+  it("steps over an imported id of minted shape rather than reissuing it", () => {
+    const p = importedHolding("job-2");
+    // `job-2` is one of ours, so the counter must clear it — minting 1 then 2 would hand out
+    // an id the plan already holds.
+    const second = p.addJob(P1, openEndedJob);
+    expect(second).toBe("job-3");
+    const ids = p.plan.jobs.map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("floors the counter on ids a revision introduces", () => {
+  it("has nothing to floor after a revision, because a revision introduces no id", () => {
     const p = freshProjection();
-    p.marry({ month: 24, name: "Partner", birthYear: 1988, id: "partner" });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 }) as PersonId;
     // The shared counter floors both ids and sequence numbers, so the marriage's own event
     // (which takes the first sequence number) steps the counter one past it — the first
     // authored job is `job-2`, a harmless gap, the same as any other construction path.
     expect(p.addJob(P1, openEndedJob)).toBe("job-2");
+    const spent = p.toState().nextSeq;
 
-    // The partner picks up a job named elsewhere — a second way nested ids arrive.
-    p.reviseTransaction("partner", {
-      id: "partner",
-      type: "RelationshipEvent",
-      month: 24,
-      person: {
-        id: "partner",
-        name: "Partner",
-        birthYear: 1988,
-        retirementTargetAge: 65,
-        benefitClaimingAge: 67,
-        jobs: [partnerJob("job-12")],
-      },
-    });
+    // A revision names data, never an entity, so it cannot smuggle an id into the ledger the
+    // way a caller-built event once could. The counter has nothing to step over.
+    p.reviseTransaction(partnerId, { type: "marry", month: 30, name: "Renamed" });
 
-    expect(p.addJob(P1, openEndedJob)).toBe("job-13");
+    expect(p.toState().nextSeq).toBe(spent);
+    expect(p.addJob(P1, openEndedJob)).toBe("job-3");
   });
 
-  it("a refused transaction consumes no id, override or not", () => {
+  it("a refused transaction consumes no id", () => {
     const p = freshProjection();
     const before = p.state;
 
@@ -1927,7 +2066,6 @@ describe("Projection root — an authored id claims the counter", () => {
       p.buyHome({
         month: 12,
         ownerId: P1,
-        id: "home-8",
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
         downPaymentSourceIds: ["savings"],
@@ -1936,7 +2074,7 @@ describe("Projection root — an authored id claims the counter", () => {
       }),
     ).toThrow();
 
-    // The refusal never reached the commit, so `home-8` claimed nothing.
+    // The refusal never reached the commit, so it claimed nothing.
     expect(p.state).toBe(before);
     expect(p.state.nextSeq).toBe(before.nextSeq);
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");
@@ -2202,27 +2340,22 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 });
 
 describe("Projection root — per-line monthly resolution in the result", () => {
-  const RENT = "line:rent";
-  const FUN = "line:fun";
+  /**
+   * `allocations()` keys each line `line:<id>`, and the engine mints that id — so a test adds
+   * the line, keeps what `addBudgetLine` returned, and builds the key from it.
+   */
+  const keyOf = (id: string) => `line:${id}`;
 
   it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
     // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
-    const p = Projection.create(
-      {
-        plan: { ...samplePlan, goals: [] },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
-    p.addBudgetLine({
-      id: "rent",
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const rent = p.addBudgetLine({
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
@@ -2231,16 +2364,14 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     const flows = p.run(nullJurisdiction).series.months[1]?.flows;
     // Keyed by the allocations() id (`line:<id>`).
-    expect(flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(2_000));
-    expect(flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(500));
+    expect(flows?.lineMonthlyCents[keyOf(rent)]).toBe(dollarsToCents(2_000));
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBe(dollarsToCents(500));
   });
 
   it("reports every line at its full amount even once the plan is insolvent", () => {
     // $3k/mo income against a $6k/mo budget, no assets to liquidate → a genuine
     // shortfall. Priority funds rent (a need) before fun (a want).
-    const p = Projection.create(
-      {
-        plan: {
+    const p = Projection.fromState(stateOf({
           ...samplePlan,
           jobs: [salariedJob(dollarsToCents(3_000))],
           openingBalanceCents: 0,
@@ -2248,20 +2379,14 @@ describe("Projection root — per-line monthly resolution in the result", () => 
           healthMonthlyCents: 0,
           postCoverageHealthMonthlyCents: 0,
           enrollsInPublicHealthCoverage: false,
-        },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
-    p.addBudgetLine({
-      id: "rent",
+        }), nullJurisdiction);
+    const rent = p.addBudgetLine({
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(4_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
@@ -2272,8 +2397,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     // A squeezed month is absorbed by savings, then credit — the household really did pay
     // for all of it.
-    expect(months[1]?.flows?.lineMonthlyCents[FUN]).toBe(dollarsToCents(2_000));
-    expect(months[1]?.flows?.lineMonthlyCents[RENT]).toBe(dollarsToCents(4_000));
+    expect(months[1]?.flows?.lineMonthlyCents[keyOf(fun)]).toBe(dollarsToCents(2_000));
+    expect(months[1]?.flows?.lineMonthlyCents[keyOf(rent)]).toBe(dollarsToCents(4_000));
 
     // Once even credit is exhausted the budget is still reported as authored: the engine
     // surfaces that the plan broke (`isInsolvent`), it does not decide which spending the
@@ -2281,8 +2406,8 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     const broke = months.findIndex((m) => m.isInsolvent);
     expect(broke).toBeGreaterThan(1);
     const flows = months[broke]?.flows;
-    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0);
-    expect(flows?.lineMonthlyCents[RENT]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBeGreaterThan(0);
+    expect(flows?.lineMonthlyCents[keyOf(rent)]).toBeGreaterThan(0);
     // The per-line map and the coarse rollup agree: nothing was rationed away.
     const lineTotal = Object.values(flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(lineTotal).toBe(flows?.expensesCents);
@@ -2292,29 +2417,21 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     // samplePlan retires at 60 and claims its benefit at 67, so ages 60–67 have no income
     // at all. Funding the budget by drawing savings down is the plan working, not a starved
     // budget.
-    const p = Projection.create(
-      {
-        plan: {
+    const p = Projection.fromState(stateOf({
           ...samplePlan,
           openingBalanceCents: dollarsToCents(2_000_000),
           goals: [],
           healthMonthlyCents: 0,
           postCoverageHealthMonthlyCents: 0,
           enrollsInPublicHealthCoverage: false,
-        },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+        }), nullJurisdiction);
     p.addBudgetLine({
-      id: "rent",
       label: "Rent",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(2_000) },
       category: "needs",
     });
-    p.addBudgetLine({
-      id: "fun",
+    const fun = p.addBudgetLine({
       label: "Fun",
       target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
@@ -2332,7 +2449,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     const fundedTotal = (m: number): number =>
       Object.values(months[m]?.flows?.lineMonthlyCents ?? {}).reduce((a, b) => a + b, 0);
     expect(fundedTotal(gapMonth)).toBe(flows?.expensesCents);
-    expect(flows?.lineMonthlyCents[FUN]).toBeGreaterThan(0); // the first line to starve
+    expect(flows?.lineMonthlyCents[keyOf(fun)]).toBeGreaterThan(0); // the first line to starve
 
     // Nothing starves anywhere across the whole gap.
     for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {
@@ -2379,10 +2496,7 @@ describe("Projection root — authoring validates against the construction-time 
   } as const;
 
   function nestProjection(jurisdiction: Jurisdiction): Projection {
-    return Projection.create(
-      { plan: { ...samplePlan, goals: [NEST_GOAL] }, startYear: SAMPLE_START_YEAR },
-      jurisdiction,
-    );
+    return Projection.fromState(stateOf({ ...samplePlan, goals: [NEST_GOAL] }), jurisdiction);
   }
 
   // A $90k down payment against a ~$96.8k balance: the face balance covers it, the capital-gains
@@ -2451,10 +2565,7 @@ describe("Projection reads — over authored state", () => {
   });
 
   it("names the events a goal's fund account pays for, and nothing else", () => {
-    const p = Projection.create(
-      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     const homeId = p.buyHome({
       month: 12,
       ownerId: P1,
@@ -2477,9 +2588,7 @@ describe("Projection reads — over authored state", () => {
       category: "needs" as const,
       ...(overrides ? { overrides } : {}),
     });
-    const p = Projection.create(
-      {
-        plan: {
+    const p = Projection.fromState(stateOf({
           ...samplePlan,
           inflationPct: 0,
           budgetLines: [
@@ -2495,11 +2604,7 @@ describe("Projection reads — over authored state", () => {
               category: "savings",
             },
           ],
-        },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+        }), nullJurisdiction);
 
     const at = (month: number) => p.expenseRowsAt(month)[0];
     expect(at(0)).toMatchObject({ monthlyCents: dollarsToCents(1600), overridden: false });
@@ -2514,17 +2619,11 @@ describe("Projection reads — over authored state", () => {
   });
 
   it("grows a row into the selected month's dollars, so editor and graph agree", () => {
-    const p = Projection.create(
-      {
-        plan: {
+    const p = Projection.fromState(stateOf({
           ...samplePlan,
           inflationPct: 3,
           budgetLines: [spendLine(dollarsToCents(600))],
-        },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+        }), nullJurisdiction);
     expect(p.expenseRowsAt(0)[0]?.monthlyCents).toBe(dollarsToCents(600));
     const tenYearsOn = p.expenseRowsAt(120)[0]?.monthlyCents ?? 0;
     expect(Math.abs(tenYearsOn - dollarsToCents(600) * Math.pow(1.03, 10))).toBeLessThanOrEqual(2);
@@ -2589,9 +2688,7 @@ describe("Projection.retirement — the whole question, one search", () => {
   });
 
   const outlookOf = (plan: typeof samplePlan, jurisdiction = nullJurisdiction) =>
-    Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).retirement(
-      jurisdiction,
-    );
+    Projection.fromState(stateOf(plan), nullJurisdiction).retirement(jurisdiction);
 
   it("evaluates the plan's OWN target age, not one it was told", () => {
     expect(outlookOf({ ...samplePlan, retirementAge: 62 }).target.retirementAge).toBe(62);
@@ -2632,7 +2729,7 @@ describe("Projection.retirement — the whole question, one search", () => {
   });
 
   it("leaves run() alone — a simulation is not a search", () => {
-    const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     const result = p.run(nullJurisdiction);
     // Nothing on a run answers the retirement question, so a caller that only wants the graph
     // never pays for the search.
@@ -2645,16 +2742,11 @@ describe("ProjectionResult reads — over one run", () => {
   const RUN_JURISDICTION = nullJurisdiction;
 
   function ranPlan(plan: typeof samplePlan) {
-    return Projection.create({ plan, startYear: SAMPLE_START_YEAR }, nullJurisdiction).run(
-      RUN_JURISDICTION,
-    );
+    return Projection.fromState(stateOf(plan), nullJurisdiction).run(RUN_JURISDICTION);
   }
 
   it("reports who is in the household at a month, and only from the month they joined", () => {
-    const p = Projection.create(
-      { plan: samplePlan, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38 });
     const result = p.run(RUN_JURISDICTION);
     expect(result.membersAt(0).map((m) => m.id)).toEqual(["p1"]);
@@ -2690,13 +2782,7 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   };
 
   const ranWith = (monthlyIncomeCents: number) =>
-    Projection.create(
-      {
-        plan: { ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    ).run(nullJurisdiction);
+    Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] }), nullJurisdiction).run(nullJurisdiction);
 
   it("flags a purchase that pushes housing past the front-end guideline", () => {
     // ~$1,517/mo of mortgage against $5,000/mo gross is over 28%.
@@ -2721,10 +2807,7 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("flags nothing at zero gross income rather than dividing by it", () => {
-    const dti = Projection.create(
-      { plan: { ...samplePlan, jobs: [] }, startYear: SAMPLE_START_YEAR },
-      nullJurisdiction,
-    )
+    const dti = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction)
       .run(nullJurisdiction)
       .assessHomePurchase(purchase);
     expect(dti.monthlyGrossCents).toBe(0);
@@ -2733,13 +2816,7 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("counts debt already being serviced toward the back-end ratio", () => {
-    const p = Projection.create(
-      {
-        plan: { ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] },
-        startYear: SAMPLE_START_YEAR,
-      },
-      nullJurisdiction,
-    );
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] }), nullJurisdiction);
     // Read a year in, where the loan taken at month 0 is being serviced.
     const later = { ...purchase, month: 12 };
     const clean = p.run(nullJurisdiction).assessHomePurchase(later);

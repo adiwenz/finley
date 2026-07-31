@@ -7,56 +7,39 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  interpretLedger,
-  buildHouseholdSimInput,
-  simulateHousehold,
-  createProjectionBase,
+  Projection,
   firstInsolventMonth,
   dollarsToCents,
+  ref,
   CONTRIBUTION_TARGETS,
   type BudgetLine,
-  type ProjectionContext,
+  type Plan,
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import {
-  Projection,
-  addEvent,
-  emptyLedger,
-  type Ledger,
-  type LedgerBaseConfig,
-  type NewLifeEvent,
-} from "@finley/engine";
-import { PRESETS, presetById, type Preset } from "./presets";
+import { PRESETS, presetById, presetState, type Preset } from "./presets";
+import { PLAN_DEFAULTS } from "./planDefaults";
+import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
 
 /**
- * Replays a preset's seeds through the same `addEvent` path the live UI's authoring writes
- * take, so they validate like hand-added events. The oracle these tests check `presetState`
- * against: a rejected seed is a preset bug, not user error, so it throws rather than silently
- * dropping the event.
+ * Build a preset's declared {@link Projection}: a single `fromInput` over its `ScenarioInput`,
+ * the same path {@link presetState} takes. A rejected preset is a preset bug, not user error, so
+ * this throws rather than skipping the scenario.
  */
-function buildPresetLedger(base: LedgerBaseConfig, events: readonly NewLifeEvent[]): Ledger {
-  let ledger = emptyLedger;
-  for (const event of events) {
-    const result = addEvent(ledger, base, event, usJurisdiction);
-    if (!result.ok) {
-      throw new Error(`Preset seed event "${event.id}" was rejected: ${result.conflict}`);
-    }
-    ledger = result.ledger;
-  }
-  return ledger;
+function projectionOf(preset: Preset): Projection {
+  const built = Projection.fromInput(preset.input, usJurisdiction);
+  if (!built.ok) throw new Error(`Preset "${preset.id}" was rejected: ${built.error.reason}`);
+  return built.projection;
 }
-import { buildPerLineBudgetData } from "./components/baseAdjustments/perLineBudget";
-import { START_YEAR } from "./config";
 
-const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
+/** The built plan the preset resolves to — jobs and goals minted, budget lines label-keyed. */
+function planOf(preset: Preset): Plan {
+  return projectionOf(preset).plan;
+}
 
 /** Reproduce the app's projection pipeline for a preset (plan + its seed events). */
 function project(preset: Preset): ProjectionSeries {
-  const base = createProjectionBase(preset.plan, CTX);
-  const ledger = buildPresetLedger(base, preset.events);
-  const household = interpretLedger(ledger, base);
-  return simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
+  return projectionOf(preset).run(usJurisdiction).series;
 }
 
 const realNetWorthAt = (series: ProjectionSeries, month: number): number | null =>
@@ -102,12 +85,14 @@ describe("default simulations", () => {
       expect(preset.label.length).toBeGreaterThan(0);
       expect(preset.description.length).toBeGreaterThan(0);
     }
-    expect(PRESETS[0].plan).toEqual(presetById("default").plan);
+    // The healthy default preset reproduces the plan a fresh session already opens on, rather
+    // than authoring a second source of truth for it.
+    expect(planOf(PRESETS[0])).toEqual(PLAN_DEFAULTS);
   });
 
   it("every preset opens on an editable line-item budget totalling its authored spend", () => {
     for (const preset of PRESETS) {
-      const lines = preset.plan.budgetLines;
+      const lines = planOf(preset).budgetLines;
       // No lines opens the Base + Adjustments editor onto an empty spending chart.
       expect(lines.length).toBeGreaterThan(0);
       // Expense targets ONLY: an `account` line is a contribution the waterfall funds, not
@@ -122,20 +107,25 @@ describe("default simulations", () => {
     // touches it, and a preset may yet ship one. Pin the split rather than the accident.
     const preset = presetById("student-loan");
     const account = CONTRIBUTION_TARGETS[0];
-    const savings: BudgetLine = {
-      id: "seed-savings",
+    // Authored as an entry: the account is named by ref (a well-known standing account resolves
+    // to itself) and the line's own id is minted, like every other.
+    const savings = {
       label: "Savings",
-      target: { kind: "account", accountId: account.accountId, taxTreatment: account.taxTreatment },
-      amountSource: { kind: "literal", monthlyCents: dollarsToCents(400) },
-      category: "savings",
+      target: {
+        kind: "account" as const,
+        accountRef: ref(account.accountId),
+        taxTreatment: account.taxTreatment,
+      },
+      amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(400) },
+      category: "savings" as const,
     };
     const withSavings: Preset = {
       ...preset,
-      plan: { ...preset.plan, budgetLines: [...preset.plan.budgetLines, savings] },
+      input: { ...preset.input, budgetLines: [...(preset.input.budgetLines ?? []), savings] },
     };
 
     // The contribution reaches the budget but never the spending obligation.
-    expect(expenseTotal(withSavings.plan.budgetLines)).toBe(AUTHORED_SPEND["student-loan"]);
+    expect(expenseTotal(planOf(withSavings).budgetLines)).toBe(AUTHORED_SPEND["student-loan"]);
     const before = project(preset);
     const after = project(withSavings);
     const expensesAt = (s: ProjectionSeries, month: number): number | null =>
@@ -213,23 +203,80 @@ describe("default simulations", () => {
     expect(defaultMaxSSTax).toBeLessThan(dollarsToCents(150));
   });
 
+  it("authors the seed loan through fromInput, letting the engine mint its ids", () => {
+    // The preset is a single declarative `ScenarioInput` built through `fromInput`, not a
+    // hand-built ledger. It names the loan only by `ref`, so both the event id and the liability
+    // id come off the counter — no authored string ("e0", "loan-student") survives into state.
+    const loan = presetState(presetById("student-loan")).scenario.ledger.events.find(
+      (e) => e.type === "LoanEvent",
+    );
+    expect(loan?.id).toMatch(/^loan-\d+$/);
+    expect(loan?.type === "LoanEvent" && loan.liabilityId).toMatch(/^loan-\d+$/);
+    // The authoring method mints the event and its liability as ONE id.
+    expect(loan?.type === "LoanEvent" && loan.liabilityId).toBe(loan?.id);
+  });
+
   it("student-loan: opens underwater on a student loan, then digs out of it", () => {
-    const series = project(presetById("student-loan"));
+    const preset = presetById("student-loan");
+    const series = project(preset);
     // Net worth starts negative — assets minus the student-loan liability.
     expect(realNetWorthAt(series, 0)!).toBeLessThan(0);
-    // The loan is a real amortizing student-loan liability at "now", not a cash hack.
-    expect(series.months[0]?.liabilityBalancesCents).toHaveProperty("loan-student");
+    // The loan is a real amortizing student-loan liability at "now", not a cash hack. Its id is
+    // read back off the built ledger rather than assumed.
+    const loan = presetState(preset).scenario.ledger.events.find((e) => e.type === "LoanEvent");
+    expect(series.months[0]?.liabilityBalancesCents).toHaveProperty(loan!.id);
     // A solid income services it.
     expect(realNetWorthAt(series, 120)!).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `taxed-in-retirement` is NOT one of the three teaching scenarios: it keeps the default
+ * household's two goals and its $700/$500 health figures, because it was tuned against that
+ * household to show retirement withdrawals being taxed. Folding it into the teaching helper —
+ * which drops the goals and trims health to $450/$350 so an income/expense gap reads cleanly —
+ * silently changed the scenario while every simulation-shape assertion above stayed green. These
+ * assert the authored inputs directly, so the two can never be conflated again.
+ */
+describe("taxed-in-retirement — authored inputs, not just projected shape", () => {
+  const plan = () => planOf(presetById("taxed-in-retirement"));
+
+  it("keeps the default household's two goals", () => {
+    const goals = plan().goals;
+    expect(goals.map((g) => g.name)).toEqual(["Emergency fund", "Home down payment"]);
+    // Same targets and horizons as the plan a fresh session opens on — this preset varies the
+    // job, the budget, the return and the life expectancy, and nothing else.
+    expect(goals.map((g) => g.targetCents)).toEqual(
+      PLAN_DEFAULTS.goals.map((g) => g.targetCents),
+    );
+    expect(goals.map((g) => g.targetDate)).toEqual(PLAN_DEFAULTS.goals.map((g) => g.targetDate));
+  });
+
+  it("keeps the $700/$500 healthcare assumptions", () => {
+    expect(plan().healthMonthlyCents).toBe(dollarsToCents(700));
+    expect(plan().postCoverageHealthMonthlyCents).toBe(dollarsToCents(500));
+    // Stated as the default's values, not as literals that could drift apart from them.
+    expect(plan().healthMonthlyCents).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+    expect(plan().postCoverageHealthMonthlyCents).toBe(
+      PLAN_DEFAULTS.postCoverageHealthMonthlyCents,
+    );
+  });
+
+  it("varies only the job, budget, retirement return and life expectancy", () => {
+    // The three teaching scenarios DO drop the goals and trim health; this pins that
+    // taxed-in-retirement is not one of them.
+    const teaching = planOf(presetById("paycheck-to-paycheck"));
+    expect(teaching.goals).toEqual([]);
+    expect(teaching.healthMonthlyCents).toBe(dollarsToCents(450));
+    expect(plan().retirementReturnPct).toBe(4);
+    expect(plan().lifeExpectancy).toBe(72);
   });
 });
 
 describe("the two graphs are one quantity", () => {
   /** The app's own wiring: the graph reads the engine's itemized spending, nothing else. */
   function budgetChart(preset: Preset) {
-    const base = createProjectionBase(preset.plan, CTX);
-    const household = interpretLedger(buildPresetLedger(base, preset.events), base);
-    const series = simulateHousehold(buildHouseholdSimInput(household, base), usJurisdiction);
+    const series = project(preset);
     return { series, data: buildPerLineBudgetData(series) };
   }
 
@@ -256,14 +303,7 @@ describe("the panel and the graph agree", () => {
   it.each(PRESETS.map((p) => p.id))(
     "%s: retirement is called infeasible only when the projection actually runs out",
     (id) => {
-      const preset = presetById(id);
-      const base = createProjectionBase(preset.plan, CTX);
-      const ledger = buildPresetLedger(base, preset.events);
-      const projection = Projection.fromScenario(
-        { plan: preset.plan, ledger },
-        START_YEAR,
-        usJurisdiction,
-      );
+      const projection = projectionOf(presetById(id));
       const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
@@ -274,13 +314,7 @@ describe("the panel and the graph agree", () => {
   );
 
   it("student-loan: an underwater opening still has a feasible retirement age", () => {
-    const preset = presetById("student-loan");
-    const base = createProjectionBase(preset.plan, CTX);
-    const projection = Projection.fromScenario(
-      { plan: preset.plan, ledger: buildPresetLedger(base, preset.events) },
-      START_YEAR,
-      usJurisdiction,
-    );
+    const projection = projectionOf(presetById("student-loan"));
     expect(projection.run(usJurisdiction).series.months[0]!.netWorthRealCents).toBeLessThan(0);
     expect(projection.retirement(usJurisdiction).solution.fullRetirementAge).not.toBeNull();
   });

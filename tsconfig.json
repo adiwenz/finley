@@ -19,5 +19,5 @@
       "@finley/rules": ["packages/rules/src/index.ts"]
     }
   },
-  "include": ["packages/*/src", "packages/app/vite.config.ts", "vitest.config.ts"]
+  "include": ["packages/*/src", "packages/app/vite.config.ts", "vitest.config.ts", "playground.ts", "repl.ts"]
 }

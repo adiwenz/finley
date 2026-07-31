@@ -1,62 +1,55 @@
 /**
- * Starter simulations, beyond the healthy {@link PLAN_DEFAULTS} ("Alex") a fresh plan opens on.
- * Each is a full {@link Scenario} — plan plus events — so what the user loads is what the engine
- * projects. The numbers are tuned against the live engine (`presets.test.ts`) to project to
- * their intended shape.
+ * Starter simulations, beyond the healthy {@link DEFAULT_INPUT} ("Alex") a fresh plan opens on.
+ * Each is a single declarative {@link ScenarioInput} — plan *and* timeline — built through
+ * {@link Projection.fromInput}, so the engine mints every id and no preset hand-writes one. The
+ * numbers are tuned against the live engine (`presets.test.ts`) to project to their intended
+ * shape.
  */
 
 import {
   dollarsToCents,
   Projection,
-  PRIMARY_PERSON_ID,
-  RETIREMENT_ID,
-  type Plan,
-  type Job,
+  ref,
+  PRIMARY_PERSON_REF,
   type BudgetLine,
-  type LifeEvent,
-  type NewLifeEvent,
+  type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "./config";
-import { PLAN_DEFAULTS } from "./planDefaults";
+import { DEFAULT_INPUT } from "./planDefaults";
 
 /**
- * A named starting point. Authored events rather than a pre-built {@link Ledger}, so each
- * replays through the UI's own validation — a preset can never smuggle in an event the event
- * form would reject.
+ * A named starting point: one {@link ScenarioInput} the app builds into a scenario. Authored
+ * declaratively rather than as a pre-built {@link import("@finley/engine").Ledger}, so each
+ * replays through the engine's own authoring — a preset can never smuggle in an event the
+ * event form would reject.
  */
 export interface Preset {
   readonly id: string;
   readonly label: string;
   readonly description: string;
-  readonly plan: Plan;
-  readonly events: readonly NewLifeEvent[];
+  readonly input: ScenarioInput;
 }
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
 
-/** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. */
-function salariedJob(monthlyCents: number): Job {
-  return {
-    id: "job-1",
-    ownerId: PRIMARY_PERSON_ID,
-    startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
-    endYear: null,
-    salary: { startingSalaryCents: monthlyCents * 12, realGrowthPct: 0 },
-  };
-}
+const START_JOB_YEAR = DEFAULT_INPUT.startYear - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE;
 
-/** A flat monthly expense line. A preset's spend is authored as these and nothing else. */
+/** One budget line entry / one job entry, derived structurally so neither sub-type is named. */
+type BudgetEntry = NonNullable<ScenarioInput["budgetLines"]>[number];
+type JobEntry = NonNullable<ScenarioInput["jobs"]>[number];
+
+/**
+ * A budget line authored ID-free — the engine mints the id every surface then keys on. The label
+ * is what a reader identifies the line by; nothing in the app or its tests may assume the id.
+ */
 function expenseLine(
-  id: string,
   label: string,
   category: BudgetLine["category"],
   monthlyDollars: number,
-): BudgetLine {
+): BudgetEntry {
   return {
-    id,
     label,
     target: { kind: "expense" },
     amountSource: { kind: "literal", monthlyCents: dollarsToCents(monthlyDollars) },
@@ -72,40 +65,55 @@ function expenseLine(
  */
 
 /** $3,600/mo. Sam and Jordan run the same household on different paychecks — that IS the pair. */
-const MODEST_BUDGET: readonly BudgetLine[] = [
-  expenseLine("housing", "Housing", "needs", 1_650),
-  expenseLine("groceries", "Groceries", "needs", 720),
-  expenseLine("transport", "Transportation", "needs", 460),
-  expenseLine("dining", "Dining & fun", "wants", 570),
-  expenseLine("subscriptions", "Subscriptions", "wants", 200),
+const MODEST_BUDGET = [
+  expenseLine("Housing", "needs", 1_650),
+  expenseLine("Groceries", "needs", 720),
+  expenseLine("Transportation", "needs", 460),
+  expenseLine("Dining & fun", "wants", 570),
+  expenseLine("Subscriptions", "wants", 200),
 ];
 
 /** $3,000/mo — a new graduate living below a solid salary to dig out from under a loan. */
-const LEAN_BUDGET: readonly BudgetLine[] = [
-  expenseLine("housing", "Housing", "needs", 1_400),
-  expenseLine("groceries", "Groceries", "needs", 600),
-  expenseLine("transport", "Transportation", "needs", 400),
-  expenseLine("dining", "Dining & fun", "wants", 450),
-  expenseLine("subscriptions", "Subscriptions", "wants", 150),
+const LEAN_BUDGET = [
+  expenseLine("Housing", "needs", 1_400),
+  expenseLine("Groceries", "needs", 600),
+  expenseLine("Transportation", "needs", 400),
+  expenseLine("Dining & fun", "wants", 450),
+  expenseLine("Subscriptions", "wants", 150),
 ];
 
 /** $5,500/mo — high enough that cash never piles up, forcing the 401(k) to fund retirement. */
-const COMFORTABLE_BUDGET: readonly BudgetLine[] = [
-  expenseLine("housing", "Housing", "needs", 2_500),
-  expenseLine("groceries", "Groceries", "needs", 950),
-  expenseLine("transport", "Transportation", "needs", 650),
-  expenseLine("dining", "Dining & fun", "wants", 1_000),
-  expenseLine("subscriptions", "Subscriptions", "wants", 400),
+const COMFORTABLE_BUDGET = [
+  expenseLine("Housing", "needs", 2_500),
+  expenseLine("Groceries", "needs", 950),
+  expenseLine("Transportation", "needs", 650),
+  expenseLine("Dining & fun", "wants", 1_000),
+  expenseLine("Subscriptions", "wants", 400),
 ];
 
-/**
- * Each teaching scenario is one legible income/expense gap, with health trimmed below the
- * default's ~$700 so that gap — not a medical line — sets the trajectory. The budget is passed
- * in rather than derived: a scenario states its spend as lines, the only expense surface there is.
- */
-function teachingPlan(budgetLines: readonly BudgetLine[], over: Partial<Plan>): Plan {
+/** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. Its
+ * owner is omitted, so it binds to the primary person, and its id is minted. */
+function salariedJob(monthlyCents: number): JobEntry {
   return {
-    ...PLAN_DEFAULTS,
+    startYear: START_JOB_YEAR,
+    endYear: null,
+    salary: { startingSalaryCents: monthlyCents * 12, realGrowthPct: 0 },
+  };
+}
+
+/**
+ * Each teaching scenario is one legible income/expense gap. It inherits the default's scalars
+ * (returns, ages, inflation), drops the goals so the gap — not a goal's accumulation — sets the
+ * trajectory, and trims health below the default's ~$700 so no medical line dominates. The budget
+ * and any overrides are layered on: a scenario states its spend as lines, the only expense
+ * surface there is.
+ */
+function teachingInput(
+  budgetLines: readonly BudgetEntry[],
+  over: Partial<ScenarioInput>,
+): ScenarioInput {
+  return {
+    ...DEFAULT_INPUT,
     goals: [],
     healthMonthlyCents: dollarsToCents(450),
     postCoverageHealthMonthlyCents: dollarsToCents(350),
@@ -118,7 +126,7 @@ function teachingPlan(budgetLines: readonly BudgetLine[], over: Partial<Plan>): 
  * A modest salary spent almost entirely each month: net worth clings to a thin buffer through
  * the working years, and with no cushion retirement is unfundable.
  */
-const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(MODEST_BUDGET, {
+const PAYCHECK_TO_PAYCHECK = teachingInput(MODEST_BUDGET, {
   name: "Sam",
   jobs: [salariedJob(dollarsToCents(4500))],
   openingBalanceCents: dollarsToCents(1500),
@@ -128,7 +136,7 @@ const PAYCHECK_TO_PAYCHECK: Plan = teachingPlan(MODEST_BUDGET, {
  * Expenses outrun income from month 0, so the shortfall cascade routes the gap onto a synthetic
  * credit card compounding at ~22%, dragging net worth negative within the first year.
  */
-const LIVING_ON_CREDIT: Plan = teachingPlan(MODEST_BUDGET, {
+const LIVING_ON_CREDIT = teachingInput(MODEST_BUDGET, {
   name: "Jordan",
   jobs: [salariedJob(dollarsToCents(3800))],
   openingBalanceCents: dollarsToCents(1000),
@@ -136,12 +144,26 @@ const LIVING_ON_CREDIT: Plan = teachingPlan(MODEST_BUDGET, {
 
 /**
  * A new graduate on a solid salary carrying a $45k loan: net worth opens underwater and climbs
- * back above zero within a decade — the "negative but improving" case.
+ * back above zero within a decade — the "negative but improving" case. The loan is the one seed
+ * event, taken at "now". Its `ref` names it only while the document is applied; the engine mints
+ * the event and liability ids, and a caller that needs them reads them off the built ledger.
  */
-const STUDENT_LOAN: Plan = teachingPlan(LEAN_BUDGET, {
+const STUDENT_LOAN = teachingInput(LEAN_BUDGET, {
   name: "Riley",
   jobs: [salariedJob(dollarsToCents(6000))],
   openingBalanceCents: dollarsToCents(4000),
+  events: [
+    {
+      type: "takeLoan",
+      ref: ref("studentLoan"),
+      month: 0,
+      ownerRef: PRIMARY_PERSON_REF,
+      kind: "studentLoan",
+      openingBalanceCents: dollarsToCents(45000),
+      apr: 0.06,
+      termMonths: 12 * 10,
+    },
+  ],
 });
 
 /**
@@ -152,34 +174,30 @@ const STUDENT_LOAN: Plan = teachingPlan(LEAN_BUDGET, {
  *
  * Tuning: $5.5k spend forces the 401(k) to fund retirement (lower, and cash covers it tax-free,
  * leaving SS barely taxed); life expectancy 72 stops short of the age-73 RMDs that would spike
- * the tax chart annually.
+ * the tax chart annually. The deferral omits its fund-account ref, so it funds the standing
+ * 401(k).
+ *
+ * NOT a {@link teachingInput}: this one keeps the default's two goals and its $700/$500 health
+ * figures. The three scenarios above teach an income/expense gap, which a goal's accumulation
+ * would blur; this one teaches what retirement withdrawals are taxed, and it was tuned against
+ * the default household — goals and all. `presets.test.ts` pins those values so the distinction
+ * cannot be flattened by folding this back into the teaching helper.
  */
-const TAXED_IN_RETIREMENT: Plan = {
-  ...PLAN_DEFAULTS,
+const TAXED_IN_RETIREMENT: ScenarioInput = {
+  ...DEFAULT_INPUT,
   name: "Morgan",
-  jobs: [
-    {
-      ...salariedJob(dollarsToCents(8000)),
-      deferral: { deferralFraction: 0.12, fundAccountId: RETIREMENT_ID },
-    },
-  ],
+  jobs: [{ ...salariedJob(dollarsToCents(8000)), deferral: { deferralFraction: 0.12 } }],
   budgetLines: COMFORTABLE_BUDGET,
   retirementReturnPct: 4,
   lifeExpectancy: 72,
 };
 
-/** The amortizing loan {@link STUDENT_LOAN} opens underwater against. */
-const STUDENT_LOAN_EVENT: NewLifeEvent = {
-  id: "e0",
-  type: "LoanEvent",
-  month: 0,
-  liabilityId: "loan-student",
-  ownerId: PRIMARY_PERSON_ID,
-  openingBalanceCents: dollarsToCents(45000),
-  apr: 0.06,
-  kind: "studentLoan",
-  termMonths: 12 * 10,
-};
+/**
+ * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
+ * defaults are built from, budget lines included. One document, so this preset reproduces
+ * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
+ */
+const DEFAULT_SCENARIO: ScenarioInput = DEFAULT_INPUT;
 
 /** In picker order; the first is the healthy default a fresh plan already opens with. */
 export const PRESETS: readonly Preset[] = [
@@ -187,36 +205,31 @@ export const PRESETS: readonly Preset[] = [
     id: "default",
     label: "On track",
     description: "A steady saver building toward retirement — the healthy baseline.",
-    plan: PLAN_DEFAULTS,
-    events: [],
+    input: DEFAULT_SCENARIO,
   },
   {
     id: "paycheck-to-paycheck",
     label: "Paycheck to paycheck",
     description: "Income barely covers the bills, so almost nothing is saved.",
-    plan: PAYCHECK_TO_PAYCHECK,
-    events: [],
+    input: PAYCHECK_TO_PAYCHECK,
   },
   {
     id: "living-on-credit",
     label: "Living on a credit card",
     description: "Spending outruns income, piling up compounding credit-card debt.",
-    plan: LIVING_ON_CREDIT,
-    events: [],
+    input: LIVING_ON_CREDIT,
   },
   {
     id: "student-loan",
     label: "Student loan",
     description: "A new graduate underwater on a student loan, digging back to zero.",
-    plan: STUDENT_LOAN,
-    events: [STUDENT_LOAN_EVENT],
+    input: STUDENT_LOAN,
   },
   {
     id: "taxed-in-retirement",
     label: "Taxed in retirement",
     description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
-    plan: TAXED_IN_RETIREMENT,
-    events: [],
+    input: TAXED_IN_RETIREMENT,
   },
 ];
 
@@ -226,17 +239,15 @@ export function presetById(id: string): Preset {
 
 /**
  * The state to load for a preset — plan plus its seed timeline — as the app's single
- * {@link ProjectionState}. The authored events are stamped in order into a ledger: identical
- * to replaying each through {@link addEvent} for a valid preset (both assign
- * `sequenceNumber = nextSequenceNumber` and step it), and every preset is validated against the
- * live engine in `presets.test.ts`, so no affordability replay is owed here. `fromScenario`
- * floors both counters past the preset's literal ids, so the first authored write mints clear
- * of them.
+ * {@link ProjectionState}. Built through {@link Projection.fromInput} under the jurisdiction the
+ * app projects with, so a preset's seed events are gate-checked (a §4.5 down-payment, deferral
+ * caps) exactly as a live edit would be. A refusal is a preset-authoring bug, not user error, so
+ * it throws rather than silently dropping the scenario.
  */
 export function presetState(preset: Preset): ProjectionState {
-  const events = preset.events.map((event, i) => ({ ...event, sequenceNumber: i }) as LifeEvent);
-  const p = Projection.create({ plan: preset.plan, startYear: START_YEAR }, usJurisdiction);
-  p.resetLedger({ events, nextSequenceNumber: preset.events.length });
-  return p.toState();
+  const built = Projection.fromInput(preset.input, usJurisdiction);
+  if (!built.ok) {
+    throw new Error(`Preset "${preset.id}" is not a valid ScenarioInput: ${built.error.reason}`);
+  }
+  return built.projection.toState();
 }
-

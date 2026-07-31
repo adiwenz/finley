@@ -22,9 +22,9 @@ import type { JobOwner } from "./jobOwners";
  * `replacePartnerJob`, `removeJob` / `removePartnerJob`) and never a list.
  * `jobWrites.ts` routes each of these to its owner's plane.
  *
- * `add` covers both a brand-new job and an existing one arriving from another member: the
- * difference is whether the {@link JobInput} carries an `id`, which is exactly the question
- * the id mint already answers (an id supplied is kept, an absent one is minted).
+ * `add` is a brand-new job and always mints. An existing job arriving from another member is a
+ * `reassign` instead — a different verb, because it names an id the engine already issued and
+ * must keep, and the engine performs the two-plane move itself.
  */
 export type JobWrite =
   | { readonly kind: "add"; readonly owner: JobOwner; readonly job: JobInput }
@@ -34,14 +34,22 @@ export type JobWrite =
       readonly jobId: string;
       readonly job: JobInput;
     }
+  | {
+      /** The job keeps `jobId` and lands on `owner`'s plane — see `Projection.reassignJob`. */
+      readonly kind: "reassign";
+      readonly owner: JobOwner;
+      readonly jobId: string;
+      readonly job: JobInput;
+    }
   | { readonly kind: "remove"; readonly owner: JobOwner; readonly jobId: string };
 
 /**
- * A job as authoring input: its `ownerId` drops away (the plane it lands on stamps it), its
- * `id` rides along so a job crossing between members stays the same job.
+ * A job as authoring input: its `ownerId` drops away (the plane it lands on stamps it) and so
+ * does its `id` — identity is the engine's, and a move names the id separately rather than
+ * smuggling it through here.
  */
 export function jobInputOf(job: Job): JobInput {
-  const { ownerId: _drop, ...rest } = job;
+  const { ownerId: _owner, id: _id, ...rest } = job;
   return rest;
 }
 
@@ -126,22 +134,12 @@ export function editJob(
     };
   }
 
-  // Asked before acting, so the refusal can name the member. The facade refuses the same
-  // duplicate outright (one counter issues every job id across both planes, and it checks);
-  // this is that rule read ahead of time, because two jobs sharing an id would make the
-  // income bands ambiguous and the panel would rather say whose job is in the way.
-  if (target.jobs.some((j) => j.id === edited.id)) {
-    return { ok: false, reason: `${target.name} already holds a job "${edited.id}"` };
-  }
-
-  // The job keeps its id across the move (`jobInputOf` carries it), so the target's plane
-  // re-lands the same job rather than minting a second one.
+  // ONE write: the engine takes the job off the source's plane and lands it on the target's
+  // under the same id, so its one-month overrides, pay changes and employer match come with it.
+  // Nothing here removes and re-adds, so there is no window where the job belongs to neither.
   return {
     ok: true,
     job: edited,
-    writes: [
-      { kind: "add", owner: target, job: jobInputOf(edited) },
-      { kind: "remove", owner: source, jobId },
-    ],
+    writes: [{ kind: "reassign", owner: target, jobId, job: jobInputOf(edited) }],
   };
 }

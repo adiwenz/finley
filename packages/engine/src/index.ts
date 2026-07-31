@@ -106,10 +106,24 @@ export * from "./plan";
 // The `Projection` root: standing edits + ledger transactions on one object, deterministic id
 // minting, `run(jurisdiction)` → immutable `ProjectionResult`. No undo stack — reversal is
 // addressable removal.
+//
+// Three ways to get a handle — two that AUTHOR and mint, one that RESTORES and preserves:
+//
+//   Projection.init(scalars, jurisdiction)     AUTHOR  — an empty projection, built up with
+//     the authoring methods. Mints every id it issues.
+//   Projection.fromInput(input, jurisdiction)  AUTHOR  — takes a declarative, id-free
+//     `ScenarioInput` and mints every durable id off the shared counter. This is `init` plus
+//     the entries, applied for you.
+//   Projection.fromState(state, jurisdiction)  RESTORE — takes a whole `ProjectionState` whose
+//     ids were issued earlier, preserving them and normalizing stale counters.
+//
+// Nothing else adopts caller-named data: no authoring input carries an `id`, and no method takes
+// an id-bearing `Plan`, `Ledger` or `LifeEvent`. An edit may NAME an existing id as the target it
+// addresses (`updateJob(jobId, …)`, `reviseTransaction(eventId, …)`) but can never replace that
+// id or anything nested under it.
 export type {
   ProjectionState,
   ProjectionResult,
-  ProjectionInit,
   JobInput,
   BudgetLineInput,
   GoalInput,
@@ -119,12 +133,47 @@ export type {
   TakeLoanInput,
   BuyHomeInput,
   PayOffDebtInput,
+  TransactionRevision,
   HomePurchaseInput,
   HomePurchaseAssessment,
   RetirementOutlook,
   ResolvedExpenseRow,
 } from "./projectionRoot";
 export { Projection, CURRENT_FORMAT_VERSION, UnsupportedVersionError } from "./projectionRoot";
+// The declarative, id-free authoring entry point: a `ScenarioInput` describes a whole scenario
+// with author-chosen `Ref`s in every pointer position, and `Projection.fromInput` mints the ids.
+export type {
+  Ref,
+  BudgetTargetInput,
+  JobEntry,
+  PartnerJobEntry,
+  GoalEntry,
+  BudgetLineEntry,
+  MarryEntry,
+  HaveChildEntry,
+  TakeLoanEntry,
+  BuyHomeEntry,
+  SeparateEntry,
+  PayOffDebtEntry,
+  EventEntry,
+  ScenarioInput,
+  ScenarioScalars,
+  FromInputResult,
+  ScenarioInputError,
+} from "./scenarioInput";
+export { eventEntryType, ref } from "./scenarioInput";
+// Ref resolution runs standalone, before anything is minted: it proves every ref names something
+// addressable at the point it is used and hands back the month-ordered event schedule.
+export {
+  resolveRefs,
+  WELL_KNOWN_REF_IDS,
+  PRIMARY_PERSON_REF,
+  SAVINGS_REF,
+  RETIREMENT_REF,
+  BROKERAGE_REF,
+  SYNTHETIC_CARD_REF,
+} from "./scenarioRefs";
+export type { ResolveRefsResult, ScheduledEvent } from "./scenarioRefs";
 // A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
 // from a projection.
 export * from "./scenario";

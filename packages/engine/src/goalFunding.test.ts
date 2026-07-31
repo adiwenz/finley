@@ -145,7 +145,7 @@ describe("validateGoalRemoval — the refusal", () => {
     const result = validateGoalRemoval(GOALS, "home", ledger);
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.reason).toBe(
-      `Cannot remove goal "home": its fund account "goal-home" funds "e1" (HomePurchaseEvent, month 24)`,
+      `Cannot remove goal "home": its fund account "fund-home" funds "e1" (HomePurchaseEvent, month 24)`,
     );
   });
 
@@ -156,7 +156,7 @@ describe("validateGoalRemoval — the refusal", () => {
     ]);
     const result = validateGoalRemoval(GOALS, "home", ledger);
     expect(result.ok === false && result.reason).toBe(
-      `Cannot remove goal "home": its fund account "goal-home" funds ` +
+      `Cannot remove goal "home": its fund account "fund-home" funds ` +
         `"e1" (DebtPayoffEvent, month 12), "e2" (HomePurchaseEvent, month 40)`,
     );
   });

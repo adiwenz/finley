@@ -14,6 +14,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import {
   Projection,
+  CURRENT_FORMAT_VERSION,
   dollarsToCents,
   emptyLedger,
   goalFundAccountId,
@@ -21,6 +22,7 @@ import {
   withLedger,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import { stateOf } from "../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../planDefaults";
 import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "./useProjection";
@@ -28,8 +30,8 @@ import type { GoalPlan, LifeEvent, ProjectionState } from "@finley/engine";
 
 afterEach(cleanup);
 
-const stateOf = (plan = PLAN_DEFAULTS): ProjectionState =>
-  Projection.fromScenario(scenarioOf(plan), START_YEAR, usJurisdiction).toState();
+const initialFor = (plan = PLAN_DEFAULTS): ProjectionState =>
+  Projection.fromState(stateOf(plan), usJurisdiction).toState();
 
 const BLOCKED_GOAL: GoalPlan = {
   id: "down-payment",
@@ -67,12 +69,15 @@ function blockedGoalState(): ProjectionState {
     events: [purchase],
     nextSequenceNumber: 1,
   });
-  return Projection.fromScenario(scenario, START_YEAR, usJurisdiction).toState();
+  return Projection.fromState(
+    { scenario, startYear: START_YEAR, nextSeq: 1, version: CURRENT_FORMAT_VERSION },
+    usJurisdiction,
+  ).toState();
 }
 
 /** The hook under test, with its state and conflict rendered for assertion. */
 function Harness({ onReady }: { onReady: (hook: UseProjection) => void }) {
-  const hook = useProjection(stateOf());
+  const hook = useProjection(initialFor());
   onReady(hook);
   const plan = hook.state.scenario.plan;
   return (

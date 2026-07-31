@@ -28,7 +28,7 @@ export type SurplusCashDestination = "savings" | "brokerage";
 
 /**
  * Priority is the goal's index in {@link Plan.goals} (0 = funded first). Each goal
- * accumulates into its own derived fund account (`goal-<id>`).
+ * accumulates into its own derived fund account (`fund-<id>`).
  */
 interface GoalPlanBase {
   readonly id: string;
@@ -139,7 +139,7 @@ export type GoalPatch = Partial<Omit<GoalPlan, "id">>;
 export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines">>;
 
 /**
- * Overwrite one goal's named fields, keeping its `id` — and thus its derived `goal-<id>`
+ * Overwrite one goal's named fields, keeping its `id` — and thus its derived `fund-<id>`
  * fund account and its list position, so funding priority is untouched. The `id` is
  * stripped from the patch, so an edit can never re-point a goal at another's fund account.
  * A patch aimed at an id that is not a goal changes nothing.
