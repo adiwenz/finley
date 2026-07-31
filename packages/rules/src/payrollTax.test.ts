@@ -45,9 +45,30 @@ describe("payrollTaxTables — the pinned single-filer base year", () => {
 
   it("holds the base year and any earlier year at the exact pinned cap", () => {
     expect(payrollTaxTables(PAYROLL_TAX_BASE_YEAR - 5).oasdiWageBaseCents).toBe(184_500_00);
-    // Rounds DOWN to a $300 multiple, so it stays a whole multiple of the increment.
+    // Rounds to the NEAREST $300 (the statutory rule), so it stays a whole multiple.
     const later = payrollTaxTables(PAYROLL_TAX_BASE_YEAR + 3).oasdiWageBaseCents;
     expect(later % 300_00).toBe(0);
+  });
+
+  it("rounds to the NEAREST $300 rather than biasing the cap downward", () => {
+    // Nearest-rounding must land within half an increment of the un-rounded AWI figure; the
+    // old floor-always rule could sit a full $300 low, understating the cap every year.
+    for (const years of [1, 3, 7, 20]) {
+      const exact = 184_500_00 * Math.pow(1.035, years);
+      const cap = payrollTaxTables(PAYROLL_TAX_BASE_YEAR + years).oasdiWageBaseCents;
+      expect(Math.abs(cap - exact)).toBeLessThanOrEqual(300_00 / 2);
+    }
+  });
+
+  it("still never lets the cap fall year over year", () => {
+    // Nearest-rounding keeps monotonicity for free: a year of wage growth is thousands of
+    // dollars, far past the half-increment jitter rounding can introduce.
+    let prev = payrollTaxTables(PAYROLL_TAX_BASE_YEAR).oasdiWageBaseCents;
+    for (let y = PAYROLL_TAX_BASE_YEAR + 1; y <= PAYROLL_TAX_BASE_YEAR + 55; y++) {
+      const cap = payrollTaxTables(y).oasdiWageBaseCents;
+      expect(cap).toBeGreaterThanOrEqual(prev);
+      prev = cap;
+    }
   });
 });
 
@@ -82,6 +103,16 @@ describe("payrollTaxParts / payrollTaxCents — combined annual earned income", 
   it("charges nothing on zero earned income", () => {
     const p = payrollTaxParts(0, PAYROLL_TAX_BASE_YEAR);
     expect(p.totalCents).toBe(0);
+  });
+
+  it("clamps negative earned income to zero — payroll tax is never a credit", () => {
+    // Malformed input must not hand back a negative charge that would offset other tax.
+    const p = payrollTaxParts(-50_000_00, PAYROLL_TAX_BASE_YEAR);
+    expect(p.oasdiCents).toBe(0);
+    expect(p.medicareCents).toBe(0);
+    expect(p.additionalMedicareCents).toBe(0);
+    expect(p.totalCents).toBe(0);
+    expect(payrollTaxCents(-50_000_00, PAYROLL_TAX_BASE_YEAR)).toBe(0);
   });
 
   it("OASDI on a high earner falls in a later year as the wage base indexes up", () => {

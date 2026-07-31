@@ -43,9 +43,12 @@ way the code does.
   `AWI_ANNUAL_INDEXING_RATE`, distinct from the income-tax CPI rate, so the assumption is
   visible. Reusing CPI would let the cap drift progressively low and over-tax high earners — a
   compounding error over a 55-year horizon.
-- **Wage base rounds DOWN to a $300 multiple.** Statute rounds to the *nearest* $300; rounding
-  down instead preserves monotonic non-decreasing behaviour year over year, matching
-  `federalTaxTables`'s `indexForward` idiom.
+- **Wage base rounds to the NEAREST $300**, the statutory rule, with no downward bias. An
+  earlier draft floored instead, to guarantee monotonicity; that turned out to be unnecessary —
+  a year of AWI growth on the wage base is thousands of dollars, an order of magnitude past the
+  $300 increment, so nearest-rounding cannot produce a year-over-year fall. Both properties are
+  now covered by tests (within half an increment of the exact figure; non-decreasing over 55
+  years).
 - **True combined cap (multi-job).** `payrollTaxParts` takes the person's *combined* annual
   earned income, so the wage base and surtax threshold each apply once — the amount actually
   owed on the return, not the per-employer over-withhold-then-refund cash-flow timing. Simpler

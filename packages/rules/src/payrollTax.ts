@@ -56,17 +56,19 @@ export const ADDITIONAL_MEDICARE_THRESHOLD_CENTS: Cents = 200_000_00;
 const ROUND_300_CENTS: Cents = 300_00;
 
 /**
- * Index the wage base forward to `year` at the AWI rate, rounded DOWN to `incrementCents`.
- * Years at or before the base year return it UNCHANGED — no backward indexing, so the pinned
- * anchor stays cent-exact. Rounding down keeps the cap monotonically non-decreasing as the
- * year advances (statute rounds to the NEAREST $300; rounding down instead trades that for
- * monotonicity, matching {@link federalTaxTables}'s forward indexing).
+ * Index the wage base forward to `year` at the AWI rate, rounded to the NEAREST
+ * `incrementCents` — the statutory rule. Years at or before the base year return it
+ * UNCHANGED — no backward indexing, so the pinned anchor stays cent-exact.
+ *
+ * Nearest-rounding stays monotonically non-decreasing here without any downward bias: one
+ * year of AWI growth on the wage base is thousands of dollars, an order of magnitude past the
+ * $300 increment, so the at-most-half-increment jitter can never outrun a year's growth.
  */
 function indexWageBaseForward(baseCents: Cents, year: number, incrementCents: Cents): Cents {
   const years = year - PAYROLL_TAX_BASE_YEAR;
   if (years <= 0) return baseCents;
   const indexed = baseCents * Math.pow(1 + AWI_ANNUAL_INDEXING_RATE, years);
-  return Math.floor(indexed / incrementCents) * incrementCents;
+  return Math.round(indexed / incrementCents) * incrementCents;
 }
 
 /** Single-filer payroll-tax tables for one year; only the wage base is indexed. */
@@ -115,12 +117,16 @@ export interface PayrollTaxParts {
  * base, so a mid-year seam must ACCUMULATE rather than annualize each month's slice (a level
  * earner is unaffected, a lumpy one would be mis-capped every month). Accumulation is the
  * engine's job; this function states the correct WHOLE-YEAR answer the accumulator settles to.
+ *
+ * Negative earnings are clamped to zero at the boundary: there is no such thing as negative
+ * payroll tax, so malformed input yields no charge rather than a credit against other tax.
  */
 export function payrollTaxParts(annualEarnedCents: Cents, year: number): PayrollTaxParts {
   const t = payrollTaxTables(year);
-  const oasdiCents = Math.round(Math.min(annualEarnedCents, t.oasdiWageBaseCents) * t.oasdiRate);
-  const medicareCents = Math.round(annualEarnedCents * t.medicareRate);
-  const surtaxBase = Math.max(0, annualEarnedCents - t.additionalMedicareThresholdCents);
+  const earnedCents = Math.max(0, annualEarnedCents);
+  const oasdiCents = Math.round(Math.min(earnedCents, t.oasdiWageBaseCents) * t.oasdiRate);
+  const medicareCents = Math.round(earnedCents * t.medicareRate);
+  const surtaxBase = Math.max(0, earnedCents - t.additionalMedicareThresholdCents);
   const additionalMedicareCents = Math.round(surtaxBase * t.additionalMedicareRate);
   return {
     oasdiCents,
