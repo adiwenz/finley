@@ -1,4 +1,4 @@
-import type { Cents, DeferralLimitContext } from "@finley/engine";
+import type { Cents, DeferralLimitContext, ModelAssumption } from "@finley/engine";
 
 /**
  * US retirement-account contribution limits — the `rules`-side plug for
@@ -132,3 +132,39 @@ export function totalAdditionsLimitCents(ctx: DeferralLimitContext): Cents {
   const limits = contributionLimits(ctx.year);
   return limits.totalAdditionsCents + catchUpCents(limits, ctx.age);
 }
+
+/**
+ * User-facing disclosures for this module — the `rules` side of
+ * {@link import("@finley/engine").Jurisdiction.modelAssumptions}, co-located by `id` with
+ * the code they describe ({@link retirementDeferralLimitCents} /
+ * {@link totalAdditionsLimitCents} / {@link indexForward}). `usJurisdiction` hands these to
+ * the report's "assumptions & simplifications" surface.
+ *
+ * ⚠ The dollar figures are duplicated in prose here. Keep them in step with the constants
+ * at the top of this file whenever the base year is re-pinned.
+ */
+export const CONTRIBUTION_LIMIT_ASSUMPTIONS: readonly ModelAssumption[] = [
+  {
+    id: "retirementContributionLimits",
+    text:
+      "Retirement contributions are capped at the 2026 federal limits. You can personally " +
+      "contribute up to $24,500 a year across all your 401(k)-style jobs — rising to " +
+      "$32,500 from age 50 (an $8,000 catch-up) and $35,750 for ages 60 to 63 (an $11,250 " +
+      "super catch-up), then back to $32,500 from 64. Counting your employer's match on " +
+      "top, the combined total is capped at $72,000, $80,000, and $83,250 across those same " +
+      "age bands. Contributions past a cap are not made: that money stays in your pay and " +
+      "is taxed as ordinary income. Like the tax brackets, these figures are grown forward " +
+      "at an assumed 2.5%/yr rather than the legislated amounts, which are published yearly " +
+      "and will differ.",
+  },
+  {
+    id: "employerMatchOutsideEmployeeCap",
+    text:
+      "An employer match does not count against your personal contribution limit — it is " +
+      "employer money, so it lands on top of the most you can defer yourself. It does count " +
+      "against the combined limit above, and when that binds it is the match that gets " +
+      "trimmed while your own contribution goes in whole. The combined limit is applied per " +
+      "person per year; in law it applies separately to each employer's plan, so someone " +
+      "holding two matched jobs at once is capped more tightly here than in reality.",
+  },
+];

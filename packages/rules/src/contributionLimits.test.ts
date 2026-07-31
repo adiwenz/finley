@@ -5,6 +5,7 @@ import {
   contributionLimits,
   retirementDeferralLimitCents,
   totalAdditionsLimitCents,
+  CONTRIBUTION_LIMIT_ASSUMPTIONS,
 } from "./contributionLimits";
 
 /** DeferralLimitContext for a person of the given age in `year`. */
@@ -123,5 +124,39 @@ describe("totalAdditionsLimitCents — the age-banded 415(c) ceiling", () => {
       expect(limit).toBeGreaterThanOrEqual(prev);
       prev = limit;
     }
+  });
+});
+
+describe("CONTRIBUTION_LIMIT_ASSUMPTIONS — the user-facing disclosure", () => {
+  const textFor = (id: string): string => {
+    const found = CONTRIBUTION_LIMIT_ASSUMPTIONS.find((a) => a.id === id);
+    if (found === undefined) throw new Error(`no assumption "${id}"`);
+    return found.text;
+  };
+
+  /** `2_450_000` → `"$24,500"` — the form the prose quotes figures in. */
+  const asDollars = (cents: number): string => `$${(cents / 100).toLocaleString("en-US")}`;
+
+  // The prose restates the dollar figures, so it can silently drift from the constants when
+  // the base year is re-pinned. Derive every quoted number from the functions themselves.
+  it("quotes every figure the limit functions actually return in the base year", () => {
+    const text = textFor("retirementContributionLimits");
+    const y = CONTRIBUTION_LIMITS_BASE_YEAR;
+    for (const age of [40, 55, 61]) {
+      expect(text).toContain(asDollars(retirementDeferralLimitCents(ctx(y, age))));
+      expect(text).toContain(asDollars(totalAdditionsLimitCents(ctx(y, age))));
+    }
+    // The catch-up amounts are quoted as the increments they are, not as totals.
+    const l = contributionLimits(y);
+    expect(text).toContain(asDollars(l.catchUp50Cents));
+    expect(text).toContain(asDollars(l.catchUp60to63Cents));
+  });
+
+  it("states which cap the employer match does and does not touch", () => {
+    const text = textFor("employerMatchOutsideEmployeeCap");
+    expect(text).toMatch(/does not count against your personal contribution limit/i);
+    expect(text).toMatch(/does count against the combined limit/i);
+    // The per-person-not-per-plan divergence is disclosed, not left implicit.
+    expect(text).toMatch(/per person per year/i);
   });
 });
