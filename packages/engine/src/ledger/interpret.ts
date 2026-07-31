@@ -13,6 +13,7 @@ import { applyEvent } from "./eventHandlers";
 import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
+import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
 import { compilePersonIncomeSeries } from "../compilePerson";
 import { authoringAccounts } from "../planAccount";
 import {
@@ -105,6 +106,13 @@ const ROLE_LABEL: Record<SeriesRole, string> = {
   childCost: "Child cost",
 };
 
+/**
+ * Court-ordered support is legally non-rationable, so it funds in the mandatory tier beside
+ * debt rather than as a discretionary need. Tagged here because the tier cannot be recovered
+ * downstream from the `event` kind alone — a child's cost is the same kind yet only a need.
+ */
+const COURT_ORDERED_ROLES: ReadonlySet<SeriesRole> = new Set(["alimony", "childSupport"]);
+
 function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index: number): HouseholdSeries {
   return ownedSeries(os, asSeriesId(`base-${seriesType}-${index}`), seriesType);
 }
@@ -164,6 +172,9 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
               id: def.id,
               category: "other",
               editable: false,
+              ...(COURT_ORDERED_ROLES.has(def.role)
+                ? { priority: OBLIGATION_PRIORITY.mandatory }
+                : {}),
             },
           };
     }),

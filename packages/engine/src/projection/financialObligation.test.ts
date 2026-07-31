@@ -12,6 +12,7 @@ import {
   expenseReportingTotal,
   buildObligations,
   obligationLiabilityId,
+  OBLIGATION_PRIORITY,
   type FinancialObligation,
 } from "./financialObligation";
 import { dollarsToCents, SimCashFlowSeries } from "../cashFlowSeries";
@@ -315,5 +316,93 @@ describe("buildObligations — one obligation per source", () => {
     expect(o.editable).toBe(false);
     expect(o.category).toBe("other");
     expect(o.amountCents).toBe(dollarsToCents(300));
+  });
+});
+
+describe("buildObligations — priority resolved from source kind", () => {
+  it("ranks a debt payment in the mandatory tier — never rationed, above every expense", () => {
+    const loan = new AmortizingLoan({
+      id: "loan-1",
+      ownerId: "p1",
+      kind: "mortgage",
+      openingBalanceCents: dollarsToCents(200_000),
+      apr: 0.05,
+      termMonths: 360,
+    });
+    const month = 12;
+    const payment = loan.monthlyPaymentCents(dollarsToCents(200_000), month);
+    const [o] = buildObligations([], month, [loan], new Map([[loan.id, payment]]));
+    expect(o.priority).toBe(OBLIGATION_PRIORITY.mandatory);
+    expect(o.priority).toBeLessThan(OBLIGATION_PRIORITY.needs);
+  });
+
+  it("puts healthcare in the needs tier", () => {
+    const [o] = buildObligations(
+      [
+        expenseSeries(450, {
+          spendingSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+        }),
+      ],
+      0,
+      [],
+      new Map(),
+    );
+    expect(o.priority).toBe(OBLIGATION_PRIORITY.needs);
+  });
+
+  it("puts a child-cost event in the needs tier", () => {
+    // A child's cost carries no source priority, so it defaults to the needs tier by its kind.
+    const [o] = buildObligations(
+      [
+        expenseSeries(900, {
+          spendingSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
+        }),
+      ],
+      0,
+      [],
+      new Map(),
+    );
+    expect(o.priority).toBe(OBLIGATION_PRIORITY.needs);
+  });
+
+  it("ranks a court-ordered stream alongside debt when its source carries the mandatory tier", () => {
+    // Alimony and child support are legally non-rationable; their compiler stamps the mandatory
+    // tier on the source (they cannot be told apart from a child's cost by kind alone).
+    const [o] = buildObligations(
+      [
+        expenseSeries(2_000, {
+          spendingSource: {
+            kind: "event",
+            id: "sep-1:alimony",
+            category: "other",
+            editable: false,
+            priority: OBLIGATION_PRIORITY.mandatory,
+          },
+        }),
+      ],
+      0,
+      [],
+      new Map(),
+    );
+    expect(o.priority).toBe(OBLIGATION_PRIORITY.mandatory);
+  });
+
+  it("carries a budget line's own priority through, ranking wants below needs", () => {
+    const needsLine = expenseSeries(1_600, {
+      spendingSource: { kind: "budgetLine", id: "housing", category: "needs", editable: true, priority: 0 },
+    });
+    const wantsLine = expenseSeries(300, {
+      spendingSource: { kind: "budgetLine", id: "streaming", category: "wants", editable: true, priority: 1_000 },
+    });
+    const [needs, wants] = buildObligations([needsLine, wantsLine], 0, [], new Map());
+    expect(needs.priority).toBe(0);
+    expect(wants.priority).toBe(1_000);
+    expect(needs.priority).toBeLessThan(wants.priority);
+  });
+
+  it("funds an untracked series after every authored tier", () => {
+    const [o] = buildObligations([expenseSeries(300)], 0, [], new Map());
+    expect(o.priority).toBe(OBLIGATION_PRIORITY.untracked);
+    expect(o.priority).toBeGreaterThan(OBLIGATION_PRIORITY.needs);
   });
 });

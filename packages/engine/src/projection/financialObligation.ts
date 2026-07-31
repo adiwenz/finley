@@ -70,7 +70,11 @@ export interface FinancialObligation {
   readonly funding:
     | { readonly kind: "automatic" }
     | { readonly kind: "explicit"; readonly orderedAccountIds: readonly string[] };
-  /** Waterfall rank, lower funded first. Resolved at construction from source kind (Slice #3 task 3). */
+  /**
+   * Waterfall rank, lower funded first. Resolved at construction from source kind ({@link
+   * OBLIGATION_PRIORITY}). Ties break on the stable {@link id}, so obligations sharing a tier
+   * hold a fixed order across months and chart bands never reshuffle.
+   */
   readonly priority: number;
   readonly sourceKind: ObligationSourceKind;
   /**
@@ -128,11 +132,34 @@ const UNTRACKED: SpendingSource = {
 };
 
 /**
- * Placeholder rank until Slice #3 task 3 resolves priority from source kind. Nothing ranks
- * obligations yet (the list is built but not consumed), so a single shared value is correct:
- * making it meaningful before there is a ranker would be inventing an ordering no test pins.
+ * Waterfall tiers, lower funded first — resolved from source kind, no new authoring surface.
+ *
+ * `mandatory` is below every expense: debt payments (preserving today's never-rationed
+ * behaviour without a delinquency redesign) and court-ordered support (alimony, child support)
+ * are legally non-rationable. `needs` shares the budget "needs" tier (0) so healthcare and a
+ * child's cost rank beside a user's own needs lines. An authored budget line brings its own
+ * category/priority ordering and never reads a default here; `untracked` has no provenance to
+ * rank by and funds after every authored tier.
  */
-const UNRESOLVED_PRIORITY = 0;
+export const OBLIGATION_PRIORITY = {
+  mandatory: -1000,
+  needs: 0,
+  untracked: 3000,
+} as const;
+
+/**
+ * The tier a non-liability source funds at when it carries no explicit priority of its own.
+ * Budget lines resolve their real priority in compilation ({@link SpendingSource.priority}) and
+ * only hit `needs` here as a fallback; court-ordered event streams likewise stamp `mandatory` on
+ * their source, since a child's cost and alimony share the `event` kind and cannot be told apart
+ * by kind alone.
+ */
+const DEFAULT_PRIORITY_BY_KIND: Record<SpendingSource["kind"], number> = {
+  budgetLine: OBLIGATION_PRIORITY.needs,
+  healthcare: OBLIGATION_PRIORITY.needs,
+  event: OBLIGATION_PRIORITY.needs,
+  untracked: OBLIGATION_PRIORITY.untracked,
+};
 
 /** Obligation id for a liability's payment band — namespaced so it cannot collide with a line's. */
 export function obligationLiabilityId(liabilityId: string): string {
@@ -168,7 +195,7 @@ export function buildObligations(
       amountCents: s.series.getMonthlyCents(month),
       treatment: "expense",
       funding: { kind: "automatic" },
-      priority: UNRESOLVED_PRIORITY,
+      priority: source.priority ?? DEFAULT_PRIORITY_BY_KIND[source.kind],
       sourceKind: source.kind,
       editable: source.editable,
       label: s.label ?? source.id,
@@ -186,7 +213,7 @@ export function buildObligations(
       amountCents,
       treatment: "debt-payment",
       funding: { kind: "automatic" },
-      priority: UNRESOLVED_PRIORITY,
+      priority: OBLIGATION_PRIORITY.mandatory,
       sourceKind: "liability",
       editable: false,
       label: LIABILITY_LABEL[liability.kind],

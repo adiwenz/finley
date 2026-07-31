@@ -73,6 +73,13 @@ export interface SpendingSource {
   readonly id: string;
   readonly category: SpendingCategory;
   readonly editable: boolean;
+  /**
+   * The waterfall priority this source resolves to, carried from its compiler because the tier
+   * cannot be recovered from `kind` alone: a budget line's authored/category ordering and a
+   * court-ordered stream's mandatory rank both live in the authoring model. Absent → the
+   * obligation defaults to its kind's tier. Read only when building the obligation list.
+   */
+  readonly priority?: number;
 }
 
 /** Provenance for an expense series that reached the report without tagging itself. */

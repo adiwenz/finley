@@ -100,6 +100,28 @@ describe("compileExpenseBudgetLines", () => {
     expect(s!.series.getMonthlyCents(179)).toBeLessThan(dollarsToCents(2_500));
   });
 
+  it("carries the line's waterfall priority onto the compiled source (category default)", () => {
+    // Nothing ranked lines when compilation dropped priority; the obligation waterfall now does.
+    // A `needs` line with no explicit priority resolves to its category default (0).
+    const [needs] = compileExpenseBudgetLines([literalExpense("rent", dollarsToCents(2_000))], "p1", 0);
+    expect(needs.spendingSource?.priority).toBe(0);
+    const [wants] = compileExpenseBudgetLines(
+      [literalExpense("streaming", dollarsToCents(50), { category: "wants" })],
+      "p1",
+      0,
+    );
+    expect(wants.spendingSource?.priority).toBe(1_000);
+  });
+
+  it("carries an explicit line priority through, overriding the category default", () => {
+    const [s] = compileExpenseBudgetLines(
+      [literalExpense("splurge", dollarsToCents(500), { category: "wants", priority: 5 })],
+      "p1",
+      0,
+    );
+    expect(s.spendingSource?.priority).toBe(5);
+  });
+
   it("skips contribution lines (only expense targets become expense series)", () => {
     const lines: BudgetLine[] = [
       literalExpense("rent", dollarsToCents(2_000)),

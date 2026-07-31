@@ -7,6 +7,7 @@ import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";
 import { personLit, makeLiquidAccount, baseConfig, add } from "./events.testSupport";
+import { OBLIGATION_PRIORITY } from "./projection/financialObligation";
 
 describe("RelationshipEvent", () => {
   it("adds a person to the household", () => {
@@ -237,6 +238,44 @@ describe("SeparationEvent", () => {
     // Alimony is keyed to absolute months 1–6 (starts at the month-1 separation, duration 6):
     // 6 × $1000 = $6000 expense → $14,000 remaining. Final state is month index 11.
     expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(14_000));
+  });
+
+  it("stamps the mandatory tier on court-ordered alimony and child-support streams", () => {
+    // Alimony and child support are legally non-rationable, so they rank beside debt rather
+    // than in the needs tier. The tier rides on the source because a child's cost shares the
+    // `event` kind yet is only a need — kind alone cannot tell them apart.
+    let ledger = emptyLedger;
+    ledger = add(ledger, { id: "r1", type: "RelationshipEvent", month: 0, person: personLit("p2", "Bob") });
+    ledger = add(ledger, {
+      id: "sep1",
+      type: "SeparationEvent",
+      month: 0,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: dollarsToCents(1_000),
+      alimonyDurationMonths: 6,
+      childSupportMonthlyCents: dollarsToCents(500),
+    });
+    const household = interpretLedger(ledger, baseConfig);
+    for (const role of ["alimony", "childSupport"] as const) {
+      const s = household.series.find((x) => x.role === role)!;
+      expect(s.spendingSource?.priority).toBe(OBLIGATION_PRIORITY.mandatory);
+    }
+  });
+
+  it("leaves a child-cost stream without a source priority so it defaults to the needs tier", () => {
+    let ledger = emptyLedger;
+    ledger = add(ledger, {
+      id: "c1",
+      type: "ChildEvent",
+      month: 0,
+      childId: "kid1",
+      childName: "Charlie",
+      birthMonth: 0,
+      annualCostCents: dollarsToCents(12_000),
+    });
+    const household = interpretLedger(ledger, baseConfig);
+    const cost = household.series.find((s) => s.role === "childCost")!;
+    expect(cost.spendingSource?.priority).toBeUndefined();
   });
 
   it("child support expense runs indefinitely (no endMonth)", () => {
