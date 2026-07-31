@@ -316,6 +316,26 @@ simulation timeline; history before it establishes *structure only* (who/what ex
 never a reconstructed past net-worth curve. Entered current balances are the sole source
 of financial truth as of now.
 
+**Holding**:
+A pre-existing stock — a loan, property, or mortgage — that opens at the **"now" marker**
+with its *current* terms (balance or value, remaining term) and no account side-effects:
+no funding draw and no affordability gate. Its true origination is deliberately kept off
+the timeline, because reconstructing years of amortization to reach today's balance would
+contradict "entered current balances are the sole source of financial truth." The one
+pre-now month it may carry is the now marker itself; authored by `carryLoan` / `ownHome`.
+_Avoid_: backdated transaction (a holding moves no money at start and reconstructs
+nothing), opening balance (that is one of a holding's terms, not a name for it).
+
+**Anchor**:
+A pre-existing life event — marriage, birth, or separation — placed at its **true past
+month**, whose elapsed position drives the remaining duration of the flows it governs (a
+child's support left to run, alimony still owed). Carries no net worth, so dating it
+truthfully reconstructs nothing — which is exactly why, unlike a **Holding**, it is not
+pinned to the now marker and any negative month is valid. Authored by `startPartnered` /
+`haveExistingChild` / a pre-now `separate`.
+_Avoid_: backdated transaction, holding (an anchor carries no balance and no current terms
+to freeze).
+
 **Job** (income source):
 A single `CashFlowSeries` owned by a person representing one income stream. A person may
 hold multiple concurrent jobs; each is independently anchored and may carry its own plan
