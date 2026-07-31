@@ -775,6 +775,46 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   });
 });
 
+describe("BaseAdjustmentsPanel — renders every obligation the month incurs", () => {
+  it("shows the plan's health care read-only, deep-linking to the plan rather than an input", () => {
+    renderPanel(PLAN_DEFAULTS);
+    // Health is a plan input, not a budget line: it accounts here but is not edited here.
+    expect(screen.queryByRole("spinbutton", { name: /Healthcare/i })).toBeNull();
+    const link = screen.getByRole("link", { name: /Edit on the plan/i });
+    expect(link.getAttribute("href")).toBe("#budget-accounts");
+  });
+
+  it("bands a loan payment read-only beside the editable budget lines, linking to the loan", () => {
+    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    projection.takeLoan({
+      month: 0,
+      ownerId: PRIMARY_PERSON_ID,
+      openingBalanceCents: dollarsToCents(45_000),
+      apr: 0.06,
+      kind: "studentLoan",
+      termMonths: 120,
+    });
+    const { series, household } = projection.run(usJurisdiction);
+    render(
+      <BaseAdjustmentsPanel
+        plan={PLAN_DEFAULTS}
+        transact={() => undefined}
+        series={series}
+        personNames={new Map()}
+        household={household}
+        ledger={NO_EVENTS}
+        projection={projection}
+      />,
+    );
+    // Month 1 is the first serviced month (origination at month 0 charges nothing).
+    selectMonth(1);
+    // The user's own lines stay editable; the loan payment does not.
+    expect(spin(/Housing/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /loan payment/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /Change the loan/i })).toBeTruthy();
+  });
+});
+
 describe("BaseAdjustmentsPanel — long-horizon points", () => {
   it("labels a far-future point by calendar year and age, not just a month index", () => {
     renderPanel(PLAN_DEFAULTS);

@@ -134,6 +134,13 @@ export function BaseAdjustmentsPanel({
     () => projection.expenseRowsAt(selectedMonth),
     [projection, selectedMonth],
   );
+  // The selected month's full obligation list, already priority-ordered by the engine — the
+  // health, event and debt costs the month incurs beside the user's own lines. Read off the
+  // same series the chart draws, so the editor and the graph cannot disagree.
+  const obligations = useMemo(
+    () => series.months.find((m) => m.month === selectedMonth)?.flows?.obligations ?? [],
+    [series, selectedMonth],
+  );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
   // disclosed at a time, like the Jobs and Goals panels.
@@ -289,6 +296,7 @@ export function BaseAdjustmentsPanel({
         />
 
         <SpendingEditor
+          obligations={obligations}
           rows={rows}
           lines={lines}
           selectedMonth={selectedMonth}

@@ -8,7 +8,12 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents, type BudgetLine, type ResolvedExpenseRow } from "@finley/engine";
+import {
+  dollarsToCents,
+  type BudgetLine,
+  type FinancialObligation,
+  type ResolvedExpenseRow,
+} from "@finley/engine";
 import { SpendingEditor, type PendingEdit } from "./spendingEditor";
 
 afterEach(cleanup);
@@ -29,6 +34,35 @@ const HOUSING_ROW: ResolvedExpenseRow = {
   overridden: false,
 };
 
+/** The obligation the housing line resolves to — the editable slice of the month's list. */
+const HOUSING_OBLIGATION: FinancialObligation = {
+  id: "line:housing",
+  sourceId: "housing",
+  month: 0,
+  amountCents: dollarsToCents(1_600),
+  treatment: "expense",
+  funding: { kind: "automatic" },
+  priority: 0,
+  sourceKind: "budgetLine",
+  editable: true,
+  label: "Housing",
+  category: "needs",
+};
+
+const HEALTH_OBLIGATION: FinancialObligation = {
+  id: "health",
+  sourceId: "health",
+  month: 0,
+  amountCents: dollarsToCents(500),
+  treatment: "expense",
+  funding: { kind: "automatic" },
+  priority: 0,
+  sourceKind: "healthcare",
+  editable: false,
+  label: "Health care",
+  category: "healthcare",
+};
+
 const noop = () => {};
 
 function renderEditor(over: Partial<Parameters<typeof SpendingEditor>[0]> = {}) {
@@ -36,6 +70,7 @@ function renderEditor(over: Partial<Parameters<typeof SpendingEditor>[0]> = {}) 
   const form = { onToggle: vi.fn(), onSubmit: vi.fn(), onClose: noop, onDelete: vi.fn() };
   render(
     <SpendingEditor
+      obligations={[HOUSING_OBLIGATION]}
       rows={[HOUSING_ROW]}
       lines={[HOUSING_LINE]}
       selectedMonth={0}
@@ -70,7 +105,15 @@ describe("SpendingEditor — the row", () => {
 
   it("leaves other rows on their resolved amount while one is staged", () => {
     const dining: ResolvedExpenseRow = { ...HOUSING_ROW, lineId: "dining", label: "Dining", category: "wants" };
+    const diningObligation: FinancialObligation = {
+      ...HOUSING_OBLIGATION,
+      id: "line:dining",
+      sourceId: "dining",
+      label: "Dining",
+      category: "wants",
+    };
     renderEditor({
+      obligations: [HOUSING_OBLIGATION, diningObligation],
       rows: [HOUSING_ROW, dining],
       pending: {
         row: { kind: "line", lineId: "dining" },
@@ -100,5 +143,31 @@ describe("SpendingEditor — the row", () => {
     renderEditor({ lines: [], authoring: { kind: "edit", id: "housing" } });
     expect(housingInput().value).toBe("1600");
     expect(screen.queryByLabelText("Name")).toBeNull();
+  });
+});
+
+describe("SpendingEditor — the full obligation list", () => {
+  it("renders a non-editable obligation read-only, with its amount and a deep link", () => {
+    renderEditor({ obligations: [HOUSING_OBLIGATION, HEALTH_OBLIGATION] });
+    // The health line the plan authors is not an editable spending input here…
+    expect(screen.queryByRole("spinbutton", { name: /Health care/ })).toBeNull();
+    // …it shows its owed amount read-only, and a link to where it IS edited.
+    const link = screen.getByRole("link", { name: /Edit on the plan/i });
+    expect(link.getAttribute("href")).toBe("#budget-accounts");
+    const row = screen.getByText("Health care").closest("div")!;
+    expect(row.textContent).toMatch(/\$500/);
+  });
+
+  it("keeps the user's own budget lines editable beside the read-only obligations", () => {
+    renderEditor({ obligations: [HOUSING_OBLIGATION, HEALTH_OBLIGATION] });
+    // The authored line is still an editable spinbutton — `editable` gates the input.
+    expect(housingInput().value).toBe("1600");
+    expect(screen.getByRole("button", { name: /Edit Housing/i })).toBeTruthy();
+  });
+
+  it("offers no edit/delete controls on a read-only obligation row", () => {
+    renderEditor({ obligations: [HEALTH_OBLIGATION] });
+    expect(screen.queryByRole("button", { name: /Edit Health care/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete Health care/i })).toBeNull();
   });
 });
