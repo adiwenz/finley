@@ -8,7 +8,7 @@ import {
 import { requiredMinimumDistributionCents } from "./rmd";
 import {
   retirementDeferralLimitCents,
-  totalAdditionsLimitCents,
+  combinedPlanDepositLimitCents,
   CONTRIBUTION_LIMIT_ASSUMPTIONS,
 } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
@@ -30,7 +30,7 @@ export { requiredMinimumDistributionCents, RMD_ASSUMPTIONS } from "./rmd";
 export {
   contributionLimits,
   retirementDeferralLimitCents,
-  totalAdditionsLimitCents,
+  combinedPlanDepositLimitCents,
   CONTRIBUTION_LIMIT_ASSUMPTIONS,
   CONTRIBUTION_LIMITS_BASE_YEAR,
   type ContributionLimits,
@@ -99,7 +99,7 @@ export const usJurisdiction: Jurisdiction = {
   colaAdjustedBenefitCents,
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
-  totalAdditionsLimitCents,
+  combinedPlanDepositLimitCents,
   healthCostBenchmarkMonthlyCents,
   modelAssumptions: [
     ...FEDERAL_TAX_ASSUMPTIONS,

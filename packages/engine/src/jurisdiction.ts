@@ -31,9 +31,12 @@ export interface GovernmentBenefitContext extends JurisdictionContext {
   readonly colaRate: number;
 }
 
-/** Age lets `rules` add the age-banded catch-up (from 50; larger in the 60–63 band under SECURE 2.0). */
+/**
+ * Age is passed through so `rules` can band a limit on it. The engine attaches no meaning to
+ * the banding — whether age raises a limit, and by how much, is entirely the jurisdiction's.
+ */
 export interface DeferralLimitContext extends JurisdictionContext {
-  /** Absent → base limit only, no catch-up. */
+  /** Absent → the jurisdiction's un-banded limit. */
   readonly age?: number;
 }
 
@@ -101,8 +104,8 @@ export interface Jurisdiction {
 
   /**
    * Simplifications specific to this jurisdiction (e.g. brackets grown forward at a flat
-   * rate, not the IRS's published yearly figures), listed after the engine's neutral
-   * {@link import("./projection/assumptions").MODEL_ASSUMPTIONS}.
+   * rate rather than the authority's published yearly figures), listed after the engine's
+   * neutral {@link import("./projection/assumptions").MODEL_ASSUMPTIONS}.
    */
   readonly modelAssumptions?: readonly ModelAssumption[];
 
@@ -134,30 +137,27 @@ export interface Jurisdiction {
   isCoveredEarnings?(taxCategory: TaxCategory): boolean;
 
   /**
-   * A person's annual employee pre-tax deferral limit (401k-style). The waterfall caps
-   * combined deferral here and redirects overflow to the next destination; the employer
-   * match does NOT share the cap — it is bounded by
-   * {@link totalAdditionsLimitCents} instead. Absent → uncapped.
+   * A person's annual limit on their OWN pre-tax deferral, summed across every plan they
+   * hold. The waterfall caps combined deferral here and redirects overflow to the next
+   * destination. The employer match does not draw on this limit — it is bounded by
+   * {@link combinedPlanDepositLimitCents} instead. Absent → uncapped.
    */
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
-   * The annual ceiling on employee deferral + employer match COMBINED, applied PER EMPLOYER
-   * PLAN (US: §415(c)). The outer bound on everything landing in one plan's account, where
-   * {@link retirementDeferralLimitCents} bounds the employee's own share across ALL their
-   * plans — so this should always be the larger of the two. Absent → the match is uncapped.
+   * The annual ceiling on employee deferral + employer match COMBINED, applied to ONE plan.
+   * Where {@link retirementDeferralLimitCents} bounds the employee's own share across all
+   * their plans, this bounds everything landing in a single one. Absent → the match is
+   * uncapped.
    *
-   * Per plan, so a second job brings its own full room; only the elective limit is shared.
-   * The engine buckets by income source (one job = one employer), NOT by destination
-   * account — two jobs paying into the same account are still two plans.
+   * Per plan, so a second job brings its own full room. The engine buckets by income source,
+   * NOT by destination account — two jobs paying into the same account are two plans.
    *
-   * `ctx` carries the person's age, since the figure is age-banded.
-   *
-   * When the ceiling binds, the waterfall trims the MATCH and leaves the employee deferral
-   * whole: employer money is the discretionary part, and cutting the deferral instead would
-   * move taxable income and cascade through the whole month.
+   * No ordering between the two limits is assumed: a jurisdiction may set this below
+   * {@link retirementDeferralLimitCents}, in which case the match is simply squeezed to
+   * nothing (see the deferral-preserving policy in `waterfall.ts`).
    */
-  totalAdditionsLimitCents?(ctx: DeferralLimitContext): Cents;
+  combinedPlanDepositLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
    * The full retirement age (US law: 67), used to time a benefit when the person hasn't

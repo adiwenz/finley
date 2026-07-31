@@ -79,11 +79,11 @@ export interface SimState {
    */
   readonly deferredByPersonYear: Map<string, Cents>;
   /**
-   * Cumulative deferral + employer match per EMPLOYER PLAN per calendar year, keyed
-   * `${planKey}|${year}`. The §415(c) ceiling is enforced against this running total —
-   * per plan, unlike {@link deferredByPersonYear}, because each employer carries its own.
+   * Cumulative deferral + employer match per PLAN per calendar year, keyed
+   * `${planKey}|${year}`. The combined deposit limit is enforced against this running total —
+   * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
    */
-  readonly totalAdditionsByPlanYear: Map<string, Cents>;
+  readonly combinedDepositsByPlanYear: Map<string, Cents>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -200,7 +200,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
-    totalAdditionsByPlanYear: new Map<string, Cents>(),
+    combinedDepositsByPlanYear: new Map<string, Cents>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

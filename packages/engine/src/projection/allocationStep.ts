@@ -52,10 +52,10 @@ export function allocateMonth(
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
-  // Per person, not per household: the limit (with any age-banded catch-up) depends on the
-  // individual's age. No birth year → base limit.
+  // Per person, not per household: the jurisdiction may band the limit on the individual's
+  // age. No birth year → the un-banded limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
-  const totalAdditionsLimit = jurisdiction.totalAdditionsLimitCents;
+  const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
   /** Age in `ctx.year`; `undefined` when the person has no birth year to band on. */
   const ageOf = (pid: string): number | undefined => {
     const birthYear = state.personsById.get(pid)?.birthYear;
@@ -100,11 +100,11 @@ export function allocateMonth(
       const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
-    // Age comes from the person; the accumulator is keyed by the employer plan.
-    remainingTotalAdditionsRoomCents: (pid, planKey) => {
-      if (totalAdditionsLimit === undefined) return Infinity;
-      const limit = totalAdditionsLimit({ year: ctx.year, age: ageOf(pid) });
-      const used = state.totalAdditionsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
+    // Age comes from the person; the accumulator is keyed by the plan.
+    remainingCombinedDepositRoomCents: (pid, planKey) => {
+      if (combinedLimit === undefined) return Infinity;
+      const limit = combinedLimit({ year: ctx.year, age: ageOf(pid) });
+      const used = state.combinedDepositsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
   });
@@ -129,9 +129,12 @@ export function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  for (const [planKey, amount] of result.totalAdditionsByPlanCents) {
+  for (const [planKey, amount] of result.combinedDepositsByPlanCents) {
     const key = `${planKey}|${ctx.year}`;
-    state.totalAdditionsByPlanYear.set(key, (state.totalAdditionsByPlanYear.get(key) ?? 0) + amount);
+    state.combinedDepositsByPlanYear.set(
+      key,
+      (state.combinedDepositsByPlanYear.get(key) ?? 0) + amount,
+    );
   }
 
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
