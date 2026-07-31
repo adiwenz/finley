@@ -123,8 +123,16 @@ interface EventEntryCommon {
  * entry creates, and that person does not exist until the marriage applies, so there is nothing
  * an author could name. Omitting the field rather than ignoring it means the compiler says so,
  * instead of a stated owner being quietly overwritten.
+ *
+ * `ownerRef?: never` rather than a bare `Omit`, because `Omit` alone only stops a fresh object
+ * LITERAL: excess-property checking does not apply to a value that arrives through a variable,
+ * so a `JobEntry` built elsewhere and handed in would assign structurally and have its owner
+ * dropped in silence — the exact failure this type exists to prevent. Declaring the field as
+ * `never` makes it a type error either way.
  */
-export type PartnerJobEntry = Omit<JobEntry, "ownerRef">;
+export type PartnerJobEntry = Omit<JobEntry, "ownerRef"> & {
+  readonly ownerRef?: never;
+};
 
 /** The incoming partner and their ref-authored jobs — see {@link import("./projectionRoot").MarryInput}. */
 export interface MarryEntry extends EventEntryCommon {

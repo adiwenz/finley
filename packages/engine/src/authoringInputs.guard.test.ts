@@ -20,7 +20,7 @@ import { SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { ref } from "./scenarioInput";
 import { PRIMARY_PERSON_REF } from "./scenarioRefs";
 import type { PersonId } from "./job";
-import type { ScenarioInput } from "./scenarioInput";
+import type { JobEntry, ScenarioInput } from "./scenarioInput";
 
 const P1 = "p1" as PersonId;
 
@@ -170,11 +170,28 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       ],
     };
 
-    // A plan-plane job still may: that owner exists before the entry applies.
+    // The same, arriving through a VARIABLE rather than a fresh literal. Excess-property
+    // checking does not apply to these, so a bare `Omit<JobEntry, "ownerRef">` would let this
+    // assign structurally and drop the owner in silence. `ownerRef?: never` is what refuses it.
+    const authoredElsewhere: JobEntry = { ...openEndedJob, ownerRef: PRIMARY_PERSON_REF };
+    const nestedOwnerViaVariable: ScenarioInput = {
+      ...base,
+      events: [
+        {
+          type: "marry", month: 12, name: "Sam", birthYear: 1994,
+          // @ts-expect-error — a partner's job cannot name an owner, however it is passed
+          jobs: [authoredElsewhere],
+        },
+      ],
+    };
+
+    // A plan-plane job still may: that owner exists before the entry applies. Through a variable
+    // too — the tightening is confined to the nested position.
     const planOwner: ScenarioInput = {
       ...base,
       jobs: [{ ...openEndedJob, ownerRef: PRIMARY_PERSON_REF }],
     };
+    const planOwnerViaVariable: ScenarioInput = { ...base, jobs: [authoredElsewhere] };
 
     // Everything else about a nested job is unchanged — a ref and a deferral still ride along.
     const nestedRest: ScenarioInput = {
@@ -187,7 +204,13 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       ],
     };
 
-    for (const input of [nestedOwner, planOwner, nestedRest]) {
+    for (const input of [
+      nestedOwner,
+      nestedOwnerViaVariable,
+      planOwner,
+      planOwnerViaVariable,
+      nestedRest,
+    ]) {
       expect(input.startYear).toBe(2026);
     }
   });

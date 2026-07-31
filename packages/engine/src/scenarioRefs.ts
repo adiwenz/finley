@@ -29,7 +29,6 @@ import type {
   ScenarioInput,
   EventEntry,
   JobEntry,
-  PartnerJobEntry,
   Ref,
   ScenarioInputError,
 } from "./scenarioInput";
@@ -102,7 +101,11 @@ interface Usage {
  * validating a field the build then discards.
  */
 function collectPartnerJob(
-  job: PartnerJobEntry,
+  // The OWNERLESS view of a job entry, not `PartnerJobEntry` itself: that type additionally
+  // forbids `ownerRef` (`?: never`), which a plan-plane `JobEntry` cannot satisfy, and
+  // `collectJob` below delegates here. Widening the parameter keeps one implementation of the
+  // shared half while leaving the nested-position ban to the type `MarryEntry.jobs` declares.
+  job: Omit<JobEntry, "ownerRef">,
   order: number,
   loc: Location,
   decls: Declaration[],
