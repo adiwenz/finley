@@ -446,6 +446,39 @@ async function completedTaskCount(branch: string): Promise<number> {
   return 0;
 }
 
+// Commits this branch carries beyond `main`, from any earlier run.
+//
+// Whole-issue mode has no `[task N/M]` ledger, so this is the only way to tell
+// the two zero-commit completions apart. An agent that signals done having
+// committed nothing has either found the issue already finished by a previous
+// run — real work is on the branch, and redoing it would be the bug — or done
+// nothing at all, on a branch level with `main`. The first is success; the
+// second is the failure the signal was supposed to catch.
+//
+// Returns 0 when the branch does not resolve, which reads as the failure case —
+// the safe direction, since it leaves the issue queued rather than marking an
+// empty branch done.
+async function remoteBranchExists(branch: string): Promise<boolean> {
+  try {
+    const { stdout } = await execPromise(`git ls-remote --heads origin ${branch}`);
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function branchCommitCount(branch: string): Promise<number> {
+  for (const ref of [branch, `origin/${branch}`]) {
+    try {
+      const { stdout } = await execPromise(`git rev-list --count origin/main..${ref}`);
+      return Number(stdout.trim()) || 0;
+    } catch {
+      // Ref doesn't resolve — try the remote form, then give up.
+    }
+  }
+  return 0;
+}
+
 // One implementer agent, on one branch. Called once per task, or once for the
 // whole issue when the issue declares none.
 async function runImplementer(args: {
@@ -579,6 +612,16 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
         break;
       }
 
+      // Whole-issue mode, done signalled, nothing committed: the issue was
+      // already finished by an earlier run — this agent oriented, found the work
+      // on the branch, and correctly declined to redo it. Re-queuing that would
+      // spend an agent per run forever on an issue that is finished.
+      if (!task && result.completionSignal !== undefined && (await branchCommitCount(issue.branch)) > 0) {
+        wholeIssueDone = true;
+        console.log(`✓ [Issue #${issue.id}] ${label}: already complete on ${issue.branch}; nothing to do.`);
+        break;
+      }
+
       // A whole-issue agent that committed green work and then ran out of
       // iterations made progress; it just needed more room than one agent has.
       // Its successor orients from those commits and the handoff note it left,
@@ -661,7 +704,10 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       // Ephemeral/CI: no local worktree would survive the run, so the pushed
       // branch is the review artifact. Print how to review it locally later.
       console.log(`FINISHED: ${issue.branch}`);
-      if (pushed) {
+      // Not `pushed`, which only records a push made by THIS run. An issue
+      // finished by an earlier run has nothing new to push, and its branch is
+      // already on origin — reviewable, and not the lost-work case below.
+      if (pushed || (await remoteBranchExists(issue.branch))) {
         console.log(`🔍 [Issue #${issue.id}] Review locally when you're back:`);
         console.log(`           git fetch origin ${issue.branch}`);
         console.log(`           .sandcastle/new_flow/create-review-worktree.sh ${issue.branch} ${issue.id}`);
