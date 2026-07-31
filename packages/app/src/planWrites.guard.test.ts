@@ -147,7 +147,11 @@ const facadeSource = readFileSync(
   "utf8",
 );
 
-/** Every name `projectionRoot.ts` exports — declared there, or re-exported through it. */
+/**
+ * Every name `projectionRoot.ts` exports. It declares nothing of its own any more — the facade
+ * lives in `projectionFacade.ts` and the state functions under `authoring/` — but both readings
+ * stay, because what the rule means is "the names this module publishes", however they get there.
+ */
 function facadeExports(source: string): Set<string> {
   const names = new Set<string>();
   // Re-export blocks: `export { a, b } from "./x"`, `export type { a } from "./y"`.
@@ -167,8 +171,11 @@ function facadeExports(source: string): Set<string> {
 }
 
 /**
- * Engine authoring transforms, named to prove the check below has teeth. Each is a second
- * write path if an app can reach it, so none may ever appear on the facade's surface.
+ * Engine write functions, named to prove the check below has teeth. Each is a second write path
+ * if an app can reach it, so none may ever appear on the facade's surface. Two layers, both
+ * internal: the entity transforms, and the projection-level state functions the facade's methods
+ * delegate to — the latter take a whole `ProjectionState` and hand back the next one, so an app
+ * holding one could author around the id counter and every gate at once.
  */
 const WRITES_THAT_MUST_STAY_INTERNAL = [
   "addEvent",
@@ -181,6 +188,18 @@ const WRITES_THAT_MUST_STAY_INTERNAL = [
   "withLinePatch",
   "withPlan",
   "withLedger",
+  "addProjectionJob",
+  "reassignProjectionJob",
+  "addProjectionBudgetLine",
+  "removeProjectionGoal",
+  "applyMarriage",
+  "applyHomePurchase",
+  "applyLoan",
+  "reviseProjectionTransaction",
+  "appendEvent",
+  "replaceEvent",
+  "withStatePlan",
+  "withStateLedger",
 ];
 
 /**

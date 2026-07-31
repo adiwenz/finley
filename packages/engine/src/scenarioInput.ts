@@ -35,7 +35,7 @@ import type { GrowthMode } from "./cashFlowSeries";
 // Type-only, and cyclic: `Projection` imports these authoring types, so a value import back
 // would close the loop. `FromInputResult` names the class only in a field, which a type import
 // resolves without a runtime edge.
-import type { Projection } from "./projectionRoot";
+import type { Projection } from "./projectionFacade";
 
 declare const REF_BRAND: unique symbol;
 

@@ -13,7 +13,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Projection } from "./projectionRoot";
 import { SAMPLE_START_YEAR } from "./testing/samplePlan";
@@ -218,11 +219,74 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
 
 /**
  * The breadth check. A `@ts-expect-error` only covers a shape someone thought to write down;
- * this covers every authoring type there is, including ones added later.
+ * this covers every authoring type there is, including ones added later — and, since each input
+ * is declared beside the module that applies it, wherever in the package it is declared.
+ *
+ * "Authoring type" is decided by two readings, unioned, because either alone leaks:
+ *
+ *  - **Declared in the authoring vocabulary** — under `authoring/`, or in `scenarioInput.ts`.
+ *    This is what catches an entry the gateway does not publish by name: `PartnerJobEntry` and
+ *    the per-verb `*Entry` shapes reach a caller only through the `EventEntry` union, so a
+ *    surface-only reading would scan the union and miss the members.
+ *  - **Published by the export gateway** — so an input declared somewhere new is covered the
+ *    moment it becomes reachable, which it must be to be an input the API accepts.
+ *
+ * A whole-tree scan is what neither can be: `BalanceEntry` and `WaterfallInput` are simulator
+ * internals that legitimately carry an `id`, and nobody authors with them.
  */
 describe("the authoring API accepts no caller-supplied id — source scan", () => {
+  const engineSrc = fileURLToPath(new URL("./", import.meta.url));
   const read = (name: string) =>
     readFileSync(fileURLToPath(new URL(name, import.meta.url)), "utf8");
+
+  /** Every non-test source file in the package, as `[repo-relative path, text]`. */
+  function sourceFiles(dir: string): { path: string; source: string }[] {
+    const out: { path: string; source: string }[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
+        out.push({
+          path: relative(engineSrc, full).replaceAll("\\", "/"),
+          source: readFileSync(full, "utf8"),
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Modules whose job IS to declare authoring vocabulary — scanned whole. */
+  const AUTHORING_MODULES = (path: string) =>
+    path.startsWith("authoring/") || path === "scenarioInput.ts";
+
+  /** Every name the export gateway republishes — the package's whole public surface. */
+  function gatewayExports(): Set<string> {
+    const names = new Set<string>();
+    const source = read("./projectionRoot.ts");
+    for (const match of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"[^"]*"/gs)) {
+      for (const part of match[1].split(",")) {
+        const name = part.trim();
+        if (name !== "") names.add(name.replace(/^type\s+/, "").split(" as ").pop()!.trim());
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Every authoring type in the package, by both readings — deduped by name, since a published
+   * one is also declared somewhere.
+   */
+  function allAuthoringTypes(): [string, string][] {
+    const published = gatewayExports();
+    const byName = new Map<string, string>();
+    for (const { path, source } of sourceFiles(engineSrc)) {
+      const inVocabulary = AUTHORING_MODULES(path);
+      for (const [name, body] of authoringTypes(source)) {
+        if (inVocabulary || published.has(name)) byName.set(name, body);
+      }
+    }
+    return [...byName];
+  }
 
   /**
    * Every exported `*Input` / `*Entry` / `*Revision` declaration, as `[name, body]`. Brace
@@ -262,30 +326,37 @@ describe("the authoring API accepts no caller-supplied id — source scan", () =
   const DECLARES_ID = /(?:^|[{;\n])\s*(?:readonly\s+)?id\??\s*:/;
 
   it("finds the authoring types, so a broken scan cannot pass by matching nothing", () => {
-    const names = [
-      ...authoringTypes(read("./projectionRoot.ts")),
-      ...authoringTypes(read("./scenarioInput.ts")),
-    ].map(([name]) => name);
+    const names = allAuthoringTypes().map(([name]) => name);
 
     // The ones this rule exists for, named outright so a rename cannot silently drop coverage.
+    // `PartnerJobEntry` is here because it is reachable only through the `EventEntry` union —
+    // the case that proves the scan reads declarations, not just the published surface.
     for (const required of [
       "JobInput", "BudgetLineInput", "GoalInput", "MarryInput", "HaveChildInput",
       "TakeLoanInput", "BuyHomeInput", "SeparateInput", "PayOffDebtInput", "TransactionRevision",
-      "JobEntry", "GoalEntry", "BudgetLineEntry", "EventEntry", "ScenarioInput",
+      "JobEntry", "PartnerJobEntry", "GoalEntry", "BudgetLineEntry", "EventEntry", "ScenarioInput",
     ]) {
       expect(names).toContain(required);
     }
   });
 
   it("declares no `id` field on any authoring input", () => {
-    const offenders = [
-      ...authoringTypes(read("./projectionRoot.ts")),
-      ...authoringTypes(read("./scenarioInput.ts")),
-    ]
+    const offenders = allAuthoringTypes()
       .filter(([, body]) => DECLARES_ID.test(body))
       .map(([name]) => name);
 
     expect(offenders).toEqual([]);
+  });
+
+  it("scans past the module the inputs used to share, wherever they are declared now", () => {
+    // Each input lives beside the module that applies it, so the scan must reach more than one
+    // file — a regression to a single-file read would still find `ScenarioInput` and pass.
+    const names = allAuthoringTypes().map(([name]) => name);
+    expect(names).toContain("BuyHomeInput");
+    expect(names).toContain("JobInput");
+    // …and it must NOT drag in the simulator internals that legitimately carry an `id`.
+    expect(names).not.toContain("BalanceEntry");
+    expect(names).not.toContain("WaterfallInput");
   });
 
   it("keeps the scan honest — it does fire on a declaration that names an id", () => {
