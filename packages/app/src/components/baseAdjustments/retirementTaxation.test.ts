@@ -8,8 +8,8 @@
 import { it, expect } from "vitest";
 import { Projection, RETIREMENT_ID, dollarsToCents, type Plan } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
+import { stateOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { START_YEAR } from "../../config";
 
 // A solvent retiree funded by pre-tax 401(k) withdrawals (taxable ordinary income) on top
 // of Social Security: a higher salary plus a 15% deferral build the pre-tax balance.
@@ -25,9 +25,7 @@ const DEMO_PLAN: Plan = {
 };
 
 it("taxes Social Security when 401(k) withdrawals accompany it, keyed to the benefit source", () => {
-  const series = Projection.create({ plan: DEMO_PLAN, startYear: START_YEAR }, usJurisdiction).run(
-    usJurisdiction,
-  ).series;
+  const series = Projection.fromState(stateOf(DEMO_PLAN), usJurisdiction).run(usJurisdiction).series;
 
   const taxedSSMonths = series.months.filter((m) => {
     const byCat = (m.flows?.taxByCategoryCents ?? {}) as Record<string, number>;

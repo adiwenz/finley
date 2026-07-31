@@ -109,7 +109,6 @@ export * from "./plan";
 export type {
   ProjectionState,
   ProjectionResult,
-  ProjectionInit,
   JobInput,
   BudgetLineInput,
   GoalInput,
@@ -119,6 +118,7 @@ export type {
   TakeLoanInput,
   BuyHomeInput,
   PayOffDebtInput,
+  TransactionRevision,
   HomePurchaseInput,
   HomePurchaseAssessment,
   RetirementOutlook,

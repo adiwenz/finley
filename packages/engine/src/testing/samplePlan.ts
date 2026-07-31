@@ -14,6 +14,9 @@
 import type { Plan } from "../plan";
 import type { Job } from "../job";
 import type { BudgetLine } from "../budgetLine";
+import type { Ledger } from "../ledger/ledger";
+import { emptyLedger } from "../ledger/ledger";
+import type { ProjectionState } from "../projectionRoot";
 import { dollarsToCents } from "../cashFlowSeries";
 import { RETIREMENT_ID } from "../ids";
 
@@ -145,3 +148,24 @@ export const baristaPlan = {
   benefitClaimingAge: 67,
   jobs: [baristaOpenEndedJob, baristaSupplementalJob],
 } satisfies Plan;
+
+/**
+ * A fixture {@link Plan} (and optional {@link Ledger}) as the `ProjectionState` a handle is
+ * restored from — the **adoption boundary**, for tests only.
+ *
+ * A `Plan` fixture already carries ids, so handing one to the engine is restoration, not
+ * authoring: there is deliberately no public API that takes one and calls itself id-free.
+ * `Projection.fromState` is where such state comes in, and `nextSeq: 1` means "not known" —
+ * the normalization floors both counters past whatever the fixture holds, so a plan holding
+ * `goal-1` cannot have a second `goal-1` minted on top of it.
+ *
+ * Tests that AUTHOR a scenario should use `Projection.fromInput` and capture the ids it
+ * returns. This is for the ones that need a handle over a pre-built plan.
+ */
+export function stateOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionState {
+  return {
+    scenario: { plan, ledger },
+    startYear: SAMPLE_START_YEAR,
+    nextSeq: 1,
+  };
+}

@@ -11,9 +11,16 @@ import { samplePlan, SAMPLE_START_YEAR } from "./packages/engine/src/testing/sam
 const { Projection, dollarsToCents, centsToDollars, nullJurisdiction } = engine;
 const { usJurisdiction } = rules;
 
-/** Start over: a fresh Projection on the sample plan. */
+/**
+ * Start over: a handle over the sample plan. `fromState` rather than an authoring call — the
+ * fixture is a `Plan` that already carries ids, so adopting it is restoration. `nextSeq: 1`
+ * means "not known"; the normalization floors both counters past what the plan holds.
+ */
 const fresh = () =>
-  Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
+  Projection.fromState(
+    { scenario: { plan: samplePlan, ledger: engine.emptyLedger }, startYear: SAMPLE_START_YEAR, nextSeq: 1 },
+    nullJurisdiction,
+  );
 
 /** Run under the US jurisdiction and print the headline numbers. */
 const summarize = (p: engine.Projection, j: engine.Jurisdiction = usJurisdiction) => {

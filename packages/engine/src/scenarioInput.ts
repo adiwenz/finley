@@ -229,7 +229,7 @@ export function eventEntryType(entry: EventEntry): EventEntry["type"] {
  * array position breaking ties within a month.
  */
 export interface ScenarioInput extends PlanScalars {
-  /** The frozen "now" — from `ProjectionInit`, not `Plan`. */
+  /** The frozen "now" — calendar year of month 0. Not a `Plan` field. */
   readonly startYear: number;
   readonly jobs?: readonly JobEntry[];
   readonly goals?: readonly GoalEntry[];

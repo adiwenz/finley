@@ -17,7 +17,7 @@ import {
   type Plan,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { useTestProjection } from "../../testing/projectionHarness";
+import { useTestProjection, stateOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { setJobMonthlyIncome } from "../../testing/planFixtures";
@@ -836,10 +836,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
   });
 
   it("bands a liability's payment from the timeline, with no extra props", () => {
-    const projection = Projection.create(
-      { plan: PLAN_DEFAULTS, startYear: START_YEAR },
-      usJurisdiction,
-    );
+    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
     const loanId = projection.takeLoan({
       month: 0,
       ownerId: PRIMARY_PERSON_ID,

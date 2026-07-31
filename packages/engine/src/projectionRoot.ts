@@ -6,6 +6,24 @@
  * {@link Ledger}. Each write derives a new {@link ProjectionState}, so state already handed
  * out stays intact.
  *
+ * ## Where identity comes from
+ *
+ * There are exactly two doors, and they differ in who names things:
+ *
+ *  - {@link Projection.fromInput} **authors**. It takes a declarative, id-free `ScenarioInput`
+ *    and mints every identity off the shared counter.
+ *  - {@link Projection.fromState} **restores**. It takes a whole `ProjectionState` whose ids were
+ *    issued earlier, and floors the counters past everything it holds.
+ *
+ * Nothing else adopts caller-named data. No authoring method takes an `id`; no method takes an
+ * id-bearing `Plan`, `Ledger` or `LifeEvent`. An editing method may take an existing id as the
+ * TARGET it addresses — `updateJob(jobId, …)`, `reviseTransaction(eventId, …)` — but what it is
+ * handed can never replace that id or any identity nested beneath it. The two operations that
+ * genuinely need to name an existing identity say so in their signature rather than accepting it
+ * in a payload: {@link Projection.reassignJob} moves a job between members keeping its id, and
+ * {@link Projection.reviseTransaction} changes an event's data while rebuilding it from what is
+ * already in the log. `authoringInputs.guard.test.ts` holds that boundary to the compiler.
+ *
  * Every authorable thing is add / edit / remove, not add-only: a caller that can author a
  * goal, a job, a budget line or a transaction can also revise and retract it, so the API is a
  * full editor rather than an authoring funnel that has to be escaped through {@link fromState}.
@@ -218,6 +236,194 @@ export interface SeparateInput {
 }
 
 /**
+ * What may be changed about a transaction already in the log — its DATA, never its identity.
+ *
+ * One variant per authoring verb, discriminated on the same `type` names
+ * {@link import("./scenarioInput").EventEntry} uses, so a revision states which kind of event it
+ * expects and revising a loan as though it were a home is a refusal rather than nonsense. Every
+ * field is optional: an absent one keeps what the event already says.
+ *
+ * No variant carries an id, and none carries a nested entity. The event id, the person a
+ * marriage created and their jobs, the child, the liability, the property and its mortgage all
+ * survive a revision untouched — {@link revisedEvent} rebuilds from the existing event rather
+ * than from the caller, so identity is preserved by construction and a field added to an event
+ * type is carried through without being re-listed here.
+ *
+ * Nested entities are added and removed through their own methods, which mint or target ids
+ * properly: {@link Projection.addPartnerJob}, {@link Projection.removePartnerJob},
+ * {@link Projection.replacePartnerJob}.
+ *
+ * The account fields (`downPaymentSourceIds`, `accountId`) name accounts that already exist —
+ * target handles, the same ones {@link BuyHomeInput} and {@link PayOffDebtInput} take. They
+ * mint nothing.
+ */
+export type TransactionRevision =
+  | {
+      readonly type: "marry";
+      readonly month?: number;
+      readonly name?: string;
+      readonly birthYear?: number;
+      readonly retirementTargetAge?: number;
+      readonly benefitClaimingAge?: number;
+    }
+  | {
+      readonly type: "haveChild";
+      readonly month?: number;
+      readonly name?: string;
+      readonly birthMonth?: number;
+      readonly annualCostCents?: Cents;
+    }
+  | {
+      readonly type: "separate";
+      readonly month?: number;
+      readonly alimonyMonthlyCents?: Cents;
+      readonly alimonyDurationMonths?: number;
+      readonly childSupportMonthlyCents?: Cents;
+    }
+  | {
+      /**
+       * `kind` is fixed — a card and a term loan are different instruments, not one with a
+       * different field set — so exactly one of `creditLimitCents`/`termMonths` applies, and
+       * the other is refused rather than ignored.
+       */
+      readonly type: "takeLoan";
+      readonly month?: number;
+      readonly openingBalanceCents?: Cents;
+      readonly apr?: number;
+      readonly creditLimitCents?: Cents;
+      readonly termMonths?: number;
+    }
+  | {
+      readonly type: "buyHome";
+      readonly month?: number;
+      readonly purchasePriceCents?: Cents;
+      readonly downPaymentCents?: Cents;
+      readonly downPaymentSourceIds?: readonly string[];
+      readonly mortgageApr?: number;
+      readonly mortgageTermMonths?: number;
+      readonly appreciationMode?: GrowthMode;
+    }
+  | {
+      readonly type: "payOffDebt";
+      readonly month?: number;
+      readonly accountId?: string;
+      readonly amountCents?: Cents;
+    };
+
+/** The event kind each revision verb addresses — the pairing `reviseTransaction` enforces. */
+const REVISED_EVENT_TYPE: Record<TransactionRevision["type"], LifeEvent["type"]> = {
+  marry: "RelationshipEvent",
+  haveChild: "ChildEvent",
+  separate: "SeparationEvent",
+  takeLoan: "LoanEvent",
+  buyHome: "HomePurchaseEvent",
+  payOffDebt: "DebtPayoffEvent",
+};
+
+/**
+ * Rebuild an event with a revision's named fields applied.
+ *
+ * Every arm spreads `current` first, so identity — the event's own id, `childId`,
+ * `partnerPersonId`, `liabilityId`, `ownerId`, `propertyId`, `mortgageLiabilityId`, the person
+ * and their jobs — is carried rather than re-listed. Only `sequenceNumber` is dropped, because
+ * the ledger reassigns it. The revision's variant is known to match `current.type`:
+ * {@link Projection.reviseTransaction} refuses the pairing before calling here, which is what
+ * makes each cast below sound.
+ */
+function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLifeEvent {
+  const { sequenceNumber: _reassigned, ...kept } = current;
+  const at = <T extends TransactionRevision["type"]>(_t: T) =>
+    revision as Extract<TransactionRevision, { type: T }>;
+
+  switch (current.type) {
+    case "RelationshipEvent": {
+      const r = at("marry");
+      return {
+        ...kept,
+        month: r.month ?? current.month,
+        // The person is spread, so their id and their whole job list ride through untouched.
+        person: {
+          ...current.person,
+          name: r.name ?? current.person.name,
+          birthYear: r.birthYear ?? current.person.birthYear,
+          retirementTargetAge: r.retirementTargetAge ?? current.person.retirementTargetAge,
+          benefitClaimingAge: r.benefitClaimingAge ?? current.person.benefitClaimingAge,
+        },
+      } as NewLifeEvent;
+    }
+    case "ChildEvent": {
+      const r = at("haveChild");
+      return {
+        ...kept,
+        month: r.month ?? current.month,
+        childName: r.name ?? current.childName,
+        birthMonth: r.birthMonth ?? current.birthMonth,
+        annualCostCents: r.annualCostCents ?? current.annualCostCents,
+      } as NewLifeEvent;
+    }
+    case "SeparationEvent": {
+      const r = at("separate");
+      return {
+        ...kept,
+        month: r.month ?? current.month,
+        alimonyMonthlyCents: r.alimonyMonthlyCents ?? current.alimonyMonthlyCents,
+        alimonyDurationMonths: r.alimonyDurationMonths ?? current.alimonyDurationMonths,
+        childSupportMonthlyCents: r.childSupportMonthlyCents ?? current.childSupportMonthlyCents,
+      } as NewLifeEvent;
+    }
+    case "LoanEvent": {
+      const r = at("takeLoan");
+      const wrongArm =
+        current.kind === "creditCard" ? r.termMonths !== undefined : r.creditLimitCents !== undefined;
+      if (wrongArm) {
+        throw new Error(
+          `Projection: cannot revise transaction — a ${current.kind} loan takes ` +
+            `${current.kind === "creditCard" ? "creditLimitCents" : "termMonths"}, not the other`,
+        );
+      }
+      const common = {
+        ...kept,
+        month: r.month ?? current.month,
+        openingBalanceCents: r.openingBalanceCents ?? current.openingBalanceCents,
+        apr: r.apr ?? current.apr,
+      };
+      return (
+        current.kind === "creditCard"
+          ? { ...common, creditLimitCents: r.creditLimitCents ?? current.creditLimitCents }
+          : { ...common, termMonths: r.termMonths ?? current.termMonths }
+      ) as NewLifeEvent;
+    }
+    case "HomePurchaseEvent": {
+      const r = at("buyHome");
+      const appreciationMode = r.appreciationMode ?? current.appreciationMode;
+      return {
+        ...kept,
+        month: r.month ?? current.month,
+        purchasePriceCents: r.purchasePriceCents ?? current.purchasePriceCents,
+        downPaymentCents: r.downPaymentCents ?? current.downPaymentCents,
+        downPaymentSourceIds: r.downPaymentSourceIds ?? current.downPaymentSourceIds,
+        mortgageApr: r.mortgageApr ?? current.mortgageApr,
+        mortgageTermMonths: r.mortgageTermMonths ?? current.mortgageTermMonths,
+        ...(appreciationMode !== undefined ? { appreciationMode } : {}),
+      } as NewLifeEvent;
+    }
+    case "DebtPayoffEvent": {
+      const r = at("payOffDebt");
+      return {
+        ...kept,
+        month: r.month ?? current.month,
+        accountId: r.accountId ?? current.accountId,
+        amountCents: r.amountCents ?? current.amountCents,
+      } as NewLifeEvent;
+    }
+    default: {
+      const exhaustive: never = current;
+      return exhaustive;
+    }
+  }
+}
+
+/**
  * A lump-sum principal paydown: the liability's balance falls and `accountId` pays for it, as
  * one conserved movement.
  */
@@ -359,12 +565,6 @@ function assessHomePurchase(
     monthlyGrossCents,
     exceeded: assessment.frontEndExceeded || assessment.backEndExceeded,
   };
-}
-
-export interface ProjectionInit {
-  readonly plan: Plan;
-  /** The frozen "now" — calendar year of month 0. */
-  readonly startYear: number;
 }
 
 /**
@@ -543,26 +743,6 @@ export class Projection {
   private constructor(state: ProjectionState, jurisdiction: Jurisdiction) {
     this.current = state;
     this.validationJurisdiction = jurisdiction;
-  }
-
-  /**
-   * Open a handle on a plan with no timeline yet — the one way to start something new.
-   *
-   * The counter starts clear of the plan it is handed, not at 1: a plan authored elsewhere
-   * routinely already holds `goal-1`, and minting it a second time would give two goals one id.
-   * That flooring is {@link fromState}'s, which this routes through with a `nextSeq` of 1
-   * meaning "unknown — work it out from what the plan holds". So there is ONE normalization in
-   * the class, and creating is just restoring from a state nobody has authored into yet.
-   *
-   * `jurisdiction` is the validation jurisdiction the write-time affordability gate decides on,
-   * required so the choice is never made by omission, and independent of whatever {@link run} is
-   * later given. Pass `nullJurisdiction` to author without tax rules.
-   */
-  static create(init: ProjectionInit, jurisdiction: Jurisdiction): Projection {
-    return Projection.fromState(
-      { scenario: scenarioOf(init.plan), startYear: init.startYear, nextSeq: 1 },
-      jurisdiction,
-    );
   }
 
   /**
@@ -1266,44 +1446,42 @@ export class Projection {
   }
 
   /**
-   * Revise a transaction in place, keeping its id and its place in the log. Without this,
-   * anything authored *on* an event is write-once — a partner's jobs live on their
-   * `RelationshipEvent`.
+   * Revise a transaction's DATA in place — its amounts, its month, the names on it — keeping
+   * its id, its place in the log, and every identity it carries. Without this, anything
+   * authored *on* an event is write-once.
    *
-   * `id` and `type` are fixed (dependencies are tracked by id, meaning by type); changing
-   * either means a different event, so remove and add instead. The month is revisable.
+   * The revision names only what changes ({@link TransactionRevision}); it cannot carry an id,
+   * a person, a job list or any other nested entity, and the event is rebuilt from what is
+   * already in the log rather than from the caller. So a revision can no more re-point a
+   * `liabilityId` or swap a partner's job list than it can rename the event. Nested entities are
+   * added and removed through their own methods, which mint and target ids properly.
+   *
+   * `type` is fixed as well as `id` — dependencies are tracked by id, meaning by type — so a
+   * revision that names the wrong verb for the event is refused rather than reinterpreted.
+   * Changing either means a different event: remove and add instead.
+   *
    * Validation is the whole-ledger replay {@link removeTransaction} runs, so a revision that
    * would strand a later event is refused and names it; there is no affordability gate, which
    * fires only on append.
    */
-  reviseTransaction(id: string, next: NewLifeEvent): void {
+  reviseTransaction(id: string, revision: TransactionRevision): void {
     const s = this.state;
-    const result = updateEvent(s.scenario.ledger, id, next, this.baseConfig());
+    const current = s.scenario.ledger.events.find((e) => e.id === id);
+    if (current === undefined) {
+      throw new Error(`Projection: cannot revise transaction — no transaction "${id}"`);
+    }
+    const expected = REVISED_EVENT_TYPE[revision.type];
+    if (current.type !== expected) {
+      throw new Error(
+        `Projection: cannot revise transaction — "${id}" is a ${current.type}, ` +
+          `which a "${revision.type}" revision does not address`,
+      );
+    }
+    const result = updateEvent(s.scenario.ledger, id, revisedEvent(current, revision), this.baseConfig());
     if (!result.ok) {
       throw new Error(`Projection: cannot revise transaction — ${result.conflict}`);
     }
     this.commit({ ...s, scenario: withLedger(s.scenario, result.ledger) });
-  }
-
-  /**
-   * Swap the whole timeline — how a caller loads a pre-built scenario without discarding the
-   * plan it was authored against, which {@link fromState} would.
-   *
-   * The caller owns the incoming ledger's *validity*: this replays nothing, so it is the one
-   * ledger write with no gate. It does NOT own the counters. Both are advanced past whatever
-   * the import already occupies ({@link seqFloor}), because an imported event holding `child-1`
-   * or sitting at `sequenceNumber` 7 would otherwise be handed straight back to the next
-   * authored event as its own id or its own place in the log.
-   *
-   * Prefer the per-transaction methods for anything an authoring flow does; reach for this
-   * only when the ledger arrives already-built.
-   */
-  resetLedger(ledger: Ledger): void {
-    const s = this.state;
-    // Normalized over the plan AND the incoming ledger, so the standing collections keep their
-    // claim on the counter across a reset. Sequence numbers are allowed to skip — the gap this
-    // leaves is the same kind a removal leaves.
-    this.commit(withNormalizedCounters({ ...s, scenario: withLedger(s.scenario, ledger) }));
   }
 
   // Run
@@ -1638,10 +1816,16 @@ export class Projection {
     if (!resolved.ok) return { ok: false, error: resolved.error };
 
     // Everything but the entry planes and the frozen `startYear` IS the plan's scalars; the three
-    // id-bearing collections start empty and are filled by the minting methods below.
+    // id-bearing collections start EMPTY and are filled by the minting methods below. That is
+    // what makes this an authoring path: the state it starts from holds no id at all, so the
+    // normalization `fromState` applies has nothing to floor past and the counter opens at 1.
     const { startYear, jobs, goals, budgetLines, events: _events, ...scalars } = input;
-    const projection = Projection.create(
-      { plan: { ...scalars, jobs: [], goals: [], budgetLines: [] }, startYear },
+    const projection = Projection.fromState(
+      {
+        scenario: scenarioOf({ ...scalars, jobs: [], goals: [], budgetLines: [] }),
+        startYear,
+        nextSeq: 1,
+      },
       jurisdiction,
     );
 

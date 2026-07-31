@@ -77,9 +77,14 @@ gone.
 
 - **Authoring and restoration are different APIs, and there is exactly one of each.**
   `fromInput` describes a scenario for the first time and mints; `fromState` restores state whose
-  ids were issued earlier and floors the counter past them. `fromScenario` is gone — it was
-  `fromState` with `nextSeq` left unsaid, which the flooring works out anyway — and `create` now
-  routes through `fromState` too, so the class has ONE normalization path. Collapsing the two — letting an input carry ids — is what gives identity two authorities,
+  ids were issued earlier and floors the counter past them. `fromScenario`, `create({ plan })` and
+  `resetLedger` are all gone — each adopted caller-named data through a door that called itself
+  authoring — so `fromState` is the single normalization path AND the single adoption boundary.
+- **`reviseTransaction` takes data, not an event.** It used to accept a whole caller-built
+  `NewLifeEvent`, identity fields and all. It now takes a discriminated `TransactionRevision`
+  naming only the fields that may change, and rebuilds the event from what is already in the log —
+  so the event id, the person and their jobs, the child, the liability, the property and its
+  derived mortgage all survive by construction rather than by the caller being careful. Collapsing the two — letting an input carry ids — is what gives identity two authorities,
   so `ScenarioInput` has no `id` field anywhere.
 - **`Ref` is branded.** `string & { [REF_BRAND]: true }`, built with `ref(name)`. The distinction
   from an id is now enforced by the compiler rather than asserted in a comment: an id read off a
