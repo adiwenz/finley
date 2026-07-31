@@ -1,5 +1,6 @@
 import type { Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
+import type { TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal";
 
@@ -117,10 +118,44 @@ export interface WaterfallInput {
    * already deferred this year). `Infinity` = uncapped.
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
+  /**
+   * Employee payroll tax (US: FICA) on a person's CUMULATIVE year-to-date earned income by
+   * category. Charged as the DIFFERENCE between the seam on the year-to-date total after
+   * this month's earnings and before them, so a capped component (OASDI's wage base) binds
+   * on cumulative earnings rather than annualized monthly slices — exact for a lumpy earner,
+   * unchanged for a level one. The FULL pre-deferral gross is the base: a 401(k) deferral
+   * cuts income tax but never payroll tax. Absent → no payroll tax. Which categories are
+   * earned is the seam's call, keeping `wages`-vs-`ordinaryIncome` policy out of the engine.
+   */
+  readonly computePayrollTaxCents?: (
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  ) => Cents;
+  /**
+   * A person's year-to-date earned gross by category BEFORE this month — the base the
+   * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
+   * consulted when {@link computePayrollTaxCents} is present.
+   */
+  readonly priorEarnedByPersonCents?: (
+    personId: string,
+  ) => Partial<Record<TaxCategory, Cents>>;
 }
 
 export interface WaterfallResult {
   readonly taxCents: Cents;
+  /**
+   * Employee payroll tax (FICA) withheld this month, summed across persons. Already removed
+   * from take-home alongside income tax; 0 when no {@link WaterfallInput.computePayrollTaxCents}
+   * is supplied. Kept a SEPARATE line from {@link taxCents} because its base (pre-deferral
+   * gross) and category set (earned income only) differ, and so the income-tax attribution
+   * invariants stay untouched.
+   */
+  readonly payrollTaxCents: Cents;
+  /**
+   * This month's pre-deferral earned gross by category, per person — the caller folds it
+   * into its year-to-date accumulator so next month's {@link
+   * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
+   */
+  readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
   /**
    * Household tax per {@link TaxCategory}, summed across persons. `{}` in a zero-tax month,
    * otherwise Σ === `taxCents`.

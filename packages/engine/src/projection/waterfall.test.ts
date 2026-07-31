@@ -828,3 +828,78 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(300));
   });
 });
+
+describe("runWaterfall — employee payroll tax (FICA) seam", () => {
+  // A flat 7.65%-of-wages stand-in for the real FICA tables, with no cap: the waterfall
+  // owns the accumulate-and-difference mechanics, the seam owns the policy.
+  const flatFicaSeam = {
+    computePayrollTaxCents: (byCat: Partial<Record<string, number>>) =>
+      Math.round((byCat.wages ?? 0) * 0.0765),
+  };
+
+  it("withholds payroll tax on wages and removes it from take-home", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        ...flatFicaSeam,
+      }),
+    );
+    // 7.65% × $5,000 = $382.50, so $4,617.50 idles in liquid.
+    expect(r.payrollTaxCents).toBe(38250);
+    expect(r.accountDepositsCents.get("checking")).toBe(461750);
+  });
+
+  it("charges FICA on the FULL gross — pre-tax 401(k) deferral does not reduce it", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: { deferralFraction: 0.1, fundAccountId: "401k" },
+          },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    // FICA is 7.65% of the whole $5,000, not the post-deferral $4,500: $382.50 either way?
+    // No — $4,500 × 7.65% = $344.25. Pinning $382.50 proves the base is the full gross.
+    expect(r.payrollTaxCents).toBe(38250);
+    // Take-home = gross − deferral − FICA = 5,000 − 500 − 382.50 = $4,117.50.
+    expect(r.accountDepositsCents.get("checking")).toBe(411750);
+  });
+
+  it("charges only the year-to-date DIFFERENCE, so a wage cap binds on cumulative earnings", () => {
+    // Cap FICA at the first $6,000 of annual wages: below it, 10%; above, nothing more.
+    const cappedSeam = {
+      computePayrollTaxCents: (byCat: Partial<Record<string, number>>) =>
+        Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1),
+    };
+    // $5,000 already earned this year; another $5,000 this month → cumulative $10,000, but
+    // only $1,000 of it is still under the $6,000 cap. Charge = 10% × $1,000 = $100.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        priorEarnedByPersonCents: () => ({ wages: dollarsToCents(5000) }),
+        ...cappedSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(dollarsToCents(100));
+    // And the month's earnings are reported back for the caller's accumulator.
+    expect(r.earnedThisMonthByPersonCents.get("p1")).toEqual({ wages: dollarsToCents(5000) });
+  });
+
+  it("does not charge FICA on non-wage income (retirement-account withdrawals booked ordinaryIncome)", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "ordinaryIncome" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(0);
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
+  });
+});
