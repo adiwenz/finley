@@ -100,10 +100,11 @@ export function allocateMonth(
       const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
-    remainingTotalAdditionsRoomCents: (pid) => {
+    // Age comes from the person; the accumulator is keyed by the employer plan.
+    remainingTotalAdditionsRoomCents: (pid, planKey) => {
       if (totalAdditionsLimit === undefined) return Infinity;
       const limit = totalAdditionsLimit({ year: ctx.year, age: ageOf(pid) });
-      const used = state.totalAdditionsByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
+      const used = state.totalAdditionsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
   });
@@ -128,12 +129,9 @@ export function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  for (const [pid, amount] of result.totalAdditionsByPersonCents) {
-    const key = `${pid}|${ctx.year}`;
-    state.totalAdditionsByPersonYear.set(
-      key,
-      (state.totalAdditionsByPersonYear.get(key) ?? 0) + amount,
-    );
+  for (const [planKey, amount] of result.totalAdditionsByPlanCents) {
+    const key = `${planKey}|${ctx.year}`;
+    state.totalAdditionsByPlanYear.set(key, (state.totalAdditionsByPlanYear.get(key) ?? 0) + amount);
   }
 
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.

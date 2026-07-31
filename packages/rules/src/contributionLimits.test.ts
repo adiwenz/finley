@@ -156,7 +156,8 @@ describe("CONTRIBUTION_LIMIT_ASSUMPTIONS — the user-facing disclosure", () => 
     const text = textFor("employerMatchOutsideEmployeeCap");
     expect(text).toMatch(/does not count against your personal contribution limit/i);
     expect(text).toMatch(/does count against the combined limit/i);
-    // The per-person-not-per-plan divergence is disclosed, not left implicit.
-    expect(text).toMatch(/per person per year/i);
+    // The differing reach of the two caps is spelled out, not left implicit.
+    expect(text).toMatch(/shared across every job/i);
+    expect(text).toMatch(/applies separately to each employer/i);
   });
 });

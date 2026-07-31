@@ -99,8 +99,8 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
     // Only the employee deferral counts against the annual accumulator.
     expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
-    // ...but deferral AND match count against the §415(c) one.
-    expect(r.totalAdditionsByPersonCents.get("p1")).toBe(dollarsToCents(750));
+    // ...but deferral AND match count against the §415(c) one, keyed by employer plan.
+    expect(r.totalAdditionsByPlanCents.get("wages")).toBe(dollarsToCents(750));
   });
 
   it("trims the match — never the deferral — to the remaining §415(c) room", () => {
@@ -124,7 +124,7 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
     );
     expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(600));
     expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
-    expect(r.totalAdditionsByPersonCents.get("p1")).toBe(dollarsToCents(600));
+    expect(r.totalAdditionsByPlanCents.get("wages")).toBe(dollarsToCents(600));
     // Trimming employer money leaves take-home untouched.
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
   });
@@ -151,6 +151,81 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
     expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(500));
     expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
+  });
+
+  it("gives each employer plan its OWN §415(c) room — two jobs do not share one ceiling", () => {
+    const r = runWaterfall(
+      makeInput({
+        // Asked per plan, so each job reports a full, independent $600.
+        remainingTotalAdditionsRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            sourceId: "job-a",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k-a",
+              employerMatchFraction: 0.5,
+            },
+          },
+          {
+            ownerId: "p1",
+            sourceId: "job-b",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k-b",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // Each plan independently banks its $500 deferral + $100 of trimmed match. Under a
+    // per-person ceiling the second job would have found the $600 already spent.
+    expect(r.totalAdditionsByPlanCents.get("job-a")).toBe(dollarsToCents(600));
+    expect(r.totalAdditionsByPlanCents.get("job-b")).toBe(dollarsToCents(600));
+    expect(r.accountDepositsCents.get("401k-a")).toBe(dollarsToCents(600));
+    expect(r.accountDepositsCents.get("401k-b")).toBe(dollarsToCents(600));
+    // The elective limit stays PER PERSON — both deferrals draw on the same room.
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(1000));
+  });
+
+  it("two jobs funding ONE account still get separate ceilings — the plan, not the account", () => {
+    const r = runWaterfall(
+      makeInput({
+        remainingTotalAdditionsRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            sourceId: "job-a",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "retirement",
+              employerMatchFraction: 0.5,
+            },
+          },
+          {
+            ownerId: "p1",
+            sourceId: "job-b",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "retirement",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // Both land in one account, but the ceiling is keyed by employer — $1,200 total, not $600.
+    expect(r.accountDepositsCents.get("retirement")).toBe(dollarsToCents(1200));
   });
 
   it("deferral is capped at the remaining annual room; overflow becomes taxable take-home", () => {

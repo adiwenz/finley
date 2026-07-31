@@ -9,10 +9,10 @@ import type { Cents, DeferralLimitContext, ModelAssumption } from "@finley/engin
  * employer match) and the much lower IRA limit are separate, catch-up age-banded per
  * account type. All are modelled here so the values index together.
  *
- * ⚠ {@link totalAdditionsLimitCents} is computed but NOT yet enforced by the projection: the
- * engine clamps the employee deferral to {@link retirementDeferralLimitCents} in
- * `waterfall.ts` and then deposits the employer match on top unclamped. Enforcing 415(c)
- * needs an engine-side seam to consume this. The IRA figures are likewise unwired.
+ * Both 401(k)-side caps are wired: `waterfall.ts` clamps the employee deferral to
+ * {@link retirementDeferralLimitCents} (per person, across every job) and the employer match
+ * to {@link totalAdditionsLimitCents} (per employer plan). ⚠ The IRA figures are still
+ * unwired — modelled here so they index with the rest, but no seam consumes them.
  *
  * ⚠ Estimates, not advice. Forward years are INDEXED from the pinned
  * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base below, not authoritative.
@@ -120,8 +120,9 @@ export function retirementDeferralLimitCents(ctx: DeferralLimitContext): Cents {
 
 /**
  * The Section 415(c) total-additions ceiling: employee deferral + employer match COMBINED,
- * per employer plan. The outer bound on everything that lands in the account — where
- * {@link retirementDeferralLimitCents} bounds only the employee's own share.
+ * applied per employer plan by the engine — a second job brings its own room. The outer
+ * bound on everything landing in one plan, where {@link retirementDeferralLimitCents}
+ * bounds the employee's own share across all of them.
  *
  * Age-banded the same way, since catch-up contributions sit on top of the 415(c) base rather
  * than inside it.
@@ -163,8 +164,9 @@ export const CONTRIBUTION_LIMIT_ASSUMPTIONS: readonly ModelAssumption[] = [
       "An employer match does not count against your personal contribution limit — it is " +
       "employer money, so it lands on top of the most you can defer yourself. It does count " +
       "against the combined limit above, and when that binds it is the match that gets " +
-      "trimmed while your own contribution goes in whole. The combined limit is applied per " +
-      "person per year; in law it applies separately to each employer's plan, so someone " +
-      "holding two matched jobs at once is capped more tightly here than in reality.",
+      "trimmed while your own contribution goes in whole. The two limits have different " +
+      "reach: your personal limit is shared across every job you hold, while the combined " +
+      "limit applies separately to each employer, so a second job brings its own. Jobs are " +
+      "treated as separate employers even where they pay into the same account.",
   },
 ];

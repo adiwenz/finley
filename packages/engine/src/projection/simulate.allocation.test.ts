@@ -190,6 +190,56 @@ describe("simulateHousehold — allocation waterfall", () => {
     expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(40000));
   });
 
+  it("gives a second job its own annual §415(c) room, while the elective cap stays shared", () => {
+    // Same limits as above, now across two employers. The elective $12,000 is ONE pool the
+    // two jobs draw down together; the $20,000 ceiling is per plan, so the household banks
+    // more than a single ceiling would ever allow.
+    const cappedJurisdiction = {
+      id: "415c-multi-test",
+      computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
+      retirementDeferralLimitCents: () => dollarsToCents(12000),
+      totalAdditionsLimitCents: () => dollarsToCents(20000),
+    };
+    const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1990 };
+    const planAccount = (id: string) =>
+      new SimAccount({
+        id,
+        ownerId: "p1",
+        liquid: false,
+        taxProfile: PRE_TAX_TAX_PROFILE,
+        openingBalanceCents: 0,
+        initialAnnualRate: 0,
+      });
+    const job = (sourceId: string, fundAccountId: string) => ({
+      series: monthlyIncome(dollarsToCents(5000)),
+      ownerId: "p1",
+      sourceId,
+      planDescriptor: { deferralFraction: 1.0, fundAccountId, employerMatchFraction: 1.0 },
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [makeInvestmentAccount(0, 0), planAccount("401k-a"), planAccount("401k-b")],
+        incomeSeries: [job("job-a", "401k-a"), job("job-b", "401k-b")],
+        expenseSeries: [],
+      },
+      cappedJurisdiction,
+    );
+    const a = series.months[11].accountBalancesCents["401k-a"];
+    const b = series.months[11].accountBalancesCents["401k-b"];
+    // Neither plan breaches its OWN ceiling...
+    expect(a).toBeLessThanOrEqual(dollarsToCents(20000));
+    expect(b).toBeLessThanOrEqual(dollarsToCents(20000));
+    // ...yet the two together exceed a single one — the whole point of per-plan limits.
+    expect(a + b).toBe(dollarsToCents(24000));
+    // The shared elective cap still binds: $12,000 deferred, the other $12,000 is match.
+    expect(a).toBe(dollarsToCents(14000));
+    expect(b).toBe(dollarsToCents(10000));
+  });
+
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
     // With no goals, no plan, and idle surplus, the waterfall must reproduce plain net
     // flow into the liquid account exactly.

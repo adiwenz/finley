@@ -118,12 +118,19 @@ export interface WaterfallInput {
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
   /**
-   * A person's REMAINING annual room under the deferral + match ceiling (US: §415(c)) —
-   * the limit minus deferral AND match already banked this year. `Infinity` = uncapped.
+   * REMAINING annual room under the deferral + match ceiling (US: §415(c)) for ONE employer
+   * plan — its limit minus the deferral AND match already banked into it this year.
+   * `Infinity` = uncapped.
+   *
+   * Per plan, not per person: the ceiling applies separately to each employer, so a second
+   * job brings its own full room. `personId` still comes through because the limit is
+   * age-banded. Contrast {@link remainingDeferralRoomCents}, which IS per person — the
+   * employee's own deferral is shared across every job they hold.
+   *
    * Bounds the match only: the deferral is already clamped by
    * {@link remainingDeferralRoomCents} before this applies.
    */
-  readonly remainingTotalAdditionsRoomCents: (personId: string) => number;
+  readonly remainingTotalAdditionsRoomCents: (personId: string, planKey: string) => number;
 }
 
 export interface WaterfallResult {
@@ -151,10 +158,11 @@ export interface WaterfallResult {
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
   /**
-   * Deferral + employer match actually banked per person — what the §415(c) ceiling is
-   * measured against. The caller updates its annual accumulator from this.
+   * Deferral + employer match actually banked per EMPLOYER PLAN, keyed like
+   * {@link deferralBySourceCents} — what the §415(c) ceiling is measured against. The caller
+   * updates its annual accumulator from this. Σ === Σ `deferredByPersonCents` + total match.
    */
-  readonly totalAdditionsByPersonCents: ReadonlyMap<string, Cents>;
+  readonly totalAdditionsByPlanCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
   readonly accountDepositsCents: ReadonlyMap<string, Cents>;
   /** Household cash shortfall to route through the cascade (0 if none). */

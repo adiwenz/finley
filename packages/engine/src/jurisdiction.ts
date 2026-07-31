@@ -142,18 +142,20 @@ export interface Jurisdiction {
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
-   * A person's annual ceiling on employee deferral + employer match COMBINED (US: §415(c)).
-   * The outer bound on everything landing in the retirement account, where
-   * {@link retirementDeferralLimitCents} bounds only the employee's own share — so this
-   * should always be the larger of the two. Absent → the match is uncapped.
+   * The annual ceiling on employee deferral + employer match COMBINED, applied PER EMPLOYER
+   * PLAN (US: §415(c)). The outer bound on everything landing in one plan's account, where
+   * {@link retirementDeferralLimitCents} bounds the employee's own share across ALL their
+   * plans — so this should always be the larger of the two. Absent → the match is uncapped.
+   *
+   * Per plan, so a second job brings its own full room; only the elective limit is shared.
+   * The engine buckets by income source (one job = one employer), NOT by destination
+   * account — two jobs paying into the same account are still two plans.
+   *
+   * `ctx` carries the person's age, since the figure is age-banded.
    *
    * When the ceiling binds, the waterfall trims the MATCH and leaves the employee deferral
    * whole: employer money is the discretionary part, and cutting the deferral instead would
    * move taxable income and cascade through the whole month.
-   *
-   * ⚠ Modelled per PERSON per year, not per employer plan as the US statute defines it.
-   * They coincide for the single-employer case; someone holding two matched jobs at once is
-   * capped more tightly here than in law.
    */
   totalAdditionsLimitCents?(ctx: DeferralLimitContext): Cents;
 
