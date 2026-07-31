@@ -177,8 +177,9 @@ const loan: EventHandler<LoanEvent> = {
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
       // A loan originates at the month it is authored for, month 0 included — the same rule
-      // a Year-0 property/mortgage follows. Authoring a debt you ALREADY carry is a separate
-      // capability (a pre-existing liability, `startMonth < 0`) and is not expressible here.
+      // a Year-0 property/mortgage follows. A debt the household ALREADY carries is the same
+      // event dated at the now marker (`startMonth = -1`, minted by `carryLoan`); this handler
+      // records whatever month it is given, so the holding needs no special case.
       startMonth: event.month,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,

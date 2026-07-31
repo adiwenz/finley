@@ -132,12 +132,24 @@ import {
   reorderProjectionGoal,
   updateProjectionGoal,
 } from "./authoring/goals";
-import type { HaveChildInput, MarryInput, SeparateInput } from "./authoring/relationships";
-import { applyChild, applyMarriage, applySeparation } from "./authoring/relationships";
+import type {
+  HaveChildInput,
+  HaveExistingChildInput,
+  MarryInput,
+  SeparateInput,
+  StartPartneredInput,
+} from "./authoring/relationships";
+import {
+  applyChild,
+  applyHaveExistingChild,
+  applyMarriage,
+  applySeparation,
+  applyStartPartnered,
+} from "./authoring/relationships";
 import type { BuyHomeInput } from "./authoring/housing";
 import { applyHomePurchase } from "./authoring/housing";
-import type { PayOffDebtInput, TakeLoanInput } from "./authoring/liabilities";
-import { applyDebtPayoff, applyLoan } from "./authoring/liabilities";
+import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "./authoring/liabilities";
+import { applyCarryLoan, applyDebtPayoff, applyLoan } from "./authoring/liabilities";
 import type { TransactionRevision } from "./authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "./authoring/revise";
 import { interpretScenarioInput } from "./authoring/fromInput";
@@ -426,12 +438,31 @@ export class Projection {
   }
 
   /**
+   * Author a partner already present at simulation start, keyed on how long the household has been
+   * together. The counterpart to {@link marry}, which weds a partner DURING the plan: this one is
+   * anchored at its true past month, so a {@link separate} can be dated before "now". Returns the
+   * minted `"person-N"` id.
+   */
+  startPartnered(input: StartPartneredInput): string {
+    return this.write((state) => applyStartPartnered(state, this.validationJurisdiction, input));
+  }
+
+  /**
    * Returns the minted `"child-N"` id, which is both the event's id and the durable child's —
    * one id, so the cost stream this spawns and the child it belongs to are addressed the same
    * way, exactly as {@link buyHome} does for a property.
    */
   haveChild(input: HaveChildInput): string {
     return this.write((state) => applyChild(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * Record a child who was already born, keyed on their age. The birth is anchored at its true
+   * past month, so the cost stream clips to the years of childhood that remain. Returns the
+   * minted `"child-N"` id.
+   */
+  haveExistingChild(input: HaveExistingChildInput): string {
+    return this.write((state) => applyHaveExistingChild(state, this.validationJurisdiction, input));
   }
 
   /**
@@ -450,6 +481,16 @@ export class Projection {
   /** Returns the minted `"loan-N"` id. */
   takeLoan(input: TakeLoanInput): string {
     return this.write((state) => applyLoan(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * Author a loan the household ALREADY carries — a holding opened at the now marker with its
+   * current balance and remaining term, so month 0 is its next payment. The counterpart to
+   * {@link takeLoan}, which originates a fresh loan during the plan. Returns the minted
+   * `"loan-N"` id.
+   */
+  carryLoan(input: CarryLoanInput): string {
+    return this.write((state) => applyCarryLoan(state, this.validationJurisdiction, input));
   }
 
   /**

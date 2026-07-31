@@ -27,6 +27,7 @@
  * for the first time.
  */
 
+import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import type { Plan, GoalPlan } from "./plan";
 import type { Job, JobDeferral } from "./job";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
@@ -153,6 +154,53 @@ export interface HaveChildEntry extends EventEntryCommon {
 }
 
 /**
+ * A partner already present at start — an anchor keyed on how long the household has been
+ * together, see {@link import("./authoring/relationships").StartPartneredInput}. It carries no
+ * `month`: {@link EventEntryCommon} supplies one, but the entry's own `partneredForMonths` is what
+ * dates the anchor, so any `month` an author wrote would be ignored. Omitting it (`?: never`)
+ * makes that a type error rather than a silent drop.
+ */
+export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
+  readonly type: "startPartnered";
+  readonly month?: never;
+  readonly partneredForMonths: number;
+  readonly name: string;
+  readonly birthYear: number;
+  readonly retirementTargetAge?: number;
+  readonly benefitClaimingAge?: number;
+  readonly jobs?: readonly PartnerJobEntry[];
+}
+
+/**
+ * A child already born — an anchor keyed on the child's age, see
+ * {@link import("./authoring/relationships").HaveExistingChildInput}. Like {@link StartPartneredEntry}
+ * its month is computed from `ageMonths`, so it declares no `month`.
+ */
+export interface HaveExistingChildEntry extends Omit<EventEntryCommon, "month"> {
+  readonly type: "haveExistingChild";
+  readonly month?: never;
+  readonly name: string;
+  readonly ageMonths: number;
+  readonly annualCostCents: number;
+}
+
+/**
+ * A loan already on the books — a holding opened at the now marker with current terms, see
+ * {@link import("./authoring/liabilities").CarryLoanInput}. Its month is the now marker, not an
+ * author choice, so like the anchors above it declares no `month`.
+ */
+export type CarryLoanEntry = Omit<EventEntryCommon, "month"> & {
+  readonly type: "carryLoan";
+  readonly month?: never;
+  readonly ownerRef: Ref;
+  readonly balanceCents: number;
+  readonly apr: number;
+} & (
+    | { readonly kind: "creditCard"; readonly creditLimitCents: number }
+    | { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly remainingTermMonths: number }
+  );
+
+/**
  * A new liability. The discriminant is `type: "takeLoan"`; the loan's OWN `kind` (card vs term)
  * is a second, independent discriminant — which is precisely why {@link EventEntry} keys on
  * `type`, not `kind`: `kind` is already spoken for here.
@@ -205,14 +253,19 @@ export interface PayOffDebtEntry extends EventEntryCommon {
 }
 
 /**
- * The timeline plane: exactly the six {@link import("./ledger/eventTypes").LifeEvent} variants
- * and the six `Projection` authoring methods, discriminated on `type` with an exhaustiveness
- * check ({@link eventEntryType}) — the set is complete and closed.
+ * The timeline plane: one entry per `Projection` authoring method, discriminated on `type` with an
+ * exhaustiveness check ({@link eventEntryType}) — the set is complete and closed. Several methods
+ * share a {@link import("./ledger/eventTypes").LifeEvent} type (`marry`/`startPartnered` both emit
+ * a `RelationshipEvent`; `takeLoan`/`carryLoan` both a `LoanEvent`), so the entry count exceeds the
+ * event-variant count: the pre-existing doorway is a distinct method, not a flag on the plain one.
  */
 export type EventEntry =
   | MarryEntry
   | HaveChildEntry
+  | StartPartneredEntry
+  | HaveExistingChildEntry
   | TakeLoanEntry
+  | CarryLoanEntry
   | BuyHomeEntry
   | SeparateEntry
   | PayOffDebtEntry;
@@ -224,11 +277,34 @@ export type EventEntry =
  * here, so the union cannot grow a variant without this being updated. Returns the discriminant
  * unchanged; callers needing only the closure guarantee ignore the result.
  */
+/**
+ * The month an entry will apply at — the one the sort orders by and the applier's method mints.
+ * Most entries carry it directly; the pre-existing doorways compute it internally from the
+ * quantity the author knows (a partnering's age, a child's age, or the fixed now marker for a
+ * holding), so this is where that convention lives for scheduling. Kept in lockstep with each
+ * method's own computation: a mismatch would sort an anchor into the wrong replay position.
+ */
+export function entryMonth(entry: EventEntry): number {
+  switch (entry.type) {
+    case "startPartnered":
+      return -entry.partneredForMonths;
+    case "haveExistingChild":
+      return -entry.ageMonths;
+    case "carryLoan":
+      return PRE_NOW_MONTH;
+    default:
+      return entry.month;
+  }
+}
+
 export function eventEntryType(entry: EventEntry): EventEntry["type"] {
   switch (entry.type) {
     case "marry":
     case "haveChild":
+    case "startPartnered":
+    case "haveExistingChild":
     case "takeLoan":
+    case "carryLoan":
     case "buyHome":
     case "separate":
     case "payOffDebt":

@@ -140,6 +140,29 @@ export function interpretScenarioInput(
             }),
           );
           break;
+        case "startPartnered":
+          bind(
+            entry.ref,
+            projection.startPartnered({
+              partneredForMonths: entry.partneredForMonths,
+              name: entry.name,
+              birthYear: entry.birthYear,
+              ...(entry.retirementTargetAge !== undefined ? { retirementTargetAge: entry.retirementTargetAge } : {}),
+              ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+              ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
+            }),
+          );
+          break;
+        case "haveExistingChild":
+          bind(
+            entry.ref,
+            projection.haveExistingChild({
+              name: entry.name,
+              ageMonths: entry.ageMonths,
+              annualCostCents: entry.annualCostCents,
+            }),
+          );
+          break;
         case "takeLoan": {
           const common = {
             month: entry.month,
@@ -153,6 +176,22 @@ export function interpretScenarioInput(
               entry.kind === "creditCard"
                 ? { ...common, kind: "creditCard", creditLimitCents: entry.creditLimitCents }
                 : { ...common, kind: entry.kind, termMonths: entry.termMonths },
+            ),
+          );
+          break;
+        }
+        case "carryLoan": {
+          const common = {
+            ownerId: idFor(entry.ownerRef),
+            balanceCents: entry.balanceCents,
+            apr: entry.apr,
+          };
+          bind(
+            entry.ref,
+            projection.carryLoan(
+              entry.kind === "creditCard"
+                ? { ...common, kind: "creditCard", creditLimitCents: entry.creditLimitCents }
+                : { ...common, kind: entry.kind, remainingTermMonths: entry.remainingTermMonths },
             ),
           );
           break;
