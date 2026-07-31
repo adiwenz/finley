@@ -72,6 +72,21 @@ const planSchema = z.object({
 
 const MAX_OUTER_ITERATIONS = 10;
 
+// Fresh agents one unit of work may burn — a declared task, or the whole issue
+// when none are declared. An agent stopped by the iteration ceiling loses its
+// working tree but not its commits, so a successor carries on from the branch
+// and the handoff note. Each continuation must be paid for by at least one green
+// commit from its predecessor (see processSingleIssue), which is what stops a
+// stuck agent from spinning through all three.
+//
+// Deliberately small, and not the ceiling on how much work an issue may get. An
+// exhausted unit leaves its commits pushed and the issue queued, so the next
+// planner iteration resumes it. The bound matters because a green commit proves
+// activity, not convergence, and the run awaits its whole batch (Promise.
+// allSettled below) — so one issue that never converges would stall the pipeline
+// rather than just itself.
+const CONTINUATION_ATTEMPTS = 3;
+
 // ---------------------------------------------------------------------------
 // Sandbox selection: Docker (local, default) vs. Vercel cloud.
 //
@@ -438,6 +453,39 @@ async function completedTaskCount(branch: string): Promise<number> {
   return 0;
 }
 
+// Commits this branch carries beyond `main`, from any earlier run.
+//
+// Whole-issue mode has no `[task N/M]` ledger, so this is the only way to tell
+// the two zero-commit completions apart. An agent that signals done having
+// committed nothing has either found the issue already finished by a previous
+// run — real work is on the branch, and redoing it would be the bug — or done
+// nothing at all, on a branch level with `main`. The first is success; the
+// second is the failure the signal was supposed to catch.
+//
+// Returns 0 when the branch does not resolve, which reads as the failure case —
+// the safe direction, since it leaves the issue queued rather than marking an
+// empty branch done.
+async function remoteBranchExists(branch: string): Promise<boolean> {
+  try {
+    const { stdout } = await execPromise(`git ls-remote --heads origin ${branch}`);
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function branchCommitCount(branch: string): Promise<number> {
+  for (const ref of [branch, `origin/${branch}`]) {
+    try {
+      const { stdout } = await execPromise(`git rev-list --count origin/main..${ref}`);
+      return Number(stdout.trim()) || 0;
+    } catch {
+      // Ref doesn't resolve — try the remote form, then give up.
+    }
+  }
+  return 0;
+}
+
 // One implementer agent, on one branch. Called once per task, or once for the
 // whole issue when the issue declares none.
 async function runImplementer(args: {
@@ -520,7 +568,10 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     );
 
     // Whole-issue mode is modelled as a single undefined task so there is ONE
-    // loop rather than two code paths that drift apart as this evolves.
+    // loop rather than two code paths that drift apart as this evolves. Both
+    // modes then agree on what a unit of work is: a declared task, or the issue.
+    // Continuation is per unit, tracked by the loop below, not by extra entries
+    // here — an attempt is another go at the same work, not more of it.
     const runs: (IssueTask | undefined)[] = tasks.length > 0 ? tasks : [undefined];
 
     // Resume: skip tasks a previous run already committed, but keep their titles
@@ -531,47 +582,112 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     }
     const doneTasks: string[] = tasks.slice(0, alreadyDone).map((t) => t.title);
     let allCompleted = true;
+    // Whole-issue mode has no per-task ledger to infer completion from, so the
+    // one agent that signalled done is recorded here.
+    let wholeIssueDone = false;
+    // Agents spent so far, across all units — reported when the run gives up.
+    let agentsSpent = 0;
 
-    for (const task of runs) {
+    for (let unit = 0; unit < runs.length; unit++) {
+      const task = runs[unit];
       if (task && task.index <= alreadyDone) continue;
-      const label = task ? `Task ${task.index}/${tasks.length} — ${task.title}` : "whole issue";
-      console.log(`🚀 [Issue #${issue.id}] Starting ${label}...`);
 
-      const result = await runImplementer({ issue, task, taskTotal: tasks.length, priorTasks: doneTasks });
+      // Retries re-enter with the same `unit`, so this counts attempts on THIS
+      // piece of work rather than on the issue.
+      let attemptsOnUnit = 0;
+      let unitDone = false;
 
-      // The implementer runs typecheck + tests inside its own sandbox before
-      // signaling done, so success is determined entirely from the sandbox
-      // result — never from a host checkout, which would corrupt sibling agents
-      // running concurrently on other branches.
-      if (result.completionSignal !== undefined && result.commits.length > 0) {
+      while (attemptsOnUnit < CONTINUATION_ATTEMPTS && !unitDone) {
+        attemptsOnUnit += 1;
+        agentsSpent += 1;
+        const base = task ? `Task ${task.index}/${tasks.length} — ${task.title}` : "whole issue";
+        // Only annotate retries; the first attempt is the ordinary case and
+        // saying so on every line buries the ones that matter.
+        const label = attemptsOnUnit > 1 ? `${base} (attempt ${attemptsOnUnit}/${CONTINUATION_ATTEMPTS})` : base;
+        console.log(`🚀 [Issue #${issue.id}] Starting ${label}...`);
+
+        const result = await runImplementer({ issue, task, taskTotal: tasks.length, priorTasks: doneTasks });
+
+        // Count commits before judging the run, not on the success paths only. A
+        // commit exists on the branch whether or not its author got to the end,
+        // and the push below is gated on this count — so attributing them only to
+        // successful runs is what would leave a cut-off agent's work unpushed.
         totalCommits += result.commits.length;
-        preservedWorktreePath = result.preservedWorktreePath;
-        if (task) doneTasks.push(task.title);
-        console.log(`✓ [Issue #${issue.id}] ${label} COMPLETE (${result.commits.length} commit(s)).`);
-        continue;
+        if (result.commits.length > 0) preservedWorktreePath = result.preservedWorktreePath;
+
+        // The implementer runs typecheck + tests inside its own sandbox before
+        // signaling done, so success is determined entirely from the sandbox
+        // result — never from a host checkout, which would corrupt sibling agents
+        // running concurrently on other branches.
+        if (result.completionSignal !== undefined && result.commits.length > 0) {
+          if (task) doneTasks.push(task.title);
+          else wholeIssueDone = true;
+          console.log(`✓ [Issue #${issue.id}] ${label} COMPLETE (${result.commits.length} commit(s)).`);
+          unitDone = true;
+          break;
+        }
+
+        // Whole-issue mode, done signalled, nothing committed: the issue was
+        // already finished by an earlier run — this agent oriented, found the work
+        // on the branch, and correctly declined to redo it. Re-queuing that would
+        // spend an agent per run forever on an issue that is finished.
+        if (!task && result.completionSignal !== undefined && (await branchCommitCount(issue.branch)) > 0) {
+          wholeIssueDone = true;
+          console.log(`✓ [Issue #${issue.id}] ${label}: already complete on ${issue.branch}; nothing to do.`);
+          unitDone = true;
+          break;
+        }
+
+        // An agent that committed green work and then ran out of iterations made
+        // progress; it just needed more room than one agent has. Its successor
+        // orients from those commits and the handoff note it left, and carries on
+        // with the same unit. One that committed nothing is stuck on something a
+        // second identical agent would be stuck on too, so it falls through.
+        //
+        // This applies to a declared task as much as to a whole issue. Without it
+        // a task too big for one agent fails identically on every future run,
+        // since nothing about the retry differs.
+        if (result.commits.length > 0 && attemptsOnUnit < CONTINUATION_ATTEMPTS) {
+          console.warn(
+            `⏳ [Issue #${issue.id}] ${label}: iteration limit reached with ${result.commits.length} commit(s). Handing the branch to a fresh agent.`,
+          );
+          continue;
+        }
+
+        allCompleted = false;
+        console.warn(
+          result.completionSignal !== undefined
+            ? `⚠️ [Issue #${issue.id}] ${label}: COMPLETE promise but no commits.`
+            : `⚠️ [Issue #${issue.id}] ${label}: no completion signal within the iteration limit.`,
+        );
+        break;
       }
 
-      allCompleted = false;
-      console.warn(
-        result.completionSignal !== undefined
-          ? `⚠️ [Issue #${issue.id}] ${label}: COMPLETE promise but no commits.`
-          : `⚠️ [Issue #${issue.id}] ${label}: no completion signal within the iteration limit.`,
-      );
       // Stop the chain. A later task builds on this one's code, so running it
       // against a half-finished base yields a branch nobody can review — and
       // buries the real failure under a second, derivative one.
-      break;
+      if (!unitDone) break;
     }
 
-    // A resumed run that finds every task already committed does no work and so
-    // produces no commits — but the issue IS finished (a previous run died after
-    // the last task, before relabeling). Treat that as success or it can never
-    // leave the queue.
-    const nothingLeftToDo = tasks.length > 0 && alreadyDone >= tasks.length;
-    success = allCompleted && (totalCommits > 0 || nothingLeftToDo);
+    if (tasks.length > 0) {
+      // A resumed run that finds every task already committed does no work and
+      // so produces no commits — but the issue IS finished (a previous run died
+      // after the last task, before relabeling). Treat that as success or it can
+      // never leave the queue.
+      const nothingLeftToDo = alreadyDone >= tasks.length;
+      success = allCompleted && (totalCommits > 0 || nothingLeftToDo);
+    } else {
+      // No such ledger without a task breakdown: commits prove work happened,
+      // never that the issue is done, so only the completion signal counts.
+      // Exhausting the continuation attempts is a failure even though every
+      // attempt committed.
+      success = wholeIssueDone;
+    }
     if (!success && totalCommits > 0) {
       console.warn(
-        `⚠️ [Issue #${issue.id}] Stopped after ${doneTasks.length}/${tasks.length} task(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run resumes from task ${doneTasks.length + 1}.`,
+        tasks.length > 0
+          ? `⚠️ [Issue #${issue.id}] Stopped after ${doneTasks.length}/${tasks.length} task(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run resumes from task ${doneTasks.length + 1}.`
+          : `⚠️ [Issue #${issue.id}] Unfinished after ${agentsSpent} agent(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run picks up from those commits and the handoff note.`,
       );
     }
   } catch (error: any) {
@@ -610,7 +726,10 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       // Ephemeral/CI: no local worktree would survive the run, so the pushed
       // branch is the review artifact. Print how to review it locally later.
       console.log(`FINISHED: ${issue.branch}`);
-      if (pushed) {
+      // Not `pushed`, which only records a push made by THIS run. An issue
+      // finished by an earlier run has nothing new to push, and its branch is
+      // already on origin — reviewable, and not the lost-work case below.
+      if (pushed || (await remoteBranchExists(issue.branch))) {
         console.log(`🔍 [Issue #${issue.id}] Review locally when you're back:`);
         console.log(`           git fetch origin ${issue.branch}`);
         console.log(`           .sandcastle/new_flow/create-review-worktree.sh ${issue.branch} ${issue.id}`);
