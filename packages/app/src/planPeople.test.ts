@@ -8,8 +8,14 @@
  * fixture here is stated outright — nothing is being authored to need one minted.
  */
 import { describe, it, expect } from "vitest";
-import { PRIMARY_PERSON_ID, type Job } from "@finley/engine";
-import { blankJobDraftFor, jobInputFromDraft, jobToDraftFor, type JobDraft } from "./planPeople";
+import { PRIMARY_PERSON_ID, RETIREMENT_ID, type Job } from "@finley/engine";
+import {
+  applyJobDraft,
+  blankJobDraftFor,
+  jobInputFromDraft,
+  jobToDraftFor,
+  type JobDraft,
+} from "./planPeople";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { readerOf } from "./testing/projectionHarness";
 
@@ -66,5 +72,49 @@ describe("jobToDraftFor — reading a job back into the edit form", () => {
   it("round-trips a name through both directions unchanged", () => {
     const input = jobInputFromDraft(BIRTH_YEAR, draft({ name: "Barista" }));
     expect(draftOf(job(input)).name).toBe("Barista");
+  });
+});
+
+describe("employer 401(k) match — the draft <-> job seam", () => {
+  const matched = (fraction: number): Job =>
+    job({ deferral: { deferralFraction: 0.06, fundAccountId: RETIREMENT_ID, employerMatchFraction: fraction } });
+
+  it("reads a job's match back as a whole-number percent", () => {
+    expect(draftOf(matched(0.5)).employerMatchPct).toBe(50);
+  });
+
+  it("reads a deferring job with no match back as 0%, not undefined", () => {
+    const deferring = job({ deferral: { deferralFraction: 0.06, fundAccountId: RETIREMENT_ID } });
+    expect(draftOf(deferring).employerMatchPct).toBe(0);
+  });
+
+  it("sets the fraction on the way in when there's a deferral to match", () => {
+    const input = jobInputFromDraft(BIRTH_YEAR, draft({ deferralPct: 6, employerMatchPct: 50 }));
+    expect(input.deferral?.employerMatchFraction).toBe(0.5);
+  });
+
+  it("omits the match key when the percent is 0", () => {
+    const input = jobInputFromDraft(BIRTH_YEAR, draft({ deferralPct: 6, employerMatchPct: 0 }));
+    expect(input.deferral && "employerMatchFraction" in input.deferral).toBe(false);
+  });
+
+  it("carries no match when there's no deferral to match", () => {
+    const input = jobInputFromDraft(BIRTH_YEAR, draft({ deferralPct: 0, employerMatchPct: 50 }));
+    expect(input.deferral).toBeUndefined();
+  });
+
+  it("applies the draft's match to an existing job, overwriting the prior value", () => {
+    const edited = applyJobDraft(matched(0.5), BIRTH_YEAR, draft({ deferralPct: 6, employerMatchPct: 100 }));
+    expect(edited.deferral?.employerMatchFraction).toBe(1);
+  });
+
+  it("clears a job's match when the draft drops it to 0", () => {
+    const edited = applyJobDraft(matched(0.5), BIRTH_YEAR, draft({ deferralPct: 6, employerMatchPct: 0 }));
+    expect(edited.deferral && "employerMatchFraction" in edited.deferral).toBe(false);
+  });
+
+  it("round-trips a match through both directions unchanged", () => {
+    const input = jobInputFromDraft(BIRTH_YEAR, draft({ deferralPct: 6, employerMatchPct: 25 }));
+    expect(draftOf(job(input)).employerMatchPct).toBe(25);
   });
 });
