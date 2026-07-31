@@ -10,19 +10,10 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import {
-  emptyLedger,
-  createProjectionBase,
-  fundingLookup,
-  goalFundAccountId,
-  type BuyHomeInput,
-  type Projection,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { START_YEAR } from "../../config";
+import { type BuyHomeInput, type Projection } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { HomePurchaseForm } from "./homePurchaseForm";
-import { runOf } from "../../testing/projectionHarness";
+import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
@@ -31,17 +22,14 @@ function renderForm(month: number) {
   // The form writes through the facade; the stub captures the `buyHome` input the thunk builds.
   const buyHome = vi.fn();
   const onAdd = (write: (p: Projection) => void) => write({ buyHome } as unknown as Projection);
-  const base = createProjectionBase(PLAN_DEFAULTS, {
-    jurisdiction: usJurisdiction,
-    startYear: START_YEAR,
-  });
   render(
     <HomePurchaseForm
       defaultMonth={month}
       horizonMonths={660}
       onAdd={onAdd}
       result={runOf(PLAN_DEFAULTS)}
-      funding={fundingLookup(emptyLedger, base, usJurisdiction)}
+      // The facade funding read — the SAME pool/§4.5 answer the app wires and the engine gates on.
+      funding={readerOf(PLAN_DEFAULTS).funding()}
     />,
   );
   return { buyHome };
@@ -64,9 +52,11 @@ const row = (name: RegExp) => box(name).closest("label")!;
 // the home fund alone does not.
 const MONTH = 120;
 
-/** A default goal's derived fund-account id, keyed by the goal's minted id — never a literal. */
+// A default goal's derived fund-account id, read off the facade's account descriptors by the
+// goal's name — never a literal, and never the internal `goalFundAccountId`.
+const DESCRIPTORS = readerOf(PLAN_DEFAULTS).accountDescriptors();
 const fundAccountFor = (goalName: string) =>
-  goalFundAccountId(PLAN_DEFAULTS.goals.find((g) => g.name === goalName)!);
+  DESCRIPTORS.find((d) => d.kind === "goal" && d.label === goalName)!.id;
 const EMERGENCY_FUND = fundAccountFor("Emergency fund");
 const HOME_FUND = fundAccountFor("Home down payment");
 

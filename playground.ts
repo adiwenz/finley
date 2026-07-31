@@ -7,7 +7,6 @@ import {
   Projection,
   dollarsToCents,
   centsToDollars,
-  emptyLedger,
   CURRENT_FORMAT_VERSION,
   nullJurisdiction,
   type PersonId,
@@ -30,7 +29,7 @@ const P1 = "p1" as PersonId;
 //    `nextSeq: 1` means "not known" — the normalization floors the counter past what the plan
 //    holds. The jurisdiction here is the one WRITES validate against; `run()` below picks its own.
 const p = Projection.fromState(
-  { scenario: { plan: samplePlan, ledger: emptyLedger }, startYear: SAMPLE_START_YEAR, nextSeq: 1, version: CURRENT_FORMAT_VERSION },
+  { scenario: { plan: samplePlan, ledger: { events: [], nextSequenceNumber: 0 } }, startYear: SAMPLE_START_YEAR, nextSeq: 1, version: CURRENT_FORMAT_VERSION },
   nullJurisdiction,
 );
 

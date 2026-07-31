@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, withLineOverride, type BudgetLine } from "@finley/engine";
+import { dollarsToCents, type BudgetLine, type BudgetLineOverride } from "@finley/engine";
 import { routeMonthEdit, type MonthEdit } from "./monthEdit";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { readerOf } from "../../testing/projectionHarness";
@@ -24,6 +24,21 @@ function rowsAt(lines: readonly BudgetLine[], month: number, annualInflationRate
     budgetLines: [...lines],
     inflationPct: annualInflationRate * 100,
   }).expenseRowsAt(month);
+}
+
+/**
+ * Author a dated override onto a line through the facade — `Projection.addBudgetLineOverride`,
+ * the one-per-(scope, month) rule the panel lands on — and read the lines back off the plan.
+ * Stands in for the engine's internal `withLineOverride` transform the app never calls.
+ */
+function withOverride(
+  lines: readonly BudgetLine[],
+  lineId: string,
+  override: BudgetLineOverride,
+): readonly BudgetLine[] {
+  const p = readerOf({ ...PLAN_DEFAULTS, budgetLines: [...lines] });
+  p.addBudgetLineOverride(lineId, override);
+  return p.plan.budgetLines;
 }
 
 /** Whole-cent rounding in the growth math can land a round-trip a cent off. */
@@ -159,7 +174,7 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ row: { kind: "line", lineId: "housing" }, month, scope, newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = withLineOverride([base], "housing", route.override);
+    const next = withOverride([base], "housing", route.override);
     return rowsAt(next, month, CPI.annualInflationRate)[0]!.monthlyCents;
   };
 
@@ -178,7 +193,7 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
       edit({ month: 120, scope: "fromHereForward", newAmountCents: dollarsToCents(3_000) }),
     );
     if (route.kind !== "lineOverride") throw new Error("expected a line override");
-    const next = withLineOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
+    const next = withOverride([line("housing", dollarsToCents(1_600))], "housing", route.override);
     const atEdit = rowsAt(next, 120, CPI.annualInflationRate)[0]!.monthlyCents;
     const tenYearsLater = rowsAt(next, 240, CPI.annualInflationRate)[0]!.monthlyCents;
     expectCents(atEdit, dollarsToCents(3_000));
@@ -189,12 +204,12 @@ describe("routeMonthEdit — what you type is what the month costs", () => {
 describe("withLineOverride — the dated-override rule, as this editor lands on it", () => {
   it("replaces an override at the same month/scope rather than stacking duplicates", () => {
     const start = [line("housing", dollarsToCents(1_600))];
-    const once = withLineOverride(start, "housing", {
+    const once = withOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
     });
-    const twice = withLineOverride(once, "housing", {
+    const twice = withOverride(once, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_200),
       scope: "fromHereForward",
@@ -209,12 +224,12 @@ describe("withLineOverride — the dated-override rule, as this editor lands on 
     // month 100 leaves the line at the month-100 amount for the rest of the horizon — the
     // more recent decision outranks the one it reaches over. Pinned so it stays a decision.
     let lines: readonly BudgetLine[] = [line("housing", dollarsToCents(1_600))];
-    lines = withLineOverride(lines, "housing", {
+    lines = withOverride(lines, "housing", {
       month: 300,
       monthlyCents: dollarsToCents(5_000),
       scope: "fromHereForward",
     });
-    lines = withLineOverride(lines, "housing", {
+    lines = withOverride(lines, "housing", {
       month: 100,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",
@@ -233,7 +248,7 @@ describe("withLineOverride — the dated-override rule, as this editor lands on 
       ]),
       line("food", dollarsToCents(600)),
     ];
-    const next = withLineOverride(start, "housing", {
+    const next = withOverride(start, "housing", {
       month: 14,
       monthlyCents: dollarsToCents(2_000),
       scope: "fromHereForward",

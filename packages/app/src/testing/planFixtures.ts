@@ -14,32 +14,38 @@
  * `useTestProjection` (see `./projectionHarness`) and write through the facade.
  */
 
-import {
-  mapJob,
-  withDeferralFraction,
-  withIncomeOverride,
-  withMonthlyIncome,
-  withPayChange,
-  type JobIncomeOverride,
-  type JobPayChange,
-  type Plan,
-} from "@finley/engine";
+import { Projection, type JobIncomeOverride, type JobPayChange, type Plan } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { stateOf } from "./projectionHarness";
+
+/**
+ * Apply one authoring gesture to a fixture plan through the facade, and hand back the resulting
+ * plan. Each builder here states "a plan with this adjustment on it"; routing the adjustment
+ * through {@link Projection} rather than a `{ ...plan, jobs }` spread keeps a fixture on the same
+ * write path the app uses — the id mint, the counter floor and the per-job transforms all owned
+ * by `Projection`, never duplicated out here. `usJurisdiction` only gates writes that touch
+ * affordability; a job edit never does, so it is immaterial to the result.
+ */
+function adjusted(plan: Plan, edit: (p: Projection) => void): Plan {
+  return Projection.transact(stateOf(plan), usJurisdiction, edit).state.scenario.plan;
+}
+
 /** Attach a permanent pay change to one job. */
 export function addJobPayChange(plan: Plan, jobId: string, payChange: JobPayChange): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withPayChange(j, payChange)) };
+  return adjusted(plan, (p) => p.addJobPayChange(jobId, payChange));
 }
 
 /** Attach a one-month income override to one job. */
 export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncomeOverride): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, jobId, (j) => withIncomeOverride(j, override)) };
+  return adjusted(plan, (p) => p.addJobIncomeOverride(jobId, override));
 }
 
 /** Set a job's monthly salary (today's dollars). */
 export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withMonthlyIncome(j, monthlyCents)) };
+  return adjusted(plan, (p) => p.setJobMonthlyIncome(id, monthlyCents));
 }
 
 /** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */
 export function setJobDeferralFraction(plan: Plan, id: string, fraction: number): Plan {
-  return { ...plan, jobs: mapJob(plan.jobs, id, (j) => withDeferralFraction(j, fraction)) };
+  return adjusted(plan, (p) => p.setJobDeferralFraction(id, fraction));
 }

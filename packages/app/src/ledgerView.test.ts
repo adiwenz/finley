@@ -1,37 +1,17 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  addEvent,
-  asSeriesId,
-  asPersonId,
-  type Ledger,
-  type LedgerBaseConfig,
-  type NewLifeEvent,
-  type SnapshotSeries,
-  type Person,
-} from "@finley/engine";
+import { Projection, nullJurisdiction } from "@finley/engine";
+import type { Ledger, SnapshotSeries } from "@finley/engine";
+import { stateOf } from "./testing/projectionHarness";
+import { PLAN_DEFAULTS } from "./planDefaults";
 import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
 
-const personLit = (id: string, name: string): Person => ({
-  id,
-  name,
-  birthYear: 1990,
-  retirementTargetAge: 65,
-  benefitClaimingAge: 67,
-  jobs: [],
-});
-
-const addBase: LedgerBaseConfig = {
-  horizonMonths: 360,
-  annualInflationRate: 0,
-  initialPersons: [personLit("p1", "Alex")],
-};
-
-/** Build a ledger fixture, asserting each event passes validation. */
-function add(ledger: Ledger, event: NewLifeEvent): Ledger {
-  const result = addEvent(ledger, addBase, event);
-  if (!result.ok) throw new Error(`fixture event rejected: ${result.conflict}`);
-  return result.ledger;
+/**
+ * Author a timeline through the facade and read back the {@link Ledger} the view consumes —
+ * the app never seeds a ledger by hand, it writes events through `Projection`. Event ids are
+ * minted by the engine, so a test reads them off the returned ledger rather than naming them.
+ */
+function authored(write: (p: Projection) => void): Ledger {
+  return Projection.transact(stateOf(PLAN_DEFAULTS), nullJurisdiction, write).state.scenario.ledger;
 }
 
 describe("summarizeEvent — one plain-language label per structural change", () => {
@@ -67,68 +47,40 @@ describe("summarizeEvent — one plain-language label per structural change", ()
 
 describe("timelineMarkers", () => {
   it("returns markers sorted by (month, sequenceNumber)", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "c1",
-      type: "ChildEvent",
-      month: 24,
-      childId: "kid1",
-      childName: "Robin",
-      birthMonth: 24,
-      annualCostCents: 0,
-    });
-    ledger = add(ledger, {
-      id: "j1",
-      type: "RelationshipEvent",
-      month: 12,
-      person: personLit("p2", "Sam"),
+    // Authored out of month order: the month-24 child before the month-12 marriage.
+    const ledger = authored((p) => {
+      p.haveChild({ month: 24, name: "Robin", annualCostCents: 0 });
+      p.marry({ month: 12, name: "Sam", birthYear: 1990 });
     });
     const markers = timelineMarkers(ledger);
     expect(markers.map((m) => m.month)).toEqual([12, 24]);
-    expect(markers[0].id).toBe("j1");
+    // The month-12 marriage sorts ahead of the month-24 child.
+    const marriageId = ledger.events.find((e) => e.type === "RelationshipEvent")!.id;
+    expect(markers[0].id).toBe(marriageId);
   });
 });
 
 describe("splitMarkers", () => {
   it("splits events into passed and upcoming relative to the scrub month", () => {
-    let ledger = emptyLedger;
-    ledger = add(ledger, {
-      id: "c1",
-      type: "ChildEvent",
-      month: 12,
-      childId: "kid1",
-      childName: "Robin",
-      birthMonth: 12,
-      annualCostCents: 0,
+    const ledger = authored((p) => {
+      p.haveChild({ month: 12, name: "Robin", annualCostCents: 0 });
+      p.haveChild({ month: 48, name: "Sky", annualCostCents: 0 });
     });
-    ledger = add(ledger, {
-      id: "c2",
-      type: "ChildEvent",
-      month: 48,
-      childId: "kid2",
-      childName: "Sky",
-      birthMonth: 48,
-      annualCostCents: 0,
-    });
+    const robin = ledger.events.find((e) => e.month === 12)!.id;
+    const sky = ledger.events.find((e) => e.month === 48)!.id;
     const { passed, upcoming } = splitMarkers(ledger, 24);
-    expect(passed.map((m) => m.id)).toEqual(["c1"]);
-    expect(upcoming.map((m) => m.id)).toEqual(["c2"]);
+    expect(passed.map((m) => m.id)).toEqual([robin]);
+    expect(upcoming.map((m) => m.id)).toEqual([sky]);
   });
 });
 
 describe("seriesLabel — engine series role → snapshot-panel text", () => {
-  function series(overrides: Partial<SnapshotSeries>): SnapshotSeries {
-    return {
-      id: asSeriesId("s1"),
-      ownerId: asPersonId("p1"),
-      seriesType: "expense",
-      role: "base",
-      monthlyCents: 0,
-      causedByEventId: "e1",
-      startMonth: 0,
-      endMonth: null,
-      ...overrides,
-    };
+  // `seriesLabel` reads only `role` and `seriesType`, so the fixture supplies exactly those —
+  // no branded ids to mint, and no dependence on the internal id constructors.
+  function series(
+    overrides: Partial<Pick<SnapshotSeries, "role" | "seriesType">>,
+  ): Pick<SnapshotSeries, "role" | "seriesType"> {
+    return { seriesType: "expense", role: "base", ...overrides };
   }
 
   it("labels each role in plain language", () => {

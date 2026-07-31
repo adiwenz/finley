@@ -4,24 +4,18 @@
  * RelationshipEvent that brought them into the household — it must never confuse the two.
  */
 import { describe, it, expect } from "vitest";
-import {
-  createProjectionBase,
-  dollarsToCents,
-  emptyLedger,
-  interpretLedger,
-  type Job,
-  type Ledger,
-  type LifeEvent,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
+import { dollarsToCents, type Job, type Ledger, type LifeEvent } from "@finley/engine";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { jobOwnersOf } from "./jobOwners";
+import { runOf } from "./testing/projectionHarness";
 
-const base = createProjectionBase(PLAN_DEFAULTS, {
-  jurisdiction: usJurisdiction,
-  startYear: START_YEAR,
-});
+/**
+ * The event-free ledger as a public {@link Ledger} literal — the engine's `emptyLedger` is an
+ * internal the facade never hands out. The interpreted household comes from a full run
+ * (`runOf(...).household`), the public read that replaces `interpretLedger` + `createProjectionBase`.
+ */
+const noEvents: Ledger = { events: [], nextSequenceNumber: 0 };
 
 const partnerJob: Job = {
   id: "p-1-job-1",
@@ -48,11 +42,11 @@ const joining = (month: number, jobs: readonly Job[]): LifeEvent => ({
 
 const ledgerOf = (...events: LifeEvent[]): Ledger => ({ events, nextSequenceNumber: events.length });
 
-const ownersOf = (ledger: Ledger) => jobOwnersOf(interpretLedger(ledger, base), ledger);
+const ownersOf = (ledger: Ledger) => jobOwnersOf(runOf(PLAN_DEFAULTS, ledger).household, ledger);
 
 describe("jobOwnersOf", () => {
   it("gives the primary person alone on a single-earner plan, writing to the plan", () => {
-    const owners = ownersOf(emptyLedger);
+    const owners = ownersOf(noEvents);
     expect(owners).toHaveLength(1);
     expect(owners[0].name).toBe(PLAN_DEFAULTS.name);
     expect(owners[0].jobs).toEqual(PLAN_DEFAULTS.jobs);
@@ -91,7 +85,7 @@ describe("jobOwnersOf", () => {
   it("omits a member with no event to write back to, rather than listing them unwritably", () => {
     // A member the ledger cannot account for has no authoring plane, so offering to edit
     // their jobs would be offering an edit that goes nowhere.
-    const household = interpretLedger(ledgerOf(joining(60, [partnerJob])), base);
-    expect(jobOwnersOf(household, emptyLedger).map((o) => o.name)).toEqual([PLAN_DEFAULTS.name]);
+    const household = runOf(PLAN_DEFAULTS, ledgerOf(joining(60, [partnerJob]))).household;
+    expect(jobOwnersOf(household, noEvents).map((o) => o.name)).toEqual([PLAN_DEFAULTS.name]);
   });
 });

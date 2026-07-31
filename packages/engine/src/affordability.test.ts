@@ -8,7 +8,7 @@ import {
   assessDti,
   mortgagePaymentForPurchaseCents,
   DTI_FRONT_END_THRESHOLD,
-} from "./index";
+} from "./affordability";
 
 const PRICE = 30_000_000; // $300k
 const DOWN = 6_000_000; // $60k

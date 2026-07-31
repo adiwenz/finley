@@ -2169,8 +2169,34 @@ export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes
 export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";
-export type { Jurisdiction } from "./jurisdiction";
 export type { Cents } from "./money";
+
+// The open-core seam. The `rules` package implements {@link Jurisdiction} against this engine,
+// so every context and param type its methods name is part of the published surface — a rule
+// implementation cannot type its arguments otherwise. Listed whole rather than piecemeal: the
+// interface and the shapes it references are one contract, and a context type reachable only by
+// the engine would leave a `rules` method unable to name what it is handed.
+export type {
+  Jurisdiction,
+  JurisdictionContext,
+  GovernmentBenefitClaim,
+  GovernmentBenefitContext,
+  DeferralLimitContext,
+  RmdContext,
+  HealthCostContext,
+  WithdrawalTaxBasis,
+  ReturnTaxTreatment,
+} from "./jurisdiction";
+export type { TaxCategory } from "./cashFlowSeries";
+export type { ModelAssumption } from "./projection/assumptions";
+export type { AccountReturnKind } from "./simAccount";
+export type { EarningsRecord } from "./earningsRecord";
+export type { ProjectionIncomeSource } from "./projection/simulate.types";
+
+// The standalone jurisdiction: no taxes, no government programs. Part of this package precisely
+// so `fromInput(input, nullJurisdiction)` runs the engine end to end without the `rules` package
+// — a value on the surface, not a type, because a caller supplies it.
+export { nullJurisdiction } from "./jurisdiction";
 
 // Money as the user types it. Neither reads nor writes anything — a form has cents to hand
 // the facade before there is any state for the facade to hold, so a `Projection` method

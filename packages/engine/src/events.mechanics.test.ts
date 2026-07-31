@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  replayLedger,
-  removeEvent,
-  updateEvent,
-  computeDependents,
-  validateLedgerStructure,
-  type Ledger,
-  type LedgerBaseConfig,
-} from "./index";
+import { emptyLedger, validateLedgerStructure, type Ledger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { removeEvent } from "./ledger/removeEvent";
+import { updateEvent } from "./ledger/updateEvent";
+import { computeDependents } from "./ledger/dependencies";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import type { Person } from "./person";

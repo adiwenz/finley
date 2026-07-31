@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { Projection, emptyLedger, scenarioOf, withLedger, CURRENT_FORMAT_VERSION } from "@finley/engine";
+import { Projection, CURRENT_FORMAT_VERSION } from "@finley/engine";
 import type {
   Jurisdiction,
   Ledger,
@@ -22,23 +22,35 @@ import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "../hooks/useProjection";
 
 /**
- * A fixture plan and its seed ledger as the {@link ProjectionState} the app holds.
+ * The event-free ledger, as a literal of the public {@link Ledger} shape. The engine's own
+ * `emptyLedger` is an internal — the facade never hands one out, because an app authors a
+ * timeline through `Projection`, never by seeding a ledger. A test that wants a plain plan with
+ * no timeline states that here, in the public serialized shape {@link Projection.fromState}
+ * reads, rather than reaching for the engine's copy.
+ */
+const NO_EVENTS: Ledger = { events: [], nextSequenceNumber: 0 };
+
+/**
+ * A fixture plan and its seed ledger as the {@link ProjectionState} the app holds — the public
+ * serialized shape, handed straight to {@link Projection.fromState}. Building it as a literal of
+ * the exported types (rather than through an engine scenario constructor) keeps the harness on
+ * the same restore door the app loads saved plans through.
  *
  * `nextSeq: 1` means "not known" rather than "starts at 1": {@link Projection.fromState} floors
  * both counters past whatever ids the fixture already carries, so a fixture holding `goal-1`
  * cannot have a second `goal-1` minted on top of it. Every helper below goes through here, so a
  * test builds its state exactly one way.
  */
-export function stateOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionState {
+export function stateOf(plan: Plan, ledger: Ledger = NO_EVENTS): ProjectionState {
   return {
-    scenario: withLedger(scenarioOf(plan), ledger),
+    scenario: { plan, ledger },
     startYear: START_YEAR,
     nextSeq: 1,
     version: CURRENT_FORMAT_VERSION,
   };
 }
 
-export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): UseProjection {
+export function useTestProjection(plan: Plan, ledger: Ledger = NO_EVENTS): UseProjection {
   const [initial] = useState(() =>
     Projection.fromState(stateOf(plan, ledger), usJurisdiction).toState(),
   );
@@ -50,7 +62,7 @@ export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): Use
  * members it uses, so this satisfies every one of them. Built through `fromState`, so the
  * counters are floored exactly as the app's are.
  */
-export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): Projection {
+export function readerOf(plan: Plan, ledger: Ledger = NO_EVENTS): Projection {
   return Projection.fromState(stateOf(plan, ledger), usJurisdiction);
 }
 
@@ -66,7 +78,7 @@ export function readerOf(plan: Plan, ledger: Ledger = emptyLedger): Projection {
  */
 export function runOf(
   plan: Plan,
-  ledger: Ledger = emptyLedger,
+  ledger: Ledger = NO_EVENTS,
   jurisdiction: Jurisdiction = usJurisdiction,
 ): ProjectionResult {
   return Projection.fromState(stateOf(plan, ledger), jurisdiction).run(jurisdiction);

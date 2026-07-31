@@ -4,7 +4,9 @@
  * the jobs.
  */
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { nullJurisdiction } from "./jurisdiction";
 import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
 import { samplePlan, salariedJob } from "./testing/samplePlan";
 import {

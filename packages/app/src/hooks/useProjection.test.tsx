@@ -12,19 +12,10 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
-import {
-  Projection,
-  CURRENT_FORMAT_VERSION,
-  dollarsToCents,
-  emptyLedger,
-  goalFundAccountId,
-  scenarioOf,
-  withLedger,
-} from "@finley/engine";
+import { Projection, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { stateOf } from "../testing/projectionHarness";
+import { readerOf, stateOf } from "../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../planDefaults";
-import { START_YEAR } from "../config";
 import { useProjection, type UseProjection } from "./useProjection";
 import type { GoalPlan, LifeEvent, ProjectionState } from "@finley/engine";
 
@@ -51,6 +42,11 @@ const BLOCKED_GOAL: GoalPlan = {
  * depend on the purchase being affordable, which is a different test's subject.
  */
 function blockedGoalState(): ProjectionState {
+  const plan = { ...PLAN_DEFAULTS, goals: [BLOCKED_GOAL] };
+  // The goal's derived fund account, read off the facade — the reference the purchase strands.
+  const fundAccountId = readerOf(plan)
+    .accountDescriptors()
+    .find((a) => a.kind === "goal")!.id;
   const purchase: LifeEvent = {
     type: "HomePurchaseEvent",
     id: "buy1",
@@ -60,17 +56,13 @@ function blockedGoalState(): ProjectionState {
     ownerId: "p1",
     purchasePriceCents: dollarsToCents(500_000),
     downPaymentCents: dollarsToCents(100_000),
-    downPaymentSourceIds: [goalFundAccountId(BLOCKED_GOAL)],
+    downPaymentSourceIds: [fundAccountId],
     mortgageLiabilityId: "mtg1",
     mortgageApr: 0,
     mortgageTermMonths: 360,
   };
-  const scenario = withLedger(scenarioOf({ ...PLAN_DEFAULTS, goals: [BLOCKED_GOAL] }), {
-    events: [purchase],
-    nextSequenceNumber: 1,
-  });
   return Projection.fromState(
-    { scenario, startYear: START_YEAR, nextSeq: 1, version: CURRENT_FORMAT_VERSION },
+    stateOf(plan, { events: [purchase], nextSequenceNumber: 1 }),
     usJurisdiction,
   ).toState();
 }
@@ -294,7 +286,7 @@ describe("useProjection — removing a timeline transaction", () => {
     act(() => {
       hook().removeEvent(eventId);
     });
-    expect(hook().state.scenario.ledger.events).toEqual(emptyLedger.events);
+    expect(hook().state.scenario.ledger.events).toEqual([]);
     expect(conflict()).toBe("");
   });
 });
