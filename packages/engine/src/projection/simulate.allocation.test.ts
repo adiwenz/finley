@@ -142,6 +142,54 @@ describe("simulateHousehold — allocation waterfall", () => {
     expect(series.months[10].accountBalancesCents["401k-b"]).toBe(dollarsToCents(12000));
   });
 
+  it("holds deferral + match under the annual §415(c) ceiling, and resets it each year", () => {
+    // Elective $12,000/yr, total-additions $20,000/yr, dollar-for-dollar match, $5,000/mo of
+    // fully-deferred pay. The employee's $12,000 always lands whole; the match gets the
+    // $8,000 that is left — NOT the $12,000 a greedy month-by-month match would take.
+    const cappedJurisdiction = {
+      id: "415c-test",
+      computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
+      retirementDeferralLimitCents: () => dollarsToCents(12000),
+      totalAdditionsLimitCents: () => dollarsToCents(20000),
+    };
+    const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1990 };
+    const retirement = new SimAccount({
+      id: "401k",
+      ownerId: "p1",
+      liquid: false,
+      taxProfile: PRE_TAX_TAX_PROFILE,
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 24,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [makeInvestmentAccount(0, 0), retirement],
+        incomeSeries: [
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p1",
+            planDescriptor: {
+              deferralFraction: 1.0,
+              fundAccountId: "401k",
+              employerMatchFraction: 1.0,
+            },
+          },
+        ],
+        expenseSeries: [],
+      },
+      cappedJurisdiction,
+    );
+    // Year one closes exactly at the ceiling — never over it, despite the match wanting more.
+    expect(series.months[11].accountBalancesCents["401k"]).toBe(dollarsToCents(20000));
+    // Month 12 opens a new calendar year: both accumulators reset, so year two adds another
+    // full $20,000 rather than staying pinned at the first year's total.
+    expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(40000));
+  });
+
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
     // With no goals, no plan, and idle surplus, the waterfall must reproduce plain net
     // flow into the liquid account exactly.

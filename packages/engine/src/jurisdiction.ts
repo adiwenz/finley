@@ -136,9 +136,26 @@ export interface Jurisdiction {
   /**
    * A person's annual employee pre-tax deferral limit (401k-style). The waterfall caps
    * combined deferral here and redirects overflow to the next destination; the employer
-   * match does NOT share the cap. Absent → uncapped.
+   * match does NOT share the cap — it is bounded by
+   * {@link totalAdditionsLimitCents} instead. Absent → uncapped.
    */
   retirementDeferralLimitCents?(ctx: DeferralLimitContext): Cents;
+
+  /**
+   * A person's annual ceiling on employee deferral + employer match COMBINED (US: §415(c)).
+   * The outer bound on everything landing in the retirement account, where
+   * {@link retirementDeferralLimitCents} bounds only the employee's own share — so this
+   * should always be the larger of the two. Absent → the match is uncapped.
+   *
+   * When the ceiling binds, the waterfall trims the MATCH and leaves the employee deferral
+   * whole: employer money is the discretionary part, and cutting the deferral instead would
+   * move taxable income and cascade through the whole month.
+   *
+   * ⚠ Modelled per PERSON per year, not per employer plan as the US statute defines it.
+   * They coincide for the single-employer case; someone holding two matched jobs at once is
+   * capped more tightly here than in law.
+   */
+  totalAdditionsLimitCents?(ctx: DeferralLimitContext): Cents;
 
   /**
    * The full retirement age (US law: 67), used to time a benefit when the person hasn't

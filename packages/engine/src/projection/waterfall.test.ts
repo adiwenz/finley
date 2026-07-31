@@ -20,6 +20,7 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     computeTaxCents: () => 0,
     computeTaxByCategoryCents: () => ({}), // zero tax → empty breakdown (required seam)
     remainingDeferralRoomCents: () => Infinity,
+    remainingTotalAdditionsRoomCents: () => Infinity,
     ...over,
   };
 }
@@ -98,6 +99,58 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
     // Only the employee deferral counts against the annual accumulator.
     expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    // ...but deferral AND match count against the §415(c) one.
+    expect(r.totalAdditionsByPersonCents.get("p1")).toBe(dollarsToCents(750));
+  });
+
+  it("trims the match — never the deferral — to the remaining §415(c) room", () => {
+    const r = runWaterfall(
+      makeInput({
+        // $600 of room left: the $500 deferral goes in whole, leaving $100 for a $250 match.
+        remainingTotalAdditionsRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(600));
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    expect(r.totalAdditionsByPersonCents.get("p1")).toBe(dollarsToCents(600));
+    // Trimming employer money leaves take-home untouched.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
+  });
+
+  it("drops the match entirely when §415(c) room is exhausted, keeping the deferral whole", () => {
+    const r = runWaterfall(
+      makeInput({
+        remainingTotalAdditionsRoomCents: () => 0,
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // The deferral is legal on its own account (elective room remains), so it survives.
+    expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(500));
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
   });
 
   it("deferral is capped at the remaining annual room; overflow becomes taxable take-home", () => {

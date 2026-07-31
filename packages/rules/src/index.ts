@@ -6,7 +6,7 @@ import {
   DEFAULT_BENEFIT_CLAIMING_AGE,
 } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
-import { retirementDeferralLimitCents } from "./contributionLimits";
+import { retirementDeferralLimitCents, totalAdditionsLimitCents } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 import {
   computeFederalTaxCents,
@@ -26,6 +26,7 @@ export { requiredMinimumDistributionCents, RMD_ASSUMPTIONS } from "./rmd";
 export {
   contributionLimits,
   retirementDeferralLimitCents,
+  totalAdditionsLimitCents,
   CONTRIBUTION_LIMITS_BASE_YEAR,
   type ContributionLimits,
 } from "./contributionLimits";
@@ -93,6 +94,7 @@ export const usJurisdiction: Jurisdiction = {
   colaAdjustedBenefitCents,
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
+  totalAdditionsLimitCents,
   healthCostBenchmarkMonthlyCents,
   modelAssumptions: [...FEDERAL_TAX_ASSUMPTIONS, ...RMD_ASSUMPTIONS],
 };

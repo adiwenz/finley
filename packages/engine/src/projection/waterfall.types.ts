@@ -117,6 +117,13 @@ export interface WaterfallInput {
    * already deferred this year). `Infinity` = uncapped.
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
+  /**
+   * A person's REMAINING annual room under the deferral + match ceiling (US: §415(c)) —
+   * the limit minus deferral AND match already banked this year. `Infinity` = uncapped.
+   * Bounds the match only: the deferral is already clamped by
+   * {@link remainingDeferralRoomCents} before this applies.
+   */
+  readonly remainingTotalAdditionsRoomCents: (personId: string) => number;
 }
 
 export interface WaterfallResult {
@@ -143,6 +150,11 @@ export interface WaterfallResult {
   readonly deferralBySourceCents: Readonly<Record<string, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * Deferral + employer match actually banked per person — what the §415(c) ceiling is
+   * measured against. The caller updates its annual accumulator from this.
+   */
+  readonly totalAdditionsByPersonCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
   readonly accountDepositsCents: ReadonlyMap<string, Cents>;
   /** Household cash shortfall to route through the cascade (0 if none). */

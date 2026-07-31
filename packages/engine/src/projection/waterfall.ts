@@ -61,9 +61,14 @@ function applyDeferrals(
   sourceTaxableByPerson: Map<string, SourceTaxable[]>;
   deferralBySource: Map<string, Cents>;
   deferredByPerson: Map<string, Cents>;
+  totalAdditionsByPerson: Map<string, Cents>;
 } {
   const roomRemaining = new Map<string, number>();
   for (const pid of input.personIds) roomRemaining.set(pid, input.remainingDeferralRoomCents(pid));
+  const additionsRoomRemaining = new Map<string, number>();
+  for (const pid of input.personIds) {
+    additionsRoomRemaining.set(pid, input.remainingTotalAdditionsRoomCents(pid));
+  }
 
   const grossByPerson = new Map<string, Cents>();
   const taxableByPerson = new Map<string, TaxableByCategory>();
@@ -71,6 +76,7 @@ function applyDeferrals(
   const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
+  const totalAdditionsByPerson = new Map<string, Cents>();
   const taxableFor = (pid: string): TaxableByCategory => {
     let m = taxableByPerson.get(pid);
     if (m === undefined) {
@@ -92,8 +98,30 @@ function applyDeferrals(
         roomRemaining.set(src.ownerId, room - deferred);
         deferredByPerson.set(src.ownerId, (deferredByPerson.get(src.ownerId) ?? 0) + deferred);
         deferralBySource.set(sourceKey, (deferralBySource.get(sourceKey) ?? 0) + deferred);
-        const match = Math.round(deferred * (src.planDescriptor.employerMatchFraction ?? 0));
-        addDeposit(deposits, src.planDescriptor.fundAccountId, deferred + match);
+        // §415(c): the deferral is already banked (it cleared the elective cap), so the match
+        // takes only what room is left after it. Trimming the match rather than the deferral
+        // keeps taxable income — and so the rest of the month — untouched.
+        //
+        // The match must also RESERVE the employee's remaining elective room for the rest of
+        // the year. Without that, a greedy early match eats the ceiling and later deferrals —
+        // which are the employee's legal right and never trimmed here — would overshoot it.
+        // Slightly conservative: room held for a deferral the person may never make.
+        const additionsRoom = additionsRoomRemaining.get(src.ownerId) ?? Infinity;
+        // An uncapped elective limit reserves nothing — there is no bounded future deferral
+        // to protect, and reserving `Infinity` would zero out every match.
+        const reservedForDeferral = Number.isFinite(room) ? room - deferred : 0;
+        const desiredMatch = Math.round(deferred * (src.planDescriptor.employerMatchFraction ?? 0));
+        const match = Math.max(
+          0,
+          Math.min(desiredMatch, additionsRoom - deferred - reservedForDeferral),
+        );
+        const added = deferred + match;
+        additionsRoomRemaining.set(src.ownerId, Math.max(0, additionsRoom - added));
+        totalAdditionsByPerson.set(
+          src.ownerId,
+          (totalAdditionsByPerson.get(src.ownerId) ?? 0) + added,
+        );
+        addDeposit(deposits, src.planDescriptor.fundAccountId, added);
       }
     }
 
@@ -112,7 +140,14 @@ function applyDeferrals(
       list.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceTaxable });
     }
   }
-  return { grossByPerson, taxableByPerson, sourceTaxableByPerson, deferralBySource, deferredByPerson };
+  return {
+    grossByPerson,
+    taxableByPerson,
+    sourceTaxableByPerson,
+    deferralBySource,
+    deferredByPerson,
+    totalAdditionsByPerson,
+  };
 }
 
 /**
@@ -338,7 +373,14 @@ function fundGoalsAndContributions(
 export function runWaterfall(input: WaterfallInput): WaterfallResult {
   const deposits = new Map<string, Cents>();
 
-  const { grossByPerson, taxableByPerson, sourceTaxableByPerson, deferralBySource, deferredByPerson } =
+  const {
+    grossByPerson,
+    taxableByPerson,
+    sourceTaxableByPerson,
+    deferralBySource,
+    deferredByPerson,
+    totalAdditionsByPerson,
+  } =
     applyDeferrals(input, deposits);
   const { taxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents } = computeTakeHome(
     input,
@@ -368,6 +410,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     taxBySourceCents,
     deferralBySourceCents: Object.fromEntries(deferralBySource),
     deferredByPersonCents: deferredByPerson,
+    totalAdditionsByPersonCents: totalAdditionsByPerson,
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,
   };
