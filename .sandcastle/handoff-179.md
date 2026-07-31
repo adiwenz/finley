@@ -2,64 +2,64 @@
 
 **Done so far:**
 - **Cut 1 (task 1/4) — DONE.** Anchors + reused-event holdings: `startPartnered`,
-  `haveExistingChild`, `carryLoan` + their `ScenarioInput` entries. Pre-now separation via the
-  existing `separate` method.
-- **Decomposition (task 2/4) — DONE.** Split `HomePurchaseEvent` into two composed primitives.
-  The shape it left is under *Live constraints* below.
-- Remaining: **Cut 2** (`ownHome` holding), **Glossary** (CONTEXT.md: *Holding* / *Anchor*).
-  See the issue body for each.
+  `haveExistingChild`, `carryLoan` + their `ScenarioInput` entries; pre-now `separate`.
+- **Decomposition (task 2/4) — DONE.** `HomePurchaseEvent` split into the slimmed property event +
+  reused `LoanEvent`, composed by `buyHome`.
+- **Cut 2 (task 3/4) — DONE.** `ownHome` holding, `HomePurchaseEvent` holding mode, behavior-free
+  basis metadata, and the holding-month precondition. See this run's commit + `git diff`.
+- **Remaining: Glossary (task 4/4)** — CONTEXT.md, and it is the LAST task (writes the summary,
+  deletes this file). See below.
 
-## Live constraints (consumed by later tasks)
+## Task 4 — the only work left
 
-### From the decomposition (task 2) — what Cut 2 builds on
-- **`HomePurchaseEvent` is now the `acquireAsset` primitive.** The type name is kept (the issue
-  sanctions "the slimmed `HomePurchaseEvent`"), but it no longer mints a mortgage. It carries an
-  optional `securedByLiabilityId` (the mortgage link) and drains the down payment. The financing
-  mortgage is an independent `LoanEvent`. `buyHome` composes them, **loan first** — see
-  `packages/engine/src/authoring/housing.ts` `applyHomePurchase`.
-- **`ownHome` (Cut 2) composes the same two primitives at `-1`.** Emit the mortgage `LoanEvent`
-  first (reuse `applyCarryLoan`/`applyLoan` at `PRE_NOW_MONTH`), then a `HomePurchaseEvent` at
-  `-1` naming it via `securedByLiabilityId`. Owned-outright omits the loan and the link.
-- **Holding mode is NOT built yet.** `HomePurchaseEvent.check`/`apply` still ALWAYS drain the
-  down payment and (on the authoring path) run the §4.5 gate. For a holding, Cut 2 must make the
-  draw / gate conditional (no draw, no gate at `-1`). The down-payment source fields are still
-  required by `eventValidation.ts` — relax them for the holding. `purchasePriceCents` is the
-  property's opening value; for a holding it is the current value.
-- **The securing precondition is directional and referential, not a causedBy edge.**
-  `HomePurchaseEvent.check` requires `securedByLiabilityId`, when present, to already exist in
-  `state.liabilitiesById` (`packages/engine/src/ledger/eventHandlers.ts`). This buys ordering
-  (loan sorts first) AND removal-safety (removing the loan while the house names it is blocked).
-  There is **no** causedBy link between property and mortgage: removing the home leaves the
-  mortgage standing. Do NOT add one in Cut 2.
-- **The mortgage id is `${propertyId}-mortgage`** — used as both the `LoanEvent` id and its
-  `liabilityId`. Not counter-minted (parent-suffixed, like `${partnerId}-job-N`); `mint.ts`'s
-  regex ignores it for the floor. Keep this scheme in `ownHome`.
-- **`buyHome` revision no longer carries mortgage terms.** The mortgage is revised through the
-  `takeLoan` verb on the `${propertyId}-mortgage` id (`authoring/revise.ts`).
+- **Add two glossary entries to `CONTEXT.md`** (the domain-modeling deliverable), matching the
+  code's vocabulary so the words and the engine agree:
+  - **Holding** — a pre-existing stock (loan / property / mortgage) opened at the now marker
+    (`PRE_NOW_MONTH = -1`) with CURRENT terms and NO account side-effects (no funding draw, no
+    §4.5 gate). Authored by `carryLoan` / `ownHome`; the loan/property handlers now enforce that a
+    holding's only valid pre-now month is exactly `-1` (`holdingMonthFault` in
+    `packages/engine/src/ledger/eventHandlers.ts`).
+  - **Anchor** — a pre-existing life event (marriage / birth / separation) placed at its TRUE past
+    month, whose elapsed position drives remaining durations. Authored by `startPartnered` /
+    `haveExistingChild` / pre-now `separate`. Exempt from the `-1` rule: carrying no balance, a
+    true past month reconstructs nothing.
+- **Then, as the last task:** write `.sandcastle/summary-179.md` (whole issue, read `git log`) and
+  **delete this handoff** in the same commit — that finishing commit deletes the handoff rather
+  than rewriting it.
 
-### From Cut 1 — still live
-- **The month convention lives in one place per surface.** Each pre-existing doorway computes its
-  internal month and never exposes it (`startPartnered` → `-partneredForMonths`,
-  `haveExistingChild` → `-ageMonths`, `carryLoan` → `PRE_NOW_MONTH`). `ownHome` follows suit:
-  the `-1` convention stays inside the engine; the method takes current terms.
-- **`entryMonth(entry)` in `scenarioInput.ts` is load-bearing.** `scenarioRefs.ts` sorts the
-  schedule by it. A new entry computing its month internally (`ownHome`) MUST get a case there or
-  it sorts as `month: undefined` and the ref graph breaks. Holdings declare `month?: never`.
-  (Note: a `buyHome`/`ownHome` entry now expands to TWO events at authoring time via the facade
-  method; the ref graph still resolves at the ENTRY level — the loan↔property link is a minted id
-  invisible to `scenarioRefs`, so no ref-graph change was needed.)
-- **`isPreExisting(startMonth)` already opens a `-1` property at value / liability at balance**
-  (`runState.ts`). A `-1` holding needs no handler special-case for opening values.
-- **Anchor income clips for free.** A partner at a negative membership `startMonth` still compiles
-  income from month 0 (`compilePerson.ts` floors `paidStart` at 0; `interpret.ts` keeps a finite
-  negative-month membership). Don't add clipping logic.
+## Live constraints
+- **`HomePurchaseEvent` is the property primitive; holding-vs-transaction is decided by
+  `isPreExisting(event.month)`.** At `-1` the handler skips the down-payment source requirement,
+  the §4.5 gate, and the funding draw; at `month ≥ 0` it funds and gates. A holding is authored
+  with `downPaymentCents: 0` and `downPaymentSourceIds: []` (see `applyOwnHome` in
+  `packages/engine/src/authoring/housing.ts`). `purchasePriceCents` is the property's opening
+  value — CURRENT value for a holding.
+- **`acquiredMonth` + `originalPriceCents` on `HomePurchaseEvent` are behavior-free.** They are a
+  future sell-home's capital-gains basis + display only; no current-balance logic reads them
+  (gains-on-sale is a separate issue). Do NOT wire them into any balance/appreciation path.
+- **`ownHome` composes two primitives at `-1`, loan first** (mortgage `LoanEvent` then property),
+  reusing the `${propertyId}-mortgage` id scheme from `buyHome`. Owned-outright omits the loan and
+  the `securedByLiabilityId` link. The property→mortgage link is referential, not a causedBy edge
+  (removing the home leaves the mortgage standing) — unchanged from task 2.
+- **The month convention lives one place per surface.** Each doorway computes its internal month
+  and never exposes it; `ownHome` → `PRE_NOW_MONTH`. `entryMonth(entry)` in `scenarioInput.ts` has
+  an `ownHome` case (returns `PRE_NOW_MONTH`) — a new `month`-computing entry MUST get one there or
+  the ref graph sorts it as `month: undefined`.
+- **Holdings need no runState special-case for opening values** — `isPreExisting` already opens a
+  `-1` property at value / liability at balance (`runState.ts`).
 
-## Dead ends / deferred
-- **The "holding `startMonth` must be exactly -1" precondition** (issue *Preconditions*) is still
-  NOT added to the loan/property handler `check`s. Neither Cut 1 nor the decomposition needed it
-  (methods fix months internally). Cut 2 adds a property holding — it is the natural owner. Decide
-  there whether `validateLedger` should reject a hand-crafted holding at, e.g. `-5`.
-- **Regression guards for the affected paths:** Cut 1 → `packages/engine/src/preExisting.test.ts`.
-  Decomposition → `events.homePurchase.test.ts` (handler seam; `addFinanced`/`mortgage` fixtures +
-  referential-precondition + removal tests) and `projectionFacade.test.ts` (composition +
-  revision). Touch the home/loan handlers → these bind.
+## Deferred / not done (by design for this issue)
+- **No app authoring surface for `ownHome`.** Consistent with Cut 1 (no app form either): the
+  engine methods + `ScenarioInput` entries are the entry points. The "I only know what I originally
+  paid" prefill lives in the app and is out of scope here. Task 4 need not add one.
+- **No `ownHome` revision path.** `buyHome` revises its mortgage via the `takeLoan` verb on the
+  `${propertyId}-mortgage` id (`authoring/revise.ts`); `ownHome` was not given a revise mapping —
+  not required by Cut 2's acceptance criteria. Leave unless a later issue asks for it.
+
+## Traps
+- **The holding-month precondition (`holdingMonthFault`) is on BOTH the loan and property
+  handlers.** It rejects any negative month that is not exactly `-1`. Anchors (RelationshipEvent /
+  ChildEvent / SeparationEvent) are deliberately NOT gated — do not add the same check there.
+- **Regression guards bind these paths.** Cut 2 → `packages/engine/src/preExisting.test.ts`
+  (`ownHome` facade + declarative) and `events.homePurchase.test.ts` (handler holding mode +
+  precondition + import rejection). Touch the home/loan handlers or `ownHome` → these bind.

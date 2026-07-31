@@ -146,8 +146,8 @@ import {
   applySeparation,
   applyStartPartnered,
 } from "./authoring/relationships";
-import type { BuyHomeInput } from "./authoring/housing";
-import { applyHomePurchase } from "./authoring/housing";
+import type { BuyHomeInput, OwnHomeInput } from "./authoring/housing";
+import { applyHomePurchase, applyOwnHome } from "./authoring/housing";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "./authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "./authoring/liabilities";
 import type { TransactionRevision } from "./authoring/revise";
@@ -500,6 +500,16 @@ export class Projection {
    */
   buyHome(input: BuyHomeInput): string {
     return this.write((state) => applyHomePurchase(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * Author a home the household ALREADY owns at simulation start — a holding opened at the now
+   * marker with its current value and (if mortgaged) the mortgage's current balance and remaining
+   * term, so it draws no down payment and skips the affordability gate. The counterpart to
+   * {@link buyHome}, which acquires a home during the plan. Returns the minted `"home-N"` id.
+   */
+  ownHome(input: OwnHomeInput): string {
+    return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
   }
 
   // Transaction lifecycle

@@ -109,6 +109,16 @@ export interface HomePurchaseEvent extends EventBase {
   readonly securedByLiabilityId?: string;
   /** Defaults to `inflationLinked` at base inflation. */
   readonly appreciationMode?: GrowthMode;
+  /**
+   * Basis metadata for a pre-existing home (a holding), where the true origination is off the
+   * timeline: the month it was acquired and what was originally paid. Behavior-free — the sim
+   * opens the property at `purchasePriceCents` (its CURRENT value) and no current-balance logic
+   * reads these. They exist so a future sale can compute a capital gain against a real basis and
+   * so the app can display the acquisition; a purchase authored during the plan omits them (its
+   * basis is the purchase itself).
+   */
+  readonly acquiredMonth?: number;
+  readonly originalPriceCents?: Cents;
 }
 
 interface LoanEventCommon extends EventBase, CausedByFields {

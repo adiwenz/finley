@@ -215,6 +215,29 @@ export type TakeLoanEntry = EventEntryCommon & {
     | { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly termMonths: number }
   );
 
+/**
+ * A home already owned at start — a holding opened at the now marker with its current value and,
+ * when mortgaged, the mortgage's current balance and remaining term, see
+ * {@link import("./authoring/housing").OwnHomeInput}. Like the anchors and {@link CarryLoanEntry}
+ * its month is the now marker, not an author choice, so it declares no `month`. Owned outright
+ * omits `mortgage`.
+ */
+export type OwnHomeEntry = Omit<EventEntryCommon, "month"> & {
+  readonly type: "ownHome";
+  readonly month?: never;
+  readonly ownerRef: Ref;
+  readonly valueCents: number;
+  readonly mortgage?: {
+    readonly balanceCents: number;
+    readonly remainingTermMonths: number;
+    readonly apr: number;
+  };
+  /** Behavior-free basis metadata for a future sale — read by no current-balance logic. */
+  readonly acquiredMonth?: number;
+  readonly originalPriceCents?: number;
+  readonly appreciationMode?: GrowthMode;
+};
+
 /** A home purchase — see {@link import("./authoring/housing").BuyHomeInput}. */
 export interface BuyHomeEntry extends EventEntryCommon {
   readonly type: "buyHome";
@@ -267,6 +290,7 @@ export type EventEntry =
   | TakeLoanEntry
   | CarryLoanEntry
   | BuyHomeEntry
+  | OwnHomeEntry
   | SeparateEntry
   | PayOffDebtEntry;
 
@@ -291,6 +315,7 @@ export function entryMonth(entry: EventEntry): number {
     case "haveExistingChild":
       return -entry.ageMonths;
     case "carryLoan":
+    case "ownHome":
       return PRE_NOW_MONTH;
     default:
       return entry.month;
@@ -306,6 +331,7 @@ export function eventEntryType(entry: EventEntry): EventEntry["type"] {
     case "takeLoan":
     case "carryLoan":
     case "buyHome":
+    case "ownHome":
     case "separate":
     case "payOffDebt":
       return entry.type;

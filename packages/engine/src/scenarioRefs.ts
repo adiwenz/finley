@@ -158,6 +158,7 @@ function collectEvent(
       return;
     case "takeLoan":
     case "carryLoan":
+    case "ownHome":
       usages.push({ ref: entry.ownerRef, order, loc });
       return;
     case "buyHome":

@@ -12,6 +12,8 @@ import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 import { planAccount, type PlanAccount } from "./planAccount";
 import type { PersonId } from "./job";
+import { PRE_NOW_MONTH } from "./projection/nowMarker";
+import { validateLedger } from "./ledger/validateLedger";
 
 function savings(openingCents: number, rate = 0): PlanAccount {
   return planAccount({
@@ -387,6 +389,74 @@ describe("removeEvent — a decomposed home purchase", () => {
       expect(result.conflict).toContain("buy1");
       expect(result.conflict).toMatch(/securing liability "mtg1" not found/);
     }
+  });
+});
+
+/** The property half of a HOLDING — a pre-existing home dated at the now marker, opening at its
+ * current value with no down payment. Owned outright unless a `securedByLiabilityId` is added. */
+function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
+  return purchase({
+    month: PRE_NOW_MONTH,
+    downPaymentCents: 0,
+    downPaymentSourceIds: [],
+    ...overrides,
+  });
+}
+
+describe("HomePurchaseEvent — a holding (a home already owned at start)", () => {
+  it("opens the property at its value with no down-payment draw, drawing on no source", () => {
+    // A near-empty account: a holding names no source and drains nothing, so the purchase stands
+    // where a same-priced transaction would be hard-blocked for want of funds.
+    const base = baseWith(100_000);
+    const ledger = addWithBase(emptyLedger, base, holding());
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // On the books at "now": the property opens at its full value and savings is untouched.
+    expect(series.opening.propertyValuesCents.house1).toBe(PRICE);
+    expect(series.opening.accountBalancesCents.savings).toBe(100_000);
+    expect(series.months[0].accountBalancesCents.savings).toBe(100_000);
+  });
+
+  it("carries acquiredMonth and originalPriceCents without touching the opening value", () => {
+    const base = baseWith(100_000);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      holding({ acquiredMonth: -96, originalPriceCents: 20_000_000 }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    // Behavior-free: the basis metadata is recorded but the property still opens at CURRENT value.
+    expect(series.opening.propertyValuesCents.house1).toBe(PRICE);
+  });
+
+  it("rejects a property holding dated at a negative month other than the now marker", () => {
+    // Anchors (marriage, birth) sit at any true past month, but a holding opens at CURRENT terms,
+    // so its only valid pre-now date is the now marker — a `-5` would ask the sim to reconstruct
+    // an origination it deliberately does not model.
+    const base = baseWith(10_000_000);
+    const result = addEvent(emptyLedger, base, holding({ month: -5 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/now marker/);
+  });
+
+  it("rejects a loan holding dated at a negative month other than the now marker", () => {
+    const base = baseWith(10_000_000);
+    const result = addEvent(emptyLedger, base, mortgage({ month: -5 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/now marker/);
+  });
+
+  it("rejects a mis-dated holding on import, so a hand-edited ledger cannot smuggle one in", () => {
+    // Bypassing the authoring methods, a raw ledger carries the property at `-5`; the import gate
+    // replays each event's precondition and strands here.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [{ ...holding({ month: -5 }), sequenceNumber: 1 } as unknown as Ledger["events"][number]],
+      nextSequenceNumber: 2,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/now marker/);
   });
 });
 

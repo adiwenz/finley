@@ -11,6 +11,7 @@ import type { ValidationResult } from "./ledger";
 import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import type { InterpretContext, InterpretState } from "./interpretState";
 import { checkEvent } from "./eventHandlers";
+import { isPreExisting } from "../projection/nowMarker";
 
 function bad(event: { id: string; type: string }, requirement: string): ValidationResult {
   return { ok: false, reason: `${event.type} "${event.id}": ${requirement}` };
@@ -71,15 +72,27 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
     case "HomePurchaseEvent": {
       const money =
         nonNegative(event, "purchasePriceCents", event.purchasePriceCents) ??
-        nonNegative(event, "downPaymentCents", event.downPaymentCents);
+        nonNegative(event, "downPaymentCents", event.downPaymentCents) ??
+        (event.originalPriceCents === undefined
+          ? null
+          : nonNegative(event, "originalPriceCents", event.originalPriceCents));
       if (money) return money;
-      // Distinct, non-empty: a zero-source purchase has nothing to drain, and a repeated id
-      // would double-drain one account. The mortgage's own terms are validated on its LoanEvent.
-      if (!Array.isArray(event.downPaymentSourceIds) || event.downPaymentSourceIds.length === 0) {
-        return bad(event, `downPaymentSourceIds must list at least one funding source`);
+      // `acquiredMonth` may sit anywhere in the past (a holding's true origination), so it is only
+      // required to be an integer, not signed — unlike `month`, which is validated by the caller.
+      if (event.acquiredMonth !== undefined && !Number.isInteger(event.acquiredMonth)) {
+        return bad(event, `acquiredMonth must be an integer (got ${event.acquiredMonth})`);
       }
-      if (new Set(event.downPaymentSourceIds).size !== event.downPaymentSourceIds.length) {
-        return bad(event, `downPaymentSourceIds must not repeat a source`);
+      // A holding (a home already owned at "now", dated `-1`) draws no down payment, so it names
+      // no source; the source-list rules apply only to a purchase authored during the plan. A
+      // purchase's sources must be distinct and non-empty: a zero-source purchase has nothing to
+      // drain, and a repeated id would double-drain one account.
+      if (!isPreExisting(event.month)) {
+        if (!Array.isArray(event.downPaymentSourceIds) || event.downPaymentSourceIds.length === 0) {
+          return bad(event, `downPaymentSourceIds must list at least one funding source`);
+        }
+        if (new Set(event.downPaymentSourceIds).size !== event.downPaymentSourceIds.length) {
+          return bad(event, `downPaymentSourceIds must not repeat a source`);
+        }
       }
       return { ok: true };
     }

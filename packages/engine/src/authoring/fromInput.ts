@@ -211,6 +211,23 @@ export function interpretScenarioInput(
             }),
           );
           break;
+        case "ownHome":
+          bind(
+            entry.ref,
+            projection.ownHome({
+              ownerId: idFor(entry.ownerRef),
+              valueCents: entry.valueCents,
+              ...(entry.mortgage !== undefined ? { mortgage: entry.mortgage } : {}),
+              ...(entry.acquiredMonth !== undefined ? { acquiredMonth: entry.acquiredMonth } : {}),
+              ...(entry.originalPriceCents !== undefined
+                ? { originalPriceCents: entry.originalPriceCents }
+                : {}),
+              ...(entry.appreciationMode !== undefined
+                ? { appreciationMode: entry.appreciationMode }
+                : {}),
+            }),
+          );
+          break;
         case "separate":
           bind(
             entry.ref,
