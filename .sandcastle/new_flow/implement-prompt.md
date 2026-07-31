@@ -106,11 +106,15 @@ Your commit must stand on its own: the branch is green at **every** commit, so a
 
 In whole-issue mode, one commit unless you split the work as described above, in which case one commit per part.
 
+**If your task turns out to be large, checkpoint inside it.** The iteration ceiling applies to you too, and it takes the working tree with it. A green, self-contained slice of your task is worth committing even though it does not finish the task — a fresh agent will continue it from the branch. Mark such a commit `WIP:` instead of `RALPH:`, and see the marker rule below.
+
 Use the strict **RALPH** format:
 
 1. Start with the **`RALPH:`** prefix.
 2. Name the task completed and reference the relevant PRD sections or acceptance criteria.
 3. **End the subject line with the marker `[task {{TASK_NUMBER}}/{{TASK_TOTAL}}]`** — verbatim, including the brackets. The orchestrator parses it to know where a re-run should resume; without it a re-run reimplements your task on top of itself. Omit the marker only in whole-issue mode, where Task is blank.
+
+   **The marker means the task is finished, so put it on exactly one commit — the one that finishes it.** A checkpoint commit inside an unfinished task must not carry it. Marking a partial commit tells every future run this task is done, and the work you did not reach is then skipped silently and forever — the worst failure available here, because the branch looks complete.
 4. State key architectural or mathematical decisions.
 5. List the files changed.
 6. Give contextual blockers or notes for the next agent. **This is load-bearing** — the next agent starts from a fresh context and reads your message to orient.
