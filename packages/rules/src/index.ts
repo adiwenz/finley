@@ -50,6 +50,19 @@ export {
   type OrdinaryBracket,
 } from "./federalTax";
 export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
+export {
+  payrollTaxTables,
+  payrollTaxParts,
+  payrollTaxCents,
+  PAYROLL_TAX_BASE_YEAR,
+  PAYROLL_TAX_ASSUMPTIONS,
+  OASDI_RATE,
+  MEDICARE_RATE,
+  ADDITIONAL_MEDICARE_RATE,
+  ADDITIONAL_MEDICARE_THRESHOLD_CENTS,
+  type PayrollTaxTables,
+  type PayrollTaxParts,
+} from "./payrollTax";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
