@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Projection } from "./projectionRoot";
+import { Projection } from "./index";
 import { SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { ref } from "./scenarioInput";
 import { PRIMARY_PERSON_REF } from "./scenarioRefs";
@@ -225,10 +225,10 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
  * "Authoring type" is decided by two readings, unioned, because either alone leaks:
  *
  *  - **Declared in the authoring vocabulary** — under `authoring/`, or in `scenarioInput.ts`.
- *    This is what catches an entry the gateway does not publish by name: `PartnerJobEntry` and
+ *    This is what catches an entry `index.ts` does not publish by name: `PartnerJobEntry` and
  *    the per-verb `*Entry` shapes reach a caller only through the `EventEntry` union, so a
  *    surface-only reading would scan the union and miss the members.
- *  - **Published by the export gateway** — so an input declared somewhere new is covered the
+ *  - **Published by the export map** — so an input declared somewhere new is covered the
  *    moment it becomes reachable, which it must be to be an input the API accepts.
  *
  * A whole-tree scan is what neither can be: `BalanceEntry` and `WaterfallInput` are simulator
@@ -259,10 +259,10 @@ describe("the authoring API accepts no caller-supplied id — source scan", () =
   const AUTHORING_MODULES = (path: string) =>
     path.startsWith("authoring/") || path === "scenarioInput.ts";
 
-  /** Every name the export gateway republishes — the package's whole public surface. */
-  function gatewayExports(): Set<string> {
+  /** Every name the export map republishes — the package's whole public surface. */
+  function publishedNames(): Set<string> {
     const names = new Set<string>();
-    const source = read("./projectionRoot.ts");
+    const source = read("./index.ts");
     for (const match of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"[^"]*"/gs)) {
       for (const part of match[1].split(",")) {
         const name = part.trim();
@@ -277,7 +277,7 @@ describe("the authoring API accepts no caller-supplied id — source scan", () =
    * one is also declared somewhere.
    */
   function allAuthoringTypes(): [string, string][] {
-    const published = gatewayExports();
+    const published = publishedNames();
     const byName = new Map<string, string>();
     for (const { path, source } of sourceFiles(engineSrc)) {
       const inVocabulary = AUTHORING_MODULES(path);

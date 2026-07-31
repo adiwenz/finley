@@ -67,7 +67,7 @@ month, structurally, because obligations are pre-flighted (§7) before the casca
 
 ## 4. Result types
 
-> **Name collision.** `projectionRoot.ts:103` already exports a `ProjectionResult`
+> **Name collision.** `projectionRun.ts` already declares a `ProjectionResult`
 > (`{ jurisdictionId, series, firstInsolventMonth }`). The blocking fields belong on
 > **`ProjectionSeries`** — what `simulateHousehold` actually returns — and the existing
 > `ProjectionResult` continues to wrap it unchanged.
@@ -244,7 +244,7 @@ collapses from ~660 to the blocked month.
 Both mutation planes unify onto `Projection` as the single authoring root — see §12 for the
 cheaper alternatives that were rejected.
 
-`projectionRoot.ts` holds `plan` and `ledger` in a single `scenario` field (*"so a timeline
+`ProjectionState` holds `plan` and `ledger` in a single `scenario` field (*"so a timeline
 cannot be silently dropped"*), routes every write through one `commit()`, and serializes. Both
 planes are already unified on it: React holds one `ProjectionState`, and every authored edit —
 plan scalar, goal, budget line, or a job on either plane — is a `Projection` method call inside

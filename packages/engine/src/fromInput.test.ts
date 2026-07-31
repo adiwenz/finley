@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Projection } from "./projectionRoot";
+import { Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
 import { PRIMARY_PERSON_ID, goalFundAccountId } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";

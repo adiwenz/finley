@@ -1,7 +1,7 @@
 /**
  * The `Projection` root — the npm API surface: standing edits and ledger transactions on one
  * object, deterministic minted ids, immutable state swaps with no undo stack, and
- * `run(jurisdiction)` leaving the plan untouched. Barrel/purity is covered elsewhere.
+ * `run(jurisdiction)` leaving the plan untouched. Surface/purity is covered elsewhere.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -9,7 +9,7 @@ import {
   type ProjectionState,
   CURRENT_FORMAT_VERSION,
   UnsupportedVersionError,
-} from "./projectionRoot";
+} from "./index";
 import { validateLedger } from "./ledger/validateLedger";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";

@@ -10,19 +10,9 @@
 
 import type { Jurisdiction } from "../jurisdiction";
 import type { ProjectionState } from "./state";
+import { CURRENT_FORMAT_VERSION } from "./state";
 import { withNormalizedCounters } from "./mint";
 import { assertReplayable } from "./eventWrite";
-
-/**
- * The format version this build writes, and — until a migration exists — the sole one it reads.
- * Bump when the serialized shape changes incompatibly.
- *
- * A *range* of accepted versions would be a promise this build cannot keep: reading a v1 file
- * under v2 rules means transforming it, and no transforms exist. So the check is exact equality,
- * and it stays exact until the first real migration lands — at which point the gate becomes
- * "migrate an older supported version up to current, or reject", not "widen the range".
- */
-export const CURRENT_FORMAT_VERSION = 1;
 
 /**
  * The version-rejection bucket, distinct from the generic invalid-plan `Error` a shape/replay

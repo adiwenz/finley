@@ -16,7 +16,7 @@ import type { Job } from "../job";
 import type { BudgetLine } from "../budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import { emptyLedger } from "../ledger/ledger";
-import { CURRENT_FORMAT_VERSION, type ProjectionState } from "../projectionRoot";
+import { CURRENT_FORMAT_VERSION, type ProjectionState } from "../index";
 import { dollarsToCents } from "../cashFlowSeries";
 import { RETIREMENT_ID } from "../ids";
 

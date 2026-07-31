@@ -10,8 +10,9 @@
 
 import type { Plan } from "../plan";
 import type { Scenario } from "../scenario";
-import { withLedger, withPlan } from "../scenario";
+import { scenarioOf, withLedger, withPlan } from "../scenario";
 import type { Ledger } from "../ledger/ledger";
+import type { ScenarioScalars } from "../scenarioInput";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {
@@ -30,6 +31,37 @@ export interface ProjectionState {
    * cannot read is not worth replaying.
    */
   readonly version: number;
+}
+
+/**
+ * The format version this build writes, and — until a migration exists — the sole one it reads.
+ * Bump when the serialized shape changes incompatibly.
+ *
+ * Declared beside {@link ProjectionState} because it describes that shape: a state stamps it on
+ * the way out, and `./restore` refuses anything else on the way in. A *range* of accepted
+ * versions would be a promise this build cannot keep — reading a v1 file under v2 rules means
+ * transforming it, and no transforms exist — so the gate there is exact equality, and it stays
+ * exact until the first real migration lands.
+ */
+export const CURRENT_FORMAT_VERSION = 1;
+
+/**
+ * The one state that provably holds no id at all: the plan's scalars, three empty collections and
+ * an empty ledger. Everything else about a scenario is added afterwards, through the authoring
+ * methods that mint as they go.
+ *
+ * The counter opens at 1 with nothing to floor past, and the version is stamped current because
+ * THIS build authored it — so restoring straight back over it passes both gates trivially, which
+ * is exactly what `Projection.init` does rather than keeping a second, unchecked door open.
+ */
+export function emptyState(scalars: ScenarioScalars): ProjectionState {
+  const { startYear, ...plan } = scalars;
+  return {
+    scenario: scenarioOf({ ...plan, jobs: [], goals: [], budgetLines: [] }),
+    startYear,
+    nextSeq: 1,
+    version: CURRENT_FORMAT_VERSION,
+  };
 }
 
 /**

@@ -205,7 +205,7 @@ describe("goalDisposal — disposition/date pairing", () => {
 });
 
 // Every goal edit — add, patch, reorder, remove — now lives on `Projection` and is covered in
-// the engine's `projectionRoot.test`. What stays here is what the panel itself still answers:
+// the engine's `projectionFacade.test`. What stays here is what the panel itself still answers:
 // how a goal reads (`goalRows`, `dispositionLabel`), and which events refuse its deletion.
 
 

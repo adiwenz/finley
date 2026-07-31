@@ -162,6 +162,20 @@ export function seqFloor(scenario: Scenario, current: number): number {
 }
 
 /**
+ * `state` with the id counter alone raised to the floor its contents force — the shape a handle
+ * adopts every derived state through.
+ *
+ * Just `nextSeq`, because a state reached by a write has a ledger counter the ledger itself
+ * advanced; only one arriving from outside has an untrustworthy one, and that is
+ * {@link withNormalizedCounters}. Flooring on adoption rather than inside each write is what
+ * makes it structural: a new authoring path cannot be added that forgets to. Since the floor
+ * never decreases, doing it every time costs nothing but a walk.
+ */
+export function withFlooredIdCounter(state: ProjectionState): ProjectionState {
+  return { ...state, nextSeq: seqFloor(state.scenario, state.nextSeq) };
+}
+
+/**
  * `state` with BOTH counters raised to the floor its own contents force — the entry point for
  * every state that arrives from outside rather than being built up by writes.
  *
@@ -174,10 +188,10 @@ export function seqFloor(scenario: Scenario, current: number): number {
  * returns the same numbers.
  */
 export function withNormalizedCounters(state: ProjectionState): ProjectionState {
-  const nextSeq = seqFloor(state.scenario, state.nextSeq);
+  const floored = withFlooredIdCounter(state);
   return withStateLedger(
-    state,
-    { ...state.scenario.ledger, nextSequenceNumber: nextSeq },
-    nextSeq,
+    floored,
+    { ...floored.scenario.ledger, nextSequenceNumber: floored.nextSeq },
+    floored.nextSeq,
   );
 }

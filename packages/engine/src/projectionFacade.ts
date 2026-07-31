@@ -1,12 +1,20 @@
 /**
- * The `Projection` facade — the whole public API of `@finley/engine`.
+ * The `Projection` facade — the stateful door onto `@finley/engine`.
  *
- * It owns four things and delegates everything else: the one mutable `current` state, the
- * construction doors, the transaction/validation coordination, and the two derived-output
- * queries. Each authoring method is a thin delegator over a plain state function in
- * `./authoring/*`, which is where the domain rules actually live — so which plane a job is
- * stored on, what blocks a goal's removal, and how a revision rebuilds an event are facts the
- * facade never has to know.
+ * It owns exactly one thing: the mutable `current` state, and the discipline of only ever
+ * replacing it with a state derived by a plain function. Everything a method actually *does*
+ * lives elsewhere — the authoring rules in `./authoring/*`, the simulation pass in
+ * `./projectionRun`, the retirement search in `./retirementOutlook` — so which plane a job is
+ * stored on, what blocks a goal's removal, how a revision rebuilds an event and how a run is
+ * assembled are all facts this class never has to know. What is left here is the shape of the
+ * API: what a caller may ask, in what vocabulary, and against what state.
+ *
+ * The methods stay because a facade is the point — a caller holds one object, not a toolkit of
+ * state functions it has to sequence correctly. The bodies are one line each because that is the
+ * only way the facade stays a *surface* rather than becoming the implementation again.
+ *
+ * `index.ts` republishes this class and the types its methods name; it is the package's export
+ * map, and nothing here is reachable except through it.
  *
  * Standing edits (`addJob`) route to a {@link Plan}, ledger transactions (`buyHome`) to the
  * {@link Ledger}. Each write derives a new {@link ProjectionState}, so state already handed out
@@ -62,44 +70,28 @@
 import type { Plan, PlanPatch, GoalPatch } from "./plan";
 import type { JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
 import type { BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
-import { scenarioOf } from "./scenario";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
-import type { Person } from "./person";
-import type { ProjectionSeries } from "./projection/simulate";
-import { fundingLookup } from "./ledger/addEvent";
 import type { FundingLookup } from "./ledger/addEvent";
-import {
-  evaluateFullRetirementAtAge,
-  projectScenarioParts,
-  solveRetirement,
-} from "./retirementSolver";
-import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
-import { summarizeSimulation } from "./projection/report";
-import type { SimulationReport } from "./projection/report";
-import type { Household } from "./ledger/household";
-import {
-  buildPlanAccounts,
-  buildPlanGoals,
-  firstInsolventMonth,
-  planAccountDescriptors,
-} from "./projectionBase";
+import { planAccountDescriptors } from "./projectionBase";
+import type { PlanAccountDescriptor } from "./projectionBase";
 import type { ScenarioInput, ScenarioScalars, FromInputResult } from "./scenarioInput";
-import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
-import { buildSnapshot, membersAt } from "./projection/snapshot";
-import type { HouseholdSnapshot } from "./projection/snapshot";
-import { computeGoalProgress } from "./goal";
-import type { GoalProgress, SimGoal } from "./goal";
-import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
-import type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 import type { Cents } from "./money";
 // Type-only: with the validation jurisdiction required, this module no longer names a fallback.
 import type { Jurisdiction } from "./jurisdiction";
 
+// The two derived-output queries, each a plain function of state declared beside the artifact it
+// answers with — so neither the simulation pipeline nor the retirement search is named here.
+import { runProjection } from "./projectionRun";
+import type { ProjectionResult } from "./projectionRun";
+import { buildRetirementOutlook } from "./retirementOutlook";
+import type { RetirementOutlook } from "./retirementOutlook";
+
 import type { ProjectionState, Written } from "./authoring/state";
-import { seqFloor } from "./authoring/mint";
-import { CURRENT_FORMAT_VERSION, restoreState } from "./authoring/restore";
-import { projectionBaseFor } from "./authoring/eventWrite";
+import { emptyState } from "./authoring/state";
+import { withFlooredIdCounter } from "./authoring/mint";
+import { restoreState } from "./authoring/restore";
+import { projectionFunding } from "./authoring/eventWrite";
 import { updateProjectionPlan } from "./authoring/planScalars";
 import type { JobInput } from "./authoring/jobs";
 import {
@@ -142,70 +134,13 @@ import {
 } from "./authoring/goals";
 import type { HaveChildInput, MarryInput, SeparateInput } from "./authoring/relationships";
 import { applyChild, applyMarriage, applySeparation } from "./authoring/relationships";
-import type {
-  BuyHomeInput,
-  HomePurchaseAssessment,
-  HomePurchaseInput,
-} from "./authoring/housing";
-import { applyHomePurchase, assessHomePurchase } from "./authoring/housing";
+import type { BuyHomeInput } from "./authoring/housing";
+import { applyHomePurchase } from "./authoring/housing";
 import type { PayOffDebtInput, TakeLoanInput } from "./authoring/liabilities";
 import { applyDebtPayoff, applyLoan } from "./authoring/liabilities";
 import type { TransactionRevision } from "./authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "./authoring/revise";
 import { interpretScenarioInput } from "./authoring/fromInput";
-
-/**
- * One pipeline pass under a specific jurisdiction, frozen. Carries every artifact the pass
- * produces so a caller answers the graph, the snapshot roster, and the debug report from a
- * SINGLE simulation — the {@link household} the snapshot reads and the {@link report} the
- * debug panel shows are derived from the very {@link series} the chart draws, never a re-run.
- */
-export interface ProjectionResult {
-  readonly jurisdictionId: string;
-  readonly series: ProjectionSeries;
-  /** First month the shortfall cascade exhausted all credit, or `null` if solvent throughout. */
-  readonly firstInsolventMonth: number | null;
-  /** The interpreted roster the snapshot panel and owner picker read. */
-  readonly household: Household;
-  /** The debug panel / download view of this run — summarized off {@link series}, not a second pass. */
-  readonly report: SimulationReport;
-
-  // Reads over this pass. Methods rather than more fields, because each is a question a
-  // caller asks about ONE month or ONE goal — computing all of them eagerly would price
-  // every run at the cost of every panel. They close over the artifacts above, so no
-  // caller has to hold `household` and `series` side by side to ask.
-
-  /** Household cross-section at `month` — who is present, what is owned, what is owed. */
-  readonly snapshot: (month: number) => HouseholdSnapshot;
-  /** Who is in the household at `month`; a partner joins and leaves on their own dates. */
-  readonly membersAt: (month: number) => Person[];
-  /**
-   * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
-   * Paired, because a row needs both and the two lists are index-aligned only by construction.
-   */
-  readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
-  /** The soft debt-to-income read on a purchase that has not been authored yet. */
-  readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
-}
-
-/** What {@link Projection.retirement} answers: the whole retirement question, in one value. */
-export interface RetirementOutlook {
-  /** The earliest ages the search reached, partial and full; `null` where the money runs out. */
-  readonly solution: RetirementSolution;
-  /**
-   * {@link solution}'s full-retirement age as months from "now", or `null` with the age — what
-   * a chart draws its retirement reference line at.
-   */
-  readonly fullRetirementMonth: number | null;
-  /**
-   * The plan's own `retirementAge`, evaluated as a full retirement. `nearestFeasibleAge` is
-   * resolved here: the pinned age when it survives, else the earliest age the same search
-   * found.
-   */
-  readonly target: RetirementEvaluation;
-  /** Whether retiring on this plan opens a pre-coverage health gap, and how large. */
-  readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
-}
 
 export class Projection {
   /** The only mutable field; writes swap in a fresh state rather than mutating it. */
@@ -270,12 +205,9 @@ export class Projection {
    * `current` exactly as it was, even for a multi-step write like {@link reassignJob} that
    * touches both planes.
    *
-   * The re-floor stays even though no authoring path can hand it an unminted id: it is the
-   * centralized write path, so flooring HERE rather than in each function means a path cannot be
-   * added that forgets to. And it is the safeguard behind restored state, whose adopted counters
-   * may be stale — every write from such a handle onward is re-floored against what the scenario
-   * actually holds rather than against what the state claimed. Since the floor never decreases,
-   * doing it on every write costs nothing but a walk.
+   * Adoption goes through {@link withFlooredIdCounter}, which is the safeguard behind restored
+   * state: its counters may be stale, so every write from such a handle onward is re-floored
+   * against what the scenario actually holds rather than against what the state claimed.
    */
   private write(derive: (state: ProjectionState) => ProjectionState): void;
   private write<R>(derive: (state: ProjectionState) => Written<R>): R;
@@ -285,8 +217,7 @@ export class Projection {
     const derived = derive(this.current);
     // `ProjectionState` has no `state` field, so the discriminator cannot collide with one.
     const answered = "state" in derived;
-    const next = answered ? derived.state : derived;
-    this.current = { ...next, nextSeq: seqFloor(next.scenario, next.nextSeq) };
+    this.current = withFlooredIdCounter(answered ? derived.state : derived);
     return answered ? derived.result : undefined;
   }
 
@@ -554,45 +485,12 @@ export class Projection {
   // Run
 
   /**
-   * Read-only — never swaps the current state. Delegates to {@link projectScenarioParts}, the
-   * pipeline the chart and solver panel already share, and summarizes the report off the same
-   * series so the debug view reuses the run the chart drew rather than simulating twice.
-   *
-   * `meta` echoes the whole authored plan plus the run's jurisdiction id, so knobs the sim
-   * input compiles away — life expectancy, retirement age, health lines — survive into the
-   * report and its download.
+   * Project the current state under `jurisdiction` — read-only, and never swaps `current`. The
+   * pass itself is `./projectionRun`; `jurisdiction` is taken per call rather than read off the
+   * handle, so one authored plan re-projects under any rule set.
    */
   run(jurisdiction: Jurisdiction): ProjectionResult {
-    const s = this.state;
-    const { household, simInput, series } = projectScenarioParts(s.scenario, {
-      jurisdiction,
-      startYear: s.startYear,
-    });
-    const report = summarizeSimulation(
-      simInput,
-      series,
-      { plan: s.scenario.plan, jurisdictionId: jurisdiction.id },
-      jurisdiction,
-    );
-    const plan = s.scenario.plan;
-    return Object.freeze({
-      jurisdictionId: jurisdiction.id,
-      series,
-      firstInsolventMonth: firstInsolventMonth(series),
-      household,
-      report,
-      snapshot: (month: number) => buildSnapshot(household, month, series),
-      membersAt: (month: number) => membersAt(household, month),
-      goalProgress: () => {
-        const accounts = buildPlanAccounts(plan);
-        return buildPlanGoals(plan).map((goal) => ({
-          goal,
-          progress: computeGoalProgress(goal, series, accounts),
-        }));
-      },
-      assessHomePurchase: (input: HomePurchaseInput) =>
-        assessHomePurchase(household, series, input),
-    });
+    return runProjection(this.current, jurisdiction);
   }
 
   /**
@@ -604,75 +502,14 @@ export class Projection {
   }
 
   /**
-   * The context the retirement searches run in. Their own question, not {@link run}'s: each
-   * re-simulates the scenario at a *candidate* retirement age, so none of them can be answered
-   * off a completed pass — which is why {@link retirement} is a separate call and `run` never
-   * pays for one it was not asked for.
-   */
-  private projectionContext(jurisdiction: Jurisdiction): ProjectionContext {
-    return { jurisdiction, startYear: this.state.startYear };
-  }
-
-  /**
-   * The pre-coverage health gap: retiring before the jurisdiction's public-coverage age with an
-   * authored health line under the self-funded benchmark. Priced in **today's dollars** — at
-   * the plan's own start year rather than indexed out to the retirement year — because the
-   * authored line it is compared against is today's-dollars too, and pitting a nominal cost
-   * against a real budget would flag every plan. Never fires at or after the coverage age.
+   * "When can this household retire, and does the age it picked work?" — one cohesive query,
+   * built in `./retirementOutlook`.
    *
-   * A jurisdiction naming no coverage age has no gap window at all, so the flag stays quiet
-   * rather than treating "unknown" as "never covered".
-   */
-  private earlyRetireeHealth(jurisdiction: Jurisdiction): EarlyRetireeHealthFlag {
-    const plan = this.plan;
-    return assessEarlyRetireeHealthCost({
-      retirementAge: plan.retirementAge,
-      publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
-      authoredHealthMonthlyCents: plan.healthMonthlyCents,
-      selfFundedBenchmarkMonthlyCents:
-        jurisdiction.healthCostBenchmarkMonthlyCents?.({
-          age: plan.retirementAge,
-          year: this.state.startYear,
-        }) ?? 0,
-    });
-  }
-
-  /**
-   * One cohesive public query over one scenario and one context: "when can this household
-   * retire, and does the age it picked work?" Internally it performs both the search for the
-   * earliest feasible ages and the evaluation at the plan's target age; neither is a separate
-   * call a caller can make, because neither is a separate answer.
-   *
-   * Cohesive because the parts are not independent. The target's fallback when the pinned age
-   * fails is an age the SAME search found, so a caller assembling the pieces itself would have
-   * to re-derive that rule — which is how a panel and a chart come to disagree about a
-   * household that cannot retire at all.
-   *
-   * Separate from {@link run} on purpose. `run` is one simulation; this is a *search* over
-   * many, each at a candidate age — so a caller that only wants the graph never pays for it.
+   * Separate from {@link run} on purpose. `run` is one simulation; this is a *search* over many,
+   * each at a candidate age — so a caller that only wants the graph never pays for it.
    */
   retirement(jurisdiction: Jurisdiction): RetirementOutlook {
-    const ctx = this.projectionContext(jurisdiction);
-    const plan = this.plan;
-    const solution = solveRetirement(this.state.scenario, ctx);
-    const evaluation = evaluateFullRetirementAtAge(this.state.scenario, plan.retirementAge, ctx);
-    return Object.freeze({
-      solution,
-      // The headline is the FULL retirement age: everyone stops all their jobs.
-      fullRetirementMonth:
-        solution.fullRetirementAge === null
-          ? null
-          : Math.max(0, (solution.fullRetirementAge - plan.currentAge) * 12),
-      target: {
-        ...evaluation,
-        // One rule for the pin and its fallback: an age the plan cannot reach falls back to the
-        // earliest age the same search found, so the two can never name different households.
-        nearestFeasibleAge: evaluation.feasible
-          ? evaluation.retirementAge
-          : solution.fullRetirementAge,
-      },
-      earlyRetireeHealth: this.earlyRetireeHealth(jurisdiction),
-    });
+    return buildRetirementOutlook(this.current, jurisdiction);
   }
 
   // Reads over authored state. Each delegates to the module that owns the thing being read, so
@@ -736,11 +573,7 @@ export class Projection {
    * stories. Read-only, like {@link run}.
    */
   funding(): FundingLookup {
-    return fundingLookup(
-      this.state.scenario.ledger,
-      projectionBaseFor(this.state, this.validationJurisdiction),
-      this.validationJurisdiction,
-    );
+    return projectionFunding(this.current, this.validationJurisdiction);
   }
 
   // State round-trip
@@ -804,20 +637,10 @@ export class Projection {
    * a scalar itself is revisable through {@link updatePlan}.
    */
   static init(scalars: ScenarioScalars, jurisdiction: Jurisdiction): Projection {
-    const { startYear, ...plan } = scalars;
-    // The counter opens at 1 and the normalization has nothing to floor past: an empty projection
-    // is the one state that provably holds no id at all.
-    return Projection.fromState(
-      {
-        scenario: scenarioOf({ ...plan, jobs: [], goals: [], budgetLines: [] }),
-        startYear,
-        nextSeq: 1,
-        // Authored by THIS build, so it is stamped current — `fromState`'s version gate then
-        // passes trivially, and an empty ledger makes its replay check trivial too.
-        version: CURRENT_FORMAT_VERSION,
-      },
-      jurisdiction,
-    );
+    // Through `fromState` rather than straight into the constructor: an empty state passes the
+    // version and replay gates trivially, so routing it through them costs nothing and leaves
+    // ONE door that adopts a state — no second, unchecked path to keep in step with the first.
+    return Projection.fromState(emptyState(scalars), jurisdiction);
   }
 
   /**

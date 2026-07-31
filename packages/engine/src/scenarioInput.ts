@@ -21,7 +21,7 @@
  * ref, and reads the minted id back off the built `Plan`/`Ledger`.
  *
  * This is an AUTHORING api, not an import one. Restoring persisted state — ids already issued,
- * counter already advanced — is {@link import("./projectionRoot").Projection.fromState}'s job
+ * counter already advanced — is {@link import("./projectionFacade").Projection.fromState}'s job
  * (fed by `toJSON`); it takes a whole `ProjectionState` and floors the counter past everything it
  * holds. Reach for that when the ids matter, and for this when the scenario is being described
  * for the first time.
@@ -134,7 +134,7 @@ export type PartnerJobEntry = Omit<JobEntry, "ownerRef"> & {
   readonly ownerRef?: never;
 };
 
-/** The incoming partner and their ref-authored jobs — see {@link import("./projectionRoot").MarryInput}. */
+/** The incoming partner and their ref-authored jobs — see {@link import("./authoring/relationships").MarryInput}. */
 export interface MarryEntry extends EventEntryCommon {
   readonly type: "marry";
   readonly name: string;
@@ -144,7 +144,7 @@ export interface MarryEntry extends EventEntryCommon {
   readonly jobs?: readonly PartnerJobEntry[];
 }
 
-/** A child joining the household — see {@link import("./projectionRoot").HaveChildInput}. */
+/** A child joining the household — see {@link import("./authoring/relationships").HaveChildInput}. */
 export interface HaveChildEntry extends EventEntryCommon {
   readonly type: "haveChild";
   readonly name: string;
@@ -167,7 +167,7 @@ export type TakeLoanEntry = EventEntryCommon & {
     | { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly termMonths: number }
   );
 
-/** A home purchase — see {@link import("./projectionRoot").BuyHomeInput}. */
+/** A home purchase — see {@link import("./authoring/housing").BuyHomeInput}. */
 export interface BuyHomeEntry extends EventEntryCommon {
   readonly type: "buyHome";
   readonly ownerRef: Ref;
@@ -181,7 +181,7 @@ export interface BuyHomeEntry extends EventEntryCommon {
 }
 
 /**
- * A partner leaving — see {@link import("./projectionRoot").SeparateInput}. Mints only an
+ * A partner leaving — see {@link import("./authoring/relationships").SeparateInput}. Mints only an
  * event id and creates no entity, so its `ref` matters only if something later addresses the
  * event itself.
  */
@@ -194,7 +194,7 @@ export interface SeparateEntry extends EventEntryCommon {
 }
 
 /**
- * A lump-sum paydown — see {@link import("./projectionRoot").PayOffDebtInput}. Like
+ * A lump-sum paydown — see {@link import("./authoring/liabilities").PayOffDebtInput}. Like
  * {@link SeparateEntry} it creates no entity, only an event.
  */
 export interface PayOffDebtEntry extends EventEntryCommon {
@@ -219,7 +219,7 @@ export type EventEntry =
 
 /**
  * Exhaustiveness guard over {@link EventEntry}'s discriminant, the same contract
- * {@link import("./projectionRoot").Projection} gives {@link import("./ledger/eventTypes").LifeEvent}:
+ * {@link import("./projectionFacade").Projection} gives {@link import("./ledger/eventTypes").LifeEvent}:
  * the switch names every event kind and the `never` default makes a seventh a COMPILE error
  * here, so the union cannot grow a variant without this being updated. Returns the discriminant
  * unchanged; callers needing only the closure guarantee ignore the result.
@@ -262,7 +262,7 @@ export interface ScenarioInput extends PlanScalars {
  * These are the fields that have no sensible engine-wide default: a retirement age, a life
  * expectancy, an inflation rate and a set of return assumptions are product decisions, and an
  * engine that guessed them would quietly answer a question nobody asked. So they are required,
- * and {@link import("./projectionRoot").Projection.init} takes exactly them — everything else
+ * and {@link import("./projectionFacade").Projection.init} takes exactly them — everything else
  * about a scenario can be added afterwards.
  */
 export type ScenarioScalars = Omit<

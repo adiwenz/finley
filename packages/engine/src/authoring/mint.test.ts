@@ -1,7 +1,7 @@
 /**
  * The counter floor's two stated properties, asserted directly rather than through a reload.
  *
- * `projectionRoot.test.ts` proves restoration does not reissue a live id — the behaviour that
+ * `projectionFacade.test.ts` proves restoration does not reissue a live id — the behaviour that
  * matters. What is only stated in prose there, and is cheap to pin here now that the counter is
  * its own module, is WHY that holds: the floor never decreases, and it is idempotent, so no
  * number of round trips can walk a counter backwards onto an id already handed out.

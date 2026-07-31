@@ -2,7 +2,7 @@
  * The job module tested as what it is: plain functions of {@link ProjectionState}, with no
  * handle in sight.
  *
- * `projectionRoot.test.ts` already covers job authoring through `Projection`, and that stays the
+ * `projectionFacade.test.ts` already covers job authoring through `Projection`, and that stays the
  * behavioural contract. What is asserted HERE is what only the extracted shape can state — that
  * the two-plane knowledge lives in this module, that each write is a pure derivation leaving its
  * input untouched, and that a refusal therefore derives nothing rather than half-writing.

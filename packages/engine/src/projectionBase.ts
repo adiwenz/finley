@@ -38,7 +38,7 @@ export const PRIMARY_PERSON_ID = "p1";
 export const SAVINGS_ID = "savings";
 // RETIREMENT_ID — the account this module mints for a job's 401(k) deferral to fund — lives
 // in `ids` so `job` can name the same default without importing this module (which would
-// cycle back through `compilePerson`). Imported above; not re-exported, so the barrel has
+// cycle back through `compilePerson`). Imported above; not re-exported, so the export map has
 // exactly one source for it.
 export const BROKERAGE_ID = "brokerage";
 

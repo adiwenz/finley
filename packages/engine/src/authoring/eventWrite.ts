@@ -15,7 +15,8 @@
 import type { Jurisdiction } from "../jurisdiction";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { NewLifeEvent } from "../ledger/eventTypes";
-import { addEvent } from "../ledger/addEvent";
+import { addEvent, fundingLookup } from "../ledger/addEvent";
+import type { FundingLookup } from "../ledger/addEvent";
 import { removeEvent } from "../ledger/removeEvent";
 import { updateEvent } from "../ledger/updateEvent";
 import { validateLedger } from "../ledger/validateLedger";
@@ -60,6 +61,27 @@ export function assertReplayable(state: ProjectionState, jurisdiction: Jurisdict
     const { id, type } = result.event;
     throw new Error(`Projection: cannot load — event "${id}" (${type}) fails — ${result.reason}`);
   }
+}
+
+/**
+ * The funding question against the ledger so far — which liquid accounts could pay a money-out
+ * event at a month, and what a chosen set nets after tax.
+ *
+ * A read, but it belongs beside the writes: it must be built from the SAME
+ * {@link projectionBaseFor} context and validation jurisdiction the affordability gate decides
+ * on, or an authoring picker and the down-payment gate would tell the user different stories
+ * about the same accounts. Sharing the context is what makes that impossible rather than merely
+ * unlikely.
+ */
+export function projectionFunding(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+): FundingLookup {
+  return fundingLookup(
+    state.scenario.ledger,
+    projectionBaseFor(state, jurisdiction),
+    jurisdiction,
+  );
 }
 
 /**
