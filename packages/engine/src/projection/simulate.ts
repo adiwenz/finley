@@ -1,13 +1,11 @@
-import type { Cents } from "../money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
-import { buildSpendingItems } from "./spendingItems";
+import { buildObligations, automaticFundingTotal } from "./financialObligation";
 import type {
   HouseholdSimInput,
-  SimOwnedSeries,
   ProjectionMonth,
   ProjectionSeries,
 } from "./simulate.types";
@@ -45,12 +43,6 @@ export type {
 } from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
-
-function sumMonthlySeries(series: readonly SimOwnedSeries[], month: number): Cents {
-  let total = 0;
-  for (const s of series) total += s.series.getMonthlyCents(month);
-  return total;
-}
 
 /**
  * Household simulator. Fixed pipeline per month, each step a named helper:
@@ -121,9 +113,20 @@ export function simulateHousehold(
       ...buildRmdSources(state, jurisdiction, month, startYear),
     ];
 
-    const expenseCents = sumMonthlySeries(input.expenseSeries, month);
     const payments = computeLiabilityPayments(state, month);
-    const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
+
+    // The month's obligation list, built BEFORE decumulation sizes its gap: every downstream
+    // "what must this month fund?" total now derives from this one list rather than being
+    // recomputed in parallel, so the funded amount and the reported list cannot disagree.
+    // Constructing here is safe against the later liability step: `advanceLiabilities` mutates
+    // balances only, never the roster, and `payments` is already fixed — so the list is
+    // identical wherever in the month it is built.
+    const obligations = buildObligations(input.expenseSeries, month, state.liabilities, payments);
+    // What the shared waterfall must cover: the automatically-funded slice of the obligation
+    // list. Sized off the list — not a parallel scalar — so explicit funding (Slice #4)
+    // subtracts cleanly; in this slice every obligation is automatic, so it equals the month's
+    // whole expense-plus-debt bill.
+    const automaticFundingCents = automaticFundingTotal(obligations);
 
     // Decumulation: when non-withdrawal income can't cover the month's obligations,
     // liquidate investment accounts BEFORE the waterfall — same seam as RMD/benefit — so
@@ -133,7 +136,7 @@ export function simulateHousehold(
       state,
       jurisdiction,
       nonWithdrawalSources,
-      expenseCents + totalPaymentsCents,
+      automaticFundingCents,
       ctx,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
@@ -156,7 +159,7 @@ export function simulateHousehold(
         allocationSources,
         ctx,
         jurisdiction,
-        expenseCents + totalPaymentsCents,
+        automaticFundingCents,
         month,
       );
     // Nothing — savings or credit — could absorb this: the terminal flag.
@@ -171,15 +174,14 @@ export function simulateHousehold(
     advanceLiabilities(state, month, payments);
     advanceProperties(state, month);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
-    const spendingItems = buildSpendingItems(input.expenseSeries, month, state.liabilities, payments);
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
       [...incomeSources, ...fundingDraw.gainSources],
       taxCents,
-      expenseCents,
-      totalPaymentsCents,
-      spendingItems,
+      // The very list the waterfall funded above, re-shaped into the flow record — expenses,
+      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
+      obligations,
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
       // month spent from savings isn't a zero band.

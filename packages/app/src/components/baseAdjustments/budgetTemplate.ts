@@ -54,22 +54,41 @@ export function defaultBudgetTemplate(): BudgetLineInput[] {
     expenseLine("Housing", "needs", dollarsToCents(1_600)),
     expenseLine("Groceries", "needs", dollarsToCents(700)),
     expenseLine("Transportation", "needs", dollarsToCents(450)),
+    // Health seeds the budget rather than the plan: this is the figure that used to be
+    // `Plan.healthMonthlyCents`, carried over unchanged so a fresh plan spends what it always
+    // did. Realistic pre-65 self-funded cover, still under the ~$1,200 benchmark, so pulling
+    // the retirement age below 65 fires the early-retiree nudge exactly as before.
+    expenseLine("Healthcare", "healthcare", dollarsToCents(700)),
     expenseLine("Dining & fun", "wants", dollarsToCents(550)),
     expenseLine("Subscriptions", "wants", dollarsToCents(200)),
   ];
 }
 
 /**
- * The default household's total monthly spend. Retuning the template's lines without retuning
- * this moves the app's headline retirement age silently, so a test pins the two together.
+ * The default household's total monthly spend, health included — it is a budget line like any
+ * other now, so it counts here where it used to sit outside as a plan field. Retuning the
+ * template's lines without retuning this moves the app's headline retirement age silently, so a
+ * test pins the two together.
  */
-export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(3_500);
+export const DEFAULT_TEMPLATE_TOTAL_CENTS = dollarsToCents(4_200);
 
 /** The first post-tax contribution target (brokerage). */
 const DEFAULT_CONTRIBUTION_ACCOUNT = CONTRIBUTION_TARGETS[0];
 
-const TIER_FRACTION: Record<BudgetCategory, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
-const TIERS: readonly BudgetCategory[] = ["needs", "wants", "savings"];
+/**
+ * The tiers the 50/30/20 template rebalances. `healthcare` is deliberately not one: a premium
+ * is not a share of take-home the household chooses, so the template leaves a health line
+ * exactly as authored rather than scaling it into the needs bucket — or seeding one when the
+ * budget has none, which would invent a cost the user never stated.
+ */
+type TemplateTier = "needs" | "wants" | "savings";
+
+function isTemplateTier(category: BudgetCategory): category is TemplateTier {
+  return category !== "healthcare";
+}
+
+const TIER_FRACTION: Record<TemplateTier, number> = { needs: 0.5, wants: 0.3, savings: 0.2 };
+const TIERS: readonly TemplateTier[] = ["needs", "wants", "savings"];
 
 // Seeds are authored ID-free, like every other line. `toBudgetLines` keys them on their label
 // just far enough to run the rebalance math; `tierRebalanceWrites` strips that placeholder back
@@ -119,18 +138,19 @@ export function redistributeToTiers(
   monthlyIncomeCents: number,
   retirementMonth?: number,
 ): BudgetLine[] {
-  const target = (tier: BudgetCategory) => Math.round(monthlyIncomeCents * TIER_FRACTION[tier]);
+  const target = (tier: TemplateTier) => Math.round(monthlyIncomeCents * TIER_FRACTION[tier]);
 
-  const literalTotal: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
-  const literalCount: Record<BudgetCategory, number> = { needs: 0, wants: 0, savings: 0 };
+  const literalTotal: Record<TemplateTier, number> = { needs: 0, wants: 0, savings: 0 };
+  const literalCount: Record<TemplateTier, number> = { needs: 0, wants: 0, savings: 0 };
   for (const l of lines) {
-    if (l.amountSource.kind !== "literal") continue;
+    if (l.amountSource.kind !== "literal" || !isTemplateTier(l.category)) continue;
     literalTotal[l.category] += l.amountSource.monthlyCents;
     literalCount[l.category] += 1;
   }
 
   const scaled = lines.map((l) => {
-    if (l.amountSource.kind !== "literal") return l;
+    // A health line passes through untouched — it is not one of the tiers being rebalanced.
+    if (l.amountSource.kind !== "literal" || !isTemplateTier(l.category)) return l;
     const total = literalTotal[l.category];
     const newCents =
       total > 0

@@ -63,23 +63,6 @@ export interface Plan {
   readonly surplusCashTo?: SurplusCashDestination;
   readonly goals: readonly GoalPlan[];
   /**
-   * Self-funded health expense until public coverage begins (for life when
-   * {@link enrollsInPublicHealthCoverage} is false). ADDITIVE to the budget-line spend, not
-   * a slice of it; grows at {@link healthInflationPct}.
-   */
-  readonly healthMonthlyCents: number;
-  /**
-   * Health expense from the public-coverage age onward, today's dollars. 0 models forgoing
-   * coverage. Used only when {@link enrollsInPublicHealthCoverage}.
-   */
-  readonly postCoverageHealthMonthlyCents: number;
-  readonly enrollsInPublicHealthCoverage: boolean;
-  /**
-   * Whole-number percent. The real-dollars retirement drawdown compounds health net of
-   * {@link inflationPct}.
-   */
-  readonly healthInflationPct: number;
-  /**
    * General inflation (CPI), whole-number percent. Grows income and general expenses in
    * the nominal projection, and de-inflates every nominal figure for the real net-worth
    * line and the retirement drawdown.
@@ -110,9 +93,10 @@ export interface Plan {
    * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
    * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
    * household's general-expense series; contribution lines resolve via
-   * {@link import("./budgetLine").resolveBudget}. An empty array is the deliberate no-general-
-   * spending plan — only the health line and any event-created costs remain — and is
-   * indistinguishable to the engine from a budget of zero-amount lines.
+   * {@link import("./budgetLine").resolveBudget}. An empty array is the deliberate no-spending
+   * plan — only event-created costs remain — and is indistinguishable to the engine from a
+   * budget of zero-amount lines. Health is one of these lines like any other; the plan carries
+   * no standing health figure of its own.
    */
   readonly budgetLines: readonly BudgetLine[];
 }

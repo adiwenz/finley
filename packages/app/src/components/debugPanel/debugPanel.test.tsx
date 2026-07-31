@@ -40,8 +40,7 @@ describe("DebugPanel — resolved growth rates", () => {
     // and rise with CPI.
     expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
     expect(html).toContain("<dt>Groceries</dt><dd>3%</dd>");
-    // Health is a SEPARATE series with its own rate; its amount step at Medicare age must
-    // NOT read as a rate change, since the rate never moves.
+    // Health is one of those lines now, not a plan-level series with a rate of its own.
     expect(html).toContain("<dt>Healthcare</dt><dd>3%</dd>");
   });
 
@@ -51,11 +50,19 @@ describe("DebugPanel — resolved growth rates", () => {
   });
 });
 
-describe("DebugPanel — growth rate that actually changes", () => {
-  it("shows a rate CHANGE as from → to, unlike a mere amount step", () => {
-    // Health inflation differing from CPI gives the expense lines distinct rates.
-    const html = render({ ...PLAN_DEFAULTS, healthInflationPct: 5 });
+describe("DebugPanel — rates that differ between series", () => {
+  it("reports a job's real growth apart from the CPI every expense line inherits", () => {
+    // Nothing in an authored plan varies a rate WITHIN one series any more: health was the
+    // only series compiled with its own rate, and it is an ordinary CPI-grown budget line
+    // now. What still differs is BETWEEN series — a job with real growth outruns CPI — and
+    // that is what the resolved readout must not flatten.
+    const [job] = PLAN_DEFAULTS.jobs;
+    const html = render({
+      ...PLAN_DEFAULTS,
+      jobs: [{ ...job!, salary: { ...job!.salary, realGrowthPct: 2 } }],
+    });
     expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
-    expect(html).toContain("<dt>Healthcare</dt><dd>5%</dd>");
+    expect(html).toContain("<dt>Healthcare</dt><dd>3%</dd>");
+    expect(html).not.toContain("<dt>Income · Alex&#x27;s job</dt><dd>3%</dd>");
   });
 });

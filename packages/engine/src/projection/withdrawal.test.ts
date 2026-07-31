@@ -15,6 +15,7 @@ import {
 } from "../jurisdiction";
 import type { Cents } from "../money";
 import type { SimGoal, GoalDisposal } from "../goal";
+import { AmortizingLoan, SYNTHETIC_CARD_ID } from "../liability";
 import {
   simulateHousehold,
   type HouseholdSimInput,
@@ -142,6 +143,43 @@ describe("Desired-withdrawal decumulation channel", () => {
     // Income > expenses → brokerage untouched, surplus idles in cash.
     expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(100_000));
     expect(series.months[0].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
+  });
+
+  it("sizes decumulation against expenses PLUS debt — a payment income can't cover sells investments", () => {
+    // Income exactly covers the expense, so a waterfall sized against expenses alone would draw
+    // nothing. The loan payment is an automatically-funded obligation too: the shared waterfall
+    // must size against the whole obligation total — expenses and debt together — and liquidate
+    // the brokerage to fund the payment. This pins that the decumulation input derives from the
+    // full obligation list, debt included, rather than from a parallel expenses-only scalar.
+    const income: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(2_000), { type: "fixed" }, {
+        baselineUnit: "monthly",
+      }),
+      ownerId: "p1",
+    };
+    // 0% APR, $12k over 12 months → a flat $1,000 payment, first due at month 1.
+    const loan = new AmortizingLoan({
+      id: "auto",
+      ownerId: "p1",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      baseInput(
+        [account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)],
+        { incomeSeries: [income], expenseSeries: [expense(2_000)], liabilities: [loan] },
+      ),
+      nullJurisdiction,
+    );
+    // Month 0 originates the loan with no payment due, so income covers the expense outright.
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(100_000));
+    // Month 1's $1,000 payment lands beyond income → exactly $1,000 comes out of the brokerage.
+    expect(series.months[1].accountBalancesCents["brokerage"]).toBe(dollarsToCents(99_000));
+    // Funded by liquidation, never by borrowing onto the synthetic shortfall card.
+    expect(series.months[1].liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
+    expect(series.months[1].isInsolvent).toBe(false);
   });
 
   function goal(id: string, disposal: GoalDisposal): SimGoal {

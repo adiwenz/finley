@@ -18,6 +18,7 @@ import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
 import { JobsPanel } from "./components/jobsPanel/jobsPanel";
 import { retirementView } from "./retirementView";
+import { OBLIGATION_SURFACE_ANCHORS } from "./components/baseAdjustments/obligationLink";
 import { useProjection } from "./hooks/useProjection";
 import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
 import { PRESETS, presetById, presetState, type Preset } from "./presets";
@@ -119,13 +120,17 @@ export function App() {
           <div className="card">
             <NetWorthChart series={series} retirementMonth={retirement.headlineMonth} />
 
-            <Timeline
-              markers={markers}
-              scrubMonth={scrubMonth}
-              horizonMonths={horizonMonths}
-              onScrub={setScrubMonth}
-              onRemove={removeEvent}
-            />
+            {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
+                an event-spawned expense or a loan payment (see Base + Adjustments). */}
+            <div id={OBLIGATION_SURFACE_ANCHORS.timeline}>
+              <Timeline
+                markers={markers}
+                scrubMonth={scrubMonth}
+                horizonMonths={horizonMonths}
+                onScrub={setScrubMonth}
+                onRemove={removeEvent}
+              />
+            </div>
 
             {conflict && (
               <div className="alert alert-red">Can’t do that yet: {conflict}</div>

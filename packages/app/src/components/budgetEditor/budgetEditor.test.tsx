@@ -23,8 +23,6 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
       <BudgetEditor budget={budget} transact={transact} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
       <output data-testid="retirement-age">{budget.retirementAge}</output>
-      <output data-testid="health-inflation">{budget.healthInflationPct}</output>
-      <output data-testid="enrolls">{String(budget.enrollsInPublicHealthCoverage)}</output>
       <output data-testid="surplus-to">{budget.surplusCashTo ?? "savings"}</output>
     </>
   );
@@ -76,36 +74,21 @@ describe("BudgetEditor — Social Security claiming age", () => {
   });
 });
 
-describe("BudgetEditor — health cost + its own inflation rate", () => {
-  it("shows the health-inflation control seeded from the plan", () => {
+describe("BudgetEditor — health is not authored here any more", () => {
+  it("offers no health controls at all", () => {
+    // Health is a `healthcare`-category budget line, authored in Base + Adjustments. A control
+    // here would be a second surface writing the same number, which is what this refactor
+    // removed — so the absence is the assertion.
     render(<Harness />);
-    const input = screen.getByLabelText(/Health cost increase/i) as HTMLInputElement;
-    expect(input.value).toBe(String(PLAN_DEFAULTS.healthInflationPct));
+    expect(screen.queryByLabelText(/health/i)).toBeNull();
+    expect(screen.queryByLabelText(/Medicare/i)).toBeNull();
   });
 
-  it("edits flow back into healthInflationPct", () => {
+  it("still offers the general inflation rate health used to sit beside", () => {
+    // Guards against the removal taking its neighbour with it: CPI is a plan lever and stays.
     render(<Harness />);
-    const input = screen.getByLabelText(/Health cost increase/i);
-    fireEvent.change(input, { target: { value: "7" } });
-    expect(screen.getByTestId("health-inflation").textContent).toBe("7");
-  });
-
-  it("shows the pre-65 and from-65 health lines when enrolling in Medicare", () => {
-    render(<Harness />);
-    expect(screen.getByLabelText(/health care \(before 65\)/i)).toBeTruthy();
-    expect(screen.getByLabelText(/health care \(from 65\)/i)).toBeTruthy();
-  });
-
-  it("hides the from-65 residual when self-funding for life", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false }} />);
-    expect(screen.queryByLabelText(/health care \(from 65\)/i)).toBeNull();
-  });
-
-  it("toggles enrolment back into the plan", () => {
-    render(<Harness />);
-    const select = screen.getByLabelText(/Medicare at 65/i);
-    fireEvent.change(select, { target: { value: "self-fund" } });
-    expect(screen.getByTestId("enrolls").textContent).toBe("false");
+    const input = screen.getByLabelText(/General inflation/i) as HTMLInputElement;
+    expect(input.value).toBe(String(PLAN_DEFAULTS.inflationPct));
   });
 });
 

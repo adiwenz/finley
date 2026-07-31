@@ -1,30 +1,31 @@
 /**
  * Monthly spending graph data: one band per thing the household's money goes to.
  *
- * Bands are the engine's {@link SpendingItem}s, read straight off each month's flows, already
- * labelled, categorized and tagged with provenance — no reassembly from the per-line map,
- * household series and liability labels, which is how whole categories of real spending went
+ * Bands are the engine's {@link FinancialObligation}s, read straight off each month's flows,
+ * already labelled, categorized and tagged with provenance — no reassembly from the per-line
+ * map, household series and liability labels, which is how whole categories of real cost went
  * missing from the chart.
  *
  * A month's stack totals exactly the obligation the income graph's spending-need line plots;
- * the simulator never skips spending, so a band is never shortened to ration a tight month.
+ * the simulator never skips an obligation, so a band is never shortened to ration a tight month.
  * Insolvency is its own fact ({@link insolventFromMonth}).
  */
 
-import type { ProjectionSeries, SpendingItem } from "@finley/engine";
+import type { FinancialObligation, ProjectionSeries } from "@finley/engine";
 
 /**
- * A palette-level read of {@link SpendingItem.sourceKind} — money the user authors as lines
- * here, money simply owed, everything else. Not a re-classification of the engine's categories.
+ * A palette-level read of {@link FinancialObligation.sourceKind} — money the user authors as
+ * lines here, money simply owed, everything else. Not a re-classification of the engine's
+ * categories.
  */
 export type BandKind = "line" | "other" | "debt";
 
-function bandKindOf(item: SpendingItem): BandKind {
-  if (item.sourceKind === "budgetLine") return "line";
-  return item.sourceKind === "liability" ? "debt" : "other";
+function bandKindOf(obligation: FinancialObligation): BandKind {
+  if (obligation.sourceKind === "budgetLine") return "line";
+  return obligation.sourceKind === "liability" ? "debt" : "other";
 }
 
-/** A spending item's identity, stable across every month. */
+/** An obligation's identity, stable across every month. */
 export interface ChartBand {
   readonly id: string;
   readonly label: string;
@@ -35,7 +36,14 @@ export interface ChartBand {
 
 export interface PerLineMonthRow {
   readonly month: number;
-  /** Cost per band, keyed by band id; absent for a band inactive that month. */
+  /**
+   * Cost per band, keyed by band id. Dense on purpose: an expense obligation is constructed
+   * even at 0 (a dormant line still exists), and a stacked area needs a value per month —
+   * omitting the key reads as a gap, not a zero, and shifts the baseline of every band above
+   * it. A key IS absent when the month incurs no obligation for it at all, which today means a
+   * liability with no payment due. Either way the band draws no height, and the hover readout
+   * filters both out ({@link import("./perLineBudgetChart").BudgetTooltip}).
+   */
   readonly centsByLine: Readonly<Record<string, number>>;
   readonly totalCents: number;
 }
@@ -44,16 +52,16 @@ export interface PerLineBudgetData {
   readonly rows: readonly PerLineMonthRow[];
   /** First month the cascade exhausted savings AND credit; null when the plan holds throughout. */
   readonly insolventFromMonth: number | null;
-  /** In the order the engine reports them: budget lines as authored, then the rest, then debts. */
+  /** In the order the engine reports them: by funding priority, mandatory debt and support first. */
   readonly lines: readonly ChartBand[];
 }
 
 /**
  * One row per flowed month — every entry in `months` is processed now, so month 0 is the
- * first row — each carrying every item's amount and the engine's own `totalSpendingCents`,
- * not a re-sum.
+ * first row — each carrying every obligation's amount and the engine's own
+ * `totalObligationsCents`, not a re-sum.
  *
- * A band exists only for an item that carries money somewhere in the horizon; otherwise a
+ * A band exists only for an obligation that carries money somewhere in the horizon; otherwise a
  * stream costing nothing throughout drags an empty band and an unexplained tooltip row through
  * forty years.
  */
@@ -71,19 +79,19 @@ export function buildPerLineBudgetData(series: ProjectionSeries): PerLineBudgetD
     if (flows === undefined) continue; // defensive: a flow-free snapshot carries no spending
 
     const centsByLine: Record<string, number> = {};
-    for (const item of flows.spendingItems) {
-      centsByLine[item.id] = item.amountCents;
-      if (item.amountCents > 0) carriesMoney.add(item.id);
-      if (!bands.has(item.id)) {
-        bands.set(item.id, {
-          id: item.id,
-          label: item.label,
-          kind: bandKindOf(item),
-          editable: item.editable,
+    for (const obligation of flows.obligations) {
+      centsByLine[obligation.id] = obligation.amountCents;
+      if (obligation.amountCents > 0) carriesMoney.add(obligation.id);
+      if (!bands.has(obligation.id)) {
+        bands.set(obligation.id, {
+          id: obligation.id,
+          label: obligation.label,
+          kind: bandKindOf(obligation),
+          editable: obligation.editable,
         });
       }
     }
-    rows.push({ month: m.month, centsByLine, totalCents: flows.totalSpendingCents });
+    rows.push({ month: m.month, centsByLine, totalCents: flows.totalObligationsCents });
   }
 
   const lines = [...bands.values()].filter((band) => carriesMoney.has(band.id));

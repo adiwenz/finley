@@ -3,18 +3,23 @@
  * {@link buildFlows}'s result to the month's snapshot as {@link ProjectionMonthFlows};
  * `report.ts` reads it back out.
  *
- * Its own file because, alone among the per-month builders in `simulate.ts`, its output the
- * *simulation never consumes* — so sim (producer) and report (consumer) depend on a neutral
- * module instead of each other.
- *
- * Pure: it buckets the very same resolved figures the waterfall consumed, so the flow view
- * can never drift from the sim.
+ * Its own file because its *output* — the flow record — is something the simulation never reads
+ * back: sim (producer) and report (consumer) depend on a neutral module instead of each other.
+ * Its *input* is a different story since the inversion: the obligation list it buckets is the
+ * very list the waterfall funded earlier this month, passed in here to be reported. So the flow
+ * view is a projection of what the sim already did, and can never drift from it — no figure is
+ * recomputed, only re-shaped.
  */
 
 import type { Cents } from "../money";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
-import { sumSpendingItems, type SpendingItem } from "./spendingItems";
+import {
+  automaticFundingTotal,
+  expenseReportingTotal,
+  orderObligationsByPriority,
+  type FinancialObligation,
+} from "./financialObligation";
 
 export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
@@ -35,9 +40,7 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
   taxCents: Cents,
-  expensesCents: Cents,
-  liabilityPaymentsCents: Cents,
-  spendingItems: readonly SpendingItem[],
+  obligations: readonly FinancialObligation[],
   liquidDrawdownCents: Cents = 0,
   taxByCategoryCents: Readonly<Record<string, Cents>> = {},
   taxBySourceCents: Readonly<Record<string, Cents>> = {},
@@ -109,10 +112,20 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
-  // Budget-line slice of the itemized list in one pass — this runs 660+ times per projection.
+  // Every reported total is a derivation of the one obligation list the waterfall consumed, so
+  // the flow view cannot drift from the funded amount. The two named sums split the list on
+  // orthogonal axes (funding kind vs. treatment); the debt rollup is their difference — the
+  // automatically-funded non-expenses — rather than a fresh reduce over the list. All three
+  // coincide with the pre-inversion scalars while every obligation is `funding: automatic`
+  // (this slice) and diverge once explicit funding arrives (Slice #4).
+  const totalObligationsCents = automaticFundingTotal(obligations);
+  const expensesCents = expenseReportingTotal(obligations);
+  const liabilityPaymentsCents = totalObligationsCents - expensesCents;
+
+  // Budget-line slice of the list in one pass — this runs 660+ times per projection.
   const lineMonthlyCents: Record<string, Cents> = {};
-  for (const item of spendingItems) {
-    if (item.sourceKind === "budgetLine") lineMonthlyCents[item.id] = item.amountCents;
+  for (const o of obligations) {
+    if (o.sourceKind === "budgetLine") lineMonthlyCents[o.id] = o.amountCents;
   }
 
   return {
@@ -127,9 +140,11 @@ export function buildFlows(
     deferralBySourceCents,
     expensesCents,
     liabilityPaymentsCents,
-    // Not a second pass: the map IS the items, filtered, so the two cannot disagree.
+    // Not a second pass: the map IS the list, filtered, so the two cannot disagree.
     lineMonthlyCents,
-    spendingItems,
-    totalSpendingCents: sumSpendingItems(spendingItems),
+    // Ordered for reporting only — chart bands stack by priority, stable on id across months.
+    // The waterfall already consumed this list as an order-invariant sum.
+    obligations: orderObligationsByPriority(obligations),
+    totalObligationsCents,
   };
 }

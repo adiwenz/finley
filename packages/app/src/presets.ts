@@ -87,6 +87,9 @@ const COMFORTABLE_BUDGET = [
   expenseLine("Housing", "needs", 2_500),
   expenseLine("Groceries", "needs", 950),
   expenseLine("Transportation", "needs", 650),
+  // The default's health figure, stated as a line — this preset was tuned against the default
+  // household and keeps its health spend, which is now part of the budget rather than beside it.
+  expenseLine("Healthcare", "healthcare", 700),
   expenseLine("Dining & fun", "wants", 1_000),
   expenseLine("Subscriptions", "wants", 400),
 ];
@@ -101,12 +104,16 @@ function salariedJob(monthlyCents: number): JobEntry {
   };
 }
 
+/** A teaching scenario's health line — trimmed below the default's $700 so no medical line
+ * dominates a budget built to make one gap legible. Health is an ordinary budget line, so each
+ * teaching budget states it the same way it states rent. */
+const TEACHING_HEALTH_LINE = expenseLine("Healthcare", "healthcare", 450);
+
 /**
  * Each teaching scenario is one legible income/expense gap. It inherits the default's scalars
- * (returns, ages, inflation), drops the goals so the gap — not a goal's accumulation — sets the
- * trajectory, and trims health below the default's ~$700 so no medical line dominates. The budget
- * and any overrides are layered on: a scenario states its spend as lines, the only expense
- * surface there is.
+ * (returns, ages, inflation) and drops the goals so the gap — not a goal's accumulation — sets
+ * the trajectory. The budget and any overrides are layered on: a scenario states its spend as
+ * lines, the only expense surface there is, health among them.
  */
 function teachingInput(
   budgetLines: readonly BudgetEntry[],
@@ -115,9 +122,7 @@ function teachingInput(
   return {
     ...DEFAULT_INPUT,
     goals: [],
-    healthMonthlyCents: dollarsToCents(450),
-    postCoverageHealthMonthlyCents: dollarsToCents(350),
-    budgetLines,
+    budgetLines: [...budgetLines, TEACHING_HEALTH_LINE],
     ...over,
   };
 }
@@ -177,8 +182,8 @@ const STUDENT_LOAN = teachingInput(LEAN_BUDGET, {
  * the tax chart annually. The deferral omits its fund-account ref, so it funds the standing
  * 401(k).
  *
- * NOT a {@link teachingInput}: this one keeps the default's two goals and its $700/$500 health
- * figures. The three scenarios above teach an income/expense gap, which a goal's accumulation
+ * NOT a {@link teachingInput}: this one keeps the default's two goals and its $700 health
+ * line. The three scenarios above teach an income/expense gap, which a goal's accumulation
  * would blur; this one teaches what retirement withdrawals are taxed, and it was tuned against
  * the default household — goals and all. `presets.test.ts` pins those values so the distinction
  * cannot be flattened by folding this back into the teaching helper.

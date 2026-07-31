@@ -13,6 +13,7 @@ import { applyEvent } from "./eventHandlers";
 import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
+import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
 import { compilePersonIncomeSeries } from "../compilePerson";
 import { authoringAccounts } from "../planAccount";
 import {
@@ -89,7 +90,7 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
     planDescriptor: os.planDescriptor,
     ...(os.sourceId !== undefined ? { sourceId: os.sourceId } : {}),
     ...(os.lineId !== undefined ? { lineId: os.lineId } : {}),
-    ...(os.spendingSource !== undefined ? { spendingSource: os.spendingSource } : {}),
+    ...(os.obligationSource !== undefined ? { obligationSource: os.obligationSource } : {}),
   };
 }
 
@@ -104,6 +105,13 @@ const ROLE_LABEL: Record<SeriesRole, string> = {
   childSupport: "Child support",
   childCost: "Child cost",
 };
+
+/**
+ * Court-ordered support is legally non-rationable, so it funds in the mandatory tier beside
+ * debt rather than as a discretionary need. Tagged here because the tier cannot be recovered
+ * downstream from the `event` kind alone — a child's cost is the same kind yet only a need.
+ */
+const COURT_ORDERED_ROLES: ReadonlySet<SeriesRole> = new Set(["alimony", "childSupport"]);
 
 function baseSeries(os: SimOwnedSeries, seriesType: "income" | "expense", index: number): HouseholdSeries {
   return ownedSeries(os, asSeriesId(`base-${seriesType}-${index}`), seriesType);
@@ -152,18 +160,21 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
         endMonth: def.endMonth,
         series: materializeSeries(def),
       };
-      // An event's expense reports as ordinary spending, tagged back to the event that
-      // authored it — edited through that event, never as a budget line.
+      // An event's expense becomes an obligation tagged back to the event that authored it —
+      // edited through that event, never as a budget line.
       return def.seriesType === "income"
         ? common
         : {
             ...common,
             label: ROLE_LABEL[def.role],
-            spendingSource: {
+            obligationSource: {
               kind: "event",
               id: def.id,
               category: "other",
               editable: false,
+              ...(COURT_ORDERED_ROLES.has(def.role)
+                ? { priority: OBLIGATION_PRIORITY.mandatory }
+                : {}),
             },
           };
     }),

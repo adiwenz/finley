@@ -11,6 +11,7 @@ import {
   dollarsToCents,
   ref,
   CONTRIBUTION_TARGETS,
+  healthcareMonthlyCents,
   type BudgetLine,
   type Plan,
   type ProjectionSeries,
@@ -52,12 +53,17 @@ const realNetWorthAt = (series: ProjectionSeries, month: number): number | null 
  * The spend each scenario was tuned against, kept here as an independent source of truth so a
  * drift in the budget lines that changes the projection is caught.
  */
+/**
+ * Each preset's authored monthly spend, HEALTH INCLUDED — health is a `healthcare`-category
+ * budget line now, so it counts in the budget it used to sit outside as a plan field. The
+ * teaching scenarios carry a $450 line, the default and taxed-in-retirement a $700 one.
+ */
 const AUTHORED_SPEND: Record<string, number> = {
-  default: dollarsToCents(3500),
-  "paycheck-to-paycheck": dollarsToCents(3600),
-  "living-on-credit": dollarsToCents(3600),
-  "student-loan": dollarsToCents(3000),
-  "taxed-in-retirement": dollarsToCents(5500),
+  default: dollarsToCents(4200),
+  "paycheck-to-paycheck": dollarsToCents(4050),
+  "living-on-credit": dollarsToCents(4050),
+  "student-loan": dollarsToCents(3450),
+  "taxed-in-retirement": dollarsToCents(6200),
 };
 
 /**
@@ -255,13 +261,14 @@ describe("taxed-in-retirement — authored inputs, not just projected shape", ()
     expect(goals.map((g) => g.targetDate)).toEqual(PLAN_DEFAULTS.goals.map((g) => g.targetDate));
   });
 
-  it("keeps the $700/$500 healthcare assumptions", () => {
-    expect(plan().healthMonthlyCents).toBe(dollarsToCents(700));
-    expect(plan().postCoverageHealthMonthlyCents).toBe(dollarsToCents(500));
-    // Stated as the default's values, not as literals that could drift apart from them.
-    expect(plan().healthMonthlyCents).toBe(PLAN_DEFAULTS.healthMonthlyCents);
-    expect(plan().postCoverageHealthMonthlyCents).toBe(
-      PLAN_DEFAULTS.postCoverageHealthMonthlyCents,
+  it("keeps the default's $700 healthcare line", () => {
+    // Health is a budget line now, so this reads the budget rather than a plan scalar — and
+    // there is no second "from 65" figure to keep, the step-down having gone with the fields
+    // that drove it.
+    expect(healthcareMonthlyCents(plan().budgetLines)).toBe(dollarsToCents(700));
+    // Stated as the default's value, not as a literal that could drift apart from it.
+    expect(healthcareMonthlyCents(plan().budgetLines)).toBe(
+      healthcareMonthlyCents(PLAN_DEFAULTS.budgetLines),
     );
   });
 
@@ -270,7 +277,7 @@ describe("taxed-in-retirement — authored inputs, not just projected shape", ()
     // taxed-in-retirement is not one of them.
     const teaching = planOf(presetById("paycheck-to-paycheck"));
     expect(teaching.goals).toEqual([]);
-    expect(teaching.healthMonthlyCents).toBe(dollarsToCents(450));
+    expect(healthcareMonthlyCents(teaching.budgetLines)).toBe(dollarsToCents(450));
     expect(plan().retirementReturnPct).toBe(4);
     expect(plan().lifeExpectancy).toBe(72);
   });

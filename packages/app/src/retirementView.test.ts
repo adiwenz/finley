@@ -12,6 +12,23 @@ function viewOf(plan: Plan) {
   return retirementView(Projection.fromState(stateOf(plan), usJurisdiction));
 }
 
+/**
+ * The default plan with its health spend restated. Health is a `healthcare`-category budget
+ * line rather than a plan field, so a test that used to set `healthMonthlyCents` edits the
+ * budget — which is the same thing the early-retiree check now reads.
+ */
+function withHealth(dollars: number, over: Partial<Plan> = {}): Plan {
+  return {
+    ...PLAN_DEFAULTS,
+    budgetLines: PLAN_DEFAULTS.budgetLines.map((line) =>
+      line.category === "healthcare"
+        ? { ...line, amountSource: { kind: "literal", monthlyCents: dollarsToCents(dollars) } }
+        : line,
+    ),
+    ...over,
+  };
+}
+
 describe("retirementView — one query behind every figure", () => {
   /**
    * Counts how many searches a render costs. Two members is the whole of what the view reads,
@@ -132,11 +149,7 @@ describe("retirementView — early-retiree health-cost honesty flag (Medicare)",
   });
 
   it("flags an early retirement whose authored health cost is below the pre-65 benchmark", () => {
-    const view = viewOf({
-      ...PLAN_DEFAULTS,
-      retirementAge: 55,
-      healthMonthlyCents: 0,
-    });
+    const view = viewOf(withHealth(0, { retirementAge: 55 }));
     expect(view.earlyRetireeHealth.flagged).toBe(true);
     // Ten self-funded years (55 → 65) before Medicare.
     expect(view.earlyRetireeHealth.gapYears).toBe(10);
@@ -145,28 +158,14 @@ describe("retirementView — early-retiree health-cost honesty flag (Medicare)",
   });
 
   it("does NOT flag an early retiree who already budgets at least the benchmark", () => {
-    const view = viewOf({
-      ...PLAN_DEFAULTS,
-      retirementAge: 55,
-      healthMonthlyCents: dollarsToCents(5000),
-    });
+    const view = viewOf(withHealth(5_000, { retirementAge: 55 }));
     expect(view.earlyRetireeHealth.flagged).toBe(false);
     expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBe(0);
   });
 
   it("prices the benchmark in today's dollars — independent of how far off retirement is", () => {
-    const near = viewOf({
-      ...PLAN_DEFAULTS,
-      currentAge: 60,
-      retirementAge: 62,
-      healthMonthlyCents: 0,
-    });
-    const far = viewOf({
-      ...PLAN_DEFAULTS,
-      currentAge: 35,
-      retirementAge: 62,
-      healthMonthlyCents: 0,
-    });
+    const near = viewOf(withHealth(0, { currentAge: 60, retirementAge: 62 }));
+    const far = viewOf(withHealth(0, { currentAge: 35, retirementAge: 62 }));
     expect(far.earlyRetireeHealth.shortfallMonthlyCents).toBe(
       near.earlyRetireeHealth.shortfallMonthlyCents,
     );
@@ -175,39 +174,13 @@ describe("retirementView — early-retiree health-cost honesty flag (Medicare)",
   });
 });
 
-describe("retirementView — attributed Medicare residual step (visible at 65)", () => {
-  it("surfaces the ~$500/mo residual step in today's dollars", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, currentAge: 65 });
-    expect(view.residualHealthMonthlyCents).toBe(dollarsToCents(500));
-  });
-
-  it("is present regardless of retirement age (the step is always shown, not just for early retirees)", () => {
-    const early = viewOf({ ...PLAN_DEFAULTS, retirementAge: 55 });
-    const late = viewOf({ ...PLAN_DEFAULTS, retirementAge: 70 });
-    expect(early.residualHealthMonthlyCents).toBeGreaterThan(0);
-    expect(late.residualHealthMonthlyCents).toBeGreaterThan(0);
-  });
-
-  it("prices the residual in today's dollars — independent of when the person reaches 65", () => {
-    const soon = viewOf({ ...PLAN_DEFAULTS, currentAge: 60 });
-    const later = viewOf({ ...PLAN_DEFAULTS, currentAge: 35 });
-    expect(later.residualHealthMonthlyCents).toBe(soon.residualHealthMonthlyCents);
-    expect(later.residualHealthMonthlyCents).toBe(dollarsToCents(500));
-  });
-
-  it("stays below the pre-65 self-funded benchmark (the step at 65 is downward)", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, retirementAge: 55, healthMonthlyCents: 0 });
-    expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBeGreaterThan(
-      view.residualHealthMonthlyCents,
-    );
-  });
-
-  it("does NOT enrol → residual 0 and the self-funded-for-life story", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, enrollsInPublicHealthCoverage: false });
-    expect(view.residualHealthMonthlyCents).toBe(0);
-    expect(view.enrollsInPublicHealthCoverage).toBe(false);
-  });
-});
+/*
+ * The "attributed Medicare residual step" block is gone with the step itself. The plan holds no
+ * post-coverage figure to attribute, and nothing steps health at 65 — whatever the budget's
+ * health line says is what the projection charges, for as long as the line runs. The
+ * early-retiree gap check above survives because it only ever read the AUTHORED cost and
+ * synthesised none.
+ */
 
 describe("retirementView — the timeline events count toward retirement", () => {
   // The panel must reason about the plan plus the ledger, as the graph does: if it still
@@ -231,10 +204,12 @@ describe("retirementView — the timeline events count toward retirement", () =>
 
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView(withChild).headlineAge;
-    // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
-    // so the down-payment fund counts toward the nest egg.
-    expect(baselineAge).toBe(60);
-    expect(withChildAge as number).toBeGreaterThan(60);
+    // The bare-plan baseline retires at 61 — the home goal is a drawable `retain` reserve, so
+    // the down-payment fund counts toward the nest egg. One year later than when health
+    // stepped down to $500 at 65: the plan's $700 line now runs for life, so retirement costs
+    // more and the floor moves out.
+    expect(baselineAge).toBe(61);
+    expect(withChildAge as number).toBeGreaterThan(61);
   });
 });
 

@@ -48,8 +48,8 @@ export function buildHouseholdSimInput(
         ownerId: s.ownerId,
         label: s.label,
         ...(s.lineId !== undefined ? { lineId: s.lineId } : {}),
-        // …and its spending provenance, so the month's cost is reported itemized.
-        ...(s.spendingSource !== undefined ? { spendingSource: s.spendingSource } : {}),
+        // …and its obligation provenance, so the month's cost is built into an obligation.
+        ...(s.obligationSource !== undefined ? { obligationSource: s.obligationSource } : {}),
       });
     }
   }

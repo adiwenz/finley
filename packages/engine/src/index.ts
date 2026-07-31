@@ -75,6 +75,8 @@ export type {
   BudgetCategory,
   TaxTreatment,
 } from "./budgetLine";
+/** What the budget states it spends on health — the derivation that replaced a plan field. */
+export { healthcareMonthlyCents } from "./budgetLine";
 export type { Scenario } from "./scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
@@ -84,7 +86,7 @@ export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpr
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
 export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
-export type { SpendingItem } from "./projection/spendingItems";
+export type { FinancialObligation } from "./projection/financialObligation";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
 export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";

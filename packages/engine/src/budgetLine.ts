@@ -41,8 +41,14 @@ export type AmountSource =
 /**
  * Descriptive tier, not constraining: it supplies a default priority that an explicit
  * {@link BudgetLine.priority} overrides.
+ *
+ * `healthcare` is a tier rather than a plan field: health used to be a standing plan input
+ * compiled into its own series, which made it the one recurring cost the budget editor could
+ * not edit. It is an ordinary expense line now, and this tier is all that survives of the
+ * distinction — it funds beside `needs` (see `CATEGORY_DEFAULT_PRIORITY`) and reads back as
+ * itself on the spending chart.
  */
-export type BudgetCategory = "needs" | "wants" | "savings";
+export type BudgetCategory = "needs" | "wants" | "savings" | "healthcare";
 
 /** Outside its span a line resolves to 0. */
 export interface BudgetLineSpan {
@@ -162,6 +168,9 @@ export function taxTreatmentForLine(line: BudgetLine): TaxTreatment {
 
 const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
   needs: 0,
+  // Shares the needs tier deliberately: health funded beside a user's own needs lines before it
+  // was a budget line, and this preserves that rank rather than inventing a new one.
+  healthcare: 0,
   wants: 1000,
   savings: 2000,
 };
@@ -172,6 +181,27 @@ const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
  */
 export function budgetLinePriority(line: BudgetLine): number {
   return line.priority ?? CATEGORY_DEFAULT_PRIORITY[line.category];
+}
+
+/**
+ * What the plan states it spends on health each month, in **today's dollars** — the budget's
+ * answer to a question the plan used to hold as its own `healthMonthlyCents` field. Reads the
+ * authored baseline rather than a resolved month, because its one caller (the early-retiree
+ * check) compares it against a today's-dollars benchmark; pitting a grown figure against a real
+ * one would flag every plan.
+ *
+ * Several health lines sum: nothing stops a user splitting premiums from prescriptions, and the
+ * check asks what health costs, not how many rows say so. Non-literal sources cannot arise —
+ * `compileExpenseLine` rejects them for expenses — so a baseline is always exactly the amount.
+ */
+export function healthcareMonthlyCents(lines: readonly BudgetLine[]): Cents {
+  return lines.reduce(
+    (total, line) =>
+      line.category === "healthcare" && line.amountSource.kind === "literal"
+        ? total + line.amountSource.monthlyCents
+        : total,
+    0,
+  );
 }
 
 /**

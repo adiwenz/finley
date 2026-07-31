@@ -11,6 +11,7 @@ import {
   PRIMARY_PERSON_ID,
   Projection,
   dollarsToCents,
+  healthcareMonthlyCents,
   type Job,
   type Ledger,
   type Plan,
@@ -775,6 +776,62 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   });
 });
 
+describe("BaseAdjustmentsPanel — renders every obligation the month incurs", () => {
+  it("edits health care in place, like every other recurring expense", () => {
+    renderPanel(PLAN_DEFAULTS);
+    // Health is a `healthcare`-category budget line, so it gets an amount input here and no
+    // link away — the plan holds no health figure to send the user back to.
+    expect(spin(/Healthcare/).value).toBe("700");
+    expect(screen.queryByRole("link", { name: /Edit on the plan/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Edit Healthcare/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Delete Healthcare/i })).toBeTruthy();
+  });
+
+  it("routes a health edit through the same 'from here forward' gesture as any line", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(24);
+    editRow(/Healthcare/, 900);
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
+    // The override lands on the line and holds from that month on, so the later month reads
+    // the new amount grown rather than the old one.
+    selectMonth(36);
+    expect(Number(spin(/Healthcare/).value)).toBeGreaterThan(890);
+    // …and the months before it are untouched.
+    selectMonth(12);
+    expect(Number(spin(/Healthcare/).value)).toBeLessThan(800);
+  });
+
+  it("bands a loan payment read-only beside the editable budget lines, linking to the loan", () => {
+    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    projection.takeLoan({
+      month: 0,
+      ownerId: PRIMARY_PERSON_ID,
+      openingBalanceCents: dollarsToCents(45_000),
+      apr: 0.06,
+      kind: "studentLoan",
+      termMonths: 120,
+    });
+    const { series, household } = projection.run(usJurisdiction);
+    render(
+      <BaseAdjustmentsPanel
+        plan={PLAN_DEFAULTS}
+        transact={() => undefined}
+        series={series}
+        personNames={new Map()}
+        household={household}
+        ledger={NO_EVENTS}
+        projection={projection}
+      />,
+    );
+    // Month 1 is the first serviced month (origination at month 0 charges nothing).
+    selectMonth(1);
+    // The user's own lines stay editable; the loan payment does not.
+    expect(spin(/Housing/)).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: /loan payment/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /Change the loan/i })).toBeTruthy();
+  });
+});
+
 describe("BaseAdjustmentsPanel — long-horizon points", () => {
   it("labels a far-future point by calendar year and age, not just a month index", () => {
     renderPanel(PLAN_DEFAULTS);
@@ -792,9 +849,6 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
-    healthMonthlyCents: 0,
-    postCoverageHealthMonthlyCents: 0,
-    enrollsInPublicHealthCoverage: false,
   };
 
   it("says the plan stops being financeable, without prescribing what to cut", () => {
@@ -818,24 +872,21 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
       ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
-      healthMonthlyCents: 0,
-      postCoverageHealthMonthlyCents: 0,
-      enrollsInPublicHealthCoverage: false,
     };
     renderPanel(richPlan);
     expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
   });
 
-  it("bands health care beside the budget lines, with nothing passed in but the series", () => {
-    // The panel takes a plan and a projected series, nothing else. Health is real spending the
-    // budget does not author; it reaches the graph because the ENGINE reports it, not because
-    // the panel reassembled it.
+  it("bands health care as one of the budget lines, keyed like any other", () => {
+    // Health is an authored line now, so it bands under the same `line:<id>` key Housing does
+    // — not the standalone "health" key it used when the plan compiled it as its own series.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(firstRow[lineKey("Housing")]).toBeGreaterThan(0);
-    expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+    expect(firstRow[lineKey("Healthcare")]).toBe(healthcareMonthlyCents(PLAN_DEFAULTS.budgetLines));
+    expect(firstRow["health"]).toBeUndefined();
   });
 
   it("bands a liability's payment from the timeline, with no extra props", () => {
@@ -913,6 +964,33 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     );
     expect(screen.getByText(/Housing : \$1,600/)).toBeTruthy();
     expect(screen.getByText(/Total : \$2,300/)).toBeTruthy();
+  });
+
+  it("leaves a band costing nothing this month out of the hover readout", () => {
+    // A dormant line draws no height in the stack, so a "$0" row is noise. A paid-off loan is
+    // absent from the month's obligations entirely and arrives as an undefined value — same rule.
+    render(
+      <BudgetTooltip
+        active
+        label={12}
+        payload={[
+          { name: "Housing", value: dollarsToCents(1_600), color: "#000" },
+          { name: "Dining & fun", value: 0, color: "#000" },
+          { name: "Mortgage payment", color: "#000" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Housing : \$1,600/)).toBeTruthy();
+    expect(screen.queryByText(/Dining & fun/)).toBeNull();
+    expect(screen.queryByText(/Mortgage payment/)).toBeNull();
+    expect(screen.getByText(/Total : \$1,600/)).toBeTruthy();
+  });
+
+  it("draws no hover readout for a month that costs nothing at all", () => {
+    const { container } = render(
+      <BudgetTooltip active label={12} payload={[{ name: "Housing", value: 0, color: "#000" }]} />,
+    );
+    expect(container.firstChild).toBeNull();
   });
 
   it("draws no hover readout when nothing is hovered", () => {

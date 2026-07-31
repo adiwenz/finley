@@ -15,7 +15,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
-import type { BudgetLine } from "./budgetLine";
+import { budgetLinePriority, type BudgetLine } from "./budgetLine";
 
 /**
  * Where a `fill-to-limit` line reads its legislated annual cap: the jurisdiction's {@link
@@ -59,22 +59,24 @@ function compileExpenseLine(
     // forward — a $2,500 edit fifteen years out would charge $3,895 on landing.
     series.addOverride(o.month, o.monthlyCents, o.scope, { resetAnchor: true });
   }
-  // Carry the source line's label and id so the simulator reports each line's monthly amount
-  // without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority is NOT carried:
-  // nothing downstream ranks lines, since a tight month is absorbed by savings and credit
-  // rather than by starving low-priority ones. `budgetLinePriority` is the ordering source of
-  // truth for the authoring view (`allocations.ts`).
+  // Carry the source line's label, id and priority so the simulator reports and *ranks* each
+  // line without re-resolving (see ProjectionMonthFlows.lineMonthlyCents). Priority now rides
+  // through: the obligation waterfall ranks lines by it, so a line's authored/category order —
+  // `budgetLinePriority`, the same ordering source of truth the authoring view reads — must
+  // survive compilation rather than being recomputed downstream from the category alone, which
+  // would silently drop any explicit per-line override.
   return {
     series,
     ownerId,
     label: line.label,
     lineId: line.id,
-    // The only spending stream a user edits directly; the unified spending report reads it.
-    spendingSource: {
+    // The only expense stream a user edits directly; its obligation is built from this.
+    obligationSource: {
       kind: "budgetLine",
       id: line.id,
       category: line.category,
       editable: true,
+      priority: budgetLinePriority(line),
     },
   };
 }

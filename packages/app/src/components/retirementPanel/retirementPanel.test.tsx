@@ -20,6 +20,22 @@ function render(budget: Plan) {
   );
 }
 
+/**
+ * The default plan with its health spend restated. Health is a `healthcare`-category budget
+ * line, so a test that used to set `healthMonthlyCents` edits the budget instead.
+ */
+function withHealth(dollars: number, over: Partial<Plan> = {}): Plan {
+  return {
+    ...PLAN_DEFAULTS,
+    budgetLines: PLAN_DEFAULTS.budgetLines.map((line) =>
+      line.category === "healthcare"
+        ? { ...line, amountSource: { kind: "literal", monthlyCents: dollarsToCents(dollars) } }
+        : line,
+    ),
+    ...over,
+  };
+}
+
 describe("RetirementPanel", () => {
   it("surfaces the headline retirement age", () => {
     const html = render(PLAN_DEFAULTS);
@@ -28,23 +44,19 @@ describe("RetirementPanel", () => {
   });
 
   it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction", () => {
-    // The default plan pinned at 65 is infeasible (floor 71 — the home goal is a drawable
+    // The default plan pinned at 65 is infeasible (floor 72 — the home goal is a drawable
     // `retain` reserve) yet net worth stays positive throughout: the shape that printed the
-    // self-contradicting "100% of the way there".
+    // self-contradicting "100% of the way there". The floor moved out a year when health
+    // stopped stepping down at 65 — the $700 line now runs for life.
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");
     expect(html).toContain("of the way there");
-    expect(html).toContain("the nearest feasible age is 71");
+    expect(html).toContain("the nearest feasible age is 72");
     expect(html).not.toContain("100% of the way there");
   });
 
   it("shows the pre-65 health nudge when the plan retires early and under-budgets", () => {
-    const budget: Plan = {
-      ...PLAN_DEFAULTS,
-      retirementAge: 55,
-      healthMonthlyCents: 0,
-    };
-    const html = render(budget);
+    const html = render(withHealth(0, { retirementAge: 55 }));
     expect(html).toContain("Medicare");
     expect(html).toContain("self-funded");
     expect(html).toContain("not advice");
@@ -56,27 +68,22 @@ describe("RetirementPanel", () => {
   });
 
   it("does NOT show the health nudge when the plan already budgets the benchmark", () => {
-    const html = render({
-      ...PLAN_DEFAULTS,
-      retirementAge: 55,
-      healthMonthlyCents: dollarsToCents(5000),
-    });
+    const html = render(withHealth(5_000, { retirementAge: 55 }));
     expect(html).not.toContain("self-funded");
   });
 
-  it("shows the authored Medicare residual step at 65 when enrolling", () => {
-    // No pre-65 gap when retiring at 65, but the downward step at 65 is still surfaced.
+  it("says nothing about a step at 65 — the plan no longer steps health there", () => {
+    // The residual readout went with the plan fields that drove it. The panel's only health
+    // copy left is the pre-65 gap nudge, which reads the authored budget line.
     const html = render({ ...PLAN_DEFAULTS, retirementAge: 65 });
-    expect(html).not.toContain("self-funded"); // the pre-65 nudge is hidden
-    expect(html).toContain("From 65"); // the authored residual step is shown
-    expect(html).toContain("Medicare");
-    expect(html).toContain("not advice");
+    expect(html).not.toContain("From 65");
+    expect(html).not.toContain("doesn’t enrol in Medicare");
   });
 
-  it("tells the self-funded-for-life story when NOT enrolling in Medicare", () => {
-    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65, enrollsInPublicHealthCoverage: false });
-    expect(html).toContain("doesn’t enrol in Medicare");
-    expect(html).toContain("for life");
-    expect(html).not.toContain("From 65"); // no residual step in this story
+  it("reads the nudge off the budget's health line, the only place health is stated", () => {
+    // Same retirement age, same everything but the health line: raising it clears the flag,
+    // proving the panel follows the budget rather than a plan scalar.
+    expect(render(withHealth(0, { retirementAge: 55 }))).toContain("self-funded");
+    expect(render(withHealth(5_000, { retirementAge: 55 }))).not.toContain("self-funded");
   });
 });

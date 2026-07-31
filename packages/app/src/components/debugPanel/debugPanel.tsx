@@ -36,7 +36,6 @@ function expenseLinesSummary(budget: Plan): { count: number; monthlyCents: numbe
 }
 /** A rate held as a FRACTION (0.03) rendered as a percentage ("3%"). */
 const ratePct = (fraction: number) => `${+(fraction * 100).toFixed(2)}%`;
-const yesNo = (b: boolean) => (b ? "yes" : "no");
 const targetDate = (d: number | "asap") => (d === "asap" ? "ASAP" : `month ${d}`);
 
 function downloadJson(filename: string, data: unknown): void {
@@ -68,18 +67,17 @@ function ConfigGroup({ title, rows }: { title: string; rows: readonly [string, R
 
 /**
  * Every per-series growth rate the run RESOLVED — the income "raise rate" and each expense
- * line's escalation. Only the report has these: the plan carries no raise-rate field (income
- * inherits CPI), and its single `healthInflationPct` compiles into a separate expense series
- * with its own rate and mid-run step at Medicare age. So this is the only place the rates the
- * engine actually applied are visible.
+ * line's escalation. Only the report has these: the plan carries no raise-rate field, income
+ * and expenses alike inheriting CPI. So this is the only place the rates the engine actually
+ * applied are visible.
  */
 function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
   const describe = (s: {
     annualGrowthRate: number;
     growthSchedule: readonly { annualRate: number }[];
   }): ReactNode => {
-    // Annotate only when the RATE changes over the run. The health line has two segments
-    // purely because its AMOUNT steps down at Medicare age; its rate never moves.
+    // Annotate only when the RATE changes over the run. A line with a dated override has
+    // several segments purely because its AMOUNT moves; its rate need not have.
     const rates = new Set(s.growthSchedule.map((g) => g.annualRate));
     return rates.size > 1
       ? `${ratePct(s.annualGrowthRate)} → ${ratePct([...rates].pop() ?? 0)}`
@@ -145,15 +143,8 @@ function Configuration({
         title="Retirement & Social Security"
         rows={[["SS claiming age", budget.benefitClaimingAge]]}
       />
-      <ConfigGroup
-        title="Health care"
-        rows={[
-          ["Pre-65 monthly", formatDollars(budget.healthMonthlyCents)],
-          ["Post-Medicare monthly", formatDollars(budget.postCoverageHealthMonthlyCents)],
-          ["Enrolls in Medicare", yesNo(budget.enrollsInPublicHealthCoverage)],
-          ["Health inflation", pct(budget.healthInflationPct)],
-        ]}
-      />
+      {/* No "Health care" group: the plan holds no health scalars. Health is a
+          `healthcare`-category budget line, listed with every other line below. */}
       <ConfigGroup
         title="Inflation & levers"
         rows={[

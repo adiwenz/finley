@@ -1,11 +1,11 @@
 /**
  * Turns a {@link Plan} (authored financial values — NOT life events) into the engine's
- * `LedgerBaseConfig`. Pure and jurisdiction-agnostic except for two facts the caller
- * supplies via {@link ProjectionContext}: the calendar "now" (`startYear` — the engine
- * cannot read a wall clock) and the public-health-coverage age.
+ * `LedgerBaseConfig`. Pure and jurisdiction-agnostic except for one fact the caller supplies
+ * via {@link ProjectionContext}: the calendar "now" (`startYear` — the engine cannot read a
+ * wall clock). The public-health-coverage age is no longer among them; health is an ordinary
+ * budget line, so nothing here steps it at an age.
  */
 
-import { SimCashFlowSeries } from "./cashFlowSeries";
 import {
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
@@ -201,43 +201,6 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
   });
 }
 
-/**
- * The health expense line, additive to the general expense and growing at its own
- * `healthInflationPct` rather than being pinned to CPI. When the plan enrols in public
- * coverage and the jurisdiction has a `publicHealthCoverageAge`, the line steps down to
- * the authored residual at the month that age is reached. Both figures are authored in
- * today's dollars, so the override is the residual inflated to the coverage age.
- */
-function buildHealthSeries(budget: Plan, coverageAge: number | undefined): SimCashFlowSeries {
-  const rate = budget.healthInflationPct / 100;
-  const growth = { type: "customRate" as const, annualRate: rate };
-  const enrolls = budget.enrollsInPublicHealthCoverage && coverageAge !== undefined;
-  if (!enrolls) {
-    return new SimCashFlowSeries(0, budget.healthMonthlyCents, growth, {
-      baselineUnit: "monthly",
-    });
-  }
-  const yearsToCoverage = coverageAge - budget.currentAge;
-
-  if (yearsToCoverage <= 0) {
-    return new SimCashFlowSeries(0, budget.postCoverageHealthMonthlyCents, growth, {
-      baselineUnit: "monthly",
-    });
-  }
-
-  const series = new SimCashFlowSeries(0, budget.healthMonthlyCents, growth, {
-    baselineUnit: "monthly",
-  });
-  const nominalResidualAtCoverage = Math.round(
-    budget.postCoverageHealthMonthlyCents * Math.pow(1 + rate, yearsToCoverage),
-  );
-  series.addOverride(yearsToCoverage * 12, nominalResidualAtCoverage, "fromHereForward", {
-    newGrowthMode: growth,
-    resetAnchor: true,
-  });
-  return series;
-}
-
 export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
   const { startYear } = ctx;
   const inflationRate = budget.inflationPct / 100;
@@ -255,8 +218,8 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
   };
 
   // Expenses are authored solely as budget lines — there is no separate general-expense
-  // lever. An empty budget is a plan that spends nothing in general; health and events
-  // still apply.
+  // lever, and none for health either: a `healthcare`-category line is compiled by exactly
+  // the path every other expense takes. An empty budget spends nothing; events still apply.
   const budgetLines = budget.budgetLines;
   // Account-target lines fund the waterfall's contribution step each month.
   const contributionLines: readonly BudgetLine[] = budgetLines.filter(
@@ -271,8 +234,6 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     PRIMARY_PERSON_ID,
     inflationRate,
   );
-
-  const healthSeries = buildHealthSeries(budget, ctx.jurisdiction.publicHealthCoverageAge);
 
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
@@ -299,21 +260,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),
     initialIncomeSeries,
-    initialExpenseSeries: [
-      ...generalExpenseSeries,
-      {
-        series: healthSeries,
-        ownerId: PRIMARY_PERSON_ID,
-        label: "Healthcare",
-        // Authored as a plan input, not a budget line: reports, but not editable.
-        spendingSource: {
-          kind: "healthcare",
-          id: "health",
-          category: "healthcare",
-          editable: false,
-        },
-      },
-    ],
+    initialExpenseSeries: generalExpenseSeries,
     goals: buildPlanGoals(budget),
     contributionLines,
     sharedScheme: budget.sharedScheme,

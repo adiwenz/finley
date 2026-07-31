@@ -10,8 +10,9 @@ import { useMemo } from "react";
 import { NumInput } from "../numInput/numInput";
 import { BudgetLineForm } from "./budgetLineForm";
 import { lineToDraft } from "./budgetLines";
+import { obligationEditLink } from "./obligationLink";
 import { formatDollars } from "../../format";
-import type { BudgetLine, ResolvedExpenseRow } from "@finley/engine";
+import type { BudgetLine, FinancialObligation, ResolvedExpenseRow } from "@finley/engine";
 import type { EditRow, EditScope, MonthEditRoute } from "./monthEdit";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
@@ -111,7 +112,35 @@ function SpendingRow({ row, line, pending, formOpen, edit, form }: SpendingRowPr
   );
 }
 
+/**
+ * A read-only obligation the user does not author here — health, an event's expense, a loan
+ * payment. It shows the amount owed and a deep link to where the number really lives, so this
+ * panel accounts for everything the month costs without pretending it can all be edited in place.
+ */
+function ObligationRow({ obligation }: { readonly obligation: FinancialObligation }) {
+  const link = obligationEditLink(obligation);
+  return (
+    <div className={styles.lineRow}>
+      <span className={styles.lineLabel}>
+        {obligation.label} <span className={styles.tier}>{obligation.category}</span>
+      </span>
+      <span className={styles.readonlyValue}>{formatDollars(obligation.amountCents)}/mo</span>
+      {link !== null && (
+        <a className="btn link" href={link.href}>
+          {link.text}
+        </a>
+      )}
+    </div>
+  );
+}
+
 export interface SpendingEditorProps {
+  /**
+   * The month's full obligation list in reporting (priority) order — budget lines beside the
+   * health, event and debt costs the month also incurs. `editable` gates the row: an authored
+   * line gets an input, everything else a read-only {@link ObligationRow}.
+   */
+  readonly obligations: readonly FinancialObligation[];
   /** Each expense line resolved to the selected month (amount, tier, adjusted flag). */
   readonly rows: readonly ResolvedExpenseRow[];
   /** The standing lines, for the disclosed edit form's initial draft. */
@@ -125,6 +154,7 @@ export interface SpendingEditorProps {
 }
 
 export function SpendingEditor({
+  obligations,
   rows,
   lines,
   selectedMonth,
@@ -136,21 +166,30 @@ export function SpendingEditor({
 }: SpendingEditorProps) {
   // One lookup for the whole list, rather than a scan per row.
   const linesById = useMemo(() => new Map(lines.map((line) => [line.id, line])), [lines]);
+  // An editable obligation's in-place row needs its resolved expense row (the adjusted flag, the
+  // amount to snap the input back to); keyed by the line id the obligation's `sourceId` carries.
+  const rowsById = useMemo(() => new Map(rows.map((row) => [row.lineId, row])), [rows]);
 
   return (
     <>
       <h4 className={styles.groupHeading}>Spending</h4>
-      {rows.map((row) => (
-        <SpendingRow
-          key={row.lineId}
-          row={row}
-          line={linesById.get(row.lineId)}
-          pending={pending}
-          formOpen={authoring?.kind === "edit" && authoring.id === row.lineId}
-          edit={edit}
-          form={form}
-        />
-      ))}
+      {obligations.map((obligation) => {
+        // `editable` is true only for an authored budget line; its resolved row drives the input.
+        const row = obligation.editable ? rowsById.get(obligation.sourceId) : undefined;
+        return row === undefined ? (
+          <ObligationRow key={obligation.id} obligation={obligation} />
+        ) : (
+          <SpendingRow
+            key={obligation.id}
+            row={row}
+            line={linesById.get(row.lineId)}
+            pending={pending}
+            formOpen={authoring?.kind === "edit" && authoring.id === row.lineId}
+            edit={edit}
+            form={form}
+          />
+        );
+      })}
 
       {/* The one question an edit asks: how long does this last? */}
       {pending !== null && (

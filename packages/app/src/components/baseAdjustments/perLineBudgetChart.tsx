@@ -15,10 +15,10 @@ import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTic
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Monthly spending chart: each engine spending item a stacked area, coloured by kind
+ * Monthly spending chart: each engine obligation a stacked area, coloured by kind
  * ({@link BAND_PALETTE}).
  *
- * Bands are never pinched short in a tight month — the simulator never skips spending, so a
+ * Bands are never pinched short in a tight month — the simulator never skips an obligation, so a
  * short band would misreport money actually spent. A shortfall shows as the terminal case,
  * savings and credit exhausted: shaded amber from the first insolvent month, with a summary
  * that doubles as the figure's accessible description.
@@ -67,13 +67,24 @@ export interface BudgetTooltipProps {
 }
 
 /**
- * Hover readout for a stacked month: every line's amount, then their total — the number a
- * default tooltip leaves the reader adding up by eye. Summing the payload rather than
+ * Hover readout for a stacked month: every line that costs something, then their total — the
+ * number a default tooltip leaves the reader adding up by eye. Summing the payload rather than
  * re-deriving from the data keeps the total exactly the height drawn, whatever bands the
  * tooltip is showing.
+ *
+ * A band costing nothing this month is not a row. Recharts hands over an entry per declared
+ * series, so a dormant line (0) and a paid-off loan (absent from the month's obligations, so
+ * `value` is undefined) would both read "$0" — noise against a stack that draws no height for
+ * either. The band itself is unfiltered and returns the month it grows again; only the readout
+ * is filtered, which is why the zeros stay in the row data (a gap in a stacked area would shift
+ * the baseline of every band above it).
  */
 export function BudgetTooltip({ active, payload, label }: BudgetTooltipProps) {
-  if (active !== true || payload === undefined || payload.length === 0) return null;
+  if (active !== true || payload === undefined) return null;
+  const shown = payload.filter((entry) => Number(entry.value ?? 0) > 0);
+  if (shown.length === 0) return null;
+  // Summed over the whole payload, not `shown`: identical while every band is zero-or-positive,
+  // and it stays the height drawn if a negative band is ever added.
   const total = payload.reduce((sum, entry) => sum + Number(entry.value ?? 0), 0);
   return (
     <div
@@ -86,7 +97,7 @@ export function BudgetTooltip({ active, payload, label }: BudgetTooltipProps) {
       }}
     >
       <p style={{ margin: 0, fontWeight: 600 }}>{axisPointLabel(Number(label) || 0, monthLabel)}</p>
-      {payload.map((entry, i) => (
+      {shown.map((entry, i) => (
         <p key={`${entry.name}-${i}`} style={{ margin: 0, color: entry.color }}>
           {entry.name} : {formatDollars(Number(entry.value ?? 0))}
         </p>

@@ -87,13 +87,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
       annualReturnPct: 7,
     },
   ],
-  // Realistic pre-65 self-funded line, still below the ~$1,200 benchmark — so pulling
-  // the retirement age below 65 fires the honesty nudge.
-  healthMonthlyCents: dollarsToCents(700),
-  // The Medicare residual from 65 — lower than the pre-65 line, so health steps down.
-  postCoverageHealthMonthlyCents: dollarsToCents(500),
-  enrollsInPublicHealthCoverage: true,
-  healthInflationPct: 3,
+  // Health is a `healthcare`-category budget line in the template above, not a plan field.
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
   currentAge: DEFAULT_CURRENT_AGE,
