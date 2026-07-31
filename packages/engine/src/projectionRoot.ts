@@ -620,8 +620,12 @@ function mintedNumber(id: string | undefined): number | null {
  * loan can never be handed the same number and an id says what it names.
  *
  * There is no override: no authoring input carries an `id`, so identity has a single source.
- * Ids that arrive from OUTSIDE — an imported state, an event a revision introduces — never pass
- * through here at all; {@link seqFloor} steps the counter past those instead.
+ * {@link Projection.fromInput} and every authoring method on the class mint through here, and a
+ * caller cannot name what they issue.
+ *
+ * Ids that already exist therefore reach a scenario exactly one way — {@link Projection.fromState}
+ * restoring state that was authored earlier. Those never pass through here at all;
+ * {@link seqFloor} steps the counter past them instead.
  */
 function mint(state: ProjectionState, kind: MintedKind): { id: string; nextSeq: number } {
   return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
@@ -797,11 +801,16 @@ export class Projection {
    * The single write primitive every method routes through — and so the one place the id
    * counter is re-floored against what was just written.
    *
-   * {@link mint} covers the id a write *asks* for, but not the ids a write CARRIES: a partner
-   * arrives at {@link marry} with their own jobs already named, and {@link reviseTransaction}
-   * can introduce a whole new set. Neither passes through the mint. Flooring here, rather than
-   * in each method, means an authoring path cannot be added that forgets to — and since
-   * {@link seqFloor} never decreases, doing it on every write costs nothing but a walk.
+   * No authoring path can hand it an id any more: {@link mint} issues every one, and a partner's
+   * jobs, a revised event and everything else are built from what the engine already named. So
+   * on an authoring write the floor is a no-op by construction.
+   *
+   * It stays for two reasons. It is the centralized write path, so flooring HERE rather than in
+   * each method means an authoring path cannot be added that forgets to. And it is the safeguard
+   * behind restored state: {@link fromState} adopts counters that may be stale or understated,
+   * and every write from that handle onward is re-floored against what the scenario actually
+   * holds rather than against what the state claimed. Since {@link seqFloor} never decreases,
+   * doing it on every write costs nothing but a walk.
    *
    * A refused write throws before reaching here, so nothing it minted is consumed.
    */
