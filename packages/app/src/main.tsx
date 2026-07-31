@@ -176,9 +176,7 @@ export function App() {
             />
           </div>
 
-          {/* Deep-link target for the read-only health obligation, authored here as a plan
-              input rather than a budget line (see Base + Adjustments). */}
-          <div className="card inputs" id={OBLIGATION_SURFACE_ANCHORS.plan}>
+          <div className="card inputs">
             <BudgetEditor budget={budget} transact={transact} />
           </div>
 

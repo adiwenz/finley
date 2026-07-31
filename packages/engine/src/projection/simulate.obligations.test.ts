@@ -19,14 +19,14 @@ import { budgetLineAllocationId } from "../allocations";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
 import { samplePlan, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import type { ProjectionContext } from "../projectionBase";
-import type { BudgetLine } from "../budgetLine";
+import type { BudgetCategory, BudgetLine } from "../budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import type { Plan } from "../plan";
 import type { NewLifeEvent } from "../ledger/eventTypes";
 
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: SAMPLE_START_YEAR };
 
-const expenseLine = (id: string, label: string, category: "needs" | "wants", dollars: number) =>
+const expenseLine = (id: string, label: string, category: BudgetCategory, dollars: number) =>
   ({
     id,
     label,
@@ -35,14 +35,14 @@ const expenseLine = (id: string, label: string, category: "needs" | "wants", dol
     category,
   }) as BudgetLine;
 
-/** A plan spending through authored lines, with a health line on top. */
+/** A plan spending through authored lines, health among them rather than on top. */
 const LINED_PLAN: Plan = {
   ...samplePlan,
   budgetLines: [
     expenseLine("housing", "Housing", "needs", 1_600),
     expenseLine("dining", "Dining & fun", "wants", 400),
+    expenseLine("health", "Healthcare", "healthcare", 450),
   ],
-  healthMonthlyCents: dollarsToCents(450),
 };
 
 function project(plan: Plan, events: readonly NewLifeEvent[] = []) {
@@ -113,16 +113,18 @@ describe("obligations — the flow-record invariant", () => {
     const flows = project(LINED_PLAN, [LOAN, CHILD_COST]).months[13]!.flows!;
     const byKind = (kind: string) => flows.obligations.filter((i) => i.sourceKind === kind);
 
+    // In reporting order: health and housing share the needs-tier priority (0) and break the
+    // tie on the stable id, so `line:health` sorts above `line:housing`; dining's wants tier
+    // (1000) puts it last. Health is one of these lines now — editable and `line:`-keyed like
+    // the rest, differing only in its category.
     expect(byKind("budgetLine").map((i) => [i.id, i.label, i.category, i.editable])).toEqual([
+      ["line:health", "Healthcare", "healthcare", true],
       ["line:housing", "Housing", "needs", true],
       ["line:dining", "Dining & fun", "wants", true],
     ]);
-    // Health, the loan payment, and the event's expense are all real spending, and none is
-    // an editable line — the point of the `editable` flag: a UI offers an edit exactly where
-    // an authored line exists.
-    expect(byKind("healthcare").map((i) => [i.label, i.category, i.editable])).toEqual([
-      ["Healthcare", "healthcare", false],
-    ]);
+    // The loan payment and the event's expense are real spending that no authored line states,
+    // so neither is editable — the point of the flag: a UI offers an edit exactly where an
+    // authored line exists.
     expect(byKind("liability").map((i) => [i.id, i.label, i.category, i.editable])).toEqual([
       ["debt:loan-student", "Student loan payment", "debtService", false],
     ]);
@@ -143,8 +145,10 @@ describe("obligations — the flow-record invariant", () => {
     );
     expect(flows.lineMonthlyCents).toEqual(fromObligations);
     expect(flows.lineMonthlyCents[budgetLineAllocationId("housing")]).toBeGreaterThan(0);
-    // A debt payment is NOT a budget line: it must never leak into the per-line map.
-    expect(Object.keys(flows.lineMonthlyCents)).toHaveLength(2);
+    // Health IS a budget line and belongs in the map; the debt payment is not and must never
+    // leak into it. Three lines authored, three keys.
+    expect(flows.lineMonthlyCents[budgetLineAllocationId("health")]).toBeGreaterThan(0);
+    expect(Object.keys(flows.lineMonthlyCents)).toHaveLength(3);
   });
 
   it("drops a debt's obligation once the loan is paid off, without dropping the total", () => {

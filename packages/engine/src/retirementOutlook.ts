@@ -18,6 +18,7 @@ import type { ProjectionState } from "./authoring/state";
 import type { ProjectionContext } from "./projectionBase";
 import { evaluateFullRetirementAtAge, solveRetirement } from "./retirementSolver";
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+import { healthcareMonthlyCents } from "./budgetLine";
 import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
 import type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 
@@ -69,7 +70,7 @@ function earlyRetireeHealth(
   return assessEarlyRetireeHealthCost({
     retirementAge: plan.retirementAge,
     publicHealthCoverageAge: jurisdiction.publicHealthCoverageAge ?? 0,
-    authoredHealthMonthlyCents: plan.healthMonthlyCents,
+    authoredHealthMonthlyCents: healthcareMonthlyCents(plan.budgetLines),
     selfFundedBenchmarkMonthlyCents:
       jurisdiction.healthCostBenchmarkMonthlyCents?.({
         age: plan.retirementAge,

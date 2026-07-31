@@ -50,10 +50,6 @@ const baseBudget: Plan = {
   goals: [],
   // No health line: these tests pin the $1,500/mo surplus ($5,000 − $3,500) goal funding
   // draws from, and health is a separate additive expense.
-  healthMonthlyCents: 0,
-  postCoverageHealthMonthlyCents: 0,
-  enrollsInPublicHealthCoverage: true,
-  healthInflationPct: 3,
   inflationPct: 3,
   currentAge: 35,
   retirementAge: 65,

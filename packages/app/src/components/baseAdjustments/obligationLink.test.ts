@@ -20,12 +20,6 @@ function obligation(sourceKind: FinancialObligation["sourceKind"]): FinancialObl
 }
 
 describe("obligationEditLink — where a non-editable obligation is really edited", () => {
-  it("sends a healthcare cost to the plan", () => {
-    expect(obligationEditLink(obligation("healthcare"))?.href).toBe(
-      `#${OBLIGATION_SURFACE_ANCHORS.plan}`,
-    );
-  });
-
   it("sends an event-spawned expense to its event on the timeline", () => {
     expect(obligationEditLink(obligation("event"))?.href).toBe(
       `#${OBLIGATION_SURFACE_ANCHORS.timeline}`,
@@ -40,6 +34,12 @@ describe("obligationEditLink — where a non-editable obligation is really edite
 
   it("offers no link for an authored budget line — it is edited in place here", () => {
     expect(obligationEditLink(obligation("budgetLine"))).toBeNull();
+  });
+
+  it("offers no link for health, which is now an authored line rather than a plan input", () => {
+    // The one surface health used to link away to no longer authors it, so there is nothing
+    // left to point at: a `healthcare` obligation is a budget line and edits in place.
+    expect(obligationEditLink({ ...obligation("budgetLine"), category: "healthcare" })).toBeNull();
   });
 
   it("offers no link for an untracked stream — there is nowhere to edit it", () => {

@@ -11,6 +11,7 @@ import {
   PRIMARY_PERSON_ID,
   Projection,
   dollarsToCents,
+  healthcareMonthlyCents,
   type Job,
   type Ledger,
   type Plan,
@@ -776,12 +777,28 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
 });
 
 describe("BaseAdjustmentsPanel — renders every obligation the month incurs", () => {
-  it("shows the plan's health care read-only, deep-linking to the plan rather than an input", () => {
+  it("edits health care in place, like every other recurring expense", () => {
     renderPanel(PLAN_DEFAULTS);
-    // Health is a plan input, not a budget line: it accounts here but is not edited here.
-    expect(screen.queryByRole("spinbutton", { name: /Healthcare/i })).toBeNull();
-    const link = screen.getByRole("link", { name: /Edit on the plan/i });
-    expect(link.getAttribute("href")).toBe("#budget-accounts");
+    // Health is a `healthcare`-category budget line, so it gets an amount input here and no
+    // link away — the plan holds no health figure to send the user back to.
+    expect(spin(/Healthcare/).value).toBe("700");
+    expect(screen.queryByRole("link", { name: /Edit on the plan/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Edit Healthcare/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Delete Healthcare/i })).toBeTruthy();
+  });
+
+  it("routes a health edit through the same 'from here forward' gesture as any line", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(24);
+    editRow(/Healthcare/, 900);
+    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
+    // The override lands on the line and holds from that month on, so the later month reads
+    // the new amount grown rather than the old one.
+    selectMonth(36);
+    expect(Number(spin(/Healthcare/).value)).toBeGreaterThan(890);
+    // …and the months before it are untouched.
+    selectMonth(12);
+    expect(Number(spin(/Healthcare/).value)).toBeLessThan(800);
   });
 
   it("bands a loan payment read-only beside the editable budget lines, linking to the loan", () => {
@@ -832,9 +849,6 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
-    healthMonthlyCents: 0,
-    postCoverageHealthMonthlyCents: 0,
-    enrollsInPublicHealthCoverage: false,
   };
 
   it("says the plan stops being financeable, without prescribing what to cut", () => {
@@ -858,24 +872,21 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
       ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(8_000)),
       lifeExpectancy: 40,
       goals: [],
-      healthMonthlyCents: 0,
-      postCoverageHealthMonthlyCents: 0,
-      enrollsInPublicHealthCoverage: false,
     };
     renderPanel(richPlan);
     expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
   });
 
-  it("bands health care beside the budget lines, with nothing passed in but the series", () => {
-    // The panel takes a plan and a projected series, nothing else. Health is real spending the
-    // budget does not author; it reaches the graph because the ENGINE reports it, not because
-    // the panel reassembled it.
+  it("bands health care as one of the budget lines, keyed like any other", () => {
+    // Health is an authored line now, so it bands under the same `line:<id>` key Housing does
+    // — not the standalone "health" key it used when the plan compiled it as its own series.
     renderPanel(PLAN_DEFAULTS);
     const firstRow = JSON.parse(
       screen.getByTestId("perline-first-row").textContent || "{}",
     ) as Record<string, number>;
     expect(firstRow[lineKey("Housing")]).toBeGreaterThan(0);
-    expect(firstRow["health"]).toBe(PLAN_DEFAULTS.healthMonthlyCents);
+    expect(firstRow[lineKey("Healthcare")]).toBe(healthcareMonthlyCents(PLAN_DEFAULTS.budgetLines));
+    expect(firstRow["health"]).toBeUndefined();
   });
 
   it("bands a liability's payment from the timeline, with no extra props", () => {

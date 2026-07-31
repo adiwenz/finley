@@ -75,6 +75,8 @@ export type {
   BudgetCategory,
   TaxTreatment,
 } from "./budgetLine";
+/** What the budget states it spends on health — the derivation that replaced a plan field. */
+export { healthcareMonthlyCents } from "./budgetLine";
 export type { Scenario } from "./scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";

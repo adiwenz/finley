@@ -13,7 +13,6 @@
 
 import type {
   Jurisdiction,
-  Plan,
   Projection,
   RetirementEvaluation,
   EarlyRetireeHealthFlag,
@@ -41,14 +40,6 @@ export interface RetirementView {
    * advice.
    */
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
-  /**
-   * The authored Medicare residual carried from 65, in **today's dollars** — the user's own
-   * {@link Plan.postCoverageHealthMonthlyCents}, not derived. 0 when the plan does not enrol
-   * (the pre-65 self-funded line runs for life instead), which
-   * {@link enrollsInPublicHealthCoverage} distinguishes.
-   */
-  readonly residualHealthMonthlyCents: number;
-  readonly enrollsInPublicHealthCoverage: boolean;
 }
 
 /**
@@ -63,7 +54,6 @@ export function retirementView(
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
   // net-worth graph does, because it asks the same handle.
-  const budget: Plan = projection.plan;
   const { solution, fullRetirementMonth, target, earlyRetireeHealth } =
     projection.retirement(jurisdiction);
   return {
@@ -72,9 +62,5 @@ export function retirementView(
     target,
     targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
     earlyRetireeHealth,
-    residualHealthMonthlyCents: budget.enrollsInPublicHealthCoverage
-      ? budget.postCoverageHealthMonthlyCents
-      : 0,
-    enrollsInPublicHealthCoverage: budget.enrollsInPublicHealthCoverage,
   };
 }

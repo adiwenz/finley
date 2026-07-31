@@ -108,9 +108,12 @@ describe("tierRebalanceWrites — the same rebalance, as facade writes", () => {
     const before = toBudgetLines(defaultBudgetTemplate());
     const { rescale, seeds } = tierRebalanceWrites(before, income, 240);
 
-    // The template's lines all move (needs and wants are both rescaled); savings has none
-    // to scale, so it is the one seed.
-    expect(rescale.map((r) => r.id).sort()).toEqual(before.map((l) => l.id).sort());
+    // The template's needs and wants lines all move; savings has none to scale, so it is the
+    // one seed. Health is NOT rescaled — it is not one of the 50/30/20 tiers, since a premium
+    // is not a share of take-home the household chooses.
+    const rebalanced = before.filter((l) => l.category !== "healthcare");
+    expect(rescale.map((r) => r.id).sort()).toEqual(rebalanced.map((l) => l.id).sort());
+    expect(rescale.map((r) => r.id)).not.toContain("Healthcare");
     expect(seeds).toHaveLength(1);
     expect(seeds[0].category).toBe("savings");
     expect(seeds[0].span).toEqual({ endMonth: 240 });

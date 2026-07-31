@@ -24,7 +24,7 @@ import {
   type ProjectionContext,
 } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, salariedJob, spendLine } from "./testing/samplePlan";
+import { samplePlan, salariedJob, spendLine, healthLine } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
 import type { Plan, GoalPlan } from "./plan";
 
@@ -51,21 +51,22 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
   return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
 }
 
-describe("createProjectionBase — general expenses come only from budget lines", () => {
-  const generalKinds = (plan: Plan) =>
-    createProjectionBase(plan, ctx())
-      .initialExpenseSeries!.map((s) => s.obligationSource?.kind)
-      .filter((k) => k !== "healthcare");
+describe("createProjectionBase — expenses come only from budget lines", () => {
+  const kinds = (plan: Plan) =>
+    createProjectionBase(plan, ctx()).initialExpenseSeries!.map((s) => s.obligationSource?.kind);
 
-  it("tags every general-expense series as a budget line", () => {
-    // The line-item budget is the sole expense authoring surface; no separate general-expense
-    // series rides alongside it.
-    expect(generalKinds(samplePlan)).toEqual(["budgetLine"]);
+  it("tags every expense series as a budget line, health included", () => {
+    // The line-item budget is the sole expense authoring surface. `samplePlan` authors a spend
+    // line and a health line; both arrive as budget lines, with no separate plan-level series
+    // riding alongside them.
+    expect(kinds(samplePlan)).toEqual(["budgetLine", "budgetLine"]);
   });
 
-  it("emits no general-expense series when a plan authors no budget lines — only health", () => {
+  it("emits no expense series at all when a plan authors no budget lines", () => {
+    // Health used to survive an empty budget as a plan field. Nothing does now: an empty
+    // budget is a plan that spends nothing.
     const base = createProjectionBase({ ...samplePlan, budgetLines: [] }, ctx());
-    expect(base.initialExpenseSeries!.map((s) => s.obligationSource?.kind)).toEqual(["healthcare"]);
+    expect(base.initialExpenseSeries).toEqual([]);
   });
 });
 
@@ -302,7 +303,7 @@ describe("createProjectionBase — horizon spans to life expectancy", () => {
   });
 });
 
-describe("createProjectionBase — health as its own additive, growing expense", () => {
+describe("createProjectionBase — health is an ordinary budget line", () => {
   const saver: Plan = {
     ...samplePlan,
     jobs: [salariedJob(dollarsToCents(6_000))],
@@ -310,58 +311,62 @@ describe("createProjectionBase — health as its own additive, growing expense",
     goals: [],
   };
 
-  it("spends the health line: adding health lowers ending net worth", () => {
-    const withoutHealth = endingNetWorthCents({ ...saver, healthMonthlyCents: 0 });
-    const withHealth = endingNetWorthCents({ ...saver, healthMonthlyCents: dollarsToCents(500) });
-    expect(withHealth).toBeLessThan(withoutHealth);
+  it("spends the health line: adding one lowers ending net worth", () => {
+    const withHealth = endingNetWorthCents({
+      ...saver,
+      budgetLines: [...saver.budgetLines, healthLine(dollarsToCents(500))],
+    });
+    expect(withHealth).toBeLessThan(endingNetWorthCents(saver));
   });
 
-  it("grows the health line at its own rate: a higher rate spends more over the horizon", () => {
-    const base = { ...saver, healthMonthlyCents: dollarsToCents(500) };
-    const flat = endingNetWorthCents({ ...base, healthInflationPct: 0 });
-    const rising = endingNetWorthCents({ ...base, healthInflationPct: 8 });
-    expect(rising).toBeLessThan(flat);
+  it("grows health at CPI, exactly as it grows every other expense line", () => {
+    // Health carried its own `healthInflationPct` when it was a plan field. It has no rate of
+    // its own now: two lines of equal amount stay equal for the whole horizon, which they
+    // could not if health were still compiled on a separate escalation.
+    const plan: Plan = {
+      ...saver,
+      budgetLines: [spendLine(dollarsToCents(1_000)), healthLine(dollarsToCents(1_000))],
+    };
+    const [spend, health] = createProjectionBase(plan, ctx()).initialExpenseSeries!;
+    expect(health!.series.getMonthlyCents(0)).toBe(spend!.series.getMonthlyCents(0));
+    expect(health!.series.getMonthlyCents(240)).toBe(spend!.series.getMonthlyCents(240));
   });
 
-  it("steps health down at the jurisdiction's public-coverage age when enrolling", () => {
-    // A near-coverage saver puts the step (65) inside the horizon with income running
-    // through it (retirementAge past life expectancy), so the difference is not masked by
-    // the synthetic-card insolvency floor.
-    const nearCoverage: Plan = {
-      ...samplePlan,
+  it("never steps health at a coverage age, whatever the jurisdiction says", () => {
+    // The 65 step-down is gone with the plan fields that drove it: `publicHealthCoverageAge`
+    // no longer reaches the compiled series at all, so a jurisdiction naming one and a
+    // jurisdiction naming none project identically.
+    const plan: Plan = {
+      ...saver,
       currentAge: 55,
       retirementAge: 90,
       lifeExpectancy: 90,
       jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
-      budgetLines: [spendLine(dollarsToCents(3_000))],
-      healthMonthlyCents: dollarsToCents(1_000),
-      postCoverageHealthMonthlyCents: dollarsToCents(400),
-      healthInflationPct: 5,
-      goals: [],
+      budgetLines: [spendLine(dollarsToCents(3_000)), healthLine(dollarsToCents(1_000))],
     };
-    const covered = mockJurisdiction({ publicHealthCoverageAge: 65 });
-    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, covered);
-    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, covered);
-    expect(enrolled).toBeGreaterThan(selfFunded);
+    expect(endingNetWorthCents(plan, mockJurisdiction({ publicHealthCoverageAge: 65 }))).toBe(
+      endingNetWorthCents(plan, mockJurisdiction()),
+    );
   });
 
-  it("does not step when the jurisdiction has no public-coverage age, even if enrolling", () => {
-    // publicHealthCoverageAge is the only source of the step: with none, an enrolling
-    // plan collapses to one segment, identical to not enrolling.
-    const nearCoverage: Plan = {
-      ...samplePlan,
-      currentAge: 55,
-      retirementAge: 90,
-      lifeExpectancy: 90,
-      jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
-      healthMonthlyCents: dollarsToCents(1_000),
-      postCoverageHealthMonthlyCents: dollarsToCents(400),
-      goals: [],
+  it("edits health through the same override path as any other line", () => {
+    // The user-facing point of the refactor: a health line takes a dated override, so
+    // "from this month forward" spends less from that month on.
+    const base: Plan = {
+      ...saver,
+      budgetLines: [spendLine(dollarsToCents(3_000)), healthLine(dollarsToCents(1_000))],
     };
-    const noCoverage = mockJurisdiction(); // no publicHealthCoverageAge
-    const enrolled = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: true }, noCoverage);
-    const selfFunded = endingNetWorthCents({ ...nearCoverage, enrollsInPublicHealthCoverage: false }, noCoverage);
-    expect(enrolled).toBe(selfFunded);
+    const cut: Plan = {
+      ...base,
+      budgetLines: [
+        spendLine(dollarsToCents(3_000)),
+        {
+          ...healthLine(dollarsToCents(1_000)),
+          overrides: [{ month: 60, monthlyCents: dollarsToCents(200), scope: "fromHereForward" }],
+        },
+      ],
+    };
+    expect(endingNetWorthCents(cut)).toBeGreaterThan(endingNetWorthCents(base));
   });
 });
 

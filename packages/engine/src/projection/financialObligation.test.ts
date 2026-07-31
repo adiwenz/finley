@@ -153,24 +153,27 @@ describe("buildObligations — one obligation per source", () => {
     });
   });
 
-  it("turns the plan's health line into a non-editable healthcare expense", () => {
+  it("turns a health budget line into an EDITABLE healthcare expense", () => {
+    // Health is authored as a `healthcare`-category budget line, so it arrives here with every
+    // other line: same kind, same editability. Only the category still says it is health.
     const [o] = buildObligations(
       [
         expenseSeries(450, {
           label: "Healthcare",
-          obligationSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+          obligationSource: { kind: "budgetLine", id: "health", category: "healthcare", editable: true },
         }),
       ],
       3,
       [],
       new Map(),
     );
-    expect(o.sourceKind).toBe("healthcare");
+    expect(o.sourceKind).toBe("budgetLine");
+    expect(o.editable).toBe(true);
     expect(o.category).toBe("healthcare");
     expect(o.treatment).toBe("expense");
-    expect(o.editable).toBe(false);
-    // The id is the source id verbatim (only budget lines get the `line:` prefix).
-    expect(o.id).toBe("health");
+    // And it takes the `line:` prefix every budget line gets, where it used to carry its
+    // source id verbatim as a plan-level series.
+    expect(o.id).toBe("line:health");
     expect(o.amountCents).toBe(dollarsToCents(450));
   });
 
@@ -337,11 +340,19 @@ describe("buildObligations — priority resolved from source kind", () => {
     expect(o.priority).toBeLessThan(OBLIGATION_PRIORITY.needs);
   });
 
-  it("puts healthcare in the needs tier", () => {
+  it("puts a healthcare line in the needs tier, the rank health always funded at", () => {
+    // Carried on the source by budget-line compilation (`budgetLinePriority`), which resolves
+    // the `healthcare` category to the same 0 the needs tier uses.
     const [o] = buildObligations(
       [
         expenseSeries(450, {
-          obligationSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+          obligationSource: {
+            kind: "budgetLine",
+            id: "health",
+            category: "healthcare",
+            editable: true,
+            priority: OBLIGATION_PRIORITY.needs,
+          },
         }),
       ],
       0,

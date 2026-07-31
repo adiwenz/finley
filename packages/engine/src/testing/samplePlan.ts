@@ -4,7 +4,7 @@
  * NOT a copy of the app's `PLAN_DEFAULTS` — that would drift silently and couple engine tests
  * to a product default. One household, one goal, chosen so the mapping wiring is easy to
  * assert: a clear surplus to accumulate, a retirement age below the health-coverage age
- * (exercising the health step), a finite horizon.
+ * (so the early-retiree health check has a gap window to look at), a finite horizon.
  *
  * `satisfies Plan` rather than a `: Plan` annotation type-checks without widening: tests still
  * see each field's literal value, and a drift in `Plan` fails here rather than at a use site.
@@ -32,6 +32,21 @@ export function spendLine(monthlyCents: number): BudgetLine {
     target: { kind: "expense" },
     amountSource: { kind: "literal", monthlyCents },
     category: "needs",
+  };
+}
+
+/**
+ * The fixture's health cost, stated as a line like any other spend. Health used to be a plan
+ * field additive to the budget, so it is a second line here rather than folded into
+ * {@link spendLine} — the fixture charges what it always charged.
+ */
+export function healthLine(monthlyCents: number): BudgetLine {
+  return {
+    id: "health",
+    label: "Healthcare",
+    target: { kind: "expense" },
+    amountSource: { kind: "literal", monthlyCents },
+    category: "healthcare",
   };
 }
 
@@ -74,7 +89,7 @@ export function salariedJob(
 
 export const samplePlan = {
   name: "Sample",
-  budgetLines: [spendLine(dollarsToCents(4000))],
+  budgetLines: [spendLine(dollarsToCents(4000)), healthLine(dollarsToCents(600))],
   openingBalanceCents: dollarsToCents(20000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,
@@ -90,10 +105,6 @@ export const samplePlan = {
       annualReturnPct: 4,
     },
   ],
-  healthMonthlyCents: dollarsToCents(600),
-  postCoverageHealthMonthlyCents: dollarsToCents(400),
-  enrollsInPublicHealthCoverage: true,
-  healthInflationPct: 3,
   inflationPct: 3,
   currentAge: SAMPLE_CURRENT_AGE,
   retirementAge: 60,
@@ -130,17 +141,13 @@ const baristaSupplementalJob: Job = {
 
 export const baristaPlan = {
   name: "Barista",
-  budgetLines: [spendLine(dollarsToCents(5500))],
+  budgetLines: [spendLine(dollarsToCents(5500)), healthLine(dollarsToCents(600))],
   openingBalanceCents: dollarsToCents(200000),
   savingsReturnPct: 5,
   retirementReturnPct: 6,
   brokerageReturnPct: 6,
   sharedScheme: "proportional",
   goals: [],
-  healthMonthlyCents: dollarsToCents(600),
-  postCoverageHealthMonthlyCents: dollarsToCents(400),
-  enrollsInPublicHealthCoverage: true,
-  healthInflationPct: 3,
   inflationPct: 3,
   currentAge: BARISTA_CURRENT_AGE,
   retirementAge: 60,

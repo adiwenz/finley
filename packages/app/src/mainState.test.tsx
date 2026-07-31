@@ -210,17 +210,16 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Riley's $3,000 budget + health, PLUS the seed loan's scheduled payment (~$500/mo on
-    // $45k at 6% over 10 years): the Base panel charts the whole scenario, not the bare
-    // plan.
+    // Riley's $3,000 budget — health among its lines now, not a plan field beside it — PLUS
+    // the seed loan's scheduled payment (~$500/mo on $45k at 6% over 10 years): the Base
+    // panel charts the whole scenario, not the bare plan.
     const riley = presetState(presetById("student-loan")).scenario.plan;
     const rileyBudget = riley.budgetLines.reduce(
       (sum, l) =>
         sum + (l.target.kind === "expense" && l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
       0,
     );
-    const budgetAndHealth = rileyBudget + riley.healthMonthlyCents;
-    expect(spendingNeed()).toBeGreaterThan(budgetAndHealth + dollarsToCents(400));
+    expect(spendingNeed()).toBeGreaterThan(rileyBudget + dollarsToCents(400));
     expect(spendingNeed()).not.toBe(withoutLoan);
   });
 

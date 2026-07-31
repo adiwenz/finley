@@ -31,12 +31,13 @@ const fun = (dollars: number) =>
   });
 const health = (dollars: number) =>
   item({
-    id: "health",
+    id: "line:health",
     label: "Healthcare",
     category: "healthcare",
-    sourceKind: "healthcare",
+    // An authored line like any other; only its category still says health.
+    sourceKind: "budgetLine",
     sourceId: "health",
-    editable: false,
+    editable: true,
     amountCents: dollarsToCents(dollars),
   });
 const loan = (dollars: number) =>
@@ -81,12 +82,13 @@ describe("buildPerLineBudgetData — the spending graph reads the engine's oblig
   });
 
   it("bands every kind of spending, tagged for drawing and for editability", () => {
-    // Budget lines are the only editable ones; health and debt are drawn but not offered
-    // for editing — the flag comes from the engine, not a guess here.
+    // Budget lines are the editable ones — health among them, drawn in the `line` palette like
+    // any other authored row. Debt is drawn but not offered for editing; the flag comes from
+    // the engine, not a guess here.
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000), health(450), loan(500)]]));
     expect(data.lines).toEqual([
       { id: "line:rent", label: "Rent", kind: "line", editable: true },
-      { id: "health", label: "Healthcare", kind: "other", editable: false },
+      { id: "line:health", label: "Healthcare", kind: "line", editable: true },
       { id: "debt:loan-student", label: "Student loan payment", kind: "debt", editable: false },
     ]);
     expect(data.rows[0]!.totalCents).toBe(dollarsToCents(4_950));

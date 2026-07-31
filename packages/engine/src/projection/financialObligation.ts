@@ -21,10 +21,11 @@ import type { SimOwnedSeries } from "./simulate.types";
  * says where to go to change the number, or that there is nowhere.
  */
 export type ObligationSourceKind =
-  /** A standing budget line the user authors and edits. */
+  /**
+   * A standing budget line the user authors and edits — including health, which is an ordinary
+   * `healthcare`-category line rather than the standing plan input it used to be.
+   */
   | "budgetLine"
-  /** The plan's health line — a standing plan input, not a budget line. */
-  | "healthcare"
   /** An expense series a life event created (a child's cost, alimony, an added expense). */
   | "event"
   /**
@@ -41,7 +42,7 @@ export type ObligationSourceKind =
  * own priority tier; the rest carry the kind of obligation they are — "need or want?" is not a
  * question a mortgage payment answers.
  */
-export type ObligationCategory = BudgetCategory | "healthcare" | "debtService" | "other";
+export type ObligationCategory = BudgetCategory | "debtService" | "other";
 
 /**
  * The provenance an expense {@link SimOwnedSeries} carries so {@link buildObligations} can turn
@@ -97,8 +98,8 @@ export interface FinancialObligation {
   readonly priority: number;
   readonly sourceKind: ObligationSourceKind;
   /**
-   * Editable *as itself* — true only for an authored budget line. A health line is edited on
-   * the plan, an event's expense through its event, a loan payment not at all (change the loan).
+   * Editable *as itself* — true only for an authored budget line, health included. An event's
+   * expense is edited through its event, a loan payment not at all (change the loan).
    */
   readonly editable: boolean;
   readonly label: string;
@@ -172,10 +173,11 @@ const UNTRACKED: ObligationSource = {
  *
  * `mandatory` is below every expense: debt payments (preserving today's never-rationed
  * behaviour without a delinquency redesign) and court-ordered support (alimony, child support)
- * are legally non-rationable. `needs` shares the budget "needs" tier (0) so healthcare and a
- * child's cost rank beside a user's own needs lines. An authored budget line brings its own
- * category/priority ordering and never reads a default here; `untracked` has no provenance to
- * rank by and funds after every authored tier.
+ * are legally non-rationable. `needs` shares the budget "needs" tier (0) so a child's cost ranks
+ * beside a user's own needs lines. An authored budget line brings its own category/priority
+ * ordering and never reads a default here — health included, whose `healthcare` category
+ * resolves to the same tier (0); `untracked` has no provenance to rank by and funds after every
+ * authored tier.
  */
 export const OBLIGATION_PRIORITY = {
   mandatory: -1000,
@@ -192,7 +194,6 @@ export const OBLIGATION_PRIORITY = {
  */
 const DEFAULT_PRIORITY_BY_KIND: Record<ObligationSource["kind"], number> = {
   budgetLine: OBLIGATION_PRIORITY.needs,
-  healthcare: OBLIGATION_PRIORITY.needs,
   event: OBLIGATION_PRIORITY.needs,
   untracked: OBLIGATION_PRIORITY.untracked,
 };

@@ -10,8 +10,6 @@ import type { FinancialObligation } from "@finley/engine";
 
 /** Anchor ids the deep links target; the owning cards carry these ids (`main.tsx`). */
 export const OBLIGATION_SURFACE_ANCHORS = {
-  /** The Budget & accounts card, where the plan's health line is authored. */
-  plan: "budget-accounts",
   /** The life-events timeline, where event-spawned expenses and loans are authored. */
   timeline: "timeline",
 } as const;
@@ -23,13 +21,12 @@ export interface ObligationEditLink {
 
 /**
  * The deep link for a non-editable obligation, or null when there is nowhere to send the user:
- * an authored budget line is edited in place here (never linked away), and an `untracked` stream
- * carries no authoring surface at all.
+ * an authored budget line is edited in place here (never linked away) — health included, since
+ * it is an ordinary line now rather than a plan input — and an `untracked` stream carries no
+ * authoring surface at all.
  */
 export function obligationEditLink(obligation: FinancialObligation): ObligationEditLink | null {
   switch (obligation.sourceKind) {
-    case "healthcare":
-      return { href: `#${OBLIGATION_SURFACE_ANCHORS.plan}`, text: "Edit on the plan" };
     case "event":
       return { href: `#${OBLIGATION_SURFACE_ANCHORS.timeline}`, text: "Edit its event" };
     case "liability":

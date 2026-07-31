@@ -1059,7 +1059,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       currentAge: 41,
       lifeExpectancy: 90,
       benefitClaimingAge: 70,
-      enrollsInPublicHealthCoverage: false,
       surplusCashTo: "brokerage",
       sharedScheme: "even",
     });
@@ -1072,7 +1071,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       currentAge: 41,
       lifeExpectancy: 90,
       benefitClaimingAge: 70,
-      enrollsInPublicHealthCoverage: false,
       surplusCashTo: "brokerage",
       sharedScheme: "even",
       // Unnamed scalars keep their authored values.
@@ -2376,9 +2374,6 @@ describe("Projection root — per-line monthly resolution in the result", () => 
           jobs: [salariedJob(dollarsToCents(3_000))],
           openingBalanceCents: 0,
           goals: [],
-          healthMonthlyCents: 0,
-          postCoverageHealthMonthlyCents: 0,
-          enrollsInPublicHealthCoverage: false,
         }), nullJurisdiction);
     const rent = p.addBudgetLine({
       label: "Rent",
@@ -2421,9 +2416,6 @@ describe("Projection root — per-line monthly resolution in the result", () => 
           ...samplePlan,
           openingBalanceCents: dollarsToCents(2_000_000),
           goals: [],
-          healthMonthlyCents: 0,
-          postCoverageHealthMonthlyCents: 0,
-          enrollsInPublicHealthCoverage: false,
         }), nullJurisdiction);
     p.addBudgetLine({
       label: "Rent",

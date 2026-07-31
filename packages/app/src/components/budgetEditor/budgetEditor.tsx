@@ -53,46 +53,9 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           />
         </label>
 
-        <NumInput
-          label="Monthly health care (before 65)"
-          value={budget.healthMonthlyCents / 100}
-          onChange={(v) => updateBudget({ healthMonthlyCents: dollarsToCents(v) })}
-          prefix="$"
-          step={50}
-        />
-        <label className="field">
-          <span className="field-label">Medicare at 65</span>
-          <select
-            value={budget.enrollsInPublicHealthCoverage ? "enroll" : "self-fund"}
-            onChange={(e) => updateBudget({ enrollsInPublicHealthCoverage: e.target.value === "enroll" })}
-          >
-            <option value="enroll">Enroll at 65 (health steps down)</option>
-            <option value="self-fund">Self-fund for life (no step)</option>
-          </select>
-        </label>
-        {budget.enrollsInPublicHealthCoverage && (
-          <NumInput
-            label="Monthly health care (from 65)"
-            value={budget.postCoverageHealthMonthlyCents / 100}
-            onChange={(v) => updateBudget({ postCoverageHealthMonthlyCents: dollarsToCents(v) })}
-            prefix="$"
-            step={50}
-          />
-        )}
-        <NumInput
-          label="Health cost increase"
-          value={budget.healthInflationPct}
-          onChange={(healthInflationPct) => updateBudget({ healthInflationPct })}
-          suffix="%/yr"
-          min={0}
-          max={20}
-          step={0.5}
-        />
-        <p className="hint">
-          A separate line from your other expenses, growing at its own rate — medical
-          costs often rise faster than general inflation. Both figures are in today’s
-          dollars. Estimate, not advice.
-        </p>
+        {/* Health has no section here. It is an ordinary `healthcare`-category budget line
+            now, authored and edited in Base + Adjustments like every other recurring expense,
+            so a second surface for it would be a second source of truth. */}
 
         <NumInput
           label="General inflation (CPI)"

@@ -49,18 +49,54 @@ const HOUSING_OBLIGATION: FinancialObligation = {
   category: "needs",
 };
 
-const HEALTH_OBLIGATION: FinancialObligation = {
+const HEALTH_LINE: BudgetLine = {
   id: "health",
+  label: "Healthcare",
+  target: { kind: "expense" },
+  amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) },
+  category: "healthcare",
+};
+
+const HEALTH_ROW: ResolvedExpenseRow = {
+  lineId: "health",
+  label: "Healthcare",
+  category: "healthcare",
+  monthlyCents: dollarsToCents(500),
+  overridden: false,
+};
+
+/**
+ * Health as an ordinary authored line: `budgetLine`, `editable`, differing from housing only in
+ * its category. It used to be the panel's example of a read-only obligation — that it no longer
+ * can be is the point of these tests.
+ */
+const HEALTH_OBLIGATION: FinancialObligation = {
+  id: "line:health",
   sourceId: "health",
   month: 0,
   amountCents: dollarsToCents(500),
   treatment: "expense",
   funding: { kind: "automatic" },
   priority: 0,
-  sourceKind: "healthcare",
-  editable: false,
-  label: "Health care",
+  sourceKind: "budgetLine",
+  editable: true,
+  label: "Healthcare",
   category: "healthcare",
+};
+
+/** A cost the user did not author here — a child's, created by a life event. */
+const CHILD_COST_OBLIGATION: FinancialObligation = {
+  id: "series-child-1",
+  sourceId: "series-child-1",
+  month: 0,
+  amountCents: dollarsToCents(500),
+  treatment: "expense",
+  funding: { kind: "automatic" },
+  priority: 0,
+  sourceKind: "event",
+  editable: false,
+  label: "Child cost",
+  category: "other",
 };
 
 const noop = () => {};
@@ -148,26 +184,62 @@ describe("SpendingEditor — the row", () => {
 
 describe("SpendingEditor — the full obligation list", () => {
   it("renders a non-editable obligation read-only, with its amount and a deep link", () => {
-    renderEditor({ obligations: [HOUSING_OBLIGATION, HEALTH_OBLIGATION] });
-    // The health line the plan authors is not an editable spending input here…
-    expect(screen.queryByRole("spinbutton", { name: /Health care/ })).toBeNull();
+    renderEditor({ obligations: [HOUSING_OBLIGATION, CHILD_COST_OBLIGATION] });
+    // An event's expense is not an editable spending input here…
+    expect(screen.queryByRole("spinbutton", { name: /Child cost/ })).toBeNull();
     // …it shows its owed amount read-only, and a link to where it IS edited.
-    const link = screen.getByRole("link", { name: /Edit on the plan/i });
-    expect(link.getAttribute("href")).toBe("#budget-accounts");
-    const row = screen.getByText("Health care").closest("div")!;
+    const link = screen.getByRole("link", { name: /Edit its event/i });
+    expect(link.getAttribute("href")).toBe("#timeline");
+    const row = screen.getByText("Child cost").closest("div")!;
     expect(row.textContent).toMatch(/\$500/);
   });
 
   it("keeps the user's own budget lines editable beside the read-only obligations", () => {
-    renderEditor({ obligations: [HOUSING_OBLIGATION, HEALTH_OBLIGATION] });
+    renderEditor({ obligations: [HOUSING_OBLIGATION, CHILD_COST_OBLIGATION] });
     // The authored line is still an editable spinbutton — `editable` gates the input.
     expect(housingInput().value).toBe("1600");
     expect(screen.getByRole("button", { name: /Edit Housing/i })).toBeTruthy();
   });
 
   it("offers no edit/delete controls on a read-only obligation row", () => {
-    renderEditor({ obligations: [HEALTH_OBLIGATION] });
-    expect(screen.queryByRole("button", { name: /Edit Health care/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Delete Health care/i })).toBeNull();
+    renderEditor({ obligations: [CHILD_COST_OBLIGATION] });
+    expect(screen.queryByRole("button", { name: /Edit Child cost/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete Child cost/i })).toBeNull();
+  });
+});
+
+describe("SpendingEditor — health is an ordinary editable line", () => {
+  const renderWithHealth = (over: Partial<Parameters<typeof SpendingEditor>[0]> = {}) =>
+    renderEditor({
+      obligations: [HOUSING_OBLIGATION, HEALTH_OBLIGATION],
+      rows: [HOUSING_ROW, HEALTH_ROW],
+      lines: [HOUSING_LINE, HEALTH_LINE],
+      ...over,
+    });
+  const healthInput = () =>
+    screen.getByRole("spinbutton", { name: /Healthcare/ }) as HTMLInputElement;
+
+  it("gives health an amount input, not a read-only row", () => {
+    renderWithHealth();
+    expect(healthInput().value).toBe("500");
+    // Nothing links health away any more, because there is nowhere else it lives.
+    expect(screen.queryByRole("link", { name: /Edit on the plan/i })).toBeNull();
+  });
+
+  it("offers health the same edit and delete controls every other line gets", () => {
+    renderWithHealth();
+    expect(screen.getByRole("button", { name: /Edit Healthcare/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Delete Healthcare/i })).toBeTruthy();
+  });
+
+  it("stages an edit against the health line like any other", () => {
+    const { edit } = renderWithHealth();
+    fireEvent.change(healthInput(), { target: { value: "650" } });
+    expect(edit.onStage).toHaveBeenCalledWith(
+      { kind: "line", lineId: "health" },
+      "Healthcare",
+      dollarsToCents(500),
+      650,
+    );
   });
 });

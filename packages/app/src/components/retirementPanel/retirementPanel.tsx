@@ -56,19 +56,11 @@ export function RetirementPanel({
         </p>
       )}
 
-      {view.enrollsInPublicHealthCoverage ? (
-        <p className="hint">
-          From 65, Medicare covers most health costs; your plan budgets{" "}
-          <strong>{formatDollars(view.residualHealthMonthlyCents)}/mo</strong> for the residual
-          (premiums, Part B, out-of-pocket). Estimate, not advice.
-        </p>
-      ) : (
-        <p className="hint">
-          This plan doesn’t enrol in Medicare at 65, so the pre-65 self-funded health
-          cost (<strong>{formatDollars(budget.healthMonthlyCents)}/mo</strong>) carries on for
-          life. Estimate, not advice.
-        </p>
-      )}
+      {/* No Medicare readout: the plan no longer steps health down at 65, because it holds no
+          health figure of its own to step. Whatever the budget's health line says is what the
+          projection charges, for as long as the line runs — the user changes it in
+          Base + Adjustments like any other expense. The pre-65 gap check above survives, since
+          it reads the authored line and synthesises no cost. */}
     </>
   );
 }
