@@ -1,17 +1,19 @@
 ---
 name: task-handoff
-description: Write the rolling handoff note that carries context from one task's agent to the next. Use at the end of a task when an issue is being worked task-by-task by separate agents.
+description: Write the rolling handoff note that carries context from one agent to the next. Use before any commit that leaves an issue unfinished, whether the issue declares tasks or the agent split the work itself.
 ---
 
 # Task handoff
 
-An issue worked task-by-task gets a **fresh agent per task**. That agent starts with no memory of the previous one — it sees only the repository, the branch's commit log, and this note. Write the note that makes the next agent competent.
+An issue is finished by a succession of agents, each starting with **no memory of the last** — it sees only the repository, the branch's commit log, and this note. Write the note that makes the next one competent.
+
+Two things put you here. The issue declares tasks and you finished one with tasks still to go; or the issue declares none, you split the work yourself, and you have just committed a part. They are the same job: the branch is about to change hands.
 
 ## Where it lives
 
-`.sandcastle/handoff-<issue-id>.md`, **committed as part of your task's commit.**
+`.sandcastle/handoff-<issue-id>.md`, **committed as part of the commit you are about to make.**
 
-Not the OS temp directory, and not an uncommitted file. Each task runs in a different sandbox; anything not on the branch is gone when yours is torn down.
+Not the OS temp directory, and not an uncommitted file. Every agent runs in a different sandbox; anything not on the branch is gone when yours is torn down. That is doubly true when nobody chose to hand off — an agent stopped by the iteration ceiling is stopped without warning, and whatever it had not committed is simply lost.
 
 ## Cover the whole run, and rewrite rather than append
 
@@ -23,7 +25,7 @@ Rewriting rather than appending is about **signal, not size**. The file is never
 
 ## What earns a place
 
-Carried across every task so far, not just yours:
+Carried across everything done on this branch so far, not just your part:
 
 - **Live constraints** — an invariant that must be preserved, a shape a later task must match, an interface an earlier task introduced that the remaining ones consume.
 - **Dead ends** — what was tried and did not work, and why. This is the highest-value content, because it is the only thing *nowhere else in the repository*: the code shows what was built, never what was abandoned. Without it each agent re-pays the same cost.
@@ -34,17 +36,19 @@ Carried across every task so far, not just yours:
 
 - Anything already in the diff, the commit messages, the issue, or `CONTEXT.md`. **Reference those by path** — `see packages/engine/src/foo.ts:42`, `see task 2's commit` — never restate them.
 - A narrative of what you did. The next agent can read `git log` and `git diff`.
-- Restating the remaining tasks. They are in the issue, which the next agent reads directly.
+- Restating tasks the issue declares. The next agent reads the issue directly.
+
+One exception, and it matters: if **you** split the work — the issue declares no tasks — then your breakdown exists nowhere but in your head. Give it as a short list with what is done and what is not. Without it your successor re-plans the issue from scratch and may cut it differently, leaving a branch built two ways.
 - Praise, status, or filler. If a section has nothing live in it, delete the section.
 
 ## Shape
 
-Keep it short enough to read in full — a page is generous, and most issues warrant far less. If your task added nothing live, carry the previous content forward unchanged rather than padding it; an honest short handoff beats a thorough-looking one.
+Keep it short enough to read in full — a page is generous, and most issues warrant far less. If your part added nothing live, carry the previous content forward unchanged rather than padding it; an honest short handoff beats a thorough-looking one.
 
 ```md
 # Handoff — issue <id>
 
-**Completed so far:** tasks 1-<n> (<titles>)
+**Done so far:** <the declared tasks completed, or your own breakdown marked done/remaining>
 
 ## Live constraints
 - …
