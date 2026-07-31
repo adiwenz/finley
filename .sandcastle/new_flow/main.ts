@@ -72,6 +72,14 @@ const planSchema = z.object({
 
 const MAX_OUTER_ITERATIONS = 10;
 
+// Fresh agents an issue with no declared task breakdown may burn before the run
+// gives up on it. An agent stopped by the iteration ceiling loses its working
+// tree but not its commits, so a successor can carry on from the branch and the
+// handoff note. Each continuation must be paid for by at least one green commit
+// from its predecessor (see processSingleIssue), which is what stops a stuck
+// agent from spinning through all three.
+const WHOLE_ISSUE_ATTEMPTS = 3;
+
 // ---------------------------------------------------------------------------
 // Sandbox selection: Docker (local, default) vs. Vercel cloud.
 //
@@ -519,9 +527,13 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
         : `📋 [Issue #${issue.id}] No "## Tasks" section — one agent for the whole issue.`,
     );
 
-    // Whole-issue mode is modelled as a single undefined task so there is ONE
-    // loop rather than two code paths that drift apart as this evolves.
-    const runs: (IssueTask | undefined)[] = tasks.length > 0 ? tasks : [undefined];
+    // Whole-issue mode is modelled as undefined tasks so there is ONE loop
+    // rather than two code paths that drift apart as this evolves. It gets
+    // several slots rather than one: they are continuation attempts on the same
+    // work, not separate units of it, and the loop below breaks out of the
+    // unused ones as soon as an agent signals the issue is done.
+    const runs: (IssueTask | undefined)[] =
+      tasks.length > 0 ? tasks : Array.from({ length: WHOLE_ISSUE_ATTEMPTS }, () => undefined);
 
     // Resume: skip tasks a previous run already committed, but keep their titles
     // so the next agent's handoff context still lists everything done so far.
@@ -531,23 +543,52 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     }
     const doneTasks: string[] = tasks.slice(0, alreadyDone).map((t) => t.title);
     let allCompleted = true;
+    // Whole-issue mode has no per-task ledger to infer completion from, so the
+    // one agent that signalled done is recorded here.
+    let wholeIssueDone = false;
+    let attempt = 0;
 
     for (const task of runs) {
       if (task && task.index <= alreadyDone) continue;
-      const label = task ? `Task ${task.index}/${tasks.length} — ${task.title}` : "whole issue";
+      attempt += 1;
+      const label = task
+        ? `Task ${task.index}/${tasks.length} — ${task.title}`
+        : `whole issue (attempt ${attempt}/${WHOLE_ISSUE_ATTEMPTS})`;
       console.log(`🚀 [Issue #${issue.id}] Starting ${label}...`);
 
       const result = await runImplementer({ issue, task, taskTotal: tasks.length, priorTasks: doneTasks });
+
+      // Count commits before judging the run, not on the success paths only. A
+      // commit exists on the branch whether or not its author got to the end,
+      // and the push below is gated on this count — so attributing them only to
+      // successful runs is what would leave a cut-off agent's work unpushed.
+      totalCommits += result.commits.length;
+      if (result.commits.length > 0) preservedWorktreePath = result.preservedWorktreePath;
 
       // The implementer runs typecheck + tests inside its own sandbox before
       // signaling done, so success is determined entirely from the sandbox
       // result — never from a host checkout, which would corrupt sibling agents
       // running concurrently on other branches.
       if (result.completionSignal !== undefined && result.commits.length > 0) {
-        totalCommits += result.commits.length;
-        preservedWorktreePath = result.preservedWorktreePath;
         if (task) doneTasks.push(task.title);
         console.log(`✓ [Issue #${issue.id}] ${label} COMPLETE (${result.commits.length} commit(s)).`);
+        if (task) continue;
+        // Whole-issue mode: COMPLETE means the issue is finished, so the
+        // remaining continuation slots are not work waiting to be done.
+        wholeIssueDone = true;
+        break;
+      }
+
+      // A whole-issue agent that committed green work and then ran out of
+      // iterations made progress; it just needed more room than one agent has.
+      // Its successor orients from those commits and the handoff note it left,
+      // exactly as a per-task agent does. One that committed nothing is stuck on
+      // something a second identical agent would be stuck on too, so it falls
+      // through to the failure path below.
+      if (!task && result.commits.length > 0 && attempt < WHOLE_ISSUE_ATTEMPTS) {
+        console.warn(
+          `⏳ [Issue #${issue.id}] ${label}: iteration limit reached with ${result.commits.length} commit(s). Handing the branch to a fresh agent.`,
+        );
         continue;
       }
 
@@ -563,15 +604,25 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
       break;
     }
 
-    // A resumed run that finds every task already committed does no work and so
-    // produces no commits — but the issue IS finished (a previous run died after
-    // the last task, before relabeling). Treat that as success or it can never
-    // leave the queue.
-    const nothingLeftToDo = tasks.length > 0 && alreadyDone >= tasks.length;
-    success = allCompleted && (totalCommits > 0 || nothingLeftToDo);
+    if (tasks.length > 0) {
+      // A resumed run that finds every task already committed does no work and
+      // so produces no commits — but the issue IS finished (a previous run died
+      // after the last task, before relabeling). Treat that as success or it can
+      // never leave the queue.
+      const nothingLeftToDo = alreadyDone >= tasks.length;
+      success = allCompleted && (totalCommits > 0 || nothingLeftToDo);
+    } else {
+      // No such ledger without a task breakdown: commits prove work happened,
+      // never that the issue is done, so only the completion signal counts.
+      // Exhausting the continuation attempts is a failure even though every
+      // attempt committed.
+      success = wholeIssueDone;
+    }
     if (!success && totalCommits > 0) {
       console.warn(
-        `⚠️ [Issue #${issue.id}] Stopped after ${doneTasks.length}/${tasks.length} task(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run resumes from task ${doneTasks.length + 1}.`,
+        tasks.length > 0
+          ? `⚠️ [Issue #${issue.id}] Stopped after ${doneTasks.length}/${tasks.length} task(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run resumes from task ${doneTasks.length + 1}.`
+          : `⚠️ [Issue #${issue.id}] Unfinished after ${attempt} agent(s), ${totalCommits} commit(s) this run on ${issue.branch}. Issue stays queued; the next run picks up from those commits and the handoff note.`,
       );
     }
   } catch (error: any) {
