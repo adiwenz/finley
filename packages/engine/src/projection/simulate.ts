@@ -5,6 +5,7 @@ import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
 import { buildSpendingItems } from "./spendingItems";
+import { buildObligations, automaticFundingTotal } from "./financialObligation";
 import type {
   HouseholdSimInput,
   SimOwnedSeries,
@@ -125,6 +126,18 @@ export function simulateHousehold(
     const payments = computeLiabilityPayments(state, month);
     const totalPaymentsCents = [...payments.values()].reduce((s, v) => s + v, 0);
 
+    // The month's obligation list, built BEFORE decumulation sizes its gap: every downstream
+    // "what must this month fund?" total now derives from this one list rather than being
+    // recomputed in parallel, so the funded amount and the reported list cannot disagree.
+    // Constructing here (not after the liability step, where the spending report still reads)
+    // is safe: `advanceLiabilities` mutates balances only, never the liability roster, and
+    // `payments` is already fixed — so the list is identical wherever in the month it is built.
+    const obligations = buildObligations(input.expenseSeries, month, state.liabilities, payments);
+    // What the shared waterfall must cover: the automatically-funded slice of the obligation
+    // list. Equal to `expenseCents + totalPaymentsCents` while nothing is explicitly funded
+    // (this slice), but sized off the list so explicit funding (Slice #4) subtracts cleanly.
+    const automaticFundingCents = automaticFundingTotal(obligations);
+
     // Decumulation: when non-withdrawal income can't cover the month's obligations,
     // liquidate investment accounts BEFORE the waterfall — same seam as RMD/benefit — so
     // the shortfall is funded by selling assets instead of landing on the synthetic credit
@@ -133,7 +146,7 @@ export function simulateHousehold(
       state,
       jurisdiction,
       nonWithdrawalSources,
-      expenseCents + totalPaymentsCents,
+      automaticFundingCents,
       ctx,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
@@ -156,7 +169,7 @@ export function simulateHousehold(
         allocationSources,
         ctx,
         jurisdiction,
-        expenseCents + totalPaymentsCents,
+        automaticFundingCents,
         month,
       );
     // Nothing — savings or credit — could absorb this: the terminal flag.
