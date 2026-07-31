@@ -1,13 +1,9 @@
 import { describe, it, expect } from "vitest";
-import {
-  emptyLedger,
-  replayLedger,
-  snapshotAt,
-  validateLedgerStructure,
-  validateNewEvent,
-  type Ledger,
-  type LifeEvent,
-} from "./index";
+import { emptyLedger, validateLedgerStructure, type Ledger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { snapshotAt } from "./projection/snapshot";
+import { validateNewEvent } from "./ledger/addEvent";
+import type { LifeEvent } from "./ledger/eventTypes";
 import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction } from "./jurisdiction";
 import { personLit, baseConfig, addBase, add } from "./events.testSupport";

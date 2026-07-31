@@ -11,7 +11,6 @@ import {
   PRIMARY_PERSON_ID,
   Projection,
   dollarsToCents,
-  emptyLedger,
   type Job,
   type Ledger,
   type Plan,
@@ -25,6 +24,10 @@ import { BaseAdjustmentsPanel } from "./baseAdjustmentsPanel";
 import { BudgetTooltip } from "./perLineBudgetChart";
 
 afterEach(cleanup);
+
+/** The event-free ledger in the public serialized shape — the app authors a timeline through
+ * `Projection`, never by seeding the engine's internal `emptyLedger`. */
+const NO_EVENTS: Ledger = { events: [], nextSequenceNumber: 0 };
 
 const incomeReadonlyDollars = (): number =>
   Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
@@ -43,7 +46,7 @@ const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^A
  * Stands in for `App`: holds the one `ProjectionState` the panel writes through, and runs the
  * app's ONE projection (plan *and* ledger) that every surface is fed from.
  */
-function Harness({ initial, ledger: initialLedger = emptyLedger }: { initial: Plan; ledger?: Ledger }) {
+function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan; ledger?: Ledger }) {
   const { state, transact } = useTestProjection(initial, initialLedger);
   const plan = state.scenario.plan;
   const ledger = state.scenario.ledger;
@@ -855,7 +858,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
         series={series}
         personNames={new Map()}
         household={household}
-        ledger={emptyLedger}
+        ledger={NO_EVENTS}
         projection={projection}
       />,
     );

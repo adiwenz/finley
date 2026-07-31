@@ -7,31 +7,19 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  buildHouseholdSimInput,
-  createProjectionBase,
-  emptyLedger,
-  interpretLedger,
-  simulateHousehold,
-  summarizeSimulation,
-  type ProjectionContext,
-} from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
 import { DebugPanel } from "./debugPanel";
-import { readerOf } from "../../testing/projectionHarness";
+import { runOf, readerOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { START_YEAR } from "../../config";
 import type { Plan } from "@finley/engine";
 
+// The debug panel reads a `SimulationReport` (`ProjectionResult.report`) and a `Projection`.
+// One `runOf` yields the whole pass the app would produce (defaults to usJurisdiction), so the
+// report the panel shows is derived from the very series the app draws — no hand-assembled
+// pipeline.
 function render(budget: Plan) {
-  const ctx: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
-  const base = createProjectionBase(budget, ctx);
-  const input = buildHouseholdSimInput(interpretLedger(emptyLedger, base), base);
-  const report = summarizeSimulation(input, simulateHousehold(input, usJurisdiction), {
-    jurisdictionId: usJurisdiction.id,
-  });
+  const result = runOf(budget);
   return renderToStaticMarkup(
-    <DebugPanel report={report} budget={budget} projection={readerOf(budget)} />,
+    <DebugPanel report={result.report} budget={budget} projection={readerOf(budget)} />,
   );
 }
 

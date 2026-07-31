@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, interpretLedger, type LedgerBaseConfig } from "./index";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { interpretLedger } from "./ledger/interpret";
+import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import { dollarsToCents } from "./cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import type { Person } from "./person";

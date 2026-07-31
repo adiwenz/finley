@@ -7,11 +7,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import {
-  emptyLedger,
-  dollarsToCents,
-  goalFundAccountId,
-} from "@finley/engine";
+import { dollarsToCents } from "@finley/engine";
 import { monthLabel } from "../../format";
 import { GoalsPanel } from "./goalsPanel";
 import { readerOf, runOf } from "../../testing/projectionHarness";
@@ -33,6 +29,17 @@ const goal: GoalPlan = {
   disposition: "retain",
   annualReturnPct: 0,
 };
+
+const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
+
+/**
+ * The goal's derived fund account id, read through the facade: `accountDescriptors` carries one
+ * `kind: "goal"` entry per goal (id `fund-<goal>`), so the test names the funding source the
+ * same way the app does rather than spelling the id itself.
+ */
+const goalFundAccount = readerOf(budget)
+  .accountDescriptors()
+  .find((d) => d.kind === "goal")!.id;
 
 function homePurchase(
   sourceIds: readonly string[],
@@ -68,7 +75,6 @@ const ledgerOf = (...events: readonly LifeEvent[]): Ledger => ({
  * same rule on the far side; that is the engine's test.)
  */
 function renderPanel(ledger: Ledger, transact = vi.fn()) {
-  const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
   const panel = (l: Ledger) => (
     <GoalsPanel budget={budget} projection={readerOf(budget, l)} result={runOf(budget, l)} transact={transact} />
   );
@@ -80,7 +86,7 @@ function renderPanel(ledger: Ledger, transact = vi.fn()) {
 
 describe("GoalsPanel — refuse to delete a goal that funds an event", () => {
   it("refuses the deletion and names the blocking event", () => {
-    const ledger = ledgerOf(homePurchase([goalFundAccountId(goal)]));
+    const ledger = ledgerOf(homePurchase([goalFundAccount]));
     const { transact } = renderPanel(ledger);
     fireEvent.click(screen.getByLabelText("Delete Home down payment"));
     expect(transact).not.toHaveBeenCalled();
@@ -102,7 +108,7 @@ describe("GoalsPanel — refuse to delete a goal that funds an event", () => {
 describe("GoalsPanel — a refusal answers one delete, and does not outlive it", () => {
   const DELETE = "Delete Home down payment";
   const fundedByGoal = (over?: { id?: string; sequenceNumber?: number; month?: number }) =>
-    homePurchase([goalFundAccountId(goal)], over);
+    homePurchase([goalFundAccount], over);
 
   it("does not revive once a LATER event funds the same goal", () => {
     const { transact, rerender } = renderPanel(ledgerOf(fundedByGoal()));
@@ -113,7 +119,7 @@ describe("GoalsPanel — a refusal answers one delete, and does not outlive it",
     expect(screen.getByRole("alert").textContent).toContain("Bought a home");
 
     // 2. That event leaves the ledger — nothing blocks the goal, so the warning goes.
-    rerender(emptyLedger);
+    rerender(ledgerOf());
     expect(screen.queryByRole("alert")).toBeNull();
 
     // 3. A DIFFERENT event now funds the same goal.

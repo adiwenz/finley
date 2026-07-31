@@ -7,7 +7,9 @@
  * than silently shrinking to fit.
  */
 import { describe, it, expect } from "vitest";
-import { emptyLedger, replayLedger, nullJurisdiction } from "./index";
+import { emptyLedger } from "./ledger/ledger";
+import { replayLedger } from "./projection/buildHouseholdInput";
+import { nullJurisdiction } from "./jurisdiction";
 import { createProjectionBase, type ProjectionContext } from "./projectionBase";
 import { samplePlan } from "./testing/samplePlan";
 import { dollarsToCents } from "./cashFlowSeries";

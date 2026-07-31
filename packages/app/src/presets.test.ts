@@ -8,7 +8,6 @@
 import { describe, it, expect } from "vitest";
 import {
   Projection,
-  firstInsolventMonth,
   dollarsToCents,
   ref,
   CONTRIBUTION_TARGETS,
@@ -41,6 +40,10 @@ function planOf(preset: Preset): Plan {
 function project(preset: Preset): ProjectionSeries {
   return projectionOf(preset).run(usJurisdiction).series;
 }
+
+/** The first insolvent month off the preset's completed run — a field on `ProjectionResult`. */
+const firstInsolventMonthOf = (preset: Preset): number | null =>
+  projectionOf(preset).run(usJurisdiction).firstInsolventMonth;
 
 const realNetWorthAt = (series: ProjectionSeries, month: number): number | null =>
   series.months[month]?.netWorthRealCents ?? null;
@@ -147,7 +150,7 @@ describe("default simulations", () => {
     const opening = realNetWorthAt(series, 0)!;
     const midCareer = realNetWorthAt(series, 120)!;
     expect(midCareer).toBeGreaterThan(opening * 3);
-    expect(firstInsolventMonth(series)).toBeGreaterThan(120);
+    expect(firstInsolventMonthOf(presetById("default"))).toBeGreaterThan(120);
   });
 
   it("paycheck-to-paycheck: survives working years but barely accumulates and can't fund retirement", () => {
@@ -159,7 +162,7 @@ describe("default simulations", () => {
     expect(paycheckMid).toBeGreaterThan(0);
     expect(paycheckMid).toBeLessThan(wealthyMid * 0.25);
     // No emergency cushion means retirement is unfundable: insolvency lands around it.
-    expect(firstInsolventMonth(paycheck)).not.toBeNull();
+    expect(firstInsolventMonthOf(presetById("paycheck-to-paycheck"))).not.toBeNull();
   });
 
   it("living-on-credit: overspends from the start, accruing compounding credit-card debt", () => {
@@ -172,7 +175,7 @@ describe("default simulations", () => {
     expect(early).toBeGreaterThan(0);
     expect(later).toBeGreaterThan(early);
     // The debt is unfinanceable long-term: the plan runs out of credit.
-    expect(firstInsolventMonth(series)).not.toBeNull();
+    expect(firstInsolventMonthOf(presetById("living-on-credit"))).not.toBeNull();
   });
 
   it("taxed-in-retirement: taxes Social Security meaningfully, unlike the default plan", () => {

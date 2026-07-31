@@ -1,28 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  dollarsToCents,
-  Projection,
-  createProjectionBase,
-  addEvent,
-  emptyLedger,
-  PRIMARY_PERSON_ID,
-  SimAccount,
-  CAPITAL_GAINS_TAX_PROFILE,
-  buildWithdrawalSources,
-  type WithdrawalState,
-  type JurisdictionContext,
-  type Jurisdiction,
-  type ProjectionContext,
-} from "@finley/engine";
+import { dollarsToCents, Projection, type Jurisdiction } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./testing/projectionHarness";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { setJobMonthlyIncome } from "./testing/planFixtures";
-import { START_YEAR } from "./config";
 import type { Plan } from "@finley/engine";
-
-const CTX: ProjectionContext = { jurisdiction: usJurisdiction, startYear: START_YEAR };
 
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
 function viewOf(plan: Plan) {
@@ -234,30 +217,20 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // (67), where an added expense flips it infeasible rather than merely later. The raise
     // buys headroom below the floor, keeping "moves strictly later" observable.
     const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(7000));
-    // A child spawns an 18-year childcare expense on the ledger — the surviving way the
+    // A child spawns an 18-year childcare expense on the timeline — the surviving way the
     // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
-    const base = createProjectionBase(plan, CTX);
-    const added = addEvent(
-      emptyLedger,
-      base,
-      {
-        id: "new-child",
-        type: "ChildEvent",
-        month: 0,
-        childId: "kid-1",
-        childName: "Robin",
-        birthMonth: 0,
-        annualCostCents: dollarsToCents(9_600), // $800/mo
-      },
-      usJurisdiction,
-    );
-    expect(added.ok).toBe(true);
-    if (!added.ok) return;
+    // Authored through the facade (`haveChild`), exactly as the app does, rather than seeding a
+    // ledger by hand.
+    const withChild = Projection.fromState(stateOf(plan), usJurisdiction);
+    withChild.haveChild({
+      month: 0,
+      name: "Robin",
+      birthMonth: 0,
+      annualCostCents: dollarsToCents(9_600), // $800/mo
+    });
 
     const baselineAge = viewOf(plan).headlineAge;
-    const withChildAge = retirementView(
-      Projection.fromState(stateOf(plan, added.ledger), usJurisdiction),
-    ).headlineAge;
+    const withChildAge = retirementView(withChild).headlineAge;
     // The bare-plan baseline retires at 60 — the home goal is a drawable `retain` reserve,
     // so the down-payment fund counts toward the nest egg.
     expect(baselineAge).toBe(60);
@@ -268,41 +241,33 @@ describe("retirementView — the timeline events count toward retirement", () =>
 // No surplus-sweep-vs-idle comparison: `surplusSwept` is gone and leftover cash always
 // idles (a household wanting surplus invested authors a brokerage contribution line).
 
-describe("every draw nets its need under the real jurisdiction", () => {
-  // The engine's own tests use synthetic jurisdictions (it cannot import the rules
-  // package); this proves the seam that ships. Sizing the draw by inverting an implied rate
-  // (`need / (1 − rate)`) under-delivered by $500.61 on a $50k need, because a bracket is
-  // `offset + rate × draw`, not proportional to the draw.
-  it.each([1_000, 5_000, 20_000, 50_000])("nets a $%i need to the cent", (needDollars) => {
-    const opening = dollarsToCents(5_000_000);
-    const brokerage = new SimAccount({
-      id: "brokerage",
-      ownerId: PRIMARY_PERSON_ID,
-      liquid: false,
-      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      openingBalanceCents: opening,
-      initialAnnualRate: 0,
-    });
-    const state: WithdrawalState = {
-      accounts: [brokerage],
-      assetBalances: new Map([["brokerage", opening]]),
-      // Basis absent → 0 → whole draw taxable, isolating the gross-up arithmetic.
-      basisByAccount: new Map(),
-      liquidAccount: null,
-    };
-    const need = dollarsToCents(needDollars);
-    const ctx: JurisdictionContext = { year: START_YEAR };
-    const { sources } = buildWithdrawalSources(state, usJurisdiction, [], need, ctx);
-
-    // Re-file the draws as a tax return: what does the household keep?
-    const byCategory: Record<string, number> = {};
-    for (const s of sources) {
-      byCategory[s.taxCategory] = (byCategory[s.taxCategory] ?? 0) + s.waterfallInflowCents;
-    }
-    const gross = sources.reduce((sum, s) => sum + s.waterfallInflowCents, 0);
-    const net = gross - usJurisdiction.computeTaxCents(byCategory, ctx);
-    expect(net).toBeGreaterThanOrEqual(need);
-    // Exactly the need, not merely enough — an overshoot liquidates more than it must.
-    expect(net).toBe(need);
-  });
-});
+// Dropped: the white-box "every draw nets its need under the real jurisdiction" block
+// (SimAccount / WithdrawalState / buildWithdrawalSources / CAPITAL_GAINS_TAX_PROFILE). That was
+// engine withdrawal-mechanics coverage reaching past the facade to size a brokerage draw so it
+// nets its need to the cent under a bracketed (`offset + rate × draw`) tax.
+//
+// The whole-return gross-up arithmetic — including bracketed/offset, non-proportional taxes — is
+// already covered engine-side in `packages/engine/src/projection/withdrawal.test.ts`
+// ("Every taxed draw nets the need — whole-return gross-up": the flat-capital-gains case and the
+// cliff/lump case that pins exactly the `offset + rate × draw` shape). What a `runOf` can observe
+// today is the solvency consequence, which is far too coarse to catch a cent-level
+// under-delivery: a draw that nets a dollar short still leaves the household solvent for years.
+// So there is no facade-level assertion to write yet — see the direction below.
+//
+// TODO(facade): generalize `Projection.funding()` into a shared account-draw model, and have
+// `Projection.run()` report the draws a pass actually executed.
+//
+// `funding()` answers half this question already — which liquid accounts could pay a money-out
+// event at a month, and what a chosen set nets after tax — but only ahead of time, about an event
+// being authored. The simulator does the same reasoning every month it has to cover a shortfall,
+// and keeps none of it: a run reports balances after the fact, never the draws that moved them.
+// One model behind both, with the executed draws surfaced on `ProjectionResult`, is the shape
+// that fits — the pre-flight read and the run's own withdrawals stop being two implementations of
+// one rule that can quietly disagree.
+//
+// It is what restores this coverage, rather than a hook added for it. With executed draws on the
+// result, a test can read what a retirement drawdown actually took from each account and assert
+// it netted the need to the cent under the REAL `usJurisdiction` — the assertion the dropped
+// block made white-box, and the one thing engine tests cannot cover, since they run against
+// synthetic profiles. The retirement runs above already exercise that seam implicitly by drawing
+// accounts down under `usJurisdiction`; what is missing is any way to observe what they took.

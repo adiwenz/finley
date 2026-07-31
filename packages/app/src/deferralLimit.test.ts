@@ -7,21 +7,21 @@
 import { describe, expect, it } from "vitest";
 import {
   PRIMARY_PERSON_ID,
-  createProjectionBase,
   dollarsToCents,
-  emptyLedger,
-  interpretLedger,
   type Job,
   type Ledger,
   type LifeEvent,
   type Plan,
 } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
 import { firstDeferralLimitCrossing } from "./deferralLimit";
 import { jobOwnersOf } from "./jobOwners";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { setJobDeferralFraction, setJobMonthlyIncome } from "./testing/planFixtures";
+import { runOf } from "./testing/projectionHarness";
+
+/** The event-free ledger as a public {@link Ledger} literal (the engine's `emptyLedger` is internal). */
+const noEvents: Ledger = { events: [], nextSequenceNumber: 0 };
 
 /** The defaults with the default job's salary + deferral set — both ride the job, not the plan. */
 function budget(opts: {
@@ -38,9 +38,14 @@ function budget(opts: {
   return plan;
 }
 
-function crossingFor(plan: Plan, ledger: Ledger = emptyLedger) {
-  const base = createProjectionBase(plan, { jurisdiction: usJurisdiction, startYear: START_YEAR });
-  return firstDeferralLimitCrossing(jobOwnersOf(interpretLedger(ledger, base), ledger), plan.inflationPct);
+function crossingFor(plan: Plan, ledger: Ledger = noEvents) {
+  // The interpreted roster comes from a full run (`runOf(...).household`) — the public read
+  // that replaces `interpretLedger` + `createProjectionBase`. The deferral scan reads only the
+  // roster and the `rules` limit seam, so the run's jurisdiction is immaterial to the crossing.
+  return firstDeferralLimitCrossing(
+    jobOwnersOf(runOf(plan, ledger).household, ledger),
+    plan.inflationPct,
+  );
 }
 
 const job = (

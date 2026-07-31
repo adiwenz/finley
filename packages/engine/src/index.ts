@@ -1,221 +1,151 @@
 /**
- * @finley/engine — the public, pure financial-simulation engine. Barrel export.
+ * `@finley/engine` — the public, pure financial-simulation engine.
+ *
+ * This file IS the public surface: one module stating an application's entire dependency on the
+ * package, so adding to it is a deliberate edit with a reason beside it. It declares nothing of
+ * its own, and every line re-exports from the module that DEFINES the symbol — `Projection` from
+ * the facade, each authoring input from the module that applies it, each artifact from the
+ * function that builds it. There is no intermediate barrel to keep in step, and reading a line
+ * here tells you where the thing lives.
+ *
+ * The line, drawn once: if answering the question needs the projection — the plan, the ledger,
+ * the household, the run — it is a METHOD on {@link Projection}, and it returns what the caller
+ * actually wanted rather than a compiler artifact to finish assembling. What a caller may name
+ * beyond that is here: the types those methods take and return, a well-known id to quote, a unit
+ * conversion with no state to convert against, a label for an enum value. Everything else in the
+ * package — the simulator, the ledger, the waterfall, the snapshot/report pipeline, the entity
+ * transforms — is internal and reached by relative path from inside this package only.
+ *
+ * Nothing that WRITES appears here, and nothing that writes may be added. The entity transforms
+ * (`withPayChange`, `withGoalPatch`, `addEvent`, `updateEvent`, …) and the projection-level state
+ * functions (`addProjectionJob`, `applyMarriage`, …) are internal. An app that could import one
+ * would have a second write path around the id counter, the goal-funding guard and the
+ * affordability gate — which is the arrangement this module exists to replace.
+ *
+ * Named re-exports only, never `export *`: `index.guard.test.ts` and the app's
+ * `planWrites.guard.test.ts` both read this file's TEXT to decide what may be named, so a
+ * wildcard would widen the surface silently and re-open the hole a curated map closes.
  *
  * Depends on nothing app- or rules-specific: it defines the jurisdiction interface and runs
  * standalone with the null jurisdiction. Purity enforced by `scripts/check-engine-purity.mjs`.
  */
-export type { Cents } from "./money";
-export * from "./cashFlowSeries";
-export * from "./simAccount";
-export * from "./liability";
-export * from "./affordability";
-export * from "./jurisdiction";
-export * from "./earningsRecord";
-export * from "./governmentBenefit";
-export * from "./goal";
-// `Person` is the public household-member type. Its compiled counterpart `SimPerson` is
-// engine-internal and intentionally absent here; `compilePerson` derives it at the sim boundary.
-export type { Job, PersonId, SalaryTrajectory, JobDeferral, JobIncomeOverride, JobPayChange, JobPatch } from "./job";
-// The authoring transforms are shared BY BOTH write paths — the `Projection` API and the
-// app's panels — so a rule like "a 0% deferral is removed, not recorded" has one home.
-export {
-  deriveRealGrowthPct,
-  mapJob,
-  withJobPatch,
-  withMonthlyIncome,
-  monthlyIncomeCentsOf,
-  deferralFractionOf,
-  withDeferralFraction,
-  withPayChange,
-  withoutPayChange,
-  withIncomeOverride,
-  withoutIncomeOverride,
+
+// The facade itself, and the artifacts its two derived-output queries answer with — each beside
+// the function that builds it, since a result type and its constructor are one thing.
+export { Projection } from "./projectionFacade";
+export type { ProjectionResult } from "./projectionRun";
+export type { RetirementOutlook } from "./retirementOutlook";
+
+// The authoring state a caller holds, its self-describing format version, and the error that
+// refuses a version this build cannot read.
+export type { ProjectionState } from "./authoring/state";
+export { CURRENT_FORMAT_VERSION } from "./authoring/state";
+export { UnsupportedVersionError } from "./authoring/restore";
+
+// What the authoring methods take. Each is declared beside the module that applies it, so a
+// field added to one is added where its rules are.
+export type { JobInput } from "./authoring/jobs";
+export type { BudgetLineInput, ResolvedExpenseRow } from "./authoring/budgetLines";
+export type { GoalInput } from "./authoring/goals";
+export type { MarryInput, HaveChildInput, SeparateInput } from "./authoring/relationships";
+export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
+export type { TakeLoanInput, PayOffDebtInput } from "./authoring/liabilities";
+export type { TransactionRevision } from "./authoring/revise";
+
+// The authored model, and the artifacts a run produces.
+export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan";
+// The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
+// how seed data and presets describe a whole scenario without naming an id.
+export type { ScenarioInput, FromInputResult } from "./scenarioInput";
+export type {
+  Job,
+  JobPatch,
+  JobDeferral,
+  JobIncomeOverride,
+  JobPayChange,
+  PersonId,
+  SalaryTrajectory,
 } from "./job";
 export type { Person } from "./person";
-// Authoring model: `Account.owners` distinguishes individual (`[p]`) from joint (`[p1, p2]`)
-// holdings. Distinct from the simulator's `SimAccount` class (`./simAccount`). Ownership
-// lives on the single `Household` aggregate (`./ledger/household`), not a second one.
-export type { Account } from "./account";
-// One account under both aspects: the authoring `Account` the household rosters and the
-// compiled `SimAccount` the simulator runs, built from a single spec so they cannot drift.
-export { planAccount, type PlanAccount } from "./planAccount";
-export {
-  makeAccount,
-  assertAccountOwnership,
-  isJoint,
-  isIndividual,
-  personalAccounts,
-  jointAccounts,
-  accountsOf,
-  householdNetWorthCents,
-} from "./account";
-export {
-  compilePersonIncomeSeries,
-  compilePersonPriorEarnings,
-  type MembershipWindow,
-} from "./compilePerson";
-// Line-item budget authoring model: prioritized expenses + account contributions, with
-// {literal, fill-to-limit, goal-paced} amount sources, spans and dated overrides. Deferral is
-// not a lever here — it rides the Job. The sole expense authoring surface; `compileBudget` is
-// the sim seam.
+export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
 export type {
-  TaxTreatment,
-  BudgetTarget,
-  AmountSource,
-  BudgetCategory,
-  BudgetLineSpan,
-  BudgetLineOverride,
   BudgetLine,
   BudgetLinePatch,
-  ResolveLineContext,
-  ResolvedBudgetLine,
+  BudgetLineOverride,
+  BudgetCategory,
+  TaxTreatment,
 } from "./budgetLine";
-export {
-  taxTreatmentForLine,
-  resolveBudgetLineMonthlyCents,
-  budgetLinePriority,
-  orderBudgetLines,
-  resolveBudget,
-  withLinePatch,
-  withLineOverride,
-  withoutLine,
-} from "./budgetLine";
-export {
-  compileExpenseBudgetLines,
-  fillToLimitSeamFor,
-} from "./compileBudget";
-// The primitive behind the `goalPaced` amount source and the waterfall's fund-to-pace loop.
-export { requiredContributionCents } from "./requiredContribution";
-// `allocations()` reads job deferrals + budget lines + goals as one priority-ordered list;
-// writes route back to the canonical home (deferral → job, expense → budget, goal → goal).
+export type { Scenario } from "./scenario";
+export type { Ledger } from "./ledger/ledger";
+export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export type { Household } from "./ledger/household";
+export type { FundingLookup } from "./ledger/addEvent";
+export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
+export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
+export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type { SharedContributionScheme } from "./projection/waterfall.types";
+export type { SpendingItem } from "./projection/spendingItems";
+export type { SimulationReport } from "./projection/report";
+export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+export type { DtiAssessment } from "./affordability";
+export type { LiabilityKind } from "./liability";
+export type { Cents } from "./money";
+
+// The open-core seam. The `rules` package implements {@link Jurisdiction} against this engine,
+// so every context and param type its methods name is part of the published surface — a rule
+// implementation cannot type its arguments otherwise. Listed whole rather than piecemeal: the
+// interface and the shapes it references are one contract, and a context type reachable only by
+// the engine would leave a `rules` method unable to name what it is handed.
 export type {
-  AllocationHome,
-  AllocationSource,
-  Allocation,
-  AllocationsInput,
-  AllocationEdit,
-  WriteRoute,
-} from "./allocations";
+  Jurisdiction,
+  JurisdictionContext,
+  GovernmentBenefitClaim,
+  GovernmentBenefitContext,
+  DeferralLimitContext,
+  RmdContext,
+  HealthCostContext,
+  WithdrawalTaxBasis,
+  ReturnTaxTreatment,
+} from "./jurisdiction";
+export type { TaxCategory } from "./cashFlowSeries";
+export type { ModelAssumption } from "./projection/assumptions";
+export type { AccountReturnKind } from "./simAccount";
+export type { EarningsRecord } from "./earningsRecord";
+export type { ProjectionIncomeSource } from "./projection/simulate.types";
+
+// The standalone jurisdiction: no taxes, no government programs. Part of this package precisely
+// so `fromInput(input, nullJurisdiction)` runs the engine end to end without the `rules` package
+// — a value on the surface, not a type, because a caller supplies it.
+export { nullJurisdiction } from "./jurisdiction";
+
+// Money as the user types it. Neither reads nor writes anything — a form has cents to hand
+// the facade before there is any state for the facade to hold, so a `Projection` method
+// would be an instance in search of a use.
+export { dollarsToCents, centsToDollars } from "./cashFlowSeries";
+
+// A total function of one enum value, with no projection to ask.
+export { liabilityKindLabel } from "./liability";
+
+// Ids and thresholds the engine owns and an app has to quote back: the primary person, the
+// standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
+export { RETIREMENT_ID } from "./ids";
+export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
+export { SYNTHETIC_CARD_ID } from "./liability";
+export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";
+
+// Declarative authoring: the app's seed plans and starter scenarios are `ScenarioInput`
+// documents, so they need the entry types, the `ref` constructor that names things inside one,
+// and the pre-branded refs for what the engine provides rather than the document declaring it.
+// Naming these is not reaching past the facade — `fromInput` is a facade method, and an input
+// carries no ids, so nothing here lets a caller author identity.
+export type { BudgetLineEntry, JobEntry, GoalEntry, EventEntry } from "./scenarioInput";
+export { ref } from "./scenarioInput";
 export {
-  allocations,
-  goalToLineItem,
-  budgetLineAllocationId,
-  routeAllocationWrite,
-} from "./allocations";
-export * from "./plan";
-// The `Projection` root: standing edits + ledger transactions on one object, deterministic id
-// minting, `run(jurisdiction)` → immutable `ProjectionResult`. No undo stack — reversal is
-// addressable removal.
-//
-// Three ways to get a handle — two that AUTHOR and mint, one that RESTORES and preserves:
-//
-//   Projection.init(scalars, jurisdiction)     AUTHOR  — an empty projection, built up with
-//     the authoring methods. Mints every id it issues.
-//   Projection.fromInput(input, jurisdiction)  AUTHOR  — takes a declarative, id-free
-//     `ScenarioInput` and mints every durable id off the shared counter. This is `init` plus
-//     the entries, applied for you.
-//   Projection.fromState(state, jurisdiction)  RESTORE — takes a whole `ProjectionState` whose
-//     ids were issued earlier, preserving them and normalizing stale counters.
-//
-// Nothing else adopts caller-named data: no authoring input carries an `id`, and no method takes
-// an id-bearing `Plan`, `Ledger` or `LifeEvent`. An edit may NAME an existing id as the target it
-// addresses (`updateJob(jobId, …)`, `reviseTransaction(eventId, …)`) but can never replace that
-// id or anything nested under it.
-export type {
-  ProjectionState,
-  ProjectionResult,
-  JobInput,
-  BudgetLineInput,
-  GoalInput,
-  MarryInput,
-  HaveChildInput,
-  SeparateInput,
-  TakeLoanInput,
-  BuyHomeInput,
-  PayOffDebtInput,
-  TransactionRevision,
-  HomePurchaseInput,
-  HomePurchaseAssessment,
-  RetirementOutlook,
-  ResolvedExpenseRow,
-} from "./projectionRoot";
-export { Projection, CURRENT_FORMAT_VERSION, UnsupportedVersionError } from "./projectionRoot";
-// The declarative, id-free authoring entry point: a `ScenarioInput` describes a whole scenario
-// with author-chosen `Ref`s in every pointer position, and `Projection.fromInput` mints the ids.
-export type {
-  Ref,
-  BudgetTargetInput,
-  JobEntry,
-  PartnerJobEntry,
-  GoalEntry,
-  BudgetLineEntry,
-  MarryEntry,
-  HaveChildEntry,
-  TakeLoanEntry,
-  BuyHomeEntry,
-  SeparateEntry,
-  PayOffDebtEntry,
-  EventEntry,
-  ScenarioInput,
-  ScenarioScalars,
-  FromInputResult,
-  ScenarioInputError,
-} from "./scenarioInput";
-export { eventEntryType, ref } from "./scenarioInput";
-// Ref resolution runs standalone, before anything is minted: it proves every ref names something
-// addressable at the point it is used and hands back the month-ordered event schedule.
-export {
-  resolveRefs,
-  WELL_KNOWN_REF_IDS,
   PRIMARY_PERSON_REF,
   SAVINGS_REF,
   RETIREMENT_REF,
   BROKERAGE_REF,
   SYNTHETIC_CARD_REF,
 } from "./scenarioRefs";
-export type { ResolveRefsResult, ScheduledEvent } from "./scenarioRefs";
-// A Scenario couples a Plan with its Ledger, so timeline events can never be silently dropped
-// from a projection.
-export * from "./scenario";
-export * from "./projectionBase";
-// Which events spend from a goal's fund account — the integrity question behind removing a
-// goal, since the account is derived from the goal and falls away with it.
-export * from "./goalFunding";
-// The retirement searches are NOT public. `Projection.retirement` is the one public query
-// over a scenario and a context; the search for the earliest feasible ages and the evaluation
-// at the plan's target age are how it is implemented, not two more things to call. Each,
-// along with `projectScenario`/`planSurvives` under them, is tested where it lives — a second
-// copy of that arithmetic outside the engine would only pin the engine's own tests twice.
-// `projectScenarioParts` is internal for a further reason: its result carries
-// `HouseholdSimInput`, a low-level simulator artifact this facade exists to stop publishing.
-export * from "./retirementTypes";
-export * from "./earlyRetireeHealthCheck";
-export * from "./ids";
-
-// Simulator (low-level) + the ledger→projection→snapshot pipeline.
-export * from "./projection/waterfall";
-export * from "./projection/simulate";
-export * from "./projection/rmd";
-export * from "./projection/withdrawal";
-export * from "./projection/buildHouseholdInput";
-// What a month costs, itemized.
-export * from "./projection/spendingItems";
-export * from "./projection/report";
-export * from "./projection/assumptions";
-export * from "./projection/snapshot";
-
-// Event ledger.
-export * from "./ledger/eventTypes";
-export * from "./ledger/ledger";
-export * from "./ledger/transfers";
-export * from "./ledger/ledgerBase";
-export * from "./ledger/interpretState";
-export * from "./ledger/household";
-export * from "./ledger/interpret";
-export * from "./ledger/eventValidation";
-export * from "./ledger/dependencies";
-export * from "./ledger/funding";
-export * from "./ledger/validateLedger";
-export * from "./ledger/removeEvent";
-export * from "./ledger/addEvent";
-export * from "./ledger/updateEvent";

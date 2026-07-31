@@ -19,16 +19,16 @@
  *  3. No function that produces a `Plan` at all — a write path whatever it does inside.
  *  4. No rebuilding of a partner's `jobs` on the event that carries them.
  *  5. No minted job id — one counter inside `Projection` issues every one, on both planes.
- *  6. Nothing named from `@finley/engine` that `projectionRoot.ts` does not export — the app's
- *     whole engine surface is the facade module, values and types alike.
+ *  6. Nothing named from `@finley/engine` that the engine's `index.ts` does not export — the
+ *     app's whole engine surface is that one export map, values and types alike.
  *
- * (6) is the general rule the others are specific cases of, and it is checked against the
- * facade module's own text rather than a list kept here: widening what the app may name means
- * editing `projectionRoot.ts` and justifying it there, where the surface is. Two things follow
- * from stating it that way. Nothing that WRITES can be imported, because nothing that writes
- * is exported there — asserted directly below, so the rule cannot be satisfied by a facade
- * that quietly re-exports `withPayChange`. And no simulator internal can enter the app's
- * vocabulary, because types are scanned beside values.
+ * (6) is the general rule the others are specific cases of, and it is checked against the export
+ * map's own text rather than a list kept here: widening what the app may name means editing
+ * `index.ts` and justifying it there, where the surface is. Two things follow from stating it
+ * that way. Nothing that WRITES can be imported, because nothing that writes is exported there —
+ * asserted directly below, so the rule cannot be satisfied by a map that quietly re-exports
+ * `withPayChange`. And no simulator internal can enter the app's vocabulary, because types are
+ * scanned beside values.
  *
  * Seed data and test fixtures are exempt by location, not by name: {@link SEED_MODULES} state
  * a starting plan (nothing is being *edited*), and `src/testing/` is not shipped. Seeds are
@@ -137,18 +137,26 @@ const PARTNER_JOBS_REBUILD = /\.\.\.\s*[\w.]*\bperson\b[\s\S]{0,200}?\bjobs\s*:/
 const JOB_ID_MINT = /`[^`]*\bjob-\$\{/;
 
 /**
- * The engine's facade module, read as text. The rule below is stated against what this file
- * exports rather than a list kept here, so "the app's whole engine surface" has ONE definition
- * and it lives beside the surface itself: to let the app name something new, you edit
- * `projectionRoot.ts` and say why there.
+ * The engine's export map, read as text. The rule below is stated against what this file exports
+ * rather than a list kept here, so "the app's whole engine surface" has ONE definition and it
+ * lives beside the surface itself: to let the app name something new, you edit the engine's
+ * `index.ts` and say why there.
+ *
+ * That file is a map and only a map — the engine's own `index.guard.test.ts` holds it to named
+ * re-exports with no `export *`, which is precisely what makes reading it as text sound. A
+ * wildcard there would make this scan silently under-report and let anything through.
  */
-const facadeSource = readFileSync(
-  fileURLToPath(new URL("../../engine/src/projectionRoot.ts", import.meta.url)),
+const engineSurfaceSource = readFileSync(
+  fileURLToPath(new URL("../../engine/src/index.ts", import.meta.url)),
   "utf8",
 );
 
-/** Every name `projectionRoot.ts` exports — declared there, or re-exported through it. */
-function facadeExports(source: string): Set<string> {
+/**
+ * Every name the engine's `index.ts` exports. It declares nothing of its own — each symbol is
+ * re-exported from the module that defines it — but the declaration reading stays too, because
+ * what the rule means is "the names this module publishes", however they get there.
+ */
+function engineSurface(source: string): Set<string> {
   const names = new Set<string>();
   // Re-export blocks: `export { a, b } from "./x"`, `export type { a } from "./y"`.
   for (const match of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"[^"]*"/gs)) {
@@ -167,8 +175,11 @@ function facadeExports(source: string): Set<string> {
 }
 
 /**
- * Engine authoring transforms, named to prove the check below has teeth. Each is a second
- * write path if an app can reach it, so none may ever appear on the facade's surface.
+ * Engine write functions, named to prove the check below has teeth. Each is a second write path
+ * if an app can reach it, so none may ever appear on the facade's surface. Two layers, both
+ * internal: the entity transforms, and the projection-level state functions the facade's methods
+ * delegate to — the latter take a whole `ProjectionState` and hand back the next one, so an app
+ * holding one could author around the id counter and every gate at once.
  */
 const WRITES_THAT_MUST_STAY_INTERNAL = [
   "addEvent",
@@ -181,6 +192,18 @@ const WRITES_THAT_MUST_STAY_INTERNAL = [
   "withLinePatch",
   "withPlan",
   "withLedger",
+  "addProjectionJob",
+  "reassignProjectionJob",
+  "addProjectionBudgetLine",
+  "removeProjectionGoal",
+  "applyMarriage",
+  "applyHomePurchase",
+  "applyLoan",
+  "reviseProjectionTransaction",
+  "appendEvent",
+  "replaceEvent",
+  "withStatePlan",
+  "withStateLedger",
 ];
 
 /**
@@ -247,24 +270,24 @@ describe("app write path — no direct plan writes outside the facade", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("names nothing from the engine that the facade module does not export", () => {
-    const facade = facadeExports(facadeSource);
+  it("names nothing from the engine that the export map does not publish", () => {
+    const surface = engineSurface(engineSurfaceSource);
     // Every shipped module, seeds included: stating a starter plan is a reason to be exempt
     // from the no-rebuild checks, not a reason to reach past the facade for the vocabulary.
     const offenders = shippedModules().flatMap(({ path, source }) =>
       engineImports(source)
-        .filter((name) => !facade.has(name))
+        .filter((name) => !surface.has(name))
         .map((name) => `${path}: ${name}`),
     );
     expect(offenders).toEqual([]);
   });
 
-  it("keeps every authoring transform off the facade's surface", () => {
-    const facade = facadeExports(facadeSource);
-    // Reading the facade's exports is only worth anything if it actually found them.
-    expect(facade.has("Projection")).toBe(true);
-    expect(facade.size).toBeGreaterThan(30);
-    expect(WRITES_THAT_MUST_STAY_INTERNAL.filter((name) => facade.has(name))).toEqual([]);
+  it("keeps every authoring transform off the published surface", () => {
+    const surface = engineSurface(engineSurfaceSource);
+    // Reading the map is only worth anything if it actually found the names.
+    expect(surface.has("Projection")).toBe(true);
+    expect(surface.size).toBeGreaterThan(30);
+    expect(WRITES_THAT_MUST_STAY_INTERNAL.filter((name) => surface.has(name))).toEqual([]);
   });
 
   it("keeps the guard honest — the patterns do fire on the shape they ban", () => {
@@ -298,11 +321,11 @@ describe("app write path — no direct plan writes outside the facade", () => {
       "Job",
     ]);
     // …and the facade scan reads both halves of its own module: what it declares, and what it
-    // re-exports through itself.
-    const facade = facadeExports(
+    // a module declares directly.
+    const surface = engineSurface(
       'export class Projection {}\nexport type { Job } from "./job";\nexport { dollarsToCents } from "./cashFlowSeries";',
     );
-    expect([...facade].sort()).toEqual(["Job", "Projection", "dollarsToCents"]);
+    expect([...surface].sort()).toEqual(["Job", "Projection", "dollarsToCents"]);
     // Reading a partner's jobs is not writing them.
     expect(PARTNER_JOBS_REBUILD.test("for (const j of event.person.jobs) ids.add(j.id);")).toBe(
       false,
