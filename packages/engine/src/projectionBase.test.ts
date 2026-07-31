@@ -54,7 +54,7 @@ function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction)
 describe("createProjectionBase — general expenses come only from budget lines", () => {
   const generalKinds = (plan: Plan) =>
     createProjectionBase(plan, ctx())
-      .initialExpenseSeries!.map((s) => s.spendingSource?.kind)
+      .initialExpenseSeries!.map((s) => s.obligationSource?.kind)
       .filter((k) => k !== "healthcare");
 
   it("tags every general-expense series as a budget line", () => {
@@ -65,7 +65,7 @@ describe("createProjectionBase — general expenses come only from budget lines"
 
   it("emits no general-expense series when a plan authors no budget lines — only health", () => {
     const base = createProjectionBase({ ...samplePlan, budgetLines: [] }, ctx());
-    expect(base.initialExpenseSeries!.map((s) => s.spendingSource?.kind)).toEqual(["healthcare"]);
+    expect(base.initialExpenseSeries!.map((s) => s.obligationSource?.kind)).toEqual(["healthcare"]);
   });
 });
 

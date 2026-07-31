@@ -9,7 +9,7 @@ import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
 import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
-import type { SpendingItem, SpendingSource } from "./spendingItems";
+import type { FinancialObligation, ObligationSource } from "./financialObligation";
 import type { FundingDraw } from "../ledger/transfers";
 import type {
   PlanDescriptor,
@@ -145,17 +145,18 @@ export interface ProjectionMonthFlows {
    */
   readonly lineMonthlyCents: Readonly<Record<string, Cents>>;
   /**
-   * Everything this month cost, itemized — budget lines, the health line, event-created
-   * expenses, and each liability's scheduled payment. `lineMonthlyCents` is its
-   * budget-line slice and `expensesCents` / `liabilityPaymentsCents` its rollups, all
-   * derived from these items, so none can drift.
+   * Everything this month must fund — budget lines, the health line, event-created expenses,
+   * and each liability's scheduled payment — the same {@link FinancialObligation} list that
+   * drove the waterfall, ordered for reporting by priority. `lineMonthlyCents` is its
+   * budget-line slice and `expensesCents` / `liabilityPaymentsCents` its rollups, all derived
+   * from this list, so none can drift.
    */
-  readonly spendingItems: readonly SpendingItem[];
+  readonly obligations: readonly FinancialObligation[];
   /**
-   * Σ `spendingItems`, and exactly `expensesCents + liabilityPaymentsCents` (pinned by
-   * an engine invariant test).
+   * Σ `obligations`, and exactly `expensesCents + liabilityPaymentsCents` (pinned by an engine
+   * invariant test).
    */
-  readonly totalSpendingCents: Cents;
+  readonly totalObligationsCents: Cents;
 }
 
 /**
@@ -267,9 +268,9 @@ export interface SimOwnedSeries {
   /**
    * Which authoring model an EXPENSE series came from, how to categorize it, and whether
    * it is editable as a line. Read only by {@link
-   * import("./spendingItems").buildSpendingItems}. Absent on income series.
+   * import("./financialObligation").buildObligations}. Absent on income series.
    */
-  readonly spendingSource?: SpendingSource;
+  readonly obligationSource?: ObligationSource;
 }
 
 /**

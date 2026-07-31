@@ -15,10 +15,10 @@ import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTic
 import { describeInsolvency, type ChartBand, type PerLineBudgetData } from "./perLineBudget";
 
 /**
- * Monthly spending chart: each engine spending item a stacked area, coloured by kind
+ * Monthly spending chart: each engine obligation a stacked area, coloured by kind
  * ({@link BAND_PALETTE}).
  *
- * Bands are never pinched short in a tight month — the simulator never skips spending, so a
+ * Bands are never pinched short in a tight month — the simulator never skips an obligation, so a
  * short band would misreport money actually spent. A shortfall shows as the terminal case,
  * savings and credit exhausted: shaded amber from the first insolvent month, with a summary
  * that doubles as the figure's accessible description.

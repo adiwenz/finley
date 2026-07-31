@@ -296,7 +296,7 @@ describe("Already-credited savings interest funds spending without double-counti
     expect(recon.flows!.taxBySourceCents![interest.sourceId]).toBe(dollarsToCents(100));
     expect(interest.netCashFlowCents).toBe(dollarsToCents(400));
     // No FALSE insolvency — the gap is genuinely met by the savings the interest is part of.
-    expect(recon.flows!.totalSpendingCents).toBe(dollarsToCents(400));
+    expect(recon.flows!.totalObligationsCents).toBe(dollarsToCents(400));
     expect(recon.isInsolvent).toBe(false);
   });
 

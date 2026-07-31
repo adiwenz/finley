@@ -306,7 +306,7 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
         ownerId: PRIMARY_PERSON_ID,
         label: "Healthcare",
         // Authored as a plan input, not a budget line: reports, but not editable.
-        spendingSource: {
+        obligationSource: {
           kind: "healthcare",
           id: "health",
           category: "healthcare",

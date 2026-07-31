@@ -104,13 +104,13 @@ describe("compileExpenseBudgetLines", () => {
     // Nothing ranked lines when compilation dropped priority; the obligation waterfall now does.
     // A `needs` line with no explicit priority resolves to its category default (0).
     const [needs] = compileExpenseBudgetLines([literalExpense("rent", dollarsToCents(2_000))], "p1", 0);
-    expect(needs.spendingSource?.priority).toBe(0);
+    expect(needs.obligationSource?.priority).toBe(0);
     const [wants] = compileExpenseBudgetLines(
       [literalExpense("streaming", dollarsToCents(50), { category: "wants" })],
       "p1",
       0,
     );
-    expect(wants.spendingSource?.priority).toBe(1_000);
+    expect(wants.obligationSource?.priority).toBe(1_000);
   });
 
   it("carries an explicit line priority through, overriding the category default", () => {
@@ -119,7 +119,7 @@ describe("compileExpenseBudgetLines", () => {
       "p1",
       0,
     );
-    expect(s.spendingSource?.priority).toBe(5);
+    expect(s.obligationSource?.priority).toBe(5);
   });
 
   it("skips contribution lines (only expense targets become expense series)", () => {

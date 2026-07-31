@@ -15,7 +15,6 @@ import type { Cents } from "../money";
 import type { BudgetCategory } from "../budgetLine";
 import type { LiabilityKind, SimLiability } from "../liability";
 import type { SimOwnedSeries } from "./simulate.types";
-import type { SpendingSource } from "./spendingItems";
 
 /**
  * Which authoring model an obligation's money comes from. Provenance, not presentation: it
@@ -43,6 +42,26 @@ export type ObligationSourceKind =
  * question a mortgage payment answers.
  */
 export type ObligationCategory = BudgetCategory | "healthcare" | "debtService" | "other";
+
+/**
+ * The provenance an expense {@link SimOwnedSeries} carries so {@link buildObligations} can turn
+ * it into an obligation. Set where the series is compiled — the only place that knows its
+ * authoring model — and read only here. Liabilities carry no source: their obligation is built
+ * from the roster and the payment map, not a tagged series.
+ */
+export interface ObligationSource {
+  readonly kind: Exclude<ObligationSourceKind, "liability">;
+  readonly id: string;
+  readonly category: ObligationCategory;
+  readonly editable: boolean;
+  /**
+   * The waterfall priority this source resolves to, carried from its compiler because the tier
+   * cannot be recovered from `kind` alone: a budget line's authored/category ordering and a
+   * court-ordered stream's mandatory rank both live in the authoring model. Absent → the
+   * obligation defaults to its kind's tier ({@link DEFAULT_PRIORITY_BY_KIND}).
+   */
+  readonly priority?: number;
+}
 
 /**
  * One thing a month must fund. Every obligation this slice constructs is `funding: automatic`;
@@ -115,6 +134,23 @@ export function expenseReportingTotal(obligations: readonly FinancialObligation[
   );
 }
 
+/**
+ * The obligation list ordered for reporting: by {@link FinancialObligation.priority} ascending
+ * (lower funded first — mandatory debt and support below the needs tier, wants above), ties
+ * broken on the stable {@link FinancialObligation.id}. This is the order chart bands stack in;
+ * the id tie-break is what stops obligations sharing a tier from reshuffling month to month.
+ *
+ * The waterfall consumes an order-invariant sum, so ordering is a reporting concern alone —
+ * kept out of {@link buildObligations}, whose output stays in source order.
+ */
+export function orderObligationsByPriority(
+  obligations: readonly FinancialObligation[],
+): FinancialObligation[] {
+  return [...obligations].sort(
+    (a, b) => a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
 /** A debt's payment named from its kind — the only human fact a liability has. */
 const LIABILITY_LABEL: Record<LiabilityKind, string> = {
   mortgage: "Mortgage payment",
@@ -124,7 +160,7 @@ const LIABILITY_LABEL: Record<LiabilityKind, string> = {
 };
 
 /** Provenance for an expense series that reached construction without tagging itself. */
-const UNTRACKED: SpendingSource = {
+const UNTRACKED: ObligationSource = {
   kind: "untracked",
   id: "expenses",
   category: "other",
@@ -149,12 +185,12 @@ export const OBLIGATION_PRIORITY = {
 
 /**
  * The tier a non-liability source funds at when it carries no explicit priority of its own.
- * Budget lines resolve their real priority in compilation ({@link SpendingSource.priority}) and
+ * Budget lines resolve their real priority in compilation ({@link ObligationSource.priority}) and
  * only hit `needs` here as a fallback; court-ordered event streams likewise stamp `mandatory` on
  * their source, since a child's cost and alimony share the `event` kind and cannot be told apart
  * by kind alone.
  */
-const DEFAULT_PRIORITY_BY_KIND: Record<SpendingSource["kind"], number> = {
+const DEFAULT_PRIORITY_BY_KIND: Record<ObligationSource["kind"], number> = {
   budgetLine: OBLIGATION_PRIORITY.needs,
   healthcare: OBLIGATION_PRIORITY.needs,
   event: OBLIGATION_PRIORITY.needs,
@@ -187,7 +223,7 @@ export function buildObligations(
   payments: ReadonlyMap<string, Cents>,
 ): FinancialObligation[] {
   const obligations: FinancialObligation[] = expenseSeries.map((s): FinancialObligation => {
-    const source = s.spendingSource ?? UNTRACKED;
+    const source = s.obligationSource ?? UNTRACKED;
     return {
       id: source.kind === "budgetLine" ? `line:${source.id}` : source.id,
       sourceId: source.id,

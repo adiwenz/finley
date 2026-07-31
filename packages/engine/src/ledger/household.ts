@@ -8,7 +8,7 @@ import type { Cents } from "../money";
 import type { GrowthMode } from "../cashFlowSeries";
 import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
-import type { SpendingSource } from "../projection/spendingItems";
+import type { ObligationSource } from "../projection/financialObligation";
 import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
@@ -64,11 +64,11 @@ export interface HouseholdSeries {
    */
   readonly lineId?: string;
   /**
-   * Which authoring model this expense came from, for the itemized spending report.
-   * Carried from the base series or derived from an event-created series'
-   * {@link SeriesRole}.
+   * Which authoring model this expense came from, so it can be built into a {@link
+   * import("../projection/financialObligation").FinancialObligation}. Carried from the base
+   * series or derived from an event-created series' {@link SeriesRole}.
    */
-  readonly spendingSource?: SpendingSource;
+  readonly obligationSource?: ObligationSource;
 }
 
 interface HouseholdLiabilityCommon {

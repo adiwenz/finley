@@ -258,7 +258,7 @@ describe("SeparationEvent", () => {
     const household = interpretLedger(ledger, baseConfig);
     for (const role of ["alimony", "childSupport"] as const) {
       const s = household.series.find((x) => x.role === role)!;
-      expect(s.spendingSource?.priority).toBe(OBLIGATION_PRIORITY.mandatory);
+      expect(s.obligationSource?.priority).toBe(OBLIGATION_PRIORITY.mandatory);
     }
   });
 
@@ -275,7 +275,7 @@ describe("SeparationEvent", () => {
     });
     const household = interpretLedger(ledger, baseConfig);
     const cost = household.series.find((s) => s.role === "childCost")!;
-    expect(cost.spendingSource?.priority).toBeUndefined();
+    expect(cost.obligationSource?.priority).toBeUndefined();
   });
 
   it("child support expense runs indefinitely (no endMonth)", () => {

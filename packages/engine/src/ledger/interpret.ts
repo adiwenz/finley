@@ -90,7 +90,7 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
     planDescriptor: os.planDescriptor,
     ...(os.sourceId !== undefined ? { sourceId: os.sourceId } : {}),
     ...(os.lineId !== undefined ? { lineId: os.lineId } : {}),
-    ...(os.spendingSource !== undefined ? { spendingSource: os.spendingSource } : {}),
+    ...(os.obligationSource !== undefined ? { obligationSource: os.obligationSource } : {}),
   };
 }
 
@@ -160,14 +160,14 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
         endMonth: def.endMonth,
         series: materializeSeries(def),
       };
-      // An event's expense reports as ordinary spending, tagged back to the event that
-      // authored it — edited through that event, never as a budget line.
+      // An event's expense becomes an obligation tagged back to the event that authored it —
+      // edited through that event, never as a budget line.
       return def.seriesType === "income"
         ? common
         : {
             ...common,
             label: ROLE_LABEL[def.role],
-            spendingSource: {
+            obligationSource: {
               kind: "event",
               id: def.id,
               category: "other",

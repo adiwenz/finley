@@ -70,8 +70,8 @@ function compileExpenseLine(
     ownerId,
     label: line.label,
     lineId: line.id,
-    // The only spending stream a user edits directly; the unified spending report reads it.
-    spendingSource: {
+    // The only expense stream a user edits directly; its obligation is built from this.
+    obligationSource: {
       kind: "budgetLine",
       id: line.id,
       category: line.category,

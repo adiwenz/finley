@@ -53,8 +53,8 @@ export function buildLiabilityPaymentRecords(
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
  * terminal failure condition, surfaced as `isInsolvent` and a null net worth. Nothing
- * per-line is derived from it (see {@link import("./spendingItems").buildSpendingItems} for
- * why spending is reported as authored rather than rationed).
+ * per-line is derived from it (see {@link import("./financialObligation").buildObligations}
+ * for why an obligation is reported at its authored amount rather than rationed).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;

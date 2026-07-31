@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionSeries, type SpendingItem } from "@finley/engine";
+import { dollarsToCents, type FinancialObligation, type ProjectionSeries } from "@finley/engine";
 import { buildPerLineBudgetData, describeInsolvency } from "./perLineBudget";
 
-/** A spending item as the engine reports one, with the chart-relevant bits varied. */
-function item(over: Partial<SpendingItem> & Pick<SpendingItem, "id" | "amountCents">): SpendingItem {
+/** An obligation as the engine reports one, with the chart-relevant bits varied. */
+function item(
+  over: Partial<FinancialObligation> & Pick<FinancialObligation, "id" | "amountCents">,
+): FinancialObligation {
   return {
     label: over.id,
+    month: 0,
+    treatment: "expense",
+    funding: { kind: "automatic" },
+    priority: 0,
     category: "needs",
     sourceKind: "budgetLine",
     sourceId: over.id,
@@ -46,30 +52,30 @@ const loan = (dollars: number) =>
 
 /**
  * A minimal series fixture: month 0 is the flow-free opening snapshot, then one flowed month
- * per item list, carrying the engine's itemized spending and its total.
+ * per obligation list, carrying the engine's obligation list and its total.
  */
-function seriesOf(months: SpendingItem[][], insolventFrom?: number): ProjectionSeries {
+function seriesOf(months: FinancialObligation[][], insolventFrom?: number): ProjectionSeries {
   const all = [
     { month: 0, isInsolvent: false },
-    ...months.map((spendingItems, i) => ({
+    ...months.map((obligations, i) => ({
       month: i + 1,
       isInsolvent: insolventFrom !== undefined && i + 1 >= insolventFrom,
       flows: {
-        spendingItems,
-        totalSpendingCents: spendingItems.reduce((sum, s) => sum + s.amountCents, 0),
+        obligations,
+        totalObligationsCents: obligations.reduce((sum, s) => sum + s.amountCents, 0),
       },
     })),
   ];
   return { months: all } as unknown as ProjectionSeries;
 }
 
-describe("buildPerLineBudgetData — the spending graph reads the engine's items", () => {
-  it("emits one row per flowed month, with each item's amount and the engine's total", () => {
+describe("buildPerLineBudgetData — the spending graph reads the engine's obligations", () => {
+  it("emits one row per flowed month, with each obligation's amount and the engine's total", () => {
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000), fun(2_000)]]));
     expect(data.rows).toHaveLength(1);
     expect(data.rows[0]!.month).toBe(1);
     expect(data.rows[0]!.centsByLine["line:fun"]).toBe(dollarsToCents(2_000));
-    // The total is the engine's `totalSpendingCents`, not a re-sum in the UI.
+    // The total is the engine's `totalObligationsCents`, not a re-sum in the UI.
     expect(data.rows[0]!.totalCents).toBe(dollarsToCents(6_000));
     expect(data.insolventFromMonth).toBeNull();
   });

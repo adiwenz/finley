@@ -84,7 +84,6 @@ export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpr
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
 export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
-export type { SpendingItem } from "./projection/spendingItems";
 export type { FinancialObligation } from "./projection/financialObligation";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";

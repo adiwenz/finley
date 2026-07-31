@@ -12,14 +12,15 @@ import {
   expenseReportingTotal,
   buildObligations,
   obligationLiabilityId,
+  orderObligationsByPriority,
   OBLIGATION_PRIORITY,
   type FinancialObligation,
+  type ObligationSource,
 } from "./financialObligation";
 import { dollarsToCents, SimCashFlowSeries } from "../cashFlowSeries";
 import { AmortizingLoan, RevolvingCard, type LiabilityKind } from "../liability";
 import { buildLiabilityPaymentRecords } from "./liabilitySteps";
 import type { SimOwnedSeries } from "./simulate.types";
-import type { SpendingSource } from "./spendingItems";
 
 /** Build an obligation with sane defaults, overriding only what a case cares about. */
 function obligation(over: Partial<FinancialObligation> = {}): FinancialObligation {
@@ -122,7 +123,7 @@ function expenseSeries(monthlyDollars: number, over: Partial<SimOwnedSeries> = {
   };
 }
 
-const budgetSource = (id: string, category: SpendingSource["category"]): SpendingSource => ({
+const budgetSource = (id: string, category: ObligationSource["category"]): ObligationSource => ({
   kind: "budgetLine",
   id,
   category,
@@ -132,7 +133,7 @@ const budgetSource = (id: string, category: SpendingSource["category"]): Spendin
 describe("buildObligations — one obligation per source", () => {
   it("turns an authored budget line into an editable automatic expense", () => {
     const [o] = buildObligations(
-      [expenseSeries(1_600, { label: "Housing", spendingSource: budgetSource("housing", "needs") })],
+      [expenseSeries(1_600, { label: "Housing", obligationSource: budgetSource("housing", "needs") })],
       7,
       [],
       new Map(),
@@ -157,7 +158,7 @@ describe("buildObligations — one obligation per source", () => {
       [
         expenseSeries(450, {
           label: "Healthcare",
-          spendingSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+          obligationSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
         }),
       ],
       3,
@@ -178,7 +179,7 @@ describe("buildObligations — one obligation per source", () => {
       [
         expenseSeries(900, {
           label: "Child cost",
-          spendingSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
+          obligationSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
         }),
       ],
       13,
@@ -199,11 +200,11 @@ describe("buildObligations — one obligation per source", () => {
       [
         expenseSeries(2_000, {
           label: "Alimony",
-          spendingSource: { kind: "event", id: "sep-1:alimony", category: "other", editable: false },
+          obligationSource: { kind: "event", id: "sep-1:alimony", category: "other", editable: false },
         }),
         expenseSeries(1_200, {
           label: "Child support",
-          spendingSource: { kind: "event", id: "sep-1:childSupport", category: "other", editable: false },
+          obligationSource: { kind: "event", id: "sep-1:childSupport", category: "other", editable: false },
         }),
       ],
       24,
@@ -294,7 +295,7 @@ describe("buildObligations — one obligation per source", () => {
     // reads as deleted); a liability with no entry in `payments` is simply absent.
     const dormant = expenseSeries(0, {
       label: "Housing",
-      spendingSource: budgetSource("housing", "needs"),
+      obligationSource: budgetSource("housing", "needs"),
     });
     const loan = new AmortizingLoan({
       id: "loan-1",
@@ -340,7 +341,7 @@ describe("buildObligations — priority resolved from source kind", () => {
     const [o] = buildObligations(
       [
         expenseSeries(450, {
-          spendingSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+          obligationSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
         }),
       ],
       0,
@@ -355,7 +356,7 @@ describe("buildObligations — priority resolved from source kind", () => {
     const [o] = buildObligations(
       [
         expenseSeries(900, {
-          spendingSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
+          obligationSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
         }),
       ],
       0,
@@ -371,7 +372,7 @@ describe("buildObligations — priority resolved from source kind", () => {
     const [o] = buildObligations(
       [
         expenseSeries(2_000, {
-          spendingSource: {
+          obligationSource: {
             kind: "event",
             id: "sep-1:alimony",
             category: "other",
@@ -389,10 +390,10 @@ describe("buildObligations — priority resolved from source kind", () => {
 
   it("carries a budget line's own priority through, ranking wants below needs", () => {
     const needsLine = expenseSeries(1_600, {
-      spendingSource: { kind: "budgetLine", id: "housing", category: "needs", editable: true, priority: 0 },
+      obligationSource: { kind: "budgetLine", id: "housing", category: "needs", editable: true, priority: 0 },
     });
     const wantsLine = expenseSeries(300, {
-      spendingSource: { kind: "budgetLine", id: "streaming", category: "wants", editable: true, priority: 1_000 },
+      obligationSource: { kind: "budgetLine", id: "streaming", category: "wants", editable: true, priority: 1_000 },
     });
     const [needs, wants] = buildObligations([needsLine, wantsLine], 0, [], new Map());
     expect(needs.priority).toBe(0);
@@ -404,5 +405,38 @@ describe("buildObligations — priority resolved from source kind", () => {
     const [o] = buildObligations([expenseSeries(300)], 0, [], new Map());
     expect(o.priority).toBe(OBLIGATION_PRIORITY.untracked);
     expect(o.priority).toBeGreaterThan(OBLIGATION_PRIORITY.needs);
+  });
+});
+
+describe("orderObligationsByPriority — the reported chart-band order", () => {
+  it("sorts lower priority first — mandatory debt below needs below wants", () => {
+    // The waterfall consumed an order-invariant sum, so buildObligations returns source order;
+    // the flow record orders by priority so bands stack mandatory-at-the-bottom.
+    const ordered = orderObligationsByPriority([
+      obligation({ id: "line:streaming", priority: 1_000 }),
+      obligation({ id: "debt:mortgage", priority: OBLIGATION_PRIORITY.mandatory }),
+      obligation({ id: "line:housing", priority: OBLIGATION_PRIORITY.needs }),
+    ]);
+    expect(ordered.map((o) => o.id)).toEqual(["debt:mortgage", "line:housing", "line:streaming"]);
+  });
+
+  it("breaks ties on the stable id, so a tier holds one order across months", () => {
+    // Two needs-tier obligations must not reshuffle between months; the id tie-break pins them
+    // whatever order they arrived in.
+    const ids = ["line:zebra", "line:apple", "line:mango"];
+    const forward = orderObligationsByPriority(
+      ids.map((id) => obligation({ id, priority: OBLIGATION_PRIORITY.needs })),
+    );
+    const reversed = orderObligationsByPriority(
+      [...ids].reverse().map((id) => obligation({ id, priority: OBLIGATION_PRIORITY.needs })),
+    );
+    expect(forward.map((o) => o.id)).toEqual(["line:apple", "line:mango", "line:zebra"]);
+    expect(reversed.map((o) => o.id)).toEqual(forward.map((o) => o.id));
+  });
+
+  it("does not mutate the input list", () => {
+    const input = [obligation({ id: "b", priority: 1 }), obligation({ id: "a", priority: 0 })];
+    orderObligationsByPriority(input);
+    expect(input.map((o) => o.id)).toEqual(["b", "a"]);
   });
 });
