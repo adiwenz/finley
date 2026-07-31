@@ -13,6 +13,9 @@
 
 import type { Cents } from "../money";
 import type { BudgetCategory } from "../budgetLine";
+import type { LiabilityKind, SimLiability } from "../liability";
+import type { SimOwnedSeries } from "./simulate.types";
+import type { SpendingSource } from "./spendingItems";
 
 /**
  * Which authoring model an obligation's money comes from. Provenance, not presentation: it
@@ -106,4 +109,90 @@ export function expenseReportingTotal(obligations: readonly FinancialObligation[
     (total, o) => (o.treatment === "expense" ? total + o.amountCents : total),
     0,
   );
+}
+
+/** A debt's payment named from its kind — the only human fact a liability has. */
+const LIABILITY_LABEL: Record<LiabilityKind, string> = {
+  mortgage: "Mortgage payment",
+  auto: "Auto loan payment",
+  studentLoan: "Student loan payment",
+  creditCard: "Credit card payment",
+};
+
+/** Provenance for an expense series that reached construction without tagging itself. */
+const UNTRACKED: SpendingSource = {
+  kind: "untracked",
+  id: "expenses",
+  category: "other",
+  editable: false,
+};
+
+/**
+ * Placeholder rank until Slice #3 task 3 resolves priority from source kind. Nothing ranks
+ * obligations yet (the list is built but not consumed), so a single shared value is correct:
+ * making it meaningful before there is a ranker would be inventing an ordering no test pins.
+ */
+const UNRESOLVED_PRIORITY = 0;
+
+/** Obligation id for a liability's payment band — namespaced so it cannot collide with a line's. */
+export function obligationLiabilityId(liabilityId: string): string {
+  return `debt:${liabilityId}`;
+}
+
+/**
+ * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
+ * the spending report reads — so the two lists cannot disagree while both exist. Expense series
+ * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's
+ * scheduled payment is `treatment: "debt-payment"` — funded like any other draw, but not an
+ * expense that reduces net worth.
+ *
+ * Series are constructed even at 0: a dormant line still exists, and a band vanishing mid-chart
+ * reads as deleted rather than paused. Liabilities appear only with a payment due, and their
+ * `amountCents` is what `payments` holds — the payoff-capped scheduled figure (capped by the
+ * debt, never by affordability), the exact amount the simulator also applies to the balance.
+ *
+ * Every obligation here is `funding: automatic`; the explicit branch arrives in Slice #4.
+ */
+export function buildObligations(
+  expenseSeries: readonly SimOwnedSeries[],
+  month: number,
+  liabilities: readonly SimLiability[],
+  payments: ReadonlyMap<string, Cents>,
+): FinancialObligation[] {
+  const obligations: FinancialObligation[] = expenseSeries.map((s): FinancialObligation => {
+    const source = s.spendingSource ?? UNTRACKED;
+    return {
+      id: source.kind === "budgetLine" ? `line:${source.id}` : source.id,
+      sourceId: source.id,
+      month,
+      amountCents: s.series.getMonthlyCents(month),
+      treatment: "expense",
+      funding: { kind: "automatic" },
+      priority: UNRESOLVED_PRIORITY,
+      sourceKind: source.kind,
+      editable: source.editable,
+      label: s.label ?? source.id,
+      category: source.category,
+    };
+  });
+
+  for (const liability of liabilities) {
+    const amountCents = payments.get(liability.id);
+    if (amountCents === undefined || amountCents <= 0) continue;
+    obligations.push({
+      id: obligationLiabilityId(liability.id),
+      sourceId: liability.id,
+      month,
+      amountCents,
+      treatment: "debt-payment",
+      funding: { kind: "automatic" },
+      priority: UNRESOLVED_PRIORITY,
+      sourceKind: "liability",
+      editable: false,
+      label: LIABILITY_LABEL[liability.kind],
+      category: "debtService",
+    });
+  }
+
+  return obligations;
 }

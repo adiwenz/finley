@@ -10,9 +10,15 @@ import { describe, it, expect } from "vitest";
 import {
   automaticFundingTotal,
   expenseReportingTotal,
+  buildObligations,
+  obligationLiabilityId,
   type FinancialObligation,
 } from "./financialObligation";
-import { dollarsToCents } from "../cashFlowSeries";
+import { dollarsToCents, SimCashFlowSeries } from "../cashFlowSeries";
+import { AmortizingLoan, RevolvingCard, type LiabilityKind } from "../liability";
+import { buildLiabilityPaymentRecords } from "./liabilitySteps";
+import type { SimOwnedSeries } from "./simulate.types";
+import type { SpendingSource } from "./spendingItems";
 
 /** Build an obligation with sane defaults, overriding only what a case cares about. */
 function obligation(over: Partial<FinancialObligation> = {}): FinancialObligation {
@@ -101,5 +107,213 @@ describe("financialObligation — the two named sums", () => {
     ];
     expect(expenseReportingTotal(list)).toBe(dollarsToCents(1_400));
     expect(automaticFundingTotal(list)).toBe(dollarsToCents(1_000));
+  });
+});
+
+/** A fixed monthly expense series carrying the authoring provenance a source tags it with. */
+function expenseSeries(monthlyDollars: number, over: Partial<SimOwnedSeries> = {}): SimOwnedSeries {
+  return {
+    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+      baselineUnit: "monthly",
+    }),
+    ownerId: "p1",
+    ...over,
+  };
+}
+
+const budgetSource = (id: string, category: SpendingSource["category"]): SpendingSource => ({
+  kind: "budgetLine",
+  id,
+  category,
+  editable: true,
+});
+
+describe("buildObligations — one obligation per source", () => {
+  it("turns an authored budget line into an editable automatic expense", () => {
+    const [o] = buildObligations(
+      [expenseSeries(1_600, { label: "Housing", spendingSource: budgetSource("housing", "needs") })],
+      7,
+      [],
+      new Map(),
+    );
+    expect(o).toEqual({
+      id: "line:housing",
+      sourceId: "housing",
+      month: 7,
+      amountCents: dollarsToCents(1_600),
+      treatment: "expense",
+      funding: { kind: "automatic" },
+      priority: expect.any(Number),
+      sourceKind: "budgetLine",
+      editable: true,
+      label: "Housing",
+      category: "needs",
+    });
+  });
+
+  it("turns the plan's health line into a non-editable healthcare expense", () => {
+    const [o] = buildObligations(
+      [
+        expenseSeries(450, {
+          label: "Healthcare",
+          spendingSource: { kind: "healthcare", id: "health", category: "healthcare", editable: false },
+        }),
+      ],
+      3,
+      [],
+      new Map(),
+    );
+    expect(o.sourceKind).toBe("healthcare");
+    expect(o.category).toBe("healthcare");
+    expect(o.treatment).toBe("expense");
+    expect(o.editable).toBe(false);
+    // The id is the source id verbatim (only budget lines get the `line:` prefix).
+    expect(o.id).toBe("health");
+    expect(o.amountCents).toBe(dollarsToCents(450));
+  });
+
+  it("turns an event-spawned child-cost series into a non-editable event expense", () => {
+    const [o] = buildObligations(
+      [
+        expenseSeries(900, {
+          label: "Child cost",
+          spendingSource: { kind: "event", id: "child-1:childCost", category: "other", editable: false },
+        }),
+      ],
+      13,
+      [],
+      new Map(),
+    );
+    expect(o.sourceKind).toBe("event");
+    expect(o.sourceId).toBe("child-1:childCost");
+    expect(o.treatment).toBe("expense");
+    expect(o.editable).toBe(false);
+    expect(o.amountCents).toBe(dollarsToCents(900));
+  });
+
+  it("turns event-spawned alimony and child-support series into event expenses", () => {
+    // Both court-ordered streams reach the report as event-sourced expenses, distinct only by
+    // their series id — proof each stream produces its own obligation rather than merging.
+    const obligations = buildObligations(
+      [
+        expenseSeries(2_000, {
+          label: "Alimony",
+          spendingSource: { kind: "event", id: "sep-1:alimony", category: "other", editable: false },
+        }),
+        expenseSeries(1_200, {
+          label: "Child support",
+          spendingSource: { kind: "event", id: "sep-1:childSupport", category: "other", editable: false },
+        }),
+      ],
+      24,
+      [],
+      new Map(),
+    );
+    expect(obligations.map((o) => [o.sourceId, o.label, o.treatment, o.amountCents])).toEqual([
+      ["sep-1:alimony", "Alimony", "expense", dollarsToCents(2_000)],
+      ["sep-1:childSupport", "Child support", "expense", dollarsToCents(1_200)],
+    ]);
+  });
+
+  it("turns each liability payment into a payoff-capped debt-payment obligation", () => {
+    // One amortizing loan per amortizing kind plus a revolving card, each named from its kind.
+    const loanKinds: Exclude<LiabilityKind, "creditCard">[] = ["mortgage", "auto", "studentLoan"];
+    const loans = loanKinds.map(
+      (kind) =>
+        new AmortizingLoan({
+          id: `loan-${kind}`,
+          ownerId: "p1",
+          kind,
+          openingBalanceCents: dollarsToCents(30_000),
+          apr: 0.06,
+          termMonths: 120,
+        }),
+    );
+    const card = new RevolvingCard({
+      id: "card-1",
+      ownerId: "p1",
+      openingBalanceCents: dollarsToCents(5_000),
+      apr: 0.22,
+    });
+    const liabilities = [...loans, card];
+
+    // The month's payment on each liability's CURRENT balance — the exact figure the
+    // simulator passes into both the balance update and this list.
+    const month = 50;
+    const balances = new Map<string, number>([
+      ...loans.map((l) => [l.id, dollarsToCents(30_000)] as const),
+      [card.id, dollarsToCents(5_000)],
+    ]);
+    const payments = new Map(liabilities.map((l) => [l.id, l.monthlyPaymentCents(balances.get(l.id)!, month)]));
+
+    const obligations = buildObligations([], month, liabilities, payments);
+    expect(obligations.map((o) => [o.id, o.sourceKind, o.treatment, o.category, o.label])).toEqual([
+      [obligationLiabilityId("loan-mortgage"), "liability", "debt-payment", "debtService", "Mortgage payment"],
+      [obligationLiabilityId("loan-auto"), "liability", "debt-payment", "debtService", "Auto loan payment"],
+      [obligationLiabilityId("loan-studentLoan"), "liability", "debt-payment", "debtService", "Student loan payment"],
+      [obligationLiabilityId("card-1"), "liability", "debt-payment", "debtService", "Credit card payment"],
+    ]);
+    // Each obligation carries exactly the scheduled payment, funded automatically, not editable.
+    for (const o of obligations) {
+      expect(o.amountCents).toBe(payments.get(o.sourceId));
+      expect(o.funding).toEqual({ kind: "automatic" });
+      expect(o.editable).toBe(false);
+    }
+  });
+
+  it("carries the payoff-capped amount on a debt, not the level payment, and still reports full/current", () => {
+    const loan = new AmortizingLoan({
+      id: "loan-student",
+      ownerId: "p1",
+      kind: "studentLoan",
+      openingBalanceCents: dollarsToCents(30_000),
+      apr: 0.06,
+      termMonths: 120,
+    });
+    const month = 60;
+    // A tiny residual balance pays off far below the ~$333 level payment — the cap is the
+    // debt, not affordability.
+    const tinyBalanceCents = dollarsToCents(100);
+    const cappedPayment = loan.monthlyPaymentCents(tinyBalanceCents, month);
+    expect(cappedPayment).toBeLessThan(loan.monthlyPaymentCents(dollarsToCents(30_000), month));
+
+    const payments = new Map([[loan.id, cappedPayment]]);
+    const [o] = buildObligations([], month, [loan], payments);
+    expect(o.amountCents).toBe(cappedPayment);
+
+    // The payment record over the same figure still reads full/current — the payoff cap is a
+    // legitimate smaller payment, not an underpayment.
+    const record = buildLiabilityPaymentRecords(payments)[loan.id]!;
+    expect(record.paymentStatus).toBe("full");
+    expect(record.loanStatus).toBe("current");
+  });
+
+  it("skips a liability with no payment due and reports a dormant series at 0", () => {
+    // A series is reported even when it produces nothing this month (a band that vanishes
+    // reads as deleted); a liability with no entry in `payments` is simply absent.
+    const dormant = expenseSeries(0, {
+      label: "Housing",
+      spendingSource: budgetSource("housing", "needs"),
+    });
+    const loan = new AmortizingLoan({
+      id: "loan-1",
+      ownerId: "p1",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20_000),
+      apr: 0.05,
+      termMonths: 60,
+    });
+    const obligations = buildObligations([dormant], 5, [loan], new Map());
+    expect(obligations).toHaveLength(1);
+    expect(obligations[0]!.amountCents).toBe(0);
+    expect(obligations[0]!.sourceKind).toBe("budgetLine");
+  });
+
+  it("falls back to untracked provenance for an expense series that tags none", () => {
+    const [o] = buildObligations([expenseSeries(300)], 0, [], new Map());
+    expect(o.sourceKind).toBe("untracked");
+    expect(o.editable).toBe(false);
+    expect(o.category).toBe("other");
+    expect(o.amountCents).toBe(dollarsToCents(300));
   });
 });
