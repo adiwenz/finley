@@ -200,8 +200,15 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (state.propertiesById.has(asPropertyId(event.propertyId))) {
       return fail(event, `property "${event.propertyId}" already exists`);
     }
-    if (state.liabilitiesById.has(asLiabilityId(event.mortgageLiabilityId))) {
-      return fail(event, `mortgage "${event.mortgageLiabilityId}" already exists`);
+    // The securing loan is a separate event; naming a liability that has not replayed yet is a
+    // dangling reference. Requiring it to exist forces the loan to sort first (same rule
+    // `debtPayoff` uses) and, symmetrically, blocks removing that loan while this property still
+    // names it — the removal replay strands here with this message.
+    if (
+      event.securedByLiabilityId !== undefined &&
+      !state.liabilitiesById.has(asLiabilityId(event.securedByLiabilityId))
+    ) {
+      return fail(event, `securing liability "${event.securedByLiabilityId}" not found`);
     }
     if (!ownerExists(state, event.ownerId)) {
       return fail(event, `owner "${event.ownerId}" not found`);
@@ -251,7 +258,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     return ok;
   },
   apply(event, state, context) {
-    // Property: the appreciating stock.
+    // Property: the appreciating stock. The securing loan, if any, was minted by its own
+    // LoanEvent (which sorted first); this only records the link so equity nets the two.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,
@@ -262,25 +270,15 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       appreciationMode:
         event.appreciationMode ??
         { type: "inflationLinked", annualRate: context.annualInflationRate },
-      mortgageLiabilityId: asLiabilityId(event.mortgageLiabilityId),
-    });
-    // Mortgage: reuses the liability machinery — amortizes from origination like any
-    // other loan.
-    state.liabilitiesById.set(asLiabilityId(event.mortgageLiabilityId), {
-      id: asLiabilityId(event.mortgageLiabilityId),
-      causedByEventId: event.id,
-      ownerId: asPersonId(event.ownerId),
-      startMonth: event.month,
-      kind: "mortgage",
-      openingBalanceCents: event.purchasePriceCents - event.downPaymentCents,
-      apr: event.mortgageApr,
-      termMonths: event.mortgageTermMonths,
-      transfers: [],
+      mortgageLiabilityId:
+        event.securedByLiabilityId !== undefined
+          ? asLiabilityId(event.securedByLiabilityId)
+          : null,
     });
     // Down payment: an ordered draw across the selected liquid sources, resolved at
-    // simulation time (the per-source split is balance-dependent — see FundingDraw).
-    // Property value + mortgage equal the price, so this outflow is the only net-worth
-    // change at purchase.
+    // simulation time (the per-source split is balance-dependent — see FundingDraw). When a
+    // securing loan covers the rest of the price, property value and that loan's balance cancel,
+    // leaving this draw as the only net-worth change at acquisition.
     state.fundingDraws.push({
       month: event.month,
       amountCents: event.downPaymentCents,

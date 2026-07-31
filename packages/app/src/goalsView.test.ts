@@ -227,9 +227,6 @@ function homePurchase(
     purchasePriceCents: dollarsToCents(500000),
     downPaymentCents: dollarsToCents(100000),
     downPaymentSourceIds: sourceIds,
-    mortgageLiabilityId: `${id}-mtg`,
-    mortgageApr: 0,
-    mortgageTermMonths: 360,
   };
 }
 

@@ -41,7 +41,7 @@ export interface HomePurchaseInput {
   readonly month: number;
   readonly purchasePriceCents: Cents;
   readonly downPaymentCents: Cents;
-  /** Fractional annual rate (0.065), matching `HomePurchaseEvent.mortgageApr`. */
+  /** Fractional annual rate (0.065), matching the mortgage `LoanEvent`'s `apr`. */
   readonly apr: number;
   readonly termMonths: number;
 }
@@ -101,9 +101,14 @@ export function assessHomePurchase(
 }
 
 /**
- * Author the purchase. The mortgage liability id derives from the minted property id,
- * parent-suffixed (`<propertyId>-mortgage`) so a sort groups it under its home. Answers with the
- * property id; subject to the down-payment hard block.
+ * Author the purchase as two composed primitives: the financing mortgage (a `LoanEvent`) and the
+ * property that names it. The mortgage is emitted FIRST so it replays before the property, whose
+ * precondition requires the securing liability to already exist.
+ *
+ * Both ids derive from the one minted property id — the mortgage liability is parent-suffixed
+ * (`<propertyId>-mortgage`) so a sort groups it under its home, and the loan event reuses that id
+ * (it is not a separately-authored loan, so it need not consume a fresh `loan-N` slot). Answers
+ * with the property id; subject to the down-payment hard block, which fires on the property.
  */
 export function applyHomePurchase(
   state: ProjectionState,
@@ -111,9 +116,26 @@ export function applyHomePurchase(
   input: BuyHomeInput,
 ): Written<string> {
   const { id, nextSeq } = mint(state, "home");
+  const mortgageId = `${id}-mortgage`;
+  const withMortgage = appendEvent(
+    state,
+    jurisdiction,
+    {
+      id: mortgageId,
+      type: "LoanEvent",
+      month: input.month,
+      liabilityId: mortgageId,
+      ownerId: input.ownerId,
+      kind: "mortgage",
+      openingBalanceCents: input.purchasePriceCents - input.downPaymentCents,
+      apr: input.mortgageApr,
+      termMonths: input.mortgageTermMonths,
+    },
+    nextSeq,
+  );
   return {
     state: appendEvent(
-      state,
+      withMortgage,
       jurisdiction,
       {
         id,
@@ -124,9 +146,7 @@ export function applyHomePurchase(
         purchasePriceCents: input.purchasePriceCents,
         downPaymentCents: input.downPaymentCents,
         downPaymentSourceIds: input.downPaymentSourceIds,
-        mortgageLiabilityId: `${id}-mortgage`,
-        mortgageApr: input.mortgageApr,
-        mortgageTermMonths: input.mortgageTermMonths,
+        securedByLiabilityId: mortgageId,
         ...(input.appreciationMode !== undefined
           ? { appreciationMode: input.appreciationMode }
           : {}),

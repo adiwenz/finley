@@ -94,7 +94,7 @@ function eventIds(event: LifeEvent): readonly (string | undefined)[] {
         ...common,
         event.propertyId,
         event.ownerId,
-        event.mortgageLiabilityId,
+        ...(event.securedByLiabilityId !== undefined ? [event.securedByLiabilityId] : []),
         ...event.downPaymentSourceIds,
       ];
     case "LoanEvent":

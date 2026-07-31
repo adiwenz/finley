@@ -71,18 +71,17 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
     case "HomePurchaseEvent": {
       const money =
         nonNegative(event, "purchasePriceCents", event.purchasePriceCents) ??
-        nonNegative(event, "downPaymentCents", event.downPaymentCents) ??
-        (event.mortgageApr >= 0 ? null : bad(event, `mortgageApr must be ≥ 0 (got ${event.mortgageApr})`));
+        nonNegative(event, "downPaymentCents", event.downPaymentCents);
       if (money) return money;
       // Distinct, non-empty: a zero-source purchase has nothing to drain, and a repeated id
-      // would double-drain one account.
+      // would double-drain one account. The mortgage's own terms are validated on its LoanEvent.
       if (!Array.isArray(event.downPaymentSourceIds) || event.downPaymentSourceIds.length === 0) {
         return bad(event, `downPaymentSourceIds must list at least one funding source`);
       }
       if (new Set(event.downPaymentSourceIds).size !== event.downPaymentSourceIds.length) {
         return bad(event, `downPaymentSourceIds must not repeat a source`);
       }
-      return positiveInteger(event, "mortgageTermMonths", event.mortgageTermMonths) ?? { ok: true };
+      return { ok: true };
     }
     case "DebtPayoffEvent":
       return event.amountCents > 0
