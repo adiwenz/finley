@@ -29,6 +29,7 @@ import type {
   ScenarioInput,
   EventEntry,
   JobEntry,
+  PartnerJobEntry,
   Ref,
   ScenarioInputError,
 } from "./scenarioInput";
@@ -94,7 +95,25 @@ interface Usage {
   readonly loc: Location;
 }
 
-/** A job's declared name and every ref it points at — shared by top-level jobs and a marry's jobs. */
+/**
+ * The refs a job carries whatever plane it sits on: its own declared name, and the account its
+ * deferral funds. This is the whole of what a job nested in a `marry` can carry — its owner is
+ * the partner that entry creates, so there is no `ownerRef` to read, and reading one would mean
+ * validating a field the build then discards.
+ */
+function collectPartnerJob(
+  job: PartnerJobEntry,
+  order: number,
+  loc: Location,
+  decls: Declaration[],
+  usages: Usage[],
+): void {
+  if (job.ref !== undefined) decls.push({ ref: job.ref, order, loc });
+  const fundRef = job.deferral?.fundAccountRef;
+  if (fundRef !== undefined) usages.push({ ref: fundRef, order, loc });
+}
+
+/** A plan-plane job: the above, plus the owner it may name. */
 function collectJob(
   job: JobEntry,
   order: number,
@@ -102,11 +121,9 @@ function collectJob(
   decls: Declaration[],
   usages: Usage[],
 ): void {
-  if (job.ref !== undefined) decls.push({ ref: job.ref, order, loc });
+  collectPartnerJob(job, order, loc, decls, usages);
   // `ownerRef` absent means the primary person (well-known), so only an explicit owner is a usage.
   if (job.ownerRef !== undefined) usages.push({ ref: job.ownerRef, order, loc });
-  const fundRef = job.deferral?.fundAccountRef;
-  if (fundRef !== undefined) usages.push({ ref: fundRef, order, loc });
 }
 
 /** Every ref an event declares or points at, keyed off the discriminant so a seventh kind must be added here. */
@@ -124,7 +141,7 @@ function collectEvent(
       // A partner's jobs are created as the marry applies, so they share its order: their names
       // become addressable to later events, and their pointers resolve against the same instant.
       entry.jobs?.forEach((job, j) =>
-        collectJob(job, order, { describe: `job ${j} of ${loc.describe}`, eventIndex: index }, decls, usages),
+        collectPartnerJob(job, order, { describe: `job ${j} of ${loc.describe}`, eventIndex: index }, decls, usages),
       );
       return;
     case "haveChild":

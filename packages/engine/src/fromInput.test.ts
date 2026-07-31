@@ -187,7 +187,13 @@ describe("Projection.fromInput", () => {
     // A run over the built scenario proves the minted ids wire up end to end.
     expect(() => p.run(nullJurisdiction)).not.toThrow();
     const partner = p.ledger.events.find((e) => e.type === "RelationshipEvent");
-    expect(partner?.type === "RelationshipEvent" && partner.person.jobs[0].id).toMatch(/^job-\d+$/);
+    if (partner?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    const [nested] = partner.person.jobs;
+    expect(nested.id).toMatch(/^job-\d+$/);
+    // Ownership is implicit and belongs to the partner this very entry created — which is why a
+    // nested job takes no `ownerRef` (`PartnerJobEntry`): there is no one else it could name.
+    expect(nested.ownerId).toBe(partner.person.id);
+    expect(nested.ownerId).not.toBe(PRIMARY_PERSON_ID);
   });
 
   it("refuses a refusal addEvent raises, naming the offending event and keeping nothing", () => {

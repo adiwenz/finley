@@ -145,6 +145,52 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       expect(input.startYear).toBe(2026);
     }
   });
+
+  it("refuses an `ownerRef` on a job nested in a marry", () => {
+    const base = {
+      name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
+      retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
+      healthMonthlyCents: 0, postCoverageHealthMonthlyCents: 0, enrollsInPublicHealthCoverage: true,
+      healthInflationPct: 3, inflationPct: 2, currentAge: 30, retirementAge: 65,
+      lifeExpectancy: 90, benefitClaimingAge: 67,
+    };
+
+    // A nested job belongs to the partner the same entry creates, and that person does not exist
+    // until the marriage applies — so there is nothing an author could name. The field used to be
+    // accepted and then dropped by `toJobInput`, which meant a stated owner was silently
+    // overwritten AND `resolveRefs` still demanded it resolve. `PartnerJobEntry` omits it.
+    const nestedOwner: ScenarioInput = {
+      ...base,
+      events: [
+        {
+          type: "marry", month: 12, name: "Sam", birthYear: 1994,
+          // @ts-expect-error — a partner's job cannot name an owner
+          jobs: [{ ...openEndedJob, ownerRef: PRIMARY_PERSON_REF }],
+        },
+      ],
+    };
+
+    // A plan-plane job still may: that owner exists before the entry applies.
+    const planOwner: ScenarioInput = {
+      ...base,
+      jobs: [{ ...openEndedJob, ownerRef: PRIMARY_PERSON_REF }],
+    };
+
+    // Everything else about a nested job is unchanged — a ref and a deferral still ride along.
+    const nestedRest: ScenarioInput = {
+      ...base,
+      events: [
+        {
+          type: "marry", month: 12, name: "Sam", birthYear: 1994,
+          jobs: [{ ...openEndedJob, ref: ref("samJob"), deferral: { deferralFraction: 0.05 } }],
+        },
+      ],
+    };
+
+    for (const input of [nestedOwner, planOwner, nestedRest]) {
+      expect(input.startYear).toBe(2026);
+    }
+  });
 });
 
 /**

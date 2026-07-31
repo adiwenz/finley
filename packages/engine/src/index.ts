@@ -146,6 +146,7 @@ export type {
   Ref,
   BudgetTargetInput,
   JobEntry,
+  PartnerJobEntry,
   GoalEntry,
   BudgetLineEntry,
   MarryEntry,

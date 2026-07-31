@@ -116,6 +116,16 @@ interface EventEntryCommon {
   readonly month: number;
 }
 
+/**
+ * A job nested inside a {@link MarryEntry} — a {@link JobEntry} with no `ownerRef`.
+ *
+ * Ownership is implicit and cannot be otherwise: these jobs belong to the partner the very same
+ * entry creates, and that person does not exist until the marriage applies, so there is nothing
+ * an author could name. Omitting the field rather than ignoring it means the compiler says so,
+ * instead of a stated owner being quietly overwritten.
+ */
+export type PartnerJobEntry = Omit<JobEntry, "ownerRef">;
+
 /** The incoming partner and their ref-authored jobs — see {@link import("./projectionRoot").MarryInput}. */
 export interface MarryEntry extends EventEntryCommon {
   readonly type: "marry";
@@ -123,7 +133,7 @@ export interface MarryEntry extends EventEntryCommon {
   readonly birthYear: number;
   readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
-  readonly jobs?: readonly JobEntry[];
+  readonly jobs?: readonly PartnerJobEntry[];
 }
 
 /** A child joining the household — see {@link import("./projectionRoot").HaveChildInput}. */
