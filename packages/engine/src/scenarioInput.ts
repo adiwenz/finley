@@ -238,6 +238,21 @@ export interface ScenarioInput extends PlanScalars {
 }
 
 /**
+ * A {@link ScenarioInput} with nothing in it yet — the plan's scalars and its frozen
+ * `startYear`, and none of the four entry planes.
+ *
+ * These are the fields that have no sensible engine-wide default: a retirement age, a life
+ * expectancy, an inflation rate and a set of return assumptions are product decisions, and an
+ * engine that guessed them would quietly answer a question nobody asked. So they are required,
+ * and {@link import("./projectionRoot").Projection.init} takes exactly them — everything else
+ * about a scenario can be added afterwards.
+ */
+export type ScenarioScalars = Omit<
+  ScenarioInput,
+  "jobs" | "goals" | "budgetLines" | "events"
+>;
+
+/**
  * What `Projection.fromInput` answers, mirroring the existing `{ ok } | { ok }` result shape
  * rather than throwing. Build is all-or-nothing: a refused document yields no partial
  * projection.

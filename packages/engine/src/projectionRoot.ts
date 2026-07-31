@@ -8,10 +8,12 @@
  *
  * ## Where identity comes from
  *
- * There are exactly two doors, and they differ in who names things:
+ * Two kinds of door, split on who names things — authoring mints, restoring preserves:
  *
- *  - {@link Projection.fromInput} **authors**. It takes a declarative, id-free `ScenarioInput`
- *    and mints every identity off the shared counter.
+ *  - {@link Projection.init} **authors**, imperatively. It takes the plan's scalars and nothing
+ *    else, handing back an empty projection to build up with the authoring methods.
+ *  - {@link Projection.fromInput} **authors**, declaratively. It takes an id-free `ScenarioInput`
+ *    and mints every identity off the shared counter. It is `init` plus the entries.
  *  - {@link Projection.fromState} **restores**. It takes a whole `ProjectionState` whose ids were
  *    issued earlier, and floors the counters past everything it holds.
  *
@@ -115,7 +117,13 @@ import {
   RETIREMENT_REF,
 } from "./scenarioRefs";
 import { ref } from "./scenarioInput";
-import type { FromInputResult, JobEntry, Ref, ScenarioInput } from "./scenarioInput";
+import type {
+  FromInputResult,
+  JobEntry,
+  Ref,
+  ScenarioInput,
+  ScenarioScalars,
+} from "./scenarioInput";
 import type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
 import { buildSnapshot, membersAt } from "./projection/snapshot";
 import type { HouseholdSnapshot } from "./projection/snapshot";
@@ -1789,6 +1797,36 @@ export class Projection {
   }
 
   /**
+   * Open an EMPTY projection: the plan's scalars and nothing else, ready to be built up with the
+   * authoring methods (`addJob`, `addGoal`, `addBudgetLine`, `marry`, `takeLoan`, …).
+   *
+   * The imperative half of authoring, next to {@link fromInput}'s declarative one — same door,
+   * same rules: every id is minted here, and nothing a caller passes can name one. Which to reach
+   * for is a question about the caller, not the engine. A scenario already written down arrives
+   * as a document; one being assembled a step at a time — a wizard, a REPL, a test building the
+   * two entries it cares about — starts here and grows. `fromInput` is this plus the entries, and
+   * says so: it opens with exactly this call.
+   *
+   * Returns a `Projection` rather than a result, because there is nothing here to refuse: with no
+   * entries there are no refs to resolve, no events to gate and no ids to collide. Only
+   * {@link fromInput} needs the `{ ok }` union, and only because a document can be wrong.
+   *
+   * {@link ScenarioScalars} are required in full — a retirement age or an inflation rate is a
+   * product decision, and an engine defaulting them would answer a question nobody asked. They
+   * are also the only things that must be settled up front: everything else is addable later, and
+   * a scalar itself is revisable through {@link updatePlan}.
+   */
+  static init(scalars: ScenarioScalars, jurisdiction: Jurisdiction): Projection {
+    const { startYear, ...plan } = scalars;
+    // The counter opens at 1 and the normalization has nothing to floor past: an empty projection
+    // is the one state that provably holds no id at all.
+    return Projection.fromState(
+      { scenario: scenarioOf({ ...plan, jobs: [], goals: [], budgetLines: [] }), startYear, nextSeq: 1 },
+      jurisdiction,
+    );
+  }
+
+  /**
    * Build a projection from a declarative, id-free {@link ScenarioInput}: every id is minted
    * through this handle's own counter, so no caller ever names one. The authoring counterpart to
    * {@link fromState} — that RESTORES state whose ids are already present and floors the counter
@@ -1824,15 +1862,8 @@ export class Projection {
     // id-bearing collections start EMPTY and are filled by the minting methods below. That is
     // what makes this an authoring path: the state it starts from holds no id at all, so the
     // normalization `fromState` applies has nothing to floor past and the counter opens at 1.
-    const { startYear, jobs, goals, budgetLines, events: _events, ...scalars } = input;
-    const projection = Projection.fromState(
-      {
-        scenario: scenarioOf({ ...scalars, jobs: [], goals: [], budgetLines: [] }),
-        startYear,
-        nextSeq: 1,
-      },
-      jurisdiction,
-    );
+    const { jobs, goals, budgetLines, events: _events, ...scalars } = input;
+    const projection = Projection.init(scalars, jurisdiction);
 
     const registry = new Map<Ref, string>();
     for (const id of WELL_KNOWN_REF_IDS) registry.set(ref(id), id);

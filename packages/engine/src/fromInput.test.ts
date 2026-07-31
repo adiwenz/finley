@@ -40,6 +40,65 @@ function built(input: ScenarioInput): Projection {
   return result.projection;
 }
 
+describe("Projection.init — the imperative half of authoring", () => {
+  it("opens empty, with the counter at its start", () => {
+    const p = Projection.init(base, nullJurisdiction);
+    expect(p.plan.jobs).toEqual([]);
+    expect(p.plan.goals).toEqual([]);
+    expect(p.plan.budgetLines).toEqual([]);
+    expect(p.ledger.events).toEqual([]);
+    // Nothing to floor past: an empty projection is the one state provably holding no id.
+    expect(p.toState().nextSeq).toBe(1);
+  });
+
+  it("keeps the scalars it was given, and projects", () => {
+    const p = Projection.init({ ...base, retirementAge: 62, lifeExpectancy: 85 }, nullJurisdiction);
+    expect(p.plan.retirementAge).toBe(62);
+    expect(p.plan.lifeExpectancy).toBe(85);
+    // A plan with no jobs and no budget still runs — it is a scenario, just an empty one.
+    expect(p.run(nullJurisdiction).series.months.length).toBeGreaterThan(0);
+  });
+
+  it("is built up with the ordinary authoring methods, minting as it goes", () => {
+    const p = Projection.init(base, nullJurisdiction);
+
+    const jobId = p.addJob(PRIMARY_PERSON_ID, {
+      startYear: 2026, endYear: null,
+      salary: { startingSalaryCents: 9_000_000, realGrowthPct: 0 },
+    });
+    const goalId = p.addGoal({
+      name: "Car", targetCents: 1_000_000, targetDate: 24,
+      disposition: "retain", annualReturnPct: 2,
+    });
+    const lineId = p.addBudgetLine({
+      label: "Rent", category: "needs", target: { kind: "expense" },
+      amountSource: { kind: "literal", monthlyCents: 150_000 },
+    });
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1994 });
+
+    // Every id off the one counter, in the shape `mint` issues, all distinct.
+    const ids = [jobId, goalId, lineId, partnerId];
+    expect(ids).toEqual(["job-1", "goal-2", "line-3", "person-4"]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(() => p.run(nullJurisdiction)).not.toThrow();
+  });
+
+  it("is exactly what fromInput opens with, so the two agree on an entry-free document", () => {
+    // `fromInput` IS `init` plus the entries — stated here rather than left to the reader, since
+    // a drift between them would make the declarative and imperative paths mean different things.
+    const viaInit = Projection.init(base, nullJurisdiction).toState();
+    const viaInput = built(base).toState();
+    expect(viaInput).toEqual(viaInit);
+  });
+
+  it("cannot fail, so it hands back a projection rather than a result", () => {
+    // No entries means no refs to resolve and no events to gate; there is nothing to refuse.
+    // The type says so — no `.ok` to narrow — and this pins the behaviour behind it.
+    const p: Projection = Projection.init(base, nullJurisdiction);
+    expect(p).toBeInstanceOf(Projection);
+  });
+});
+
 describe("Projection.fromInput", () => {
   it("mints ids for the plan plane and resolves every account ref", () => {
     const p = built({

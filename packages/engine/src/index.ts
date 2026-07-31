@@ -107,10 +107,13 @@ export * from "./plan";
 // minting, `run(jurisdiction)` → immutable `ProjectionResult`. No undo stack — reversal is
 // addressable removal.
 //
-// Two ways to get a handle, and they differ in who names things:
+// Three ways to get a handle — two that AUTHOR and mint, one that RESTORES and preserves:
 //
+//   Projection.init(scalars, jurisdiction)     AUTHOR  — an empty projection, built up with
+//     the authoring methods. Mints every id it issues.
 //   Projection.fromInput(input, jurisdiction)  AUTHOR  — takes a declarative, id-free
-//     `ScenarioInput` and mints every durable id off the shared counter.
+//     `ScenarioInput` and mints every durable id off the shared counter. This is `init` plus
+//     the entries, applied for you.
 //   Projection.fromState(state, jurisdiction)  RESTORE — takes a whole `ProjectionState` whose
 //     ids were issued earlier, preserving them and normalizing stale counters.
 //
@@ -153,6 +156,7 @@ export type {
   PayOffDebtEntry,
   EventEntry,
   ScenarioInput,
+  ScenarioScalars,
   FromInputResult,
   ScenarioInputError,
 } from "./scenarioInput";

@@ -17,10 +17,11 @@ import { samplePlan, SAMPLE_START_YEAR } from "./packages/engine/src/testing/sam
 
 const P1 = "p1" as PersonId;
 
-// 1. Open a handle. There are two doors, and they differ in who names things:
+// 1. Open a handle. Two kinds of door — authoring mints, restoring preserves:
 //
-//      Projection.fromInput(input, j)  — AUTHOR: a declarative, id-free `ScenarioInput`,
-//                                        every durable id minted by the engine.
+//      Projection.init(scalars, j)     — AUTHOR, imperatively: an empty projection to build up.
+//      Projection.fromInput(input, j)  — AUTHOR, declaratively: an id-free `ScenarioInput`,
+//                                        every durable id minted by the engine. `init` + entries.
 //      Projection.fromState(state, j)  — RESTORE: a whole `ProjectionState` whose ids were
 //                                        issued earlier; stale counters are normalized.
 //
