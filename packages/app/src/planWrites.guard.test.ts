@@ -116,9 +116,15 @@ const SCENARIO_REBUILD = /\b(withPlan|withLedger)\s*\(/;
 
 /**
  * Rebuilding the `jobs` array on an event's embedded person — the partner plane's counterpart
- * to a plan rebuild. A partner's jobs are a field of their `RelationshipEvent`, so the only way
- * to write one without `Projection` is to reassemble that person and revise the event; both
- * halves of that shape are matched.
+ * to a plan rebuild. A partner's jobs are a field of their `RelationshipEvent`, so reassembling
+ * that person is how one gets written without `Projection`; both halves of that shape are
+ * matched.
+ *
+ * The facade now closes the second half itself: `reviseTransaction` takes a `TransactionRevision`
+ * carrying no person and no job list, so a revised event cannot be handed one. This still guards
+ * the first half — assembling a person object anywhere in the app — and the regex self-test below
+ * feeds it the old `reviseTransaction` shape as a sample of what it must catch, not as a call
+ * that would compile today.
  */
 const PARTNER_JOBS_REBUILD = /\.\.\.\s*[\w.]*\bperson\b[\s\S]{0,200}?\bjobs\s*:/;
 

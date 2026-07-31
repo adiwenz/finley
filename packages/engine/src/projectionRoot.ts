@@ -48,7 +48,7 @@
  * caller who meant to validate under real tax rules but forgot the argument would silently get
  * the tax-free answer — the false-accept this contract exists to prevent, reintroduced by
  * omission. Standalone use is unaffected: `nullJurisdiction` is part of this package, so
- * `create(init, nullJurisdiction)` needs no rules package — it just has to say so out loud.
+ * `fromInput(input, nullJurisdiction)` needs no rules package — it just has to say so out loud.
  */
 
 import type { Plan, GoalPlan, GoalPatch, PlanPatch } from "./plan";
@@ -681,7 +681,12 @@ function mintedIdFields(scenario: Scenario): readonly (string | undefined)[] {
 
 /**
  * The counter floor a scenario forces — ONE number, computed once, serving both counters that
- * authored data can invalidate:
+ * RESTORED data can invalidate.
+ *
+ * Restored is the whole of it: authoring mints, so nothing an authoring call produces can be
+ * ahead of the counter. Ids reach a scenario without passing through {@link mint} only when
+ * {@link Projection.fromState} adopts state that already holds them — which is why that is the
+ * one place this runs on the way in.
  *
  *  - `ProjectionState.nextSeq`, the id mint. A plan holding `job-1` or an event holding
  *    `child-1` means the next {@link Projection.addJob} / {@link Projection.haveChild} must
@@ -959,8 +964,9 @@ export class Projection {
    * one namespace across both planes, which is what lets {@link seqFloor} recognize a partner's
    * job on the way back in and step the counter past it.
    *
-   * A supplied `id` is kept verbatim (that is how a job keeps its identity moving between
-   * members) and refused if the household already holds it.
+   * The id is always minted; a caller cannot name a job. Moving an EXISTING job onto this
+   * plane keeps its id, and is {@link reassignJob} — which names that id as an argument rather
+   * than accepting one here.
    */
   addPartnerJob(personId: PersonId, job: JobInput): string {
     const event = this.relationshipFor(personId);
@@ -1767,8 +1773,7 @@ export class Projection {
    *
    * This is the SINGLE flooring path — there is no "trusted" variant that skips it, because
    * `commit` floors after every write anyway, so a skip would save one walk and reopen the
-   * silent-collision hole. {@link create} routes through here too, over a state nobody has
-   * authored into yet, so restoring and creating cannot drift apart.
+   * silent-collision hole.
    *
    * It is also the ONLY restoration api: there is no variant taking a bare `Scenario`, because
    * such a call is this one with `nextSeq` unknown — which the flooring works out anyway — and
@@ -1776,7 +1781,7 @@ export class Projection {
    * different things.
    *
    * `jurisdiction` is supplied fresh here, not read back from the state: a jurisdiction is
-   * behaviour and was never serialised. Required, the same as {@link create} — a reload is
+   * behaviour and was never serialised. Required, the same as {@link fromInput} — a reload is
    * exactly where a forgotten argument would quietly downgrade an authoring gate.
    */
   static fromState(state: ProjectionState, jurisdiction: Jurisdiction): Projection {

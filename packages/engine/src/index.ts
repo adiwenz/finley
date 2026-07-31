@@ -106,6 +106,18 @@ export * from "./plan";
 // The `Projection` root: standing edits + ledger transactions on one object, deterministic id
 // minting, `run(jurisdiction)` → immutable `ProjectionResult`. No undo stack — reversal is
 // addressable removal.
+//
+// Two ways to get a handle, and they differ in who names things:
+//
+//   Projection.fromInput(input, jurisdiction)  AUTHOR  — takes a declarative, id-free
+//     `ScenarioInput` and mints every durable id off the shared counter.
+//   Projection.fromState(state, jurisdiction)  RESTORE — takes a whole `ProjectionState` whose
+//     ids were issued earlier, preserving them and normalizing stale counters.
+//
+// Nothing else adopts caller-named data: no authoring input carries an `id`, and no method takes
+// an id-bearing `Plan`, `Ledger` or `LifeEvent`. An edit may NAME an existing id as the target it
+// addresses (`updateJob(jobId, …)`, `reviseTransaction(eventId, …)`) but can never replace that
+// id or anything nested under it.
 export type {
   ProjectionState,
   ProjectionResult,

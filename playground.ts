@@ -7,6 +7,7 @@ import {
   Projection,
   dollarsToCents,
   centsToDollars,
+  emptyLedger,
   nullJurisdiction,
   type PersonId,
 } from "@finley/engine";
@@ -16,9 +17,20 @@ import { samplePlan, SAMPLE_START_YEAR } from "./packages/engine/src/testing/sam
 
 const P1 = "p1" as PersonId;
 
-// 1. Create — standing numbers in, plus the jurisdiction writes validate against (authoring
-//    only; `run()` below still picks its own).
-const p = Projection.create({ plan: samplePlan, startYear: SAMPLE_START_YEAR }, nullJurisdiction);
+// 1. Open a handle. There are two doors, and they differ in who names things:
+//
+//      Projection.fromInput(input, j)  — AUTHOR: a declarative, id-free `ScenarioInput`,
+//                                        every durable id minted by the engine.
+//      Projection.fromState(state, j)  — RESTORE: a whole `ProjectionState` whose ids were
+//                                        issued earlier; stale counters are normalized.
+//
+//    `samplePlan` is a fixture that already carries ids, so adopting it is restoration.
+//    `nextSeq: 1` means "not known" — the normalization floors the counter past what the plan
+//    holds. The jurisdiction here is the one WRITES validate against; `run()` below picks its own.
+const p = Projection.fromState(
+  { scenario: { plan: samplePlan, ledger: emptyLedger }, startYear: SAMPLE_START_YEAR, nextSeq: 1 },
+  nullJurisdiction,
+);
 
 // 2. Standing edits. Creating writes return a minted id.
 const jobId = p.addJob(P1, {
@@ -65,7 +77,7 @@ console.log({ ledgerEvents: p.state.scenario.ledger.events.length });
 
 // 6. Serialize / reload — the id counter continues, so ids never collide.
 const saved = JSON.parse(JSON.stringify(p.toJSON()));
-const reloaded = Projection.fromJSON(saved, nullJurisdiction);
+const reloaded = Projection.fromState(saved, nullJurisdiction);
 console.log({ nextIdAfterReload: reloaded.addGoal({
   name: "Car",
   targetCents: dollarsToCents(30_000),

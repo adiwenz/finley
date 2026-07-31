@@ -1575,8 +1575,8 @@ describe("Projection root — fromState restores a plan and its timeline togethe
 
     const p = Projection.fromState(state, nullJurisdiction);
 
-    // The restored event survived the construction — unlike `create`, which always starts from
-    // an empty ledger.
+    // The restored event survived the construction — unlike `fromInput`, which authors from a
+    // document and always starts from an empty ledger.
     expect(p.ledger.events.map((e) => e.id)).toEqual(["loan-2"]);
     // The id floor cleared `job-4`, so the next mint is `job-5` — not `job-1`, which the
     // state's own `nextSeq` would have handed out on top of a live id.
