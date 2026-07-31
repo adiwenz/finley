@@ -12,7 +12,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { SimPerson } from "./projection/simulate.types";
-import type { Job } from "./job";
+import type { Job, JobPayChange, JobIncomeOverride } from "./job";
 import type { Person } from "./person";
 
 /**
@@ -43,10 +43,75 @@ function jobEndYearExclusive(job: Job, owner: Person): number {
 }
 
 /**
- * Nominal covered earnings this person's jobs imply for the working years **before**
- * "now", keyed by calendar year. Computed directly from the jobs — never simulated, since
- * the sim starts at "now". Each year's covered wage is the today's-dollars salary at that
- * year, CPI-deflated from now back to it. Overlapping jobs sum.
+ * The nominal growth of a real-anchored salary: a real-flat job (0% real) grows at exactly
+ * CPI, so tagging it `inflationLinked` reproduces the scalar model byte-for-byte; a job with
+ * real growth compounds real and CPI together.
+ */
+function salaryGrowthMode(realGrowthPct: number, inflationRate: number): GrowthMode {
+  const realGrowth = realGrowthPct / 100;
+  return realGrowth === 0
+    ? { type: "inflationLinked", annualRate: inflationRate }
+    : { type: "customRate", annualRate: (1 + realGrowth) * (1 + inflationRate) - 1 };
+}
+
+/**
+ * Layer a job's permanent pay changes onto its salary series, in month order, within the
+ * inclusive `[loMonth, hiMonth]` span (a change outside it — before the job is worked or
+ * after it ends — is ignored). Each opens a new segment (`fromHereForward` + `resetAnchor`)
+ * so the new pay compounds from there; `changeBy` adds to the month's pre-change baseline (a
+ * negative delta is a cut), `setTo` replaces it. Applied BEFORE {@link applyIncomeOverrides}
+ * so a later bonus lands on top of the changed pay.
+ */
+function applyPayChanges(
+  series: SimCashFlowSeries,
+  payChanges: readonly JobPayChange[],
+  loMonth: number,
+  hiMonth: number,
+): void {
+  for (const c of [...payChanges].sort((a, b) => a.month - b.month)) {
+    if (c.month < loMonth || c.month > hiMonth) continue;
+    const newMonthly = c.kind === "setTo" ? c.cents : series.getMonthlyCents(c.month) + c.cents;
+    series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
+  }
+}
+
+/**
+ * Layer a job's one-month perturbations (bonus, missed paycheck, correction) onto its salary
+ * series as `thisMonthOnly` overrides, within the inclusive `[loMonth, hiMonth]` span.
+ * `addBonus` adds to the month's baseline (grown pay, after any pay change); `setTo` replaces
+ * it. So they are taxed as wages and run through the job's deferral like regular pay.
+ */
+function applyIncomeOverrides(
+  series: SimCashFlowSeries,
+  overrides: readonly JobIncomeOverride[],
+  loMonth: number,
+  hiMonth: number,
+): void {
+  for (const ov of [...overrides].sort((a, b) => a.month - b.month)) {
+    if (ov.month < loMonth || ov.month > hiMonth) continue;
+    const target = ov.kind === "setTo" ? ov.cents : series.getMonthlyCents(ov.month) + ov.cents;
+    series.addOverride(ov.month, Math.max(0, target), "thisMonthOnly");
+  }
+}
+
+/**
+ * Nominal covered earnings this person's jobs imply for the working years **before** "now",
+ * keyed by calendar year. Built from the SAME compiled compensation the forward projection
+ * uses — actual monthly pay summed per calendar year — never a flat annual reconstruction, so
+ * pre-"now" raises and bonuses land exactly as they did in life. Computed directly (never
+ * simulated: the sim starts at "now"), and covering only months strictly before "now" so the
+ * forward accumulation, which owns month 0 onward, never double-counts a year.
+ *
+ * The series anchors at the job's own (possibly long-past) start month with the salary
+ * nominal-at-that-start, growing forward at real+CPI. Evaluated at "now" this reproduces the
+ * forward series' now-salary, so the pre-"now" and forward records join seamlessly; evaluated
+ * backward it de-CPIs each earlier year. Overlapping jobs sum.
+ *
+ * The split is at month 0, which the sim treats as the start of the current calendar year: the
+ * pre-"now" record runs whole years up to it and forward accumulation owns it onward. Known
+ * simplification — a run beginning partway through a calendar year neither records that year's
+ * already-elapsed months here nor re-derives them forward, so the current year's covered wage
+ * is the full simulated year rather than a partial one.
  */
 export function compilePersonPriorEarnings(
   person: Person,
@@ -55,10 +120,31 @@ export function compilePersonPriorEarnings(
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const lastPastYear = Math.min(jobEndYearExclusive(job, person), nowYear);
-    for (let year = job.startYear; year < lastPastYear; year++) {
-      const nominal = Math.round(realSalaryCentsAt(job, year) * Math.pow(1 + inflationRate, year - nowYear));
-      earnings[year] = (earnings[year] ?? 0) + nominal;
+    const naturalStartMonth = (job.startYear - nowYear) * 12;
+    // Pre-"now" is months < 0; clip a still-running job at "now" and skip a job that only
+    // starts at or after it (its earnings are entirely in the forward series).
+    const preNowEndExclusive = Math.min((jobEndYearExclusive(job, person) - nowYear) * 12, 0);
+    if (preNowEndExclusive <= naturalStartMonth) continue;
+
+    const nominalStartAnnualCents = Math.round(
+      job.salary.startingSalaryCents * Math.pow(1 + inflationRate, job.startYear - nowYear),
+    );
+    const series = new SimCashFlowSeries(
+      naturalStartMonth,
+      Math.round(nominalStartAnnualCents / 12),
+      salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
+      { baselineUnit: "monthly", endMonth: preNowEndExclusive - 1, anchorMonth: naturalStartMonth },
+    );
+    // Only pre-"now" edits: a month-0-or-later change belongs to the forward series, and
+    // applying it here would reprice years the forward accumulation also covers.
+    applyPayChanges(series, job.payChanges ?? [], naturalStartMonth, preNowEndExclusive - 1);
+    applyIncomeOverrides(series, job.incomeOverrides ?? [], naturalStartMonth, preNowEndExclusive - 1);
+
+    for (let month = naturalStartMonth; month < preNowEndExclusive; month++) {
+      const cents = series.getMonthlyCents(month);
+      if (cents <= 0) continue;
+      const year = nowYear + Math.floor(month / 12);
+      earnings[year] = (earnings[year] ?? 0) + cents;
     }
   }
   return earnings;
@@ -94,46 +180,27 @@ function compileJobIncome(
     : endMonthExclusive;
   if (paidEndExclusive <= paidStart) return null; // no paid month falls inside the window
 
-  const annualNowCents = realSalaryCentsAt(job, nowYear);
-  const monthlyNowCents = Math.round(annualNowCents / 12);
+  const monthlyNowCents = Math.round(realSalaryCentsAt(job, nowYear) / 12);
 
-  const realGrowth = job.salary.realGrowthPct / 100;
-  // Real-flat salary grows at exactly CPI nominally, so tagging it `inflationLinked`
-  // reproduces the scalar model's income series byte-for-byte.
-  const growthMode: GrowthMode =
-    realGrowth === 0
-      ? { type: "inflationLinked", annualRate: inflationRate }
-      : { type: "customRate", annualRate: (1 + realGrowth) * (1 + inflationRate) - 1 };
+  const series = new SimCashFlowSeries(
+    paidStart,
+    monthlyNowCents,
+    salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
+    {
+      baselineUnit: "monthly",
+      endMonth: paidEndExclusive - 1,
+      // Anchored at the job's own start, so a clipped partner job pays the correctly-grown
+      // salary from its join month.
+      anchorMonth: naturalStart,
+      taxCategory: "wages",
+    },
+  );
 
-  const series = new SimCashFlowSeries(paidStart, monthlyNowCents, growthMode, {
-    baselineUnit: "monthly",
-    endMonth: paidEndExclusive - 1,
-    // Anchored at the job's own start, so a clipped partner job pays the correctly-grown
-    // salary from its join month.
-    anchorMonth: naturalStart,
-    taxCategory: "wages",
-  });
-
-  // A permanent pay change opens a new salary segment (`fromHereForward` + `resetAnchor`),
-  // so the new pay compounds from there at the job's own real+CPI rate. `changeBy` adds to
-  // the month's pre-change baseline (a negative delta is a cut); `setTo` replaces it.
-  // Applied in month order and BEFORE the one-month overrides below, so a later bonus lands
-  // on top of the changed pay. Changes outside the paid span are ignored.
-  for (const c of [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month)) {
-    if (c.month < paidStart || c.month > paidEndExclusive - 1) continue;
-    const newMonthly = c.kind === "setTo" ? c.cents : series.getMonthlyCents(c.month) + c.cents;
-    series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
-  }
-
-  // One-month perturbations (bonus, missed paycheck, correction) ride the job's own series
-  // as `thisMonthOnly` overrides, so they are taxed as wages and run through the 401(k)
-  // deferral like regular pay. `addBonus` adds to the month's baseline (grown pay, before
-  // any override); `setTo` replaces it. Overrides outside the paid span are ignored.
-  for (const ov of [...(job.incomeOverrides ?? [])].sort((a, b) => a.month - b.month)) {
-    if (ov.month < paidStart || ov.month > paidEndExclusive - 1) continue;
-    const target = ov.kind === "setTo" ? ov.cents : series.getMonthlyCents(ov.month) + ov.cents;
-    series.addOverride(ov.month, Math.max(0, target), "thisMonthOnly");
-  }
+  // Same effective-dated pay changes and one-month perturbations the pre-"now" record folds,
+  // applied over the paid span — so both sides of "now" read one continuous compensation
+  // history. Overrides tax as wages and run through the 401(k) deferral like regular pay.
+  applyPayChanges(series, job.payChanges ?? [], paidStart, paidEndExclusive - 1);
+  applyIncomeOverrides(series, job.incomeOverrides ?? [], paidStart, paidEndExclusive - 1);
 
   return {
     series,

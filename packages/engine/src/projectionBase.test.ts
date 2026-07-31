@@ -143,6 +143,58 @@ describe("createProjectionBase — earned income before current age comes from t
   });
 });
 
+describe("createProjectionBase — the covered-earnings record the benefit seam prices comes from the jobs", () => {
+  // Inflation 0 so a real-flat salary is nominally flat: each pre-"now" year reads the exact
+  // authored pay, and a raise or bonus is a clean whole-dollar shift the AIME seam can be
+  // pinned against.
+  const zeroInflation = (jobs: Plan["jobs"]): Plan => ({
+    ...samplePlan,
+    inflationPct: 0,
+    currentAge: 40,
+    benefitClaimingAge: 67,
+    jobs,
+  });
+
+  /** The covered-earnings record as the benefit seam first sees it (at the claiming month). */
+  function recordAtClaim(plan: Plan): Map<number, number> {
+    let captured: Map<number, number> | undefined;
+    const seam = mockJurisdiction({
+      governmentBenefitBaseMonthlyCents: (claim) => {
+        captured ??= new Map(claim.record.annualWagesCents);
+        return 0; // pricing is captured, not paid — this test asserts the record, not the benefit
+      },
+    });
+    project(plan, seam);
+    if (captured === undefined) throw new Error("benefit seam was never priced");
+    return captured;
+  }
+
+  it("prices a record built from actual job compensation — pre-'now' raises and bonuses included", () => {
+    // Main job $6,000/mo from 2004, raised to $10,000/mo from 2024 (month −24) with a $5,000
+    // bonus in 2025 (month −6); a second concurrent $2,000/mo job runs alongside.
+    const main = {
+      ...salariedJob(dollarsToCents(6000)),
+      payChanges: [{ month: -24, kind: "setTo" as const, cents: dollarsToCents(10_000) }],
+      incomeOverrides: [{ month: -6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
+    };
+    const side = { ...salariedJob(dollarsToCents(2000)), id: "job-side" };
+    const record = recordAtClaim(zeroInflation([main, side]));
+    expect(record.get(2023)).toBe(dollarsToCents(72_000 + 24_000)); // both jobs, pre-raise
+    expect(record.get(2024)).toBe(dollarsToCents(120_000 + 24_000)); // raise in force
+    expect(record.get(2025)).toBe(dollarsToCents(125_000 + 24_000)); // raise + one-off bonus
+  });
+
+  it("combines all employers into one per-year figure before any wage-base cap applies", () => {
+    // Two employers each under the SSA cap ($184,500) but together over it: the record carries
+    // the COMBINED, uncapped total, leaving the cap as a single downstream per-person-per-year
+    // step (in the rules AIME) rather than one applied per employer.
+    const a = { ...salariedJob(dollarsToCents(9000)), id: "job-a" }; // $108k/yr
+    const b = { ...salariedJob(dollarsToCents(9000)), id: "job-b" }; // $108k/yr
+    const record = recordAtClaim(zeroInflation([a, b]));
+    expect(record.get(2025)).toBe(dollarsToCents(216_000)); // 108k + 108k, uncapped in the record
+  });
+});
+
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall

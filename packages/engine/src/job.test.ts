@@ -218,6 +218,64 @@ describe("Job/Person standing model — permanent pay changes", () => {
   });
 });
 
+describe("Job/Person standing model — pre-'now' covered earnings from actual compensation", () => {
+  // A 40-year-old whose one job started at 18 (year 2004), so the pre-"now" record spans
+  // [2004 … 2025]. Inflation is 0 in these cases, so a real-flat salary is nominally flat
+  // too — every pre-"now" year equals the stated pay exactly, and a pay change or bonus
+  // shows up as a clean whole-dollar shift rather than a CPI-blurred figure.
+  const personWith = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - 40,
+    retirementTargetAge: 60,
+    benefitClaimingAge: 67,
+    jobs,
+  });
+  const priorFor = (jobs: Job[], inflationRate = 0): Record<number, number> =>
+    compilePersonPriorEarnings(personWith(jobs), START_YEAR, inflationRate);
+
+  const flat72k: Job = salariedJob(dollarsToCents(6000)); // $6,000/mo → $72,000/yr
+
+  it("records each pre-'now' year at the actual covered pay (flat salary, no inflation)", () => {
+    const prior = priorFor([flat72k]);
+    expect(prior[2025]).toBe(dollarsToCents(72_000));
+    expect(prior[2004]).toBe(dollarsToCents(72_000));
+    expect(prior[2026]).toBeUndefined(); // "now" year onward is the forward series' job
+  });
+
+  it("reflects a pre-'now' permanent raise from the year it took effect (effective-dated pay change)", () => {
+    // setTo $10,000/mo from month −24 (start of 2024): 2024–2025 pay the raised salary,
+    // earlier years the original — the record tracks the actual paycheck, not one flat figure.
+    const raised: Job = { ...flat72k, payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(10_000) }] };
+    const prior = priorFor([raised]);
+    expect(prior[2023]).toBe(dollarsToCents(72_000));
+    expect(prior[2024]).toBe(dollarsToCents(120_000));
+    expect(prior[2025]).toBe(dollarsToCents(120_000));
+  });
+
+  it("adds a pre-'now' covered bonus to exactly its year", () => {
+    const withBonus: Job = { ...flat72k, incomeOverrides: [{ month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }] };
+    const prior = priorFor([withBonus]);
+    expect(prior[2025]).toBe(dollarsToCents(77_000)); // 72,000 + 5,000 one-off
+    expect(prior[2024]).toBe(dollarsToCents(72_000));
+  });
+
+  it("sums compensation from multiple concurrent jobs within each year", () => {
+    const second: Job = { ...salariedJob(dollarsToCents(2000)), id: "job-side" };
+    const prior = priorFor([flat72k, second]);
+    expect(prior[2025]).toBe(dollarsToCents(72_000 + 24_000)); // $6k/mo + $2k/mo = $96k/yr
+  });
+
+  it("excludes a future-dated pay change from the pre-'now' record (the forward series owns it)", () => {
+    // A raise at month 12 (year 2027) must not leak into the pre-"now" years, or the same
+    // earnings would be double-counted once the forward accumulation reaches 2027.
+    const raisedLater: Job = { ...flat72k, payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(20_000) }] };
+    const prior = priorFor([raisedLater]);
+    expect(prior[2025]).toBe(dollarsToCents(72_000));
+    expect(prior[2027]).toBeUndefined();
+  });
+});
+
 describe("Job — human name drives the income band label (display only)", () => {
   const personWith = (job: Job): Person => ({
     id: PRIMARY_PERSON_ID,
