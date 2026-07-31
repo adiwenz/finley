@@ -7,8 +7,12 @@ import type { Cents, DeferralLimitContext } from "@finley/engine";
  *
  * The caps are NOT one number: elective deferral, the total-additions ceiling (employee +
  * employer match) and the much lower IRA limit are separate, catch-up age-banded per
- * account type. All are modelled here so the values index together; v1 wires only elective
- * deferral (+ catch-up).
+ * account type. All are modelled here so the values index together.
+ *
+ * ⚠ {@link totalAdditionsLimitCents} is computed but NOT yet enforced by the projection: the
+ * engine clamps the employee deferral to {@link retirementDeferralLimitCents} in
+ * `waterfall.ts` and then deposits the employer match on top unclamped. Enforcing 415(c)
+ * needs an engine-side seam to consume this. The IRA figures are likewise unwired.
  *
  * ⚠ Estimates, not advice. Forward years are INDEXED from the pinned
  * {@link CONTRIBUTION_LIMITS_BASE_YEAR} base below, not authoritative.
@@ -88,16 +92,43 @@ export function contributionLimits(year: number): ContributionLimits {
 }
 
 /**
+ * The catch-up a person of `age` may add in `year`. No age (or under 50) → none; from 50 the
+ * standard figure; in 60–63 the larger SECURE 2.0 one INSTEAD (it replaces, not stacks); from
+ * 64 back to the standard one.
+ *
+ * Shared by both caps below because the catch-up rides on top of each: the same dollars that
+ * raise the elective limit also raise the 415(c) ceiling.
+ */
+function catchUpCents(limits: ContributionLimits, age: number | undefined): Cents {
+  if (age === undefined || age < 50) return 0;
+  if (age >= 60 && age <= 63) return limits.catchUp60to63Cents;
+  return limits.catchUp50Cents;
+}
+
+/**
  * The engine's deferral-limit seam: a person's 401(k)-style elective-deferral cap for the
- * year. No age (or under 50) → the base limit; from 50 the standard catch-up is added; in
- * 60–63 the larger SECURE 2.0 catch-up applies instead. The employer match is separate and
- * does NOT share this cap.
+ * year — what the EMPLOYEE may personally defer, age-banded by {@link catchUpCents}. The
+ * employer match is separate and does NOT share this cap; it is bounded only by
+ * {@link totalAdditionsLimitCents}.
+ *
+ * 2026: $24,500 under 50 · $32,500 at 50–59 · $35,750 at 60–63 · $32,500 from 64.
  */
 export function retirementDeferralLimitCents(ctx: DeferralLimitContext): Cents {
   const limits = contributionLimits(ctx.year);
-  const base = limits.elective401kCents;
-  const age = ctx.age;
-  if (age === undefined || age < 50) return base;
-  if (age >= 60 && age <= 63) return base + limits.catchUp60to63Cents;
-  return base + limits.catchUp50Cents;
+  return limits.elective401kCents + catchUpCents(limits, ctx.age);
+}
+
+/**
+ * The Section 415(c) total-additions ceiling: employee deferral + employer match COMBINED,
+ * per employer plan. The outer bound on everything that lands in the account — where
+ * {@link retirementDeferralLimitCents} bounds only the employee's own share.
+ *
+ * Age-banded the same way, since catch-up contributions sit on top of the 415(c) base rather
+ * than inside it.
+ *
+ * 2026: $72,000 under 50 · $80,000 at 50–59 · $83,250 at 60–63 · $80,000 from 64.
+ */
+export function totalAdditionsLimitCents(ctx: DeferralLimitContext): Cents {
+  const limits = contributionLimits(ctx.year);
+  return limits.totalAdditionsCents + catchUpCents(limits, ctx.age);
 }

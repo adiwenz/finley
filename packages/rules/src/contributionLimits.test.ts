@@ -4,6 +4,7 @@ import {
   CONTRIBUTION_LIMITS_BASE_YEAR,
   contributionLimits,
   retirementDeferralLimitCents,
+  totalAdditionsLimitCents,
 } from "./contributionLimits";
 
 /** DeferralLimitContext for a person of the given age in `year`. */
@@ -79,6 +80,46 @@ describe("retirementDeferralLimitCents — the age-banded deferral seam", () => 
     let prev = -1;
     for (let year = CONTRIBUTION_LIMITS_BASE_YEAR; year <= CONTRIBUTION_LIMITS_BASE_YEAR + 40; year++) {
       const limit = retirementDeferralLimitCents(ctx(year, 61));
+      expect(limit).toBeGreaterThanOrEqual(prev);
+      prev = limit;
+    }
+  });
+});
+
+describe("totalAdditionsLimitCents — the age-banded 415(c) ceiling", () => {
+  it("returns the base ceiling below 50 (or with no age supplied)", () => {
+    expect(totalAdditionsLimitCents(ctx(2026, 40))).toBe(72_000_00);
+    expect(totalAdditionsLimitCents(ctx(2026))).toBe(72_000_00);
+    expect(totalAdditionsLimitCents(ctx(2026, 49))).toBe(72_000_00);
+  });
+
+  it("adds the standard catch-up from age 50 through 59", () => {
+    expect(totalAdditionsLimitCents(ctx(2026, 50))).toBe(80_000_00);
+    expect(totalAdditionsLimitCents(ctx(2026, 59))).toBe(80_000_00);
+  });
+
+  it("adds the larger SECURE 2.0 catch-up in the 60–63 band", () => {
+    expect(totalAdditionsLimitCents(ctx(2026, 60))).toBe(83_250_00);
+    expect(totalAdditionsLimitCents(ctx(2026, 63))).toBe(83_250_00);
+  });
+
+  it("reverts to the standard catch-up from 64 on", () => {
+    expect(totalAdditionsLimitCents(ctx(2026, 64))).toBe(80_000_00);
+    expect(totalAdditionsLimitCents(ctx(2026, 80))).toBe(80_000_00);
+  });
+
+  it("always leaves room above the elective limit — the match has somewhere to land", () => {
+    for (const age of [undefined, 30, 49, 50, 59, 60, 63, 64, 80]) {
+      expect(totalAdditionsLimitCents(ctx(2026, age))).toBeGreaterThan(
+        retirementDeferralLimitCents(ctx(2026, age)),
+      );
+    }
+  });
+
+  it("is monotonic in year at a fixed age (indexed forward, never decreasing)", () => {
+    let prev = -1;
+    for (let year = CONTRIBUTION_LIMITS_BASE_YEAR; year <= CONTRIBUTION_LIMITS_BASE_YEAR + 40; year++) {
+      const limit = totalAdditionsLimitCents(ctx(year, 61));
       expect(limit).toBeGreaterThanOrEqual(prev);
       prev = limit;
     }
