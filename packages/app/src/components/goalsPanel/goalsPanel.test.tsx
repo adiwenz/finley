@@ -43,7 +43,7 @@ describe("GoalsPanel", () => {
   });
 
   it("shows a Funded badge once a goal's projected fund reaches target on/before the date", () => {
-    // With FICA withheld, the default $5k plan has essentially no surplus, so a fundable
+    // With FICA charged, the default $5k plan has essentially no surplus, so a fundable
     // goal needs a plan that actually saves: a $6,500 wage fills a $5,000 target well before
     // the 24-month date.
     const budget: Plan = {

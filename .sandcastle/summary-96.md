@@ -68,11 +68,31 @@ the downstream test migration.
 ## Scope decisions (deferred, out of v1)
 
 - **Self-employment tax (15.3%).** Jobs are W-2 wages; SE income is a different shape. Out.
-- **Per-source FICA attribution.** FICA is reported as one household line, not split per job,
-  so `buildFlows`'s per-source `netCashFlowCents` does not haircut wages for FICA. Acceptable
-  for v1; the household take-home and the whole projection are correct.
-- **Withholding vs. year-end reconciliation (#55).** FICA is exact by paycheck with no
-  reconciliation, so it does not wait on that work.
+- **Per-employer withholding cash-flow timing.** The model states the worker's reconciled
+  ANNUAL payroll-tax liability across every wage source combined — never a per-employer
+  paycheck-withholding simulation. A worker with two jobs (or a job change mid-year) can have
+  excess Social Security withheld by real employers acting independently, refunded only at
+  tax-return reconciliation; that over-withhold-then-refund timing is not modeled — see the
+  `payrollTaxAnnualLiabilityNotWithholding` disclosure in `payrollTax.ts`.
+
+## Addendum — per-source attribution and terminology (Part C)
+
+Two follow-ups landed after the initial fix:
+
+- **Renamed "withheld"/"withholding" → "charged"/"owed" everywhere FICA is described** (types,
+  comments, tests). The model was never simulating paycheck withholding — it always computed
+  the reconciled annual liability — so the language now says what the code does.
+- **Per-source payroll-tax attribution**, previously deferred: `runWaterfall` now returns
+  `payrollTaxBySourceCents`, mirroring `taxBySourceCents`. A new required-when-payroll-is-charged
+  jurisdiction seam, `computePayrollTaxByCategoryCents` (paired with `computePayrollTaxCents`,
+  Σ-reconciled to it, runtime-enforced like `computeTaxByCategoryCents`), lets the waterfall
+  apportion each month's incremental payroll charge back to the earned-category sources that
+  generated it, weighted by earned amount — the SAME cumulative-cap scalar calculation is
+  preserved; only the resulting total is split, never recomputed per source. `buildFlows` now
+  haircuts each source's `netCashFlowCents` by its payroll-tax share alongside deferral and
+  income tax, so Σ per-source net income reconciles exactly to the household's after-tax,
+  after-payroll-tax total (`assertPayrollTaxAttributionReconciles`,
+  `assertPersonPayrollTaxBreakdownReconciles`).
 
 ## Changes Made
 

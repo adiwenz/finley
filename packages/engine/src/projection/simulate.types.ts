@@ -99,9 +99,10 @@ export interface ProjectionMonthFlows {
    */
   readonly taxCents: Cents;
   /**
-   * Employee payroll tax (US: FICA) withheld this month, summed across persons. A SEPARATE
-   * line from {@link taxCents} — its base is pre-deferral gross and it applies to earned
-   * income only — already deducted from take-home, so after-tax gross is
+   * Employee payroll tax (US: FICA) charged this month, summed across persons — the
+   * reconciled annual liability accrued this month, not per-employer paycheck withholding. A
+   * SEPARATE line from {@link taxCents} — its base is pre-deferral gross and it applies to
+   * earned income only — already deducted from take-home, so after-tax gross is
    * `totalIncomeCents − taxCents − payrollTaxCents`. 0 when the jurisdiction charges none.
    */
   readonly payrollTaxCents: Cents;
@@ -126,6 +127,13 @@ export interface ProjectionMonthFlows {
    * ProjectionIncomeSource.netCashFlowCents}; this is only for a per-source view.
    */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * Payroll tax (FICA) per income SOURCE, mirroring {@link taxBySourceCents} but for {@link
+   * payrollTaxCents} — a job's own FICA line, distinguishable from a partner's or another
+   * job's. Already folded into {@link ProjectionIncomeSource.netCashFlowCents}. `{}` in a
+   * month with no payroll tax, otherwise Σ === `payrollTaxCents`.
+   */
+  readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   /**
    * The month's taxable base, per owner by tax category, **including gains this month's
    * funding draws already realized** — what a FURTHER draw would be taxed on top of. The

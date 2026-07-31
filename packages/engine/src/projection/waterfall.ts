@@ -28,10 +28,17 @@ import type { WaterfallInput, WaterfallResult } from "./waterfall.types";
 import {
   assertPersonTaxBreakdownReconciles,
   assertTaxAttributionReconciles,
+  assertPersonPayrollTaxBreakdownReconciles,
+  assertPayrollTaxAttributionReconciles,
 } from "./waterfallInvariants";
 
 // Re-exported so the engine barrel keeps exposing them.
-export { assertPersonTaxBreakdownReconciles, assertTaxAttributionReconciles };
+export {
+  assertPersonTaxBreakdownReconciles,
+  assertTaxAttributionReconciles,
+  assertPersonPayrollTaxBreakdownReconciles,
+  assertPayrollTaxAttributionReconciles,
+};
 
 // Re-exported so existing importers keep resolving them here.
 export type {
@@ -60,6 +67,7 @@ function applyDeferrals(
   taxableByPerson: Map<string, TaxableByCategory>;
   earnedGrossByPerson: Map<string, TaxableByCategory>;
   sourceTaxableByPerson: Map<string, SourceTaxable[]>;
+  sourceEarnedByPerson: Map<string, SourceTaxable[]>;
   deferralBySource: Map<string, Cents>;
   deferredByPerson: Map<string, Cents>;
 } {
@@ -73,6 +81,9 @@ function applyDeferrals(
   const earnedGrossByPerson = new Map<string, TaxableByCategory>();
   // Keyed by `sourceId` ?? tax category — the key the income side bands on.
   const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
+  // This month's PRE-deferral earned amount per source, mirroring `sourceTaxableByPerson`
+  // but unhaircut by any deferral — the weight the payroll-tax breakdown apportions by.
+  const sourceEarnedByPerson = new Map<string, SourceTaxable[]>();
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   const taxableFor = (pid: string): TaxableByCategory => {
@@ -99,7 +110,16 @@ function applyDeferrals(
     // interest for an accrued booking, full gross for wages) — the same figure the taxable
     // pool bands on, but recorded here WITHOUT the deferral haircut, since payroll tax is
     // levied on the whole gross. The seam later filters to earned categories.
-    addCategory(earnedGrossFor(src.ownerId), src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
+    const sourceEarned = src.taxableCents ?? src.waterfallInflowCents;
+    addCategory(earnedGrossFor(src.ownerId), src.taxCategory, sourceEarned);
+    if (sourceEarned > 0) {
+      let earnedList = sourceEarnedByPerson.get(src.ownerId);
+      if (earnedList === undefined) {
+        earnedList = [];
+        sourceEarnedByPerson.set(src.ownerId, earnedList);
+      }
+      earnedList.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceEarned });
+    }
 
     let deferred = 0;
     if (src.planDescriptor && src.waterfallInflowCents > 0) {
@@ -135,6 +155,7 @@ function applyDeferrals(
     taxableByPerson,
     earnedGrossByPerson,
     sourceTaxableByPerson,
+    sourceEarnedByPerson,
     deferralBySource,
     deferredByPerson,
   };
@@ -152,21 +173,25 @@ function computeTakeHome(
   taxableByPerson: Map<string, TaxableByCategory>,
   earnedGrossByPerson: Map<string, TaxableByCategory>,
   sourceTaxableByPerson: Map<string, SourceTaxable[]>,
+  sourceEarnedByPerson: Map<string, SourceTaxable[]>,
   deferredByPerson: Map<string, Cents>,
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
+  payrollTaxBySourceCents: Record<string, Cents>;
   takeHomeByPerson: Map<string, Cents>;
   taxByCategoryCents: TaxableByCategory;
   taxBySourceCents: Record<string, Cents>;
 } {
   const breakdownSeam = input.computeTaxByCategoryCents;
   const payrollSeam = input.computePayrollTaxCents;
+  const payrollBreakdownSeam = input.computePayrollTaxByCategoryCents;
   let taxCents: Cents = 0;
   let payrollTaxCents: Cents = 0;
   // The breakdown seam is required; a zero-tax jurisdiction returns `{}`.
   const taxByCategoryCents: TaxableByCategory = {};
   const taxBySourceCents: Record<string, Cents> = {};
+  const payrollTaxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
@@ -187,11 +212,37 @@ function computeTakeHome(
     // Payroll tax is the cumulative-after minus cumulative-before difference, so a capped
     // component (OASDI's wage base) stops once year-to-date earnings clear the ceiling.
     // Monotone non-decreasing in earnings, so the difference is never a credit.
-    const payrollTax = payrollTaxForPerson(input, payrollSeam, pid, earnedGrossByPerson.get(pid));
+    const { payrollTax, perCategoryIncrement } = payrollTaxForPerson(
+      input,
+      payrollSeam,
+      payrollBreakdownSeam,
+      pid,
+      earnedGrossByPerson.get(pid),
+    );
     payrollTaxCents += payrollTax;
+    if (payrollBreakdownSeam !== undefined) {
+      // Per person BEFORE aggregating — same reasoning as the income-tax check above.
+      assertPersonPayrollTaxBreakdownReconciles(pid, payrollTax, perCategoryIncrement);
+      // Distributes this person's incremental payroll charge back to the sources that
+      // generated it, weighted within each EARNED category by earned amount — the cumulative
+      // per-person cap already settled by `payrollTaxForPerson` is untouched, only the
+      // resulting total is being split up, never recomputed per source.
+      attributeTaxToSources(
+        perCategoryIncrement,
+        sourceEarnedByPerson.get(pid) ?? [],
+        payrollTaxBySourceCents,
+      );
+    }
     takeHomeByPerson.set(pid, gross - deferral - tax - payrollTax);
   }
-  return { taxCents, payrollTaxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents };
+  return {
+    taxCents,
+    payrollTaxCents,
+    payrollTaxBySourceCents,
+    takeHomeByPerson,
+    taxByCategoryCents,
+    taxBySourceCents,
+  };
 }
 
 /** Merge two per-category maps into a new one; used to add this month's earnings onto the year-to-date base. */
@@ -209,18 +260,34 @@ function mergeCategories(
 /**
  * One person's payroll tax this month: the seam on their year-to-date earnings AFTER this
  * month minus the seam on the year-to-date BEFORE it. 0 when the jurisdiction supplies no
- * payroll seam or the person earned nothing.
+ * payroll seam or the person earned nothing. When a breakdown seam is also supplied, the
+ * SAME after-minus-before difference is taken per category, so `perCategoryIncrement`
+ * apportions correctly even though a capped component means the increment is not simply
+ * this month's earned amount times a flat rate.
  */
 function payrollTaxForPerson(
   input: WaterfallInput,
   payrollSeam: WaterfallInput["computePayrollTaxCents"],
+  payrollBreakdownSeam: WaterfallInput["computePayrollTaxByCategoryCents"],
   pid: string,
   earnedThisMonth: TaxableByCategory | undefined,
-): Cents {
-  if (payrollSeam === undefined || earnedThisMonth === undefined) return 0;
+): { payrollTax: Cents; perCategoryIncrement: TaxableByCategory } {
+  if (payrollSeam === undefined || earnedThisMonth === undefined) {
+    return { payrollTax: 0, perCategoryIncrement: {} };
+  }
   const prior = input.priorEarnedByPersonCents?.(pid) ?? {};
   const after = mergeCategories(prior, earnedThisMonth);
-  return payrollSeam(after) - payrollSeam(prior);
+  const payrollTax = payrollSeam(after) - payrollSeam(prior);
+  if (payrollBreakdownSeam === undefined) return { payrollTax, perCategoryIncrement: {} };
+  const breakdownAfter = payrollBreakdownSeam(after);
+  const breakdownBefore = payrollBreakdownSeam(prior);
+  const perCategoryIncrement: TaxableByCategory = {};
+  const categories = new Set([...Object.keys(breakdownAfter), ...Object.keys(breakdownBefore)]);
+  for (const category of categories) {
+    const increment = (breakdownAfter[category as TaxCategory] ?? 0) - (breakdownBefore[category as TaxCategory] ?? 0);
+    if (increment) addCategory(perCategoryIncrement, category as TaxCategory, increment);
+  }
+  return { payrollTax, perCategoryIncrement };
 }
 
 /**
@@ -406,18 +473,26 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     taxableByPerson,
     earnedGrossByPerson,
     sourceTaxableByPerson,
+    sourceEarnedByPerson,
     deferralBySource,
     deferredByPerson,
   } = applyDeferrals(input, deposits);
-  const { taxCents, payrollTaxCents, takeHomeByPerson, taxByCategoryCents, taxBySourceCents } =
-    computeTakeHome(
-      input,
-      grossByPerson,
-      taxableByPerson,
-      earnedGrossByPerson,
-      sourceTaxableByPerson,
-      deferredByPerson,
-    );
+  const {
+    taxCents,
+    payrollTaxCents,
+    payrollTaxBySourceCents,
+    takeHomeByPerson,
+    taxByCategoryCents,
+    taxBySourceCents,
+  } = computeTakeHome(
+    input,
+    grossByPerson,
+    taxableByPerson,
+    earnedGrossByPerson,
+    sourceTaxableByPerson,
+    sourceEarnedByPerson,
+    deferredByPerson,
+  );
   const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
     input,
     takeHomeByPerson,
@@ -432,10 +507,12 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   // Tax charged must be fully attributed, or the cash-flow chart overstates take-home.
   // Fail loudly on an incomplete jurisdiction rather than falling back.
   assertTaxAttributionReconciles(taxCents, taxBySourceCents);
+  assertPayrollTaxAttributionReconciles(payrollTaxCents, payrollTaxBySourceCents);
 
   return {
     taxCents,
     payrollTaxCents,
+    payrollTaxBySourceCents,
     earnedThisMonthByPersonCents: earnedGrossByPerson,
     taxByCategoryCents,
     taxBySourceCents,

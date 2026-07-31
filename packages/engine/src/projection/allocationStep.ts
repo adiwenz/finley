@@ -48,6 +48,7 @@ export function allocateMonth(
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
+  payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
   taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
@@ -92,6 +93,11 @@ export function allocateMonth(
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
+      : undefined,
+    // Required companion whenever the scalar seam is present (runtime-enforced in the
+    // waterfall), so a job's FICA line can be attributed back to it.
+    computePayrollTaxByCategoryCents: jurisdiction.computePayrollTaxByCategoryCents
+      ? (earnedByCategory) => jurisdiction.computePayrollTaxByCategoryCents!(earnedByCategory, ctx)
       : undefined,
     // Year-to-date earned gross BEFORE this month, so the seam's cumulative figure — and its
     // wage-base cap — build on the running total, not a single month.
@@ -144,6 +150,7 @@ export function allocateMonth(
   return {
     taxCents: result.taxCents,
     payrollTaxCents: result.payrollTaxCents,
+    payrollTaxBySourceCents: result.payrollTaxBySourceCents,
     taxByCategoryCents: result.taxByCategoryCents,
     taxBySourceCents: result.taxBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,

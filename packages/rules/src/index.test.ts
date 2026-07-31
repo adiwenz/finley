@@ -167,6 +167,21 @@ describe("usJurisdiction (US-2026)", () => {
     ).toBe(0);
   });
 
+  it("breaks payroll tax down per category, reconciling to the scalar charge — the engine's required attribution seam", () => {
+    // The breakdown is trivial (one earned category, `wages`) but still required so the
+    // engine's per-source FICA attribution has something to apportion by.
+    const byCategory = usJurisdiction.computePayrollTaxByCategoryCents!(
+      { wages: dollarsToCents(60_000) },
+      { year: 2026 },
+    );
+    expect(byCategory).toEqual({ wages: payrollTaxCents(dollarsToCents(60_000), 2026) });
+
+    // A zero-wage input reconciles to an empty breakdown, matching a zero scalar charge.
+    expect(
+      usJurisdiction.computePayrollTaxByCategoryCents!({ ordinaryIncome: dollarsToCents(60_000) }, { year: 2026 }),
+    ).toEqual({});
+  });
+
   it("discloses the payroll-tax simplifications through modelAssumptions", () => {
     const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
     expect(ids).toContain("oasdiWageBaseWageIndexed");

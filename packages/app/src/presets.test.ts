@@ -155,7 +155,7 @@ describe("default simulations", () => {
     const series = project(presetById("default"));
     const opening = realNetWorthAt(series, 0)!;
     const midCareer = realNetWorthAt(series, 120)!;
-    // Withholding the 7.65% employee FICA share removes the default plan's entire savings
+    // Charging the 7.65% employee FICA share removes the default plan's entire savings
     // surplus (its whole margin was the payroll tax it used to dodge), so real net worth
     // drifts DOWN rather than compounding up — the plan holds together on wages but no
     // longer builds wealth. Remove FICA and this flips back to multiplying, so the bound
@@ -171,7 +171,7 @@ describe("default simulations", () => {
     const defaultInsolvent = firstInsolventMonthOf(presetById("default"));
     // Afloat at the very start — no debt spiral yet.
     expect(realNetWorthAt(project(presetById("paycheck-to-paycheck")), 0)!).toBeGreaterThan(0);
-    // With no cushion to absorb the 7.65% it never withheld before, the plan goes under
+    // With no cushion to absorb the 7.65% it never charged before, the plan goes under
     // mid-career — well inside the working years, and far sooner than the default plan.
     expect(paycheckInsolvent).not.toBeNull();
     expect(paycheckInsolvent!).toBeLessThan(120);

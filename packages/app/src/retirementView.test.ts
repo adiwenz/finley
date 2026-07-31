@@ -105,7 +105,7 @@ describe("retirementView — headline age driven off the real projection", () =>
 describe("retirementView — target mode against the pinned age", () => {
   it("reports the pinned age on track (100%) when the plan survives there", () => {
     // Real single-filer federal tax, a cash-realistic 1% emergency-fund return, and employee
-    // FICA withheld on wages lift the default plan's feasible floor to 78.
+    // FICA charged on wages lift the default plan's feasible floor to 78.
     const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 78 };
     const view = viewOf(pinnedAtFloor);
     expect(view.target.feasible).toBe(true);
@@ -205,7 +205,7 @@ describe("retirementView — the timeline events count toward retirement", () =>
     const baselineAge = viewOf(plan).headlineAge;
     const withChildAge = retirementView(withChild).headlineAge;
     // The bare-plan baseline retires at 63 — the home goal is a drawable `retain` reserve, so
-    // the down-payment fund counts toward the nest egg. FICA withheld on the $7k wages trims
+    // the down-payment fund counts toward the nest egg. FICA charged on the $7k wages trims
     // take-home and pushes the floor out, and the childcare expense pushes it further still.
     expect(baselineAge).toBe(63);
     expect(withChildAge as number).toBeGreaterThan(63);

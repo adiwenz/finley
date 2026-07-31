@@ -156,6 +156,7 @@ export function simulateHousehold(
     const {
       taxCents,
       payrollTaxCents,
+      payrollTaxBySourceCents,
       taxByCategoryCents,
       taxBySourceCents,
       deferralBySourceCents,
@@ -200,6 +201,8 @@ export function simulateHousehold(
       deferralBySourceCents,
       // Employee payroll tax (FICA) — its own line, already removed from take-home.
       payrollTaxCents,
+      // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
+      payrollTaxBySourceCents,
     );
     // The taxable base WITH this month's funding gains stacked in, so the authoring gate
     // prices a would-be draw on top of any sibling draw at this month. A newly appended

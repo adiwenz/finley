@@ -33,9 +33,9 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * `savingsDrawdown` source but stays OUT of the rollup and total: a drawdown is spending an
  * asset, not income.
  *
- * `taxByCategoryCents`, `taxBySourceCents` and `deferralBySourceCents` ride through
- * pre-computed — attribution is the jurisdiction's call. The per-source maps are keyed by
- * the SAME `sourceId ?? taxCategory` the income side bands on.
+ * `taxByCategoryCents`, `taxBySourceCents`, `payrollTaxBySourceCents` and
+ * `deferralBySourceCents` ride through pre-computed — attribution is the jurisdiction's call.
+ * The per-source maps are keyed by the SAME `sourceId ?? taxCategory` the income side bands on.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -46,6 +46,7 @@ export function buildFlows(
   taxBySourceCents: Readonly<Record<string, Cents>> = {},
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
   payrollTaxCents: Cents = 0,
+  payrollTaxBySourceCents: Readonly<Record<string, Cents>> = {},
 ): ProjectionMonthFlows {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -82,13 +83,17 @@ export function buildFlows(
       });
     }
   }
-  // Net per banded source: cash inflow minus its pre-tax deferral and the tax it bore, keyed
-  // by the SAME id the waterfall attributed those on (re-deriving it dropped interest's tax).
-  // SIGNED and NOT clamped — a source taxed on more than it paid in cash has a genuinely
-  // negative net; a consumer needing a nonnegative stacked band clamps at render. Absent
-  // breakdown maps → no haircut, so net equals cash inflow (null jurisdiction's fallback).
+  // Net per banded source: cash inflow minus its pre-tax deferral, the income tax it bore,
+  // and the payroll tax it bore, keyed by the SAME id the waterfall attributed those on
+  // (re-deriving it dropped interest's tax). SIGNED and NOT clamped — a source taxed on more
+  // than it paid in cash has a genuinely negative net; a consumer needing a nonnegative
+  // stacked band clamps at render. Absent breakdown maps → no haircut, so net equals cash
+  // inflow (null jurisdiction's fallback).
   const netCashFlow = (sourceId: string, cashInflowCents: Cents): Cents => {
-    const haircut = (deferralBySourceCents?.[sourceId] ?? 0) + (taxBySourceCents[sourceId] ?? 0);
+    const haircut =
+      (deferralBySourceCents?.[sourceId] ?? 0) +
+      (taxBySourceCents[sourceId] ?? 0) +
+      (payrollTaxBySourceCents[sourceId] ?? 0);
     return cashInflowCents - haircut;
   };
   const sources: ProjectionIncomeSource[] = order.map((id) => {
@@ -139,6 +144,7 @@ export function buildFlows(
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
     taxBySourceCents,
+    payrollTaxBySourceCents,
     deferralBySourceCents,
     expensesCents,
     liabilityPaymentsCents,

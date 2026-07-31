@@ -6,7 +6,9 @@ import type { Cents, ModelAssumption } from "@finley/engine";
  * charges tax on EARNED income (wages / self-employment), distinct from the income-tax seam
  * in {@link federalTax}.
  *
- * Three components, employee side only (the plan models the worker's own withholding):
+ * Three components, employee side only (the plan models the worker's own reconciled annual
+ * payroll-tax liability, not employer-by-employer paycheck withholding — see the multi-job
+ * note below):
  *   • OASDI (Social Security) — 6.2% up to an annual per-person taxable maximum; nothing above.
  *   • Medicare — 1.45% on ALL earned income, no cap.
  *   • Additional Medicare — 0.9% surtax on earned income over a fixed statutory threshold;
@@ -23,7 +25,7 @@ export const PAYROLL_TAX_BASE_YEAR = 2026;
 
 /**
  * Employee-share statutory rates. The employer matches OASDI and Medicare, but the plan
- * charges only the worker's own withholding, so the employer half is never added here.
+ * charges only the worker's own share, so the employer half is never added here.
  * Rates are legislation-set and held constant across years — only the wage base moves.
  */
 export const OASDI_RATE = 0.062;
@@ -105,13 +107,20 @@ export interface PayrollTaxParts {
 }
 
 /**
- * Employee-side payroll tax on a person's COMBINED annual earned income for `year`.
+ * Employee-side payroll-tax LIABILITY on a person's COMBINED annual earned income for `year`
+ * — the reconciled amount the worker owes across the whole year, NOT a per-employer paycheck
+ * withholding simulation.
  *
  * Multi-job choice: the argument is the person's total earned income across ALL jobs, so the
  * wage base and surtax threshold each apply ONCE to the combined figure. This models the true
- * single-cap the worker owes on their return, not the per-employer over-withhold-then-refund
- * cash-flow — simpler and more accurate for planning, at the cost of the intra-year timing of
- * a refund.
+ * single annual cap the worker owes on their return (as if reconciled from day one), not the
+ * per-employer over-withhold-then-refund cash-flow a worker with two jobs (or a job change
+ * mid-year) actually experiences: in reality each employer withholds independently up to the
+ * wage base against ITS OWN wages, so a multi-employer worker can have EXCESS Social Security
+ * withheld across employers, refunded only when they file their tax return. That per-employer
+ * over-withholding and its later refund are NOT modeled — this function always states the
+ * combined, already-reconciled figure. Simpler and more accurate for long-range planning, at
+ * the cost of the intra-year timing of a multi-employer refund.
  *
  * Annual, per person, per calendar year: OASDI stops once cumulative earnings reach the wage
  * base, so a mid-year seam must ACCUMULATE rather than annualize each month's slice (a level
@@ -149,6 +158,17 @@ export function payrollTaxCents(annualEarnedCents: Cents, year: number): Cents {
  * discloses a tax the model is not yet applying.
  */
 export const PAYROLL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
+  {
+    id: "payrollTaxAnnualLiabilityNotWithholding",
+    text:
+      "Payroll tax (FICA) is modeled as the reconciled amount owed for the year on your " +
+      "combined earned income, not as each employer's separate paycheck withholding. If you " +
+      "hold more than one job (or switch jobs) in the same year, each real employer withholds " +
+      "Social Security independently up to the wage cap, which can withhold more Social " +
+      "Security than is actually owed — the excess is refunded only when you file your tax " +
+      "return. That per-employer over-withholding and its refund are not modeled; the figures " +
+      "shown always reflect the already-reconciled annual total.",
+  },
   {
     id: "oasdiWageBaseWageIndexed",
     text:

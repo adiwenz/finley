@@ -139,7 +139,8 @@ export interface ReportMonth {
   /** Tax charged through the jurisdiction seam, summed over persons. */
   readonly taxCents: Cents;
   /**
-   * Employee payroll tax (US: FICA) withheld this month, summed over persons — a separate
+   * Employee payroll tax (US: FICA) charged this month, summed over persons — the reconciled
+   * annual liability accrued this month, NOT per-employer paycheck withholding. A separate
    * line from {@link taxCents} (earned income only, on pre-deferral gross). 0 at month 0 and
    * whenever the jurisdiction charges none.
    */
@@ -153,6 +154,12 @@ export interface ReportMonth {
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source; absent when none deferred. */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * Keyed like {@link taxBySourceCents}, but for {@link payrollTaxCents} — a job's own FICA
+   * charge, named rather than collapsed into the household total. `{}` when no payroll tax
+   * was charged; absent only for the flow-free month 0.
+   */
+  readonly payrollTaxBySourceCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
@@ -327,6 +334,7 @@ export function summarizeSimulation(
       taxByCategoryCents: flows?.taxByCategoryCents,
       taxBySourceCents: flows?.taxBySourceCents,
       deferralBySourceCents: flows?.deferralBySourceCents,
+      payrollTaxBySourceCents: flows?.payrollTaxBySourceCents,
       expensesCents: flows?.expensesCents ?? 0,
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,

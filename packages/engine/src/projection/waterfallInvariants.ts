@@ -50,3 +50,48 @@ export function assertTaxAttributionReconciles(
     );
   }
 }
+
+/**
+ * PER-PERSON payroll-tax attribution invariant — the payroll-tax mirror of {@link
+ * assertPersonTaxBreakdownReconciles}. The jurisdiction's contract: Σ of its per-category
+ * payroll breakdown (the increment charged this month) equals the scalar increment {@link
+ * import("./waterfall").runWaterfall} charged that same person from {@link
+ * import("../jurisdiction").Jurisdiction.computePayrollTaxCents}. Checked per person, before
+ * aggregation, so offsetting errors across two earners cannot cancel at the household total.
+ */
+export function assertPersonPayrollTaxBreakdownReconciles(
+  personId: string,
+  scalarPayrollTaxCents: Cents,
+  breakdown: Partial<Record<TaxCategory, Cents>>,
+): void {
+  const summed = Object.values(breakdown).reduce((s, v) => s + (v ?? 0), 0);
+  if (summed !== scalarPayrollTaxCents) {
+    throw new Error(
+      `Payroll-tax attribution does not reconcile for person ${personId}: ` +
+        `Σ computePayrollTaxByCategoryCents=${summed} ≠ computePayrollTaxCents=${scalarPayrollTaxCents}. ` +
+        `The category breakdown must sum to the scalar charge for each person (integer cents).`,
+    );
+  }
+}
+
+/**
+ * HOUSEHOLD payroll-tax attribution invariant — the payroll-tax mirror of {@link
+ * assertTaxAttributionReconciles}. Whenever payroll tax is charged, the per-source breakdown
+ * MUST reconcile to the scalar `payrollTaxCents`, so each source's `netCashFlowCents` haircut
+ * is complete rather than silently under-charged. A jurisdiction charging no payroll tax
+ * (`payrollTaxCents` 0) is exempt.
+ */
+export function assertPayrollTaxAttributionReconciles(
+  payrollTaxCents: Cents,
+  payrollTaxBySourceCents: Readonly<Record<string, Cents>>,
+): void {
+  if (payrollTaxCents <= 0) return;
+  const attributed = Object.values(payrollTaxBySourceCents).reduce((s, v) => s + v, 0);
+  if (attributed !== payrollTaxCents) {
+    throw new Error(
+      `Payroll-tax attribution does not reconcile: Σ payrollTaxBySourceCents=${attributed} ≠ ` +
+        `payrollTaxCents=${payrollTaxCents}. The per-source breakdown must sum to the tax ` +
+        `charged exactly (integer cents).`,
+    );
+  }
+}

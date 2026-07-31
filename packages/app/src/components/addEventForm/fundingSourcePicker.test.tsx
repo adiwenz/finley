@@ -18,7 +18,7 @@ import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
-// FICA withholding (added on this branch) takes 7.65% off every wage, and the default plan's
+// Employee FICA (added on this branch) charges 7.65% off every wage, and the default plan's
 // single $5,000/mo job now saves almost nothing: its goal funds and cash all sit at ~$0 through
 // working life, so `PLAN_DEFAULTS` no longer builds the multi-account pool this picker exists to
 // choose among. These tests therefore each drive a MINIMAL variant of the default plan — the same
