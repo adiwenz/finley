@@ -178,7 +178,11 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                 {(job.deferral || overrideCount > 0) && (
                   <div className={styles.meta}>
                     {job.deferral
-                      ? `${Math.round(job.deferral.deferralFraction * 100)}% to 401(k)`
+                      ? `${Math.round(job.deferral.deferralFraction * 100)}% to 401(k)${
+                          job.deferral.employerMatchFraction
+                            ? ` · ${Math.round(job.deferral.employerMatchFraction * 100)}% match`
+                            : ""
+                        }`
                       : ""}
                     {job.deferral && overrideCount > 0 ? " · " : ""}
                     {overrideCount > 0

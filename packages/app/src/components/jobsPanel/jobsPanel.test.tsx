@@ -162,6 +162,41 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(within(screen.getByLabelText("Job 1")).getByText(/100% to 401\(k\)/i)).toBeTruthy();
   });
 
+  it("sets an employer match on a deferring job — it lands on the plan and shows on the row", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
+    fireEvent.change(spin(/Employer match/i), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    // Deposited on top of the deferral in the engine — here we pin only that the authored
+    // fraction reaches the plan and reads out on the row beside the contribution.
+    expect(authored().plan.jobs[0]?.deferral?.employerMatchFraction).toBe(0.5);
+    expect(within(screen.getByLabelText("Job 1")).getByText(/6% to 401\(k\) · 50% match/i)).toBeTruthy();
+  });
+
+  it("reads a match back into the edit form so it round-trips", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
+    fireEvent.change(spin(/Employer match/i), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(Number(spin(/Employer match/i).value)).toBe(50);
+  });
+
+  it("shows no match on the row when the deferral has none", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const row = screen.getByLabelText("Job 1");
+    expect(within(row).getByText(/6% to 401\(k\)/i)).toBeTruthy();
+    expect(within(row).queryByText(/match/i)).toBeNull();
+  });
+
   it("turns an open-ended job into a fixed-term one via the end-age control", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));

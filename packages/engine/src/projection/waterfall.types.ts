@@ -3,7 +3,7 @@ import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal";
 
-/** The 401(k)-style plan a job carries — presence makes it deferral-eligible. */
+/** The employer-sponsored savings plan a job carries — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
   /** Fraction of THIS job's gross deferred pre-tax (0..1). */
   readonly deferralFraction: number;
@@ -117,6 +117,19 @@ export interface WaterfallInput {
    * already deferred this year). `Infinity` = uncapped.
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
+  /**
+   * REMAINING annual room under ONE plan's combined deposit limit — that limit minus the
+   * deferral AND match already banked into the plan this year. `Infinity` = uncapped.
+   *
+   * Per plan, not per person, so a second job brings its own full room. `personId` still
+   * comes through because the jurisdiction may band the limit on age. Contrast
+   * {@link remainingDeferralRoomCents}, which IS per person — the employee's own deferral is
+   * shared across every plan they hold.
+   *
+   * Bounds the match only: the deferral is already clamped by
+   * {@link remainingDeferralRoomCents} before this applies.
+   */
+  readonly remainingCombinedDepositRoomCents: (personId: string, planKey: string) => number;
 }
 
 export interface WaterfallResult {
@@ -143,6 +156,13 @@ export interface WaterfallResult {
   readonly deferralBySourceCents: Readonly<Record<string, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * Deferral + employer match actually banked per PLAN, keyed like
+   * {@link deferralBySourceCents} — what the combined deposit limit is measured against. The
+   * caller updates its annual accumulator from this. Σ === Σ `deferredByPersonCents` + total
+   * match.
+   */
+  readonly combinedDepositsByPlanCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
   readonly accountDepositsCents: ReadonlyMap<string, Cents>;
   /** Household cash shortfall to route through the cascade (0 if none). */
