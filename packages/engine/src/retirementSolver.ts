@@ -154,6 +154,11 @@ function earliestSurvivingAge(
  * the authored fixed-term jobs + passive income + government benefit keep running and the plan
  * still lasts to life expectancy. Pinning the age moves every open-ended job's end via
  * `retirementTargetAge`.
+ *
+ * Opt-in and standalone: it is NOT part of {@link solveRetirement}'s default result. A caller
+ * that wants the partial-retirement milestone (e.g. a "stepped back" option in the panel) runs
+ * this search itself, so the default query never pays for a second binary search the panel does
+ * not show.
  */
 export function earliestPartialRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   return earliestSurvivingAge(scenario.plan, (age) => evaluateAtAge(scenario, age, ctx).feasible);
@@ -239,12 +244,13 @@ export function latestAuthoredWorkStopAge(scenario: Scenario, ctx: ProjectionCon
 }
 
 /**
- * Both solver outputs off one {@link Scenario}, plus the derived latest-authored-work-stop
- * age.
+ * The default retirement result off one {@link Scenario}: the full-retirement search plus the
+ * derived latest-authored-work-stop age. Partial retirement is a separate, opt-in solve
+ * ({@link earliestPartialRetirementAge}) and is deliberately not run here, so the default query
+ * performs a single binary search rather than two.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   return {
-    partialRetirementAge: earliestPartialRetirementAge(scenario, ctx),
     fullRetirementAge: earliestFullRetirementAge(scenario, ctx),
     latestAuthoredWorkStopAge: latestAuthoredWorkStopAge(scenario, ctx),
   };

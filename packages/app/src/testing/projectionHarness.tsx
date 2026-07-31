@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { Projection, emptyLedger, scenarioOf, withLedger } from "@finley/engine";
+import { Projection, emptyLedger, scenarioOf, withLedger, CURRENT_FORMAT_VERSION } from "@finley/engine";
 import type {
   Jurisdiction,
   Ledger,
@@ -30,7 +30,12 @@ import { useProjection, type UseProjection } from "../hooks/useProjection";
  * test builds its state exactly one way.
  */
 export function stateOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionState {
-  return { scenario: withLedger(scenarioOf(plan), ledger), startYear: START_YEAR, nextSeq: 1 };
+  return {
+    scenario: withLedger(scenarioOf(plan), ledger),
+    startYear: START_YEAR,
+    nextSeq: 1,
+    version: CURRENT_FORMAT_VERSION,
+  };
 }
 
 export function useTestProjection(plan: Plan, ledger: Ledger = emptyLedger): UseProjection {

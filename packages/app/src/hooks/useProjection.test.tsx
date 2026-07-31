@@ -14,6 +14,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import {
   Projection,
+  CURRENT_FORMAT_VERSION,
   dollarsToCents,
   emptyLedger,
   goalFundAccountId,
@@ -69,7 +70,7 @@ function blockedGoalState(): ProjectionState {
     nextSequenceNumber: 1,
   });
   return Projection.fromState(
-    { scenario, startYear: START_YEAR, nextSeq: 1 },
+    { scenario, startYear: START_YEAR, nextSeq: 1, version: CURRENT_FORMAT_VERSION },
     usJurisdiction,
   ).toState();
 }

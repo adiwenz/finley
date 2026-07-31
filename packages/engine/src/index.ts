@@ -139,7 +139,7 @@ export type {
   RetirementOutlook,
   ResolvedExpenseRow,
 } from "./projectionRoot";
-export { Projection } from "./projectionRoot";
+export { Projection, CURRENT_FORMAT_VERSION, UnsupportedVersionError } from "./projectionRoot";
 // The declarative, id-free authoring entry point: a `ScenarioInput` describes a whole scenario
 // with author-chosen `Ref`s in every pointer position, and `Projection.fromInput` mints the ids.
 export type {
@@ -214,6 +214,7 @@ export * from "./ledger/interpret";
 export * from "./ledger/eventValidation";
 export * from "./ledger/dependencies";
 export * from "./ledger/funding";
+export * from "./ledger/validateLedger";
 export * from "./ledger/removeEvent";
 export * from "./ledger/addEvent";
 export * from "./ledger/updateEvent";

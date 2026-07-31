@@ -18,7 +18,7 @@ const { usJurisdiction } = rules;
  */
 const fresh = () =>
   Projection.fromState(
-    { scenario: { plan: samplePlan, ledger: engine.emptyLedger }, startYear: SAMPLE_START_YEAR, nextSeq: 1 },
+    { scenario: { plan: samplePlan, ledger: engine.emptyLedger }, startYear: SAMPLE_START_YEAR, nextSeq: 1, version: engine.CURRENT_FORMAT_VERSION },
     nullJurisdiction,
   );
 

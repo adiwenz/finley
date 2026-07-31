@@ -16,7 +16,7 @@ import type { Job } from "../job";
 import type { BudgetLine } from "../budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import { emptyLedger } from "../ledger/ledger";
-import type { ProjectionState } from "../projectionRoot";
+import { CURRENT_FORMAT_VERSION, type ProjectionState } from "../projectionRoot";
 import { dollarsToCents } from "../cashFlowSeries";
 import { RETIREMENT_ID } from "../ids";
 
@@ -167,5 +167,6 @@ export function stateOf(plan: Plan, ledger: Ledger = emptyLedger): ProjectionSta
     scenario: { plan, ledger },
     startYear: SAMPLE_START_YEAR,
     nextSeq: 1,
+    version: CURRENT_FORMAT_VERSION,
   };
 }

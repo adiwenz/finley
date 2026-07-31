@@ -4,7 +4,13 @@
  * `run(jurisdiction)` leaving the plan untouched. Barrel/purity is covered elsewhere.
  */
 import { describe, it, expect } from "vitest";
-import { Projection, type ProjectionState } from "./projectionRoot";
+import {
+  Projection,
+  type ProjectionState,
+  CURRENT_FORMAT_VERSION,
+  UnsupportedVersionError,
+} from "./projectionRoot";
+import { validateLedger } from "./ledger/validateLedger";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
@@ -1571,6 +1577,7 @@ describe("Projection root — fromState restores a plan and its timeline togethe
       },
       startYear: SAMPLE_START_YEAR,
       nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
     };
 
     const p = Projection.fromState(state, nullJurisdiction);
@@ -1633,6 +1640,199 @@ describe("Projection root — fromState restores a plan and its timeline togethe
     const once = Projection.fromState(authored.toState(), nullJurisdiction).toState();
     const twice = Projection.fromState(once, nullJurisdiction).toState();
     expect(twice).toEqual(once);
+  });
+});
+
+describe("Projection root — importing a pre-built ledger rejects one that will not replay", () => {
+  // A lone separation with no marriage to end: replay fails its precondition on the first
+  // event, so every import path must refuse it and name it rather than install a broken
+  // timeline. The offender's type and id surface in the thrown message.
+  const unreplayable: Ledger = {
+    events: [
+      {
+        id: "sep-1",
+        type: "SeparationEvent",
+        month: 24,
+        sequenceNumber: 1,
+        partnerPersonId: "nobody",
+        alimonyMonthlyCents: dollarsToCents(0),
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: dollarsToCents(0),
+      },
+    ],
+    nextSequenceNumber: 2,
+  };
+
+  // A ledger holding an event no handler answers to — a hand-edited plan, or one written by a
+  // build that knows an event this one doesn't.
+  const unknownType: Ledger = {
+    events: [
+      { id: "bogus-1", type: "Frobnicate", month: 12, sequenceNumber: 1 } as unknown as LifeEvent,
+    ],
+    nextSequenceNumber: 2,
+  };
+
+  it("fromState rejects an un-replayable ledger, naming the offending event", () => {
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      scenario: withLedger(base.scenario, unreplayable),
+    };
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
+      /cannot load — event "sep-1" \(SeparationEvent\) fails —/,
+    );
+  });
+
+  it("refuses before any handle escapes, so nothing partial is observable", () => {
+    // `fromState` is now the ONLY import path — `fromScenario` and `resetLedger` are gone — so
+    // the gate has one door to cover rather than three. It throws during construction, which is
+    // stronger than the old "a refused reset commits nothing": there is no handle to inspect.
+    const base = freshProjection().toState();
+    const state: ProjectionState = { ...base, scenario: withLedger(base.scenario, unreplayable) };
+    let escaped: Projection | undefined;
+    expect(() => {
+      escaped = Projection.fromState(state, nullJurisdiction);
+    }).toThrow(/cannot load — event "sep-1" \(SeparationEvent\) fails —/);
+    expect(escaped).toBeUndefined();
+  });
+
+  it("names the offending event even when the reason itself carries no id", () => {
+    // Regression: the message used to be `cannot load — ${reason}`, which read correctly only
+    // because every `checkEvent` reason happens to open with the event's own type and id. The
+    // unknown-type rejection is a reason that names nothing ("unknown event type"), so a message
+    // borrowing its detail from the reason would lose the only pointer to the bad row.
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      scenario: withLedger(base.scenario, unknownType),
+    };
+
+    // The reason the fold returns genuinely omits the id — otherwise this proves nothing.
+    const validation = validateLedger(unknownType, {
+      horizonMonths: 12,
+      annualInflationRate: 0,
+      initialPersons: [],
+    });
+    expect(validation.ok).toBe(false);
+    if (!validation.ok) expect(validation.reason).not.toContain("bogus-1");
+
+    // Yet the thrown message carries both the id and the type.
+    let thrown: unknown;
+    try {
+      Projection.fromState(state, nullJurisdiction);
+    } catch (error) {
+      thrown = error;
+    }
+    const message = (thrown as Error).message;
+    expect(message).toContain('"bogus-1"');
+    expect(message).toContain("Frobnicate");
+    expect(message).toBe(
+      'Projection: cannot load — event "bogus-1" (Frobnicate) fails — unknown event type',
+    );
+  });
+
+  it("rejects an unknown event type as a load error, not a raw TypeError", () => {
+    // The handler lookup returns `undefined` for an unregistered discriminant; calling `.check`
+    // on it threw a TypeError that named neither the event nor the plan.
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      scenario: withLedger(base.scenario, unknownType),
+    };
+    expect(() => Projection.fromState(state, nullJurisdiction)).not.toThrow(TypeError);
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
+      /cannot load — event "bogus-1" \(Frobnicate\) fails — unknown event type/,
+    );
+
+    // `fromState` is the only import path left, so covering it covers every way an unknown
+    // type can arrive.
+  });
+});
+
+describe("Projection root — the serialized format declares its version", () => {
+  // A lone separation with no marriage to end — un-replayable, reused to prove the version gate
+  // fires before replay even reaches it.
+  const unreplayable: Ledger = {
+    events: [
+      {
+        id: "sep-1",
+        type: "SeparationEvent",
+        month: 24,
+        sequenceNumber: 1,
+        partnerPersonId: "nobody",
+        alimonyMonthlyCents: dollarsToCents(0),
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: dollarsToCents(0),
+      },
+    ],
+    nextSequenceNumber: 2,
+  };
+
+  it("stamps the current version on the serialized state", () => {
+    expect(freshProjection().toState().version).toBe(CURRENT_FORMAT_VERSION);
+  });
+
+  it("round-trips a current-version plan unchanged", () => {
+    const authored = freshProjection().toState();
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored)) as ProjectionState,
+      nullJurisdiction,
+    );
+    expect(reloaded.toState().version).toBe(CURRENT_FORMAT_VERSION);
+  });
+
+  it("rejects a non-current version with UnsupportedVersionError carrying file version and supported version", () => {
+    const state: ProjectionState = {
+      ...freshProjection().toState(),
+      version: CURRENT_FORMAT_VERSION + 1,
+    };
+    let thrown: unknown;
+    try {
+      Projection.fromState(state, nullJurisdiction);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnsupportedVersionError);
+    const error = thrown as UnsupportedVersionError;
+    expect(error.fileVersion).toBe(CURRENT_FORMAT_VERSION + 1);
+    expect(error.supported).toBe(CURRENT_FORMAT_VERSION);
+  });
+
+  it("rejects an OLDER version too — there is nothing to migrate it with", () => {
+    // The gate is exact equality, not a range: this build has no transforms, so a v0 file is no
+    // more loadable than a v2 one. When real migrations land, an older version stops throwing
+    // here because it gets migrated up — not because the accepted range quietly widened.
+    const state: ProjectionState = {
+      ...freshProjection().toState(),
+      version: CURRENT_FORMAT_VERSION - 1,
+    };
+    let thrown: unknown;
+    try {
+      Projection.fromState(state, nullJurisdiction);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnsupportedVersionError);
+    expect((thrown as UnsupportedVersionError).fileVersion).toBe(CURRENT_FORMAT_VERSION - 1);
+  });
+
+  it("rejects an unversioned plan as an unsupported version", () => {
+    const { version: _drop, ...unversioned } = freshProjection().toState();
+    expect(() =>
+      Projection.fromState(unversioned as ProjectionState, nullJurisdiction),
+    ).toThrow(UnsupportedVersionError);
+  });
+
+  it("reports a version mismatch before replay — a foreign shape is never replayed", () => {
+    // Both wrong: an unsupported version AND an un-replayable ledger. The version bucket wins,
+    // because replaying a shape this build cannot read is meaningless.
+    const base = freshProjection().toState();
+    const state: ProjectionState = {
+      ...base,
+      version: CURRENT_FORMAT_VERSION + 1,
+      scenario: withLedger(base.scenario, unreplayable),
+    };
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(UnsupportedVersionError);
   });
 });
 
@@ -1913,6 +2113,7 @@ describe("Projection root — transact wraps one write over plain state", () => 
     const seeded: ProjectionState = {
       startYear: SAMPLE_START_YEAR,
       nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
       scenario: {
         plan: { ...samplePlan, jobs: [{ ...openEndedJob, id: "job-5", ownerId: P1 }], budgetLines: [], goals: [] },
         ledger: emptyLedger,
@@ -1954,6 +2155,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     const stale: ProjectionState = {
       startYear: SAMPLE_START_YEAR,
       nextSeq: 1,
+      version: CURRENT_FORMAT_VERSION,
       scenario: {
         plan: {
           ...samplePlan,

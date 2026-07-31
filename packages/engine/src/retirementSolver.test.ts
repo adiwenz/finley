@@ -138,13 +138,16 @@ describe("retirementSolver — partial vs full retirement", () => {
   });
 
   // The acceptance heart: on a barista plan (open-ended job ends at target, fixed-term job
-  // keeps paying) the two ages solve DISTINCTLY — dropping the barista too is strictly
-  // later than keeping it.
+  // keeps paying) the two ages solve DISTINCTLY — dropping the barista too is strictly later
+  // than keeping it. Partial is the standalone opt-in solve, not part of solveRetirement's
+  // default result, so it is asked for directly here.
   it("a barista-retirement plan solves both ages distinctly (partial < full)", () => {
-    const solution = solveRetirement(scenarioOf(baristaPlan), CTX);
-    expect(solution.partialRetirementAge).not.toBeNull();
-    expect(solution.fullRetirementAge).not.toBeNull();
-    expect(solution.partialRetirementAge).toBeLessThan(solution.fullRetirementAge as number);
+    const scenario = scenarioOf(baristaPlan);
+    const partial = earliestPartialRetirementAge(scenario, CTX);
+    const full = earliestFullRetirementAge(scenario, CTX);
+    expect(partial).not.toBeNull();
+    expect(full).not.toBeNull();
+    expect(partial as number).toBeLessThan(full as number);
   });
 
   it("reports the latest-authored-work-stop age as the latest authored job end", () => {

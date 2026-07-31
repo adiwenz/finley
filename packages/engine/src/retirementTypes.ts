@@ -29,18 +29,16 @@ export interface RetirementEvaluation {
 }
 
 /**
- * Both ages come off the SAME real projection, differing only in which jobs keep paying
- * past the pinned age, so `fullRetirementAge` is always ≥ `partialRetirementAge`: dropping
- * still-running income can only make survival harder. An age is `null` when even working
- * to life expectancy cannot make that scenario survive.
+ * What the default retirement query reports, read off the SAME real projection the net-worth
+ * graph draws. An age is `null` when even working to life expectancy cannot make that scenario
+ * survive.
+ *
+ * **Partial** retirement — ending only the open-ended (`null`-end) jobs while authored
+ * fixed-term jobs + passive income + government benefit keep paying — is deliberately NOT here.
+ * It is a separate, opt-in solve (`earliestPartialRetirementAge`), so the default query runs a
+ * single search rather than paying for a second one the panel does not currently show.
  */
 export interface RetirementSolution {
-  /**
-   * Earliest age every **open-ended** (`null`-end) job can end while authored fixed-term
-   * jobs + passive income + government benefit keep running. The subjective "stepped back"
-   * milestone; the on-track % pairs with it.
-   */
-  readonly partialRetirementAge: number | null;
   /** Earliest age **ALL** jobs can cease, surviving on passive + government benefit + assets. */
   readonly fullRetirementAge: number | null;
   /** `max(job endYears)` as an age; `null` when the plan has no jobs. */
