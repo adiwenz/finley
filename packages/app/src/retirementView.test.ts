@@ -249,12 +249,25 @@ describe("retirementView — the timeline events count toward retirement", () =>
 // The whole-return gross-up arithmetic — including bracketed/offset, non-proportional taxes — is
 // already covered engine-side in `packages/engine/src/projection/withdrawal.test.ts`
 // ("Every taxed draw nets the need — whole-return gross-up": the flat-capital-gains case and the
-// cliff/lump case that pins exactly the `offset + rate × draw` shape). The facade exposes no
-// "withdraw $X, net to the cent" primitive, and the solvency consequence a `runOf` could observe
-// is too coarse to detect a cent-level under-delivery, so no equivalent facade-level assertion is
-// available.
+// cliff/lump case that pins exactly the `offset + rate × draw` shape). What a `runOf` can observe
+// today is the solvency consequence, which is far too coarse to catch a cent-level
+// under-delivery: a draw that nets a dollar short still leaves the household solvent for years.
+// So there is no facade-level assertion to write yet — see the direction below.
 //
-// TODO(facade): the one thing engine tests cannot cover — the same gross-up under the REAL
-// usJurisdiction rather than a synthetic one — has no facade-level expression. Retirement runs
-// above already exercise that seam implicitly (they draw down accounts under usJurisdiction), but
-// nothing asserts the cent-exact net. Expose a net-the-need read on the facade to restore it.
+// TODO(facade): generalize `Projection.funding()` into a shared account-draw model, and have
+// `Projection.run()` report the draws a pass actually executed.
+//
+// `funding()` answers half this question already — which liquid accounts could pay a money-out
+// event at a month, and what a chosen set nets after tax — but only ahead of time, about an event
+// being authored. The simulator does the same reasoning every month it has to cover a shortfall,
+// and keeps none of it: a run reports balances after the fact, never the draws that moved them.
+// One model behind both, with the executed draws surfaced on `ProjectionResult`, is the shape
+// that fits — the pre-flight read and the run's own withdrawals stop being two implementations of
+// one rule that can quietly disagree.
+//
+// It is what restores this coverage, rather than a hook added for it. With executed draws on the
+// result, a test can read what a retirement drawdown actually took from each account and assert
+// it netted the need to the cent under the REAL `usJurisdiction` — the assertion the dropped
+// block made white-box, and the one thing engine tests cannot cover, since they run against
+// synthetic profiles. The retirement runs above already exercise that seam implicitly by drawing
+// accounts down under `usJurisdiction`; what is missing is any way to observe what they took.
