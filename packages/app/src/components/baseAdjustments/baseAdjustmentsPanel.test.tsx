@@ -955,6 +955,33 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     expect(screen.getByText(/Total : \$2,300/)).toBeTruthy();
   });
 
+  it("leaves a band costing nothing this month out of the hover readout", () => {
+    // A dormant line draws no height in the stack, so a "$0" row is noise. A paid-off loan is
+    // absent from the month's obligations entirely and arrives as an undefined value — same rule.
+    render(
+      <BudgetTooltip
+        active
+        label={12}
+        payload={[
+          { name: "Housing", value: dollarsToCents(1_600), color: "#000" },
+          { name: "Dining & fun", value: 0, color: "#000" },
+          { name: "Mortgage payment", color: "#000" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Housing : \$1,600/)).toBeTruthy();
+    expect(screen.queryByText(/Dining & fun/)).toBeNull();
+    expect(screen.queryByText(/Mortgage payment/)).toBeNull();
+    expect(screen.getByText(/Total : \$1,600/)).toBeTruthy();
+  });
+
+  it("draws no hover readout for a month that costs nothing at all", () => {
+    const { container } = render(
+      <BudgetTooltip active label={12} payload={[{ name: "Housing", value: 0, color: "#000" }]} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
   it("draws no hover readout when nothing is hovered", () => {
     const { container } = render(<BudgetTooltip payload={[]} />);
     expect(container.firstChild).toBeNull();

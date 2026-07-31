@@ -36,7 +36,14 @@ export interface ChartBand {
 
 export interface PerLineMonthRow {
   readonly month: number;
-  /** Cost per band, keyed by band id; absent for a band inactive that month. */
+  /**
+   * Cost per band, keyed by band id. Dense on purpose: an expense obligation is constructed
+   * even at 0 (a dormant line still exists), and a stacked area needs a value per month —
+   * omitting the key reads as a gap, not a zero, and shifts the baseline of every band above
+   * it. A key IS absent when the month incurs no obligation for it at all, which today means a
+   * liability with no payment due. Either way the band draws no height, and the hover readout
+   * filters both out ({@link import("./perLineBudgetChart").BudgetTooltip}).
+   */
   readonly centsByLine: Readonly<Record<string, number>>;
   readonly totalCents: number;
 }
