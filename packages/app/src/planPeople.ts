@@ -69,6 +69,12 @@ export interface JobDraft {
   readonly realGrowthPct: number;
   /** Pre-tax 401(k) deferral as a whole-number percent (0 = none). */
   readonly deferralPct: number;
+  /**
+   * Employer match as a whole-number percent OF the deferral (50 = a 50% match; 0 = none).
+   * Only bites when there's a deferral to match — the engine deposits it on top of the
+   * employee contribution, free of the elective limit.
+   */
+  readonly employerMatchPct: number;
 }
 
 export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraft {
@@ -80,6 +86,7 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
     endAge: null,
     realGrowthPct: 0,
     deferralPct: 0,
+    employerMatchPct: 0,
   };
 }
 
@@ -101,15 +108,19 @@ export function jobToDraftFor(
     endAge: jobEndAgeFor(birthYear, job),
     realGrowthPct: job.salary.realGrowthPct,
     deferralPct: Math.round(projection.jobDeferralFraction(job.id) * 100),
+    // No facade for the match — it isn't overridable, so read it straight off the job, as
+    // `realGrowthPct` is. Absent means 0%, so the form binds a number rather than undefined.
+    employerMatchPct: Math.round((job.deferral?.employerMatchFraction ?? 0) * 100),
   };
 }
 
 /**
  * Apply a form draft to an **existing** job in place: form fields overwrite, everything
  * else carries through untouched — `id`, {@link JobIncomeOverride}s, {@link JobPayChange}s,
- * the deferral's `fundAccountId` and employer match, and any field added to {@link Job}
- * later. `birthYear` is the **owner named by the draft**, so reassigning a job re-reads
- * its ages against the new owner's clock.
+ * the deferral's `fundAccountId`, and any field added to {@link Job} later. The employer
+ * match is form-authored now, so it comes from the draft, not the carried remainder.
+ * `birthYear` is the **owner named by the draft**, so reassigning a job re-reads its ages
+ * against the new owner's clock.
  *
  * An edit must never round-trip through {@link jobInputFromDraft}: a draft is a
  * projection of a job, so building one afresh silently drops the rest.
@@ -134,10 +145,11 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
       ? {
           deferral: {
             deferralFraction: draft.deferralPct / 100,
-            // Funded account and employer match belong to the employment, not the form.
+            // The funded account belongs to the employment, not the form, so it carries;
+            // the match is now form-authored, so a 0% draft drops it rather than preserving.
             fundAccountId: prior?.fundAccountId ?? RETIREMENT_ID,
-            ...(prior?.employerMatchFraction !== undefined
-              ? { employerMatchFraction: prior.employerMatchFraction }
+            ...(draft.employerMatchPct > 0
+              ? { employerMatchFraction: draft.employerMatchPct / 100 }
               : {}),
           },
         }
@@ -165,7 +177,16 @@ export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput 
     salary: { startingSalaryCents: draft.monthlyCents * 12, realGrowthPct: draft.realGrowthPct },
   };
   return draft.deferralPct > 0
-    ? { ...base, deferral: { deferralFraction: draft.deferralPct / 100, fundAccountId: RETIREMENT_ID } }
+    ? {
+        ...base,
+        deferral: {
+          deferralFraction: draft.deferralPct / 100,
+          fundAccountId: RETIREMENT_ID,
+          ...(draft.employerMatchPct > 0
+            ? { employerMatchFraction: draft.employerMatchPct / 100 }
+            : {}),
+        },
+      }
     : base;
 }
 

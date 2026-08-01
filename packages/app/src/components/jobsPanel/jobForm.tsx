@@ -47,6 +47,8 @@ interface JobFormDraft {
   /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
   readonly endAge: number | null;
   readonly deferralPct: number;
+  /** Employer match as a whole-number percent OF the deferral; only bites when there's one. */
+  readonly employerMatchPct: number;
   readonly realGrowthPct: number;
 }
 
@@ -64,6 +66,7 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
     startAge: initial.startAge,
     endAge: initial.endAge,
     deferralPct: initial.deferralPct,
+    employerMatchPct: initial.employerMatchPct,
     realGrowthPct: initial.realGrowthPct,
   }));
 
@@ -96,6 +99,7 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
       endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
       realGrowthPct: draft.realGrowthPct,
       deferralPct: draft.deferralPct,
+      employerMatchPct: draft.employerMatchPct,
     });
   }
 
@@ -192,6 +196,18 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
           suffix="%"
           min={0}
           max={100}
+          step={1}
+        />
+        {/* A match OF the contribution (50% = 50¢ per employee dollar), so it does nothing at
+            0% deferral. Capped at 200% — generous plans rarely exceed a dollar-for-dollar match,
+            and employer money is free of the elective limit (the engine deposits it on top). */}
+        <NumInput
+          label="Employer match"
+          value={draft.employerMatchPct}
+          onChange={(v) => patch({ employerMatchPct: v })}
+          suffix="% of your contribution"
+          min={0}
+          max={200}
           step={1}
         />
         <NumInput

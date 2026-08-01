@@ -2,6 +2,7 @@
 description: Ship a completed Sandcastle issue — commit, PR, merge, close, pull main, and tear down its review worktree.
 argument-hint: <issue-number> [commit message]
 allowed-tools: Bash
+model: haiku
 ---
 
 Ship the completed Sandcastle work for the issue given in `$ARGUMENTS`.

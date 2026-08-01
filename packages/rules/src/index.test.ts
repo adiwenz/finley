@@ -34,6 +34,8 @@ describe("usJurisdiction (US-2026)", () => {
     expect(ids).toContain("socialSecurityThresholdsUnindexed");
     expect(ids).toContain("taxAttributionProportional");
     expect(ids).toContain("rmdStartAge");
+    expect(ids).toContain("retirementContributionLimits");
+    expect(ids).toContain("employerMatchOutsideEmployeeCap");
     // Gains take LONG-TERM rates with no holding period tracked, so a sale from a
     // recently-funded account is under-taxed. Disclosed, not silently assumed.
     expect(ids).toContain("capitalGainsAllLongTerm");

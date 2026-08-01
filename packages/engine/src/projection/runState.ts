@@ -86,6 +86,12 @@ export interface SimState {
    * naturally each January as the key's year rolls over.
    */
   readonly earnedByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * Cumulative deferral + employer match per PLAN per calendar year, keyed
+   * `${planKey}|${year}`. The combined deposit limit is enforced against this running total —
+   * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
+   */
+  readonly combinedDepositsByPlanYear: Map<string, Cents>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -203,6 +209,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
+    combinedDepositsByPlanYear: new Map<string, Cents>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

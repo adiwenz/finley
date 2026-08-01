@@ -142,6 +142,104 @@ describe("simulateHousehold — allocation waterfall", () => {
     expect(series.months[10].accountBalancesCents["401k-b"]).toBe(dollarsToCents(12000));
   });
 
+  it("holds deferral + match under one plan's annual combined limit, resetting each year", () => {
+    // Deferral limit $12,000/yr, combined limit $20,000/yr, dollar-for-dollar match,
+    // $5,000/mo of fully-deferred pay. The employee's $12,000 always lands whole; the match
+    // gets the $8,000 left — NOT the $12,000 a greedy month-by-month match would take.
+    const cappedJurisdiction = {
+      id: "combined-limit-test",
+      computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
+      retirementDeferralLimitCents: () => dollarsToCents(12000),
+      combinedPlanDepositLimitCents: () => dollarsToCents(20000),
+    };
+    const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1990 };
+    const retirement = new SimAccount({
+      id: "401k",
+      ownerId: "p1",
+      liquid: false,
+      taxProfile: PRE_TAX_TAX_PROFILE,
+      openingBalanceCents: 0,
+      initialAnnualRate: 0,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 24,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [makeInvestmentAccount(0, 0), retirement],
+        incomeSeries: [
+          {
+            series: monthlyIncome(dollarsToCents(5000)),
+            ownerId: "p1",
+            planDescriptor: {
+              deferralFraction: 1.0,
+              fundAccountId: "401k",
+              employerMatchFraction: 1.0,
+            },
+          },
+        ],
+        expenseSeries: [],
+      },
+      cappedJurisdiction,
+    );
+    // Year one closes exactly at the limit — never over it, despite the match wanting more.
+    expect(series.months[11].accountBalancesCents["401k"]).toBe(dollarsToCents(20000));
+    // Month 12 opens a new calendar year: both accumulators reset, so year two adds another
+    // full $20,000 rather than staying pinned at the first year's total.
+    expect(series.months[23].accountBalancesCents["401k"]).toBe(dollarsToCents(40000));
+  });
+
+  it("gives a second job its own annual combined room, while the deferral cap stays shared", () => {
+    // Same limits as above, now across two plans. The $12,000 deferral limit is ONE pool the
+    // two jobs draw down together; the $20,000 combined limit is per plan, so the household
+    // banks more than a single one would ever allow.
+    const cappedJurisdiction = {
+      id: "combined-limit-multi-test",
+      computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
+      retirementDeferralLimitCents: () => dollarsToCents(12000),
+      combinedPlanDepositLimitCents: () => dollarsToCents(20000),
+    };
+    const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1990 };
+    const planAccount = (id: string) =>
+      new SimAccount({
+        id,
+        ownerId: "p1",
+        liquid: false,
+        taxProfile: PRE_TAX_TAX_PROFILE,
+        openingBalanceCents: 0,
+        initialAnnualRate: 0,
+      });
+    const job = (sourceId: string, fundAccountId: string) => ({
+      series: monthlyIncome(dollarsToCents(5000)),
+      ownerId: "p1",
+      sourceId,
+      planDescriptor: { deferralFraction: 1.0, fundAccountId, employerMatchFraction: 1.0 },
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 12,
+        annualInflationRate: 0,
+        persons: [person],
+        accounts: [makeInvestmentAccount(0, 0), planAccount("401k-a"), planAccount("401k-b")],
+        incomeSeries: [job("job-a", "401k-a"), job("job-b", "401k-b")],
+        expenseSeries: [],
+      },
+      cappedJurisdiction,
+    );
+    const a = series.months[11].accountBalancesCents["401k-a"];
+    const b = series.months[11].accountBalancesCents["401k-b"];
+    // Neither plan breaches its OWN limit...
+    expect(a).toBeLessThanOrEqual(dollarsToCents(20000));
+    expect(b).toBeLessThanOrEqual(dollarsToCents(20000));
+    // ...yet the two together exceed a single one — the whole point of per-plan limits.
+    expect(a + b).toBe(dollarsToCents(24000));
+    // The shared deferral cap still binds: $12,000 deferred, the other $12,000 is match.
+    expect(a).toBe(dollarsToCents(14000));
+    expect(b).toBe(dollarsToCents(10000));
+  });
+
   it("routing income through the waterfall conserves net worth vs. the naive path", () => {
     // With no goals, no plan, and idle surplus, the waterfall must reproduce plain net
     // flow into the liquid account exactly.

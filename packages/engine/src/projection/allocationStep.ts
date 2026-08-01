@@ -54,9 +54,15 @@ export function allocateMonth(
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
 } {
-  // Per person, not per household: the limit (with any age-banded catch-up) depends on the
-  // individual's age. No birth year → base limit.
+  // Per person, not per household: the jurisdiction may band the limit on the individual's
+  // age. No birth year → the un-banded limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
+  const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
+  /** Age in `ctx.year`; `undefined` when the person has no birth year to band on. */
+  const ageOf = (pid: string): number | undefined => {
+    const birthYear = state.personsById.get(pid)?.birthYear;
+    return birthYear === undefined ? undefined : ctx.year - birthYear;
+  };
   // Sinking-fund pace is growth-aware; unknown account → rate 0, a flat even spread.
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
@@ -104,10 +110,15 @@ export function allocateMonth(
     priorEarnedByPersonCents: (pid) => state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
-      const birthYear = state.personsById.get(pid)?.birthYear;
-      const age = birthYear === undefined ? undefined : ctx.year - birthYear;
-      const limit = deferralLimit({ year: ctx.year, age });
+      const limit = deferralLimit({ year: ctx.year, age: ageOf(pid) });
       const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
+      return Math.max(0, limit - used);
+    },
+    // Age comes from the person; the accumulator is keyed by the plan.
+    remainingCombinedDepositRoomCents: (pid, planKey) => {
+      if (combinedLimit === undefined) return Infinity;
+      const limit = combinedLimit({ year: ctx.year, age: ageOf(pid) });
+      const used = state.combinedDepositsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
   });
@@ -144,6 +155,14 @@ export function allocateMonth(
         if (cents) running[category as TaxCategory] = (running[category as TaxCategory] ?? 0) + cents;
       }
     }
+  }
+
+  for (const [planKey, amount] of result.combinedDepositsByPlanCents) {
+    const key = `${planKey}|${ctx.year}`;
+    state.combinedDepositsByPlanYear.set(
+      key,
+      (state.combinedDepositsByPlanYear.get(key) ?? 0) + amount,
+    );
   }
 
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
