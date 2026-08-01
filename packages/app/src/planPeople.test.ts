@@ -14,7 +14,7 @@ import {
   blankJobDraftFor,
   jobInputFromDraft,
   jobToDraftFor,
-  type JobDraft,
+  type JobEditDraft,
 } from "./planPeople";
 import { START_YEAR } from "./config";
 import { PLAN_DEFAULTS } from "./planDefaults";
@@ -28,7 +28,7 @@ const draftOf = (j: Job) => jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [j]
 
 const BIRTH_YEAR = 1991;
 
-const draft = (over: Partial<JobDraft> = {}): JobDraft => ({
+const draft = (over: Partial<JobEditDraft> = {}): JobEditDraft => ({
   ...blankJobDraftFor(PRIMARY_PERSON_ID, 35),
   ...over,
 });
@@ -124,7 +124,7 @@ describe("applyJobDraft — the two salary anchors", () => {
   // Someone 35 now (`START_YEAR - 35`), on a job they began at 22.
   const NOW_BIRTH_YEAR = START_YEAR - 35;
   const existing = job({ startYear: NOW_BIRTH_YEAR + 22 });
-  const editing = (over: Partial<JobDraft> = {}): JobDraft =>
+  const editing = (over: Partial<JobEditDraft> = {}): JobEditDraft =>
     draft({ startAge: 22, startingMonthlyCents: 5_000_00, monthlyCents: 5_000_00, ...over });
 
   it("writes each anchor from its own field, so one edit cannot rewrite the other", () => {
@@ -150,7 +150,7 @@ describe("applyJobDraft — pay changes an edit can no longer hold", () => {
     startYear: NOW_BIRTH_YEAR + 28,
     payChanges: [historical, future],
   });
-  const editing = (over: Partial<JobDraft> = {}): JobDraft =>
+  const editing = (over: Partial<JobEditDraft> = {}): JobEditDraft =>
     draft({ startAge: 28, startingMonthlyCents: 5_000_00, monthlyCents: 6_667_00, ...over });
 
   it("keeps every change that still falls inside the job", () => {

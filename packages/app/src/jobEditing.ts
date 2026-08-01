@@ -6,16 +6,19 @@
  * A job belongs to the member it was added for and cannot be handed to another: moving one
  * re-reads every age against a different birth year, which shifts the job's whole calendar and
  * strands the pay changes falling outside the new span — more than one form submission can
- * honestly model. Delete it and add it to the other member instead. {@link editJob} therefore
- * works from the existing {@link Job}, keeping its id, overrides, pay changes and employer
- * match, none of which the form shows.
+ * honestly model, and a correction would have to be an explicit transfer operation that reviews
+ * those consequences. None exists: delete the job and add it to the other member instead.
+ *
+ * So {@link addJob} names the owner and {@link editJob} derives it, working from the existing
+ * {@link Job} to keep its id, overrides, pay changes and employer match — none of which the
+ * form shows, so none of which a draft could carry.
  *
  * Nothing is written here: checks run first and a failure returns no writes, so a rejected
  * edit cannot leave a job in neither list. The caller commits.
  */
 
 import type { Job, JobInput, JobPayChange, PersonId } from "@finley/engine";
-import { applyJobDraft, type JobDraft } from "./planPeople";
+import { applyJobDraft, jobInputFromDraft, type JobEditDraft } from "./planPeople";
 import type { JobOwner } from "./jobOwners";
 
 /**
@@ -48,12 +51,14 @@ export function jobInputOf(job: Job): JobInput {
   return rest;
 }
 
-/** The whole outcome of one edit: every list that must change, or why nothing can. */
+/**
+ * The whole outcome of one add or edit: every list that must change, or why nothing can.
+ * Shared by {@link addJob} and {@link editJob}, which differ only in whether the owner is
+ * chosen or derived — everything downstream of that treats the two identically.
+ */
 export type JobEditResult =
   | {
       readonly ok: true;
-      /** Same id, new fields, whichever owner now holds it. */
-      readonly job: Job;
       readonly writes: readonly JobWrite[];
       /**
        * Pay changes the edit dropped because they now predate the job's start — see
@@ -94,41 +99,56 @@ export function ownedJobsOf(owners: readonly JobOwner[]): readonly OwnedJob[] {
 
 
 /**
- * Apply `draft` to the job `jobId` held by `sourceOwnerId`, replacing it in place. The owner is
- * not among the things an edit may change — see this module's note.
+ * Create a job for `ownerId`, from a draft that names them. The owner is chosen HERE and
+ * nowhere else — {@link editJob} takes a draft with no owner to choose from, so this is the
+ * only moment in a job's life when the question is open.
+ *
+ * The facade mints the id and stamps the owner from the member the job is added for; nothing
+ * about ownership travels inside the {@link JobInput}.
+ */
+export function addJob(
+  owners: readonly JobOwner[],
+  ownerId: PersonId,
+  draft: JobEditDraft,
+): JobEditResult {
+  const target = owners.find((o) => o.id === ownerId);
+  if (target === undefined) {
+    return { ok: false, reason: `no household member "${ownerId}" to own this job` };
+  }
+  return {
+    ok: true,
+    // Ages resolve against the owner being created for — the same clock every later edit reads.
+    writes: [{ kind: "add", owner: target, job: jobInputFromDraft(target.birthYear, draft) }],
+    // A new job carries no pay changes, so an add can strand none.
+    strandedPayChanges: [],
+  };
+}
+
+/**
+ * Apply `draft` to the job `jobId`, replacing it in place.
+ *
+ * The owner is **derived**, not supplied: whoever holds `jobId` holds it after the edit too, and
+ * their birth year is the clock every age in the draft is read against. A {@link JobEditDraft}
+ * carries no owner, so there is nothing here to reconcile and no way to name a second person.
  */
 export function editJob(
   owners: readonly JobOwner[],
-  sourceOwnerId: PersonId,
   jobId: string,
-  draft: JobDraft,
+  draft: JobEditDraft,
 ): JobEditResult {
-  const source = owners.find((o) => o.id === sourceOwnerId);
-  if (source === undefined) return { ok: false, reason: `no household member "${sourceOwnerId}"` };
-
-  const existing = source.jobs.find((j) => j.id === jobId);
-  if (existing === undefined) {
-    return { ok: false, reason: `${source.name} holds no job "${jobId}"` };
+  const holder = owners.find((o) => o.jobs.some((j) => j.id === jobId));
+  if (holder === undefined) {
+    return { ok: false, reason: `no job "${jobId}" in this household` };
   }
-
-  // A job's owner is settled when it is added and never afterwards, so a draft naming someone
-  // else is a caller bug rather than a request — the form does not offer the choice. Refusing
-  // is what lets `applyJobDraft` read every age against the one birth year below.
-  if (draft.ownerId !== source.id) {
-    return {
-      ok: false,
-      reason: `a job's owner cannot be changed — "${jobId}" is ${source.name}'s`,
-    };
-  }
+  const existing = holder.jobs.find((j) => j.id === jobId)!;
 
   // Built from the full existing job, so its id, one-month overrides, pay changes and employer
   // match survive an edit that only ever sees a handful of fields.
-  const { job: edited, strandedPayChanges } = applyJobDraft(existing, source.birthYear, draft);
+  const { job: edited, strandedPayChanges } = applyJobDraft(existing, holder.birthYear, draft);
 
   return {
     ok: true,
-    job: edited,
+    writes: [{ kind: "replace", owner: holder, jobId, job: jobInputOf(edited) }],
     strandedPayChanges,
-    writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
   };
 }

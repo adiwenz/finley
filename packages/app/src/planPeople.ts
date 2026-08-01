@@ -102,15 +102,22 @@ export function jobPayPathFor(
  * A job in the terms the Jobs form speaks (ages and dollars, not calendar years and
  * cents) — the seam between the UI and the standing {@link Job}. `endAge: null` is
  * open-ended (runs to retirement).
+ *
+ * **Ownership is not among these fields, and that is the point.** A job belongs to the member
+ * it was created for, for good: every age here is that person's age, so moving a job re-reads
+ * its whole calendar against a different birth year, restating what year it started, when it
+ * ends, and which of its pay changes still have a job to sit on. That is a decision with
+ * consequences to review — ages, pay changes, the deferral's account, household membership —
+ * and not something an ordinary field edit may do in passing. Correcting an owner would be an
+ * explicit transfer operation; none exists, and until one does the answer is to delete the job
+ * and add it to the other member.
+ *
+ * So ownership rides {@link NewJobDraft} only, where it is chosen once. An edit submission
+ * *cannot express* a different owner, which is why {@link applyJobDraft} needs no check.
  */
-export interface JobDraft {
+export interface JobEditDraft {
   /** Blank leaves the job unnamed; reports fall back to its id. */
   readonly name: string;
-  /**
-   * Whose job this is; every age in this draft is THAT person's age. Changing it
-   * reassigns the job.
-   */
-  readonly ownerId: PersonId;
   /**
    * What the job pays a month **now** — the month-0 anchor the projection starts from.
    *
@@ -146,10 +153,24 @@ export interface JobDraft {
   readonly employerMatchPct: number;
 }
 
-export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraft {
+/**
+ * A job being **created**: every editable field, plus the one decision only creation makes —
+ * whose job it is. The ages below are that person's, so the owner has to be settled before the
+ * rest of the draft means anything.
+ */
+export interface NewJobDraft extends JobEditDraft {
+  /** Whose job this will be. Chosen here, once, and never again — see {@link JobEditDraft}. */
+  readonly ownerId: PersonId;
+}
+
+/**
+ * A blank job's fields, for a form where the owner is not in question — authoring a partner's
+ * jobs as part of the event that brings them into the household, where `marry` stamps every
+ * job's owner and there is nobody else the form could mean.
+ */
+export function blankJobDraft(currentAge: number): JobEditDraft {
   return {
     name: "",
-    ownerId,
     // A brand-new job states one salary: it has no authored history to differ from yet, so both
     // anchors open on the same figure and the start-pay field only earns its place once the
     // start age moves back before "now".
@@ -163,10 +184,16 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
   };
 }
 
+/** A blank job for a form that must also settle whose it is — the Jobs panel's Add. */
+export function blankJobDraftFor(ownerId: PersonId, currentAge: number): NewJobDraft {
+  return { ...blankJobDraft(currentAge), ownerId };
+}
+
 /**
- * Read an existing job back into a {@link JobDraft}. Ages resolve against the OWNER's birth
- * year, which the caller supplies; pay and deferral are read through the facade, so the form
- * opens on exactly what `setJobMonthlyIncome` / `setJobDeferralFraction` would write back.
+ * Read an existing job back into a {@link JobEditDraft} — no `ownerId`, because an edit cannot
+ * restate one. Ages resolve against the OWNER's birth year, which the caller supplies; pay and
+ * deferral are read through the facade, so the form opens on exactly what
+ * `setJobMonthlyIncome` / `setJobDeferralFraction` would write back.
  */
 export function jobToDraftFor(
   projection: Pick<
@@ -175,10 +202,9 @@ export function jobToDraftFor(
   >,
   birthYear: number,
   job: Job,
-): JobDraft {
+): JobEditDraft {
   return {
     name: job.name ?? "",
-    ownerId: job.ownerId,
     monthlyCents: projection.jobMonthlyIncomeCents(job.id),
     startingMonthlyCents: projection.jobStartingMonthlyIncomeCents(job.id),
     startAge: jobStartAgeFor(birthYear, job),
@@ -211,8 +237,10 @@ export interface AppliedJobDraft {
  * else carries through untouched — `id`, {@link JobIncomeOverride}s, {@link JobPayChange}s,
  * the deferral's `fundAccountId`, and any field added to {@link Job} later. The employer
  * match is form-authored now, so it comes from the draft, not the carried remainder.
- * `birthYear` is the **owner named by the draft**, so reassigning a job re-reads its ages
- * against the new owner's clock.
+ *
+ * `ownerId` carries through from `job` and cannot be restated: a {@link JobEditDraft} holds no
+ * owner to restate it with. `birthYear` must therefore be that same owner's — the caller reads
+ * it off the member who holds the job, and there is no second clock in play.
  *
  * The two salary anchors are written from their own fields and never from each other, so
  * restating today's pay leaves what the job paid on day one alone. The exception is a job whose
@@ -223,7 +251,7 @@ export interface AppliedJobDraft {
  * An edit must never round-trip through {@link jobInputFromDraft}: a draft is a
  * projection of a job, so building one afresh silently drops the rest.
  */
-export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): AppliedJobDraft {
+export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft): AppliedJobDraft {
   const name = draft.name.trim();
   // `name`, `deferral` and `payChanges` leave the carried remainder: a blank name, a 0%
   // deferral and a fully stranded change list must *remove* them, not leave the old value
@@ -240,7 +268,9 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): App
     ...carried,
     ...(name ? { name } : {}),
     ...(kept.length > 0 ? { payChanges: kept } : {}),
-    ownerId: draft.ownerId,
+    // Stated rather than left to the carried remainder, so an edit is visibly owner-preserving
+    // at the one line that could ever have written a different one.
+    ownerId: job.ownerId,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: {
@@ -281,14 +311,15 @@ function withPinnedDeadAnchor(job: Job, startMonth: number, endMonthExclusive: n
  * A draft as a {@link JobInput} (ages → years, % → fraction) — the shape every job-creating
  * facade write takes (`Projection.marry`, `Projection.addJob`, `Projection.addPartnerJob`).
  *
- * There is no `id` here and no way to supply one: the facade mints it, and it stamps the
- * `ownerId` onto whichever person the job lands on. `birthYear` is that person's, resolving
- * the draft's ages against their own clock.
+ * There is no `id` here and no `ownerId` either — `JobInput` is `Omit<Job, "id" | "ownerId">`.
+ * The facade mints the id, and the member the job is added *for* stamps the owner, so the
+ * choice is made by naming that member and never by a field travelling in the payload.
+ * `birthYear` is that person's, resolving the draft's ages against their own clock.
  *
  * For an *existing* job use {@link applyJobDraft}: this builds a new one, carrying only what a
  * draft holds.
  */
-export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
+export function jobInputFromDraft(birthYear: number, draft: JobEditDraft): JobInput {
   const name = draft.name.trim();
   // A job added with an end age already behind us has no month-0 pay to state, and the form
   // does not ask for one — see {@link applyJobDraft}, which pins the same dead anchor. A new

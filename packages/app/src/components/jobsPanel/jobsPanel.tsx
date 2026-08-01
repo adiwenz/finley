@@ -42,7 +42,6 @@ import {
   type Projection,
 } from "@finley/engine";
 import {
-  jobInputFromDraft,
   blankJobDraftFor,
   jobToDraftFor,
   jobPayPathFor,
@@ -50,10 +49,11 @@ import {
   jobStartAgeFor,
   jobEndAgeFor,
   ownerAgeAtMonth,
-  type JobDraft,
+  type JobEditDraft,
+  type NewJobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
-import { editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
+import { addJob, editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
 import { commitJobWrites } from "../../jobWrites";
 import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
@@ -157,20 +157,25 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
   /** One transaction per edit, whichever owner it is for ({@link commitJobWrites}). */
   const commit = (writes: readonly JobWrite[]): boolean => commitJobWrites(writes, transact);
 
-  function add(draft: JobDraft) {
-    const target = owners.find((o) => o.id === draft.ownerId);
-    // No id: the facade mints one, from a single counter shared by every job in the household.
-    if (target) commit([{ kind: "add", owner: target, job: jobInputFromDraft(target.birthYear, draft) }]);
+  /**
+   * Create a job ({@link addJob}). `ownerId` rides the draft because creation is the one moment
+   * whose job it is, is still a question; the facade mints the id from a single counter shared
+   * by every job in the household.
+   */
+  function add({ ownerId, ...fields }: NewJobDraft) {
+    const result = addJob(owners, ownerId, fields);
+    if (result.ok) commit(result.writes);
     setAuthoring(null);
   }
 
   /**
-   * Save an edit ({@link editJob}). The job keeps its owner and its id, so everything the form
-   * never shows — overrides, pay changes, employer match — rides along. Nothing is written
-   * unless the whole edit resolves.
+   * Save an edit ({@link editJob}). The job keeps its owner — derived from whoever holds it,
+   * since a {@link JobEditDraft} names none — and its id, so everything the form never shows
+   * (overrides, pay changes, employer match) rides along. Nothing is written unless the whole
+   * edit resolves.
    */
-  function edit(owner: JobOwner, id: string, draft: JobDraft) {
-    const result = editJob(owners, owner.id, id, draft);
+  function edit(owner: JobOwner, id: string, draft: JobEditDraft) {
+    const result = editJob(owners, id, draft);
     if (!result.ok) return setAuthoring(null);
     if (commit(result.writes)) setNotice(strandedNotice(owner, result.strandedPayChanges));
     setAuthoring(null);
@@ -410,9 +415,12 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                     initial={jobToDraftFor(projection, owner.birthYear, job)}
                     currentAge={currentAge}
                     submitLabel="Save"
-                    // Passed for the copy, which names the owner — NOT as a picker: an
-                    // existing job's owner is fixed.
-                    owners={pickableOwners}
+                    // Fixed, and shown as context when there is anyone else it could have
+                    // been. The submission type carries no owner at all.
+                    ownership="fixed"
+                    {...(severalOwners
+                      ? { owner: { name: owner.name, isPrimary: owner.id === owners[0].id } }
+                      : {})}
                     onSubmit={(draft) => edit(owner, job.id, draft)}
                     onCancel={() => setAuthoring(null)}
                   />
@@ -455,9 +463,9 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
           initial={blankJobDraftFor(owners[0].id, ownerAgeAtMonth(owners[0].birthYear, 0))}
           currentAge={ownerAgeAtMonth(owners[0].birthYear, 0)}
           submitLabel="Add"
-          owners={pickableOwners}
           // Whose job it is, is settled here and only here.
-          canPickOwner
+          ownership="choose"
+          owners={pickableOwners}
           onSubmit={add}
           onCancel={() => setAuthoring(null)}
         />

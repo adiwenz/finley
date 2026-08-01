@@ -9,16 +9,18 @@ import { describe, it, expect, afterEach } from "vitest";
 import { useMemo } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
+  PRIMARY_PERSON_ID,
   Projection,
   dollarsToCents,
   type Job,
   type Ledger,
   type NewLifeEvent,
   type Plan,
+  type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import type { Transact } from "../../hooks/useProjection";
-import { useTestProjection } from "../../testing/projectionHarness";
+import { useTestProjection, stateOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { primaryJobs } from "../../planPeople";
@@ -336,16 +338,54 @@ describe("JobsPanel — every member's jobs", () => {
     expect(jobCount()).toBe(1); // and the other plane was never touched either
   });
 
-  it("offers no owner picker when EDITING — a job stays with the member who holds it", () => {
+  it("offers no owner picker when EDITING — the owner is fixed context instead", () => {
     // Moving a job would re-read every age against another birth year, shifting its whole
     // calendar and stranding the pay changes outside the new span. Delete and re-add instead.
     render(<Harness events={withPartner([])} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
     expect(screen.queryByLabelText("Whose job")).toBeNull();
+    // Not merely absent: the settled answer is stated where the picker would have been.
+    expect(screen.getByTestId("job-owner").textContent).toMatch(/Alex’s job/);
     // Still offered while adding, where it settles whose job this will be.
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     expect(screen.getByLabelText("Whose job")).toBeTruthy();
+  });
+
+  it("names the partner as the fixed owner when editing THEIR job", () => {
+    render(<Harness events={withPartner([partnerJob(2500)])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
+    expect(screen.getByTestId("job-owner").textContent).toMatch(/Sam’s job/);
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+
+  it("states no owner at all on a single-earner plan — there is nobody else it could be", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(screen.queryByTestId("job-owner")).toBeNull();
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+
+  it("creates a job for EITHER eligible owner from the same picker", () => {
+    render(<Harness events={withPartner([])} />);
+    // The primary person, explicitly — not merely the default.
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "1500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    expect(jobCount()).toBe(2);
+    expect(partnerJobs()).toHaveLength(0);
+
+    // Then the partner, from the same form. The draft opened on Alex's age 35, which is
+    // history for 40-year-old Sam — so the form now shows both anchors and "now" is the one
+    // to state.
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    expect(jobCount()).toBe(2);
+    expect(partnerJobs()).toHaveLength(1);
+    expect(partnerJobs()[0].ownerId).toBe("p-1");
   });
 
   it("removes a pay change from a partner's job, on their own plane", () => {
@@ -370,6 +410,77 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+});
+
+describe("JobsPanel — an ordinary edit changes only what it names", () => {
+  /**
+   * The other half of the ownership guarantee. Proving an edit *cannot* restate the owner is a
+   * type argument; this proves the edit that does happen is otherwise inert — the stored job
+   * differs in exactly the field edited, and the projection reads it the same way it always did.
+   * Both matter: a "preserving" edit that quietly re-serialised the job would keep `ownerId` and
+   * still lose everything else.
+   */
+  const richJob: Job = {
+    ...PLAN_DEFAULTS.jobs[0]!,
+    name: "Software Engineer",
+    payChanges: [{ month: 24, kind: "changeBy", cents: -dollarsToCents(500) }],
+    incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+  };
+  const planWithRichJob: Plan = { ...PLAN_DEFAULTS, jobs: [richJob] };
+
+  /** Every wage source the projection pays `ownerId` in `month`, as cents. */
+  function wagesFor(series: ProjectionSeries, ownerId: string, month: number): number {
+    const sources = series.months.find((m) => m.month === month)?.flows?.incomeSources ?? [];
+    return sources
+      .filter((s) => s.category === "wages" && s.ownerId === ownerId)
+      .reduce((sum, s) => sum + s.cashInflowCents, 0);
+  }
+
+  it("serialises to the same job but for the edited field — ownerId included", () => {
+    render(<Harness initial={planWithRichJob} />);
+    const before = authored().plan.jobs[0];
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const after = authored().plan.jobs[0];
+    expect(after.salary.currentSalaryCents).toBe(dollarsToCents(8000 * 12));
+    // Everything else, key for key: put the one edited field back and the two are identical.
+    expect({ ...after, salary: { ...after.salary, currentSalaryCents: before.salary.currentSalaryCents } })
+      .toEqual(before);
+    // Named individually too, so a future `toEqual` that stops comparing deeply still fails here.
+    expect(after.ownerId).toBe(PRIMARY_PERSON_ID);
+    expect(after.id).toBe(before.id);
+    expect(after.payChanges).toEqual(before.payChanges);
+    expect(after.incomeOverrides).toEqual(before.incomeOverrides);
+    expect(after.salary.startingSalaryCents).toBe(before.salary.startingSalaryCents);
+  });
+
+  it("projects the edited job the same way — same owner, same span, new pay", () => {
+    render(<Harness initial={planWithRichJob} />);
+    const seriesBefore = Projection.fromState(stateOf(authored().plan, authored().ledger), usJurisdiction)
+      .run(usJurisdiction).series;
+    const lastPaidBefore = (PLAN_DEFAULTS.retirementAge - PLAN_DEFAULTS.currentAge) * 12 - 1;
+    expect(wagesFor(seriesBefore, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(5000));
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const { plan, ledger } = authored();
+    const series = Projection.fromState(stateOf(plan, ledger), usJurisdiction).run(usJurisdiction).series;
+    // Still the primary person's wages, and nobody else's.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(8000));
+    expect(wagesFor(series, "p-1", 0)).toBe(0);
+    // The bonus at month 6 and the cut at month 24 still land, on the new baseline.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 6)).toBe(dollarsToCents(8000 + 5000));
+    // Two years of CPI on the new anchor ($8,000 → $8,487.20), then the authored $500 cut.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 24)).toBe(dollarsToCents(8487.2 - 500));
+    // And the span is untouched: it still stops at the owner's retirement.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, lastPaidBefore)).toBeGreaterThan(0);
+    expect(wagesFor(series, PRIMARY_PERSON_ID, lastPaidBefore + 1)).toBe(0);
   });
 });
 
