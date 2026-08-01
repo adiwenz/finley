@@ -35,22 +35,30 @@ const TAX_COLOR = "#8c3b3b";
 const WAGE_TONES = ["#8c3b3b", "#a85a4a", "#c17a5f", "#d5a084"];
 const BENEFIT_TONE = "#9c6b4a";
 const DRAW_TONES = ["#7a4a3a", "#b8794f", "#9c8459", "#c6a878"];
+// Payroll tax (FICA) is a wholly separate LEVY from income tax, so every FICA band — no
+// matter which job or category it rides — walks its own cool "slate" family, set apart from
+// the warm income-tax rust/earth families above. One step per FICA-charging source.
+const FICA_TONES = ["#3b5c78", "#4f7590", "#6c93a8", "#93b6c4"];
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
 
 /**
- * A colour per tax band, stepping shades within a category so sibling jobs and draws stay
- * distinct — the analog of the income chart's `colorsForBands`. Wages walk the rust
- * family, the benefit is one tone, everything else walks the earth family. Input order is
- * stacking order, so shades progress cleanly up the stack.
+ * A colour per tax band, stepping shades within a family so sibling bands stay distinct —
+ * the analog of the income chart's `colorsForBands`. A PAYROLL-tax band always walks the
+ * cool FICA family regardless of its category, so FICA reads as one visually distinct levy
+ * across every job; an INCOME-tax band walks the warm family its category picks (wages,
+ * benefit, or the earthier "draws" catch-all). Input order is stacking order, so shades
+ * progress cleanly up the stack.
  */
 function colorsForBands(sources: readonly TaxSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
   let wage = 0;
   let draw = 0;
+  let fica = 0;
   for (const s of sources) {
-    if (s.category === "wages") colors.set(s.id, WAGE_TONES[wage++ % WAGE_TONES.length]!);
+    if (s.kind === "payrollTax") colors.set(s.id, FICA_TONES[fica++ % FICA_TONES.length]!);
+    else if (s.category === "wages") colors.set(s.id, WAGE_TONES[wage++ % WAGE_TONES.length]!);
     else if (s.category === "governmentRetirementBenefit") colors.set(s.id, BENEFIT_TONE);
     else colors.set(s.id, DRAW_TONES[draw++ % DRAW_TONES.length]!);
   }

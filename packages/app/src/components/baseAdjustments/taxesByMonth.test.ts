@@ -154,7 +154,7 @@ describe("buildTaxChartData — per-source stacking", () => {
       { month: 1, flows: { taxCents: dollarsToCents(300), taxBySourceCents: { wages: dollarsToCents(300) } } },
     ];
     const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
-    expect(data.sources).toEqual([{ id: "wages", label: "Wages", category: "wages" }]);
+    expect(data.sources).toEqual([{ id: "wages", label: "Wages", category: "wages", kind: "incomeTax" }]);
   });
 
   it("labels the savings-interest tax band from its income source's explicit provenance", () => {
@@ -182,7 +182,12 @@ describe("buildTaxChartData — per-source stacking", () => {
     ];
     const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
     expect(data.sources).toEqual([
-      { id: "interest:p1:ordinaryIncome", label: "Savings interest", category: "savingsInterest" },
+      {
+        id: "interest:p1:ordinaryIncome",
+        label: "Savings interest",
+        category: "savingsInterest",
+        kind: "incomeTax",
+      },
     ]);
   });
 
@@ -213,6 +218,103 @@ describe("describeTaxes", () => {
     const summary = describeTaxes(buildTaxChartData(seriesOf(...rows)));
     expect(summary).toMatch(/in tax over the plan/);
     expect(summary).toMatch(/Year 2/);
-    expect(summary).toMatch(/Federal income tax only/);
+    expect(summary).toMatch(/Federal income and payroll \(FICA\) tax only/);
+  });
+});
+
+describe("buildTaxChartData — payroll tax (FICA) bands", () => {
+  /**
+   * A fixture whose flowed months carry both a per-source INCOME tax breakdown and a
+   * per-source PAYROLL tax breakdown, plus the matching `incomeSources` for labels.
+   */
+  function seriesWithPayroll(
+    ...months: readonly {
+      readonly incomeTax: readonly SrcSpec[];
+      readonly payrollTax?: readonly SrcSpec[];
+    }[]
+  ): ProjectionSeries {
+    const rows = [
+      { month: 0 },
+      ...months.map(({ incomeTax, payrollTax = [] }, i) => ({
+        month: i + 1,
+        flows: {
+          taxCents: incomeTax.reduce((s, x) => s + x.cents, 0),
+          payrollTaxCents: payrollTax.reduce((s, x) => s + x.cents, 0),
+          taxBySourceCents: Object.fromEntries(incomeTax.map((x) => [x.id, x.cents])),
+          payrollTaxBySourceCents: Object.fromEntries(payrollTax.map((x) => [x.id, x.cents])),
+          incomeSources: [...incomeTax, ...payrollTax]
+            .filter((x, idx, arr) => arr.findIndex((y) => y.id === x.id) === idx)
+            .map((x) => ({
+              sourceId: x.id,
+              label: x.label,
+              category: x.category,
+              cashInflowCents: Math.max(x.cents, 1),
+              netCashFlowCents: 0,
+            })),
+        },
+      })),
+    ];
+    return { months: rows } as unknown as ProjectionSeries;
+  }
+
+  it("draws a separate FICA band alongside the income-tax band for a wage source charging both", () => {
+    const data = buildTaxChartData(
+      seriesWithPayroll({
+        incomeTax: [{ id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(200) }],
+        payrollTax: [{ id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(76.5) }],
+      }),
+    );
+    expect(data.sources.map((s) => ({ id: s.id, label: s.label, kind: s.kind }))).toEqual([
+      { id: "job-a", label: "Day job", kind: "incomeTax" },
+      { id: "job-a::fica", label: "Day job — FICA", kind: "payrollTax" },
+    ]);
+    const row = data.rows[0]!;
+    expect(row.centsBySource["job-a"]).toBe(dollarsToCents(200));
+    expect(row.centsBySource["job-a::fica"]).toBe(dollarsToCents(76.5));
+  });
+
+  it("totals taxCents as income tax PLUS payroll tax, reconciling to the summed bands", () => {
+    const data = buildTaxChartData(
+      seriesWithPayroll({
+        incomeTax: [{ id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(200) }],
+        payrollTax: [{ id: "job-a", label: "Day job", category: "wages", cents: dollarsToCents(76.5) }],
+      }),
+    );
+    const row = data.rows[0]!;
+    expect(row.taxCents).toBe(dollarsToCents(276.5));
+    const banded = Object.values(row.centsBySource).reduce((s, c) => s + c, 0);
+    expect(banded).toBe(row.taxCents);
+  });
+
+  it("draws no FICA band for a source that charges only income tax (e.g. a retirement withdrawal)", () => {
+    const data = buildTaxChartData(
+      seriesWithPayroll({
+        incomeTax: [
+          { id: "draw", label: "Brokerage", category: "capitalGains", cents: dollarsToCents(50) },
+        ],
+      }),
+    );
+    expect(data.sources).toEqual([
+      { id: "draw", label: "Brokerage", category: "capitalGains", kind: "incomeTax" },
+    ]);
+  });
+
+  it("labels a category-keyed FICA fallback (an untitled wage stream) in English", () => {
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          taxCents: 0,
+          payrollTaxCents: dollarsToCents(76.5),
+          taxBySourceCents: {},
+          payrollTaxBySourceCents: { wages: dollarsToCents(76.5) },
+        },
+      },
+    ];
+    const data = buildTaxChartData({ months } as unknown as ProjectionSeries);
+    expect(data.sources).toEqual([
+      { id: "wages::fica", label: "Wages — FICA", category: "wages", kind: "payrollTax" },
+    ]);
   });
 });
