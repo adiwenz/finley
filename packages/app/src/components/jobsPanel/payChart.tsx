@@ -61,6 +61,13 @@ const GRID = "#e3dcc6";
 const PAST = "#000000";
 const NOW = "#1f3a2e";
 
+/** "Age 35" on a birthday, "Age 35 + 4 mo" between two — the tooltip's date, at month resolution. */
+function ageLabel(birthYear: number, month: number): string {
+  const age = ownerAgeAtMonth(birthYear, month);
+  const into = month - monthAtOwnerAge(birthYear, age);
+  return into === 0 ? `Age ${age}` : `Age ${age} + ${into} mo`;
+}
+
 interface PayChartProps {
   readonly path: JobPayPath;
   readonly birthYear: number;
@@ -102,15 +109,16 @@ export function PayChart({
    * age, which takes force at month 1 and would not appear until the next birthday. Pay is a
    * monthly quantity and the engine dates it in months; the axis has to be able to say so.
    *
-   * Only the vertices are emitted: a step chart needs a point where the value CHANGES and
-   * nowhere else, which is a few dozen rows over a lifetime rather than ~1,080.
+   * EVERY month is emitted, not just the vertices the staircase needs. The extra rows are not
+   * for drawing — they are what the tooltip snaps to, so the chart can be scrubbed a month at a
+   * time. A vertex-only series draws the identical line but can only be read where the pay
+   * happens to change, which is most of a career unreadable. A lifetime is ~1,080 rows, the
+   * same order as the projection charts elsewhere in the app.
    */
-  const rows: { month: number; pay: number }[] = [];
-  for (let month = firstMonth; month <= lastMonth; month++) {
-    const pay = path.monthlyCentsAt(month);
-    const isVertex = rows.length === 0 || pay !== rows[rows.length - 1]!.pay;
-    if (isVertex || month === lastMonth) rows.push({ month, pay });
-  }
+  const rows = Array.from({ length: lastMonth - firstMonth + 1 }, (_, i) => {
+    const month = firstMonth + i;
+    return { month, pay: path.monthlyCentsAt(month) };
+  });
   const peak = Math.max(...rows.map((r) => r.pay), 1);
   /** Ages worth naming; both ends, plus whatever this job does. */
   const tickMonths = [...new Set([minAge, startAge, currentAge, endAge, maxAge])]
@@ -174,7 +182,9 @@ export function PayChart({
           />
           <Tooltip
             formatter={(value) => [`${formatDollars(Number(value))}/mo`, "Pay"]}
-            labelFormatter={(month) => `Age ${ownerAgeAtMonth(birthYear, Number(month))}`}
+            // Scrubbing is month-by-month, so the label has to be too: a bare "Age 35" would
+            // read identically for twelve consecutive positions.
+            labelFormatter={(month) => ageLabel(birthYear, Number(month))}
             contentStyle={{ fontSize: 12 }}
           />
 
