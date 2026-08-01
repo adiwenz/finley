@@ -107,7 +107,7 @@ const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
             ownerId: "p-1",
             startYear: START_YEAR,
             endYear: null,
-            salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+            salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
           },
         ],
       },
@@ -598,7 +598,7 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(job.ownerId).toBe("p-1");
     expect(job.startYear).toBe(START_YEAR);
     expect(job.endYear).toBeNull();
-    expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
+    expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), currentSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
     // The bonus from the first adjustment survived the second, which is a different kind.
     expect(job.incomeOverrides).toEqual([{ month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
     expect(job.payChanges).toEqual([{ month: 9, kind: "setTo", cents: dollarsToCents(3500) }]);

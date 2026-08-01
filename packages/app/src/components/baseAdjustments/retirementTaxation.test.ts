@@ -18,7 +18,7 @@ const DEMO_PLAN: Plan = {
   jobs: [
     {
       ...PLAN_DEFAULTS.jobs[0]!,
-      salary: { startingSalaryCents: dollarsToCents(12_000) * 12, realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(12_000) * 12, currentSalaryCents: dollarsToCents(12_000) * 12, realGrowthPct: 0 },
       deferral: { deferralFraction: 0.15, fundAccountId: RETIREMENT_ID },
     },
   ],

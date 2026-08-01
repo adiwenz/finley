@@ -193,6 +193,32 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
     const record = recordAtClaim(zeroInflation([a, b]));
     expect(record.get(2025)).toBe(dollarsToCents(216_000)); // 108k + 108k, uncapped in the record
   });
+
+  it("prices history off the reconstruction while the projection pays the current salary", () => {
+    // The two halves are authored to DISAGREE: pay started at $72,000/yr and was raised to
+    // $75,000/yr before "now", while current pay is authored at $96,000/yr. End to end, each
+    // half must read its own anchor — history the reconstruction, the projection the anchor.
+    const job = {
+      ...salariedJob(dollarsToCents(6000)),
+      salary: {
+        startingSalaryCents: dollarsToCents(72_000),
+        currentSalaryCents: dollarsToCents(96_000),
+        realGrowthPct: 0,
+      },
+      payChanges: [{ month: -24, kind: "setTo" as const, cents: dollarsToCents(6_250) }],
+    };
+    const plan = zeroInflation([job]);
+
+    const record = recordAtClaim(plan);
+    expect(record.get(2023)).toBe(dollarsToCents(72_000)); // starting pay
+    expect(record.get(2024)).toBe(dollarsToCents(75_000)); // historical raise
+    expect(record.get(2025)).toBe(dollarsToCents(75_000)); // still in force at month −1
+
+    // Month 0 pays the authored current salary — neither the $72,000 it started on nor the
+    // $75,000 the history ended on.
+    const monthZeroWages = project(plan).months[0].flows!.incomeByCategoryCents.wages;
+    expect(monthZeroWages).toBe(dollarsToCents(96_000) / 12); // $8,000/mo
+  });
 });
 
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {

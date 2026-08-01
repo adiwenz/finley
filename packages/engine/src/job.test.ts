@@ -276,6 +276,162 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
   });
 });
 
+describe("Job/Person standing model — the month-0 current-salary anchor", () => {
+  // A 40-year-old whose job started at 18 (year 2004), so history spans [2004 … 2025] and the
+  // projection owns 2026 onward. The two salary anchors are authored INDEPENDENTLY here —
+  // that is the whole point of the suite: the starting salary reconstructs history, the
+  // current salary is authoritative from month 0, and neither is derived from the other.
+  const personWith = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - 40,
+    retirementTargetAge: 60,
+    benefitClaimingAge: 67,
+    jobs,
+  });
+
+  /** A job with a deliberately different start pay and current pay. Annual cents in. */
+  const jobWith = (
+    startingAnnualCents: number,
+    currentAnnualCents: number,
+    extra: Partial<Job> = {},
+  ): Job => ({
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: START_YEAR - 22, // 2004
+    endYear: null,
+    salary: {
+      startingSalaryCents: startingAnnualCents,
+      currentSalaryCents: currentAnnualCents,
+      realGrowthPct: 0,
+    },
+    ...extra,
+  });
+
+  const priorFor = (job: Job, inflationRate = 0): Record<number, number> =>
+    compilePersonPriorEarnings(personWith([job]), START_YEAR, inflationRate);
+  const forwardFor = (job: Job, inflationRate = 0) =>
+    compilePersonIncomeSeries(personWith([job]), START_YEAR, inflationRate)[0]!.series;
+
+  const START_60K = dollarsToCents(60_000);
+  const CURRENT_80K = dollarsToCents(80_000);
+  /** $80,000/yr as the monthly figure the anchor actually pays. */
+  const MONTHLY_80K = Math.round(CURRENT_80K / 12);
+
+  it("reconstructs history from a `setTo` raise, then starts month 0 at the current salary", () => {
+    // Start $60k; raised to $75k/yr ($6,250/mo) from month −24; authored current pay $80k.
+    const job = jobWith(START_60K, CURRENT_80K, {
+      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
+    });
+
+    const prior = priorFor(job);
+    expect(prior[2023]).toBe(dollarsToCents(60_000)); // before the raise
+    expect(prior[2024]).toBe(dollarsToCents(75_000)); // raise in force
+    expect(prior[2025]).toBe(dollarsToCents(75_000)); // still in force at month −1
+
+    // Month 0 resets to the authored current salary — NOT the $75k the history ended on.
+    const forward = forwardFor(job);
+    expect(forward.getMonthlyCents(0)).toBe(MONTHLY_80K);
+    expect(forward.getMonthlyCents(11)).toBe(MONTHLY_80K);
+  });
+
+  it("applies a historical `changeBy` to prior earnings without reapplying it to current salary", () => {
+    // Start $60k ($5,000/mo); +$1,000/mo from month −12 → $6,000/mo for 2025.
+    const job = jobWith(START_60K, CURRENT_80K, {
+      payChanges: [{ month: -12, kind: "changeBy", cents: dollarsToCents(1_000) }],
+    });
+
+    const prior = priorFor(job);
+    expect(prior[2024]).toBe(dollarsToCents(60_000));
+    expect(prior[2025]).toBe(dollarsToCents(72_000)); // $6,000/mo × 12
+
+    // The +$1,000/mo is a historical fact, already reflected in the authored current salary.
+    // Adding it again would read $81,000/yr; the anchor is exactly $80,000.
+    expect(forwardFor(job).getMonthlyCents(0)).toBe(MONTHLY_80K);
+  });
+
+  it("composes multiple historical changes chronologically, each superseding the last", () => {
+    const job = jobWith(START_60K, CURRENT_80K, {
+      payChanges: [
+        // Authored out of order on purpose — application is by date, not array order.
+        { month: -12, kind: "changeBy", cents: dollarsToCents(500) }, // → $6,500/mo
+        { month: -36, kind: "setTo", cents: dollarsToCents(6_000) }, // → $6,000/mo
+      ],
+    });
+
+    const prior = priorFor(job);
+    expect(prior[2022]).toBe(dollarsToCents(60_000)); // before either change
+    expect(prior[2023]).toBe(dollarsToCents(72_000)); // setTo $6,000/mo
+    expect(prior[2024]).toBe(dollarsToCents(72_000)); // holds
+    expect(prior[2025]).toBe(dollarsToCents(78_000)); // changeBy on top → $6,500/mo
+    expect(forwardFor(job).getMonthlyCents(0)).toBe(MONTHLY_80K);
+  });
+
+  it("keeps a historical one-month override in its own month and out of projected pay", () => {
+    const job = jobWith(START_60K, CURRENT_80K, {
+      incomeOverrides: [{ month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }],
+    });
+
+    const prior = priorFor(job);
+    expect(prior[2025]).toBe(dollarsToCents(65_000)); // $60,000 + the one-off $5,000
+    expect(prior[2024]).toBe(dollarsToCents(60_000)); // neighbours untouched
+
+    const forward = forwardFor(job);
+    expect(forward.getMonthlyCents(0)).toBe(MONTHLY_80K); // no bonus leaks across month 0
+    expect(forward.getMonthlyCents(6)).toBe(MONTHLY_80K);
+  });
+
+  it("accepts a step between the reconstructed month −1 salary and the current salary", () => {
+    // History ends at $75k/yr; current pay is authored at $80k. The engine does not reconcile
+    // them — the discontinuity is the authored truth, and month 0 is exactly the current pay.
+    const job = jobWith(START_60K, CURRENT_80K, {
+      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
+    });
+
+    const endOfHistoryAnnual = priorFor(job)[2025]!;
+    const monthZero = forwardFor(job).getMonthlyCents(0);
+
+    expect(endOfHistoryAnnual).toBe(dollarsToCents(75_000));
+    expect(monthZero).toBe(MONTHLY_80K);
+    expect(monthZero).not.toBe(Math.round(endOfHistoryAnnual / 12)); // the step is real
+  });
+
+  it("applies a FUTURE pay change to the current-salary anchor, not the historical pay", () => {
+    const job = jobWith(START_60K, CURRENT_80K, {
+      payChanges: [
+        { month: -24, kind: "setTo", cents: dollarsToCents(6_250) }, // history: $6,250/mo
+        { month: 6, kind: "changeBy", cents: dollarsToCents(1_000) }, // future: +$1,000/mo
+      ],
+    });
+
+    const forward = forwardFor(job);
+    expect(forward.getMonthlyCents(5)).toBe(MONTHLY_80K);
+    // Built on the $6,666/mo anchor, NOT on the $6,250/mo the history ended at.
+    expect(forward.getMonthlyCents(6)).toBe(MONTHLY_80K + dollarsToCents(1_000));
+    expect(forward.getMonthlyCents(6)).not.toBe(dollarsToCents(6_250 + 1_000));
+  });
+
+  it("does not double-apply inflation at month 0, and keeps the existing raise anniversary", () => {
+    // 3% CPI, real-flat. Current pay $120,000/yr = $10,000/mo, authored as of "now".
+    const job = jobWith(START_60K, dollarsToCents(120_000));
+    const forward = forwardFor(job, 0.03);
+
+    // Month 0 is the authored figure verbatim — indexing it would double-count the CPI that
+    // already brought the salary to today's dollars.
+    expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(10_000));
+    // The growth clock is untouched by the anchor: still the job's own annual cycle, firing
+    // at month 12 rather than restarting from month 0.
+    expect(forward.getMonthlyCents(11)).toBe(dollarsToCents(10_000));
+    expect(forward.getMonthlyCents(12)).toBe(dollarsToCents(10_300)); // exactly one 3% step
+
+    // History rides the STARTING salary CPI-indexed back to 2004 and grown forward, so 2025
+    // sits just under $60,000 — nowhere near the $120,000 current pay.
+    const prior2025 = priorFor(job, 0.03)[2025]!;
+    expect(prior2025).toBeGreaterThan(dollarsToCents(57_000));
+    expect(prior2025).toBeLessThan(dollarsToCents(60_000));
+  });
+});
+
 describe("Job — human name drives the income band label (display only)", () => {
   const personWith = (job: Job): Person => ({
     id: PRIMARY_PERSON_ID,
@@ -339,7 +495,7 @@ describe("stating pay and deferral, and reading them back", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR,
     endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
+    salary: { startingSalaryCents: dollarsToCents(72_000), currentSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
   };
 
   it("round-trips a monthly figure through the annual one it is stored as", () => {

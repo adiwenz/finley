@@ -480,10 +480,12 @@ export function householdMonthlyIncomeCentsOf(state: ProjectionState): Cents {
  */
 export function personDeferralFractionOf(state: ProjectionState, personId: PersonId): number {
   const jobs = householdJobs(state).filter((j) => j.ownerId === personId);
-  const grossCents = jobs.reduce((sum, j) => sum + j.salary.startingSalaryCents, 0);
+  // Weighted by CURRENT pay — the blend is what they defer now, so a decades-stale starting
+  // salary would weight the jobs against each other wrongly.
+  const grossCents = jobs.reduce((sum, j) => sum + j.salary.currentSalaryCents, 0);
   if (grossCents <= 0) return 0;
   const deferredCents = jobs.reduce(
-    (sum, j) => sum + j.salary.startingSalaryCents * deferralFractionOf(j),
+    (sum, j) => sum + j.salary.currentSalaryCents * deferralFractionOf(j),
     0,
   );
   return deferredCents / grossCents;

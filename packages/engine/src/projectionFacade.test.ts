@@ -34,7 +34,7 @@ function freshProjection(): Projection {
 const openEndedJob = {
   startYear: SAMPLE_START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
 /** The partner a single `marry()` authored, whose jobs live on the event, not the plan. */
@@ -552,7 +552,10 @@ describe("Projection root — editing and removing a job", () => {
     const jobId = p.addJob(P1, openEndedJob);
     p.setJobMonthlyIncome(jobId, dollarsToCents(9000));
     expect(p.plan.jobs[0]?.salary).toEqual({
+      // Both anchors: stating one salary means a flat history, so the historical
+      // reconstruction and the current-salary anchor agree until a pay change parts them.
       startingSalaryCents: dollarsToCents(9000) * 12,
+      currentSalaryCents: dollarsToCents(9000) * 12,
       // The growth rate is not part of "what it pays now".
       realGrowthPct: 0,
     });
@@ -1859,7 +1862,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
     endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+    salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   });
 
   it("mints past a job the supplied plan already holds", () => {
@@ -2180,7 +2183,7 @@ describe("Projection root — id counter round-trips through serialization", () 
               ownerId: P1,
               startYear: SAMPLE_START_YEAR,
               endYear: null,
-              salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+              salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
             },
           ],
         },
@@ -2641,14 +2644,14 @@ describe("Projection reads — over authored state", () => {
     const p = freshProjection();
     const mine = p.addJob(P1, {
       ...openEndedJob,
-      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
     });
     const partnerId = p.marry({
       month: 0,
       name: "Sam",
       birthYear: SAMPLE_START_YEAR - 38,
       jobs: [
-        { ...openEndedJob, salary: { startingSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
+        { ...openEndedJob, salary: { startingSalaryCents: dollarsToCents(60000), currentSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
       ],
     });
     const theirs = partnerEvent(p).person.jobs[0].id;
@@ -2671,12 +2674,12 @@ describe("Projection reads — over authored state", () => {
     // $120k at 10% and $40k at 0% → 7.5% of the $160k gross, not the 5% a flat mean gives.
     p.addJob(P1, {
       ...openEndedJob,
-      salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
       deferral: { deferralFraction: 0.1, fundAccountId: RETIREMENT_ID },
     });
     const plain = p.addJob(P1, {
       ...openEndedJob,
-      salary: { startingSalaryCents: dollarsToCents(40000), realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(40000), currentSalaryCents: dollarsToCents(40000), realGrowthPct: 0 },
     });
     expect(p.personDeferralFraction(P1)).toBeCloseTo(0.075, 6);
     // A job electing nothing reads as 0, never as "absent".

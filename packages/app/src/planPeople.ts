@@ -63,6 +63,11 @@ export interface JobDraft {
    * reassigns the job.
    */
   readonly ownerId: PersonId;
+  /**
+   * What the job pays a month, now. The form states ONE salary, so it lands on both of the
+   * job's anchors — the job reads as flat from its start until a pay change says otherwise.
+   * Authoring a start pay that differs from current pay is a `salary` patch, not this form.
+   */
   readonly monthlyCents: number;
   readonly startAge: number;
   readonly endAge: number | null;
@@ -139,6 +144,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
     salary: {
       ...job.salary,
       startingSalaryCents: draft.monthlyCents * 12,
+      currentSalaryCents: draft.monthlyCents * 12,
       realGrowthPct: draft.realGrowthPct,
     },
     ...(draft.deferralPct > 0
@@ -174,7 +180,11 @@ export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput 
     ...(name ? { name } : {}),
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
-    salary: { startingSalaryCents: draft.monthlyCents * 12, realGrowthPct: draft.realGrowthPct },
+    salary: {
+      startingSalaryCents: draft.monthlyCents * 12,
+      currentSalaryCents: draft.monthlyCents * 12,
+      realGrowthPct: draft.realGrowthPct,
+    },
   };
   return draft.deferralPct > 0
     ? {

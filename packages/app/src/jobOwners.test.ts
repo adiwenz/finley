@@ -22,7 +22,7 @@ const partnerJob: Job = {
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
 };
 
 const joining = (month: number, jobs: readonly Job[]): LifeEvent => ({

@@ -47,7 +47,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
     {
       startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
       endYear: null,
-      salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],
   // Budget lines are the sole expense authoring surface, so a fresh plan opens with the

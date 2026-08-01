@@ -107,7 +107,7 @@ const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
 });
 
 const spin = (name: RegExp | string) => screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -444,7 +444,7 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: PRIMARY_BIRTH_YEAR + 30, // Alex started it at 30
     endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
+    salary: { startingSalaryCents: dollarsToCents(60_000), currentSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
     deferral: { deferralFraction: 0.06, fundAccountId: RETIREMENT_ID, employerMatchFraction: 0.5 },
     payChanges: [PAY_CHANGE],
     incomeOverrides: [BONUS],

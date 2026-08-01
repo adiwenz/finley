@@ -13,14 +13,35 @@ import { RETIREMENT_ID } from "./ids";
 export type PersonId = string;
 
 /**
- * A job's salary path: a starting salary in *today's dollars* anchored at the job's
- * `startYear`, plus a *real* (above-CPI) growth rate. The engine layers CPI on top —
- * indexing backward for the covered-wage record, nominal growth forward for the projected
- * income series.
+ * A job's salary path across the month-0 boundary: **two independently authored anchors** and
+ * a *real* (above-CPI) growth rate. The engine layers CPI on top — indexing backward for the
+ * covered-wage record, nominal growth forward for the projected income series.
+ *
+ * `startingSalaryCents` anchors the job at its own `startYear` and feeds only the **historical
+ * compensation reconstruction** — what was actually earned from the job's start through month
+ * −1, with {@link JobPayChange}s and {@link JobIncomeOverride}s layered on in date order.
+ *
+ * `currentSalaryCents` anchors the job at month 0 and is **authoritative for everything
+ * forward**: future growth and future pay changes compound from it, never from the
+ * reconstructed history.
+ *
+ * The two are independent facts, not two views of one. The salary the history reconstructs at
+ * month −1 need NOT equal `currentSalaryCents`, and a discontinuity there is accepted rather
+ * than reconciled: deriving either anchor from the other would reapply historical raises on
+ * top of a figure that already includes them.
  */
 export interface SalaryTrajectory {
-  /** Annual, as of the owning job's `startYear`. */
+  /**
+   * Annual, as of the owning job's `startYear`, in today's dollars. Drives the historical
+   * reconstruction only — never the projected income series.
+   */
   readonly startingSalaryCents: Cents;
+  /**
+   * Annual, as of month 0 ("now"). The authoritative base for all projected compensation.
+   * Required: a job with no authored current salary has no defined projected pay, so there is
+   * deliberately no fallback to re-deriving one from `startingSalaryCents`.
+   */
+  readonly currentSalaryCents: Cents;
   /** Whole-number percent; 0 = flat in real terms. */
   readonly realGrowthPct: number;
 }
@@ -47,6 +68,12 @@ export interface JobIncomeOverride {
  *
  * Taxed as `wages` and flows through the 401(k) deferral, like overrides. `cents` is nominal at
  * `month` (the actual paycheck), matching the one-month `setTo`.
+ *
+ * `month` alone decides which side of "now" a change belongs to — there is no scope flag. A
+ * change dated before month 0 reconstructs history: it holds from its effective month through
+ * month −1, or until a later historical change supersedes it, and is then dropped at the
+ * month-0 current-salary anchor. A change dated at or after month 0 is a future raise, applied
+ * on top of that anchor.
  */
 export interface JobPayChange {
   /** Absolute simulation month (from "now") the new pay takes effect and holds from. */
@@ -148,10 +175,23 @@ export function withJobPatch(job: Job, patch: JobPatch): Job {
   return { ...job, ...rest };
 }
 
-/** Set pay in **monthly** cents, the denomination a person states income in; {@link Job}
- * stores the annualized figure. Leaves the growth rate alone. */
+/**
+ * Set pay in **monthly** cents, the denomination a person states income in; {@link Job}
+ * stores the annualized figure. Leaves the growth rate alone.
+ *
+ * Sets BOTH salary anchors to the stated figure: "this job pays X" means a flat history, and
+ * the deviations from it are exactly what a {@link JobPayChange} is for. Authoring a job whose
+ * start pay and current pay genuinely differ is a `salary` patch, not this.
+ */
 export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
-  return { ...job, salary: { ...job.salary, startingSalaryCents: monthlyCents * 12 } };
+  return {
+    ...job,
+    salary: {
+      ...job.salary,
+      startingSalaryCents: monthlyCents * 12,
+      currentSalaryCents: monthlyCents * 12,
+    },
+  };
 }
 
 /**
@@ -160,11 +200,13 @@ export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
  * the two halves of that conversion have to round the same way or a number typed into a form
  * comes back a cent different from what was typed.
  *
- * The STARTING salary, before growth and before any {@link JobPayChange} — what a headline
- * quotes and what an edit form seeds from.
+ * The CURRENT salary — the month-0 anchor, before future growth and before any future
+ * {@link JobPayChange}. That is what a headline quotes and what an edit form seeds from: it is
+ * the figure the projection actually starts from, where the starting salary is a historical
+ * fact that may be decades stale.
  */
 export function monthlyIncomeCentsOf(job: Job): Cents {
-  return Math.round(job.salary.startingSalaryCents / 12);
+  return Math.round(job.salary.currentSalaryCents / 12);
 }
 
 /**

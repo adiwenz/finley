@@ -15,7 +15,7 @@ const job: Job = {
   ownerId: "p1",
   startYear: 2026,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
   deferral: { deferralFraction: 0.1, fundAccountId: "401k", employerMatchFraction: 0.5 },
 };
 

@@ -1,5 +1,37 @@
 # Issue #83 — Per-year covered-earnings record from jobs (SS AIME source)
 
+## Update — the month-0 current-salary anchor
+
+The first pass reconstructed history from actual job compensation but left the projection
+basing month 0 on `startingSalaryCents × realGrowth`, so a historical raise applied to prior
+earnings and then vanished at the seam. The finalized semantics fix that by making the
+month-0 salary an **authored fact** rather than a derived one:
+
+```
+starting salary → historical pay changes through month -1
+                → CURRENT-SALARY ANCHOR at month 0
+                → future pay changes and future growth
+```
+
+- `SalaryTrajectory` gains a **required** `currentSalaryCents` (annual, at month 0),
+  independent of `startingSalaryCents`. No optional/fallback behaviour: a job with no
+  authored current salary has no defined projected pay.
+- `reconstructHistoricalCompensation` (new, named) builds the pre-"now" series from the
+  starting salary and every month-`< 0` pay change and override, in date order.
+- `compileJobIncome` rebases month 0 on the anchor and applies only month-`>= 0` changes, so
+  no historical cost basis or already-counted raise crosses the boundary. The growth
+  `anchorMonth` is untouched, so re-anchoring the amount does not restart the raise
+  anniversary.
+- A step between the reconstructed month −1 salary and the current salary is accepted and
+  never reconciled.
+- `withMonthlyIncome` sets both anchors (stating one salary means a flat history);
+  `monthlyIncomeCentsOf` now reads the current salary, and `personDeferralFractionOf` /
+  the app's `deferralLimit` weight by it too.
+- Wage-base and benefit rules stay in `@finley/rules`, untouched.
+
+8 regression tests added (7 unit in `job.test.ts`, 1 end-to-end in `projectionBase.test.ts`).
+`npm run check`: purity ✓, typecheck ✓, **1306 tests green**.
+
 ## Overview
 
 Social Security's earnings history is now built from the **same authored job compensation

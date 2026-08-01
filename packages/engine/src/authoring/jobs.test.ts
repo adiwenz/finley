@@ -29,7 +29,7 @@ import {
 const openEndedJob = {
   startYear: SAMPLE_START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
 /** Empty collections so minted ids and roster counts reflect only what a test adds. */

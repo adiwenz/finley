@@ -80,7 +80,11 @@ export function salariedJob(
     ownerId: "p1",
     startYear: birthYear + startAge,
     endYear: null,
-    salary: { startingSalaryCents: monthlyIncomeCents * 12, realGrowthPct: 0 },
+    salary: {
+      startingSalaryCents: monthlyIncomeCents * 12,
+      currentSalaryCents: monthlyIncomeCents * 12,
+      realGrowthPct: 0,
+    },
     ...(deferralFraction > 0
       ? { deferral: { deferralFraction, fundAccountId: RETIREMENT_ID } }
       : {}),
@@ -128,7 +132,7 @@ const baristaOpenEndedJob: Job = {
   ownerId: "p1",
   startYear: BARISTA_BIRTH_YEAR + 25,
   endYear: null, // open-ended — ends at retirementTargetAge, the solver varies it
-  salary: { startingSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
 };
 
 const baristaSupplementalJob: Job = {
@@ -136,7 +140,7 @@ const baristaSupplementalJob: Job = {
   ownerId: "p1",
   startYear: SAMPLE_START_YEAR,
   endYear: BARISTA_BIRTH_YEAR + 75, // fixed-term — keeps paying past the open-ended job's end
-  salary: { startingSalaryCents: dollarsToCents(30000), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(30000), currentSalaryCents: dollarsToCents(30000), realGrowthPct: 0 },
 };
 
 export const baristaPlan = {

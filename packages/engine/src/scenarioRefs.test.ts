@@ -46,7 +46,7 @@ describe("resolveRefs", () => {
       ...base,
       jobs: [
         { ownerRef: PRIMARY_PERSON_REF, startYear: 2026, endYear: null,
-          salary: { startingSalaryCents: 8_000_000, realGrowthPct: 1 },
+          salary: { startingSalaryCents: 8_000_000, currentSalaryCents: 8_000_000, realGrowthPct: 1 },
           deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF } },
       ],
       events: [

@@ -60,7 +60,7 @@ describe("Projection.init — the imperative half of authoring", () => {
 
     const jobId = p.addJob(PRIMARY_PERSON_ID, {
       startYear: 2026, endYear: null,
-      salary: { startingSalaryCents: 9_000_000, realGrowthPct: 0 },
+      salary: { startingSalaryCents: 9_000_000, currentSalaryCents: 9_000_000, realGrowthPct: 0 },
     });
     const goalId = p.addGoal({
       name: "Car", targetCents: 1_000_000, targetDate: 24,
@@ -105,7 +105,7 @@ describe("Projection.fromInput", () => {
           ownerRef: PRIMARY_PERSON_REF,
           startYear: 2026,
           endYear: null,
-          salary: { startingSalaryCents: 8_000_000, realGrowthPct: 1 },
+          salary: { startingSalaryCents: 8_000_000, currentSalaryCents: 8_000_000, realGrowthPct: 1 },
           deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF },
         },
       ],
@@ -172,7 +172,7 @@ describe("Projection.fromInput", () => {
         { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994,
           jobs: [
             { startYear: 2027, endYear: null,
-              salary: { startingSalaryCents: 6_000_000, realGrowthPct: 1 },
+              salary: { startingSalaryCents: 6_000_000, currentSalaryCents: 6_000_000, realGrowthPct: 1 },
               deferral: { deferralFraction: 0.05, fundAccountRef: RETIREMENT_REF } },
           ] },
         { type: "buyHome", month: 36, ownerRef: PRIMARY_PERSON_REF, purchasePriceCents: 40_000_000,
@@ -259,7 +259,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     ...base,
     jobs: [
       { ref: ref("REF-dayJob"), startYear: 2026, endYear: null,
-        salary: { startingSalaryCents: 9_000_000, realGrowthPct: 0 } },
+        salary: { startingSalaryCents: 9_000_000, currentSalaryCents: 9_000_000, realGrowthPct: 0 } },
     ],
     goals: [
       { ref: ref("REF-emergency"), name: "Emergency", targetCents: 1_000_000, annualReturnPct: 2,
@@ -276,7 +276,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
         openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
       { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994,
         jobs: [{ startYear: 2027, endYear: null,
-          salary: { startingSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
+          salary: { startingSalaryCents: 5_000_000, currentSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
       { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },
       { type: "buyHome", ref: ref("REF-house"), month: 36, ownerRef: PRIMARY_PERSON_REF,
         purchasePriceCents: 30_000_000, downPaymentCents: 2_000_000,
@@ -357,7 +357,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     p.addJob(PRIMARY_PERSON_ID, {
       startYear: 2030,
       endYear: null,
-      salary: { startingSalaryCents: 1_000_000, realGrowthPct: 0 },
+      salary: { startingSalaryCents: 1_000_000, currentSalaryCents: 1_000_000, realGrowthPct: 0 },
     });
     p.addGoal({ name: "Later", targetCents: 100_000, annualReturnPct: 1,
       disposition: "retain", targetDate: "asap" });

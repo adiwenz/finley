@@ -100,7 +100,7 @@ function salariedJob(monthlyCents: number): JobEntry {
   return {
     startYear: START_JOB_YEAR,
     endYear: null,
-    salary: { startingSalaryCents: monthlyCents * 12, realGrowthPct: 0 },
+    salary: { startingSalaryCents: monthlyCents * 12, currentSalaryCents: monthlyCents * 12, realGrowthPct: 0 },
   };
 }
 

@@ -3,6 +3,18 @@
  * simulator's inputs: a forward income {@link SimOwnedSeries} per still-paying job, plus
  * the pre-"now" covered-earnings record computed directly from the jobs (never simulated).
  *
+ * Both halves are built here, and month 0 is the seam between them:
+ *
+ *   starting salary → historical pay changes through month −1
+ *                   → CURRENT-SALARY ANCHOR at month 0
+ *                   → future pay changes and future growth
+ *
+ * The two halves share `salaryGrowthMode`, `applyPayChanges` and `applyIncomeOverrides`, so a
+ * raise or a bonus composes by ONE rule wherever it is dated. What they deliberately do not
+ * share is a baseline: the history reconstructs from `startingSalaryCents`, the projection
+ * rebases on the authored `currentSalaryCents`. A step between them at the boundary is
+ * expected and never reconciled — see {@link import("./job").SalaryTrajectory}.
+ *
  * The one standing-model module that depends on the simulator (`SimOwnedSeries`);
  * isolating it here keeps the {@link Person}/{@link Job} *type* modules free of any
  * `projection/*` import, so the standing model and the sim core cannot form an import cycle.
@@ -29,12 +41,6 @@ export function compilePerson(person: Person, nowYear: number, inflationRate: nu
     benefitClaimingAge: person.benefitClaimingAge,
     priorEarningsCents: compilePersonPriorEarnings(person, nowYear, inflationRate),
   };
-}
-
-/** Annual salary (nominal = real, since it is today's dollars) at a calendar year. */
-function realSalaryCentsAt(job: Job, year: number): number {
-  const realGrowth = job.salary.realGrowthPct / 100;
-  return job.salary.startingSalaryCents * Math.pow(1 + realGrowth, year - job.startYear);
 }
 
 /** An open-ended job stops at the owner's retirement target age. */
@@ -95,17 +101,58 @@ function applyIncomeOverrides(
 }
 
 /**
- * Nominal covered earnings this person's jobs imply for the working years **before** "now",
- * keyed by calendar year. Built from the SAME compiled compensation the forward projection
- * uses — actual monthly pay summed per calendar year — never a flat annual reconstruction, so
- * pre-"now" raises and bonuses land exactly as they did in life. Computed directly (never
- * simulated: the sim starts at "now"), and covering only months strictly before "now" so the
- * forward accumulation, which owns month 0 onward, never double-counts a year.
+ * **Historical compensation reconstruction** for one job: what it actually paid, month by
+ * month, from its own (possibly long-past) start through month −1.
  *
- * The series anchors at the job's own (possibly long-past) start month with the salary
- * nominal-at-that-start, growing forward at real+CPI. Evaluated at "now" this reproduces the
- * forward series' now-salary, so the pre-"now" and forward records join seamlessly; evaluated
- * backward it de-CPIs each earlier year. Overlapping jobs sum.
+ * Anchored at the job's start month with `startingSalaryCents` nominal-at-that-start, grown at
+ * real+CPI, with every pre-"now" {@link JobPayChange} and {@link JobIncomeOverride} layered on
+ * in date order — so a later historical change supersedes or composes with an earlier one by
+ * exactly the same rules the forward series uses. `null` when the job contributes no pre-"now"
+ * month at all (it starts at or after "now").
+ *
+ * Deliberately stops at month −1 and is never continued across the boundary: month 0 belongs
+ * to the authored current salary. Carrying this series forward would reapply historical raises
+ * on top of a figure that already reflects them.
+ */
+function reconstructHistoricalCompensation(
+  job: Job,
+  owner: Person,
+  nowYear: number,
+  inflationRate: number,
+): { series: SimCashFlowSeries; startMonth: number; endMonthExclusive: number } | null {
+  const startMonth = (job.startYear - nowYear) * 12;
+  // History is months < 0: clip a still-running job at "now", and skip one that only starts at
+  // or after it (all of its earnings are the forward series' job).
+  const endMonthExclusive = Math.min((jobEndYearExclusive(job, owner) - nowYear) * 12, 0);
+  if (endMonthExclusive <= startMonth) return null;
+
+  const nominalStartAnnualCents = Math.round(
+    job.salary.startingSalaryCents * Math.pow(1 + inflationRate, job.startYear - nowYear),
+  );
+  const series = new SimCashFlowSeries(
+    startMonth,
+    Math.round(nominalStartAnnualCents / 12),
+    salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
+    { baselineUnit: "monthly", endMonth: endMonthExclusive - 1, anchorMonth: startMonth },
+  );
+  // Bounded to months < 0: a month-0-or-later change is a FUTURE raise, applied by
+  // `compileJobIncome` on top of the current-salary anchor instead.
+  applyPayChanges(series, job.payChanges ?? [], startMonth, endMonthExclusive - 1);
+  applyIncomeOverrides(series, job.incomeOverrides ?? [], startMonth, endMonthExclusive - 1);
+  return { series, startMonth, endMonthExclusive };
+}
+
+/**
+ * Nominal covered earnings this person's jobs imply for the working years **before** "now",
+ * keyed by calendar year — the historical half of the AIME input, summed straight off
+ * {@link reconstructHistoricalCompensation} so pre-"now" raises and bonuses land exactly as
+ * they did in life. Computed directly, never simulated: the sim starts at "now". Overlapping
+ * jobs sum; the wage-base cap is a downstream, jurisdiction-owned step.
+ *
+ * Covers only months strictly before "now", so the forward accumulation — which owns month 0
+ * onward off the authored current salary — never double-counts a year. The reconstruction's
+ * month −1 salary is NOT reconciled against that current salary: the two are independent
+ * authored facts and a step between them is expected.
  *
  * The split is at month 0, which the sim treats as the start of the current calendar year: the
  * pre-"now" record runs whole years up to it and forward accumulation owns it onward. Known
@@ -120,28 +167,10 @@ export function compilePersonPriorEarnings(
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const naturalStartMonth = (job.startYear - nowYear) * 12;
-    // Pre-"now" is months < 0; clip a still-running job at "now" and skip a job that only
-    // starts at or after it (its earnings are entirely in the forward series).
-    const preNowEndExclusive = Math.min((jobEndYearExclusive(job, person) - nowYear) * 12, 0);
-    if (preNowEndExclusive <= naturalStartMonth) continue;
-
-    const nominalStartAnnualCents = Math.round(
-      job.salary.startingSalaryCents * Math.pow(1 + inflationRate, job.startYear - nowYear),
-    );
-    const series = new SimCashFlowSeries(
-      naturalStartMonth,
-      Math.round(nominalStartAnnualCents / 12),
-      salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
-      { baselineUnit: "monthly", endMonth: preNowEndExclusive - 1, anchorMonth: naturalStartMonth },
-    );
-    // Only pre-"now" edits: a month-0-or-later change belongs to the forward series, and
-    // applying it here would reprice years the forward accumulation also covers.
-    applyPayChanges(series, job.payChanges ?? [], naturalStartMonth, preNowEndExclusive - 1);
-    applyIncomeOverrides(series, job.incomeOverrides ?? [], naturalStartMonth, preNowEndExclusive - 1);
-
-    for (let month = naturalStartMonth; month < preNowEndExclusive; month++) {
-      const cents = series.getMonthlyCents(month);
+    const history = reconstructHistoricalCompensation(job, person, nowYear, inflationRate);
+    if (history === null) continue;
+    for (let month = history.startMonth; month < history.endMonthExclusive; month++) {
+      const cents = history.series.getMonthlyCents(month);
       if (cents <= 0) continue;
       const year = nowYear + Math.floor(month / 12);
       earnings[year] = (earnings[year] ?? 0) + cents;
@@ -151,10 +180,16 @@ export function compilePersonPriorEarnings(
 }
 
 /**
- * Compile one job into a forward income {@link SimOwnedSeries}: the salary at "now" as a
- * monthly baseline, growing nominally (real growth compounded with CPI), from the later of
- * month 0 and the job's start through its end. Returns `null` for a job that ended before
- * "now" — its earnings are entirely in the prior-earnings record.
+ * Compile one job into a forward income {@link SimOwnedSeries}, based on the **current-salary
+ * anchor**: the authored `currentSalaryCents` as the monthly baseline at month 0, growing
+ * nominally (real growth compounded with CPI) from the later of month 0 and the job's start
+ * through its end. Returns `null` for a job that ended before "now" — its earnings are
+ * entirely in the prior-earnings record.
+ *
+ * The anchor is what makes the authored current salary authoritative. The reconstructed
+ * history stops at month −1 and no part of it is carried across: no historical cost basis, and
+ * no historical raise reapplied on top of a current salary that already includes it. Only
+ * month-0-and-later pay changes ride this series, and they compound from the anchor.
  *
  * `membership` clips the *paid* span to a household-membership interval: a partner's job
  * only pays the household while they are a member. It narrows where the series pays, never
@@ -180,25 +215,31 @@ function compileJobIncome(
     : endMonthExclusive;
   if (paidEndExclusive <= paidStart) return null; // no paid month falls inside the window
 
-  const monthlyNowCents = Math.round(realSalaryCentsAt(job, nowYear) / 12);
+  // THE CURRENT-SALARY ANCHOR. The authored figure enters here and nowhere else, which is what
+  // makes it authoritative: the series is built fresh on it rather than continued from the
+  // reconstructed history, so no historical raise can be reapplied on top of it.
+  const currentSalaryAnchorMonthlyCents = Math.round(job.salary.currentSalaryCents / 12);
 
   const series = new SimCashFlowSeries(
     paidStart,
-    monthlyNowCents,
+    currentSalaryAnchorMonthlyCents,
     salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
     {
       baselineUnit: "monthly",
       endMonth: paidEndExclusive - 1,
-      // Anchored at the job's own start, so a clipped partner job pays the correctly-grown
-      // salary from its join month.
+      // The growth CLOCK still runs off the job's own start, untouched by the anchor above:
+      // re-anchoring the salary amount at month 0 must not restart an anniversary-based raise
+      // schedule, and a clipped partner job still pays the correctly-grown salary from its
+      // join month.
       anchorMonth: naturalStart,
       taxCategory: "wages",
     },
   );
 
-  // Same effective-dated pay changes and one-month perturbations the pre-"now" record folds,
-  // applied over the paid span — so both sides of "now" read one continuous compensation
-  // history. Overrides tax as wages and run through the 401(k) deferral like regular pay.
+  // FUTURE changes only — `paidStart` is >= 0, so the pre-"now" ones stay in the historical
+  // reconstruction. Same two helpers the history uses, so raises and bonuses compose by one
+  // rule on both sides of the boundary; here they compound from the current-salary anchor.
+  // Overrides tax as wages and run through the 401(k) deferral like regular pay.
   applyPayChanges(series, job.payChanges ?? [], paidStart, paidEndExclusive - 1);
   applyIncomeOverrides(series, job.incomeOverrides ?? [], paidStart, paidEndExclusive - 1);
 

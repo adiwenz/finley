@@ -26,7 +26,7 @@ const richJob: Job = {
   ownerId: PRIMARY_PERSON_ID,
   startYear: 2021,
   endYear: null,
-  salary: { startingSalaryCents: 60_000_00, realGrowthPct: 1 },
+  salary: { startingSalaryCents: 60_000_00, currentSalaryCents: 60_000_00, realGrowthPct: 1 },
   deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
   incomeOverrides: [{ month: 6, kind: "addBonus", cents: 5_000_00 }],
   payChanges: [{ month: 24, kind: "changeBy", cents: -500_00 }],
