@@ -415,7 +415,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     expect(forward.getMonthlyCents(6)).not.toBe(dollarsToCents(6_250 + 1_000));
   });
 
-  it("does not double-apply inflation at month 0, and keeps the existing raise anniversary", () => {
+  it("does not double-apply inflation at month 0, and grows annually from the boundary", () => {
     // 3% CPI, real-flat. Current pay $120,000/yr = $10,000/mo, authored as of "now".
     const job = jobWith(START_60K, dollarsToCents(120_000));
     const forward = forwardFor(job, 0.03);
@@ -423,8 +423,10 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     // Month 0 is the authored figure verbatim — indexing it would double-count the CPI that
     // already brought the salary to today's dollars.
     expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(10_000));
-    // The growth clock is untouched by the anchor: still the job's own annual cycle, firing
-    // at month 12 rather than restarting from month 0.
+    // Growth runs annually from the projection boundary: month 0's authored figure holds for
+    // a full year and the first raise lands at month 12. The job's own start is NOT the clock
+    // — it is clamped to 0 — and no historical raise cadence is carried over. What this pins
+    // is that the anchor neither pre-grows month 0 nor skips a year.
     expect(forward.getMonthlyCents(11)).toBe(dollarsToCents(10_000));
     expect(forward.getMonthlyCents(12)).toBe(dollarsToCents(10_300)); // exactly one 3% step
 

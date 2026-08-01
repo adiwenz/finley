@@ -53,8 +53,16 @@ in the app and the engine and deleted the prototype. PR #227. `npm run check` gr
 - **Keep `salaryGrowthMode` / `applyPayChanges` / `applyIncomeOverrides` shared** between the two
   halves in `compilePerson.ts`. The only thing the halves deliberately do not share is a baseline.
   `jobPayPath` mirrors these rules in real terms; if they change, it changes.
-- **The forward series' `anchorMonth` stays `naturalStart`** — the growth *clock*, separate from
-  the salary *amount* the anchor sets. Pinned by the month-11/month-12 assertions in `job.test.ts`.
+- **The forward series' `anchorMonth` stays `naturalStart`, which is clamped at 0.** For a job
+  already under way the growth clock is therefore the **projection boundary**, not the job's own
+  start: month 0 pays the authored figure verbatim and the first raise lands at month 12. Pinned
+  by the month-11/month-12 assertions in `job.test.ts`. Growth is a single scalar rate, not a
+  schedule — a job's real raise cadence is neither preserved nor inferred, and calendar- and
+  work-anniversary recurring raises are deferred to **#228**. A job's start is a *year*, so a
+  non-January cadence cannot be expressed at all today. **Trap when changing this:**
+  `(startYear - nowYear) * 12` is always a multiple of 12, so an unclamped anchor would fire on
+  the same months and differ only in the accumulated amount — no timing assertion can tell the
+  two apart.
 - **Wage-base caps and benefit rules stay in `@finley/rules`.**
 - `monthlyIncomeCentsOf` reads *current* pay and `withMonthlyIncome` sets *both* anchors. Two
   derived-gross consumers are re-based to match and must stay that way: `personDeferralFractionOf`

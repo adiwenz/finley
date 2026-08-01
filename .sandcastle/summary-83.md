@@ -19,9 +19,11 @@ starting salary → historical pay changes through month -1
 - `reconstructHistoricalCompensation` (new, named) builds the pre-"now" series from the
   starting salary and every month-`< 0` pay change and override, in date order.
 - `compileJobIncome` rebases month 0 on the anchor and applies only month-`>= 0` changes, so
-  no historical cost basis or already-counted raise crosses the boundary. The growth
-  `anchorMonth` is untouched, so re-anchoring the amount does not restart the raise
-  anniversary.
+  no historical cost basis or already-counted raise crosses the boundary. Growth is a scalar
+  rate off that boundary: for a job already under way `anchorMonth` clamps to 0, so month 0
+  pays the authored figure verbatim and the first raise lands at month 12. A historical raise
+  cadence is not preserved; calendar- and anniversary-based recurring raises are deferred
+  to #228.
 - A step between the reconstructed month −1 salary and the current salary is accepted and
   never reconciled.
 - `withMonthlyIncome` sets both anchors (stating one salary means a flat history);

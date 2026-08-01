@@ -195,7 +195,15 @@ export function compilePersonPriorEarnings(
  * The anchor is what makes the authored current salary authoritative. The reconstructed
  * history stops at month −1 and no part of it is carried across: no historical cost basis, and
  * no historical raise reapplied on top of a current salary that already includes it. Only
- * month-0-and-later pay changes ride this series, and they compound from the anchor.
+ * month-0-and-later pay changes ride this series, compounding from the anchor — one authored
+ * at month 0 taking force at month 1, since the anchor owns month 0 (see
+ * {@link payChangeEffectiveMonth}).
+ *
+ * Growth is a scalar rate off that boundary, not a schedule: for a job already under way the
+ * first raise lands at month 12, and a job's real historical raise cadence is neither carried
+ * over nor inferred. Calendar- and work-anniversary recurring raises are not modelled here at
+ * all; they belong to the recurring-compensation work, which is where a raise *schedule* would
+ * be authored.
  *
  * `membership` clips the *paid* span to a household-membership interval: a partner's job
  * only pays the household while they are a member. It narrows where the series pays, never
@@ -233,10 +241,22 @@ function compileJobIncome(
     {
       baselineUnit: "monthly",
       endMonth: paidEndExclusive - 1,
-      // The growth CLOCK still runs off the job's own start, untouched by the anchor above:
-      // re-anchoring the salary amount at month 0 must not restart an anniversary-based raise
-      // schedule, and a clipped partner job still pays the correctly-grown salary from its
-      // join month.
+      // `naturalStart` is CLAMPED at 0, so for a job already under way the growth clock runs
+      // from the projection boundary, not from the job's own start: the authored current
+      // salary is month 0's pay verbatim and the first raise lands at month 12. That is the
+      // only reading that works — counting from a start years back would compound that many
+      // raises onto a figure that already reflects them.
+      //
+      // Growth here is a single scalar rate, not a schedule. A job's start is a YEAR, so a
+      // raise cadence that isn't January cannot be expressed at all; calendar- and
+      // work-anniversary recurring raises are deferred to the recurring-compensation work.
+      // Beware a coincidence when changing this: `(startYear - nowYear) * 12` is always a
+      // multiple of 12, so an unclamped anchor would fire on the same months and only the
+      // accumulated amount would differ — the timing assertions cannot tell the two apart.
+      //
+      // A job starting in the FUTURE keeps its own start as the clock, which is also where it
+      // first pays. A partner job clipped to a later join month grows from `naturalStart`
+      // rather than the join, so the household sees the correctly-grown salary on arrival.
       anchorMonth: naturalStart,
       taxCategory: "wages",
     },
