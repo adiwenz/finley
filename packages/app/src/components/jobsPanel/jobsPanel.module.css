@@ -44,56 +44,12 @@
    stopping at it: the month-0 seam is an authored fact, so it is shown, and shown NEUTRALLY —
    nothing here is styled as a warning, because the step is not one. */
 
+/* Recharts owns everything inside the plot — line, axes, shading, seam markers — so this is
+   only the box it sizes itself into. Its colours are literals in `payChart.tsx`, because
+   Recharts writes them into SVG attributes where a CSS variable cannot reach. */
 .chart {
   width: 100%;
-  height: auto;
   margin: 4px 0 2px;
-  display: block;
-}
-
-/* Everything already lived. The one cue that says which half of the axis is which. */
-.chartPast {
-  fill: rgba(0, 0, 0, 0.045);
-}
-
-.chartLine {
-  fill: none;
-  stroke: var(--color-accent);
-  stroke-width: 2;
-}
-
-.chartArea {
-  fill: var(--color-accent);
-  opacity: 0.14;
-}
-
-.chartStep circle {
-  fill: var(--color-accent);
-}
-
-.chartStep text {
-  font-size: 10px;
-  fill: var(--color-accent);
-}
-
-.chartNow {
-  stroke: var(--color-accent);
-  stroke-width: 1.5;
-}
-
-.chartAxis {
-  stroke: var(--color-border);
-}
-
-.chartTick {
-  font-size: 10px;
-  fill: var(--color-text-muted);
-}
-
-/* The axis is an input: clicking an age seeds a pay change there. */
-.chartHit {
-  fill: transparent;
-  cursor: crosshair;
 }
 
 /* The pay story in age order — the start, every change, and "now" as a row among them. */

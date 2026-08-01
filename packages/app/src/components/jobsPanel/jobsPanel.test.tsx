@@ -813,11 +813,18 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // engine deliberately does not close it.
     expect(screen.getByText(/History reaches \$5,000\/mo/)).toBeTruthy();
     expect(screen.getByText(/Today’s pay wins from here on/)).toBeTruthy();
+    // The chart says it too, as a shape. Recharts draws nothing in jsdom, so the step is
+    // asserted through the data mirror the chart renders beside it.
+    expect(screen.getByTestId("pay-chart-seam").textContent).toBe(
+      String(dollarsToCents(6667) - dollarsToCents(5000)),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     fireEvent.change(spin(/Monthly salary now/i), { target: { value: "5000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(screen.queryByText(/History reaches/)).toBeNull();
+    // Anchors agreed: no step to draw, and no annotation left on the chart either.
+    expect(screen.getByTestId("pay-chart-seam").textContent).toBe("0");
   });
 
   it("asks nothing about 'now' for a job that ended before it", () => {
