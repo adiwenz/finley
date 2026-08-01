@@ -85,6 +85,11 @@ export { jobPayPath } from "./job";
  * current salary owns. An authoring surface needs it to say when the change it just took begins.
  */
 export { payChangeEffectiveMonth } from "./job";
+/**
+ * Pay for the historical years nobody has stated, as changes a caller may apply — an explicit
+ * user action, never part of ordinary editing. See `estimateHistoryPayChanges`.
+ */
+export { estimateHistoryPayChanges } from "./job";
 export type { Person } from "./person";
 export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
 export type {

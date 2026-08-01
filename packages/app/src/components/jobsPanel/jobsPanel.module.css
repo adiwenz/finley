@@ -149,3 +149,14 @@
   display: flex;
   gap: 6px;
 }
+
+/* A filled-in year, not a stated one. Held back rather than flagged: an estimate is a
+   legitimate part of the record, it just isn't somebody's recollection. */
+.entryEstimated {
+  border-left-style: dashed;
+}
+
+.estimatedTag {
+  color: var(--color-text-muted);
+  font-style: italic;
+}

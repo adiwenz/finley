@@ -187,14 +187,25 @@ export function JobForm({
           step=1: salary is free-form dollars — a larger step makes HTML5 validity reject an
           off-step value (e.g. $5,250) on submit. */}
       {hasHistory && (
-        <NumInput
-          label={`Monthly salary at age ${draft.startAge}`}
-          value={draft.startingMonthlyDollars}
-          onChange={(v) => patch({ startingMonthlyDollars: v })}
-          prefix="$"
-          step={1}
-          min={0}
-        />
+        <>
+          <NumInput
+            label={`Monthly salary when this job started (age ${draft.startAge})`}
+            value={draft.startingMonthlyDollars}
+            onChange={(v) => patch({ startingMonthlyDollars: v })}
+            prefix="$"
+            step={1}
+            min={0}
+          />
+          {/* Says which money the figure is in, at the field that collects it. The engine takes
+              it verbatim, so the only wrong answer here is one converted into today's dollars
+              by a helpful user. */}
+          <p className="hint">
+            <strong>Enter the amount you were actually paid at the time.</strong> Finley stores
+            it exactly as you enter it — no adjusting up or down for inflation. The years in
+            between are filled in for you as pay keeping pace with inflation; add pay changes,
+            or use “Estimate missing pay history” below, to say otherwise.
+          </p>
+        </>
       )}
       {endedBeforeNow ? (
         <p className="hint">

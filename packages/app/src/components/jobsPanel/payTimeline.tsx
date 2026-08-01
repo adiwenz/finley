@@ -43,6 +43,8 @@ interface Row {
   readonly kind: "start" | "change" | "now";
   readonly label: string;
   readonly monthlyCents: number;
+  /** Filled in by "Estimate missing pay history" rather than stated by the user. */
+  readonly estimated?: boolean;
   /** Present on the rows a user authored, and only those: the start and "now" are not removable. */
   readonly change?: JobPayChange;
 }
@@ -86,6 +88,7 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
           ? `${describePayChange(change)} — from next month`
           : describePayChange(change),
       monthlyCents: path.monthlyCentsAt(payChangeEffectiveMonth(change)),
+      estimated: change.estimated === true,
       change,
     });
   }
@@ -100,6 +103,7 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
             styles.entry,
             row.kind === "now" ? styles.entryNow : "",
             row.month < 0 ? styles.entryHistory : "",
+            row.estimated ? styles.entryEstimated : "",
           ]
             .filter(Boolean)
             .join(" ")}
@@ -109,7 +113,12 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
               ? `now · ${ownerAgeAtMonth(birthYear, 0)}`
               : `age ${ownerAgeAtMonth(birthYear, row.month)}`}
           </span>
-          <span>{row.label}</span>
+          <span>
+            {row.label}
+            {/* Named, not merely styled: "estimated" is a fact about the number, and colour
+                alone would not carry it to a screen reader or a colour-blind reader. */}
+            {row.estimated && <em className={styles.estimatedTag}> · estimated</em>}
+          </span>
           <span className={styles.entryPay}>{formatDollars(row.monthlyCents)}/mo</span>
           <span>
             {row.change && (

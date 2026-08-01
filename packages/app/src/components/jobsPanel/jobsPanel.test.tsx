@@ -734,7 +734,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
   it("states the two salary anchors separately, and neither rewrites the other", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Monthly salary at age 18/i), { target: { value: "3000" } });
+    fireEvent.change(spin(/Monthly salary when this job started/i), { target: { value: "3000" } });
     fireEvent.change(spin(/Monthly salary now/i), { target: { value: "6667" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
@@ -748,7 +748,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
   it("offers only one salary field on a job with no past — there is one fact to state", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i })); // starts at 35, today
-    expect(screen.queryByRole("spinbutton", { name: /Monthly salary at age/i })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: /Monthly salary when this job started/i })).toBeNull();
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "4000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     // One number in, both anchors out: "it pays X" means a flat history.
@@ -802,6 +802,32 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // today, so the toggle can never disturb the anchor the projection starts from.
     expect(startRow().textContent).toContain("$5,000/mo");
     expect(nowRow().textContent).toContain("$5,000/mo");
+  });
+
+  it("estimates missing history only when asked, and only over unstated years", () => {
+    // Never during ordinary editing: an assumption about someone's earnings history has to be
+    // something they chose, so the button explains itself and waits.
+    render(<Harness />);
+    expect(authored().plan.jobs[0].payChanges ?? []).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Estimate missing pay history on Job 1/i }));
+    // Explains before it acts.
+    expect(screen.getByText(/assuming your pay kept pace with inflation/i)).toBeTruthy();
+    expect(screen.getByText(/no pay change you authored is overwritten/i)).toBeTruthy();
+    expect(authored().plan.jobs[0].payChanges ?? []).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Estimate history$/ }));
+    const filled = authored().plan.jobs[0].payChanges ?? [];
+    // Sixteen years between starting at 18 and now at 35, minus the year the start anchor
+    // already states.
+    expect(filled).toHaveLength(16);
+    expect(filled.every((c) => c.estimated === true && c.month < 0)).toBe(true);
+    // Both anchors untouched — the estimate fills the gap, it does not restate the ends.
+    const { salary } = authored().plan.jobs[0];
+    expect(salary.currentSalaryCents).toBe(PLAN_DEFAULTS.jobs[0]!.salary.currentSalaryCents);
+    expect(salary.startingSalaryCents).toBe(PLAN_DEFAULTS.jobs[0]!.salary.startingSalaryCents);
+    // Marked as estimates where they are read, not silently mixed in with stated pay.
+    expect(timeline("Job 1").getAllByText(/· estimated/).length).toBe(16);
   });
 
   it("keeps a raise dated at today's age, and says it starts next month", () => {

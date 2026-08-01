@@ -12,6 +12,7 @@ import { samplePlan, salariedJob } from "./testing/samplePlan";
 import {
   deferralFractionOf,
   deriveRealGrowthPct,
+  estimateHistoryPayChanges,
   jobPayPath,
   monthlyIncomeCentsOf,
   startingMonthlyIncomeCentsOf,
@@ -892,5 +893,90 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
       dollarsToCents(9_000),
     );
     expect(projected(60, raised)).toBe(dollarsToCents(9_000));
+  });
+});
+
+/**
+ * Filling the unstated historical years — an EXPLICIT action, so what matters is that it never
+ * touches anything the user said and that running it twice does not compound.
+ */
+describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
+  const CURRENT_AGE = 40;
+  const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
+  /** Started at 30 on $5,000/mo — the paycheck of that year. Ten years of history. */
+  const job: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: BIRTH_YEAR + 30,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(60_000),
+      currentSalaryCents: dollarsToCents(100_000),
+      realGrowthPct: 0,
+    },
+  };
+  const span = { startMonth: -120, endMonthExclusive: (65 - CURRENT_AGE) * 12 };
+
+  it("fills one year at a time, from the start anchor, and stops at 'now'", () => {
+    const estimates = estimateHistoryPayChanges(job, span, 0.03);
+    // Nine: the start anchor already states year one, and month 0 belongs to the current anchor.
+    expect(estimates).toHaveLength(9);
+    expect(estimates.every((c) => c.estimated === true)).toBe(true);
+    expect(estimates.every((c) => c.month < 0 && c.month >= span.startMonth)).toBe(true);
+    expect(estimates[0]).toEqual({
+      month: -108,
+      kind: "setTo",
+      cents: Math.round(dollarsToCents(5_000) * 1.03),
+      estimated: true,
+    });
+  });
+
+  it("leaves both anchors alone — neither is part of what it fills in", () => {
+    const estimates = estimateHistoryPayChanges(job, span, 0.03);
+    expect(estimates.some((c) => c.month === span.startMonth)).toBe(false);
+    expect(estimates.some((c) => c.month === 0)).toBe(false);
+  });
+
+  it("never overwrites an authored change, and grows the following years FROM it", () => {
+    const raised: Job = {
+      ...job,
+      payChanges: [{ month: -60, kind: "setTo", cents: dollarsToCents(8_000) }],
+    };
+    const estimates = estimateHistoryPayChanges(raised, span, 0.03);
+    expect(estimates.some((c) => c.month === -60)).toBe(false);
+    // The year after the authored raise is estimated off $8,000, not off the start anchor.
+    const next = estimates.find((c) => c.month === -48)!;
+    expect(next.cents).toBe(Math.round(dollarsToCents(8_000) * 1.03));
+  });
+
+  it("is idempotent — re-running reads through its own prior estimates", () => {
+    const once = estimateHistoryPayChanges(job, span, 0.03);
+    const twice = estimateHistoryPayChanges({ ...job, payChanges: once }, span, 0.03);
+    expect(twice).toEqual(once);
+  });
+
+  it("has nothing to fill for a job with no past, or with no inflation to assume", () => {
+    const future = { startMonth: 12, endMonthExclusive: 240 };
+    expect(estimateHistoryPayChanges(job, future, 0.03)).toEqual([]);
+    expect(estimateHistoryPayChanges(job, span, 0)).toEqual([]);
+  });
+
+  it("reaches the covered-earnings record once applied, and not before", () => {
+    const person = (j: Job): Person => ({
+      id: PRIMARY_PERSON_ID,
+      name: "P",
+      birthYear: BIRTH_YEAR,
+      retirementTargetAge: 65,
+      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      jobs: [j],
+    });
+    // Estimating at CPI where the job already grows at CPI is a no-op on the numbers — the
+    // point of applying it is that the years become visible and editable, not that they move.
+    const before = compilePersonPriorEarnings(person(job), START_YEAR, 0.03);
+    const applied = { ...job, payChanges: estimateHistoryPayChanges(job, span, 0.03) };
+    const after = compilePersonPriorEarnings(person(applied), START_YEAR, 0.03);
+    for (const year of Object.keys(before)) {
+      expect(after[Number(year)]).toBeCloseTo(before[Number(year)]!, -3);
+    }
   });
 });
