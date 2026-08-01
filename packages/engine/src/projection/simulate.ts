@@ -180,9 +180,6 @@ export function simulateHousehold(
       preCascadeObligationShortfallCents - coveredCapacityCents,
     );
     const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
-    // Per-liability, not household-wide: walks the obligation list in its own priority order,
-    // so a fully-funded mandatory payment amortizes even while an unrelated need or a
-    // lower-priority sibling liability goes unfunded (or only partly funded) this month.
     const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
 
     applyAssetTransfers(state, month);

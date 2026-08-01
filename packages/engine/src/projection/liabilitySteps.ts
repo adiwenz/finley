@@ -4,9 +4,10 @@ import type { SimState } from "./runState";
 import type { LiabilityPaymentRecord } from "./simulate.types";
 
 /**
- * Step 4: this month's payment for every liability, on beginning-of-month balances. Returned
- * so advanceLiabilities applies the exact same figure, keeping the cash outflow (step 5) and
- * the balance update consistent.
+ * Step 4: this month's SCHEDULED payment for every liability, on beginning-of-month balances
+ * — what obligation reporting and {@link buildLiabilityPaymentRecords} always show, regardless
+ * of what the household could actually fund. {@link advanceLiabilities} reduces the balance by
+ * that funded amount instead, which this figure only upper-bounds.
  *
  * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}), capped
  * at the payoff so a small balance is never over-charged.
@@ -91,14 +92,11 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
  * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
  * early, payment unchanged).
  *
- * `appliedPayments` is PER LIABILITY, from {@link
- * import("./financialObligation").fundedLiabilityPayments} — what THIS liability's payment
- * actually got funded this month, walking the obligation priority order against the
- * household's real covering capacity, which may be less than (never more than) what
- * `computeLiabilityPayments` scheduled. Interest still accrues on the full balance regardless
- * — only the payment reduction reflects what was actually funded — so a liability whose
- * payment came up short (or entirely unfunded) does not amortize down as though it succeeded,
- * while a sibling liability funded ahead of it in the walk is untouched by its shortfall.
+ * `appliedPayments` is PER LIABILITY — what THIS liability's payment actually got funded this
+ * month, from {@link import("./financialObligation").fundedLiabilityPayments} (never more than
+ * `computeLiabilityPayments` scheduled). Interest still accrues on the full balance regardless;
+ * only the payment reduction reflects what was actually funded, so a liability whose payment
+ * came up short does not amortize down as though it succeeded.
  */
 export function advanceLiabilities(
   state: SimState,
