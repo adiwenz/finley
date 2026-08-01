@@ -648,3 +648,147 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     expect(path.monthlyCentsAt(-120)).toBe(Math.round(dollarsToCents(5_000) * 1.1));
   });
 });
+
+/**
+ * A pay change dated at month 0 — what the Jobs panel writes when a user types their own current
+ * age. Month 0 belongs to the authored `currentSalaryCents`, so the change cannot displace it;
+ * it takes force at month 1 instead of overriding "now" or being discarded. Asserted on BOTH
+ * readers, because the projection compiler and `jobPayPath` mirror each other by hand and this
+ * is exactly the boundary where they would drift apart unnoticed.
+ */
+describe("a permanent pay change authored at month 0 — deferred to month 1", () => {
+  const person = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - samplePlan.currentAge,
+    retirementTargetAge: samplePlan.retirementAge,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+  // Zero inflation, so a projected paycheck is the authored figure and the two readers are
+  // directly comparable — the deferral rule is what is under test, not the growth machinery.
+  const projected = (job: Job, month: number): number =>
+    compilePersonIncomeSeries(person([job]), START_YEAR, 0)[0].series.getMonthlyCents(month);
+  /** The same job read through the authoring path, over its whole projected span. */
+  const authored = (job: Job, month: number): number =>
+    jobPayPath(job, {
+      startMonth: 0,
+      endMonthExclusive: (samplePlan.retirementAge - samplePlan.currentAge) * 12,
+    }).monthlyCentsAt(month);
+
+  /** $60k/yr = a round $5,000/mo, real-flat. */
+  const base: Job = salariedJob(dollarsToCents(60_000) / 12);
+
+  it("setTo: month 0 still pays the stated current salary, month 1 pays the new one", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
+    };
+    expect(projected(job, 0)).toBe(dollarsToCents(5_000));
+    expect(projected(job, 1)).toBe(dollarsToCents(6_000));
+    expect(projected(job, 24)).toBe(dollarsToCents(6_000));
+    expect(authored(job, 0)).toBe(dollarsToCents(5_000));
+    expect(authored(job, 1)).toBe(dollarsToCents(6_000));
+  });
+
+  it("changeBy: the delta lands on month 1, off the month-0 salary", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 0, kind: "changeBy", cents: dollarsToCents(6_000) / 12 }],
+    };
+    expect(projected(job, 0)).toBe(dollarsToCents(5_000));
+    expect(projected(job, 1)).toBe(dollarsToCents(5_500));
+    expect(authored(job, 0)).toBe(dollarsToCents(5_000));
+    expect(authored(job, 1)).toBe(dollarsToCents(5_500));
+  });
+
+  it("applies several month-0 changes in a stable, authored sequence", () => {
+    // Both defer to month 1 and compose there in the order they were written — a `setTo`
+    // followed by a `changeBy` is $6,000 then +$500, never the other way round. The facade
+    // keeps at most one change per authored month, so this shape reaches the compiler from a
+    // plan built any other way (seed data, an import); the order still has to be a rule.
+    const job: Job = {
+      ...base,
+      payChanges: [
+        { month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
+        { month: 0, kind: "changeBy", cents: dollarsToCents(500) },
+      ],
+    };
+    expect(projected(job, 0)).toBe(dollarsToCents(5_000));
+    expect(projected(job, 1)).toBe(dollarsToCents(6_500));
+    expect(authored(job, 1)).toBe(dollarsToCents(6_500));
+  });
+
+  it("orders a deferred month-0 change ahead of one authored at month 1", () => {
+    // Effective month first, authored month second: the month-0 change opens the segment the
+    // month-1 `changeBy` then adds to, whatever order they sit in the array.
+    const job: Job = {
+      ...base,
+      payChanges: [
+        { month: 1, kind: "changeBy", cents: dollarsToCents(1_000) },
+        { month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
+      ],
+    };
+    expect(projected(job, 1)).toBe(dollarsToCents(7_000));
+    expect(authored(job, 1)).toBe(dollarsToCents(7_000));
+  });
+
+  it("does NOT defer a one-month bonus — a month-0 bonus is paid in month 0", () => {
+    // A bonus adds to the month's pay instead of replacing the base salary, so the current
+    // anchor is not in question and there is nothing to defer.
+    const job: Job = {
+      ...base,
+      incomeOverrides: [{ month: 0, kind: "addBonus", cents: dollarsToCents(2_000) }],
+    };
+    expect(projected(job, 0)).toBe(dollarsToCents(7_000));
+    expect(projected(job, 1)).toBe(dollarsToCents(5_000));
+  });
+
+  it("leaves a month-1 change exactly where it was authored", () => {
+    // The fix special-cases the month-0 boundary only; nothing else shifts by a month.
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 1, kind: "setTo", cents: dollarsToCents(6_000) }],
+    };
+    expect(projected(job, 0)).toBe(dollarsToCents(5_000));
+    expect(projected(job, 1)).toBe(dollarsToCents(6_000));
+    expect(authored(job, 1)).toBe(dollarsToCents(6_000));
+  });
+
+  it("leaves a historical change in history, unmoved", () => {
+    const historical: Job = {
+      ...base,
+      startYear: START_YEAR - 5,
+      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(4_000) }],
+    };
+    const path = jobPayPath(historical, { startMonth: -60, endMonthExclusive: 120 });
+    expect(path.monthlyCentsAt(-25)).toBe(dollarsToCents(5_000));
+    expect(path.monthlyCentsAt(-24)).toBe(dollarsToCents(4_000));
+    expect(path.monthlyCentsAt(-1)).toBe(dollarsToCents(4_000));
+    // Still dropped at the seam: the current anchor owns month 0.
+    expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(5_000));
+  });
+
+  it("keeps `monthlyIncomeCentsOf` equal to the projected month-0 base salary", () => {
+    // The invariant the deferral protects: the figure the facade reads back as today's pay is
+    // the figure the projection actually pays this month. A month-0 change used to break it.
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
+    };
+    expect(monthlyIncomeCentsOf(job)).toBe(projected(job, 0));
+  });
+
+  it("agrees with the projection compiler on both sides of the boundary", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [
+        { month: 0, kind: "changeBy", cents: dollarsToCents(500) },
+        { month: 36, kind: "setTo", cents: dollarsToCents(9_000) },
+      ],
+    };
+    for (const month of [0, 1, 2, 11, 12, 35, 36, 60]) {
+      expect(authored(job, month)).toBe(projected(job, month));
+    }
+  });
+});

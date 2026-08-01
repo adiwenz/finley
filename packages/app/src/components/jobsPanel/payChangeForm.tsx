@@ -10,6 +10,11 @@
  * reconstruction rather than the projection. That one relaxed bound is what makes a job's pay
  * history authorable at all, and it needs no new vocabulary — age is already the panel's date.
  *
+ * The owner's current age is the one age that does not mean "from this month": month 0 is
+ * already owned by the authored current salary, so a change dated there takes force next month
+ * (`payChangeEffectiveMonth`). The hint says so at the moment the age is typed, because a raise
+ * that quietly starts a month later than asked is worse than one that says it will.
+ *
  * Only permanent changes. A single-month perturbation (a bonus, a missed paycheck) belongs to
  * a month rather than to the employment, and stays where a month is picked.
  */
@@ -102,7 +107,11 @@ export function PayChangeForm({
       <p className="hint">
         {draft.age < currentAge
           ? `Age ${draft.age} is before now, so this changes what you earned — it feeds your Social-Security-covered years.`
-          : `Age ${draft.age} is from now on, so this changes what the projection pays you.`}
+          : draft.age === currentAge
+            ? // Dated "now", where the stated current salary already owns the month. The change
+              // is kept and starts next month rather than displacing the figure it sits beside.
+              `Age ${draft.age} is your age now, so this starts next month — this month still pays the salary you’ve stated above.`
+            : `Age ${draft.age} is from now on, so this changes what the projection pays you.`}
         {/* Stated up front, so the bound is not discovered by having a typed age snap back. */}
         {` This job pays from age ${minAge} to ${maxAge}.`}
       </p>

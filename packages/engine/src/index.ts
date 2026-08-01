@@ -79,6 +79,11 @@ export type {
  * editor draws the salary it is editing from, and where the month-0 seam is a number.
  */
 export { jobPayPath } from "./job";
+/**
+ * The month a permanent pay change takes force — its own, except at month 0, which the authored
+ * current salary owns. An authoring surface needs it to say when the change it just took begins.
+ */
+export { payChangeEffectiveMonth } from "./job";
 export type { Person } from "./person";
 export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
 export type {

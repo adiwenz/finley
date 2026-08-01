@@ -24,7 +24,7 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { SimPerson } from "./projection/simulate.types";
-import type { Job, JobPayChange, JobIncomeOverride } from "./job";
+import { effectivePayChanges, type Job, type JobPayChange, type JobIncomeOverride } from "./job";
 import type { Person } from "./person";
 
 /**
@@ -61,12 +61,17 @@ function salaryGrowthMode(realGrowthPct: number, inflationRate: number): GrowthM
 }
 
 /**
- * Layer a job's permanent pay changes onto its salary series, in month order, within the
- * inclusive `[loMonth, hiMonth]` span (a change outside it — before the job is worked or
- * after it ends — is ignored). Each opens a new segment (`fromHereForward` + `resetAnchor`)
- * so the new pay compounds from there; `changeBy` adds to the month's pre-change baseline (a
- * negative delta is a cut), `setTo` replaces it. Applied BEFORE {@link applyIncomeOverrides}
- * so a later bonus lands on top of the changed pay.
+ * Layer a job's permanent pay changes onto its salary series, in the order they take force,
+ * within the inclusive `[loMonth, hiMonth]` span (a change effective outside it — before the
+ * job is worked or after it ends — is ignored). Each opens a new segment (`fromHereForward` +
+ * `resetAnchor`) so the new pay compounds from there; `changeBy` adds to the month's pre-change
+ * baseline (a negative delta is a cut), `setTo` replaces it. Applied BEFORE
+ * {@link applyIncomeOverrides} so a later bonus lands on top of the changed pay.
+ *
+ * The month a change lands on is {@link payChangeEffectiveMonth}, not its authored `month` —
+ * which differs only at month 0, where the authored current salary owns the month and the raise
+ * begins the next one. Bounds are tested against the effective month too, so a change deferred
+ * past the job's last paid month drops out rather than paying after it ended.
  */
 function applyPayChanges(
   series: SimCashFlowSeries,
@@ -74,10 +79,11 @@ function applyPayChanges(
   loMonth: number,
   hiMonth: number,
 ): void {
-  for (const c of [...payChanges].sort((a, b) => a.month - b.month)) {
-    if (c.month < loMonth || c.month > hiMonth) continue;
-    const newMonthly = c.kind === "setTo" ? c.cents : series.getMonthlyCents(c.month) + c.cents;
-    series.addOverride(c.month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
+  for (const { change, month } of effectivePayChanges(payChanges)) {
+    if (month < loMonth || month > hiMonth) continue;
+    const newMonthly =
+      change.kind === "setTo" ? change.cents : series.getMonthlyCents(month) + change.cents;
+    series.addOverride(month, Math.max(0, newMonthly), "fromHereForward", { resetAnchor: true });
   }
 }
 

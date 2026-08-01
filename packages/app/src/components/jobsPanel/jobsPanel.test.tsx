@@ -781,6 +781,25 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // pinned in `job.test.ts` — what this panel owes is the negative month itself.
   });
 
+  it("keeps a raise dated at today's age, and says it starts next month", () => {
+    // The owner's own current age is month 0, which the authored current salary owns. The
+    // change is neither dropped nor allowed to displace that figure — it takes force at month
+    // 1, and the form says so before it is applied rather than after.
+    render(<Harness />);
+    openPayChange("Job 1");
+    fireEvent.change(spin(/From age/i), { target: { value: "35" } });
+    fireEvent.change(spin(/Amount/i), { target: { value: "6000" } });
+    expect(screen.getByText(/starts next month/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { month: 0, kind: "setTo", cents: dollarsToCents(6000) },
+    ]);
+    // Today's pay is untouched; the row quotes the pay from the month it actually begins.
+    expect(headline("Job 1")).toBe("$5,000/mo now");
+    expect(timeline("Job 1").getByText(/Pay set to \$6,000\/mo — from next month/)).toBeTruthy();
+  });
+
   it("states the month-0 step where it happens, and drops it when the two anchors agree", () => {
     const withHistory: Plan = {
       ...PLAN_DEFAULTS,

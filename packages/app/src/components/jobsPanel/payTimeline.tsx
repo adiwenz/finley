@@ -16,7 +16,7 @@
  * styling would invite users to close the one gap the engine keeps open on purpose.
  */
 
-import type { Job, JobPayChange, JobPayPath } from "@finley/engine";
+import { payChangeEffectiveMonth, type Job, type JobPayChange, type JobPayPath } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
@@ -78,8 +78,14 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
       key: `c${change.month}`,
       month: change.month,
       kind: "change",
-      label: describePayChange(change),
-      monthlyCents: path.monthlyCentsAt(change.month),
+      // A change authored at "now" takes force next month — the stated current salary owns
+      // month 0. Say so on the row, and quote the pay from the month it actually starts,
+      // rather than the month-0 figure that is still the old one.
+      label:
+        change.month === 0
+          ? `${describePayChange(change)} — from next month`
+          : describePayChange(change),
+      monthlyCents: path.monthlyCentsAt(payChangeEffectiveMonth(change)),
       change,
     });
   }

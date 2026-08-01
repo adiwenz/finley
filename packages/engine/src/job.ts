@@ -72,15 +72,58 @@ export interface JobIncomeOverride {
  * `month` alone decides which side of "now" a change belongs to — there is no scope flag. A
  * change dated before month 0 reconstructs history: it holds from its effective month through
  * month −1, or until a later historical change supersedes it, and is then dropped at the
- * month-0 current-salary anchor. A change dated at or after month 0 is a future raise, applied
- * on top of that anchor.
+ * month-0 current-salary anchor. A change dated after month 0 is a future raise, applied on
+ * top of that anchor.
+ *
+ * A change dated *at* month 0 is the one case where the authored month and the month it takes
+ * effect differ — see {@link payChangeEffectiveMonth}.
  */
 export interface JobPayChange {
-  /** Absolute simulation month (from "now") the new pay takes effect and holds from. */
+  /**
+   * Absolute simulation month (from "now") the change is **authored at**. The month it takes
+   * force is {@link payChangeEffectiveMonth} of it, which differs only at month 0.
+   */
   readonly month: number;
   readonly kind: "setTo" | "changeBy";
   /** For `setTo`, the new monthly pay; for `changeBy`, the amount added on — negative is a cut. */
   readonly cents: Cents;
+}
+
+/**
+ * The month a permanent pay change actually takes force: its own, except at month 0, where it
+ * is month 1.
+ *
+ * `currentSalaryCents` is authoritative for month 0 — that is the whole basis of the forward
+ * anchor (see {@link SalaryTrajectory}), so a change cannot both be dated "now" and displace
+ * the figure that defines "now". Deferring it by one month keeps both facts: the stated current
+ * salary is what this month pays, and the raise the user just authored is real from next month.
+ * The alternative readings were to let the change silently override the anchor it was authored
+ * beside, or to drop it as out of range; both make an authored figure disappear.
+ *
+ * Only the month-0 boundary is special-cased. Month-negative changes are historical and month-1
+ * and later are ordinary future raises, both unmoved — the engine is start-of-month everywhere
+ * else, and shifting every change by one would change what a projection pays.
+ *
+ * A one-month {@link JobIncomeOverride} is NOT deferred: a bonus at month 0 adds to that month's
+ * pay rather than replacing the base salary, so nothing about the anchor is in question.
+ */
+export function payChangeEffectiveMonth(change: JobPayChange): number {
+  return change.month === 0 ? 1 : change.month;
+}
+
+/**
+ * A job's permanent pay changes in the order they take force, each paired with the month it
+ * does. Sorted by effective month, then by authored month, so the deferred month-0 changes land
+ * ahead of any authored at month 1 — and, both being equal, in the order they were authored,
+ * since `sort` is stable. The single ordering rule the projection compiler and
+ * {@link jobPayPath} both read, so the two cannot drift.
+ */
+export function effectivePayChanges(
+  changes: readonly JobPayChange[],
+): readonly { readonly change: JobPayChange; readonly month: number }[] {
+  return changes
+    .map((change) => ({ change, month: payChangeEffectiveMonth(change) }))
+    .sort((a, b) => a.month - b.month || a.change.month - b.change.month);
 }
 
 /**
@@ -387,16 +430,18 @@ export function jobPayPath(job: Job, span: JobPaySpan): JobPayPath {
       ? segment.monthlyCents
       : Math.round(segment.monthlyCents * Math.pow(1 + realGrowth, (month - segment.fromMonth) / 12));
 
-  const changes = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
+  // Read through the shared effective-month rule, so a change authored at month 0 opens its
+  // segment at month 1 here exactly as it does in the projection compiler.
+  const changes = effectivePayChanges(job.payChanges ?? []);
 
   /** The segments on one side of month 0, anchored at `anchorMonth` on `anchorCents`. */
   const segmentsOf = (anchorMonth: number, anchorCents: Cents, lo: number, hi: number): PaySegment[] => {
     const segments: PaySegment[] = [{ fromMonth: anchorMonth, monthlyCents: anchorCents }];
-    for (const c of changes) {
-      if (c.month < lo || c.month > hi) continue;
+    for (const { change, month } of changes) {
+      if (month < lo || month > hi) continue;
       const before = segments[segments.length - 1];
-      const cents = c.kind === "setTo" ? c.cents : grown(before, c.month) + c.cents;
-      segments.push({ fromMonth: c.month, monthlyCents: Math.max(0, cents) });
+      const cents = change.kind === "setTo" ? change.cents : grown(before, month) + change.cents;
+      segments.push({ fromMonth: month, monthlyCents: Math.max(0, cents) });
     }
     return segments;
   };

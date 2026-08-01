@@ -40,6 +40,16 @@ in the app and the engine and deleted the prototype. PR #227. `npm run check` gr
   the annotation a lie.
 - **The sign of `JobPayChange.month` alone decides which side owns it.** No scope flag; one was
   explicitly rejected (see Dead ends).
+- **A permanent pay change authored at month 0 takes force at month 1** —
+  `payChangeEffectiveMonth` in `job.ts`, the one place the rule lives. `currentSalaryCents` owns
+  month 0, so a change dated "now" (what the panel writes when a user types their own current
+  age) can neither displace it nor be dropped as out of range. `applyPayChanges` and
+  `jobPayPath` both read the rule through `effectivePayChanges`, which also fixes the order:
+  effective month, then authored month, so a deferred month-0 change lands ahead of one authored
+  at month 1. **Only month 0 is special-cased** — the engine is start-of-month everywhere else,
+  and a blanket one-month shift would change what every projection pays. A month-0
+  `JobIncomeOverride` is *not* deferred: a bonus adds to the month rather than replacing the
+  base salary, so the anchor is never in question.
 - **Keep `salaryGrowthMode` / `applyPayChanges` / `applyIncomeOverrides` shared** between the two
   halves in `compilePerson.ts`. The only thing the halves deliberately do not share is a baseline.
   `jobPayPath` mirrors these rules in real terms; if they change, it changes.
