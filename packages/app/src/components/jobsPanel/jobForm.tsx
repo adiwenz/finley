@@ -222,11 +222,24 @@ export function JobForm({
           min={0}
         />
       )}
-      {hasHistory && !endedBeforeNow && (
+      {/* Two things a reader can misread about the pay "now" field. With a past, that the two
+          anchors differ is fine — neither is derived from the other. On someone else's job, that
+          "now" is the projection's now and not the month they join: the salary path belongs to
+          the employment, and membership decides only who is paid from it. Asking for pay at the
+          join month instead would tie the anchor to the wedding date and leave a pre-join raise
+          nothing to compose against. */}
+      {!endedBeforeNow && (hasHistory || otherOwnerName !== null) && (
         <p className="hint">
-          What it paid when it started seeds the covered-earnings record behind Social Security.
-          What it pays now is what the projection starts from. They need not line up — a step
-          between them is an authored fact, not a mistake.
+          {hasHistory && (
+            <>
+              What it paid at the start feeds{" "}
+              {otherOwnerName === null ? "your" : "their"} Social-Security-covered years; what it
+              pays today is where the projection begins. A step between them is fine — it’s a
+              fact you stated, not a mistake.{" "}
+            </>
+          )}
+          {otherOwnerName !== null &&
+            `Enter today’s pay even if ${otherOwnerName} hasn’t joined you yet. Finley follows the whole job, and pays your household from the month they arrive.`}
         </p>
       )}
       <NumInput
