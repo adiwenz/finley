@@ -180,8 +180,11 @@ export function withJobPatch(job: Job, patch: JobPatch): Job {
  * stores the annualized figure. Leaves the growth rate alone.
  *
  * Sets BOTH salary anchors to the stated figure: "this job pays X" means a flat history, and
- * the deviations from it are exactly what a {@link JobPayChange} is for. Authoring a job whose
- * start pay and current pay genuinely differ is a `salary` patch, not this.
+ * the deviations from it are exactly what a {@link JobPayChange} is for. That is the right rule
+ * for a job stated in ONE number — a job being authored for the first time, or a surface that
+ * shows one salary field. A surface that shows the two anchors separately writes them with
+ * {@link withStartingMonthlyIncome} / {@link withCurrentMonthlyIncome} instead, so that editing
+ * one authored fact cannot silently overwrite the other.
  */
 export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
   return {
@@ -192,6 +195,25 @@ export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
       currentSalaryCents: monthlyCents * 12,
     },
   };
+}
+
+/**
+ * Set the **start** anchor alone, in monthly cents — what the job paid in its own `startYear`,
+ * which drives the historical reconstruction and nothing else. The current-salary anchor is
+ * left exactly as authored: the two are independent facts, and re-deriving one from the other
+ * is the thing {@link SalaryTrajectory} exists to refuse.
+ */
+export function withStartingMonthlyIncome(job: Job, monthlyCents: Cents): Job {
+  return { ...job, salary: { ...job.salary, startingSalaryCents: monthlyCents * 12 } };
+}
+
+/**
+ * Set the **month-0** anchor alone, in monthly cents — the figure the projection starts from.
+ * Leaves the start anchor standing, for the same reason as {@link withStartingMonthlyIncome}:
+ * a raise since the job began is not evidence about what it paid on day one.
+ */
+export function withCurrentMonthlyIncome(job: Job, monthlyCents: Cents): Job {
+  return { ...job, salary: { ...job.salary, currentSalaryCents: monthlyCents * 12 } };
 }
 
 /**
@@ -207,6 +229,15 @@ export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
  */
 export function monthlyIncomeCentsOf(job: Job): Cents {
   return Math.round(job.salary.currentSalaryCents / 12);
+}
+
+/**
+ * Read the **start** anchor back in monthly cents — the counterpart of
+ * {@link withStartingMonthlyIncome}, rounding the same way {@link monthlyIncomeCentsOf} does so
+ * a figure typed into a form comes back as it was typed.
+ */
+export function startingMonthlyIncomeCentsOf(job: Job): Cents {
+  return Math.round(job.salary.startingSalaryCents / 12);
 }
 
 /**
@@ -289,4 +320,133 @@ export function withoutIncomeOverride(job: Job, month: number): Job {
     return rest;
   }
   return { ...job, incomeOverrides: kept };
+}
+
+// ── The authored pay path ──
+//
+// What a job pays across its whole span, as the person authored it — the reading an editor
+// needs to draw the salary it is editing, and the one place the month-0 seam is a number
+// rather than a paragraph. `compilePerson` compiles the same two anchors into simulator series;
+// this reads them back without a simulation, so an authoring surface can show a job's pay
+// without running a projection over every keystroke.
+
+/** A job's paying window, in simulation months from "now". Both bounds are the caller's:
+ * an open-ended job stops at ITS OWNER's retirement age, which a job alone cannot know. */
+export interface JobPaySpan {
+  /** The month the job starts — negative for a job already under way. */
+  readonly startMonth: number;
+  /** One past the last month it pays. */
+  readonly endMonthExclusive: number;
+}
+
+/**
+ * A job's pay across its span, in the **authored** denomination — today's dollars for the two
+ * anchors, and the stated paycheck for each {@link JobPayChange}, exactly as a form collected
+ * them. Real growth compounds between changes; CPI does not appear, because none of the figures
+ * that go in carry it. So this is what the projection pays *in today's money*, not the nominal
+ * paycheck of a future month.
+ *
+ * The two anchors are read the way the engine reads them and no other way: months before 0 come
+ * off `startingSalaryCents` with the pre-"now" pay changes on it, months from 0 come off
+ * `currentSalaryCents` with the later ones. Nothing crosses the boundary — see
+ * {@link SalaryTrajectory}. {@link monthZeroStepCents} is the size of that seam, which is an
+ * authored fact and not an error to be closed.
+ */
+export interface JobPayPath {
+  readonly span: JobPaySpan;
+  /** The job's whole span is behind us: it has no month-0 pay, and never reads one. */
+  readonly endedBeforeNow: boolean;
+  /** Monthly cents at `month`, and 0 outside the span. */
+  monthlyCentsAt(month: number): Cents;
+  /**
+   * What the reconstruction reaches in the last month it covers — month −1 for a job still
+   * running, its final month for one already over. `null` when the job contributes no pre-"now"
+   * month at all. For a job that ended, this is the figure a dead `currentSalaryCents` should
+   * be pinned to: the engine never reads it, so what matters is which latent value fails
+   * better if the end date later moves past "now".
+   */
+  readonly historyReachMonthlyCents: Cents | null;
+  /**
+   * `currentSalaryCents` minus what history reached — the step at month 0, positive for a jump
+   * up. 0 when the job has no history, or none left to reach the seam.
+   */
+  readonly monthZeroStepCents: Cents;
+}
+
+/** One salary segment: a baseline anchored at a month, compounding at the job's real rate. */
+interface PaySegment {
+  readonly fromMonth: number;
+  readonly monthlyCents: Cents;
+}
+
+export function jobPayPath(job: Job, span: JobPaySpan): JobPayPath {
+  const { startMonth, endMonthExclusive } = span;
+  const realGrowth = job.salary.realGrowthPct / 100;
+  const grown = (segment: PaySegment, month: number): Cents =>
+    realGrowth === 0
+      ? segment.monthlyCents
+      : Math.round(segment.monthlyCents * Math.pow(1 + realGrowth, (month - segment.fromMonth) / 12));
+
+  const changes = [...(job.payChanges ?? [])].sort((a, b) => a.month - b.month);
+
+  /** The segments on one side of month 0, anchored at `anchorMonth` on `anchorCents`. */
+  const segmentsOf = (anchorMonth: number, anchorCents: Cents, lo: number, hi: number): PaySegment[] => {
+    const segments: PaySegment[] = [{ fromMonth: anchorMonth, monthlyCents: anchorCents }];
+    for (const c of changes) {
+      if (c.month < lo || c.month > hi) continue;
+      const before = segments[segments.length - 1];
+      const cents = c.kind === "setTo" ? c.cents : grown(before, c.month) + c.cents;
+      segments.push({ fromMonth: c.month, monthlyCents: Math.max(0, cents) });
+    }
+    return segments;
+  };
+
+  // History runs from the job's own start to the month before "now" (or its end, if sooner);
+  // the forward side is anchored at month 0 and clipped to the job's start if it begins later.
+  const historyEndExclusive = Math.min(endMonthExclusive, 0);
+  const forwardStart = Math.max(startMonth, 0);
+  const history =
+    historyEndExclusive > startMonth
+      ? segmentsOf(
+          startMonth,
+          Math.round(job.salary.startingSalaryCents / 12),
+          startMonth,
+          historyEndExclusive - 1,
+        )
+      : null;
+  const forward =
+    endMonthExclusive > forwardStart
+      ? segmentsOf(
+          forwardStart,
+          Math.round(job.salary.currentSalaryCents / 12),
+          forwardStart,
+          endMonthExclusive - 1,
+        )
+      : null;
+
+  const at = (segments: PaySegment[], month: number): Cents => {
+    let held = segments[0];
+    for (const s of segments) if (s.fromMonth <= month) held = s;
+    return grown(held, month);
+  };
+
+  const monthlyCentsAt = (month: number): Cents => {
+    if (month < startMonth || month >= endMonthExclusive) return 0;
+    const side = month < 0 ? history : forward;
+    return side === null ? 0 : at(side, month);
+  };
+
+  const historyReachMonthlyCents = history === null ? null : at(history, historyEndExclusive - 1);
+  const endedBeforeNow = endMonthExclusive <= 0;
+
+  return {
+    span,
+    endedBeforeNow,
+    monthlyCentsAt,
+    historyReachMonthlyCents,
+    monthZeroStepCents:
+      historyReachMonthlyCents === null || endedBeforeNow
+        ? 0
+        : Math.round(job.salary.currentSalaryCents / 12) - historyReachMonthlyCents,
+  };
 }

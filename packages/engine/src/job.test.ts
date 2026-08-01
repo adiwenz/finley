@@ -12,9 +12,13 @@ import { samplePlan, salariedJob } from "./testing/samplePlan";
 import {
   deferralFractionOf,
   deriveRealGrowthPct,
+  jobPayPath,
   monthlyIncomeCentsOf,
+  startingMonthlyIncomeCentsOf,
+  withCurrentMonthlyIncome,
   withDeferralFraction,
   withMonthlyIncome,
+  withStartingMonthlyIncome,
   type Job,
 } from "./job";
 import type { Person } from "./person";
@@ -521,5 +525,126 @@ describe("stating pay and deferral, and reading them back", () => {
     expect(deferralFractionOf(job)).toBe(0);
     expect(deferralFractionOf(withDeferralFraction(job, 0))).toBe(0);
     expect(deferralFractionOf(withDeferralFraction(job, 0.1))).toBe(0.1);
+  });
+});
+
+describe("the two salary anchors, stated separately", () => {
+  const job: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: START_YEAR - 11,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(60_000),
+      currentSalaryCents: dollarsToCents(80_000),
+      realGrowthPct: 0,
+    },
+  };
+
+  it("writes each anchor without disturbing the other", () => {
+    // The pair the one-field `withMonthlyIncome` cannot express. Neither anchor derives from
+    // the other, so a surface showing both must be able to edit one at a time — de-growing
+    // today's pay to guess the start pay would reapply the raises today's pay already includes.
+    const raised = withCurrentMonthlyIncome(job, dollarsToCents(7_500));
+    expect(monthlyIncomeCentsOf(raised)).toBe(dollarsToCents(7_500));
+    expect(startingMonthlyIncomeCentsOf(raised)).toBe(dollarsToCents(5_000));
+
+    const restated = withStartingMonthlyIncome(job, dollarsToCents(4_000));
+    expect(startingMonthlyIncomeCentsOf(restated)).toBe(dollarsToCents(4_000));
+    expect(monthlyIncomeCentsOf(restated)).toBe(dollarsToCents(80_000 / 12));
+  });
+
+  it("still sets both from one figure, for a job stated in one number", () => {
+    const flat = withMonthlyIncome(job, dollarsToCents(6_000));
+    expect(monthlyIncomeCentsOf(flat)).toBe(dollarsToCents(6_000));
+    expect(startingMonthlyIncomeCentsOf(flat)).toBe(dollarsToCents(6_000));
+  });
+});
+
+describe("jobPayPath — a job's authored pay across its span", () => {
+  // The scenario the UI could not reach before: $60k at the start, a raise to $75k five years
+  // ago, $80k stated as today's pay. Owner is 41; the job began at 30.
+  const historic: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: START_YEAR - 11,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(60_000),
+      currentSalaryCents: dollarsToCents(80_000),
+      realGrowthPct: 0,
+    },
+    payChanges: [
+      { month: -60, kind: "setTo", cents: dollarsToCents(6_250) },
+      { month: 72, kind: "setTo", cents: dollarsToCents(7_500) },
+    ],
+  };
+  const span = { startMonth: -132, endMonthExclusive: (67 - 41) * 12 };
+
+  it("reads history off the START anchor and everything from month 0 off the CURRENT one", () => {
+    const path = jobPayPath(historic, span);
+    expect(path.monthlyCentsAt(-132)).toBe(dollarsToCents(5_000)); // as it started
+    expect(path.monthlyCentsAt(-61)).toBe(dollarsToCents(5_000)); // still, the month before
+    expect(path.monthlyCentsAt(-60)).toBe(dollarsToCents(6_250)); // the historical raise
+    expect(path.monthlyCentsAt(-1)).toBe(dollarsToCents(6_250)); // held to the seam
+    expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(80_000 / 12)); // the authored anchor
+    expect(path.monthlyCentsAt(72)).toBe(dollarsToCents(7_500)); // the future raise
+  });
+
+  it("measures the month-0 step rather than closing it", () => {
+    // The engine deliberately does not reconcile the two anchors, so the UI's job is to state
+    // the gap. $6,667 stated against a history that reached $6,250.
+    const path = jobPayPath(historic, span);
+    expect(path.historyReachMonthlyCents).toBe(dollarsToCents(6_250));
+    expect(path.monthZeroStepCents).toBe(dollarsToCents(80_000 / 12) - dollarsToCents(6_250));
+  });
+
+  it("reports no step when the history lands exactly on today's pay", () => {
+    const flat = jobPayPath(withMonthlyIncome(historic, dollarsToCents(6_250)), span);
+    expect(flat.monthZeroStepCents).toBe(0);
+  });
+
+  it("pays nothing outside the job's own span", () => {
+    const path = jobPayPath(historic, span);
+    expect(path.monthlyCentsAt(-133)).toBe(0);
+    expect(path.monthlyCentsAt(span.endMonthExclusive)).toBe(0);
+  });
+
+  it("has no seam for a job that ended before now, but still knows what it last paid", () => {
+    // A wholly-past job's month-0 anchor is never read by the engine, so the UI must not ask
+    // for one — and what it last paid is the value that anchor should be pinned to.
+    const barista: Job = {
+      id: "job-2",
+      ownerId: PRIMARY_PERSON_ID,
+      startYear: START_YEAR - 19,
+      endYear: START_YEAR - 15,
+      salary: {
+        startingSalaryCents: dollarsToCents(21_600),
+        currentSalaryCents: dollarsToCents(21_600),
+        realGrowthPct: 0,
+      },
+      payChanges: [{ month: -204, kind: "setTo", cents: dollarsToCents(2_100) }],
+    };
+    const path = jobPayPath(barista, { startMonth: -228, endMonthExclusive: -180 });
+    expect(path.endedBeforeNow).toBe(true);
+    expect(path.monthZeroStepCents).toBe(0);
+    expect(path.historyReachMonthlyCents).toBe(dollarsToCents(2_100));
+    expect(path.monthlyCentsAt(0)).toBe(0);
+  });
+
+  it("compounds real growth between changes, in today's dollars", () => {
+    // CPI never appears: every figure that goes in is authored in today's money, so what comes
+    // back is what the projection pays in today's money and not a future nominal paycheck.
+    const growing: Job = {
+      ...historic,
+      salary: { ...historic.salary, realGrowthPct: 10 },
+      payChanges: [],
+    };
+    const path = jobPayPath(growing, span);
+    expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(80_000 / 12));
+    expect(path.monthlyCentsAt(12)).toBe(Math.round(dollarsToCents(80_000 / 12) * 1.1));
+    // History grows from the START anchor at its own start, never from the current one.
+    expect(path.monthlyCentsAt(-132)).toBe(dollarsToCents(5_000));
+    expect(path.monthlyCentsAt(-120)).toBe(Math.round(dollarsToCents(5_000) * 1.1));
   });
 });

@@ -69,9 +69,16 @@ export type {
   JobDeferral,
   JobIncomeOverride,
   JobPayChange,
+  JobPaySpan,
+  JobPayPath,
   PersonId,
   SalaryTrajectory,
 } from "./job";
+/**
+ * A job's authored pay across its whole span, read back without running a projection — what an
+ * editor draws the salary it is editing from, and where the month-0 seam is a number.
+ */
+export { jobPayPath } from "./job";
 export type { Person } from "./person";
 export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
 export type {

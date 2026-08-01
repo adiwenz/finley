@@ -25,10 +25,13 @@ import {
   deferralFractionOf,
   mapJob,
   monthlyIncomeCentsOf,
+  startingMonthlyIncomeCentsOf,
+  withCurrentMonthlyIncome,
   withDeferralFraction,
   withIncomeOverride,
   withJobPatch,
   withMonthlyIncome,
+  withStartingMonthlyIncome,
   withoutIncomeOverride,
   withoutPayChange,
   withPayChange,
@@ -364,6 +367,26 @@ export function setProjectionJobMonthlyIncome(
   return editJobAnywhere(state, jurisdiction, id, (j) => withMonthlyIncome(j, monthlyCents));
 }
 
+/** See {@link withStartingMonthlyIncome} — the start anchor alone, current pay untouched. */
+export function setProjectionJobStartingMonthlyIncome(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  id: string,
+  monthlyCents: number,
+): ProjectionState {
+  return editJobAnywhere(state, jurisdiction, id, (j) => withStartingMonthlyIncome(j, monthlyCents));
+}
+
+/** See {@link withCurrentMonthlyIncome} — the month-0 anchor alone, start pay untouched. */
+export function setProjectionJobCurrentMonthlyIncome(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  id: string,
+  monthlyCents: number,
+): ProjectionState {
+  return editJobAnywhere(state, jurisdiction, id, (j) => withCurrentMonthlyIncome(j, monthlyCents));
+}
+
 /**
  * See {@link withDeferralFraction}. It exists beside {@link updateProjectionJob} because 0
  * *removes* the deferral and a positive fraction preserves the funded account and employer match
@@ -450,6 +473,15 @@ function jobOrThrow(state: ProjectionState, jobId: string): Job {
  */
 export function jobMonthlyIncomeCentsOf(state: ProjectionState, jobId: string): Cents {
   return monthlyIncomeCentsOf(jobOrThrow(state, jobId));
+}
+
+/**
+ * What a job paid a month in its own `startYear` — the other authored anchor, and the one an
+ * editor showing a job's pay history opens its first field on. Read separately from
+ * {@link jobMonthlyIncomeCentsOf} because neither derives from the other.
+ */
+export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: string): Cents {
+  return startingMonthlyIncomeCentsOf(jobOrThrow(state, jobId));
 }
 
 /**

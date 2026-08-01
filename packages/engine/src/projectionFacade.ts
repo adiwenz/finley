@@ -102,6 +102,7 @@ import {
   householdMonthlyIncomeCentsOf,
   jobDeferralFractionOf,
   jobMonthlyIncomeCentsOf,
+  jobStartingMonthlyIncomeCentsOf,
   personDeferralFractionOf,
   personMonthlyIncomeCentsOf,
   reassignProjectionJob,
@@ -111,8 +112,10 @@ import {
   removeProjectionPartnerJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
+  setProjectionJobCurrentMonthlyIncome,
   setProjectionJobDeferralFraction,
   setProjectionJobMonthlyIncome,
+  setProjectionJobStartingMonthlyIncome,
   updateProjectionJob,
   updateProjectionPartnerJob,
 } from "./authoring/jobs";
@@ -319,10 +322,25 @@ export class Projection {
   // Adjustments to ONE job, addressed by its id alone — either plane, since one counter issues
   // job ids across both and an id therefore names one job in the household or nothing at all.
 
-  /** Monthly cents in, annualized salary stored. */
+  /** Monthly cents in, annualized salary stored — on BOTH anchors, for a job stated in one
+   * number. A surface showing the two separately uses the two setters below. */
   setJobMonthlyIncome(id: string, monthlyCents: number): void {
     this.write((state) =>
       setProjectionJobMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
+    );
+  }
+
+  /** The start anchor alone — what the job paid in its own start year. Current pay untouched. */
+  setJobStartingMonthlyIncome(id: string, monthlyCents: number): void {
+    this.write((state) =>
+      setProjectionJobStartingMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
+    );
+  }
+
+  /** The month-0 anchor alone — the figure the projection starts from. Start pay untouched. */
+  setJobCurrentMonthlyIncome(id: string, monthlyCents: number): void {
+    this.write((state) =>
+      setProjectionJobCurrentMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
     );
   }
 
@@ -572,6 +590,14 @@ export class Projection {
    */
   jobMonthlyIncomeCents(jobId: string): Cents {
     return jobMonthlyIncomeCentsOf(this.state, jobId);
+  }
+
+  /**
+   * What a job paid a month in its own start year — the historical anchor, which drives the
+   * pre-"now" covered-earnings record and nothing forward.
+   */
+  jobStartingMonthlyIncomeCents(jobId: string): Cents {
+    return jobStartingMonthlyIncomeCentsOf(this.state, jobId);
   }
 
   /** One job's elected pre-tax 401(k) fraction of gross; an absent election reads as 0. */
