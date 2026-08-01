@@ -1,15 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
   ComposedChart,
+  DefaultTooltipContent,
   Legend,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  type TooltipContentProps,
 } from "recharts";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
@@ -63,6 +66,57 @@ function colorsForBands(sources: readonly TaxSourceBand[]): Map<string, string> 
     else colors.set(s.id, DRAW_TONES[draw++ % DRAW_TONES.length]!);
   }
   return colors;
+}
+
+// Matches recharts' own DefaultTooltipContent box (`defaultDefaultTooltipContentProps`) so
+// swapping in a custom content renderer for the total row is invisible when there's nothing
+// to total.
+const TOOLTIP_BOX_STYLE: CSSProperties = {
+  margin: 0,
+  padding: 10,
+  backgroundColor: "#fff",
+  border: "1px solid #ccc",
+  whiteSpace: "nowrap",
+  fontSize: 12,
+};
+
+/**
+ * The stock per-band rows (via recharts' own `DefaultTooltipContent`, stripped of its box so
+ * ours wraps both it and the total), plus a bolded Total row summing every band shown for
+ * this month — the reason `describeTaxes`' "peaking around $X/mo" figure and this hover
+ * figure should always agree. Only drawn stacked (>1 band); the single-band case would just
+ * repeat the one line above it.
+ */
+function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
+  const { active, payload } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
+  return (
+    <div style={TOOLTIP_BOX_STYLE}>
+      <DefaultTooltipContent
+        {...props}
+        contentStyle={{ margin: 0, padding: 0, border: "none", backgroundColor: "transparent" }}
+        formatter={(value, name) => [formatDollars(Number(value)), name]}
+        labelFormatter={(l) => axisPointLabel(Number(l), monthLabel)}
+      />
+      {payload.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            marginTop: 4,
+            paddingTop: 4,
+            borderTop: "1px solid #ccc",
+            fontWeight: 600,
+          }}
+        >
+          <span>Total</span>
+          <span>{formatDollars(total)}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export interface TaxChartProps {
@@ -142,9 +196,13 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
             stroke={GRID}
           />
           <Tooltip
-            formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
-            contentStyle={{ fontSize: 12 }}
+            content={TaxTooltipContent}
+            // Recharts positions the tooltip and legend as sibling absolutely-positioned
+            // wrappers in DOM (not paint) order, so the legend — added after in this
+            // markup — otherwise paints OVER a tooltip hovering above it. A tooltip that's
+            // readable everywhere except behind its own legend is worse than none, so pin
+            // it above every other chart layer explicitly.
+            wrapperStyle={{ zIndex: 10 }}
           />
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
