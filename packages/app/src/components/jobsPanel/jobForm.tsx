@@ -35,10 +35,19 @@ interface JobFormProps {
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
   /**
-   * Who could own this job. A second earner discloses a picker so the job can be
-   * authored for — or reassigned to — either; with only the primary person, none shows.
+   * The household's earners. Read for the owner's name in the copy, and — when
+   * {@link canPickOwner} — offered as a picker.
    */
   owners?: readonly JobFormOwner[];
+  /**
+   * Whether *whose* job this is may still be chosen. True while adding: a second earner
+   * discloses a picker so the job can be authored for either (with only the primary person,
+   * none shows). False while editing: an existing job cannot be handed to another member.
+   * Reassignment re-reads every age against a different birth year, moves the job's whole
+   * calendar, and strands the pay changes that fall outside the new span — more than one form
+   * submission can honestly model. Delete it and add it to the other member instead.
+   */
+  canPickOwner?: boolean;
   onSubmit: (draft: JobDraft) => void;
   onCancel: () => void;
 }
@@ -77,6 +86,7 @@ export function JobForm({
   currentAge,
   submitLabel,
   owners,
+  canPickOwner = false,
   onSubmit,
   onCancel,
 }: JobFormProps) {
@@ -112,8 +122,8 @@ export function JobForm({
       ? (pickableOwners.find((o) => o.id === draft.ownerId)?.name ?? null)
       : null;
 
-  // The ages here are the SELECTED owner's, so reassigning a job re-reads its whole past
-  // against the new clock before anything is submitted.
+  // The ages here are the SELECTED owner's, so picking a different one while adding re-reads
+  // the whole form against the new clock before anything is submitted.
   const ownerAge = pickableOwners.find((o) => o.id === draft.ownerId)?.currentAge ?? currentAge;
   /** The job is already under way, so what it paid on day one is a separate fact from today's pay. */
   const hasHistory = draft.startAge < ownerAge;
@@ -152,9 +162,10 @@ export function JobForm({
         submit();
       }}
     >
-      {/* Shown only once the household holds a second earner. Changing it on an
-          existing job reassigns the job to that member. */}
-      {pickableOwners.length > 1 && (
+      {/* Shown only while adding, and only once the household holds a second earner: it
+          chooses whose job this will be. An existing job's owner is fixed — see
+          {@link JobFormProps.canPickOwner}. */}
+      {canPickOwner && pickableOwners.length > 1 && (
         <label className="field">
           <span className="field-label">Whose job</span>
           <select value={draft.ownerId} onChange={(e) => patch({ ownerId: e.target.value })}>

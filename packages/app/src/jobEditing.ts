@@ -3,10 +3,12 @@
  * the `RelationshipEvent` that brought them into the household, so reaching for `Plan.jobs`
  * directly misses partners.
  *
- * One form submission can change fields *and* hand the job to another member, as one edit:
- * splitting them minted a *new* job, losing its id, one-month overrides, permanent pay changes
- * and employer match. {@link editJob} works from the existing {@link Job}, keeps its id, and
- * resolves the draft's ages against the new owner.
+ * A job belongs to the member it was added for and cannot be handed to another: moving one
+ * re-reads every age against a different birth year, which shifts the job's whole calendar and
+ * strands the pay changes falling outside the new span — more than one form submission can
+ * honestly model. Delete it and add it to the other member instead. {@link editJob} therefore
+ * works from the existing {@link Job}, keeping its id, overrides, pay changes and employer
+ * match, none of which the form shows.
  *
  * Nothing is written here: checks run first and a failure returns no writes, so a rejected
  * edit cannot leave a job in neither list. The caller commits.
@@ -22,21 +24,14 @@ import type { JobOwner } from "./jobOwners";
  * `replacePartnerJob`, `removeJob` / `removePartnerJob`) and never a list.
  * `jobWrites.ts` routes each of these to its owner's plane.
  *
- * `add` is a brand-new job and always mints. An existing job arriving from another member is a
- * `reassign` instead — a different verb, because it names an id the engine already issued and
- * must keep, and the engine performs the two-plane move itself.
+ * `add` is a brand-new job and always mints; `replace` names an id the engine already issued
+ * and keeps it. Every write names one member, because a job stays with the member it was
+ * added for — no write here crosses between two.
  */
 export type JobWrite =
   | { readonly kind: "add"; readonly owner: JobOwner; readonly job: JobInput }
   | {
       readonly kind: "replace";
-      readonly owner: JobOwner;
-      readonly jobId: string;
-      readonly job: JobInput;
-    }
-  | {
-      /** The job keeps `jobId` and lands on `owner`'s plane — see `Projection.reassignJob`. */
-      readonly kind: "reassign";
       readonly owner: JobOwner;
       readonly jobId: string;
       readonly job: JobInput;
@@ -53,11 +48,7 @@ export function jobInputOf(job: Job): JobInput {
   return rest;
 }
 
-/**
- * The whole outcome of one edit: every list that must change, or why nothing can. A
- * transfer carries **two** writes (the target gaining the job, the source losing it) that
- * are only ever committed together.
- */
+/** The whole outcome of one edit: every list that must change, or why nothing can. */
 export type JobEditResult =
   | {
       readonly ok: true;
@@ -103,11 +94,8 @@ export function ownedJobsOf(owners: readonly JobOwner[]): readonly OwnedJob[] {
 
 
 /**
- * Apply `draft` to the job `jobId` currently held by `sourceOwnerId`.
- *
- * Same owner: replaced in place. Another member: the *same* job object — id, overrides, pay
- * changes, employer match and all — moves across, its start/end ages re-read against the
- * target's birth year.
+ * Apply `draft` to the job `jobId` held by `sourceOwnerId`, replacing it in place. The owner is
+ * not among the things an edit may change — see this module's note.
  */
 export function editJob(
   owners: readonly JobOwner[],
@@ -123,31 +111,24 @@ export function editJob(
     return { ok: false, reason: `${source.name} holds no job "${jobId}"` };
   }
 
-  const target = owners.find((o) => o.id === draft.ownerId);
-  if (target === undefined) {
-    return { ok: false, reason: `no household member "${draft.ownerId}" to own this job` };
-  }
-
-  // Built ONCE, from the full existing job, against the new owner's clock — the same
-  // object leaves the source list and lands in the target's.
-  const { job: edited, strandedPayChanges } = applyJobDraft(existing, target.birthYear, draft);
-
-  if (target.id === source.id) {
+  // A job's owner is settled when it is added and never afterwards, so a draft naming someone
+  // else is a caller bug rather than a request — the form does not offer the choice. Refusing
+  // is what lets `applyJobDraft` read every age against the one birth year below.
+  if (draft.ownerId !== source.id) {
     return {
-      ok: true,
-      job: edited,
-      strandedPayChanges,
-      writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
+      ok: false,
+      reason: `a job's owner cannot be changed — "${jobId}" is ${source.name}'s`,
     };
   }
 
-  // ONE write: the engine takes the job off the source's plane and lands it on the target's
-  // under the same id, so its one-month overrides, pay changes and employer match come with it.
-  // Nothing here removes and re-adds, so there is no window where the job belongs to neither.
+  // Built from the full existing job, so its id, one-month overrides, pay changes and employer
+  // match survive an edit that only ever sees a handful of fields.
+  const { job: edited, strandedPayChanges } = applyJobDraft(existing, source.birthYear, draft);
+
   return {
     ok: true,
     job: edited,
     strandedPayChanges,
-    writes: [{ kind: "reassign", owner: target, jobId, job: jobInputOf(edited) }],
+    writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
   };
 }

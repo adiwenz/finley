@@ -1,11 +1,14 @@
 /**
- * Editing a job as ONE operation — fields and owner in a single form submission.
+ * Editing a job in place, on the one member who holds it.
  *
- * The regression pinned here: reassigning used to remove the job from one member and
- * *mint* a new one on the other from the form draft alone, so it came back with a fresh id
- * and without its one-month overrides, pay changes, or employer match — none of which the
- * form shows, so it cannot carry them. An edit works from the existing full {@link Job}
- * instead, and either resolves completely or writes nothing.
+ * An edit works from the existing full {@link Job} rather than rebuilding one from the form
+ * draft, which would return it with a fresh id and without its one-month overrides, pay
+ * changes, or employer match — none of which the form shows, so it cannot carry them.
+ *
+ * The owner is not editable at all: moving a job re-reads every age against a different birth
+ * year, shifting its whole calendar and stranding the pay changes outside the new span. The
+ * refusal is pinned below, because the draft still names an owner and a caller could pass a
+ * different one.
  */
 
 import { describe, it, expect } from "vitest";
@@ -74,8 +77,7 @@ function applied(
   result: ReturnType<typeof editJob>,
 ): Map<string, readonly Job[]> {
   if (!result.ok) throw new Error(`expected an editable job: ${result.reason}`);
-  // Seeded from every member, not just the ones written to: a `reassign` takes the job off
-  // whoever holds it, and that member names no write of their own.
+  // Seeded from every member, so an assertion can show a bystander's list is untouched.
   const lists = new Map<string, readonly Job[]>(owners.map((o) => [o.id, o.jobs]));
 
   for (const write of result.writes) {
@@ -94,18 +96,6 @@ function applied(
           ),
         );
         break;
-      case "reassign": {
-        // What `Projection.reassignJob` does: off whichever list holds it, onto the target's,
-        // under the same id.
-        for (const [ownerId, jobs] of lists) {
-          lists.set(ownerId, jobs.filter((j) => j.id !== write.jobId));
-        }
-        lists.set(write.owner.id, [
-          ...(lists.get(write.owner.id) ?? []),
-          { ...write.job, id: write.jobId, ownerId: write.owner.id } as Job,
-        ]);
-        break;
-      }
       case "remove":
         lists.set(write.owner.id, held.filter((j) => j.id !== write.jobId));
         break;
@@ -160,92 +150,54 @@ describe("editJob — editing fields, same owner", () => {
   });
 });
 
-describe("editJob — changing the owner", () => {
-  it("moves the job and applies the edited fields in the SAME submission", () => {
+describe("editJob — the owner is not editable", () => {
+  // A job stays with the member it was added for. The draft still carries an `ownerId` (the
+  // form collects it when ADDING), so a caller can name someone else — and must be refused
+  // rather than quietly obeyed or quietly ignored.
+  it("refuses a draft naming a different member, and writes nothing", () => {
     const owners = household();
     const result = editJob(
       owners,
       PRIMARY_PERSON_ID,
       "job-1",
-      draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1", monthlyCents: 9_000_00, startAge: 30, endAge: 60 }),
+      draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1", monthlyCents: 9_000_00 }),
     );
 
-    const lists = applied(owners, result);
-    // One job in the household, not zero and not two.
-    expect(lists.get(PRIMARY_PERSON_ID)).toEqual([]);
-    const moved = lists.get("p-1")!;
-    expect(moved).toHaveLength(1);
-    expect(moved[0].ownerId).toBe("p-1");
-    expect(moved[0].salary.currentSalaryCents).toBe(9_000_00 * 12);
-  });
-
-  it("keeps the job's id across the move", () => {
-    const owners = household();
-    const moved = applied(
-      owners,
-      editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
-    ).get("p-1")!;
-
-    // A minted id would be `p-1-job-1`, orphaning every band, override and pay change
-    // keyed to `job-1`.
-    expect(moved[0].id).toBe("job-1");
-  });
-
-  it("preserves the overrides, pay changes, employer match and deferral account", () => {
-    const owners = household();
-    const moved = applied(
-      owners,
-      editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
-    ).get("p-1")!;
-
-    expect(moved[0].incomeOverrides).toEqual(richJob.incomeOverrides);
-    expect(moved[0].payChanges).toEqual(richJob.payChanges);
-    expect(moved[0].deferral).toEqual(richJob.deferral);
-    expect(moved[0].name).toBe("Software Engineer");
-  });
-
-  it("re-reads the draft's ages against the NEW owner's birth year", () => {
-    const owners = household();
-    // Alex's job started at their age 30 (2021); handed to Sam, "started at 30" is SAM's 30.
-    const moved = applied(
-      owners,
-      editJob(
-        owners,
-        PRIMARY_PERSON_ID,
-        "job-1",
-        draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1", startAge: 30, endAge: 65 }),
-      ),
-    ).get("p-1")!;
-
-    expect(moved[0].startYear).toBe(SAM_BIRTH_YEAR + 30);
-    expect(moved[0].endYear).toBe(SAM_BIRTH_YEAR + 65);
-    // Not the source owner's clock — that would silently shift the job five years.
-    expect(moved[0].startYear).not.toBe(ALEX_BIRTH_YEAR + 30);
-  });
-
-  it("appends to the target's own jobs rather than replacing them", () => {
-    const samJob: Job = { ...richJob, id: "p-1-job-1", name: "Nursing", ownerId: "p-1" };
-    const owners = household([richJob], [samJob]);
-    const moved = applied(
-      owners,
-      editJob(owners, PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" })),
-    ).get("p-1")!;
-
-    expect(moved.map((j) => j.id)).toEqual(["p-1-job-1", "job-1"]);
-  });
-});
-
-describe("editJob — a transfer that cannot be made writes nothing", () => {
-  // Every failure returns before a single write is produced, so there is no half-applied
-  // state: a job can never leave one member without landing on the other.
-  it("refuses an unknown target owner", () => {
-    const result = editJob(household(), PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-9" }));
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.reason).toMatch(/p-9/);
+    expect(result.reason).toMatch(/owner cannot be changed/i);
+    // Not half-applied: the edited salary rode on the same submission and is refused with it.
     expect(result).not.toHaveProperty("writes");
   });
 
+  it("refuses a draft naming nobody in the household", () => {
+    const result = editJob(
+      household(),
+      PRIMARY_PERSON_ID,
+      "job-1",
+      draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-9" }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("leaves the job on its owner, holding every field, when the draft agrees", () => {
+    const owners = household();
+    const result = editJob(
+      owners,
+      PRIMARY_PERSON_ID,
+      "job-1",
+      draftFor(ALEX_BIRTH_YEAR, richJob, { startAge: 30, endAge: 60 }),
+    );
+
+    const lists = applied(owners, result);
+    // Ages read against the holder's own clock, and nobody else's list moved.
+    expect(lists.get(PRIMARY_PERSON_ID)![0].startYear).toBe(ALEX_BIRTH_YEAR + 30);
+    expect(lists.get(PRIMARY_PERSON_ID)![0].endYear).toBe(ALEX_BIRTH_YEAR + 60);
+    expect(lists.get("p-1")).toEqual([]);
+  });
+});
+
+describe("editJob — an edit that cannot be made writes nothing", () => {
   it("refuses a job the named owner does not hold", () => {
     const result = editJob(household(), PRIMARY_PERSON_ID, "job-404", draftFor(ALEX_BIRTH_YEAR, richJob));
     expect(result.ok).toBe(false);
@@ -253,24 +205,22 @@ describe("editJob — a transfer that cannot be made writes nothing", () => {
     expect(result.reason).toMatch(/job-404/);
   });
 
-  it("hands the move to the facade as ONE reassign, naming the id and the new owner", () => {
-    // There is no id collision left to pre-empt: one counter issues job ids across both
-    // planes, so a job's id already names it uniquely and the target cannot be holding a
-    // second job under it. What the edit must get right is the shape — one write, so the job
-    // is never off both lists — and that is what this pins.
-    const result = editJob(
-      household(),
-      PRIMARY_PERSON_ID,
-      "job-1",
-      draftFor(ALEX_BIRTH_YEAR, richJob, { ownerId: "p-1" }),
-    );
+  it("refuses an unknown source owner", () => {
+    const result = editJob(household(), "p-9", "job-1", draftFor(ALEX_BIRTH_YEAR, richJob));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/p-9/);
+  });
+
+  it("names one write, on one member — never a remove paired with an add", () => {
+    const result = editJob(household(), PRIMARY_PERSON_ID, "job-1", draftFor(ALEX_BIRTH_YEAR, richJob));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.writes).toHaveLength(1);
     const [write] = result.writes;
-    expect(write.kind).toBe("reassign");
-    expect(write.owner.id).toBe("p-1");
-    expect(write.kind === "reassign" && write.jobId).toBe("job-1");
+    expect(write.kind).toBe("replace");
+    expect(write.owner.id).toBe(PRIMARY_PERSON_ID);
+    expect(write.kind === "replace" && write.jobId).toBe("job-1");
   });
 });

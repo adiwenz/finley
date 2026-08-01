@@ -165,16 +165,14 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
   }
 
   /**
-   * Save an edit — fields and owner together, as one operation ({@link editJob}). Picking a
-   * different owner *moves* the job: same id, overrides, pay changes and employer match,
-   * its ages now read against the new owner's birth year. Nothing is written unless the
-   * whole edit resolves.
+   * Save an edit ({@link editJob}). The job keeps its owner and its id, so everything the form
+   * never shows — overrides, pay changes, employer match — rides along. Nothing is written
+   * unless the whole edit resolves.
    */
   function edit(owner: JobOwner, id: string, draft: JobDraft) {
     const result = editJob(owners, owner.id, id, draft);
     if (!result.ok) return setAuthoring(null);
-    const target = owners.find((o) => o.id === draft.ownerId) ?? owner;
-    if (commit(result.writes)) setNotice(strandedNotice(target, result.strandedPayChanges));
+    if (commit(result.writes)) setNotice(strandedNotice(owner, result.strandedPayChanges));
     setAuthoring(null);
   }
 
@@ -412,6 +410,8 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                     initial={jobToDraftFor(projection, owner.birthYear, job)}
                     currentAge={currentAge}
                     submitLabel="Save"
+                    // Passed for the copy, which names the owner — NOT as a picker: an
+                    // existing job's owner is fixed.
                     owners={pickableOwners}
                     onSubmit={(draft) => edit(owner, job.id, draft)}
                     onCancel={() => setAuthoring(null)}
@@ -456,6 +456,8 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
           currentAge={ownerAgeAtMonth(owners[0].birthYear, 0)}
           submitLabel="Add"
           owners={pickableOwners}
+          // Whose job it is, is settled here and only here.
+          canPickOwner
           onSubmit={add}
           onCancel={() => setAuthoring(null)}
         />
