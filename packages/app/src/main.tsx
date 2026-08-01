@@ -22,6 +22,7 @@ import { OBLIGATION_SURFACE_ANCHORS } from "./components/baseAdjustments/obligat
 import { useProjection } from "./hooks/useProjection";
 import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
 import { PRESETS, presetById, presetState, type Preset } from "./presets";
+import { StartingPositionPanel } from "./components/startingPositionPanel/startingPositionPanel";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
@@ -174,6 +175,10 @@ export function App() {
               horizonMonths={horizonMonths}
               onAdd={transact}
             />
+          </div>
+
+          <div className="card">
+            <StartingPositionPanel onAdd={transact} />
           </div>
 
           <div className="card inputs">
