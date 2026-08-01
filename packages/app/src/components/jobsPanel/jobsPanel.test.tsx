@@ -546,10 +546,10 @@ describe("JobsPanel — permanent pay changes", () => {
   // $5,000/mo while the change moves pay — showing only the headline hides it.
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, { month: 12, kind: "setTo", cents: 0 });
 
-  it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
+  it("lists a job's permanent pay changes, flagging the headline as CURRENT pay", () => {
     render(<Harness initial={withSetToZero} />);
     const row = screen.getByLabelText("Job 1");
-    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+    expect(within(row).getByText(/\$5,000\/mo now/)).toBeTruthy();
     // The change itself is listed in full — age 36 = current 35 + month 12.
     expect(within(row).getByText(/Pay set to \$0\/mo from age 36/)).toBeTruthy();
   });
@@ -560,11 +560,11 @@ describe("JobsPanel — permanent pay changes", () => {
     expect(screen.queryByText(/one-off/i)).toBeNull();
   });
 
-  it("removes a pay change, restoring the plain starting salary", () => {
+  it("removes a pay change, restoring the plain current-pay headline", () => {
     render(<Harness initial={withSetToZero} />);
     fireEvent.click(screen.getByRole("button", { name: /Remove pay change at age 36 on Job 1/i }));
     expect(screen.queryByText(/Pay set to \$0\/mo/)).toBeNull();
-    // No pay changes left, so the headline drops the "to start" qualifier.
+    // No pay changes left, so the headline drops the "now" qualifier.
     expect(within(screen.getByLabelText("Job 1")).getByText("$5,000/mo")).toBeTruthy();
   });
 
@@ -601,8 +601,8 @@ describe("JobsPanel — authoring a raise", () => {
     ]);
     const row = screen.getByLabelText("Job 1");
     expect(within(row).getByText(/Pay set to \$8,000\/mo from age 45/)).toBeTruthy();
-    // The headline is the STARTING salary, now qualified because a change exists.
-    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+    // The headline is CURRENT pay — the month-0 anchor — qualified because a change exists.
+    expect(within(row).getByText(/\$5,000\/mo now/)).toBeTruthy();
   });
 
   it("authors a cut as a negative delta", () => {

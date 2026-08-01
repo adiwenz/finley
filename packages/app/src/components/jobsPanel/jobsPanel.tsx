@@ -3,8 +3,9 @@
  *
  * A job's permanent pay changes are listed, added and removed here, beside the employment
  * they belong to — a raise is a fact about a job, and looking for one anywhere else means
- * knowing in advance which month it lands in. The headline stays the *starting* salary,
- * qualified with "to start" once a change exists, so the two never contradict each other.
+ * knowing in advance which month it lands in. The headline is *current* pay — the month-0
+ * anchor the projection actually starts from — qualified with "now" once a change exists, so
+ * the headline and the dated changes below it never contradict each other.
  * Base + Adjustments still authors the same thing from the other direction (a month is
  * already selected there), and single-month perturbations only from there.
  *
@@ -170,8 +171,8 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
               <li key={job.id} className={styles.row} aria-label={label}>
                 <div className={styles.head}>
                   <span className={styles.name}>{label}</span>
-                  <span className={styles.salary} title="Starting salary — see pay changes below">
-                    {formatDollars(monthlyCents)}/mo{payChanges.length > 0 ? " to start" : ""}
+                  <span className={styles.salary} title="Current pay — see pay changes below">
+                    {formatDollars(monthlyCents)}/mo{payChanges.length > 0 ? " now" : ""}
                   </span>
                 </div>
                 <div className={styles.meta}>{describeSpan(owner, job)}</div>
