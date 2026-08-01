@@ -794,3 +794,95 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     }
   });
 });
+
+/**
+ * The two denominations `jobPayPath` can answer in. Today's dollars (the default) is what the
+ * Jobs panel authors in; nominal is what the projection actually pays. The nominal reading is
+ * only worth having if it MATCHES that projection, so that is what these assert — against the
+ * compiler itself rather than against a hand-computed number, on both sides of "now".
+ */
+describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
+  const CPI = 0.03;
+  const CURRENT_AGE = 40;
+  const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
+  const person = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: BIRTH_YEAR,
+    retirementTargetAge: 65,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+
+  /** Started at 30 on $60k, $80k today, still running. Real growth on top of CPI. */
+  const job: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: BIRTH_YEAR + 30,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(60_000),
+      currentSalaryCents: dollarsToCents(80_000),
+      realGrowthPct: 2,
+    },
+  };
+  const span = { startMonth: (30 - CURRENT_AGE) * 12, endMonthExclusive: (65 - CURRENT_AGE) * 12 };
+  const projected = (month: number, j: Job = job): number =>
+    compilePersonIncomeSeries(person([j]), START_YEAR, CPI)[0].series.getMonthlyCents(month);
+
+  it("defaults to today's dollars — CPI absent, the anchors exactly as authored", () => {
+    const path = jobPayPath(job, span);
+    expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(80_000 / 12));
+    expect(path.monthlyCentsAt(span.startMonth)).toBe(dollarsToCents(5_000));
+    // Only the 2% real growth compounds, with no CPI in it — which is exactly the projection
+    // run at 0% inflation. Asserted against the compiler rather than a `Math.pow`: growth
+    // rounds to the cent every year, so a closed-form power is off by a cent or two by then.
+    const flat = compilePersonIncomeSeries(person([job]), START_YEAR, 0)[0].series;
+    for (const month of [0, 12, 144, 240]) {
+      expect(path.monthlyCentsAt(month)).toBe(flat.getMonthlyCents(month));
+    }
+  });
+
+  it("reproduces the projected paycheck, month for month, when given the plan's CPI", () => {
+    const nominal = jobPayPath(job, span, { inflationRate: CPI });
+    // Whole years from the anchor, which is where the compiler's annual growth steps land.
+    for (const month of [0, 12, 24, 60, 120, 240]) {
+      expect(nominal.monthlyCentsAt(month)).toBe(projected(month));
+    }
+  });
+
+  it("indexes the START anchor back to the job's own start, not forward from today", () => {
+    // $60k was authored in TODAY's dollars as the pay at 30 — ten years ago that paycheck was
+    // smaller in the money of the day. Reading it verbatim would inflate the covered-earnings
+    // record; the historical reconstruction de-indexes it and so does this.
+    const nominal = jobPayPath(job, span, { inflationRate: CPI });
+    const atStart = nominal.monthlyCentsAt(span.startMonth);
+    expect(atStart).toBeLessThan(dollarsToCents(5_000));
+    expect(atStart).toBe(
+      Math.round(Math.round(dollarsToCents(60_000) * Math.pow(1 + CPI, -10)) / 12),
+    );
+  });
+
+  it("agrees with the pre-'now' covered-earnings record it feeds", () => {
+    // The record sums the compiler's own historical series per calendar year. A flat year of
+    // the nominal path times twelve is that year's covered wage — the two readings of the same
+    // history cannot disagree, or the chart would be drawing a record the benefit never saw.
+    const nominal = jobPayPath(job, span, { inflationRate: CPI });
+    const prior = compilePersonPriorEarnings(person([job]), START_YEAR, CPI);
+    for (const yearsBack of [10, 5, 1]) {
+      const month = -yearsBack * 12;
+      expect(prior[START_YEAR - yearsBack]).toBe(nominal.monthlyCentsAt(month) * 12);
+    }
+  });
+
+  it("takes a pay change's stated amount verbatim in BOTH denominations", () => {
+    // `JobPayChange.cents` is documented as nominal at its own month, so it is not deflated
+    // for today's dollars. The inherited wrinkle, asserted so a future change to it is loud.
+    const raised: Job = { ...job, payChanges: [{ month: 60, kind: "setTo", cents: dollarsToCents(9_000) }] };
+    expect(jobPayPath(raised, span).monthlyCentsAt(60)).toBe(dollarsToCents(9_000));
+    expect(jobPayPath(raised, span, { inflationRate: CPI }).monthlyCentsAt(60)).toBe(
+      dollarsToCents(9_000),
+    );
+    expect(projected(60, raised)).toBe(dollarsToCents(9_000));
+  });
+});

@@ -71,6 +71,7 @@ export type {
   JobPayChange,
   JobPaySpan,
   JobPayPath,
+  JobPayPathOptions,
   PersonId,
   SalaryTrajectory,
 } from "./job";

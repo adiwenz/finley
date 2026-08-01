@@ -64,35 +64,58 @@ const NOW = "#1f3a2e";
 interface PayChartProps {
   readonly path: JobPayPath;
   readonly birthYear: number;
-  /** The owner's retirement age — where the axis stops, and where an open-ended job does. */
-  readonly retirementAge: number;
+  /** The plan's life expectancy — where the axis stops, whatever this job does. */
+  readonly lifeExpectancy: number;
   readonly label: string;
+  /** Names the denomination in the summary, so a reader is never guessing which dollars. */
+  readonly inFutureDollars: boolean;
   /** Seed a pay change at the clicked age. */
   readonly onPickAge: (age: number) => void;
 }
 
-export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: PayChartProps) {
+export function PayChart({
+  path,
+  birthYear,
+  lifeExpectancy,
+  label,
+  inFutureDollars,
+  onPickAge,
+}: PayChartProps) {
   const currentAge = ownerAgeAtMonth(birthYear, 0);
   const startAge = ownerAgeAtMonth(birthYear, path.span.startMonth);
   const endAge = ownerAgeAtMonth(birthYear, path.span.endMonthExclusive);
 
-  // A whole life, from birth to retirement. Ages, not months: the whole panel dates in the
-  // owner's age and the axis must not be the one exception.
-  //
-  // Starting at 0 rather than snugly around the job costs a flat stretch before anyone works,
-  // but it buys a FIXED axis: every job on the panel is drawn against the same lifetime, so
-  // two jobs' spans and pay are read against each other by looking, instead of each being
-  // auto-scaled to itself and silently lying about how they compare.
+  // A whole life. Starting at 0 rather than snugly around the job costs a flat stretch before
+  // anyone works, but it buys a FIXED axis: every job on the panel is drawn against the same
+  // lifetime, so two jobs' spans and pay are read against each other by looking, instead of
+  // each being auto-scaled to itself and silently lying about how they compare. Life
+  // expectancy, not retirement: the plan's own horizon, identical for every job and every
+  // household member, so nothing about one job's span can move the axis under another's.
   const minAge = 0;
-  const maxAge = Math.max(endAge, currentAge, retirementAge) + 2;
+  const maxAge = Math.max(endAge, currentAge, lifeExpectancy);
+  const firstMonth = monthAtOwnerAge(birthYear, minAge);
+  const lastMonth = monthAtOwnerAge(birthYear, maxAge);
 
-  // Sampled per age-year, the resolution the form authors in — every date on this panel is a
-  // whole age, so a change always lands on a sample and no step is drawn a year off.
-  const rows = Array.from({ length: maxAge - minAge + 1 }, (_, i) => {
-    const age = minAge + i;
-    return { age, pay: path.monthlyCentsAt(monthAtOwnerAge(birthYear, age)) };
-  });
+  /**
+   * The x is a MONTH, labelled as an age. Sampling once per age-year would put a change up to
+   * eleven months from where it happens — most visibly for one authored at the owner's current
+   * age, which takes force at month 1 and would not appear until the next birthday. Pay is a
+   * monthly quantity and the engine dates it in months; the axis has to be able to say so.
+   *
+   * Only the vertices are emitted: a step chart needs a point where the value CHANGES and
+   * nowhere else, which is a few dozen rows over a lifetime rather than ~1,080.
+   */
+  const rows: { month: number; pay: number }[] = [];
+  for (let month = firstMonth; month <= lastMonth; month++) {
+    const pay = path.monthlyCentsAt(month);
+    const isVertex = rows.length === 0 || pay !== rows[rows.length - 1]!.pay;
+    if (isVertex || month === lastMonth) rows.push({ month, pay });
+  }
   const peak = Math.max(...rows.map((r) => r.pay), 1);
+  /** Ages worth naming; both ends, plus whatever this job does. */
+  const tickMonths = [...new Set([minAge, startAge, currentAge, endAge, maxAge])]
+    .filter((age) => age >= minAge && age <= maxAge)
+    .map((age) => monthAtOwnerAge(birthYear, age));
 
   const reach = path.historyReachMonthlyCents;
   const step = path.monthZeroStepCents;
@@ -104,6 +127,7 @@ export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: P
       role="img"
       aria-label={
         `Monthly pay across ${label}, from age ${startAge} to ${endAge}, ` +
+        `in ${inFutureDollars ? "future dollars" : "today’s dollars"}, ` +
         `topping out at ${formatDollars(peak)} a month` +
         (hasSeam
           ? `. At ${currentAge} it ${step > 0 ? "steps up" : "steps down"} ${formatDollars(Math.abs(step))} a month.`
@@ -120,24 +144,25 @@ export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: P
         <ComposedChart
           data={rows}
           margin={{ top: 14, right: 12, bottom: 4, left: 4 }}
-          style={{ cursor: "crosshair" }}
+          style={{ cursor: "pointer" }}
+          // Clicks come back as a month and are handed on as an age, because an age is what
+          // the pay-change form dates by.
           onClick={(state: { activeLabel?: string | number } | null) => {
-            const age = Number(state?.activeLabel);
-            if (Number.isFinite(age)) onPickAge(Math.round(age));
+            const month = Number(state?.activeLabel);
+            if (Number.isFinite(month)) onPickAge(ownerAgeAtMonth(birthYear, month));
           }}
         >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
-            dataKey="age"
+            dataKey="month"
             type="number"
-            domain={[minAge, maxAge]}
+            domain={[firstMonth, lastMonth]}
             allowDataOverflow
-            // Birth, then the ages that mean something on THIS job. No evenly-spaced ruler:
-            // the dates a user authors here are the job's own, not round decades.
-            ticks={[...new Set([minAge, startAge, currentAge, endAge])].filter(
-              (a) => a >= minAge && a <= maxAge,
-            )}
-            tickFormatter={(age: number) => String(age)}
+            // Birth and life expectancy, then the ages that mean something on THIS job. No
+            // evenly-spaced ruler: the dates a user authors here are the job's own, not round
+            // decades. Both ends are labelled, or the axis just trails off past the job's end.
+            ticks={tickMonths}
+            tickFormatter={(month: number) => String(ownerAgeAtMonth(birthYear, month))}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
           />
@@ -149,15 +174,16 @@ export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: P
           />
           <Tooltip
             formatter={(value) => [`${formatDollars(Number(value))}/mo`, "Pay"]}
-            labelFormatter={(age) => `Age ${age}`}
+            labelFormatter={(month) => `Age ${ownerAgeAtMonth(birthYear, Number(month))}`}
             contentStyle={{ fontSize: 12 }}
           />
 
-          {/* Everything already lived, shaded once. */}
-          <ReferenceArea x1={minAge} x2={currentAge} fill={PAST} fillOpacity={0.045} />
+          {/* Everything already lived, shaded once. Month 0 is exactly where "now" is. */}
+          <ReferenceArea x1={firstMonth} x2={0} fill={PAST} fillOpacity={0.045} />
 
           <Area
-            // Flat between changes, stepping at the age a change takes effect — never a slope.
+            // Flat between changes, stepping at the MONTH a change takes effect — never a
+            // slope, which would invent raises and smooth the month-0 jump away.
             type="stepAfter"
             dataKey="pay"
             name="Pay"
@@ -170,7 +196,7 @@ export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: P
           />
 
           <ReferenceLine
-            x={currentAge}
+            x={0}
             stroke={NOW}
             strokeWidth={1.5}
             label={{ value: `now · ${currentAge}`, position: "top", fill: AXIS, fontSize: 11 }}
@@ -181,9 +207,9 @@ export function PayChart({ path, birthYear, retirementAge, label, onPickAge }: P
               as a warning — the engine keeps this gap open on purpose. */}
           {hasSeam && (
             <>
-              <ReferenceDot x={currentAge} y={reach} r={2.5} fill={PAY} stroke="none" />
+              <ReferenceDot x={0} y={reach} r={2.5} fill={PAY} stroke="none" />
               <ReferenceDot
-                x={currentAge}
+                x={0}
                 y={reach + step}
                 r={3}
                 fill={PAY}

@@ -52,6 +52,16 @@
   margin: 4px 0 2px;
 }
 
+/* Governs every chart and timeline below it, so it sits above the list rather than in a row. */
+.denomination {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+
 /* The pay story in age order — the start, every change, and "now" as a row among them. */
 .timeline {
   list-style: none;

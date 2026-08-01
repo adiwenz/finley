@@ -383,11 +383,10 @@ export interface JobPaySpan {
 }
 
 /**
- * A job's pay across its span, in the **authored** denomination — today's dollars for the two
- * anchors, and the stated paycheck for each {@link JobPayChange}, exactly as a form collected
- * them. Real growth compounds between changes; CPI does not appear, because none of the figures
- * that go in carry it. So this is what the projection pays *in today's money*, not the nominal
- * paycheck of a future month.
+ * A job's pay across its span, in either denomination — see {@link JobPayPathOptions}. By
+ * default today's dollars: the anchors as authored, real growth compounding between changes,
+ * and no CPI, because none of the figures that go in carry it. Given the plan's CPI it instead
+ * reproduces the nominal paycheck the projection pays.
  *
  * The two anchors are read the way the engine reads them and no other way: months before 0 come
  * off `startingSalaryCents` with the pre-"now" pay changes on it, months from 0 come off
@@ -416,19 +415,52 @@ export interface JobPayPath {
   readonly monthZeroStepCents: Cents;
 }
 
-/** One salary segment: a baseline anchored at a month, compounding at the job's real rate. */
+/** One salary segment: a baseline anchored at a month, compounding at the job's growth rate. */
 interface PaySegment {
   readonly fromMonth: number;
   readonly monthlyCents: Cents;
 }
 
-export function jobPayPath(job: Job, span: JobPaySpan): JobPayPath {
+/** How to denominate the path. */
+export interface JobPayPathOptions {
+  /**
+   * CPI as a decimal (0.03 = 3%). Default 0 — **today's dollars**, the denomination the panel
+   * authors in and the one the two salary anchors are stated in.
+   *
+   * Pass the plan's rate to get the **nominal paycheck** instead: the salary anchors are
+   * CPI-indexed to the month they are read at and growth compounds real with CPI, exactly as
+   * `compilePerson` does it, so the figures match what the projection actually pays.
+   *
+   * One asymmetry to know about, and it is inherited rather than introduced here: a
+   * {@link JobPayChange}'s `cents` is documented as *nominal at its own month*, so it is taken
+   * verbatim in BOTH denominations. In today's-dollars mode a change is therefore the one
+   * figure on the path not deflated to today — it is shown as authored. The engine has always
+   * read it this way; charting it simply makes the wrinkle visible.
+   */
+  readonly inflationRate?: number;
+}
+
+export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions): JobPayPath {
   const { startMonth, endMonthExclusive } = span;
+  const inflationRate = opts?.inflationRate ?? 0;
+  // Real and CPI compounded together — the same rate `salaryGrowthMode` builds. At the default
+  // 0% CPI this collapses to the real rate, so today's dollars is not a separate code path.
   const realGrowth = job.salary.realGrowthPct / 100;
-  const grown = (segment: PaySegment, month: number): Cents =>
-    realGrowth === 0
-      ? segment.monthlyCents
-      : Math.round(segment.monthlyCents * Math.pow(1 + realGrowth, (month - segment.fromMonth) / 12));
+  const annualGrowth = (1 + realGrowth) * (1 + inflationRate) - 1;
+  /**
+   * Mirrors `SimCashFlowSeries` exactly rather than approximating it: pay is FLAT within a
+   * growth year (whole years since the segment's anchor, floored) and each year's figure is
+   * rounded to the cent before the next compounds on it. A single `Math.pow` would be neither
+   * — it slopes through the year, and it drifts a cent or two off the projection over a career.
+   * Both matter here, because this path is read against that projection.
+   */
+  const grown = (segment: PaySegment, month: number): Cents => {
+    if (annualGrowth === 0) return segment.monthlyCents;
+    const years = Math.max(0, Math.floor((month - segment.fromMonth) / 12));
+    let cents = segment.monthlyCents;
+    for (let y = 0; y < years; y++) cents = Math.round(cents * (1 + annualGrowth));
+    return cents;
+  };
 
   // Read through the shared effective-month rule, so a change authored at month 0 opens its
   // segment at month 1 here exactly as it does in the projection compiler.
@@ -450,14 +482,16 @@ export function jobPayPath(job: Job, span: JobPaySpan): JobPayPath {
   // the forward side is anchored at month 0 and clipped to the job's start if it begins later.
   const historyEndExclusive = Math.min(endMonthExclusive, 0);
   const forwardStart = Math.max(startMonth, 0);
+  // The start anchor is stated in today's dollars, so a nominal reading has to CPI-index it
+  // BACK to the job's own start — the paycheck of 2004 was smaller in 2004 money. Rounded in
+  // the same order `reconstructHistoricalCompensation` rounds, so the two agree to the cent.
+  // The month-0 anchor needs no such step: today's dollars ARE nominal at month 0.
+  const historyAnchorMonthlyCents = Math.round(
+    Math.round(job.salary.startingSalaryCents * Math.pow(1 + inflationRate, startMonth / 12)) / 12,
+  );
   const history =
     historyEndExclusive > startMonth
-      ? segmentsOf(
-          startMonth,
-          Math.round(job.salary.startingSalaryCents / 12),
-          startMonth,
-          historyEndExclusive - 1,
-        )
+      ? segmentsOf(startMonth, historyAnchorMonthlyCents, startMonth, historyEndExclusive - 1)
       : null;
   const forward =
     endMonthExclusive > forwardStart

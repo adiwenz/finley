@@ -76,12 +76,19 @@ export function jobPaySpanFor(owner: JobSpanOwner, job: Job): JobPaySpan {
 }
 
 /**
- * A job's authored pay across its whole span — the reading the Jobs panel charts and lists,
- * including the size of the month-0 seam. See {@link jobPayPath}: it is authored dollars, not
- * a simulated paycheck.
+ * A job's pay across its whole span — the reading the Jobs panel charts and lists, including
+ * the size of the month-0 seam.
+ *
+ * `inflationRate` picks the denomination: omit it (or 0) for today's dollars, the terms the
+ * panel authors in; pass the plan's CPI for the nominal paycheck the projection pays. See
+ * {@link jobPayPath}.
  */
-export function jobPayPathFor(owner: JobSpanOwner, job: Job): JobPayPath {
-  return jobPayPath(job, jobPaySpanFor(owner, job));
+export function jobPayPathFor(
+  owner: JobSpanOwner,
+  job: Job,
+  inflationRate = 0,
+): JobPayPath {
+  return jobPayPath(job, jobPaySpanFor(owner, job), { inflationRate });
 }
 
 

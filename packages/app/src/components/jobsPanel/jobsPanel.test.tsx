@@ -781,6 +781,25 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // pinned in `job.test.ts` — what this panel owes is the negative month itself.
   });
 
+  it("redraws every job in future dollars, and defaults to today’s", () => {
+    // Today's dollars by default, because that is what every field on this panel collects — a
+    // chart disagreeing with the number just typed into it would be the worse default.
+    render(<Harness />);
+    const toggle = screen.getByRole("checkbox", { name: /future dollars/i });
+    const startRow = () => timeline("Job 1").getByText(/Started this job/).closest("li")!;
+    const nowRow = () => timeline("Job 1").getByText(/^now ·/).closest("li")!;
+
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(startRow().textContent).toContain("$5,000/mo");
+
+    fireEvent.click(toggle);
+    // Month 0 is the same in both denominations — today's dollars ARE nominal today — so the
+    // "now" row is unmoved. What moves is the history behind it: $5,000 authored as the pay at
+    // 18 was a smaller paycheck in the money of the day, seventeen years ago.
+    expect(nowRow().textContent).toContain("$5,000/mo");
+    expect(startRow().textContent).not.toContain("$5,000/mo");
+  });
+
   it("keeps a raise dated at today's age, and says it starts next month", () => {
     // The owner's own current age is month 0, which the authored current salary owns. The
     // change is neither dropped nor allowed to displace that figure — it takes force at month
