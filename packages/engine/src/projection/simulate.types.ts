@@ -129,9 +129,10 @@ export interface ProjectionMonthFlows {
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /**
    * Payroll tax (FICA) per income SOURCE, mirroring {@link taxBySourceCents} but for {@link
-   * payrollTaxCents} — a job's own FICA line, distinguishable from a partner's or another
-   * job's. Already folded into {@link ProjectionIncomeSource.netCashFlowCents}. `{}` in a
-   * month with no payroll tax, otherwise Σ === `payrollTaxCents`.
+   * payrollTaxCents} — the share of the person-level payroll-tax charge attributed to this
+   * income source, distinguishable from a partner's or another job's. Already folded into
+   * {@link ProjectionIncomeSource.netCashFlowCents}. `{}` in a month with no payroll tax,
+   * otherwise Σ === `payrollTaxCents`.
    */
   readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   /**

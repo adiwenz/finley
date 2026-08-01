@@ -144,8 +144,7 @@ export interface Jurisdiction {
    * The engine feeds year-to-date totals and charges the DIFFERENCE month to month, so a
    * capped component (OASDI's wage base) binds on cumulative earnings rather than annualized
    * monthly slices. MUST therefore be monotone non-decreasing in each category's amount, so
-   * the difference is never a credit. Which categories are earned is the jurisdiction's call
-   * (US: `wages` only). Absent → no payroll tax charged.
+   * the difference is never a credit. Absent → no payroll tax charged.
    */
   computePayrollTaxCents?(
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,

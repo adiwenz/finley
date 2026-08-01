@@ -155,9 +155,10 @@ export interface ReportMonth {
   /** This month's pre-tax deferral by income source; absent when none deferred. */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /**
-   * Keyed like {@link taxBySourceCents}, but for {@link payrollTaxCents} — a job's own FICA
-   * charge, named rather than collapsed into the household total. `{}` when no payroll tax
-   * was charged; absent only for the flow-free month 0.
+   * Keyed like {@link taxBySourceCents}, but for {@link payrollTaxCents} — the share of the
+   * person-level payroll-tax charge attributed to this income source, named rather than
+   * collapsed into the household total. `{}` when no payroll tax was charged; absent only
+   * for the flow-free month 0.
    */
   readonly payrollTaxBySourceCents?: Readonly<Record<string, Cents>>;
   readonly expensesCents: Cents;

@@ -165,9 +165,10 @@ export interface WaterfallResult {
   /**
    * Payroll tax per income SOURCE, keyed like {@link taxBySourceCents} (`sourceId` falling
    * back to tax category). Each category's incremental charge is apportioned by earned
-   * weight PER PERSON — mirroring {@link taxBySourceCents} — so a job's own FICA line is
-   * distinguishable from a partner's. `{}` when no payroll tax was charged, else Σ ===
-   * `payrollTaxCents` (see {@link assertPayrollTaxAttributionReconciles}).
+   * weight PER PERSON — mirroring {@link taxBySourceCents} — so the share of the
+   * person-level payroll-tax charge attributed to this income source is distinguishable from
+   * a partner's. `{}` when no payroll tax was charged, else Σ === `payrollTaxCents` (see
+   * {@link assertPayrollTaxAttributionReconciles}).
    */
   readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   /**

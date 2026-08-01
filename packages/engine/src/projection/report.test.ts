@@ -302,10 +302,14 @@ describe("buildSimulationReport", () => {
     for (const m of report.months) expect(m.payrollTaxCents).toBe(0);
   });
 
-  it("reconciles Σ per-source netCashFlowCents to the household's aggregate net income after payroll tax, income tax, and deferrals", () => {
-    // A wage source, an income-tax seam, and a FICA seam together: the sum of every
-    // reported source's netCashFlowCents must equal totalIncome minus both taxes (neither
-    // haircut may be dropped or double-counted at the per-source level).
+  it("reconciles Σ per-source netCashFlowCents to aggregate income minus income tax, payroll tax, and total deferrals — including a source with pre-tax deferrals", () => {
+    // A wage source deferring 10% pre-tax, an income-tax seam, and a FICA seam together: the
+    // sum of every reported source's netCashFlowCents must equal totalIncome minus income
+    // tax, payroll tax, AND the deferral — none of the three haircuts may be dropped or
+    // double-counted at the per-source level. The deferral matters here because payroll tax
+    // is charged on the FULL pre-deferral gross while income tax is charged on the
+    // post-deferral taxable amount, so a source carrying both a deferral and payroll tax is
+    // the sharpest reconciliation check.
     const mkWages = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const incomeTax20 = (byCategory: Record<string, number>) =>
@@ -326,12 +330,29 @@ describe("buildSimulationReport", () => {
       },
     };
     const series = simulateHousehold(
-      baseInput({ incomeSeries: [{ series: mkWages(dollarsToCents(5000)), ownerId: "p1" }] }),
+      baseInput({
+        incomeSeries: [
+          {
+            series: mkWages(dollarsToCents(5000)),
+            ownerId: "p1",
+            sourceId: "job",
+            // Deferred pre-tax into the existing "savings" account — no new account needed.
+            planDescriptor: { deferralFraction: 0.1, fundAccountId: "savings" },
+          },
+        ],
+      }),
       jurisdiction as typeof nullJurisdiction,
     );
     const month0 = series.months[0].flows!;
     const netFromSources = month0.incomeSources.reduce((s, src) => s + src.netCashFlowCents, 0);
-    expect(netFromSources).toBe(month0.totalIncomeCents - month0.taxCents - month0.payrollTaxCents);
+    const totalDeferralCents = Object.values(month0.deferralBySourceCents ?? {}).reduce(
+      (s, v) => s + v,
+      0,
+    );
+    expect(totalDeferralCents).toBeGreaterThan(0); // sanity: the deferral is actually exercised
+    expect(netFromSources).toBe(
+      month0.totalIncomeCents - month0.taxCents - month0.payrollTaxCents - totalDeferralCents,
+    );
   });
 
   it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {
