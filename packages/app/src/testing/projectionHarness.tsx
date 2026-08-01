@@ -72,7 +72,7 @@ export function readerOf(plan: Plan, ledger: Ledger = NO_EVENTS): Projection {
  * assemble a result the app could never produce.
  *
  * `jurisdiction` defaults to the app's, which is what a panel test wants. Pass
- * `nullJurisdiction` where a fixture pins arithmetic on a stated surplus: withholding would
+ * `nullJurisdiction` where a fixture pins arithmetic on a stated surplus: charging tax would
  * make "$5,000 gross − $3,500 spending = $1,500 to save" untrue, and the assertion would then
  * be pinning the tax tables rather than the behaviour under test.
  */

@@ -956,3 +956,160 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(300));
   });
 });
+
+describe("runWaterfall — employee payroll tax (FICA) seam", () => {
+  // A flat 7.65%-of-wages stand-in for the real FICA tables, with no cap: the waterfall
+  // owns the accumulate-and-difference mechanics, the seam owns the policy. The breakdown
+  // seam is REQUIRED alongside the scalar one (runtime-enforced) — `separableBreakdown`
+  // derives it since this stand-in only ever looks at `wages`.
+  const flatFicaSeam = {
+    computePayrollTaxCents: (byCat: Partial<Record<string, number>>) =>
+      Math.round((byCat.wages ?? 0) * 0.0765),
+    computePayrollTaxByCategoryCents: separableBreakdown((byCat) =>
+      Math.round((byCat.wages ?? 0) * 0.0765),
+    ),
+  };
+
+  it("charges payroll tax on wages and removes it from take-home", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        ...flatFicaSeam,
+      }),
+    );
+    // 7.65% × $5,000 = $382.50, so $4,617.50 idles in liquid.
+    expect(r.payrollTaxCents).toBe(38250);
+    expect(r.accountDepositsCents.get("checking")).toBe(461750);
+  });
+
+  it("charges FICA on the FULL gross — pre-tax 401(k) deferral does not reduce it", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: { deferralFraction: 0.1, fundAccountId: "401k" },
+          },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    // FICA is 7.65% of the whole $5,000, not the post-deferral $4,500: $382.50 either way?
+    // No — $4,500 × 7.65% = $344.25. Pinning $382.50 proves the base is the full gross.
+    expect(r.payrollTaxCents).toBe(38250);
+    // Take-home = gross − deferral − FICA = 5,000 − 500 − 382.50 = $4,117.50.
+    expect(r.accountDepositsCents.get("checking")).toBe(411750);
+  });
+
+  it("charges only the year-to-date DIFFERENCE, so a wage cap binds on cumulative earnings", () => {
+    // Cap FICA at the first $6,000 of annual wages: below it, 10%; above, nothing more.
+    const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
+      Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
+    const cappedSeam = {
+      computePayrollTaxCents: cappedPayroll,
+      computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+    };
+    // $5,000 already earned this year; another $5,000 this month → cumulative $10,000, but
+    // only $1,000 of it is still under the $6,000 cap. Charge = 10% × $1,000 = $100.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        priorEarnedByPersonCents: () => ({ wages: dollarsToCents(5000) }),
+        ...cappedSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(dollarsToCents(100));
+    // And the month's earnings are reported back for the caller's accumulator.
+    expect(r.earnedThisMonthByPersonCents.get("p1")).toEqual({ wages: dollarsToCents(5000) });
+  });
+
+  it("does not charge FICA on non-wage income (retirement-account withdrawals booked ordinaryIncome)", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "ordinaryIncome" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(0);
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
+  });
+
+  it("models the annual-liability semantics: two jobs' combined wages settle ONE cumulative cap, no per-employer reconciliation", () => {
+    // A worker with two jobs (two sources, same person) earning $4,000 and $3,000 this
+    // month, cap at $6,000/yr, 10% under the cap. The engine never asks "which employer",
+    // only the person's COMBINED cumulative wages — the reconciled-annual-liability model,
+    // not a per-employer withholding simulation the two jobs would otherwise each cap
+    // independently against (which would over-count the cap and under-charge combined FICA).
+    const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
+      Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "wages", sourceId: "jobA" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages", sourceId: "jobB" },
+        ],
+        computePayrollTaxCents: cappedPayroll,
+        computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+      }),
+    );
+    // Combined $7,000 against a $6,000 cap → only $6,000 is charged: 10% × $6,000 = $600,
+    // NOT 10% × $4,000 + 10% × $3,000 = $700 (what two independent per-employer caps would
+    // wrongly allow through).
+    expect(r.payrollTaxCents).toBe(dollarsToCents(600));
+  });
+
+  it("attributes payroll tax back to the source that generated it — a bonus source and a base-salary source split proportionally to earned amount", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "wages", sourceId: "salary" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(1000), taxCategory: "wages", sourceId: "bonus" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    // 7.65% × $5,000 = $382.50 total, split 4:1 between salary and bonus.
+    expect(r.payrollTaxCents).toBe(38250);
+    expect(r.payrollTaxBySourceCents.salary).toBe(30600); // 4/5 × 38250
+    expect(r.payrollTaxBySourceCents.bonus).toBe(7650); // 1/5 × 38250
+    expect(
+      (r.payrollTaxBySourceCents.salary ?? 0) + (r.payrollTaxBySourceCents.bonus ?? 0),
+    ).toBe(r.payrollTaxCents);
+  });
+
+  it("attributes NOTHING to a non-wage source sharing the household with a wage earner — the cumulative cap is preserved per person, per category", () => {
+    // p1 earns wages (FICA-eligible) alongside ordinaryIncome from a draw (not eligible).
+    // The whole payroll charge must land on the wages source, never bleed onto the draw.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(5000), taxCategory: "wages", sourceId: "job" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(2000), taxCategory: "ordinaryIncome", sourceId: "draw" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    expect(r.payrollTaxBySourceCents.job).toBe(38250);
+    expect(r.payrollTaxBySourceCents.draw ?? 0).toBe(0);
+  });
+
+  it("reconciles Σ payrollTaxBySourceCents to payrollTaxCents across two earners in the same household", () => {
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["A", "B"],
+        incomeSources: [
+          { ownerId: "A", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages", sourceId: "jobA" },
+          { ownerId: "B", waterfallInflowCents: dollarsToCents(7000), taxCategory: "wages", sourceId: "jobB" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    const attributed = Object.values(r.payrollTaxBySourceCents).reduce((s, v) => s + v, 0);
+    expect(attributed).toBe(r.payrollTaxCents);
+    expect(r.payrollTaxCents).toBeGreaterThan(0);
+  });
+});

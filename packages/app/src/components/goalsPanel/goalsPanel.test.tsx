@@ -15,6 +15,7 @@ import { GoalsPanel } from "./goalsPanel";
 import { readerOf, runOf } from "../../testing/projectionHarness";
 import { BudgetEditor } from "../budgetEditor/budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import type { Transact } from "../../hooks/useProjection";
 import type {
   Plan,
@@ -42,9 +43,11 @@ describe("GoalsPanel", () => {
   });
 
   it("shows a Funded badge once a goal's projected fund reaches target on/before the date", () => {
-    // $5,000 target off the default surplus fills long before the 24-month date.
+    // With FICA charged, the default $5k plan has essentially no surplus, so a fundable
+    // goal needs a plan that actually saves: a $6,500 wage fills a $5,000 target well before
+    // the 24-month date.
     const budget: Plan = {
-      ...PLAN_DEFAULTS,
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(6500)),
       goals: [
         {
           id: "car",

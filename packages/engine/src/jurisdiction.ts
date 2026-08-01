@@ -130,6 +130,58 @@ export interface Jurisdiction {
   returnTaxTreatment?(returnKind: AccountReturnKind, ctx: JurisdictionContext): ReturnTaxTreatment;
 
   /**
+   * Employee payroll tax (US: FICA) — the person's ANNUAL EMPLOYEE PAYROLL-TAX LIABILITY on
+   * their CUMULATIVE year-to-date EARNED income by category, distinct from {@link
+   * computeTaxCents}: its base is the FULL pre-deferral gross (a 401(k) deferral cuts income
+   * tax, never payroll tax) and its category set is earned income only, so a
+   * retirement-account withdrawal booked `ordinaryIncome` bears none.
+   *
+   * This models a RECONCILED ANNUAL LIABILITY — the total FICA the worker owes across the
+   * whole year on their combined earned income — NOT employer-by-employer paycheck
+   * withholding. In reality each employer withholds independently against ITS OWN wages, so
+   * a worker with two jobs (or a job change mid-year) can have excess Social Security
+   * withheld across employers, refunded only at tax-return reconciliation. That per-employer
+   * over-withhold-then-refund cash-flow timing is NOT modeled here: this seam always states
+   * the correct combined-across-all-sources figure, as if reconciled on day one.
+   *
+   * The engine feeds year-to-date totals and charges the DIFFERENCE month to month, so a
+   * capped component (OASDI's wage base) binds on cumulative earnings rather than annualized
+   * monthly slices. MUST therefore be monotone non-decreasing in each category's amount, so
+   * the difference is never a credit. Absent → no payroll tax charged.
+   */
+  computePayrollTaxCents?(
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Cents;
+
+  /**
+   * {@link computePayrollTaxCents} broken out per {@link TaxCategory} — the jurisdiction's
+   * call, mirroring {@link computeTaxByCategoryCents}. REQUIRED whenever {@link
+   * computePayrollTaxCents} is supplied (the engine asserts this at runtime).
+   *
+   * Returns the share of the person-level payroll-tax charge attributed to each income
+   * source for reporting. The engine first settles the person's COMBINED annual
+   * payroll-tax liability — subject to whatever jurisdiction rules apply (e.g. the Social
+   * Security wage cap binding on their cumulative earnings) — via {@link
+   * computePayrollTaxCents}, then attributes each month's INCREMENTAL charge back to the
+   * income sources that generated it, using this breakdown as the per-category weights. A
+   * per-category breakdown is what makes that attribution possible; a jurisdiction that
+   * charges payroll tax but declines to break it down cannot be attributed correctly.
+   *
+   * This is attribution FOR REPORTING ONLY. It is NOT employer-by-employer paycheck
+   * withholding, and it does not model any employer-specific payroll-tax liability — there
+   * is no such thing as one job's or one employer's payroll tax here, only the person's
+   * total, re-apportioned across sources after the fact.
+   *
+   * CONTRACT: Σ of the returned map for a given cumulative input MUST equal {@link
+   * computePayrollTaxCents} for that SAME input — enforced at runtime, to the exact cent.
+   */
+  computePayrollTaxByCategoryCents?(
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
    * Which income categories count toward the covered-earnings {@link EarningsRecord}
    * behind the benefit formula. US: wages + self-employment ordinary income — never the
    * benefit itself (circular), gains, or tax-exempt income. Absent → `wages` only.

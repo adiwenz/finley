@@ -19,6 +19,7 @@ import {
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
+import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -90,6 +91,20 @@ export const usJurisdiction: Jurisdiction = {
   computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
   computeTaxByCategoryCents: (taxableByCategory, ctx) =>
     computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
+  // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
+  // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
+  // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.
+  // This is the worker's reconciled ANNUAL liability across every wage source combined, not
+  // per-employer withholding (see payrollTax.ts).
+  computePayrollTaxCents: (earnedByCategory, ctx) =>
+    payrollTaxCents(earnedByCategory.wages ?? 0, ctx.year),
+  // Single earned category (`wages`), so the breakdown is trivial — but still required so
+  // the waterfall can attribute FICA back to the job(s) that generated it.
+  computePayrollTaxByCategoryCents: (earnedByCategory, ctx) => {
+    const wages = earnedByCategory.wages ?? 0;
+    const charge = payrollTaxCents(wages, ctx.year);
+    return charge > 0 ? { wages: charge } : {};
+  },
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
@@ -105,5 +120,6 @@ export const usJurisdiction: Jurisdiction = {
     ...FEDERAL_TAX_ASSUMPTIONS,
     ...CONTRIBUTION_LIMIT_ASSUMPTIONS,
     ...RMD_ASSUMPTIONS,
+    ...PAYROLL_TAX_ASSUMPTIONS,
   ],
 };

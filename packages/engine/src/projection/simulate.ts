@@ -153,8 +153,15 @@ export function simulateHousehold(
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
     const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
 
-    const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
-      allocateMonth(
+    const {
+      taxCents,
+      payrollTaxCents,
+      payrollTaxBySourceCents,
+      taxByCategoryCents,
+      taxBySourceCents,
+      deferralBySourceCents,
+      contributions,
+    } = allocateMonth(
         state,
         allocationSources,
         ctx,
@@ -192,6 +199,10 @@ export function simulateHousehold(
       // per source.
       taxBySourceCents,
       deferralBySourceCents,
+      // Employee payroll tax (FICA) — its own line, already removed from take-home.
+      payrollTaxCents,
+      // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
+      payrollTaxBySourceCents,
     );
     // The taxable base WITH this month's funding gains stacked in, so the authoring gate
     // prices a would-be draw on top of any sibling draw at this month. A newly appended
