@@ -97,19 +97,15 @@ const COMFORTABLE_BUDGET = [
 /** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. Its
  * owner is omitted, so it binds to the primary person, and its id is minted.
  *
- * "Real-flat" is why the two anchors differ. `startingSalaryCents` is stated in the money of
- * `START_JOB_YEAR` (see `SalaryTrajectory`), so holding pay constant in PURCHASING POWER means
- * deflating today's figure by CPI over the years worked — repeating it verbatim would instead
- * say the payslip never changed while prices did, which is a career-long real decline. */
+ * Both anchors carry the stated figure: history is held flat at what was authored, so this says
+ * the payslip read the same then as now and assumes nothing in between. `realGrowthPct` shapes
+ * the FORWARD projection only. */
 function salariedJob(monthlyCents: number): JobEntry {
-  const startMonthlyCents = Math.round(
-    monthlyCents / Math.pow(1 + DEFAULT_INPUT.inflationPct / 100, DEFAULT_CURRENT_AGE - DEFAULT_WORK_START_AGE),
-  );
   return {
     startYear: START_JOB_YEAR,
     endYear: null,
     salary: {
-      startingSalaryCents: startMonthlyCents * 12,
+      startingSalaryCents: monthlyCents * 12,
       currentSalaryCents: monthlyCents * 12,
       realGrowthPct: 0,
     },

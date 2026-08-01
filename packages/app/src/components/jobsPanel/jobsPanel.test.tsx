@@ -790,17 +790,17 @@ describe("JobsPanel — authoring a job's pay history", () => {
     const startRow = () => timeline("Job 1").getByText(/Started this job/).closest("li")!;
     const nowRow = () => timeline("Job 1").getByText(/^now ·/).closest("li")!;
 
-    // The default plan is real-flat: $5,000/mo of purchasing power throughout. As PAYCHECKS
-    // that is a rising number, and the start row is the 2009 payslip — $3,025.
+    // The default plan states $5,000/mo at 18 and $5,000/mo now, and nothing is assumed in
+    // between — so as PAYCHECKS the history is flat at what was authored.
     expect((toggle as HTMLInputElement).checked).toBe(false);
-    expect(startRow().textContent).toContain("$3,025/mo");
+    expect(startRow().textContent).toContain("$5,000/mo");
     expect(nowRow().textContent).toContain("$5,000/mo");
 
     fireEvent.click(toggle);
-    // In today's money the same job is FLAT, which is what "real-flat" means and what the
-    // plan has always meant. Month 0 is unmoved either way: today's money IS the paycheck
-    // today, so the toggle can never disturb the anchor the projection starts from.
-    expect(startRow().textContent).toContain("$5,000/mo");
+    // In today's money that same flat paycheck was worth MORE the further back it was, so the
+    // start row rises. Month 0 is unmoved either way: today's money IS the paycheck today, so
+    // the toggle can never disturb the anchor the projection starts from.
+    expect(startRow().textContent).not.toContain("$5,000/mo");
     expect(nowRow().textContent).toContain("$5,000/mo");
   });
 

@@ -201,9 +201,8 @@ export function JobForm({
               by a helpful user. */}
           <p className="hint">
             <strong>Enter the amount you were actually paid at the time.</strong> Finley stores
-            it exactly as you enter it — no adjusting up or down for inflation. The years in
-            between are filled in for you as pay keeping pace with inflation; add pay changes,
-            or use “Estimate missing pay history” below, to say otherwise.
+            your historical pay exactly as entered, and holds it there until you say otherwise.
+            Inflation is only used for projections and optional historical estimates.
           </p>
         </>
       )}

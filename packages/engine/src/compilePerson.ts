@@ -9,11 +9,20 @@
  *                   → CURRENT-SALARY ANCHOR at month 0
  *                   → future pay changes and future growth
  *
- * The two halves share `salaryGrowthMode`, `applyPayChanges` and `applyIncomeOverrides`, so a
- * raise or a bonus composes by ONE rule wherever it is dated. What they deliberately do not
- * share is a baseline: the history reconstructs from `startingSalaryCents`, the projection
- * rebases on the authored `currentSalaryCents`. A step between them at the boundary is
- * expected and never reconciled — see {@link import("./job").SalaryTrajectory}.
+ * The two halves share `applyPayChanges` and `applyIncomeOverrides`, so a raise or a bonus
+ * composes by ONE rule wherever it is dated. Two things they deliberately do not share:
+ *
+ * - **A baseline.** History reconstructs from `startingSalaryCents`; the projection rebases on
+ *   the authored `currentSalaryCents`. A step between them at the boundary is expected and never
+ *   reconciled — see {@link import("./job").SalaryTrajectory}.
+ * - **Growth.** Only the forward half grows. `salaryGrowthMode` applies to months from 0 onward;
+ *   the past is held flat at what was authored, because it is remembered rather than projected.
+ *   Filling in the unstated years is a user's explicit act
+ *   ({@link import("./job").estimateHistoryPayChanges}), not a compiler default.
+ *
+ * Household membership narrows only where a series PAYS. The salary path is compiled over the
+ * job's whole natural span either way, so a raise a partner collected before joining is part of
+ * the pay they arrive on.
  *
  * The one standing-model module that depends on the simulator (`SimOwnedSeries`);
  * isolating it here keeps the {@link Person}/{@link Job} *type* modules free of any
@@ -110,11 +119,18 @@ function applyIncomeOverrides(
  * **Historical compensation reconstruction** for one job: what it actually paid, month by
  * month, from its own (possibly long-past) start through month −1.
  *
- * Anchored at the job's start month with `startingSalaryCents` nominal-at-that-start, grown at
- * real+CPI, with every pre-"now" {@link JobPayChange} and {@link JobIncomeOverride} layered on
- * in date order — so a later historical change supersedes or composes with an earlier one by
- * exactly the same rules the forward series uses. `null` when the job contributes no pre-"now"
- * month at all (it starts at or after "now").
+ * Anchored at the job's start month with `startingSalaryCents` — the paycheck of that year — and
+ * held FLAT from there, with every pre-"now" {@link JobPayChange} and {@link JobIncomeOverride}
+ * layered on in date order. `null` when the job contributes no pre-"now" month at all (it starts
+ * at or after "now").
+ *
+ * **Nothing grows here.** Neither CPI nor `realGrowthPct` is applied to a month before 0, and
+ * that is the whole rule: the past is not projected, it is remembered. Inventing raises nobody
+ * mentioned would put fabricated wages into the covered-earnings record that prices a benefit —
+ * and it did, silently, which is what made "Estimate missing pay history" a lie the moment it
+ * was offered as an explicit choice. A user who wants the unstated years filled in asks for it
+ * ({@link import("./job").estimateHistoryPayChanges}), and gets dated changes they can see and
+ * remove. Growth belongs to the forward half, where a projection is the point.
  *
  * Deliberately stops at month −1 and is never continued across the boundary: month 0 belongs
  * to the authored current salary. Carrying this series forward would reapply historical raises
@@ -124,7 +140,6 @@ function reconstructHistoricalCompensation(
   job: Job,
   owner: Person,
   nowYear: number,
-  inflationRate: number,
 ): { series: SimCashFlowSeries; startMonth: number; endMonthExclusive: number } | null {
   const startMonth = (job.startYear - nowYear) * 12;
   // History is months < 0: clip a still-running job at "now", and skip one that only starts at
@@ -139,7 +154,9 @@ function reconstructHistoricalCompensation(
   const series = new SimCashFlowSeries(
     startMonth,
     Math.round(job.salary.startingSalaryCents / 12),
-    salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
+    // Flat, not `salaryGrowthMode`: see above. The rate is 0 rather than "inflationLinked at 0"
+    // so the intent survives a future change to what an inflation-linked series means.
+    { type: "customRate", annualRate: 0 },
     { baselineUnit: "monthly", endMonth: endMonthExclusive - 1, anchorMonth: startMonth },
   );
   // Bounded to months < 0: a month-0-or-later change is a FUTURE raise, applied by
@@ -170,11 +187,16 @@ function reconstructHistoricalCompensation(
 export function compilePersonPriorEarnings(
   person: Person,
   nowYear: number,
-  inflationRate: number,
+  /**
+   * No longer read: the pre-"now" record is authored figures held flat, and nothing about it
+   * depends on CPI. Kept so the seam's shape does not churn across every caller, and because
+   * the forward half beside it genuinely needs the rate.
+   */
+  _inflationRate?: number,
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const history = reconstructHistoricalCompensation(job, person, nowYear, inflationRate);
+    const history = reconstructHistoricalCompensation(job, person, nowYear);
     if (history === null) continue;
     for (let month = history.startMonth; month < history.endMonthExclusive; month++) {
       const cents = history.series.getMonthlyCents(month);
@@ -236,7 +258,11 @@ function compileJobIncome(
   const currentSalaryAnchorMonthlyCents = Math.round(job.salary.currentSalaryCents / 12);
 
   const series = new SimCashFlowSeries(
-    paidStart,
+    // The job's OWN start, not the join month: the salary path is a fact about the employment,
+    // and membership decides only who gets paid from it. Starting the series at `paidStart`
+    // would leave every pre-join raise with no segment to open, silently discarding the pay
+    // rises a partner brings into the household with them.
+    naturalStart,
     currentSalaryAnchorMonthlyCents,
     salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
     {
@@ -256,19 +282,29 @@ function compileJobIncome(
       // accumulated amount would differ — the timing assertions cannot tell the two apart.
       //
       // A job starting in the FUTURE keeps its own start as the clock, which is also where it
-      // first pays. A partner job clipped to a later join month grows from `naturalStart`
-      // rather than the join, so the household sees the correctly-grown salary on arrival.
+      // first pays.
       anchorMonth: naturalStart,
       taxCategory: "wages",
     },
   );
 
-  // FUTURE changes only — `paidStart` is >= 0, so the pre-"now" ones stay in the historical
+  // FUTURE changes only — `naturalStart` is >= 0, so the pre-"now" ones stay in the historical
   // reconstruction. Same two helpers the history uses, so raises and bonuses compose by one
   // rule on both sides of the boundary; here they compound from the current-salary anchor.
-  // Overrides tax as wages and run through the 401(k) deferral like regular pay.
-  applyPayChanges(series, job.payChanges ?? [], paidStart, paidEndExclusive - 1);
+  //
+  // PERMANENT changes run the job's whole natural span, membership or not: a raise a partner
+  // got before joining is part of the salary they arrive on, so it has to be layered even
+  // though nobody was paid for it at the time.
+  applyPayChanges(series, job.payChanges ?? [], naturalStart, endMonthExclusive - 1);
+  // One-month perturbations are the opposite case: a bonus is a payment, not a salary state, so
+  // one landing before the join never reaches this household. Bounded to the paid window, and
+  // the clip below would exclude it regardless. Overrides tax as wages and run through the
+  // 401(k) deferral like regular pay.
   applyIncomeOverrides(series, job.incomeOverrides ?? [], paidStart, paidEndExclusive - 1);
+
+  // LAST, once the path is complete: everything above reads the month's standing pay to
+  // compose against, and those reads must see the real salary rather than a clipped zero.
+  if (paidStart > naturalStart) series.clipPaymentsBefore(paidStart);
 
   return {
     series,

@@ -431,12 +431,11 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     expect(forward.getMonthlyCents(11)).toBe(dollarsToCents(10_000));
     expect(forward.getMonthlyCents(12)).toBe(dollarsToCents(10_300)); // exactly one 3% step
 
-    // History rides the STARTING salary as the paycheck of 2004, inflated forward from there,
-    // so by 2025 it is well ABOVE the $60,000 it started at — and still nowhere near the
-    // $120,000 current pay, which the forward series owns alone.
-    const prior2025 = priorFor(job, 0.03)[2025]!;
-    expect(prior2025).toBeGreaterThan(dollarsToCents(60_000));
-    expect(prior2025).toBeLessThan(dollarsToCents(120_000));
+    // History holds the STARTING salary flat — nothing grows before month 0 — so every past
+    // year is the $60,000 that was authored, and the $120,000 current pay is the forward
+    // series' alone. Inflation reaches the past only if the user asks for it.
+    expect(priorFor(job, 0.03)[2025]).toBe(dollarsToCents(60_000));
+    expect(priorFor(job, 0.03)[2015]).toBe(dollarsToCents(60_000));
   });
 });
 
@@ -640,9 +639,9 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     expect(path.monthlyCentsAt(0)).toBe(0);
   });
 
-  it("compounds real growth between changes, in today's dollars", () => {
-    // CPI never appears: every figure that goes in is authored in today's money, so what comes
-    // back is what the projection pays in today's money and not a future nominal paycheck.
+  it("compounds real growth forward, and never backward into the past", () => {
+    // Growth is a forward-half rule. The past is remembered rather than projected, so the same
+    // `realGrowthPct` that compounds after month 0 does nothing at all before it.
     const growing: Job = {
       ...historic,
       salary: { ...historic.salary, realGrowthPct: 10 },
@@ -651,9 +650,10 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     const path = jobPayPath(growing, span);
     expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(80_000 / 12));
     expect(path.monthlyCentsAt(12)).toBe(Math.round(dollarsToCents(80_000 / 12) * 1.1));
-    // History grows from the START anchor at its own start, never from the current one.
+    // History is FLAT at the start anchor, whatever the growth rate says.
     expect(path.monthlyCentsAt(-132)).toBe(dollarsToCents(5_000));
-    expect(path.monthlyCentsAt(-120)).toBe(Math.round(dollarsToCents(5_000) * 1.1));
+    expect(path.monthlyCentsAt(-120)).toBe(dollarsToCents(5_000));
+    expect(path.monthlyCentsAt(-1)).toBe(dollarsToCents(5_000));
   });
 });
 
@@ -970,13 +970,232 @@ describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
       benefitClaimingAge: samplePlan.benefitClaimingAge,
       jobs: [j],
     });
-    // Estimating at CPI where the job already grows at CPI is a no-op on the numbers — the
-    // point of applying it is that the years become visible and editable, not that they move.
-    const before = compilePersonPriorEarnings(person(job), START_YEAR, 0.03);
+    // Before: flat at what was authored, every year. After: the unstated years rise with CPI.
+    // This is the whole point of the action — nothing estimates until it is asked for.
+    const before = compilePersonPriorEarnings(person(job), START_YEAR);
+    expect(before[START_YEAR - 10]).toBe(before[START_YEAR - 1]);
+
     const applied = { ...job, payChanges: estimateHistoryPayChanges(job, span, 0.03) };
-    const after = compilePersonPriorEarnings(person(applied), START_YEAR, 0.03);
-    for (const year of Object.keys(before)) {
-      expect(after[Number(year)]).toBeCloseTo(before[Number(year)]!, -3);
+    const after = compilePersonPriorEarnings(person(applied), START_YEAR);
+    expect(after[START_YEAR - 10]).toBe(before[START_YEAR - 10]); // the authored first year
+    expect(after[START_YEAR - 1]).toBeGreaterThan(before[START_YEAR - 1]!);
+  });
+});
+
+/**
+ * The pre-"now" half is REMEMBERED, not projected. Nothing grows there until the user asks for
+ * it, which is what makes "Estimate missing pay history" an honest offer rather than a relabelling
+ * of something the compiler already did.
+ */
+describe("historical pay is flat until estimated", () => {
+  const CURRENT_AGE = 40;
+  const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
+  const person = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: BIRTH_YEAR,
+    retirementTargetAge: 65,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+  const base: Job = {
+    id: "job-1",
+    ownerId: PRIMARY_PERSON_ID,
+    startYear: BIRTH_YEAR + 30,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(60_000),
+      currentSalaryCents: dollarsToCents(96_000),
+      realGrowthPct: 0,
+    },
+  };
+  const span = { startMonth: -120, endMonthExclusive: (65 - CURRENT_AGE) * 12 };
+  const CPI = 0.03;
+
+  it("keeps unstated historical years nominally flat", () => {
+    const prior = compilePersonPriorEarnings(person([base]), START_YEAR);
+    for (const yearsBack of [10, 7, 4, 1]) {
+      expect(prior[START_YEAR - yearsBack]).toBe(dollarsToCents(60_000));
     }
+  });
+
+  it("grows only the unstated years once the estimate is applied", () => {
+    const applied = {
+      ...base,
+      payChanges: estimateHistoryPayChanges(base, span, CPI),
+    };
+    const prior = compilePersonPriorEarnings(person([applied]), START_YEAR);
+    // The first year is the authored anchor and does not move; later years climb at CPI.
+    expect(prior[START_YEAR - 10]).toBe(dollarsToCents(60_000));
+    expect(prior[START_YEAR - 9]).toBe(Math.round(dollarsToCents(60_000) * 1.03));
+    expect(prior[START_YEAR - 1]!).toBeGreaterThan(prior[START_YEAR - 9]!);
+  });
+
+  it("leaves an authored historical change authoritative, and flat after it", () => {
+    const raised: Job = {
+      ...base,
+      payChanges: [{ month: -60, kind: "setTo", cents: dollarsToCents(7_000) }],
+    };
+    const prior = compilePersonPriorEarnings(person([raised]), START_YEAR);
+    expect(prior[START_YEAR - 6]).toBe(dollarsToCents(60_000));
+    // Held at the authored figure from there to "now" — no drift on top of what was stated.
+    expect(prior[START_YEAR - 5]).toBe(dollarsToCents(7_000) * 12);
+    expect(prior[START_YEAR - 1]).toBe(dollarsToCents(7_000) * 12);
+  });
+
+  it("keeps realGrowthPct a FORWARD rule — it never reaches the past", () => {
+    const growing: Job = { ...base, salary: { ...base.salary, realGrowthPct: 5 } };
+    const flat = compilePersonPriorEarnings(person([base]), START_YEAR);
+    const grown = compilePersonPriorEarnings(person([growing]), START_YEAR);
+    expect(grown).toEqual(flat);
+
+    // Forward, the same rate compounds on top of CPI, as it always did.
+    const forward = compilePersonIncomeSeries(person([growing]), START_YEAR, CPI)[0].series;
+    expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(96_000 / 12));
+    expect(forward.getMonthlyCents(12)).toBe(
+      Math.round(dollarsToCents(96_000 / 12) * 1.05 * 1.03),
+    );
+  });
+
+  it("restores the flat authored history when the estimates are removed again", () => {
+    const before = compilePersonPriorEarnings(person([base]), START_YEAR);
+    const estimates = estimateHistoryPayChanges(base, span, CPI);
+    const applied = { ...base, payChanges: estimates };
+    expect(compilePersonPriorEarnings(person([applied]), START_YEAR)).not.toEqual(before);
+
+    // Removing exactly what was generated — the flag is what makes them identifiable.
+    const cleared = { ...applied, payChanges: applied.payChanges.filter((c) => !c.estimated) };
+    expect(compilePersonPriorEarnings(person([cleared]), START_YEAR)).toEqual(before);
+  });
+
+  it("still gives month 0 to the current salary, whatever the history did", () => {
+    const applied = { ...base, payChanges: estimateHistoryPayChanges(base, span, CPI) };
+    const forward = compilePersonIncomeSeries(person([applied]), START_YEAR, CPI)[0].series;
+    expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(96_000 / 12));
+    expect(jobPayPath(applied, span, { inflationRate: CPI }).monthlyCentsAt(0)).toBe(
+      dollarsToCents(96_000 / 12),
+    );
+  });
+});
+
+/**
+ * Household membership clips PAYMENT, not compensation. A partner's job ran before they joined,
+ * and the raises it collected are part of the salary they arrive on — so the salary path is
+ * compiled over the job's whole natural span and only the paying window is narrowed.
+ */
+describe("membership clips what the household is paid, not the job's salary path", () => {
+  const CURRENT_AGE = 40;
+  const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
+  const JOIN = 24;
+  const partner = (jobs: Job[]): Person => ({
+    id: "p2",
+    name: "Sam",
+    birthYear: BIRTH_YEAR,
+    retirementTargetAge: 65,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+  /** $6,000/mo now, real-flat, running from before "now" to retirement. */
+  const base: Job = {
+    id: "job-p2",
+    ownerId: "p2",
+    startYear: BIRTH_YEAR + 30,
+    endYear: null,
+    salary: {
+      startingSalaryCents: dollarsToCents(72_000),
+      currentSalaryCents: dollarsToCents(72_000),
+      realGrowthPct: 0,
+    },
+  };
+  /** Zero CPI, so a paycheck is the authored figure and a raise is visible as itself. */
+  const paid = (job: Job, month: number, window?: { startMonth: number; endMonthExclusive: number }) => {
+    const compiled = compilePersonIncomeSeries(
+      partner([job]),
+      START_YEAR,
+      0,
+      window ?? { startMonth: JOIN, endMonthExclusive: Infinity },
+    );
+    return compiled.length === 0 ? 0 : compiled[0]!.series.getMonthlyCents(month);
+  };
+
+  it("carries a pre-join setTo into the salary the partner brings with them", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+    };
+    expect(paid(job, 12)).toBe(0); // not a member yet — nothing is paid
+    expect(paid(job, JOIN)).toBe(dollarsToCents(9_000)); // arrives on the RAISED salary
+  });
+
+  it("carries a pre-join changeBy, composed against the pay standing at the time", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(1_500) }],
+    };
+    expect(paid(job, JOIN)).toBe(dollarsToCents(7_500)); // 6,000 + 1,500
+  });
+
+  it("composes several pre-join changes in order", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [
+        { month: 6, kind: "setTo", cents: dollarsToCents(8_000) },
+        { month: 12, kind: "changeBy", cents: dollarsToCents(500) },
+        { month: 18, kind: "changeBy", cents: dollarsToCents(-1_000) },
+      ],
+    };
+    expect(paid(job, JOIN)).toBe(dollarsToCents(7_500)); // 8,000 + 500 − 1,000
+  });
+
+  it("excludes a pre-join bonus — a bonus is a payment, not a salary state", () => {
+    const job: Job = {
+      ...base,
+      incomeOverrides: [{ month: 12, kind: "addBonus", cents: dollarsToCents(5_000) }],
+    };
+    expect(paid(job, 12)).toBe(0);
+    expect(paid(job, JOIN)).toBe(dollarsToCents(6_000)); // unchanged by the bonus it missed
+  });
+
+  it("includes a bonus that lands during membership", () => {
+    const job: Job = {
+      ...base,
+      incomeOverrides: [{ month: 36, kind: "addBonus", cents: dollarsToCents(5_000) }],
+    };
+    expect(paid(job, 36)).toBe(dollarsToCents(11_000));
+    expect(paid(job, 37)).toBe(dollarsToCents(6_000));
+  });
+
+  it("stops paying when membership ends, leaving the job's own path untouched", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 60, kind: "setTo", cents: dollarsToCents(9_000) }],
+    };
+    const window = { startMonth: JOIN, endMonthExclusive: 48 };
+    expect(paid(job, 47, window)).toBe(dollarsToCents(6_000));
+    expect(paid(job, 48, window)).toBe(0);
+    // The raise at month 60 is still the job's own — read without a membership window it lands.
+    expect(paid(job, 60, { startMonth: 0, endMonthExclusive: Infinity })).toBe(
+      dollarsToCents(9_000),
+    );
+  });
+
+  it("keeps month-0 semantics under a membership window", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(9_000) }],
+    };
+    const fromNow = { startMonth: 0, endMonthExclusive: Infinity };
+    expect(paid(job, 0, fromNow)).toBe(dollarsToCents(6_000)); // the anchor still owns month 0
+    expect(paid(job, 1, fromNow)).toBe(dollarsToCents(9_000));
+  });
+
+  it("leaves jobPayPath alone — it knows nothing about households", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+    };
+    const path = jobPayPath(job, { startMonth: -120, endMonthExclusive: 300 });
+    expect(path.monthlyCentsAt(12)).toBe(dollarsToCents(9_000));
+    expect(path.monthlyCentsAt(JOIN)).toBe(dollarsToCents(9_000));
   });
 });

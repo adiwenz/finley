@@ -8,24 +8,17 @@ import { defaultBudgetTemplate } from "./components/baseAdjustments/budgetTempla
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
-const DEFAULT_INFLATION_PCT = 3;
 const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
 
 /**
- * The starting salary is stated in **the money of the year the job began** (see
- * `SalaryTrajectory`), so a fresh plan cannot repeat today's figure there: that would claim the
- * payslip read $5,000 in 2009 and still reads $5,000 now — a career-long decline in real terms,
- * and a large step at "now" on a plan nobody has authored anything into yet.
+ * Both anchors are the same figure, which now says exactly one thing: the payslip read $5,000
+ * at 18 and reads $5,000 today, with nothing assumed in between. History is held flat at what
+ * was authored — the engine no longer grows it — so a fresh plan states a fact rather than a
+ * trend, and there is no step at "now" to explain.
  *
- * Deflating today's pay by CPI over the years worked states the opposite and is what the plan
- * has always meant: pay flat in REAL terms, the same purchasing power at 18 as today. The
- * engine used to perform this conversion itself, on a figure authored in today's dollars; the
- * arithmetic is unchanged, it has simply moved to where the number is authored.
+ * A user who worked their way up says so with pay changes, or asks for the unstated years to be
+ * filled in with "Estimate missing pay history". Both are visible acts; neither is a default.
  */
-const DEFAULT_START_MONTHLY_PAY_CENTS = Math.round(
-  DEFAULT_MONTHLY_PAY_CENTS /
-    Math.pow(1 + DEFAULT_INFLATION_PCT / 100, DEFAULT_CURRENT_AGE - DEFAULT_WORK_START_AGE),
-);
 
 /**
  * The prepopulated Base, as {@link ScenarioInput} entries. {@link defaultBudgetTemplate} authors
@@ -66,7 +59,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
       startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
       endYear: null,
       salary: {
-        startingSalaryCents: DEFAULT_START_MONTHLY_PAY_CENTS * 12,
+        startingSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
         currentSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
         realGrowthPct: 0,
       },

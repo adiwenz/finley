@@ -488,25 +488,41 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
    * — it slopes through the year, and it drifts a cent or two off the projection over a career.
    * Both matter here, because this path is read against that projection.
    */
-  const grown = (segment: PaySegment, month: number): Cents => {
-    if (annualGrowth === 0) return segment.monthlyCents;
+  const grownAt = (rate: number, segment: PaySegment, month: number): Cents => {
+    if (rate === 0) return segment.monthlyCents;
     const years = Math.max(0, Math.floor((month - segment.fromMonth) / 12));
     let cents = segment.monthlyCents;
-    for (let y = 0; y < years; y++) cents = Math.round(cents * (1 + annualGrowth));
+    for (let y = 0; y < years; y++) cents = Math.round(cents * (1 + rate));
     return cents;
   };
+  /**
+   * History does not grow — see `reconstructHistoricalCompensation`. The past is remembered, not
+   * projected, so a historical segment holds its authored figure until the next authored one.
+   *
+   * The rate belongs to the SIDE, not to the month being asked about: continuing the history up
+   * to month 0 to measure the seam must not suddenly compound it at the forward rate for every
+   * year it ran.
+   */
+  const HISTORY_RATE = 0;
 
   // Read through the shared effective-month rule, so a change authored at month 0 opens its
   // segment at month 1 here exactly as it does in the projection compiler.
   const changes = effectivePayChanges(job.payChanges ?? []);
 
   /** The segments on one side of month 0, anchored at `anchorMonth` on `anchorCents`. */
-  const segmentsOf = (anchorMonth: number, anchorCents: Cents, lo: number, hi: number): PaySegment[] => {
+  const segmentsOf = (
+    rate: number,
+    anchorMonth: number,
+    anchorCents: Cents,
+    lo: number,
+    hi: number,
+  ): PaySegment[] => {
     const segments: PaySegment[] = [{ fromMonth: anchorMonth, monthlyCents: anchorCents }];
     for (const { change, month } of changes) {
       if (month < lo || month > hi) continue;
       const before = segments[segments.length - 1];
-      const cents = change.kind === "setTo" ? change.cents : grown(before, month) + change.cents;
+      const cents =
+        change.kind === "setTo" ? change.cents : grownAt(rate, before, month) + change.cents;
       segments.push({ fromMonth: month, monthlyCents: Math.max(0, cents) });
     }
     return segments;
@@ -523,6 +539,7 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
   const history =
     historyEndExclusive > startMonth
       ? segmentsOf(
+          HISTORY_RATE,
           startMonth,
           Math.round(job.salary.startingSalaryCents / 12),
           startMonth,
@@ -532,6 +549,7 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
   const forward =
     endMonthExclusive > forwardStart
       ? segmentsOf(
+          annualGrowth,
           forwardStart,
           Math.round(job.salary.currentSalaryCents / 12),
           forwardStart,
@@ -550,27 +568,31 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
       ? Math.round(nominalCents / Math.pow(1 + inflationRate, month / 12))
       : nominalCents;
 
-  const at = (segments: PaySegment[], month: number): Cents => {
+  const at = (rate: number, segments: PaySegment[], month: number): Cents => {
     let held = segments[0];
     for (const s of segments) if (s.fromMonth <= month) held = s;
-    return grown(held, month);
+    return grownAt(rate, held, month);
   };
 
   const monthlyCentsAt = (month: number): Cents => {
     if (month < startMonth || month >= endMonthExclusive) return 0;
     const side = month < 0 ? history : forward;
-    return side === null ? 0 : denominated(at(side, month), month);
+    const rate = month < 0 ? HISTORY_RATE : annualGrowth;
+    return side === null ? 0 : denominated(at(rate, side, month), month);
   };
 
   const historyReachMonth = historyEndExclusive - 1;
   const historyReachMonthlyCents =
-    history === null ? null : denominated(at(history, historyReachMonth), historyReachMonth);
+    history === null
+      ? null
+      : denominated(at(HISTORY_RATE, history, historyReachMonth), historyReachMonth);
   const endedBeforeNow = endMonthExclusive <= 0;
 
   // What the history would pay in month 0 if nothing stopped it — the like-for-like partner
   // for the current anchor, which needs no conversion in either denomination because it IS
   // month 0.
-  const historyContinuedToMonthZero = history === null ? null : at(history, 0);
+  const historyContinuedToMonthZero =
+    history === null ? null : at(HISTORY_RATE, history, 0);
   const rawStep =
     historyContinuedToMonthZero === null || endedBeforeNow
       ? 0
