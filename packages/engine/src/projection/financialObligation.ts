@@ -213,7 +213,9 @@ export function obligationLiabilityId(liabilityId: string): string {
  * Series are constructed even at 0: a dormant line still exists, and a band vanishing mid-chart
  * reads as deleted rather than paused. Liabilities appear only with a payment due, and their
  * `amountCents` is what `payments` holds — the payoff-capped scheduled figure (capped by the
- * debt, never by affordability), the exact amount the simulator also applies to the balance.
+ * debt, never by affordability). Reported here at that full authored amount regardless of
+ * whether the month actually funded it — {@link import("./liabilitySteps").advanceLiabilities}
+ * is what withholds the balance reduction on a month the shortfall cascade could not cover.
  *
  * Every obligation here is `funding: automatic`; the explicit branch arrives in Slice #4.
  */

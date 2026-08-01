@@ -171,7 +171,7 @@ export function simulateHousehold(
 
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
-    advanceLiabilities(state, month, payments);
+    advanceLiabilities(state, month, payments, isInsolvent);
     advanceProperties(state, month);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
     const bands = buildFlows(

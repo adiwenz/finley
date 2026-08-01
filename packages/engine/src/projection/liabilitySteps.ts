@@ -87,11 +87,19 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
  * worth. A lump sum can drive the balance below the precomputed schedule; the payoff cap in
  * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
  * early, payment unchanged).
+ *
+ * `isInsolvent` is this month's TERMINAL failure — every funding source and every card
+ * exhausted, from {@link applyShortfallCascade}. `payments` still carries what was SCHEDULED
+ * (obligations report it at that authored amount, unrationed, same as any other line — see
+ * {@link import("./financialObligation").buildObligations}), but a month that failed to
+ * finance itself did not actually move any money onto a liability either: interest still
+ * accrues, but no balance shrinks as though a payment it could not fund succeeded.
  */
 export function advanceLiabilities(
   state: SimState,
   month: number,
   payments: ReadonlyMap<string, Cents>,
+  isInsolvent: boolean,
 ): void {
   for (const liab of state.liabilities) {
     if (month < liab.startMonth) continue; // not originated yet — stays at 0
@@ -112,6 +120,7 @@ export function advanceLiabilities(
       continue;
     }
     bal = Math.round(bal * (1 + liab.apr / 12));
-    state.liabilityBalances.set(liab.id, Math.max(0, bal - (payments.get(liab.id) ?? 0)));
+    const appliedCents = isInsolvent ? 0 : (payments.get(liab.id) ?? 0);
+    state.liabilityBalances.set(liab.id, Math.max(0, bal - appliedCents));
   }
 }
