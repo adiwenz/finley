@@ -79,16 +79,20 @@ export function jobPaySpanFor(owner: JobSpanOwner, job: Job): JobPaySpan {
  * A job's pay across its whole span — the reading the Jobs panel charts and lists, including
  * the size of the month-0 seam.
  *
- * `inflationRate` picks the denomination: omit it (or 0) for today's dollars, the terms the
- * panel authors in; pass the plan's CPI for the nominal paycheck the projection pays. See
+ * The plan's CPI is always passed, because it is what a past paycheck grew by whichever
+ * denomination is being read; `inTodaysDollars` is the one that picks the reading. See
  * {@link jobPayPath}.
  */
 export function jobPayPathFor(
   owner: JobSpanOwner,
   job: Job,
   inflationRate = 0,
+  inTodaysDollars = false,
 ): JobPayPath {
-  return jobPayPath(job, jobPaySpanFor(owner, job), { inflationRate });
+  return jobPayPath(job, jobPaySpanFor(owner, job), {
+    inflationRate,
+    denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
+  });
 }
 
 

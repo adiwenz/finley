@@ -132,12 +132,13 @@ function reconstructHistoricalCompensation(
   const endMonthExclusive = Math.min((jobEndYearExclusive(job, owner) - nowYear) * 12, 0);
   if (endMonthExclusive <= startMonth) return null;
 
-  const nominalStartAnnualCents = Math.round(
-    job.salary.startingSalaryCents * Math.pow(1 + inflationRate, job.startYear - nowYear),
-  );
+  // Taken VERBATIM: `startingSalaryCents` is the paycheck of the job's own start year, in that
+  // year's money, so there is nothing to convert. It used to be read as today's dollars and
+  // CPI-de-indexed to here, which asked the user to state a past wage in money that did not
+  // exist yet — see {@link SalaryTrajectory}.
   const series = new SimCashFlowSeries(
     startMonth,
-    Math.round(nominalStartAnnualCents / 12),
+    Math.round(job.salary.startingSalaryCents / 12),
     salaryGrowthMode(job.salary.realGrowthPct, inflationRate),
     { baselineUnit: "monthly", endMonth: endMonthExclusive - 1, anchorMonth: startMonth },
   );

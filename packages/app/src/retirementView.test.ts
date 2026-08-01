@@ -4,7 +4,7 @@ import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./testing/projectionHarness";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
-import { setJobMonthlyIncome } from "./testing/planFixtures";
+import { setJobCurrentMonthlyIncome } from "./testing/planFixtures";
 import type { Plan } from "@finley/engine";
 
 /** The view for a plan with no timeline events; the event-aware path is tested below. */
@@ -189,7 +189,14 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // Real single-filer federal tax plus FICA pins the default $5k plan above the
     // Social-Security floor, where an added expense flips it infeasible rather than merely
     // later. The raise buys headroom below the floor, keeping "moves strictly later" observable.
-    const plan: Plan = setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(7000));
+    // The month-0 anchor only: this is a raise TODAY, and restating the job's start salary
+    // with it would rewrite a 2009 paycheck as $7,000 and inflate the covered-earnings record
+    // the benefit is priced off.
+    const plan: Plan = setJobCurrentMonthlyIncome(
+      PLAN_DEFAULTS,
+      PLAN_DEFAULTS.jobs[0]!.id,
+      dollarsToCents(7000),
+    );
     // A child spawns an 18-year childcare expense on the timeline — the surviving way the
     // AddEventForm puts recurring spend on the timeline now that "Added an expense" is gone.
     // Authored through the facade (`haveChild`), exactly as the app does, rather than seeding a

@@ -430,11 +430,12 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     expect(forward.getMonthlyCents(11)).toBe(dollarsToCents(10_000));
     expect(forward.getMonthlyCents(12)).toBe(dollarsToCents(10_300)); // exactly one 3% step
 
-    // History rides the STARTING salary CPI-indexed back to 2004 and grown forward, so 2025
-    // sits just under $60,000 — nowhere near the $120,000 current pay.
+    // History rides the STARTING salary as the paycheck of 2004, inflated forward from there,
+    // so by 2025 it is well ABOVE the $60,000 it started at — and still nowhere near the
+    // $120,000 current pay, which the forward series owns alone.
     const prior2025 = priorFor(job, 0.03)[2025]!;
-    expect(prior2025).toBeGreaterThan(dollarsToCents(57_000));
-    expect(prior2025).toBeLessThan(dollarsToCents(60_000));
+    expect(prior2025).toBeGreaterThan(dollarsToCents(60_000));
+    expect(prior2025).toBeLessThan(dollarsToCents(120_000));
   });
 });
 
@@ -598,7 +599,11 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     // the gap. $6,667 stated against a history that reached $6,250.
     const path = jobPayPath(historic, span);
     expect(path.historyReachMonthlyCents).toBe(dollarsToCents(6_250));
-    expect(path.monthZeroStepCents).toBe(dollarsToCents(80_000 / 12) - dollarsToCents(6_250));
+    // To the nearest dollar, and measured against the history CONTINUED to month 0 — which
+    // here is the same $6,250, since this job has no real growth to step by.
+    expect(path.monthZeroStepCents).toBe(
+      Math.round((dollarsToCents(80_000 / 12) - dollarsToCents(6_250)) / 100) * 100,
+    );
   });
 
   it("reports no step when the history lands exactly on today's pay", () => {
@@ -830,7 +835,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
   const projected = (month: number, j: Job = job): number =>
     compilePersonIncomeSeries(person([j]), START_YEAR, CPI)[0].series.getMonthlyCents(month);
 
-  it("defaults to today's dollars — CPI absent, the anchors exactly as authored", () => {
+  it("defaults to the paycheck — CPI absent, the anchors exactly as authored", () => {
     const path = jobPayPath(job, span);
     expect(path.monthlyCentsAt(0)).toBe(dollarsToCents(80_000 / 12));
     expect(path.monthlyCentsAt(span.startMonth)).toBe(dollarsToCents(5_000));
@@ -851,16 +856,19 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     }
   });
 
-  it("indexes the START anchor back to the job's own start, not forward from today", () => {
-    // $60k was authored in TODAY's dollars as the pay at 30 — ten years ago that paycheck was
-    // smaller in the money of the day. Reading it verbatim would inflate the covered-earnings
-    // record; the historical reconstruction de-indexes it and so does this.
-    const nominal = jobPayPath(job, span, { inflationRate: CPI });
-    const atStart = nominal.monthlyCentsAt(span.startMonth);
-    expect(atStart).toBeLessThan(dollarsToCents(5_000));
-    expect(atStart).toBe(
-      Math.round(Math.round(dollarsToCents(60_000) * Math.pow(1 + CPI, -10)) / 12),
+  it("takes the START anchor verbatim — it is already the paycheck of that year", () => {
+    // $60k is what the payslip read at 30, in the money of that year, so nothing converts it on
+    // the way in. Today's-dollars is the DERIVED reading: ten years of CPI make that same
+    // paycheck worth more in today's money, not less.
+    const paycheck = jobPayPath(job, span, { inflationRate: CPI });
+    expect(paycheck.monthlyCentsAt(span.startMonth)).toBe(dollarsToCents(5_000));
+
+    const today = jobPayPath(job, span, { inflationRate: CPI, denomination: "todaysDollars" });
+    expect(today.monthlyCentsAt(span.startMonth)).toBe(
+      Math.round(dollarsToCents(5_000) * Math.pow(1 + CPI, 10)),
     );
+    // Month 0 is the same figure in both: today's money IS the paycheck today.
+    expect(today.monthlyCentsAt(0)).toBe(paycheck.monthlyCentsAt(0));
   });
 
   it("agrees with the pre-'now' covered-earnings record it feeds", () => {

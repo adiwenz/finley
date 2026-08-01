@@ -123,10 +123,15 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
             )}
           </span>
           {row.kind === "now" && path.monthZeroStepCents !== 0 && (
-            <span className={styles.seamNote}>
-              History reaches{" "}
-              {formatDollars(path.historyReachMonthlyCents ?? 0)}/mo; you’ve stated{" "}
-              {formatDollars(row.monthlyCents)}/mo as today’s pay. Today’s pay wins from here on.
+            <span className={styles.seamNote} data-testid="seam-note">
+              {/* Derived from the step rather than read separately, so the two figures and the
+                  gap between them are the same arithmetic the chart draws. Quoting the last
+                  paid month instead would put a whole growth year inside a sentence that
+                  reads as a subtraction. */}
+              Your history runs to{" "}
+              {formatDollars(row.monthlyCents - path.monthZeroStepCents)}/mo by now; you’ve
+              stated {formatDollars(row.monthlyCents)}/mo as today’s pay. Today’s pay wins from
+              here on.
             </span>
           )}
         </li>

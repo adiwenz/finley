@@ -126,15 +126,18 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
    */
   const [notice, setNotice] = useState<string | null>(null);
   /**
-   * Which dollars the pay charts and timelines are drawn in. Off by default — today's dollars,
-   * because that is what every field on this panel COLLECTS, and a chart that silently disagreed
-   * with the number just typed into it would be the worse default. On, it is the nominal
-   * paycheck the projection pays, CPI and all.
+   * Which dollars the pay charts and timelines are drawn in. Off by default — the PAYCHECK of
+   * each month, which is both what the projection pays and what every field on this panel
+   * collects: a past salary is authored in the money of its own year. A chart disagreeing with
+   * the number just typed into it would be the worse default.
+   *
+   * On, the whole span is divided back to today's money, so a flat line means flat purchasing
+   * power and the past is comparable with today's pay. That reading is derived, never authored.
    *
    * One toggle for the whole panel rather than one per row: two jobs drawn in different money
    * cannot be compared, and comparing them is most of why they are stacked on one axis.
    */
-  const [inFutureDollars, setInFutureDollars] = useState(false);
+  const [inTodaysDollars, setInTodaysDollars] = useState(false);
   // Per PERSON, not per household: the elective limit belongs to the earner.
   const deferralCrossing = useMemo(
     () => firstDeferralLimitCrossing(owners, budget.inflationPct),
@@ -214,10 +217,10 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
           <label className={styles.denomination}>
             <input
               type="checkbox"
-              checked={inFutureDollars}
-              onChange={(e) => setInFutureDollars(e.target.checked)}
+              checked={inTodaysDollars}
+              onChange={(e) => setInTodaysDollars(e.target.checked)}
             />
-            Show future dollars (with {budget.inflationPct}% inflation)
+            Show in today’s money (adjust for {budget.inflationPct}% inflation)
           </label>
         <ul className={styles.list}>
           {rows.map(({ owner, job, label }) => {
@@ -228,7 +231,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
             // timeline lists, read straight off the two authored anchors. Chart and timeline
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
-            const path = jobPayPathFor(owner, job, inFutureDollars ? budget.inflationPct / 100 : 0);
+            const path = jobPayPathFor(owner, job, budget.inflationPct / 100, inTodaysDollars);
             const currentAge = ownerAgeAtMonth(owner.birthYear, 0);
             const startAge = jobStartAgeFor(owner.birthYear, job);
             // The last age the job still pays: its span end is exclusive, so a change dated
@@ -274,7 +277,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                   birthYear={owner.birthYear}
                   lifeExpectancy={budget.lifeExpectancy}
                   label={label}
-                  inFutureDollars={inFutureDollars}
+                  inTodaysDollars={inTodaysDollars}
                   onPickAge={(age) =>
                     setAuthoring({ kind: "payChange", id: job.id, seedAge: age })
                   }

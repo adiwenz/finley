@@ -21,6 +21,14 @@ export type PersonId = string;
  * compensation reconstruction** — what was actually earned from the job's start through month
  * −1, with {@link JobPayChange}s and {@link JobIncomeOverride}s layered on in date order.
  *
+ * It is stated in **the money of that year** — the actual paycheck, what the payslip said —
+ * NOT in today's dollars. This is the one authored figure in the model denominated in anything
+ * other than today's money, and deliberately so: a past wage is a fact the user remembers, and
+ * asking them to restate it in dollars that did not exist yet is a conversion they should never
+ * have to do. The engine takes it verbatim and inflates it forward, rather than de-indexing it
+ * backward. `JobPayChange.cents` is dated the same way, so every past figure in the model is
+ * the paycheck of its own month and they compose without conversion.
+ *
  * `currentSalaryCents` anchors the job at month 0 and is **authoritative for everything
  * forward**: future growth and future pay changes compound from it, never from the
  * reconstructed history.
@@ -32,8 +40,8 @@ export type PersonId = string;
  */
 export interface SalaryTrajectory {
   /**
-   * Annual, as of the owning job's `startYear`, in today's dollars. Drives the historical
-   * reconstruction only — never the projected income series.
+   * Annual, as of the owning job's `startYear`, **in that year's money** — the paycheck as it
+   * was. Drives the historical reconstruction only, never the projected income series.
    */
   readonly startingSalaryCents: Cents;
   /**
@@ -225,7 +233,15 @@ export function withJobPatch(job: Job, patch: JobPatch): Job {
  * Sets BOTH salary anchors to the stated figure: "this job pays X" means a flat history, and
  * the deviations from it are exactly what a {@link JobPayChange} is for. That is the right rule
  * for a job stated in ONE number — a job being authored for the first time, or a surface that
- * shows one salary field. A surface that shows the two anchors separately writes them with
+ * shows one salary field.
+ *
+ * Flat in **paycheck** terms, note, not in real terms: the start anchor is the money of the
+ * job's own year (see {@link SalaryTrajectory}), so a long-running job stated in one number
+ * says "the payslip read X then and reads X now" — a real-terms decline. Correcting for that
+ * would mean deriving one anchor from the other through CPI, which is exactly what the two
+ * independent anchors exist to avoid; a user who means something else states the two.
+ *
+ * A surface that shows the two anchors separately writes them with
  * {@link withStartingMonthlyIncome} / {@link withCurrentMonthlyIncome} instead, so that editing
  * one authored fact cannot silently overwrite the other.
  */
@@ -409,8 +425,18 @@ export interface JobPayPath {
    */
   readonly historyReachMonthlyCents: Cents | null;
   /**
-   * `currentSalaryCents` minus what history reached — the step at month 0, positive for a jump
-   * up. 0 when the job has no history, or none left to reach the seam.
+   * `currentSalaryCents` minus what the history would pay in month 0 if it simply kept running
+   * — the step at the seam, positive for a jump up. 0 when the job has no history.
+   *
+   * Measured against the history CONTINUED to month 0, not against
+   * {@link historyReachMonthlyCents} at month −1. Those two differ by a whole growth step,
+   * because pay is flat within a growth year and month −1 falls in the year before month 0's.
+   * Comparing them would report that step as a discrepancy on every job that grows at all,
+   * including one whose anchors agree perfectly — the arithmetic of annual growth, dressed up
+   * as an authored disagreement.
+   *
+   * Reported to the nearest dollar, and 0 when the two agree to within one: a few cents of
+   * year-by-year rounding is not a fact about anyone's pay.
    */
   readonly monthZeroStepCents: Cents;
 }
@@ -424,27 +450,28 @@ interface PaySegment {
 /** How to denominate the path. */
 export interface JobPayPathOptions {
   /**
-   * CPI as a decimal (0.03 = 3%). Default 0 — **today's dollars**, the denomination the panel
-   * authors in and the one the two salary anchors are stated in.
-   *
-   * Pass the plan's rate to get the **nominal paycheck** instead: the salary anchors are
-   * CPI-indexed to the month they are read at and growth compounds real with CPI, exactly as
-   * `compilePerson` does it, so the figures match what the projection actually pays.
-   *
-   * One asymmetry to know about, and it is inherited rather than introduced here: a
-   * {@link JobPayChange}'s `cents` is documented as *nominal at its own month*, so it is taken
-   * verbatim in BOTH denominations. In today's-dollars mode a change is therefore the one
-   * figure on the path not deflated to today — it is shown as authored. The engine has always
-   * read it this way; charting it simply makes the wrinkle visible.
+   * CPI as a decimal (0.03 = 3%). Default 0. Needed in BOTH denominations — it is what the
+   * paycheck grows by, and separately what converts one denomination into the other.
    */
   readonly inflationRate?: number;
+  /**
+   * `"paycheck"` (default) is the figure on the payslip of each month: past anchors and pay
+   * changes verbatim, since they are already stated in the money of their own month, growing
+   * at real-plus-CPI from there. This is what the projection pays, to the cent.
+   *
+   * `"todaysDollars"` divides that by CPI back to month 0, so the whole span is comparable
+   * against each other and against today's pay — a real-terms reading, where a flat line means
+   * flat purchasing power. Month 0 is identical under both, because today's money IS the
+   * paycheck today.
+   */
+  readonly denomination?: "paycheck" | "todaysDollars";
 }
 
 export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions): JobPayPath {
   const { startMonth, endMonthExclusive } = span;
   const inflationRate = opts?.inflationRate ?? 0;
-  // Real and CPI compounded together — the same rate `salaryGrowthMode` builds. At the default
-  // 0% CPI this collapses to the real rate, so today's dollars is not a separate code path.
+  const inTodaysDollars = opts?.denomination === "todaysDollars";
+  // Real and CPI compounded together — the same rate `salaryGrowthMode` builds.
   const realGrowth = job.salary.realGrowthPct / 100;
   const annualGrowth = (1 + realGrowth) * (1 + inflationRate) - 1;
   /**
@@ -482,16 +509,18 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
   // the forward side is anchored at month 0 and clipped to the job's start if it begins later.
   const historyEndExclusive = Math.min(endMonthExclusive, 0);
   const forwardStart = Math.max(startMonth, 0);
-  // The start anchor is stated in today's dollars, so a nominal reading has to CPI-index it
-  // BACK to the job's own start — the paycheck of 2004 was smaller in 2004 money. Rounded in
-  // the same order `reconstructHistoricalCompensation` rounds, so the two agree to the cent.
-  // The month-0 anchor needs no such step: today's dollars ARE nominal at month 0.
-  const historyAnchorMonthlyCents = Math.round(
-    Math.round(job.salary.startingSalaryCents * Math.pow(1 + inflationRate, startMonth / 12)) / 12,
-  );
+  // Both anchors verbatim: each is already the paycheck of the month it anchors — the start
+  // one in its own year's money, the current one in today's, which is the same thing at month
+  // 0. Nothing is converted on the way in, exactly as `reconstructHistoricalCompensation` and
+  // `compileJobIncome` read them.
   const history =
     historyEndExclusive > startMonth
-      ? segmentsOf(startMonth, historyAnchorMonthlyCents, startMonth, historyEndExclusive - 1)
+      ? segmentsOf(
+          startMonth,
+          Math.round(job.salary.startingSalaryCents / 12),
+          startMonth,
+          historyEndExclusive - 1,
+        )
       : null;
   const forward =
     endMonthExclusive > forwardStart
@@ -503,6 +532,17 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
         )
       : null;
 
+  /**
+   * The one place a denomination is applied, so every figure below it agrees by construction.
+   * CPI back to month 0 — continuous, not the annual step `grown` uses, because this is a unit
+   * conversion and not another year of growth. A no-op for the paycheck reading, and at month 0
+   * in either.
+   */
+  const denominated = (nominalCents: Cents, month: number): Cents =>
+    inTodaysDollars && inflationRate !== 0
+      ? Math.round(nominalCents / Math.pow(1 + inflationRate, month / 12))
+      : nominalCents;
+
   const at = (segments: PaySegment[], month: number): Cents => {
     let held = segments[0];
     for (const s of segments) if (s.fromMonth <= month) held = s;
@@ -512,20 +552,28 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
   const monthlyCentsAt = (month: number): Cents => {
     if (month < startMonth || month >= endMonthExclusive) return 0;
     const side = month < 0 ? history : forward;
-    return side === null ? 0 : at(side, month);
+    return side === null ? 0 : denominated(at(side, month), month);
   };
 
-  const historyReachMonthlyCents = history === null ? null : at(history, historyEndExclusive - 1);
+  const historyReachMonth = historyEndExclusive - 1;
+  const historyReachMonthlyCents =
+    history === null ? null : denominated(at(history, historyReachMonth), historyReachMonth);
   const endedBeforeNow = endMonthExclusive <= 0;
+
+  // What the history would pay in month 0 if nothing stopped it — the like-for-like partner
+  // for the current anchor, which needs no conversion in either denomination because it IS
+  // month 0.
+  const historyContinuedToMonthZero = history === null ? null : at(history, 0);
+  const rawStep =
+    historyContinuedToMonthZero === null || endedBeforeNow
+      ? 0
+      : Math.round(job.salary.currentSalaryCents / 12) - historyContinuedToMonthZero;
 
   return {
     span,
     endedBeforeNow,
     monthlyCentsAt,
     historyReachMonthlyCents,
-    monthZeroStepCents:
-      historyReachMonthlyCents === null || endedBeforeNow
-        ? 0
-        : Math.round(job.salary.currentSalaryCents / 12) - historyReachMonthlyCents,
+    monthZeroStepCents: Math.abs(rawStep) < 100 ? 0 : Math.round(rawStep / 100) * 100,
   };
 }

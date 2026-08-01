@@ -40,9 +40,18 @@ export function addIncomeOverride(plan: Plan, jobId: string, override: JobIncome
   return adjusted(plan, (p) => p.addJobIncomeOverride(jobId, override));
 }
 
-/** Set a job's monthly salary (today's dollars). */
+/**
+ * Set BOTH salary anchors from one figure — "the payslip reads X, and read X at the start too".
+ * On a job with a past that also restates its history, so a fixture whose point is today's pay
+ * wants {@link setJobCurrentMonthlyIncome} instead.
+ */
 export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
   return adjusted(plan, (p) => p.setJobMonthlyIncome(id, monthlyCents));
+}
+
+/** Set only the month-0 anchor — a raise now, leaving what the job paid in the past alone. */
+export function setJobCurrentMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
+  return adjusted(plan, (p) => p.setJobCurrentMonthlyIncome(id, monthlyCents));
 }
 
 /** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */

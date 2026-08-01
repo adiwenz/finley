@@ -75,7 +75,7 @@ interface PayChartProps {
   readonly lifeExpectancy: number;
   readonly label: string;
   /** Names the denomination in the summary, so a reader is never guessing which dollars. */
-  readonly inFutureDollars: boolean;
+  readonly inTodaysDollars: boolean;
   /** Seed a pay change at the clicked age. */
   readonly onPickAge: (age: number) => void;
 }
@@ -85,7 +85,7 @@ export function PayChart({
   birthYear,
   lifeExpectancy,
   label,
-  inFutureDollars,
+  inTodaysDollars,
   onPickAge,
 }: PayChartProps) {
   const currentAge = ownerAgeAtMonth(birthYear, 0);
@@ -135,7 +135,7 @@ export function PayChart({
       role="img"
       aria-label={
         `Monthly pay across ${label}, from age ${startAge} to ${endAge}, ` +
-        `in ${inFutureDollars ? "future dollars" : "today’s dollars"}, ` +
+        `in ${inTodaysDollars ? "today’s money" : "the paycheck of each month"}, ` +
         `topping out at ${formatDollars(peak)} a month` +
         (hasSeam
           ? `. At ${currentAge} it ${step > 0 ? "steps up" : "steps down"} ${formatDollars(Math.abs(step))} a month.`

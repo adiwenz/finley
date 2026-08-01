@@ -781,23 +781,27 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // pinned in `job.test.ts` — what this panel owes is the negative month itself.
   });
 
-  it("redraws every job in future dollars, and defaults to today’s", () => {
-    // Today's dollars by default, because that is what every field on this panel collects — a
-    // chart disagreeing with the number just typed into it would be the worse default.
+  it("redraws every job in today’s money, and defaults to the paycheck", () => {
+    // The paycheck of each month by default, because that is what every field on this panel
+    // collects — a past salary is authored in the money of its own year, and a chart
+    // disagreeing with the number just typed into it would be the worse default.
     render(<Harness />);
-    const toggle = screen.getByRole("checkbox", { name: /future dollars/i });
+    const toggle = screen.getByRole("checkbox", { name: /today’s money/i });
     const startRow = () => timeline("Job 1").getByText(/Started this job/).closest("li")!;
     const nowRow = () => timeline("Job 1").getByText(/^now ·/).closest("li")!;
 
+    // The default plan is real-flat: $5,000/mo of purchasing power throughout. As PAYCHECKS
+    // that is a rising number, and the start row is the 2009 payslip — $3,025.
     expect((toggle as HTMLInputElement).checked).toBe(false);
-    expect(startRow().textContent).toContain("$5,000/mo");
+    expect(startRow().textContent).toContain("$3,025/mo");
+    expect(nowRow().textContent).toContain("$5,000/mo");
 
     fireEvent.click(toggle);
-    // Month 0 is the same in both denominations — today's dollars ARE nominal today — so the
-    // "now" row is unmoved. What moves is the history behind it: $5,000 authored as the pay at
-    // 18 was a smaller paycheck in the money of the day, seventeen years ago.
+    // In today's money the same job is FLAT, which is what "real-flat" means and what the
+    // plan has always meant. Month 0 is unmoved either way: today's money IS the paycheck
+    // today, so the toggle can never disturb the anchor the projection starts from.
+    expect(startRow().textContent).toContain("$5,000/mo");
     expect(nowRow().textContent).toContain("$5,000/mo");
-    expect(startRow().textContent).not.toContain("$5,000/mo");
   });
 
   it("keeps a raise dated at today's age, and says it starts next month", () => {
@@ -830,8 +834,12 @@ describe("JobsPanel — authoring a job's pay history", () => {
     render(<Harness initial={withHistory} />);
     // Neutral wording, and no reconciliation offered: the step is an authored fact, and the
     // engine deliberately does not close it.
-    expect(screen.getByText(/History reaches \$5,000\/mo/)).toBeTruthy();
-    expect(screen.getByText(/Today’s pay wins from here on/)).toBeTruthy();
+    // The history is real-flat $5,000/mo of purchasing power, so by now it runs to $5,000 as
+    // a paycheck — against the $6,667 just stated.
+    expect(screen.getByTestId("seam-note").textContent).toContain(
+      "Your history runs to $5,000/mo by now",
+    );
+    expect(screen.getByTestId("seam-note").textContent).toContain("Today’s pay wins from here on");
     // The chart says it too, as a shape. Recharts draws nothing in jsdom, so the step is
     // asserted through the data mirror the chart renders beside it.
     expect(screen.getByTestId("pay-chart-seam").textContent).toBe(
@@ -841,7 +849,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     fireEvent.change(spin(/Monthly salary now/i), { target: { value: "5000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    expect(screen.queryByText(/History reaches/)).toBeNull();
+    expect(screen.queryByTestId("seam-note")).toBeNull();
     // Anchors agreed: no step to draw, and no annotation left on the chart either.
     expect(screen.getByTestId("pay-chart-seam").textContent).toBe("0");
   });
@@ -870,7 +878,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     expect(within(screen.getByLabelText("Job 1")).getByText("ended at age 26")).toBeTruthy();
     // No seam row on the timeline, and no seam note.
     expect(timeline("Job 1").queryByText(/^now ·/)).toBeNull();
-    expect(screen.queryByText(/History reaches/)).toBeNull();
+    expect(screen.queryByTestId("seam-note")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     expect(screen.queryByRole("spinbutton", { name: /Monthly salary now/i })).toBeNull();
