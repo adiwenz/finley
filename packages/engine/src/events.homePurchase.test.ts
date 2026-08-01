@@ -12,6 +12,8 @@ import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { personLit } from "./events.testSupport";
 import { planAccount, type PlanAccount } from "./planAccount";
 import type { PersonId } from "./job";
+import { PRE_NOW_MONTH } from "./projection/nowMarker";
+import { validateLedger } from "./ledger/validateLedger";
 
 function savings(openingCents: number, rate = 0): PlanAccount {
   return planAccount({
@@ -37,6 +39,12 @@ const PRICE = 30_000_000; // $300k
 const DOWN = 6_000_000; // $60k
 const FINANCED = PRICE - DOWN; // $240k
 
+/**
+ * The property half of a purchase — a slimmed `HomePurchaseEvent` that acquires the home and
+ * drains the down payment. Financing is a separate `LoanEvent` ({@link mortgage}); a bare
+ * `purchase()` is a cash acquisition (no `securedByLiabilityId`), which the down-payment gate
+ * scrutinises identically since the gate never depends on the mortgage.
+ */
 function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   return {
     id: "buy1",
@@ -47,9 +55,22 @@ function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
     purchasePriceCents: PRICE,
     downPaymentCents: DOWN,
     downPaymentSourceIds: ["savings"],
-    mortgageLiabilityId: "mtg1",
-    mortgageApr: 0,
-    mortgageTermMonths: 360,
+    ...overrides,
+  } as NewLifeEvent;
+}
+
+/** The financing mortgage a purchase names — a `LoanEvent` the property secures against. */
+function mortgage(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
+  return {
+    id: "mtg1",
+    type: "LoanEvent",
+    month: 3,
+    liabilityId: "mtg1",
+    ownerId: "p1",
+    kind: "mortgage",
+    openingBalanceCents: FINANCED,
+    apr: 0,
+    termMonths: 360,
     ...overrides,
   } as NewLifeEvent;
 }
@@ -61,10 +82,27 @@ function addWithBase(ledger: Ledger, base: LedgerBaseConfig, event: NewLifeEvent
   return result.ledger;
 }
 
+/**
+ * Append a financed purchase the way `buyHome` composes one: the mortgage first (so it replays
+ * before the home, whose precondition needs it present), then the property securing it at the
+ * same month. The financed balance follows the price/down overrides.
+ */
+function addFinanced(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  homeOverrides: Partial<NewLifeEvent> = {},
+): Ledger {
+  const o = homeOverrides as { month?: number; purchasePriceCents?: number; downPaymentCents?: number };
+  const month = o.month ?? 3;
+  const financed = (o.purchasePriceCents ?? PRICE) - (o.downPaymentCents ?? DOWN);
+  const withMortgage = addWithBase(ledger, base, mortgage({ month, openingBalanceCents: financed }));
+  return addWithBase(withMortgage, base, purchase({ ...homeOverrides, securedByLiabilityId: "mtg1" }));
+}
+
 describe("HomePurchaseEvent", () => {
   it("creates a property, its mortgage, and a down-payment outflow", () => {
     const base = baseWith(10_000_000); // $100k liquid
-    const ledger = addWithBase(emptyLedger, base, purchase());
+    const ledger = addFinanced(emptyLedger, base);
     const household = interpretLedger(ledger, base);
 
     expect(household.properties).toHaveLength(1);
@@ -78,9 +116,39 @@ describe("HomePurchaseEvent", () => {
     expect(household.liabilities[0].openingBalanceCents).toBe(FINANCED);
   });
 
-  it("conserves net worth at the purchase month (property = down + mortgage)", () => {
+  it("rejects a purchase whose securing liability has not been minted", () => {
+    // The link is referential: naming a liability no prior event created is a dangling pointer,
+    // caught the same way `debtPayoff` catches a missing liability.
+    const base = baseWith(10_000_000);
+    const result = addEvent(emptyLedger, base, purchase({ securedByLiabilityId: "ghost" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/securing liability "ghost" not found/);
+  });
+
+  it("requires the mortgage to be ordered before the property it secures", () => {
+    // Same-month events replay in append order, so the mortgage appended second would replay
+    // second and the property would strand — the ordering the precondition enforces.
+    const base = baseWith(10_000_000);
+    const outOfOrder = addEvent(emptyLedger, base, purchase({ securedByLiabilityId: "mtg1" }));
+    expect(outOfOrder.ok).toBe(false);
+
+    // Loan first, then the property: accepted.
+    const inOrder = addFinanced(emptyLedger, base);
+    expect(interpretLedger(inOrder, base).properties[0].mortgageLiabilityId).toBe("mtg1");
+  });
+
+  it("acquires a cash home with no securing liability", () => {
+    // The link is optional: a purchase can omit it entirely and stand as a lone property.
     const base = baseWith(10_000_000);
     const ledger = addWithBase(emptyLedger, base, purchase());
+    const household = interpretLedger(ledger, base);
+    expect(household.properties[0].mortgageLiabilityId).toBeNull();
+    expect(household.liabilities).toHaveLength(0);
+  });
+
+  it("conserves net worth at the purchase month (property = down + mortgage)", () => {
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
     expect(series.months[2].netWorthNominalCents).toBe(10_000_000);
@@ -99,7 +167,7 @@ describe("HomePurchaseEvent", () => {
     // months[0] rather than silently skipping the draw and granting the property's equity for
     // free. Net worth is conserved: −DOWN cash, +PRICE property, −FINANCED mortgage.
     const base = baseWith(10_000_000);
-    const ledger = addWithBase(emptyLedger, base, purchase({ month: 0 }));
+    const ledger = addFinanced(emptyLedger, base, { month: 0 });
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
     // `opening` is untouched — the purchase hasn't run at "now".
@@ -143,7 +211,6 @@ describe("HomePurchaseEvent", () => {
       ...(purchase({ month: 2 }) as object),
       id: "buy2",
       propertyId: "house2",
-      mortgageLiabilityId: "mtg2",
     } as NewLifeEvent);
     const household = interpretLedger(ledger, base);
     expect(household.properties.map((p) => p.id).sort()).toEqual(["house1", "house2"]);
@@ -296,17 +363,100 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
   });
 });
 
-describe("removeEvent — HomePurchaseEvent", () => {
-  it("removes the property and its mortgage together", () => {
+describe("removeEvent — a decomposed home purchase", () => {
+  it("removing the property leaves the standalone mortgage — 'sold the house, still owe'", () => {
+    // The property names its mortgage, not the reverse, so there is no causedBy edge to pull the
+    // loan out with the home. The mortgage is a plain liability that outlives the house.
     const base = baseWith(10_000_000);
-    const ledger = addWithBase(emptyLedger, base, purchase());
+    const ledger = addFinanced(emptyLedger, base);
     const result = removeEvent(ledger, "buy1", base);
     expect(result.ok).toBe(true);
     if (result.ok) {
       const household = interpretLedger(result.ledger, base);
       expect(household.properties).toHaveLength(0);
-      expect(household.liabilities).toHaveLength(0);
+      expect(household.liabilities.map((l) => l.id)).toEqual(["mtg1"]);
     }
+  });
+
+  it("blocks removing the mortgage while the property still names it", () => {
+    // The property's precondition strands on replay: removing the loan the house is secured by
+    // would leave a dangling reference, so the removal is refused and names the offending event.
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
+    const result = removeEvent(ledger, "mtg1", base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("buy1");
+      expect(result.conflict).toMatch(/securing liability "mtg1" not found/);
+    }
+  });
+});
+
+/** The property half of a HOLDING — a pre-existing home dated at the now marker, opening at its
+ * current value with no down payment. Owned outright unless a `securedByLiabilityId` is added. */
+function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
+  return purchase({
+    month: PRE_NOW_MONTH,
+    downPaymentCents: 0,
+    downPaymentSourceIds: [],
+    ...overrides,
+  });
+}
+
+describe("HomePurchaseEvent — a holding (a home already owned at start)", () => {
+  it("opens the property at its value with no down-payment draw, drawing on no source", () => {
+    // A near-empty account: a holding names no source and drains nothing, so the purchase stands
+    // where a same-priced transaction would be hard-blocked for want of funds.
+    const base = baseWith(100_000);
+    const ledger = addWithBase(emptyLedger, base, holding());
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // On the books at "now": the property opens at its full value and savings is untouched.
+    expect(series.opening.propertyValuesCents.house1).toBe(PRICE);
+    expect(series.opening.accountBalancesCents.savings).toBe(100_000);
+    expect(series.months[0].accountBalancesCents.savings).toBe(100_000);
+  });
+
+  it("carries acquiredMonth and originalPriceCents without touching the opening value", () => {
+    const base = baseWith(100_000);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      holding({ acquiredMonth: -96, originalPriceCents: 20_000_000 }),
+    );
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    // Behavior-free: the basis metadata is recorded but the property still opens at CURRENT value.
+    expect(series.opening.propertyValuesCents.house1).toBe(PRICE);
+  });
+
+  it("rejects a property holding dated at a negative month other than the now marker", () => {
+    // Anchors (marriage, birth) sit at any true past month, but a holding opens at CURRENT terms,
+    // so its only valid pre-now date is the now marker — a `-5` would ask the sim to reconstruct
+    // an origination it deliberately does not model.
+    const base = baseWith(10_000_000);
+    const result = addEvent(emptyLedger, base, holding({ month: -5 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/now marker/);
+  });
+
+  it("rejects a loan holding dated at a negative month other than the now marker", () => {
+    const base = baseWith(10_000_000);
+    const result = addEvent(emptyLedger, base, mortgage({ month: -5 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/now marker/);
+  });
+
+  it("rejects a mis-dated holding on import, so a hand-edited ledger cannot smuggle one in", () => {
+    // Bypassing the authoring methods, a raw ledger carries the property at `-5`; the import gate
+    // replays each event's precondition and strands here.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [{ ...holding({ month: -5 }), sequenceNumber: 1 } as unknown as Ledger["events"][number]],
+      nextSequenceNumber: 2,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/now marker/);
   });
 });
 
@@ -340,11 +490,10 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
       liquidAcct("savings", 4_000_000),
       liquidAcct("brokerage", 4_000_000),
     ]);
-    const ledger = addWithBase(
-      emptyLedger,
-      base,
-      purchase({ month: 3, downPaymentSourceIds: ["savings", "brokerage"] }),
-    );
+    const ledger = addFinanced(emptyLedger, base, {
+      month: 3,
+      downPaymentSourceIds: ["savings", "brokerage"],
+    });
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
 
     expect(series.months[2].accountBalancesCents.savings).toBe(4_000_000);
@@ -505,11 +654,7 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
   it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
     // An otherwise-identical no-tax run isolates the tax from the month's growth.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
-    const ledger = addWithBase(
-      emptyLedger,
-      base,
-      purchase({ month: 12, downPaymentSourceIds: ["brokerage"] }),
-    );
+    const ledger = addFinanced(emptyLedger, base, { month: 12, downPaymentSourceIds: ["brokerage"] });
     const household = interpretLedger(ledger, base);
     const taxed = buildProjection(household, base, flatCapitalGains(0.2));
     const untaxed = buildProjection(household, base, nullJurisdiction);
@@ -529,11 +674,7 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
   it("conserves net worth for a cash-funded down payment (no gain → no tax)", () => {
     // basis == balance → no embedded gain.
     const base = baseWithAccounts([liquidAcct("savings", 10_000_000, 0)]);
-    const ledger = addWithBase(
-      emptyLedger,
-      base,
-      purchase({ month: 3, downPaymentSourceIds: ["savings"] }),
-    );
+    const ledger = addFinanced(emptyLedger, base, { month: 3, downPaymentSourceIds: ["savings"] });
     const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
     const at = series.months[3];
     expect(at.flows!.taxCents).toBe(0);
@@ -629,7 +770,6 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     id: "buy2",
     month: 23,
     propertyId: "house2",
-    mortgageLiabilityId: "mtg2",
     downPaymentSourceIds: ["brokerage-b"],
   });
 

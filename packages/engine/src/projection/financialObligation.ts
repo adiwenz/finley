@@ -136,13 +136,16 @@ export function expenseReportingTotal(obligations: readonly FinancialObligation[
 }
 
 /**
- * The obligation list ordered for reporting: by {@link FinancialObligation.priority} ascending
- * (lower funded first — mandatory debt and support below the needs tier, wants above), ties
- * broken on the stable {@link FinancialObligation.id}. This is the order chart bands stack in;
- * the id tie-break is what stops obligations sharing a tier from reshuffling month to month.
+ * The obligation list ordered by {@link FinancialObligation.priority} ascending (see
+ * {@link OBLIGATION_PRIORITY} for the ranking itself), ties broken on the stable
+ * {@link FinancialObligation.id} — the id tie-break is what stops obligations sharing a tier
+ * from reshuffling month to month, and from swapping which one a partial month's funding
+ * reaches first.
  *
- * The waterfall consumes an order-invariant sum, so ordering is a reporting concern alone —
- * kept out of {@link buildObligations}, whose output stays in source order.
+ * Two consumers: the order chart bands stack in, and the order {@link fundedLiabilityPayments}
+ * walks to decide which obligation a scarce month's cash actually reached. Kept out of
+ * {@link buildObligations} itself, whose output stays in source order — the waterfall's TOTAL
+ * draw is order-invariant (it only cares about the summed `automaticFundingTotal`).
  */
 export function orderObligationsByPriority(
   obligations: readonly FinancialObligation[],
@@ -150,6 +153,33 @@ export function orderObligationsByPriority(
   return [...obligations].sort(
     (a, b) => a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+}
+
+/**
+ * How much of EACH liability's scheduled payment actually got funded this month, given the
+ * total the household could actually pay toward its obligations (`fundedTotalCents` — the
+ * month's `automaticFundingTotal` minus whatever of it went unfunded).
+ *
+ * Walks every obligation — not liabilities alone — in {@link orderObligationsByPriority}'s
+ * order, spending down `fundedTotalCents` obligation by obligation; a liability's own funded
+ * amount is capped at what it's owed and at whatever budget is left when the walk reaches it.
+ * PARTIAL, not all-or-nothing: a liability only partly reachable amortizes down by exactly
+ * that partial amount, the same way a real partial payment reduces principal by what it
+ * actually pays rather than nothing. Non-liability obligations still consume their place in
+ * the walk — only a liability's own funded figure is returned.
+ */
+export function fundedLiabilityPayments(
+  obligations: readonly FinancialObligation[],
+  fundedTotalCents: Cents,
+): Map<string, Cents> {
+  const applied = new Map<string, Cents>();
+  let remaining = Math.max(0, fundedTotalCents);
+  for (const o of orderObligationsByPriority(obligations)) {
+    const appliedCents = Math.max(0, Math.min(o.amountCents, remaining));
+    remaining -= appliedCents;
+    if (o.sourceKind === "liability") applied.set(o.sourceId, appliedCents);
+  }
+  return applied;
 }
 
 /** A debt's payment named from its kind — the only human fact a liability has. */
@@ -171,13 +201,14 @@ const UNTRACKED: ObligationSource = {
 /**
  * Waterfall tiers, lower funded first — resolved from source kind, no new authoring surface.
  *
- * `mandatory` is below every expense: debt payments (preserving today's never-rationed
- * behaviour without a delinquency redesign) and court-ordered support (alimony, child support)
- * are legally non-rationable. `needs` shares the budget "needs" tier (0) so a child's cost ranks
- * beside a user's own needs lines. An authored budget line brings its own category/priority
- * ordering and never reads a default here — health included, whose `healthcare` category
- * resolves to the same tier (0); `untracked` has no provenance to rank by and funds after every
- * authored tier.
+ * `mandatory` is below every expense: debt payments and court-ordered support (alimony, child
+ * support) are legally non-rationable, so they fund FIRST — {@link fundedLiabilityPayments}
+ * only ever starves one once the shortfall is severe enough to eat into this tier itself, never
+ * because a lower-priority need or want went unfunded first. `needs` shares the budget "needs"
+ * tier (0) so a child's cost ranks beside a user's own needs lines. An authored budget line
+ * brings its own category/priority ordering and never reads a default here — health included,
+ * whose `healthcare` category resolves to the same tier (0); `untracked` has no provenance to
+ * rank by and funds after every authored tier.
  */
 export const OBLIGATION_PRIORITY = {
   mandatory: -1000,
@@ -213,7 +244,9 @@ export function obligationLiabilityId(liabilityId: string): string {
  * Series are constructed even at 0: a dormant line still exists, and a band vanishing mid-chart
  * reads as deleted rather than paused. Liabilities appear only with a payment due, and their
  * `amountCents` is what `payments` holds — the payoff-capped scheduled figure (capped by the
- * debt, never by affordability), the exact amount the simulator also applies to the balance.
+ * debt, never by affordability). Reported here at that full authored amount regardless of
+ * whether the month actually funded it — {@link import("./liabilitySteps").advanceLiabilities}
+ * is what withholds the balance reduction on a month the shortfall cascade could not cover.
  *
  * Every obligation here is `funding: automatic`; the explicit branch arrives in Slice #4.
  */

@@ -32,6 +32,26 @@ export interface MarryInput {
 }
 
 /**
+ * A partner already present at simulation start — an anchor, keyed on how long the household has
+ * been together. The partnering is placed at its true past month (`-partneredForMonths`), which
+ * is what lets a separation be dated before "now" and, later, a life axis render the relationship.
+ * The partner's income still compiles from month 0 (the membership window clips it), so only the
+ * partnering's position — not a reconstructed past — drives the forward projection.
+ *
+ * Same shape as {@link MarryInput} but for `month`: a marriage happens AT a plan month the caller
+ * picks, an existing partnering is measured BACKWARD from now, so the two never share a field.
+ */
+export interface StartPartneredInput {
+  /** Months the household has been together; a positive integer, so the anchor lands before "now". */
+  readonly partneredForMonths: number;
+  readonly name: string;
+  readonly birthYear: number;
+  readonly retirementTargetAge?: number;
+  readonly benefitClaimingAge?: number;
+  readonly jobs?: readonly JobInput[];
+}
+
+/**
  * A child joins the household. `birthMonth` defaults to `month` — recording a birth as it
  * happens; they differ only when a pre-existing child is entered after the fact (a birth month
  * at or below 0). A positive `annualCostCents` spawns the linked 18-year cost stream; 0 records
@@ -42,6 +62,19 @@ export interface HaveChildInput {
   readonly name: string;
   readonly annualCostCents: number;
   readonly birthMonth?: number;
+}
+
+/**
+ * A child who was ALREADY born — an anchor, keyed on the child's age. The birth is placed at its
+ * true past month (`-ageMonths`), which is exactly what clips the 18-year cost stream to the
+ * years of childhood that remain. `annualCostCents` is today's cost of a full year, unchanged by
+ * how much of childhood is already spent; the clip, not a smaller figure, yields the remainder.
+ */
+export interface HaveExistingChildInput {
+  readonly name: string;
+  /** Months since birth; a positive integer, so the birth anchor lands strictly before "now". */
+  readonly ageMonths: number;
+  readonly annualCostCents: number;
 }
 
 /**
@@ -94,6 +127,25 @@ export function applyMarriage(
 }
 
 /**
+ * Author a partner already present at start. Reuses {@link applyMarriage} — a partnering IS a
+ * `RelationshipEvent`, only dated at its true past month — so it shares the person-and-jobs
+ * minting and answers with the same minted `"person-N"` id.
+ */
+export function applyStartPartnered(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  input: StartPartneredInput,
+): Written<string> {
+  if (!Number.isInteger(input.partneredForMonths) || input.partneredForMonths <= 0) {
+    throw new Error(
+      `Projection: partneredForMonths must be a positive integer (got ${input.partneredForMonths})`,
+    );
+  }
+  const { partneredForMonths, ...rest } = input;
+  return applyMarriage(state, jurisdiction, { ...rest, month: -partneredForMonths });
+}
+
+/**
  * Answers with the minted `"child-N"` id, which is both the event's id and the durable child's —
  * one id, so the cost stream this spawns and the child it belongs to are addressed the same way,
  * exactly as a home purchase does for a property.
@@ -121,6 +173,31 @@ export function applyChild(
     ),
     result: id,
   };
+}
+
+/**
+ * Record an already-born child as an anchor at its birth month. Reuses {@link applyChild}: both
+ * the event and the birth are dated `-ageMonths`, so the child is a past life event whose cost
+ * stream the engine clips to the remaining months exactly as it does a birth authored forward.
+ * Answers with the minted `"child-N"` id.
+ */
+export function applyHaveExistingChild(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  input: HaveExistingChildInput,
+): Written<string> {
+  if (!Number.isInteger(input.ageMonths) || input.ageMonths <= 0) {
+    throw new Error(
+      `Projection: an existing child's ageMonths must be a positive integer (got ${input.ageMonths})`,
+    );
+  }
+  const birthMonth = -input.ageMonths;
+  return applyChild(state, jurisdiction, {
+    month: birthMonth,
+    name: input.name,
+    annualCostCents: input.annualCostCents,
+    birthMonth,
+  });
 }
 
 /**

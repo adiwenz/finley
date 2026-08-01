@@ -57,9 +57,6 @@ function blockedGoalState(): ProjectionState {
     purchasePriceCents: dollarsToCents(500_000),
     downPaymentCents: dollarsToCents(100_000),
     downPaymentSourceIds: [fundAccountId],
-    mortgageLiabilityId: "mtg1",
-    mortgageApr: 0,
-    mortgageTermMonths: 360,
   };
   return Projection.fromState(
     stateOf(plan, { events: [purchase], nextSequenceNumber: 1 }),

@@ -4,9 +4,10 @@ import type { SimState } from "./runState";
 import type { LiabilityPaymentRecord } from "./simulate.types";
 
 /**
- * Step 4: this month's payment for every liability, on beginning-of-month balances. Returned
- * so advanceLiabilities applies the exact same figure, keeping the cash outflow (step 5) and
- * the balance update consistent.
+ * Step 4: this month's SCHEDULED payment for every liability, on beginning-of-month balances
+ * — what obligation reporting and {@link buildLiabilityPaymentRecords} always show, regardless
+ * of what the household could actually fund. {@link advanceLiabilities} reduces the balance by
+ * that funded amount instead, which this figure only upper-bounds.
  *
  * Each liability computes its own payment ({@link SimLiability.monthlyPaymentCents}), capped
  * at the payoff so a small balance is never over-charged.
@@ -52,9 +53,12 @@ export function buildLiabilityPaymentRecords(
  * exhausted).
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
- * terminal failure condition, surfaced as `isInsolvent` and a null net worth. Nothing
- * per-line is derived from it (see {@link import("./financialObligation").buildObligations}
- * for why an obligation is reported at its authored amount rather than rationed).
+ * terminal failure condition, surfaced as `isInsolvent` and a null net worth. This function
+ * itself derives nothing per-line — obligations still report at their authored amount
+ * regardless (see {@link import("./financialObligation").buildObligations}) — but the caller
+ * combines this return with the pre-cascade obligation/contribution split to work out which
+ * liability the household's real covering capacity actually reached (see {@link
+ * import("./financialObligation").fundedLiabilityPayments}).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -87,11 +91,17 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
  * worth. A lump sum can drive the balance below the precomputed schedule; the payoff cap in
  * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
  * early, payment unchanged).
+ *
+ * `appliedPayments` is PER LIABILITY — what THIS liability's payment actually got funded this
+ * month, from {@link import("./financialObligation").fundedLiabilityPayments} (never more than
+ * `computeLiabilityPayments` scheduled). Interest still accrues on the full balance regardless;
+ * only the payment reduction reflects what was actually funded, so a liability whose payment
+ * came up short does not amortize down as though it succeeded.
  */
 export function advanceLiabilities(
   state: SimState,
   month: number,
-  payments: ReadonlyMap<string, Cents>,
+  appliedPayments: ReadonlyMap<string, Cents>,
 ): void {
   for (const liab of state.liabilities) {
     if (month < liab.startMonth) continue; // not originated yet — stays at 0
@@ -112,6 +122,7 @@ export function advanceLiabilities(
       continue;
     }
     bal = Math.round(bal * (1 + liab.apr / 12));
-    state.liabilityBalances.set(liab.id, Math.max(0, bal - (payments.get(liab.id) ?? 0)));
+    const appliedCents = appliedPayments.get(liab.id) ?? 0;
+    state.liabilityBalances.set(liab.id, Math.max(0, bal - appliedCents));
   }
 }

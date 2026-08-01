@@ -223,4 +223,15 @@ export interface WaterfallResult {
   readonly accountDepositsCents: ReadonlyMap<string, Cents>;
   /** Household cash shortfall to route through the cascade (0 if none). */
   readonly shortfallCents: Cents;
+  /**
+   * The slice of {@link shortfallCents} attributable to shared OBLIGATIONS (and unfunded
+   * deductions) alone, BEFORE `fundGoalsAndContributions` runs — i.e. `shortfallCents` minus
+   * the contribution shortfall. Obligations draw from take-home first and goals only draw
+   * the leftover, so this is what remained unfunded at the point obligations were priced,
+   * before a single dollar was spent on discretionary saving. A caller attributing the
+   * cascade's scarce covering capacity (savings + credit) needs this to fund obligations
+   * before contributions, mirroring {@link import("./financialObligation").OBLIGATION_PRIORITY}
+   * ranking debt/needs ahead of a goal.
+   */
+  readonly obligationShortfallCents: Cents;
 }

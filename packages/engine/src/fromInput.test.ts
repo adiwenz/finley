@@ -291,8 +291,9 @@ describe("Projection.fromInput — the engine allocates every id", () => {
    * An event and the entity it creates deliberately share one id (`takeLoan` mints the loan's
    * event and liability as a single name, `haveChild` the event and the child, and so on), so
    * those aliases are counted once here; `sharesIdWithItsEntity` below pins that they really are
-   * aliases rather than something this helper is hiding. A mortgage is the one derived id — the
-   * author never names it — so it counts separately.
+   * aliases rather than something this helper is hiding. A purchase's mortgage is its own
+   * `LoanEvent` whose id is parent-suffixed off the property (`home-N-mortgage`), counted here
+   * like any other event id.
    */
   function allIds(p: Projection): string[] {
     const ids = [
@@ -303,7 +304,6 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     for (const e of p.ledger.events) {
       ids.push(e.id);
       if (e.type === "RelationshipEvent") ids.push(...e.person.jobs.map((j) => j.id));
-      if (e.type === "HomePurchaseEvent") ids.push(e.mortgageLiabilityId);
     }
     return ids;
   }

@@ -559,5 +559,6 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     combinedDepositsByPlanCents: combinedDepositsByPlan,
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,
+    obligationShortfallCents: shortfallCents,
   };
 }

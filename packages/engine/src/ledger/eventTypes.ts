@@ -78,10 +78,15 @@ export interface SeparationEvent extends EventBase {
 }
 
 /**
- * Creates a durable {@link Property} entity with its appreciating value, originates its
- * mortgage, and drains the down payment as one-time outflows. Does NOT touch any budget
- * item — ceasing to rent is a separate, user-authored decision. Subject to the
- * down-payment hard block. Financed balance = `purchasePriceCents − downPaymentCents`.
+ * Acquires a durable {@link Property} entity with its appreciating value and drains the down
+ * payment as one-time outflows. Does NOT touch any budget item — ceasing to rent is a separate,
+ * user-authored decision. Subject to the down-payment hard block.
+ *
+ * The financing mortgage is NOT minted here — it is an independent {@link LoanEvent}, and this
+ * event only *names* it through {@link securedByLiabilityId}. Composing the two is the authoring
+ * layer's job (`buyHome` emits the loan first, then this); keeping them separate is what lets a
+ * pre-existing home reuse the same primitive as a plain property holding, and lets a cash
+ * purchase omit the link entirely.
  */
 export interface HomePurchaseEvent extends EventBase {
   readonly type: "HomePurchaseEvent";
@@ -95,11 +100,25 @@ export interface HomePurchaseEvent extends EventBase {
    * Credit is never eligible (a real mortgage rule).
    */
   readonly downPaymentSourceIds: readonly string[];
-  readonly mortgageLiabilityId: string;
-  readonly mortgageApr: number;
-  readonly mortgageTermMonths: number;
+  /**
+   * The liability financing the property, when there is one. Directional (property → liability)
+   * and referential, not owning: it must already exist when this replays, which forces the
+   * securing loan to sort first and blocks removing that loan while the property still names it.
+   * A cash purchase omits it.
+   */
+  readonly securedByLiabilityId?: string;
   /** Defaults to `inflationLinked` at base inflation. */
   readonly appreciationMode?: GrowthMode;
+  /**
+   * Basis metadata for a pre-existing home (a holding), where the true origination is off the
+   * timeline: the month it was acquired and what was originally paid. Behavior-free — the sim
+   * opens the property at `purchasePriceCents` (its CURRENT value) and no current-balance logic
+   * reads these. They exist so a future sale can compute a capital gain against a real basis and
+   * so the app can display the acquisition; a purchase authored during the plan omits them (its
+   * basis is the purchase itself).
+   */
+  readonly acquiredMonth?: number;
+  readonly originalPriceCents?: Cents;
 }
 
 interface LoanEventCommon extends EventBase, CausedByFields {

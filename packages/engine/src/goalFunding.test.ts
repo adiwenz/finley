@@ -43,9 +43,6 @@ function homePurchase(
     purchasePriceCents: dollarsToCents(300000),
     downPaymentCents: dollarsToCents(60000),
     downPaymentSourceIds: sourceIds,
-    mortgageLiabilityId: `mortgage-${id}`,
-    mortgageApr: 0.065,
-    mortgageTermMonths: 360,
   };
 }
 

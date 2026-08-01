@@ -232,9 +232,11 @@ describe("Projection root — one root for standing + ledger writes", () => {
     expect(auto).not.toHaveProperty("creditLimitCents");
   });
 
-  it("derives the mortgage liability id parent-suffixed from the property id", () => {
-    // Parent-suffixed `${propertyId}-mortgage`, so sorting groups the mortgage under its home
-    // (matching the `${partnerId}-job-N` convention), not `mortgage-${propertyId}`.
+  it("composes the mortgage loan first, then the property that secures against it", () => {
+    // A purchase is two events now: the financing `LoanEvent` and the property naming it. The
+    // mortgage id is parent-suffixed `${propertyId}-mortgage`, so a sort groups it under its home
+    // (matching the `${partnerId}-job-N` convention), and the loan is emitted first so it replays
+    // before the property, whose precondition requires the securing liability to exist.
     const p = freshProjection();
     const homeId = p.buyHome({
       month: 0,
@@ -246,10 +248,19 @@ describe("Projection root — one root for standing + ledger writes", () => {
       mortgageTermMonths: 360,
     });
     expect(homeId).toBe("home-1");
-    const event = p.state.scenario.ledger.events[0];
-    expect(event.type).toBe("HomePurchaseEvent");
-    if (event.type === "HomePurchaseEvent") {
-      expect(event.mortgageLiabilityId).toBe("home-1-mortgage");
+
+    const [mortgage, home] = p.state.scenario.ledger.events;
+    expect(mortgage.type).toBe("LoanEvent");
+    if (mortgage.type === "LoanEvent") {
+      expect(mortgage.id).toBe("home-1-mortgage");
+      expect(mortgage.liabilityId).toBe("home-1-mortgage");
+      expect(mortgage.kind).toBe("mortgage");
+      expect(mortgage.openingBalanceCents).toBe(dollarsToCents(90000)); // price − down
+    }
+    expect(home.type).toBe("HomePurchaseEvent");
+    if (home.type === "HomePurchaseEvent") {
+      expect(home.propertyId).toBe("home-1");
+      expect(home.securedByLiabilityId).toBe("home-1-mortgage");
     }
   });
 
@@ -299,6 +310,7 @@ describe("Projection root — removing a goal guards its fund account", () => {
     const s = p.state;
     const goal = s.scenario.plan.goals.find((g) => g.id === goalId);
     if (!goal) throw new Error(`test setup: no goal "${goalId}"`);
+    // A cash purchase (no securing liability): only the down-payment source matters to the guard.
     const purchase: LifeEvent = {
       id: "e1",
       type: "HomePurchaseEvent",
@@ -309,9 +321,6 @@ describe("Projection root — removing a goal guards its fund account", () => {
       purchasePriceCents: dollarsToCents(300000),
       downPaymentCents: dollarsToCents(60000),
       downPaymentSourceIds: [goalFundAccountId(goal)],
-      mortgageLiabilityId: "mortgage-home-1",
-      mortgageApr: 0.065,
-      mortgageTermMonths: 360,
     };
     return Projection.fromState(
       {
@@ -1364,7 +1373,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(event?.type === "LoanEvent" && event.kind).toBe("auto");
   });
 
-  it("keeps the property and derived mortgage ids across a buyHome revision", () => {
+  it("keeps the property and its securing-mortgage link across a buyHome revision", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
     const homeId = p.buyHome({
       month: 12, ownerId: P1,
@@ -1374,16 +1383,22 @@ describe("Projection root — a revision cannot replace an identity", () => {
       mortgageApr: 6, mortgageTermMonths: 360,
     });
     const before = p.ledger.events.find((e) => e.id === homeId);
-    const mortgageId = before?.type === "HomePurchaseEvent" ? before.mortgageLiabilityId : "";
+    const mortgageId = before?.type === "HomePurchaseEvent" ? before.securedByLiabilityId : "";
     expect(mortgageId).toBe(`${homeId}-mortgage`);
 
-    p.reviseTransaction(homeId, { type: "buyHome", mortgageApr: 5, mortgageTermMonths: 240 });
+    // The property's own fields revise through `buyHome`; the mortgage is a separate `LoanEvent`,
+    // revised through `takeLoan` on the derived id. Neither re-mints the other's identity.
+    p.reviseTransaction(homeId, { type: "buyHome", downPaymentCents: dollarsToCents(50_000) });
+    p.reviseTransaction(`${homeId}-mortgage`, { type: "takeLoan", apr: 5, termMonths: 240 });
 
     const after = p.ledger.events.find((e) => e.id === homeId);
-    expect(after?.type === "HomePurchaseEvent" && after.mortgageApr).toBe(5);
+    expect(after?.type === "HomePurchaseEvent" && after.downPaymentCents).toBe(dollarsToCents(50_000));
     expect(after?.type === "HomePurchaseEvent" && after.propertyId).toBe(homeId);
-    // The mortgage is a liability the author never named; a revision must not re-mint it.
-    expect(after?.type === "HomePurchaseEvent" && after.mortgageLiabilityId).toBe(mortgageId);
+    expect(after?.type === "HomePurchaseEvent" && after.securedByLiabilityId).toBe(mortgageId);
+
+    const mortgage = p.ledger.events.find((e) => e.id === `${homeId}-mortgage`);
+    expect(mortgage?.type === "LoanEvent" && mortgage.apr).toBe(5);
+    expect(mortgage?.type === "LoanEvent" && mortgage.kind === "mortgage" && mortgage.termMonths).toBe(240);
   });
 
   it("offers no way to name an identity, at the type level", () => {
@@ -2516,7 +2531,8 @@ describe("Projection root — authoring validates against the construction-time 
     // weaker check invisible before, now reachable only by asking for it explicitly.
     const p = nestProjection(nullJurisdiction);
     expect(() => p.buyHome(buyFromNest)).not.toThrow();
-    expect(p.ledger.events).toHaveLength(1);
+    // Two events: the financing mortgage and the property that secures against it.
+    expect(p.ledger.events).toHaveLength(2);
   });
 
   it("keeps run(jurisdiction) independent of the authoring jurisdiction", () => {

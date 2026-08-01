@@ -24,7 +24,7 @@
 import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import { SYNTHETIC_CARD_ID } from "./liability";
-import { ref } from "./scenarioInput";
+import { entryMonth, ref } from "./scenarioInput";
 import type {
   ScenarioInput,
   EventEntry,
@@ -148,8 +148,17 @@ function collectEvent(
       );
       return;
     case "haveChild":
+    case "haveExistingChild":
+      return;
+    case "startPartnered":
+      // Like `marry`, a partner's jobs are created as the entry applies and share its order.
+      entry.jobs?.forEach((job, j) =>
+        collectPartnerJob(job, order, { describe: `job ${j} of ${loc.describe}`, eventIndex: index }, decls, usages),
+      );
       return;
     case "takeLoan":
+    case "carryLoan":
+    case "ownHome":
       usages.push({ ref: entry.ownerRef, order, loc });
       return;
     case "buyHome":
@@ -199,7 +208,7 @@ export function resolveRefs(input: ScenarioInput): ResolveRefsResult {
 
   const order: ScheduledEvent[] = (input.events ?? [])
     .map((entry, index) => ({ entry, index }))
-    .sort((a, b) => a.entry.month - b.entry.month || a.index - b.index);
+    .sort((a, b) => entryMonth(a.entry) - entryMonth(b.entry) || a.index - b.index);
   order.forEach((scheduled, position) => collectEvent(scheduled, position, decls, usages));
 
   // Build the name → order map, refusing the first duplicate in application order. Seeding with the

@@ -47,9 +47,15 @@ export { UnsupportedVersionError } from "./authoring/restore";
 export type { JobInput } from "./authoring/jobs";
 export type { BudgetLineInput, ResolvedExpenseRow } from "./authoring/budgetLines";
 export type { GoalInput } from "./authoring/goals";
-export type { MarryInput, HaveChildInput, SeparateInput } from "./authoring/relationships";
+export type {
+  MarryInput,
+  HaveChildInput,
+  SeparateInput,
+  StartPartneredInput,
+  HaveExistingChildInput,
+} from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
-export type { TakeLoanInput, PayOffDebtInput } from "./authoring/liabilities";
+export type { TakeLoanInput, CarryLoanInput, PayOffDebtInput } from "./authoring/liabilities";
 export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.

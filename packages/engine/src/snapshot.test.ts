@@ -390,6 +390,21 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
   };
 }
 
+/** The financing mortgage and the property naming it — the two events a purchase decomposes to. */
+function mortgageFixture(): NewLifeEvent {
+  return {
+    id: "mtg1",
+    type: "LoanEvent",
+    month: 3,
+    liabilityId: "mtg1",
+    ownerId: "p1",
+    kind: "mortgage",
+    openingBalanceCents: PROPERTY_FINANCED,
+    apr: 0,
+    termMonths: 360,
+  } as NewLifeEvent;
+}
+
 function purchaseFixture(): NewLifeEvent {
   return {
     id: "buy1",
@@ -400,18 +415,24 @@ function purchaseFixture(): NewLifeEvent {
     purchasePriceCents: PROPERTY_PRICE,
     downPaymentCents: PROPERTY_DOWN,
     downPaymentSourceIds: ["savings"],
-    mortgageLiabilityId: "mtg1",
-    mortgageApr: 0,
-    mortgageTermMonths: 360,
+    securedByLiabilityId: "mtg1",
   } as NewLifeEvent;
+}
+
+/** Appends the mortgage first (so it replays before the property) then the property. */
+function addPurchase(base: LedgerBaseConfig): Ledger {
+  const step = (l: Ledger, e: NewLifeEvent): Ledger => {
+    const r = addEvent(l, base, e);
+    if (!r.ok) throw new Error(`event rejected: ${r.conflict}`);
+    return r.ledger;
+  };
+  return step(step(emptyLedger, mortgageFixture()), purchaseFixture());
 }
 
 describe("buildSnapshot — properties", () => {
   it("reports the property with equity = value − mortgage", () => {
     const base = propertyBase(10_000_000);
-    const ledger = addEvent(emptyLedger, base, purchaseFixture());
-    if (!ledger.ok) throw new Error(`event rejected: ${ledger.conflict}`);
-    const household = interpretLedger(ledger.ledger, base);
+    const household = interpretLedger(addPurchase(base), base);
     const series = buildProjection(household, base, nullJurisdiction);
     const snap = buildSnapshot(household, 3, series);
 
@@ -423,9 +444,7 @@ describe("buildSnapshot — properties", () => {
 
   it("does not report a property before its purchase month", () => {
     const base = propertyBase(10_000_000);
-    const ledger = addEvent(emptyLedger, base, purchaseFixture());
-    if (!ledger.ok) throw new Error(`event rejected: ${ledger.conflict}`);
-    const household = interpretLedger(ledger.ledger, base);
+    const household = interpretLedger(addPurchase(base), base);
     const series = buildProjection(household, base, nullJurisdiction);
     expect(buildSnapshot(household, 2, series).properties).toHaveLength(0);
   });

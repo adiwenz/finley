@@ -28,6 +28,7 @@ import {
   asPropertyId,
   asSeriesId,
 } from "../ids";
+import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
@@ -37,6 +38,19 @@ export interface EventHandler<E extends LifeEvent> {
 const ok: ValidationResult = { ok: true };
 function fail(event: LifeEvent, requirement: string): ValidationResult {
   return { ok: false, reason: `${event.type} "${event.id}": ${requirement}` };
+}
+
+/**
+ * A holding (loan, property, mortgage) opens at CURRENT terms, so the only pre-now date it can
+ * carry is the now marker — a `-5` would ask the sim to reconstruct an origination it does not
+ * model. Anchors (marriage, birth) are exempt: they carry no balance, so their true past month
+ * reconstructs nothing. Returns a requirement string when the month is negative but not exactly
+ * {@link PRE_NOW_MONTH}, else null. Month ≥ 0 (a transaction during the plan) always passes.
+ */
+function holdingMonthFault(month: number): string | null {
+  return isPreExisting(month) && month !== PRE_NOW_MONTH
+    ? `a holding must open at the now marker (${PRE_NOW_MONTH}), not month ${month}`
+    : null;
 }
 
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
@@ -169,6 +183,8 @@ const loan: EventHandler<LoanEvent> = {
     if (!ownerExists(state, event.ownerId)) {
       return fail(event, `owner "${event.ownerId}" not found`);
     }
+    const misdated = holdingMonthFault(event.month);
+    if (misdated) return fail(event, misdated);
     return ok;
   },
   apply(event, state) {
@@ -177,8 +193,9 @@ const loan: EventHandler<LoanEvent> = {
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
       // A loan originates at the month it is authored for, month 0 included — the same rule
-      // a Year-0 property/mortgage follows. Authoring a debt you ALREADY carry is a separate
-      // capability (a pre-existing liability, `startMonth < 0`) and is not expressible here.
+      // a Year-0 property/mortgage follows. A debt the household ALREADY carries is the same
+      // event dated at the now marker (`startMonth = -1`, minted by `carryLoan`); this handler
+      // records whatever month it is given, so the holding needs no special case.
       startMonth: event.month,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
@@ -199,11 +216,30 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (state.propertiesById.has(asPropertyId(event.propertyId))) {
       return fail(event, `property "${event.propertyId}" already exists`);
     }
-    if (state.liabilitiesById.has(asLiabilityId(event.mortgageLiabilityId))) {
-      return fail(event, `mortgage "${event.mortgageLiabilityId}" already exists`);
+    const misdated = holdingMonthFault(event.month);
+    if (misdated) return fail(event, misdated);
+    // The securing loan is a separate event; naming a liability that has not replayed yet is a
+    // dangling reference. Requiring it to exist forces the loan to sort first (same rule
+    // `debtPayoff` uses) and, symmetrically, blocks removing that loan while this property still
+    // names it — the removal replay strands here with this message.
+    if (
+      event.securedByLiabilityId !== undefined &&
+      !state.liabilitiesById.has(asLiabilityId(event.securedByLiabilityId))
+    ) {
+      return fail(event, `securing liability "${event.securedByLiabilityId}" not found`);
     }
     if (!ownerExists(state, event.ownerId)) {
       return fail(event, `owner "${event.ownerId}" not found`);
+    }
+    if (event.purchasePriceCents <= 0) {
+      return fail(event, `purchase price must be positive`);
+    }
+    // A holding (a home already owned at "now") opens at its current value with no acquisition:
+    // it names no funding source, draws no down payment, and skips the §4.5 gate below. Only a
+    // purchase authored during the plan (`month ≥ 0`) funds and gates. Everything above — owner,
+    // securing-liability, and positive-value checks — applies to both.
+    if (isPreExisting(event.month)) {
+      return ok;
     }
     if (event.downPaymentSourceIds.length === 0) {
       return fail(event, `at least one down-payment source is required`);
@@ -212,9 +248,6 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       if (!context.accountIds.has(asAccountId(sourceId))) {
         return fail(event, `down-payment source "${sourceId}" not found`);
       }
-    }
-    if (event.purchasePriceCents <= 0) {
-      return fail(event, `purchase price must be positive`);
     }
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
@@ -250,7 +283,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     return ok;
   },
   apply(event, state, context) {
-    // Property: the appreciating stock.
+    // Property: the appreciating stock. The securing loan, if any, was minted by its own
+    // LoanEvent (which sorted first); this only records the link so equity nets the two.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,
@@ -261,25 +295,20 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       appreciationMode:
         event.appreciationMode ??
         { type: "inflationLinked", annualRate: context.annualInflationRate },
-      mortgageLiabilityId: asLiabilityId(event.mortgageLiabilityId),
+      mortgageLiabilityId:
+        event.securedByLiabilityId !== undefined
+          ? asLiabilityId(event.securedByLiabilityId)
+          : null,
     });
-    // Mortgage: reuses the liability machinery — amortizes from origination like any
-    // other loan.
-    state.liabilitiesById.set(asLiabilityId(event.mortgageLiabilityId), {
-      id: asLiabilityId(event.mortgageLiabilityId),
-      causedByEventId: event.id,
-      ownerId: asPersonId(event.ownerId),
-      startMonth: event.month,
-      kind: "mortgage",
-      openingBalanceCents: event.purchasePriceCents - event.downPaymentCents,
-      apr: event.mortgageApr,
-      termMonths: event.mortgageTermMonths,
-      transfers: [],
-    });
+    // A holding is already on the books at "now" — it was acquired off the timeline, so there is
+    // no down payment to draw here; the property simply opens at its current value.
+    if (isPreExisting(event.month)) {
+      return;
+    }
     // Down payment: an ordered draw across the selected liquid sources, resolved at
-    // simulation time (the per-source split is balance-dependent — see FundingDraw).
-    // Property value + mortgage equal the price, so this outflow is the only net-worth
-    // change at purchase.
+    // simulation time (the per-source split is balance-dependent — see FundingDraw). When a
+    // securing loan covers the rest of the price, property value and that loan's balance cancel,
+    // leaving this draw as the only net-worth change at acquisition.
     state.fundingDraws.push({
       month: event.month,
       amountCents: event.downPaymentCents,

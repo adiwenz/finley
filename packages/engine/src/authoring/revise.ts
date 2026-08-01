@@ -71,13 +71,16 @@ export type TransactionRevision =
       readonly termMonths?: number;
     }
   | {
+      /**
+       * Only the property's own fields: the financing mortgage is a separate `LoanEvent` now, so
+       * its rate and term are revised through the `takeLoan` verb on the `<propertyId>-mortgage`
+       * id, not here.
+       */
       readonly type: "buyHome";
       readonly month?: number;
       readonly purchasePriceCents?: Cents;
       readonly downPaymentCents?: Cents;
       readonly downPaymentSourceIds?: readonly string[];
-      readonly mortgageApr?: number;
-      readonly mortgageTermMonths?: number;
       readonly appreciationMode?: GrowthMode;
     }
   | {
@@ -101,7 +104,7 @@ const REVISED_EVENT_TYPE: Record<TransactionRevision["type"], LifeEvent["type"]>
  * Rebuild an event with a revision's named fields applied.
  *
  * Every arm spreads `current` first, so identity — the event's own id, `childId`,
- * `partnerPersonId`, `liabilityId`, `ownerId`, `propertyId`, `mortgageLiabilityId`, the person
+ * `partnerPersonId`, `liabilityId`, `ownerId`, `propertyId`, `securedByLiabilityId`, the person
  * and their jobs — is carried rather than re-listed. Only `sequenceNumber` is dropped, because
  * the ledger reassigns it. The revision's variant is known to match `current.type`:
  * {@link reviseProjectionTransaction} refuses the pairing before calling here, which is what
@@ -179,8 +182,6 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
         purchasePriceCents: r.purchasePriceCents ?? current.purchasePriceCents,
         downPaymentCents: r.downPaymentCents ?? current.downPaymentCents,
         downPaymentSourceIds: r.downPaymentSourceIds ?? current.downPaymentSourceIds,
-        mortgageApr: r.mortgageApr ?? current.mortgageApr,
-        mortgageTermMonths: r.mortgageTermMonths ?? current.mortgageTermMonths,
         ...(appreciationMode !== undefined ? { appreciationMode } : {}),
       } as NewLifeEvent;
     }
