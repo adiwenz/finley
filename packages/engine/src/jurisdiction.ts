@@ -154,10 +154,21 @@ export interface Jurisdiction {
   /**
    * {@link computePayrollTaxCents} broken out per {@link TaxCategory} — the jurisdiction's
    * call, mirroring {@link computeTaxByCategoryCents}. REQUIRED whenever {@link
-   * computePayrollTaxCents} is supplied (the engine asserts this at runtime): the per-source
-   * attribution the waterfall builds (a job's payroll-tax charge, reported alongside its
-   * income tax) can only be derived from a per-category breakdown, so a jurisdiction that
+   * computePayrollTaxCents} is supplied (the engine asserts this at runtime).
+   *
+   * Returns the share of the person-level payroll-tax charge attributed to each income
+   * source for reporting. The engine first settles the person's COMBINED annual
+   * payroll-tax liability — subject to whatever jurisdiction rules apply (e.g. the Social
+   * Security wage cap binding on their cumulative earnings) — via {@link
+   * computePayrollTaxCents}, then attributes each month's INCREMENTAL charge back to the
+   * income sources that generated it, using this breakdown as the per-category weights. A
+   * per-category breakdown is what makes that attribution possible; a jurisdiction that
    * charges payroll tax but declines to break it down cannot be attributed correctly.
+   *
+   * This is attribution FOR REPORTING ONLY. It is NOT employer-by-employer paycheck
+   * withholding, and it does not model any employer-specific payroll-tax liability — there
+   * is no such thing as one job's or one employer's payroll tax here, only the person's
+   * total, re-apportioned across sources after the fact.
    *
    * CONTRACT: Σ of the returned map for a given cumulative input MUST equal {@link
    * computePayrollTaxCents} for that SAME input — enforced at runtime, to the exact cent.
