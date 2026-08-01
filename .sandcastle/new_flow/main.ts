@@ -13,8 +13,10 @@
 //               own sandbox on its own branch. Every agent verifies typecheck +
 //               tests inside its sandbox, writes a summary file, and signals
 //               done with <promise>COMPLETE</promise>.
-//   3. Review  — for each completed issue we push the branch (off-machine backup)
-//               and stand up a worktree so the commits can be reviewed and run.
+//   3. Review  — once an issue's implementation is complete, ONE reviewer agent
+//               reads the whole branch diff and commits refinements. Then we push
+//               the branch (off-machine backup) and stand up a worktree so the
+//               commits can be reviewed and run by a human.
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -527,6 +529,41 @@ async function runImplementer(args: {
   });
 }
 
+// One reviewer agent, once per issue, after the implementation is complete.
+//
+// Deliberately NOT per commit or per task: a task-scoped reviewer sees a slice
+// of a change it cannot judge — the abstraction that looks redundant in task 2
+// is the one task 4 reuses — and it would spend a sandbox spin-up per task to
+// re-read the same diff. Reviewing the finished branch is the first point where
+// the whole change exists, which is also the only point a reviewer can check it
+// against the issue's acceptance criteria.
+//
+// Runs before the push and the human handoff, so its commits ride along with the
+// implementation rather than needing a second round trip.
+async function runReviewer(issue: { id: string; title: string; branch: string }) {
+  return sandcastle.run({
+    hooks,
+    copyToWorktree,
+    sandbox,
+    cwd: REPO_ROOT,
+    branchStrategy: { type: "branch", branch: issue.branch },
+    name: "reviewer",
+    // Higher than the example's 1 because this reviewer edits, not just reports:
+    // it has to get the branch green again after its own refinements. Well under
+    // the implementer's budget — a review that needs 20 iterations has stopped
+    // being a review.
+    maxIterations: 20,
+    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    promptFile: "./.sandcastle/new_flow/review-prompt.md",
+    promptArgs: {
+      TASK_ID: issue.id,
+      ISSUE_TITLE: issue.title,
+      BRANCH: issue.branch,
+      TARGET_BRANCH: "origin/main",
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helper: Run the implementer agent for one issue, then hand off for review.
 //
@@ -692,6 +729,37 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     }
   } catch (error: any) {
     console.error(`[Issue #${issue.id}] Runner error:`, error);
+  }
+
+  // --- Review the completed implementation (once per issue) ---
+  //
+  // Gated on `success` because a reviewer needs a finished change to judge:
+  // polishing a branch that is stopping at task 3 of 5 wastes an agent and
+  // rewrites code the next implementer is about to build on. Also gated on
+  // commits from THIS run — a resumed run that found every task already landed
+  // is re-confirming a branch the finishing run already had reviewed.
+  //
+  // Non-fatal: the implementation is done and pushable regardless, so a reviewer
+  // that crashes or runs out of iterations must not turn a completed issue into
+  // a failed one. Its commits are added to the push below.
+  if (success && totalCommits > 0) {
+    console.log(`🔬 [Issue #${issue.id}] Implementation complete — running reviewer over ${issue.branch}...`);
+    try {
+      const review = await runReviewer(issue);
+      totalCommits += review.commits.length;
+      if (review.commits.length > 0) preservedWorktreePath = review.preservedWorktreePath;
+      if (review.completionSignal === undefined) {
+        console.warn(`⚠️ [Issue #${issue.id}] Reviewer did not signal done; keeping its ${review.commits.length} commit(s).`);
+      } else {
+        console.log(
+          review.commits.length > 0
+            ? `✓ [Issue #${issue.id}] Review complete (${review.commits.length} refinement commit(s)).`
+            : `✓ [Issue #${issue.id}] Review complete — no changes needed.`,
+        );
+      }
+    } catch (reviewError: any) {
+      console.warn(`⚠️ [Issue #${issue.id}] Reviewer failed: ${reviewError.message}. Handing off the unreviewed branch.`);
+    }
   }
 
   // --- Push whatever landed, complete or not ---
