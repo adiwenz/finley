@@ -139,6 +139,9 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
             // ages are theirs. Seeded at the join age, so a fresh job starts the year they
             // arrive.
             initial={blankJobDraftFor(PARTNER_DRAFT_OWNER, draft.age)}
+            // Their age when they join, which is "now" for every age this form collects — a
+            // partner's job is authored in the terms of the moment they arrive.
+            currentAge={draft.age}
             submitLabel="Add"
             onSubmit={addJob}
             onCancel={() => setAddingJob(false)}

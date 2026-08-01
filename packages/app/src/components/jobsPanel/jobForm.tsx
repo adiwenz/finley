@@ -16,11 +16,22 @@ import styles from "./jobsPanel.module.css";
 export interface JobFormOwner {
   readonly id: PersonId;
   readonly name: string;
+  /**
+   * Their age now. Every age in this form is the selected owner's, so picking a different one
+   * re-reads whether the job has a past — a start age of 30 is history for a 41-year-old and
+   * the future for a 25-year-old, and the salary fields follow.
+   */
+  readonly currentAge: number;
 }
 
 interface JobFormProps {
   /** Seed values (an existing job's draft when editing); a blank draft when adding. */
   initial: JobDraft;
+  /**
+   * The owner's age now — where "now" falls on the ages this form collects. With a picker on
+   * screen the selected owner's own age wins; this is the age of the owner the form opened on.
+   */
+  currentAge: number;
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
   /**
@@ -42,7 +53,10 @@ interface JobFormDraft {
   readonly name: string;
   /** Whose job this is — the ages below are this person's ages. */
   readonly ownerId: PersonId;
+  /** Pay a month at month 0 — what the projection starts from. */
   readonly monthlyDollars: number;
+  /** Pay a month in the job's own start year — what the historical reconstruction starts from. */
+  readonly startingMonthlyDollars: number;
   readonly startAge: number;
   /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
   readonly endAge: number | null;
@@ -58,11 +72,19 @@ const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
 /** Hoisted so the no-picker case reuses one array instead of minting one per render. */
 const NO_OWNERS: readonly JobFormOwner[] = [];
 
-export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: JobFormProps) {
+export function JobForm({
+  initial,
+  currentAge,
+  submitLabel,
+  owners,
+  onSubmit,
+  onCancel,
+}: JobFormProps) {
   const [draft, setDraft] = useState<JobFormDraft>(() => ({
     name: initial.name,
     ownerId: initial.ownerId,
     monthlyDollars: Math.round(initial.monthlyCents / 100),
+    startingMonthlyDollars: Math.round(initial.startingMonthlyCents / 100),
     startAge: initial.startAge,
     endAge: initial.endAge,
     deferralPct: initial.deferralPct,
@@ -90,11 +112,29 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
       ? (pickableOwners.find((o) => o.id === draft.ownerId)?.name ?? null)
       : null;
 
+  // The ages here are the SELECTED owner's, so reassigning a job re-reads its whole past
+  // against the new clock before anything is submitted.
+  const ownerAge = pickableOwners.find((o) => o.id === draft.ownerId)?.currentAge ?? currentAge;
+  /** The job is already under way, so what it paid on day one is a separate fact from today's pay. */
+  const hasHistory = draft.startAge < ownerAge;
+  /**
+   * The whole job is behind us. It has no pay "now" — `compileJobIncome` drops a wholly-past
+   * job before the current-salary anchor is ever read — so the form does not ask for one, and
+   * {@link jobInputFromDraft} / {@link applyJobDraft} pin the dead anchor to what it last paid.
+   */
+  const endedBeforeNow = draft.endAge !== null && draft.endAge <= ownerAge;
+
   function submit() {
     onSubmit({
       name: draft.name,
       ownerId: draft.ownerId,
       monthlyCents: Math.round(draft.monthlyDollars * 100),
+      // A job with no past states ONE salary, so the two anchors go out equal — "it pays X"
+      // means a flat history, and the deviations from that are what a pay change is for. Once
+      // the job has a past, the two fields are on screen and neither is derived.
+      startingMonthlyCents: Math.round(
+        (hasHistory ? draft.startingMonthlyDollars : draft.monthlyDollars) * 100,
+      ),
       startAge: draft.startAge,
       endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
       realGrowthPct: draft.realGrowthPct,
@@ -139,16 +179,46 @@ export function JobForm({ initial, submitLabel, owners, onSubmit, onCancel }: Jo
           />
         </span>
       </label>
-      {/* step=1: salary is free-form dollars — a larger step makes HTML5 validity reject
-          an off-step value (e.g. $5,250) on submit. */}
-      <NumInput
-        label="Monthly salary"
-        value={draft.monthlyDollars}
-        onChange={(v) => patch({ monthlyDollars: v })}
-        prefix="$"
-        step={1}
-        min={0}
-      />
+      {/* The two salary anchors, labelled by WHEN rather than by which field of the model they
+          land on. Neither derives from the other: what a job paid on day one is not evidence
+          about what it pays today, and de-growing today's pay to guess it would reapply the
+          raises that figure already includes. A job with no past shows one field, because
+          there is only one fact to state.
+          step=1: salary is free-form dollars — a larger step makes HTML5 validity reject an
+          off-step value (e.g. $5,250) on submit. */}
+      {hasHistory && (
+        <NumInput
+          label={`Monthly salary at age ${draft.startAge}`}
+          value={draft.startingMonthlyDollars}
+          onChange={(v) => patch({ startingMonthlyDollars: v })}
+          prefix="$"
+          step={1}
+          min={0}
+        />
+      )}
+      {endedBeforeNow ? (
+        <p className="hint">
+          {otherOwnerName === null
+            ? `This job ended at age ${draft.endAge}, so it has no pay “now”. What it paid feeds your Social-Security-covered years and nothing else.`
+            : `This job ended at ${otherOwnerName}’s age ${draft.endAge}, so it has no pay “now”. What it paid feeds their Social-Security-covered years and nothing else.`}
+        </p>
+      ) : (
+        <NumInput
+          label={hasHistory ? `Monthly salary now (age ${ownerAge})` : "Monthly salary"}
+          value={draft.monthlyDollars}
+          onChange={(v) => patch({ monthlyDollars: v })}
+          prefix="$"
+          step={1}
+          min={0}
+        />
+      )}
+      {hasHistory && !endedBeforeNow && (
+        <p className="hint">
+          What it paid when it started seeds the covered-earnings record behind Social Security.
+          What it pays now is what the projection starts from. They need not line up — a step
+          between them is an authored fact, not a mistake.
+        </p>
+      )}
       <NumInput
         label="Start age"
         value={draft.startAge}

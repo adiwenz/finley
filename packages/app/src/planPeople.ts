@@ -9,10 +9,13 @@
 import {
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
+  jobPayPath,
   type Job,
   type JobIncomeOverride,
   type JobInput,
   type JobPayChange,
+  type JobPayPath,
+  type JobPaySpan,
   type PersonId,
   type Plan,
   type Projection,
@@ -47,6 +50,40 @@ export function ownerAgeAtMonth(birthYear: number, month: number): number {
   return yearOfMonth(month) - birthYear;
 }
 
+/** The simulation month an owner's age falls on — negative for an age already behind them. */
+export function monthAtOwnerAge(birthYear: number, age: number): number {
+  return (birthYear + age - START_YEAR) * 12;
+}
+
+/** Whose clock a job's span is read against: their birth year, and where an open-ended job stops. */
+export interface JobSpanOwner {
+  readonly birthYear: number;
+  /** An open-ended job runs to THIS person's retirement age — a job alone cannot say when. */
+  readonly retirementTargetAge: number;
+}
+
+/**
+ * A job's paying window in simulation months, both bounds resolved: an open-ended job stops at
+ * its owner's retirement age. Negative months are the job's history — the span a job already
+ * under way spends before "now".
+ */
+export function jobPaySpanFor(owner: JobSpanOwner, job: Job): JobPaySpan {
+  const endYear = job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+  return {
+    startMonth: (job.startYear - START_YEAR) * 12,
+    endMonthExclusive: (endYear - START_YEAR) * 12,
+  };
+}
+
+/**
+ * A job's authored pay across its whole span — the reading the Jobs panel charts and lists,
+ * including the size of the month-0 seam. See {@link jobPayPath}: it is authored dollars, not
+ * a simulated paycheck.
+ */
+export function jobPayPathFor(owner: JobSpanOwner, job: Job): JobPayPath {
+  return jobPayPath(job, jobPaySpanFor(owner, job));
+}
+
 
 // ── Authoring: add / edit / remove a job from a form draft ──
 
@@ -64,11 +101,27 @@ export interface JobDraft {
    */
   readonly ownerId: PersonId;
   /**
-   * What the job pays a month, now. The form states ONE salary, so it lands on both of the
-   * job's anchors — the job reads as flat from its start until a pay change says otherwise.
-   * Authoring a start pay that differs from current pay is a `salary` patch, not this form.
+   * What the job pays a month **now** — the month-0 anchor the projection starts from.
+   *
+   * For a job that ended before "now" this is not asked for and not authored: the engine never
+   * reads it (`compileJobIncome` returns null on the span before it touches the anchor), so
+   * {@link applyJobDraft} pins it to what the job last paid rather than leaving the user to
+   * state today's pay for an employment that is over.
    */
   readonly monthlyCents: number;
+  /**
+   * What it paid a month in its **start** year. Drives the historical reconstruction — the
+   * pre-"now" covered-earnings record — and nothing forward.
+   *
+   * A second field rather than a figure derived from {@link monthlyCents}: the two are
+   * independent authored facts, and growing one into the other reapplies raises the other
+   * already includes. A job authored in one number simply states the same figure twice, which
+   * is what "flat until a pay change says otherwise" means.
+   *
+   * Its date is the job's `startAge`, not a date of its own. Moving the start age therefore
+   * keeps this VALUE and changes what it means — $5,000 authored "at 30" becomes $5,000 "at 28".
+   */
+  readonly startingMonthlyCents: number;
   readonly startAge: number;
   readonly endAge: number | null;
   readonly realGrowthPct: number;
@@ -86,7 +139,11 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
   return {
     name: "",
     ownerId,
+    // A brand-new job states one salary: it has no authored history to differ from yet, so both
+    // anchors open on the same figure and the start-pay field only earns its place once the
+    // start age moves back before "now".
     monthlyCents: 3000 * 100,
+    startingMonthlyCents: 3000 * 100,
     startAge: currentAge,
     endAge: null,
     realGrowthPct: 0,
@@ -101,7 +158,10 @@ export function blankJobDraftFor(ownerId: PersonId, currentAge: number): JobDraf
  * opens on exactly what `setJobMonthlyIncome` / `setJobDeferralFraction` would write back.
  */
 export function jobToDraftFor(
-  projection: Pick<Projection, "jobMonthlyIncomeCents" | "jobDeferralFraction">,
+  projection: Pick<
+    Projection,
+    "jobMonthlyIncomeCents" | "jobStartingMonthlyIncomeCents" | "jobDeferralFraction"
+  >,
   birthYear: number,
   job: Job,
 ): JobDraft {
@@ -109,6 +169,7 @@ export function jobToDraftFor(
     name: job.name ?? "",
     ownerId: job.ownerId,
     monthlyCents: projection.jobMonthlyIncomeCents(job.id),
+    startingMonthlyCents: projection.jobStartingMonthlyIncomeCents(job.id),
     startAge: jobStartAgeFor(birthYear, job),
     endAge: jobEndAgeFor(birthYear, job),
     realGrowthPct: job.salary.realGrowthPct,
@@ -120,6 +181,21 @@ export function jobToDraftFor(
 }
 
 /**
+ * The whole outcome of applying a draft: the edited job, and any {@link JobPayChange} the edit
+ * **stranded**.
+ *
+ * Moving a start age forward orphans a change dated before it — there is no baseline left for
+ * it to apply to. Clamping it to the new start age was rejected (two changes stack onto one
+ * month) and so was deleting it silently (an authored fact disappears with no trace), so the
+ * changes are dropped and named. The caller says which ones went.
+ */
+export interface AppliedJobDraft {
+  readonly job: Job;
+  /** Dropped because they now predate the job. Empty on an edit that strands nothing. */
+  readonly strandedPayChanges: readonly JobPayChange[];
+}
+
+/**
  * Apply a form draft to an **existing** job in place: form fields overwrite, everything
  * else carries through untouched — `id`, {@link JobIncomeOverride}s, {@link JobPayChange}s,
  * the deferral's `fundAccountId`, and any field added to {@link Job} later. The employer
@@ -127,23 +203,38 @@ export function jobToDraftFor(
  * `birthYear` is the **owner named by the draft**, so reassigning a job re-reads its ages
  * against the new owner's clock.
  *
+ * The two salary anchors are written from their own fields and never from each other, so
+ * restating today's pay leaves what the job paid on day one alone. The exception is a job whose
+ * span is wholly past: its month-0 anchor is dead weight the engine never reads, so it is
+ * pinned to what the job last paid rather than asked for. Zeroing it would cost nothing today
+ * and silently pay $0/mo the moment the end age moved past "now".
+ *
  * An edit must never round-trip through {@link jobInputFromDraft}: a draft is a
  * projection of a job, so building one afresh silently drops the rest.
  */
-export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job {
+export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): AppliedJobDraft {
   const name = draft.name.trim();
-  // `name` and `deferral` leave the carried remainder: a blank name and a 0% deferral
-  // must *remove* them, not leave the old value standing.
-  const { name: _priorName, deferral: prior, ...carried } = job;
-  return {
+  // `name`, `deferral` and `payChanges` leave the carried remainder: a blank name, a 0%
+  // deferral and a fully stranded change list must *remove* them, not leave the old value
+  // standing. Everything else — id, overrides, employer match, later fields — carries.
+  const { name: _priorName, deferral: prior, payChanges: _priorChanges, ...carried } = job;
+
+  const startMonth = monthAtOwnerAge(birthYear, draft.startAge);
+  const endMonthExclusive =
+    draft.endAge === null ? Infinity : monthAtOwnerAge(birthYear, draft.endAge);
+  const strandedPayChanges = (job.payChanges ?? []).filter((c) => c.month < startMonth);
+  const kept = (job.payChanges ?? []).filter((c) => c.month >= startMonth);
+
+  const edited: Job = {
     ...carried,
     ...(name ? { name } : {}),
+    ...(kept.length > 0 ? { payChanges: kept } : {}),
     ownerId: draft.ownerId,
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: {
       ...job.salary,
-      startingSalaryCents: draft.monthlyCents * 12,
+      startingSalaryCents: draft.startingMonthlyCents * 12,
       currentSalaryCents: draft.monthlyCents * 12,
       realGrowthPct: draft.realGrowthPct,
     },
@@ -161,6 +252,18 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
         }
       : {}),
   };
+  return { job: withPinnedDeadAnchor(edited, startMonth, endMonthExclusive), strandedPayChanges };
+}
+
+/**
+ * Pin a wholly-past job's month-0 anchor to the pay it ended on. A no-op for every job that
+ * still pays at or after "now" — there the anchor is the authored figure and authoritative.
+ */
+function withPinnedDeadAnchor(job: Job, startMonth: number, endMonthExclusive: number): Job {
+  if (endMonthExclusive > 0) return job;
+  const lastPaid = jobPayPath(job, { startMonth, endMonthExclusive }).historyReachMonthlyCents;
+  if (lastPaid === null) return job;
+  return { ...job, salary: { ...job.salary, currentSalaryCents: lastPaid * 12 } };
 }
 
 /**
@@ -176,13 +279,17 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobDraft): Job
  */
 export function jobInputFromDraft(birthYear: number, draft: JobDraft): JobInput {
   const name = draft.name.trim();
+  // A job added with an end age already behind us has no month-0 pay to state, and the form
+  // does not ask for one — see {@link applyJobDraft}, which pins the same dead anchor. A new
+  // job carries no pay changes, so what it "last paid" is simply its start pay.
+  const alreadyOver = draft.endAge !== null && monthAtOwnerAge(birthYear, draft.endAge) <= 0;
   const base: JobInput = {
     ...(name ? { name } : {}),
     startYear: birthYear + draft.startAge,
     endYear: draft.endAge === null ? null : birthYear + draft.endAge,
     salary: {
-      startingSalaryCents: draft.monthlyCents * 12,
-      currentSalaryCents: draft.monthlyCents * 12,
+      startingSalaryCents: draft.startingMonthlyCents * 12,
+      currentSalaryCents: (alreadyOver ? draft.startingMonthlyCents : draft.monthlyCents) * 12,
       realGrowthPct: draft.realGrowthPct,
     },
   };

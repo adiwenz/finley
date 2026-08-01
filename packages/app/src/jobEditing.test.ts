@@ -128,7 +128,10 @@ describe("editJob — editing fields, same owner", () => {
     const jobs = applied(owners, result).get(PRIMARY_PERSON_ID)!;
     expect(jobs).toHaveLength(1);
     expect(jobs[0].id).toBe("job-1");
-    expect(jobs[0].salary.startingSalaryCents).toBe(8_000_00 * 12);
+    // The edited field is CURRENT pay. What the job paid when it started is a separate
+    // authored fact and restating today's pay must not silently rewrite it.
+    expect(jobs[0].salary.currentSalaryCents).toBe(8_000_00 * 12);
+    expect(jobs[0].salary.startingSalaryCents).toBe(richJob.salary.startingSalaryCents);
   });
 
   it("keeps its position in the list, so the rows don't reshuffle under an edit", () => {
@@ -173,7 +176,7 @@ describe("editJob — changing the owner", () => {
     const moved = lists.get("p-1")!;
     expect(moved).toHaveLength(1);
     expect(moved[0].ownerId).toBe("p-1");
-    expect(moved[0].salary.startingSalaryCents).toBe(9_000_00 * 12);
+    expect(moved[0].salary.currentSalaryCents).toBe(9_000_00 * 12);
   });
 
   it("keeps the job's id across the move", () => {

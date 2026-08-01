@@ -12,7 +12,7 @@
  * edit cannot leave a job in neither list. The caller commits.
  */
 
-import type { Job, JobInput, PersonId } from "@finley/engine";
+import type { Job, JobInput, JobPayChange, PersonId } from "@finley/engine";
 import { applyJobDraft, type JobDraft } from "./planPeople";
 import type { JobOwner } from "./jobOwners";
 
@@ -64,6 +64,12 @@ export type JobEditResult =
       /** Same id, new fields, whichever owner now holds it. */
       readonly job: Job;
       readonly writes: readonly JobWrite[];
+      /**
+       * Pay changes the edit dropped because they now predate the job's start — see
+       * {@link applyJobDraft}. Empty on an edit that strands nothing; a caller that ignores
+       * this loses an authored fact without saying so.
+       */
+      readonly strandedPayChanges: readonly JobPayChange[];
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -124,12 +130,13 @@ export function editJob(
 
   // Built ONCE, from the full existing job, against the new owner's clock — the same
   // object leaves the source list and lands in the target's.
-  const edited = applyJobDraft(existing, target.birthYear, draft);
+  const { job: edited, strandedPayChanges } = applyJobDraft(existing, target.birthYear, draft);
 
   if (target.id === source.id) {
     return {
       ok: true,
       job: edited,
+      strandedPayChanges,
       writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
     };
   }
@@ -140,6 +147,7 @@ export function editJob(
   return {
     ok: true,
     job: edited,
+    strandedPayChanges,
     writes: [{ kind: "reassign", owner: target, jobId, job: jobInputOf(edited) }],
   };
 }

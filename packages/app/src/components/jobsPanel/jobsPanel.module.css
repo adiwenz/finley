@@ -39,26 +39,115 @@
   color: var(--color-text-muted);
 }
 
-/* Permanent pay changes on a job (raises / cuts), listed under the meta line. */
-.payChanges {
+/* ── A job's pay across its whole span ──
+   The chart draws the same story the timeline lists. Both run through "now" rather than
+   stopping at it: the month-0 seam is an authored fact, so it is shown, and shown NEUTRALLY —
+   nothing here is styled as a warning, because the step is not one. */
+
+.chart {
+  width: 100%;
+  height: auto;
+  margin: 4px 0 2px;
+  display: block;
+}
+
+/* Everything already lived. The one cue that says which half of the axis is which. */
+.chartPast {
+  fill: rgba(0, 0, 0, 0.045);
+}
+
+.chartLine {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.chartArea {
+  fill: var(--color-accent);
+  opacity: 0.14;
+}
+
+.chartStep circle {
+  fill: var(--color-accent);
+}
+
+.chartStep text {
+  font-size: 10px;
+  fill: var(--color-accent);
+}
+
+.chartNow {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+.chartAxis {
+  stroke: var(--color-border);
+}
+
+.chartTick {
+  font-size: 10px;
+  fill: var(--color-text-muted);
+}
+
+/* The axis is an input: clicking an age seeds a pay change there. */
+.chartHit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+/* The pay story in age order — the start, every change, and "now" as a row among them. */
+.timeline {
   list-style: none;
   padding: 0;
   margin: 2px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
 }
 
-.payChange {
-  display: flex;
+.entry {
+  display: grid;
+  grid-template-columns: 58px 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
+  padding: 4px 0 4px 8px;
+  font-size: 12px;
+  border-left: 2px solid var(--color-border);
+}
+
+.entryAge {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entryPay {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+}
+
+.entryHistory {
+  opacity: 0.85;
+}
+
+/* "Now": the one row that cannot be removed, and the anchor everything forward runs off. */
+.entryNow {
+  border-left-color: var(--color-accent);
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 0 5px 5px 0;
+}
+
+/* The step at month 0, stated and never flagged: a pay cut, a job change or a stated salary
+   that simply doesn't match the reconstruction are all legitimate, and warning styling would
+   invite users to close the one gap the engine keeps open on purpose. */
+.seamNote {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--color-text-muted);
+  padding-left: 58px;
 }
 
-.payChange button {
+.timeline button {
   font: inherit;
   padding: 1px 7px;
   border-radius: 5px;
