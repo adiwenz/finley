@@ -20,6 +20,7 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     computeTaxCents: () => 0,
     computeTaxByCategoryCents: () => ({}), // zero tax → empty breakdown (required seam)
     remainingDeferralRoomCents: () => Infinity,
+    remainingCombinedDepositRoomCents: () => Infinity,
     ...over,
   };
 }
@@ -98,6 +99,133 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
     // Only the employee deferral counts against the annual accumulator.
     expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    // ...but deferral AND match count against the combined one, keyed by plan.
+    expect(r.combinedDepositsByPlanCents.get("wages")).toBe(dollarsToCents(750));
+  });
+
+  it("trims the match — never the deferral — to the remaining combined room", () => {
+    const r = runWaterfall(
+      makeInput({
+        // $600 of room left: the $500 deferral goes in whole, leaving $100 for a $250 match.
+        remainingCombinedDepositRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(600));
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    expect(r.combinedDepositsByPlanCents.get("wages")).toBe(dollarsToCents(600));
+    // Trimming employer money leaves take-home untouched.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
+  });
+
+  it("drops the match entirely when combined room is exhausted, keeping the deferral whole", () => {
+    const r = runWaterfall(
+      makeInput({
+        remainingCombinedDepositRoomCents: () => 0,
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // Deferral room remains, and policy never trims the deferral, so it survives whole.
+    expect(r.accountDepositsCents.get("401k")).toBe(dollarsToCents(500));
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(500));
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4500));
+  });
+
+  it("gives each plan its OWN combined room — two jobs do not share one limit", () => {
+    const r = runWaterfall(
+      makeInput({
+        // Asked per plan, so each job reports a full, independent $600.
+        remainingCombinedDepositRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            sourceId: "job-a",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k-a",
+              employerMatchFraction: 0.5,
+            },
+          },
+          {
+            ownerId: "p1",
+            sourceId: "job-b",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "401k-b",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // Each plan independently banks its $500 deferral + $100 of trimmed match. Under a
+    // per-person limit the second job would have found the $600 already spent.
+    expect(r.combinedDepositsByPlanCents.get("job-a")).toBe(dollarsToCents(600));
+    expect(r.combinedDepositsByPlanCents.get("job-b")).toBe(dollarsToCents(600));
+    expect(r.accountDepositsCents.get("401k-a")).toBe(dollarsToCents(600));
+    expect(r.accountDepositsCents.get("401k-b")).toBe(dollarsToCents(600));
+    // The deferral limit stays PER PERSON — both deferrals draw on the same room.
+    expect(r.deferredByPersonCents.get("p1")).toBe(dollarsToCents(1000));
+  });
+
+  it("two jobs funding ONE account still get separate limits — the plan, not the account", () => {
+    const r = runWaterfall(
+      makeInput({
+        remainingCombinedDepositRoomCents: () => dollarsToCents(600),
+        incomeSources: [
+          {
+            ownerId: "p1",
+            sourceId: "job-a",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "retirement",
+              employerMatchFraction: 0.5,
+            },
+          },
+          {
+            ownerId: "p1",
+            sourceId: "job-b",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: {
+              deferralFraction: 0.1,
+              fundAccountId: "retirement",
+              employerMatchFraction: 0.5,
+            },
+          },
+        ],
+      }),
+    );
+    // Both land in one account, but the limit is keyed by plan — $1,200 total, not $600.
+    expect(r.accountDepositsCents.get("retirement")).toBe(dollarsToCents(1200));
   });
 
   it("deferral is capped at the remaining annual room; overflow becomes taxable take-home", () => {
@@ -826,5 +954,162 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
     // Surplus = cash − obligations − A's interest tax = 2,400 − 2,000 − 100 = 300. ($400 if
     // A's tax were dropped, $200 if double-counted — $300 pins "exactly once".)
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(300));
+  });
+});
+
+describe("runWaterfall — employee payroll tax (FICA) seam", () => {
+  // A flat 7.65%-of-wages stand-in for the real FICA tables, with no cap: the waterfall
+  // owns the accumulate-and-difference mechanics, the seam owns the policy. The breakdown
+  // seam is REQUIRED alongside the scalar one (runtime-enforced) — `separableBreakdown`
+  // derives it since this stand-in only ever looks at `wages`.
+  const flatFicaSeam = {
+    computePayrollTaxCents: (byCat: Partial<Record<string, number>>) =>
+      Math.round((byCat.wages ?? 0) * 0.0765),
+    computePayrollTaxByCategoryCents: separableBreakdown((byCat) =>
+      Math.round((byCat.wages ?? 0) * 0.0765),
+    ),
+  };
+
+  it("charges payroll tax on wages and removes it from take-home", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        ...flatFicaSeam,
+      }),
+    );
+    // 7.65% × $5,000 = $382.50, so $4,617.50 idles in liquid.
+    expect(r.payrollTaxCents).toBe(38250);
+    expect(r.accountDepositsCents.get("checking")).toBe(461750);
+  });
+
+  it("charges FICA on the FULL gross — pre-tax 401(k) deferral does not reduce it", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(5000),
+            taxCategory: "wages",
+            planDescriptor: { deferralFraction: 0.1, fundAccountId: "401k" },
+          },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    // FICA is 7.65% of the whole $5,000, not the post-deferral $4,500: $382.50 either way?
+    // No — $4,500 × 7.65% = $344.25. Pinning $382.50 proves the base is the full gross.
+    expect(r.payrollTaxCents).toBe(38250);
+    // Take-home = gross − deferral − FICA = 5,000 − 500 − 382.50 = $4,117.50.
+    expect(r.accountDepositsCents.get("checking")).toBe(411750);
+  });
+
+  it("charges only the year-to-date DIFFERENCE, so a wage cap binds on cumulative earnings", () => {
+    // Cap FICA at the first $6,000 of annual wages: below it, 10%; above, nothing more.
+    const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
+      Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
+    const cappedSeam = {
+      computePayrollTaxCents: cappedPayroll,
+      computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+    };
+    // $5,000 already earned this year; another $5,000 this month → cumulative $10,000, but
+    // only $1,000 of it is still under the $6,000 cap. Charge = 10% × $1,000 = $100.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        priorEarnedByPersonCents: () => ({ wages: dollarsToCents(5000) }),
+        ...cappedSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(dollarsToCents(100));
+    // And the month's earnings are reported back for the caller's accumulator.
+    expect(r.earnedThisMonthByPersonCents.get("p1")).toEqual({ wages: dollarsToCents(5000) });
+  });
+
+  it("does not charge FICA on non-wage income (retirement-account withdrawals booked ordinaryIncome)", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "ordinaryIncome" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    expect(r.payrollTaxCents).toBe(0);
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
+  });
+
+  it("models the annual-liability semantics: two jobs' combined wages settle ONE cumulative cap, no per-employer reconciliation", () => {
+    // A worker with two jobs (two sources, same person) earning $4,000 and $3,000 this
+    // month, cap at $6,000/yr, 10% under the cap. The engine never asks "which employer",
+    // only the person's COMBINED cumulative wages — the reconciled-annual-liability model,
+    // not a per-employer withholding simulation the two jobs would otherwise each cap
+    // independently against (which would over-count the cap and under-charge combined FICA).
+    const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
+      Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "wages", sourceId: "jobA" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages", sourceId: "jobB" },
+        ],
+        computePayrollTaxCents: cappedPayroll,
+        computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+      }),
+    );
+    // Combined $7,000 against a $6,000 cap → only $6,000 is charged: 10% × $6,000 = $600,
+    // NOT 10% × $4,000 + 10% × $3,000 = $700 (what two independent per-employer caps would
+    // wrongly allow through).
+    expect(r.payrollTaxCents).toBe(dollarsToCents(600));
+  });
+
+  it("attributes payroll tax back to the source that generated it — a bonus source and a base-salary source split proportionally to earned amount", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "wages", sourceId: "salary" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(1000), taxCategory: "wages", sourceId: "bonus" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    // 7.65% × $5,000 = $382.50 total, split 4:1 between salary and bonus.
+    expect(r.payrollTaxCents).toBe(38250);
+    expect(r.payrollTaxBySourceCents.salary).toBe(30600); // 4/5 × 38250
+    expect(r.payrollTaxBySourceCents.bonus).toBe(7650); // 1/5 × 38250
+    expect(
+      (r.payrollTaxBySourceCents.salary ?? 0) + (r.payrollTaxBySourceCents.bonus ?? 0),
+    ).toBe(r.payrollTaxCents);
+  });
+
+  it("attributes NOTHING to a non-wage source sharing the household with a wage earner — the cumulative cap is preserved per person, per category", () => {
+    // p1 earns wages (FICA-eligible) alongside ordinaryIncome from a draw (not eligible).
+    // The whole payroll charge must land on the wages source, never bleed onto the draw.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(5000), taxCategory: "wages", sourceId: "job" },
+          { ownerId: "p1", waterfallInflowCents: dollarsToCents(2000), taxCategory: "ordinaryIncome", sourceId: "draw" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    expect(r.payrollTaxBySourceCents.job).toBe(38250);
+    expect(r.payrollTaxBySourceCents.draw ?? 0).toBe(0);
+  });
+
+  it("reconciles Σ payrollTaxBySourceCents to payrollTaxCents across two earners in the same household", () => {
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["A", "B"],
+        incomeSources: [
+          { ownerId: "A", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages", sourceId: "jobA" },
+          { ownerId: "B", waterfallInflowCents: dollarsToCents(7000), taxCategory: "wages", sourceId: "jobB" },
+        ],
+        ...flatFicaSeam,
+      }),
+    );
+    const attributed = Object.values(r.payrollTaxBySourceCents).reduce((s, v) => s + v, 0);
+    expect(attributed).toBe(r.payrollTaxCents);
+    expect(r.payrollTaxCents).toBeGreaterThan(0);
   });
 });

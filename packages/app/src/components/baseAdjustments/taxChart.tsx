@@ -1,15 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
   ComposedChart,
+  DefaultTooltipContent,
   Legend,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  type TooltipContentProps,
 } from "recharts";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import { describeTaxes, type TaxSourceBand, type TaxChartData } from "./taxesByMonth";
@@ -35,26 +38,85 @@ const TAX_COLOR = "#8c3b3b";
 const WAGE_TONES = ["#8c3b3b", "#a85a4a", "#c17a5f", "#d5a084"];
 const BENEFIT_TONE = "#9c6b4a";
 const DRAW_TONES = ["#7a4a3a", "#b8794f", "#9c8459", "#c6a878"];
+// Payroll tax (FICA) is a wholly separate LEVY from income tax, so every FICA band — no
+// matter which job or category it rides — walks its own cool "slate" family, set apart from
+// the warm income-tax rust/earth families above. One step per FICA-charging source.
+const FICA_TONES = ["#3b5c78", "#4f7590", "#6c93a8", "#93b6c4"];
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e";
 
 /**
- * A colour per tax band, stepping shades within a category so sibling jobs and draws stay
- * distinct — the analog of the income chart's `colorsForBands`. Wages walk the rust
- * family, the benefit is one tone, everything else walks the earth family. Input order is
- * stacking order, so shades progress cleanly up the stack.
+ * A colour per tax band, stepping shades within a family so sibling bands stay distinct —
+ * the analog of the income chart's `colorsForBands`. A PAYROLL-tax band always walks the
+ * cool FICA family regardless of its category, so FICA reads as one visually distinct levy
+ * across every job; an INCOME-tax band walks the warm family its category picks (wages,
+ * benefit, or the earthier "draws" catch-all). Input order is stacking order, so shades
+ * progress cleanly up the stack.
  */
 function colorsForBands(sources: readonly TaxSourceBand[]): Map<string, string> {
   const colors = new Map<string, string>();
   let wage = 0;
   let draw = 0;
+  let fica = 0;
   for (const s of sources) {
-    if (s.category === "wages") colors.set(s.id, WAGE_TONES[wage++ % WAGE_TONES.length]!);
+    if (s.kind === "payrollTax") colors.set(s.id, FICA_TONES[fica++ % FICA_TONES.length]!);
+    else if (s.category === "wages") colors.set(s.id, WAGE_TONES[wage++ % WAGE_TONES.length]!);
     else if (s.category === "governmentRetirementBenefit") colors.set(s.id, BENEFIT_TONE);
     else colors.set(s.id, DRAW_TONES[draw++ % DRAW_TONES.length]!);
   }
   return colors;
+}
+
+// Matches recharts' own DefaultTooltipContent box (`defaultDefaultTooltipContentProps`) so
+// swapping in a custom content renderer for the total row is invisible when there's nothing
+// to total.
+const TOOLTIP_BOX_STYLE: CSSProperties = {
+  margin: 0,
+  padding: 10,
+  backgroundColor: "#fff",
+  border: "1px solid #ccc",
+  whiteSpace: "nowrap",
+  fontSize: 12,
+};
+
+/**
+ * The stock per-band rows (via recharts' own `DefaultTooltipContent`, stripped of its box so
+ * ours wraps both it and the total), plus a bolded Total row summing every band shown for
+ * this month — the reason `describeTaxes`' "peaking around $X/mo" figure and this hover
+ * figure should always agree. Only drawn stacked (>1 band); the single-band case would just
+ * repeat the one line above it.
+ */
+function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
+  const { active, payload } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
+  return (
+    <div style={TOOLTIP_BOX_STYLE}>
+      <DefaultTooltipContent
+        {...props}
+        contentStyle={{ margin: 0, padding: 0, border: "none", backgroundColor: "transparent" }}
+        formatter={(value, name) => [formatDollars(Number(value)), name]}
+        labelFormatter={(l) => axisPointLabel(Number(l), monthLabel)}
+      />
+      {payload.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            marginTop: 4,
+            paddingTop: 4,
+            borderTop: "1px solid #ccc",
+            fontWeight: 600,
+          }}
+        >
+          <span>Total</span>
+          <span>{formatDollars(total)}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export interface TaxChartProps {
@@ -134,9 +196,13 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
             stroke={GRID}
           />
           <Tooltip
-            formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
-            contentStyle={{ fontSize: 12 }}
+            content={TaxTooltipContent}
+            // Recharts positions the tooltip and legend as sibling absolutely-positioned
+            // wrappers in DOM (not paint) order, so the legend — added after in this
+            // markup — otherwise paints OVER a tooltip hovering above it. A tooltip that's
+            // readable everywhere except behind its own legend is worse than none, so pin
+            // it above every other chart layer explicitly.
+            wrapperStyle={{ zIndex: 10 }}
           />
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />

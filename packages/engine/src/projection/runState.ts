@@ -9,6 +9,7 @@ import {
   type SimLiability,
 } from "../liability";
 import type { TaxCategory } from "../cashFlowSeries";
+import type { TaxableByCategory } from "./taxAttribution";
 import type { BudgetLine } from "../budgetLine";
 import type { SimGoal } from "../goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
@@ -78,6 +79,19 @@ export interface SimState {
    * The annual contribution cap is enforced against this running total.
    */
   readonly deferredByPersonYear: Map<string, Cents>;
+  /**
+   * Cumulative PRE-deferral earned gross by category, per person per calendar year, keyed
+   * `${personId}|${year}`. The payroll-tax seam is charged on the difference this makes each
+   * month, so a capped component (OASDI wage base) binds on the year-to-date total. Resets
+   * naturally each January as the key's year rolls over.
+   */
+  readonly earnedByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * Cumulative deferral + employer match per PLAN per calendar year, keyed
+   * `${planKey}|${year}`. The combined deposit limit is enforced against this running total —
+   * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
+   */
+  readonly combinedDepositsByPlanYear: Map<string, Cents>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -194,6 +208,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
+    earnedByPersonYear: new Map<string, TaxableByCategory>(),
+    combinedDepositsByPlanYear: new Map<string, Cents>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

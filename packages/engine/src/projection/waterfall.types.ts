@@ -1,9 +1,10 @@
 import type { Cents } from "../money";
 import type { TaxCategory } from "../cashFlowSeries";
+import type { TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal";
 
-/** The 401(k)-style plan a job carries — presence makes it deferral-eligible. */
+/** The employer-sponsored savings plan a job carries — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
   /** Fraction of THIS job's gross deferred pre-tax (0..1). */
   readonly deferralFraction: number;
@@ -117,10 +118,78 @@ export interface WaterfallInput {
    * already deferred this year). `Infinity` = uncapped.
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
+  /**
+   * Employee payroll tax (US: FICA) charged on a person's CUMULATIVE year-to-date earned
+   * income by category — the person's reconciled ANNUAL LIABILITY, not per-employer
+   * withholding (see {@link import("../jurisdiction").Jurisdiction.computePayrollTaxCents}).
+   * Charged as the DIFFERENCE between the seam on the year-to-date total after this month's
+   * earnings and before them, so a capped component (OASDI's wage base) binds on cumulative
+   * earnings rather than annualized monthly slices — exact for a lumpy earner, unchanged for
+   * a level one. The FULL pre-deferral gross is the base: a 401(k) deferral cuts income tax
+   * but never payroll tax. Absent → no payroll tax charged. Which categories are earned is
+   * the seam's call, keeping `wages`-vs-`ordinaryIncome` policy out of the engine.
+   */
+  readonly computePayrollTaxCents?: (
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  ) => Cents;
+  /**
+   * {@link computePayrollTaxCents} broken out per {@link TaxCategory} — REQUIRED whenever
+   * `computePayrollTaxCents` is present (runtime-enforced), so the waterfall can attribute
+   * each incremental payroll-tax charge back to the income source that generated it, the
+   * same way {@link computeTaxByCategoryCents} backs {@link taxBySourceCents}.
+   */
+  readonly computePayrollTaxByCategoryCents?: (
+    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  ) => Partial<Record<TaxCategory, Cents>>;
+  /**
+   * A person's year-to-date earned gross by category BEFORE this month — the base the
+   * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
+   * consulted when {@link computePayrollTaxCents} is present.
+   */
+  readonly priorEarnedByPersonCents?: (
+    personId: string,
+  ) => Partial<Record<TaxCategory, Cents>>;
+  /**
+   * REMAINING annual room under ONE plan's combined deposit limit — that limit minus the
+   * deferral AND match already banked into the plan this year. `Infinity` = uncapped.
+   *
+   * Per plan, not per person, so a second job brings its own full room. `personId` still
+   * comes through because the jurisdiction may band the limit on age. Contrast
+   * {@link remainingDeferralRoomCents}, which IS per person — the employee's own deferral is
+   * shared across every plan they hold.
+   *
+   * Bounds the match only: the deferral is already clamped by
+   * {@link remainingDeferralRoomCents} before this applies.
+   */
+  readonly remainingCombinedDepositRoomCents: (personId: string, planKey: string) => number;
 }
 
 export interface WaterfallResult {
   readonly taxCents: Cents;
+  /**
+   * Employee payroll tax (FICA) charged this month, summed across persons — the reconciled
+   * annual liability accrued this month, not per-employer withholding. Already removed from
+   * take-home alongside income tax; 0 when no {@link WaterfallInput.computePayrollTaxCents}
+   * is supplied. Kept a SEPARATE line from {@link taxCents} because its base (pre-deferral
+   * gross) and category set (earned income only) differ, and so the income-tax attribution
+   * invariants stay untouched.
+   */
+  readonly payrollTaxCents: Cents;
+  /**
+   * Payroll tax per income SOURCE, keyed like {@link taxBySourceCents} (`sourceId` falling
+   * back to tax category). Each category's incremental charge is apportioned by earned
+   * weight PER PERSON — mirroring {@link taxBySourceCents} — so the share of the
+   * person-level payroll-tax charge attributed to this income source is distinguishable from
+   * a partner's. `{}` when no payroll tax was charged, else Σ === `payrollTaxCents` (see
+   * {@link assertPayrollTaxAttributionReconciles}).
+   */
+  readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * This month's pre-deferral earned gross by category, per person — the caller folds it
+   * into its year-to-date accumulator so next month's {@link
+   * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
+   */
+  readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
   /**
    * Household tax per {@link TaxCategory}, summed across persons. `{}` in a zero-tax month,
    * otherwise Σ === `taxCents`.
@@ -143,6 +212,13 @@ export interface WaterfallResult {
   readonly deferralBySourceCents: Readonly<Record<string, Cents>>;
   /** Amount actually deferred per person — the caller updates its annual accumulator. */
   readonly deferredByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * Deferral + employer match actually banked per PLAN, keyed like
+   * {@link deferralBySourceCents} — what the combined deposit limit is measured against. The
+   * caller updates its annual accumulator from this. Σ === Σ `deferredByPersonCents` + total
+   * match.
+   */
+  readonly combinedDepositsByPlanCents: ReadonlyMap<string, Cents>;
   /** Net deposit to add to each account this month (deferrals, match, goals, surplus). */
   readonly accountDepositsCents: ReadonlyMap<string, Cents>;
   /** Household cash shortfall to route through the cascade (0 if none). */

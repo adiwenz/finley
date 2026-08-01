@@ -47,6 +47,8 @@ export function allocateMonth(
   month: number,
 ): {
   taxCents: Cents;
+  payrollTaxCents: Cents;
+  payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
   taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
@@ -56,9 +58,15 @@ export function allocateMonth(
   /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
   obligationShortfallCents: Cents;
 } {
-  // Per person, not per household: the limit (with any age-banded catch-up) depends on the
-  // individual's age. No birth year → base limit.
+  // Per person, not per household: the jurisdiction may band the limit on the individual's
+  // age. No birth year → the un-banded limit.
   const deferralLimit = jurisdiction.retirementDeferralLimitCents;
+  const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
+  /** Age in `ctx.year`; `undefined` when the person has no birth year to band on. */
+  const ageOf = (pid: string): number | undefined => {
+    const birthYear = state.personsById.get(pid)?.birthYear;
+    return birthYear === undefined ? undefined : ctx.year - birthYear;
+  };
   // Sinking-fund pace is growth-aware; unknown account → rate 0, a flat even spread.
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
 
@@ -92,12 +100,29 @@ export function allocateMonth(
     // that a tax-charging month reconciles per source.
     computeTaxByCategoryCents: (taxableByCategory) =>
       jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
+    // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
+    computePayrollTaxCents: jurisdiction.computePayrollTaxCents
+      ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
+      : undefined,
+    // Required companion whenever the scalar seam is present (runtime-enforced in the
+    // waterfall), so a job's FICA line can be attributed back to it.
+    computePayrollTaxByCategoryCents: jurisdiction.computePayrollTaxByCategoryCents
+      ? (earnedByCategory) => jurisdiction.computePayrollTaxByCategoryCents!(earnedByCategory, ctx)
+      : undefined,
+    // Year-to-date earned gross BEFORE this month, so the seam's cumulative figure — and its
+    // wage-base cap — build on the running total, not a single month.
+    priorEarnedByPersonCents: (pid) => state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
     remainingDeferralRoomCents: (pid) => {
       if (deferralLimit === undefined) return Infinity;
-      const birthYear = state.personsById.get(pid)?.birthYear;
-      const age = birthYear === undefined ? undefined : ctx.year - birthYear;
-      const limit = deferralLimit({ year: ctx.year, age });
+      const limit = deferralLimit({ year: ctx.year, age: ageOf(pid) });
       const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
+      return Math.max(0, limit - used);
+    },
+    // Age comes from the person; the accumulator is keyed by the plan.
+    remainingCombinedDepositRoomCents: (pid, planKey) => {
+      if (combinedLimit === undefined) return Infinity;
+      const limit = combinedLimit({ year: ctx.year, age: ageOf(pid) });
+      const used = state.combinedDepositsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
   });
@@ -122,9 +147,33 @@ export function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
+  // Fold this month's earned gross into the year-to-date accumulator so next month's payroll
+  // base — and the OASDI cap it settles against — is current.
+  for (const [pid, earned] of result.earnedThisMonthByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    const running = state.earnedByPersonYear.get(key);
+    if (running === undefined) {
+      state.earnedByPersonYear.set(key, { ...earned });
+    } else {
+      for (const [category, cents] of Object.entries(earned)) {
+        if (cents) running[category as TaxCategory] = (running[category as TaxCategory] ?? 0) + cents;
+      }
+    }
+  }
+
+  for (const [planKey, amount] of result.combinedDepositsByPlanCents) {
+    const key = `${planKey}|${ctx.year}`;
+    state.combinedDepositsByPlanYear.set(
+      key,
+      (state.combinedDepositsByPlanYear.get(key) ?? 0) + amount,
+    );
+  }
+
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
   return {
     taxCents: result.taxCents,
+    payrollTaxCents: result.payrollTaxCents,
+    payrollTaxBySourceCents: result.payrollTaxBySourceCents,
     taxByCategoryCents: result.taxByCategoryCents,
     taxBySourceCents: result.taxBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,

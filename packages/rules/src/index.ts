@@ -6,7 +6,11 @@ import {
   DEFAULT_BENEFIT_CLAIMING_AGE,
 } from "./socialSecurity";
 import { requiredMinimumDistributionCents } from "./rmd";
-import { retirementDeferralLimitCents } from "./contributionLimits";
+import {
+  retirementDeferralLimitCents,
+  combinedPlanDepositLimitCents,
+  CONTRIBUTION_LIMIT_ASSUMPTIONS,
+} from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 import {
   computeFederalTaxCents,
@@ -15,6 +19,7 @@ import {
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
+import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -26,6 +31,8 @@ export { requiredMinimumDistributionCents, RMD_ASSUMPTIONS } from "./rmd";
 export {
   contributionLimits,
   retirementDeferralLimitCents,
+  combinedPlanDepositLimitCents,
+  CONTRIBUTION_LIMIT_ASSUMPTIONS,
   CONTRIBUTION_LIMITS_BASE_YEAR,
   type ContributionLimits,
 } from "./contributionLimits";
@@ -84,6 +91,20 @@ export const usJurisdiction: Jurisdiction = {
   computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
   computeTaxByCategoryCents: (taxableByCategory, ctx) =>
     computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
+  // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
+  // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
+  // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.
+  // This is the worker's reconciled ANNUAL liability across every wage source combined, not
+  // per-employer withholding (see payrollTax.ts).
+  computePayrollTaxCents: (earnedByCategory, ctx) =>
+    payrollTaxCents(earnedByCategory.wages ?? 0, ctx.year),
+  // Single earned category (`wages`), so the breakdown is trivial — but still required so
+  // the waterfall can attribute FICA back to the job(s) that generated it.
+  computePayrollTaxByCategoryCents: (earnedByCategory, ctx) => {
+    const wages = earnedByCategory.wages ?? 0;
+    const charge = payrollTaxCents(wages, ctx.year);
+    return charge > 0 ? { wages: charge } : {};
+  },
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
@@ -93,6 +114,12 @@ export const usJurisdiction: Jurisdiction = {
   colaAdjustedBenefitCents,
   requiredMinimumDistributionCents,
   retirementDeferralLimitCents,
+  combinedPlanDepositLimitCents,
   healthCostBenchmarkMonthlyCents,
-  modelAssumptions: [...FEDERAL_TAX_ASSUMPTIONS, ...RMD_ASSUMPTIONS],
+  modelAssumptions: [
+    ...FEDERAL_TAX_ASSUMPTIONS,
+    ...CONTRIBUTION_LIMIT_ASSUMPTIONS,
+    ...RMD_ASSUMPTIONS,
+    ...PAYROLL_TAX_ASSUMPTIONS,
+  ],
 };

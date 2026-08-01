@@ -4,6 +4,8 @@ import {
   CONTRIBUTION_LIMITS_BASE_YEAR,
   contributionLimits,
   retirementDeferralLimitCents,
+  combinedPlanDepositLimitCents,
+  CONTRIBUTION_LIMIT_ASSUMPTIONS,
 } from "./contributionLimits";
 
 /** DeferralLimitContext for a person of the given age in `year`. */
@@ -82,5 +84,96 @@ describe("retirementDeferralLimitCents — the age-banded deferral seam", () => 
       expect(limit).toBeGreaterThanOrEqual(prev);
       prev = limit;
     }
+  });
+});
+
+describe("combinedPlanDepositLimitCents — the age-banded effective deposit ceiling", () => {
+  it("returns the bare §415(c) base below 50 (or with no age supplied)", () => {
+    expect(combinedPlanDepositLimitCents(ctx(2026, 40))).toBe(72_000_00);
+    expect(combinedPlanDepositLimitCents(ctx(2026))).toBe(72_000_00);
+    expect(combinedPlanDepositLimitCents(ctx(2026, 49))).toBe(72_000_00);
+  });
+
+  it("adds the standard catch-up from age 50 through 59", () => {
+    expect(combinedPlanDepositLimitCents(ctx(2026, 50))).toBe(80_000_00);
+    expect(combinedPlanDepositLimitCents(ctx(2026, 59))).toBe(80_000_00);
+  });
+
+  it("adds the larger SECURE 2.0 catch-up in the 60–63 band", () => {
+    expect(combinedPlanDepositLimitCents(ctx(2026, 60))).toBe(83_250_00);
+    expect(combinedPlanDepositLimitCents(ctx(2026, 63))).toBe(83_250_00);
+  });
+
+  it("reverts to the standard catch-up from 64 on", () => {
+    expect(combinedPlanDepositLimitCents(ctx(2026, 64))).toBe(80_000_00);
+    expect(combinedPlanDepositLimitCents(ctx(2026, 80))).toBe(80_000_00);
+  });
+
+  // A property of the US figures, NOT an invariant the engine relies on: `waterfall.ts`
+  // copes with a jurisdiction whose combined limit sits below its deferral limit.
+  it("sits above the deferral limit at every age band, so a match has somewhere to land", () => {
+    for (const age of [undefined, 30, 49, 50, 59, 60, 63, 64, 80]) {
+      expect(combinedPlanDepositLimitCents(ctx(2026, age))).toBeGreaterThan(
+        retirementDeferralLimitCents(ctx(2026, age)),
+      );
+    }
+  });
+
+  it("is monotonic in year at a fixed age (indexed forward, never decreasing)", () => {
+    let prev = -1;
+    for (let year = CONTRIBUTION_LIMITS_BASE_YEAR; year <= CONTRIBUTION_LIMITS_BASE_YEAR + 40; year++) {
+      const limit = combinedPlanDepositLimitCents(ctx(year, 61));
+      expect(limit).toBeGreaterThanOrEqual(prev);
+      prev = limit;
+    }
+  });
+});
+
+describe("CONTRIBUTION_LIMIT_ASSUMPTIONS — the user-facing disclosure", () => {
+  const textFor = (id: string): string => {
+    const found = CONTRIBUTION_LIMIT_ASSUMPTIONS.find((a) => a.id === id);
+    if (found === undefined) throw new Error(`no assumption "${id}"`);
+    return found.text;
+  };
+
+  /** `2_450_000` → `"$24,500"` — the form the prose quotes figures in. */
+  const asDollars = (cents: number): string => `$${(cents / 100).toLocaleString("en-US")}`;
+
+  // The prose restates the dollar figures, so it can silently drift from the constants when
+  // the base year is re-pinned. Derive every quoted number from the functions themselves.
+  it("quotes every figure the limit functions actually return in the base year", () => {
+    const text = textFor("retirementContributionLimits");
+    const y = CONTRIBUTION_LIMITS_BASE_YEAR;
+    for (const age of [40, 55, 61]) {
+      expect(text).toContain(asDollars(retirementDeferralLimitCents(ctx(y, age))));
+      expect(text).toContain(asDollars(combinedPlanDepositLimitCents(ctx(y, age))));
+    }
+    // The catch-up amounts are quoted as the increments they are, not as totals.
+    const l = contributionLimits(y);
+    expect(text).toContain(asDollars(l.catchUp50Cents));
+    expect(text).toContain(asDollars(l.catchUp60to63Cents));
+  });
+
+  it("states which cap the employer match does and does not touch", () => {
+    const text = textFor("employerMatchOutsideEmployeeCap");
+    expect(text).toMatch(/does not count against your personal contribution limit/i);
+    expect(text).toMatch(/does count against the combined limit/i);
+    // The differing reach of the two caps is spelled out, not left implicit.
+    expect(text).toMatch(/shared across every job/i);
+    expect(text).toMatch(/applies separately to each employer/i);
+    // Trimming the match rather than the contribution is OURS, and is owned as such.
+    expect(text).toMatch(/modelling choice, not a rule/i);
+  });
+
+  it("never presents the catch-up-inflated ceilings as the statutory §415(c) figure", () => {
+    const text = textFor("retirementContributionLimits");
+    const y = CONTRIBUTION_LIMITS_BASE_YEAR;
+    // The statutory base is quoted plainly; the higher bands are introduced as "effective",
+    // with the catch-up named as the reason they exceed it.
+    expect(text).toContain(asDollars(contributionLimits(y).totalAdditionsCents));
+    expect(text).toMatch(/effective combined limit/i);
+    expect(text).toMatch(/catch-up contributions are allowed above that ceiling/i);
+    // No user-facing copy cites section numbers at all.
+    expect(text).not.toMatch(/415/);
   });
 });
