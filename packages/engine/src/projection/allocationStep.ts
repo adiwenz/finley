@@ -51,6 +51,10 @@ export function allocateMonth(
   taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
+  /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
+  shortfallCents: Cents;
+  /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
+  obligationShortfallCents: Cents;
 } {
   // Per person, not per household: the limit (with any age-banded catch-up) depends on the
   // individual's age. No birth year → base limit.
@@ -125,6 +129,8 @@ export function allocateMonth(
     taxBySourceCents: result.taxBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
+    shortfallCents: result.shortfallCents,
+    obligationShortfallCents: result.obligationShortfallCents,
   };
 }
 

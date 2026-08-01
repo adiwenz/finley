@@ -370,5 +370,6 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deferredByPersonCents: deferredByPerson,
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,
+    obligationShortfallCents: shortfallCents,
   };
 }

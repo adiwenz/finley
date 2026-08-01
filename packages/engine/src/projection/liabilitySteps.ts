@@ -52,9 +52,12 @@ export function buildLiabilityPaymentRecords(
  * exhausted).
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
- * terminal failure condition, surfaced as `isInsolvent` and a null net worth. Nothing
- * per-line is derived from it (see {@link import("./financialObligation").buildObligations}
- * for why an obligation is reported at its authored amount rather than rationed).
+ * terminal failure condition, surfaced as `isInsolvent` and a null net worth. This function
+ * itself derives nothing per-line — obligations still report at their authored amount
+ * regardless (see {@link import("./financialObligation").buildObligations}) — but the caller
+ * combines this return with the pre-cascade obligation/contribution split to work out which
+ * liability the household's real covering capacity actually reached (see {@link
+ * import("./financialObligation").fundedLiabilityPayments}).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
   if (state.liquidAccount === null) return 0;
@@ -88,18 +91,19 @@ export function applyShortfallCascade(state: SimState, month: number): Cents {
  * computeLiabilityPayments makes that safe, yielding shorten-term behavior (loan retires
  * early, payment unchanged).
  *
- * `isInsolvent` is this month's TERMINAL failure — every funding source and every card
- * exhausted, from {@link applyShortfallCascade}. `payments` still carries what was SCHEDULED
- * (obligations report it at that authored amount, unrationed, same as any other line — see
- * {@link import("./financialObligation").buildObligations}), but a month that failed to
- * finance itself did not actually move any money onto a liability either: interest still
- * accrues, but no balance shrinks as though a payment it could not fund succeeded.
+ * `appliedPayments` is PER LIABILITY, from {@link
+ * import("./financialObligation").fundedLiabilityPayments} — what THIS liability's payment
+ * actually got funded this month, walking the obligation priority order against the
+ * household's real covering capacity, which may be less than (never more than) what
+ * `computeLiabilityPayments` scheduled. Interest still accrues on the full balance regardless
+ * — only the payment reduction reflects what was actually funded — so a liability whose
+ * payment came up short (or entirely unfunded) does not amortize down as though it succeeded,
+ * while a sibling liability funded ahead of it in the walk is untouched by its shortfall.
  */
 export function advanceLiabilities(
   state: SimState,
   month: number,
-  payments: ReadonlyMap<string, Cents>,
-  isInsolvent: boolean,
+  appliedPayments: ReadonlyMap<string, Cents>,
 ): void {
   for (const liab of state.liabilities) {
     if (month < liab.startMonth) continue; // not originated yet — stays at 0
@@ -120,7 +124,7 @@ export function advanceLiabilities(
       continue;
     }
     bal = Math.round(bal * (1 + liab.apr / 12));
-    const appliedCents = isInsolvent ? 0 : (payments.get(liab.id) ?? 0);
+    const appliedCents = appliedPayments.get(liab.id) ?? 0;
     state.liabilityBalances.set(liab.id, Math.max(0, bal - appliedCents));
   }
 }

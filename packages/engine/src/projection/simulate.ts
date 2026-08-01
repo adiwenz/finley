@@ -3,7 +3,7 @@ import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentB
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
-import { buildObligations, automaticFundingTotal } from "./financialObligation";
+import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
 import type {
   HouseholdSimInput,
   ProjectionMonth,
@@ -153,15 +153,15 @@ export function simulateHousehold(
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
     const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
 
-    const { taxCents, taxByCategoryCents, taxBySourceCents, deferralBySourceCents, contributions } =
-      allocateMonth(
-        state,
-        allocationSources,
-        ctx,
-        jurisdiction,
-        automaticFundingCents,
-        month,
-      );
+    const {
+      taxCents,
+      taxByCategoryCents,
+      taxBySourceCents,
+      deferralBySourceCents,
+      contributions,
+      shortfallCents: preCascadeShortfallCents,
+      obligationShortfallCents: preCascadeObligationShortfallCents,
+    } = allocateMonth(state, allocationSources, ctx, jurisdiction, automaticFundingCents, month);
     // Nothing — savings or credit — could absorb this: the terminal flag.
     const uncoveredCents = applyShortfallCascade(state, month);
     const isInsolvent = uncoveredCents > 0;
@@ -169,9 +169,25 @@ export function simulateHousehold(
     // couldn't be funded (this uncovered slice), unwind the phantom deposit.
     unwindUnfundedContributions(state, contributions, uncoveredCents);
 
+    // The cascade's scarce covering capacity (savings + credit) funded obligations BEFORE
+    // contributions — the same ranking OBLIGATION_PRIORITY already gives mandatory debt/needs
+    // over a goal — so it covers the pre-cascade obligation shortfall first, leaving any
+    // contribution/goal shortfall to absorb what's left. Only what's still short of
+    // obligations after that reduces the total this month actually funded toward them.
+    const coveredCapacityCents = preCascadeShortfallCents - uncoveredCents;
+    const unfundedObligationCents = Math.max(
+      0,
+      preCascadeObligationShortfallCents - coveredCapacityCents,
+    );
+    const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
+    // Per-liability, not household-wide: walks the obligation list in its own priority order,
+    // so a fully-funded mandatory payment amortizes even while an unrelated need or a
+    // lower-priority sibling liability goes unfunded (or only partly funded) this month.
+    const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
+
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
-    advanceLiabilities(state, month, payments, isInsolvent);
+    advanceLiabilities(state, month, appliedLiabilityPayments);
     advanceProperties(state, month);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
     const bands = buildFlows(
