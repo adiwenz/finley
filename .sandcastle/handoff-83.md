@@ -1,11 +1,15 @@
 # Handoff — issue 83
 
 **Done so far:** every task the issue declares is complete (trace in `.sandcastle/summary-83.md`).
-Two commits: `4872479` built the covered-earnings record from actual job compensation; `2e9718c`
-then reworked the month-0 seam after review, and `53b5aac` fixed the Jobs-panel label that
-followed from it. PR #227. `npm run check` green at 1306 tests.
+Three commits: `4872479` built the covered-earnings record from actual job compensation;
+`2e9718c` reworked the month-0 seam after review; `53b5aac` fixed the Jobs-panel label that
+followed. PR #227. `npm run check` green at 1306 tests.
 
-Remaining work is NOT in the issue's task list — see Deferred.
+**This session added no production code.** It designed the deferred UI half as a throwaway
+prototype and settled the open questions. The prototype is committed as reference for the
+implementation session — **read `packages/app/src/components/jobsPanel/prototype/NOTES.md`
+first**; it holds the findings, the rejected options and the reasoning behind every decision
+below. Run it with `npm run dev` → `http://localhost:5173/prototype-pay-history.html`.
 
 ## Live constraints
 
@@ -29,31 +33,69 @@ Remaining work is NOT in the issue's task list — see Deferred.
   derived-gross consumers were re-based to match and must stay that way:
   `personDeferralFractionOf` (`packages/engine/src/authoring/jobs.ts`) and the forward scan in
   `packages/app/src/deferralLimit.ts`.
+- **For a job that ended before month 0, `currentSalaryCents` is never read.**
+  `compileJobIncome` returns null at `compilePerson.ts:209`, before the only read at `:221`;
+  `reconstructHistoricalCompensation` touches `startingSalaryCents` only. The value is inert, so
+  the UI must not ask for it — pin it to the job's last historical pay (not zero, which silently
+  pays $0/mo if the end age is later moved past "now").
+
+## Decisions for the implementation session
+
+Build **variant E**: two salary anchors labelled by *when*, one age-ordered pay list running
+through the "now" seam, under a lifetime age axis charting **pay only**.
+
+- **Age is the only vocabulary needed.** No month picker, and no change to Base + Adjustments —
+  its `[0, lastMonth]` month clamp is correct and history is not authored there.
+- **Never co-plot net worth over the historical span.** The empty region left of "now" reads as
+  a missing feature rather than as the rule, and back-filling it looks more plausible and is
+  wrong. Income is a flow and drawing it across the past is fine; a balance is a stock.
+- **Style the month-0 step neutral**, never as a warning — warning styling invites users to fix
+  the one thing the engine deliberately does not reconcile.
+- **Start salary keeps its VALUE when the start age changes**, not its meaning: the start age
+  *is* its date. Moving start 30 → 28 leaves the number alone; it now means "at 28".
+- **Moving the start age forward drops stranded pay changes, with a note** naming which went.
+  Clamping stacks two changes onto one month; silent deletion loses an authored fact. **Nothing
+  in the prototype implements this** — it is the one decision with no worked example behind it,
+  and the likeliest to get half-built.
+- **Chart pay as a staircase, not interpolated.** Straight interpolation invents raises between
+  changes and smooths the month-0 jump into a slope, hiding the exact thing the chart exists to
+  show.
+- **Clamp the age field on the way into state, not just on blur.** A default outside the job's
+  span submits unchanged if the user never touches it (found via a job that ended at 26 opening
+  at age 41).
 
 ## Dead ends
 
 - **Do not "fix" the month-0 discontinuity by carrying the historical series across the
-  boundary.** That was the obvious reading of the original bug report and it is wrong: the
-  authored current salary already reflects historical raises, so continuing the series reapplies
-  them. This was tried in the first pass, reviewed, and replaced by the anchor design. A future
-  agent seeing a salary step at month 0 will be tempted to close it — it is intentional.
+  boundary.** The authored current salary already reflects historical raises, so continuing the
+  series reapplies them. Tried in the first pass, reviewed, replaced by the anchor design. A
+  future agent seeing a salary step at month 0 will be tempted to close it — it is intentional.
 - **An `untilNow` / `fromHereForward` scope field on `JobPayChange` was specified, then dropped.**
-  It is redundant: a historical change that was later undone is already expressible as two dated
-  changes. Month sign carries the distinction.
-- Deriving `startingSalaryCents` by de-growing `currentSalaryCents` (or vice versa) was considered
-  for the one-field Jobs form and rejected — it couples two independent authored facts and breaks
-  as soon as a job has historical pay changes.
+  Redundant: a historical change later undone is already two dated changes. Month sign carries it.
+- **Deriving one salary anchor from the other** (de-growing `currentSalaryCents`, or growing
+  `startingSalaryCents`) was rejected twice — for the one-field Jobs form, and again this session
+  for the start-age-change case. It couples two independent authored facts and breaks as soon as
+  a job has historical pay changes.
+- **A separate "Pay history" surface for pre-now changes was prototyped (variant C) and rejected.**
+  It mirrors the engine's month-sign split, which forces the user to answer "before or after
+  now?" as a *navigation* question before they can find the right form.
+- **Putting the start salary in the job form's Advanced disclosure was prototyped (variant B) and
+  rejected.** The start salary and the pay-change list end up in different disclosures, so the two
+  facts that combine to make history are never on screen together.
 
 ## Deferred
 
-- **Historical compensation is not authorable through the UI.** Two gaps: the pay-change editor
-  works off the Base + Adjustments panel's selected month, which only spans month 0 onward
-  (`packages/app/src/components/baseAdjustments/payChangeEditor.tsx`), and the Jobs form has a
-  single salary field that sets both anchors (`packages/app/src/planPeople.ts`). So the
-  distinct-anchor scenarios the engine now supports are reachable only via the `Projection` API
-  or `npx tsx repl.ts`. Needs pre-"now" month scrubbing plus a second salary input — worth its
-  own issue, out of scope for #83.
-- The partial-first-year calendar discrepancy (**#34**) is unchanged and still documented at
+- **The historical-authoring UI itself is designed but not built.** The original blocker
+  description was partly wrong and should not be trusted: the Jobs panel **already has** an
+  age-dated pay-change form (`components/jobsPanel/payChangeForm.tsx`). Only two things block
+  history there — `min={currentAge}` on its age input, and `Math.max(0, …)` in
+  `jobsPanel.tsx:145`. The genuinely new work is the second salary anchor
+  (`planPeople.ts:134-138, 171-175` set both from one field) and the chart.
+- **#231 — job aggregate readers ignore job spans.** `personMonthlyIncomeCentsOf`,
+  `householdMonthlyIncomeCentsOf` and `personDeferralFractionOf` count finished jobs; the 50/30/20
+  quickstart writes budget lines off the inflated figure. Pre-existing, unrelated to #83, filed
+  with tasks. Do not fold it into this work.
+- **#34 — the partial-first-year calendar discrepancy** is unchanged and still documented at
   `compilePersonPriorEarnings` in `packages/engine/src/compilePerson.ts`.
 
 ## Traps
@@ -66,3 +108,7 @@ Remaining work is NOT in the issue's task list — see Deferred.
   new `SalaryTrajectory` field fails there and nowhere else. ~45 other fixtures build `salary`
   literals; typecheck catches those, but a literal split across a comment line will slip a
   mechanical regex — that one did.
+- **The prototype is throwaway and must not be imported by production code or tests.** It is a
+  separate Vite HTML entry (`packages/app/prototype-pay-history.html`) with its own in-memory
+  model that does **not** use the engine — its numbers are illustrative, not authoritative.
+  Delete it and the `prototype/` directory once E is folded into `jobsPanel/`.
