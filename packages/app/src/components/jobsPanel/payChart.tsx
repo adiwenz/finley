@@ -46,7 +46,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { JobPayPath } from "@finley/engine";
+import { payChangeEffectiveMonth, type JobPayChange, type JobPayPath } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
@@ -70,6 +70,8 @@ function ageLabel(birthYear: number, month: number): string {
 
 interface PayChartProps {
   readonly path: JobPayPath;
+  /** Only to pin each change's own month as a sample — the VALUES all come from `path`. */
+  readonly payChanges: readonly JobPayChange[];
   readonly birthYear: number;
   /** The plan's life expectancy — where the axis stops, whatever this job does. */
   readonly lifeExpectancy: number;
@@ -82,6 +84,7 @@ interface PayChartProps {
 
 export function PayChart({
   path,
+  payChanges,
   birthYear,
   lifeExpectancy,
   label,
@@ -109,16 +112,38 @@ export function PayChart({
    * age, which takes force at month 1 and would not appear until the next birthday. Pay is a
    * monthly quantity and the engine dates it in months; the axis has to be able to say so.
    *
-   * EVERY month is emitted, not just the vertices the staircase needs. The extra rows are not
-   * for drawing — they are what the tooltip snaps to, so the chart can be scrubbed a month at a
-   * time. A vertex-only series draws the identical line but can only be read where the pay
-   * happens to change, which is most of a career unreadable. A lifetime is ~1,080 rows, the
-   * same order as the projection charts elsewhere in the app.
+   * But a lifetime is ~1,080 months and the plot is under 1,000px, so one row per month cannot
+   * work: the tooltip snaps to the NEAREST row, and with more rows than pixels some of them are
+   * never the nearest — month 0 among them, which made "now" the one month unreadable. Nothing
+   * is lost by thinning, because pay is piecewise constant: within a flat stretch every month
+   * carries the same figure.
+   *
+   * So: a quarterly backbone, plus every month that actually MEANS something — "now", the job's
+   * ends, and the month each pay change takes force. Every vertex is exact and the staircase is
+   * drawn identically, while each row keeps a band of a few pixels to itself.
+   *
+   * Deliberately NO neighbouring months (no −1 beside 0, no `end − 1` beside `end`). `stepAfter`
+   * holds the previous sample's value right up to the next one, so the step already lands on the
+   * exact month without help — and a sample packed against another one is worse than useless: it
+   * squeezes BOTH into a sub-pixel band and makes the pair unreachable. That is what once made
+   * "now" the one month the tooltip would not stop on.
    */
-  const rows = Array.from({ length: lastMonth - firstMonth + 1 }, (_, i) => {
-    const month = firstMonth + i;
-    return { month, pay: path.monthlyCentsAt(month) };
-  });
+  const months = new Set<number>();
+  for (let month = firstMonth; month <= lastMonth; month += 3) months.add(month);
+  const keyMonths = [
+    firstMonth,
+    lastMonth,
+    0, // "now" — the seam, and the whole reason this chart exists
+    path.span.startMonth,
+    path.span.endMonthExclusive,
+    ...payChanges.map(payChangeEffectiveMonth),
+  ];
+  for (const month of keyMonths) {
+    if (month >= firstMonth && month <= lastMonth) months.add(month);
+  }
+  const rows = [...months]
+    .sort((a, b) => a - b)
+    .map((month) => ({ month, pay: path.monthlyCentsAt(month) }));
   const peak = Math.max(...rows.map((r) => r.pay), 1);
   /** Ages worth naming; both ends, plus whatever this job does. */
   const tickMonths = [...new Set([minAge, startAge, currentAge, endAge, maxAge])]

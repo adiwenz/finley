@@ -302,6 +302,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                     seeds a change there — the chart is an input, not a picture. */}
                 <PayChart
                   path={path}
+                  payChanges={payChanges}
                   birthYear={owner.birthYear}
                   lifeExpectancy={budget.lifeExpectancy}
                   label={label}
