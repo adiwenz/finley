@@ -1,7 +1,7 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
-import { buildWithdrawalSources } from "./withdrawal";
+import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
 import type {
@@ -128,29 +128,36 @@ export function simulateHousehold(
     // whole expense-plus-debt bill.
     const automaticFundingCents = automaticFundingTotal(obligations);
 
-    // Decumulation: when non-withdrawal income can't cover the month's obligations,
-    // liquidate investment accounts BEFORE the waterfall — same seam as RMD/benefit — so
-    // the shortfall is funded by selling assets instead of landing on the synthetic credit
-    // card. RMD income is already counted here, so the draw never double-withdraws.
+    // Explicit obligations resolve FIRST, in event sequence, against pre-decumulation balances:
+    // the down-payment / one-time-spend draw sells its named sources before the automatic
+    // waterfall sizes what to liquidate. Its gains difference over non-withdrawal income alone —
+    // decumulation has not run, so that ordinary income and benefits are the whole marginal
+    // context. Each source is grossed up over the tax its sale induces and drained here (before
+    // compounding, so a drained balance does not earn this month); its net-neutral tax source
+    // rides into `allocateMonth` so the gain is charged exactly once. `taxableByOwnerAfter` —
+    // this base with the draws' gains stacked in — is exposed on the flow view so the §4.5 gate
+    // prices a candidate over its siblings the SAME way (exact under any regime).
+    const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
+    const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
+
+    // Decumulation then operates on the balances the explicit draws left behind: when
+    // non-withdrawal income can't cover the month's automatic obligations, liquidate investment
+    // accounts BEFORE the waterfall — same seam as RMD/benefit. Its gap is still sized on the
+    // automatic total (explicit obligations excluded); only the assets left to close it have
+    // shrunk, and any shortfall spills to the credit cascade. Its gains stack on the explicit
+    // draws' via `taxableByOwnerAfter`, so the month's capital-gains tax is charged once,
+    // marginally, in resolution order. RMD income is already counted, so the draw never
+    // double-withdraws.
     const withdrawal = buildWithdrawalSources(
       state,
       jurisdiction,
       nonWithdrawalSources,
       automaticFundingCents,
       ctx,
+      DEFAULT_LIQUIDATION_ORDER,
+      fundingDraw.taxableByOwnerAfter,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
-
-    // Down-payment / one-time-spend draws resolve BEFORE the tax chokepoint so an
-    // appreciated source's realized gain is actually taxed. Each source is grossed up over
-    // that tax and drained here (before compounding, so a drained balance does not earn
-    // this month); its net-neutral tax source rides into `allocateMonth` so the gain is
-    // charged exactly once. `fundingBase` is the month's per-owner taxable base from
-    // non-funding income — the marginal context the gain's tax is differenced over, built
-    // before the draw and exposed on the flow view so the authoring §4.5 gate differences
-    // the gain the SAME way (exact under any regime, not a flat-rate estimate).
-    const fundingBase = buildTaxableByOwner(incomeSources);
-    const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
     const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
 
     const {
@@ -212,10 +219,11 @@ export function simulateHousehold(
       // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
       payrollTaxBySourceCents,
     );
-    // The taxable base WITH this month's funding gains stacked in, so the authoring gate
-    // prices a would-be draw on top of any sibling draw at this month. A newly appended
-    // event's draw is last in ledger order, hence last in resolution, so this post-draw
-    // base is its marginal context.
+    // The taxable base after this month's explicit draws but BEFORE decumulation, so the
+    // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
+    // on top of decumulation, which now resolves after the candidate and so is not tax it
+    // induces. A newly appended event's draw is last in ledger order, hence last among the
+    // explicit draws in resolution, so this base is its marginal context.
     const flows = {
       ...bands,
       taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),

@@ -14,6 +14,7 @@ import { planAccount, type PlanAccount } from "./planAccount";
 import type { PersonId } from "./job";
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import { validateLedger } from "./ledger/validateLedger";
+import { SYNTHETIC_CARD_ID } from "./liability";
 
 function savings(openingCents: number, rate = 0): PlanAccount {
   return planAccount({
@@ -649,6 +650,59 @@ function bracketedCapitalGains(thresholdCents: number, rate: number): Jurisdicti
     },
   };
 }
+
+// Explicit obligations resolve BEFORE the automatic waterfall, so a down-payment draw sells its
+// sources first and decumulation sizes its liquidation against the balances left behind. When
+// both compete for one account, the draw takes its share first and the automatic resolver can be
+// starved — falling short spills to the credit cascade rather than pre-empting the purchase.
+
+describe("HomePurchaseEvent — explicit draw resolves before automatic decumulation", () => {
+  // `cash` is the liquid sink (first liquid account), left empty so it holds no buffer;
+  // `brokerage` funds both the down payment and any decumulation. A $30k/mo obligation with no
+  // income forces a $30k decumulation gap every month.
+  function baseWithExpense(): LedgerBaseConfig {
+    return {
+      horizonMonths: 3,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [liquidAcct("cash", 0), liquidAcct("brokerage", 6_000_000)],
+      initialExpenseSeries: [
+        {
+          series: new SimCashFlowSeries(0, dollarsToCents(30_000), { type: "fixed" }, { baselineUnit: "monthly" }),
+          ownerId: "p1" as PersonId,
+        },
+      ],
+    };
+  }
+
+  it("spills the automatic obligation to credit once the draw takes the account first", () => {
+    // $60k brokerage, $40k down payment at month 0, $30k automatic obligation. Explicit first:
+    // the draw takes its $40k, leaving $20k — decumulation covers only $20k of its $30k gap, so
+    // the remaining $10k of groceries is financed on the synthetic card. Were the automatic
+    // resolver to run first it would fund the whole $30k from the untouched $60k and borrow
+    // nothing; the down payment would fall short instead. The credit balance is the proof of
+    // order: it exists ONLY because the explicit draw resolved ahead of decumulation.
+    const base = baseWithExpense();
+    const ledger = addWithBase(emptyLedger, base, purchase({ month: 0, downPaymentCents: 4_000_000, downPaymentSourceIds: ["brokerage"] }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // The draw delivered in full: brokerage drained to zero.
+    expect(series.months[0].accountBalancesCents.brokerage).toBe(0);
+    // The $10k decumulation could no longer cover, financed on the cascade card — the borrowed
+    // principal plus one month of its interest, so at least $10k and under $10.5k.
+    const financed = series.months[0].liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0;
+    expect(financed).toBeGreaterThanOrEqual(1_000_000);
+    expect(financed).toBeLessThan(1_050_000);
+  });
+
+  it("borrows nothing for the same obligation when no draw competes for the account", () => {
+    // The control: the $30k obligation alone draws $30k from the untouched $60k brokerage and
+    // finances nothing — so the borrowing above is the draw's doing, not the obligation's size.
+    const base = baseWithExpense();
+    const series = buildProjection(interpretLedger(emptyLedger, base), base, nullJurisdiction);
+    expect(series.months[0].liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
+  });
+});
 
 describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
   it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
