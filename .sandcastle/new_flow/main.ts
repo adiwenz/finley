@@ -27,6 +27,7 @@ import { exec, execSync } from "child_process";
 import { promisify, format } from "util";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 
 const execPromise = promisify(exec);
 
@@ -359,6 +360,60 @@ async function markIssueDone(issue: { id: string }) {
     console.log(`🏷️  [Issue #${issue.id}] Relabeled Sandcastle → sandcastle-done (issue left open for review).`);
   } catch (labelError: any) {
     console.warn(`⚠️ [Issue #${issue.id}] Could not update issue labels: ${labelError.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Open a PR for a completed branch, upload only — never merge.
+//
+// The merge stays a human decision (see the `ship` skill, which handles PR →
+// merge → close → pull-main once a person has reviewed the diff). This only
+// gets the PR to exist so that review can start without a manual `gh pr
+// create`. `Closes #<id>` lets that eventual human merge close the issue,
+// consistent with `markIssueDone` leaving it open until then.
+//
+// Idempotent: skips if an open PR for the branch already exists (a resumed
+// run, or a prior run that got this far before dying). Non-fatal — a PR is a
+// convenience on top of the pushed branch, not the review artifact itself.
+// ---------------------------------------------------------------------------
+async function ensurePullRequest(issue: { id: string; title: string; branch: string }) {
+  try {
+    const { stdout } = await execPromise(
+      `gh pr list --head ${issue.branch} --state open --json number --jq length`,
+    );
+    if (stdout.trim() !== "0") {
+      console.log(`ℹ️  [Issue #${issue.id}] PR already open for ${issue.branch}; skipping.`);
+      return;
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ [Issue #${issue.id}] Could not check for an existing PR: ${error.message}`);
+    return;
+  }
+
+  // The implementer's summary (see implement-prompt.md) is written for exactly
+  // this: a human reading the branch. Fall back to a bare issue link when it
+  // wasn't written (an issue with no `## Tasks` may finish without one).
+  let body = `Closes #${issue.id}.`;
+  try {
+    const { stdout } = await execPromise(
+      `git show origin/${issue.branch}:.sandcastle/summary-${issue.id}.md`,
+    );
+    if (stdout.trim()) body = `${stdout.trim()}\n\nCloses #${issue.id}.`;
+  } catch {
+    // No summary file on the branch — the bare fallback above stands.
+  }
+
+  const bodyFile = path.join(os.tmpdir(), `sandcastle-pr-body-${issue.id}.md`);
+  try {
+    fs.writeFileSync(bodyFile, body);
+    const { stdout } = await execPromise(
+      `gh pr create --title "${issue.title.replace(/"/g, '\\"')} (#${issue.id})" --body-file "${bodyFile}" --head ${issue.branch}`,
+    );
+    console.log(`🔗 [Issue #${issue.id}] Opened PR: ${stdout.trim()}`);
+  } catch (error: any) {
+    console.warn(`⚠️ [Issue #${issue.id}] Could not open PR: ${error.message}`);
+  } finally {
+    fs.rm(bodyFile, { force: true }, () => {});
   }
 }
 
@@ -789,14 +844,19 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
     // leaving it open for human review.
     await markIssueDone(issue);
 
+    // Not `pushed`, which only records a push made by THIS run. An issue
+    // finished by an earlier run has nothing new to push, and its branch is
+    // already on origin — reviewable, and not the lost-work case below.
+    const onOrigin = pushed || (await remoteBranchExists(issue.branch));
+    if (onOrigin) {
+      await ensurePullRequest(issue);
+    }
+
     if (REVIEW_MODE === "push") {
       // Ephemeral/CI: no local worktree would survive the run, so the pushed
       // branch is the review artifact. Print how to review it locally later.
       console.log(`FINISHED: ${issue.branch}`);
-      // Not `pushed`, which only records a push made by THIS run. An issue
-      // finished by an earlier run has nothing new to push, and its branch is
-      // already on origin — reviewable, and not the lost-work case below.
-      if (pushed || (await remoteBranchExists(issue.branch))) {
+      if (onOrigin) {
         console.log(`🔍 [Issue #${issue.id}] Review locally when you're back:`);
         console.log(`           git fetch origin ${issue.branch}`);
         console.log(`           .sandcastle/new_flow/create-review-worktree.sh ${issue.branch} ${issue.id}`);
