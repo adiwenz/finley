@@ -559,7 +559,6 @@ async function runReviewer(issue: { id: string; title: string; branch: string })
       TASK_ID: issue.id,
       ISSUE_TITLE: issue.title,
       BRANCH: issue.branch,
-      TARGET_BRANCH: "origin/main",
     },
   });
 }
