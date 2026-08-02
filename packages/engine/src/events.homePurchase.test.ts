@@ -852,6 +852,80 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
   });
 });
 
+// gate == sim, the load-bearing invariant: the affordability gate prices a candidate over the
+// SAME base the simulator resolves it against, so it blocks exactly when the sim would fall
+// short — never wider. Explicit draws now resolve before automatic decumulation, so a
+// candidate's marginal context is "after explicit draws, before decumulation": decumulation's
+// gains come AFTER it and are none of the candidate's tax. A gate that still read the
+// after-decumulation base would stack decumulation's gain under the candidate, over-tax the
+// sale, and block a purchase the sim funds in full — this fixture is the guard against that
+// regression.
+
+describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", () => {
+  // The candidate draws `cash` (a $60k buffer, no gain); decumulation draws the appreciated
+  // `nest`. The gains-above-$15k jurisdiction taxes `nest`'s liquidation but never the cash
+  // draw, so the candidate's shortfall is purely a question of balance — precisely the axis the
+  // reorder moved.
+  const jur = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+  // One decumulation month at the purchase: $150k of expense with no income at month 23 only,
+  // so `nest` grows untouched until then and liquidates exactly once, alongside the draw. In the
+  // PRE-CANDIDATE projection the gate probes, decumulation would spend the whole $60k `cash`
+  // buffer here and liquidate `nest` for the rest — so end-of-month `cash` reads $0. The gate
+  // must instead see `cash` as it stands BEFORE decumulation, which is what the candidate (first
+  // in resolution order) actually draws from.
+  const baseWithLateExpense = (): LedgerBaseConfig => ({
+    horizonMonths: 24,
+    annualInflationRate: 0,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [liquidAcct("cash", DOWN, 0), liquidAcct("nest", 20_000_000, 0.1)],
+    initialExpenseSeries: [
+      {
+        series: new SimCashFlowSeries(
+          23,
+          dollarsToCents(150_000),
+          { type: "fixed" },
+          { baselineUnit: "monthly", endMonth: 23 },
+        ),
+        ownerId: "p1" as PersonId,
+      },
+    ],
+  });
+  const buy = purchase({ month: 23, downPaymentSourceIds: ["cash"] });
+
+  it("accepts a candidate the sim funds in full from a buffer decumulation would otherwise spend", () => {
+    const base = baseWithLateExpense();
+
+    // The gate, probing the pre-candidate ledger, prices the $60k down payment against `cash` as
+    // it stands BEFORE the month's decumulation — the full $60k buffer — so it predicts zero
+    // shortfall and (cash has no gain) zero tax. This is the load-bearing read: end-of-month
+    // `cash` is $0 there, and a gate reading it would predict a full $60k shortfall and block.
+    const gate = fundingLookup(emptyLedger, base, jur()).availabilityAt(["cash"], DOWN, 23);
+    expect(gate.taxCents).toBe(0);
+    expect(gate.shortfallCents).toBe(0);
+
+    // The discriminating assertion: the gate accepts, matching the sim below. Read the
+    // post-decumulation balance and it would block a purchase the simulator funds in full.
+    const accepted = addEvent(emptyLedger, base, buy, jur());
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+
+    const series = buildProjection(interpretLedger(accepted.ledger, base), base, jur());
+    const at = series.months[23];
+
+    // gate == sim: the candidate resolved FIRST and took the full $60k `cash` buffer, draining
+    // it to exactly zero — the shortfall the gate predicted (none) is the shortfall the sim
+    // produced (none), and the property was acquired.
+    expect(at.accountBalancesCents.cash).toBe(0);
+    expect(at.propertyValuesCents.house1).toBe(PRICE);
+    // The month genuinely decumulated AND taxed it: the $150k expense forced `nest`'s
+    // liquidation, whose gain crossed the $15k threshold — the very decumulation whose balance
+    // drain and tax the gate had to keep off the candidate.
+    expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000));
+    expect(at.flows!.taxCents).toBeGreaterThan(0);
+    expect(at.accountBalancesCents.nest).toBeLessThan(series.months[22].accountBalancesCents.nest);
+  });
+});
+
 // Membership is a property of the account, not the month: every liquid account is listed at
 // every month and only `balanceCents` moves. Omitting empty ones let a picker row vanish while
 // its id stayed selected.

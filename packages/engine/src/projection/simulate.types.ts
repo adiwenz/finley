@@ -147,6 +147,21 @@ export interface ProjectionMonthFlows {
   readonly taxableByOwnerAfterFundingCents?: Readonly<
     Readonly<Record<string, Readonly<Record<string, Cents>>>>
   >;
+  /**
+   * Per-account balances (and their matching {@link accountBasisAfterFundingCents}) at the
+   * post-explicit-draw, pre-decumulation seam — the state a newly authored money-out event,
+   * last in ledger order, actually resolves against. Since the reorder, explicit draws run
+   * before decumulation, so end-of-month `accountBalancesCents` is TOO LATE for the gate:
+   * decumulation and this month's compounding have both moved it. Reading these instead is
+   * what keeps the gate's shortfall equal to the sim's — a candidate whose source
+   * decumulation would later drain still sees the full balance it draws from first.
+   *
+   * Keyed like `accountBalancesCents`. Optional: attached after `buildFlows`, absent on the
+   * `opening` snapshot (where the gate already reads pre-decumulation balances directly).
+   */
+  readonly accountBalancesAfterFundingCents?: Readonly<Record<string, Cents>>;
+  /** Basis companion to {@link accountBalancesAfterFundingCents}; untaxed gain is `balance − basis`. */
+  readonly accountBasisAfterFundingCents?: Readonly<Record<string, Cents>>;
   /** Authored budget lines + health + any event-created expenses. */
   readonly expensesCents: Cents;
   /** Mortgages, loans, card minimums. */

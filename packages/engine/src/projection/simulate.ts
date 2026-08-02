@@ -1,4 +1,5 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
+import type { Cents } from "../money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
@@ -140,6 +141,18 @@ export function simulateHousehold(
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
 
+    // Snapshot balances/basis at THIS seam — after the explicit draws sold their sources, before
+    // decumulation liquidates anything — because that is the state a would-be money-out event
+    // resolves against. `resolveFundingDraws` has already written the sibling draws; decumulation
+    // and this month's `compoundAssets` have not, so the end-of-month snapshot would understate
+    // what an appended candidate can draw from an account decumulation later drains.
+    const accountBalancesAfterFundingCents: Record<string, Cents> = {};
+    const accountBasisAfterFundingCents: Record<string, Cents> = {};
+    for (const acc of state.accounts) {
+      accountBalancesAfterFundingCents[acc.id] = state.assetBalances.get(acc.id) ?? 0;
+      accountBasisAfterFundingCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
+    }
+
     // Decumulation then operates on the balances the explicit draws left behind: when
     // non-withdrawal income can't cover the month's automatic obligations, liquidate investment
     // accounts BEFORE the waterfall — same seam as RMD/benefit. Its gap is still sized on the
@@ -227,6 +240,8 @@ export function simulateHousehold(
     const flows = {
       ...bands,
       taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
+      accountBalancesAfterFundingCents,
+      accountBasisAfterFundingCents,
     };
 
     months.push(

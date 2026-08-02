@@ -101,11 +101,22 @@ export function fundingLookup(
       taxableByOwner.set(ownerId, { ...(byCategory as TaxableByCategory) });
     }
 
+    // Balance and basis at the seam the candidate resolves against — after this month's explicit
+    // draws, before decumulation. Since the reorder, decumulation runs AFTER the candidate, so
+    // its end-of-month drain must not count against the candidate's sources; the flow view
+    // exports the pre-decumulation figures for exactly this read. The `opening` snapshot (month
+    // ≤ 0) carries no flows and already holds pre-decumulation balances, so it falls back to the
+    // end-of-month maps — which for the opening snapshot ARE the starting balances.
+    const balanceOf = (id: string): number =>
+      (m?.flows?.accountBalancesAfterFundingCents?.[id] ?? m?.accountBalancesCents[id] ?? 0) as number;
+    const basisOf = (id: string): number =>
+      (m?.flows?.accountBasisAfterFundingCents?.[id] ?? m?.accountBasisCents[id] ?? 0) as number;
+
     const named: FundingSourceBalance[] = [];
     const fundingSources: FundingSourceState[] = [];
     for (const id of sourceIds) {
       const label = labelById.get(id) ?? id;
-      const balance = (m?.accountBalancesCents[id] ?? 0) as number;
+      const balance = balanceOf(id);
       const isLiquidBucket = labelById.has(id) && balance > 0;
       named.push({ id, label, balanceCents: isLiquidBucket ? balance : 0 });
       if (isLiquidBucket) {
@@ -114,7 +125,7 @@ export function fundingLookup(
           ownerId: ownerById.get(id) ?? "",
           category: categoryById.get(id) ?? "capitalGains",
           balanceCents: balance,
-          basisCents: (m?.accountBasisCents[id] ?? 0) as number,
+          basisCents: basisOf(id),
           label,
         });
       }
