@@ -910,6 +910,33 @@ describe("HomePurchaseEvent — sibling explicit draws resolve in event sequence
   });
 });
 
+describe("HomePurchaseEvent — down-payment obligation ids", () => {
+  it("gives two home purchases distinct, stable FinancialObligation ids", () => {
+    // Every purchase shares `sourceId: "downpayment"` for report-band namespacing, but each is
+    // its own obligation — sharing an `id` too would make the second purchase silently overwrite
+    // or collide with the first wherever obligations are keyed by id.
+    const base = baseWithAccounts([liquidAcct("a", 20_000_000), liquidAcct("b", 20_000_000)]);
+    let ledger = addWithBase(emptyLedger, base, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    ledger = addWithBase(
+      ledger,
+      base,
+      purchase({ id: "buy2", month: 10, propertyId: "house2", downPaymentSourceIds: ["b"] }),
+    );
+
+    const draws = interpretLedger(ledger, base).fundingDraws;
+    expect(draws).toHaveLength(2);
+    const ids = draws.map((d) => d.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).toEqual(["draw:downpayment:buy1", "draw:downpayment:buy2"]);
+    // `sourceId` stays the shared report-band namespace for both.
+    expect(draws.every((d) => d.sourceId === "downpayment")).toBe(true);
+
+    // Stable: re-interpreting the same ledger reproduces the same ids.
+    const idsAgain = interpretLedger(ledger, base).fundingDraws.map((d) => d.id);
+    expect(idsAgain).toEqual(ids);
+  });
+});
+
 // gate == sim, the load-bearing invariant: the affordability gate prices a candidate over the
 // SAME base the simulator resolves it against, so it blocks exactly when the sim would fall
 // short — never wider. Explicit draws now resolve before automatic decumulation, so a

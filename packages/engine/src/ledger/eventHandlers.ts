@@ -313,6 +313,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     // report-band namespace the simulator keys the draw's gain/tax bands off.
     state.fundingDraws.push(
       assetAcquisitionObligation({
+        id: `downpayment:${event.id}`,
         sourceId: "downpayment",
         month: event.month,
         amountCents: event.downPaymentCents,

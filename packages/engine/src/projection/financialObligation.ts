@@ -243,18 +243,23 @@ export function obligationLiabilityId(liabilityId: string): string {
  *
  * `sourceId` is the report-band namespace, chosen at the emission site — the simulator keys the
  * draw's gain/tax bands off it, so a home down payment passes `"downpayment"` and gets
- * `downpayment:<account>` / `downpayment-tax:<account>` bands. `priority` is inert — an explicit
- * obligation never ranks in the automatic waterfall ({@link automaticFundingTotal} already
- * excludes it) — so it takes the untracked tier purely to satisfy the type.
+ * `downpayment:<account>` / `downpayment-tax:<account>` bands. It is deliberately *not* what
+ * `id` derives from: every home purchase shares the same `sourceId`, so two purchases in one
+ * plan would otherwise collide on `draw:downpayment` and stomp each other's obligation. `id`
+ * instead derives from the caller-supplied `id` param — the authoring event's own id — which is
+ * unique per purchase and stable across months. `priority` is inert — an explicit obligation
+ * never ranks in the automatic waterfall ({@link automaticFundingTotal} already excludes it) —
+ * so it takes the untracked tier purely to satisfy the type.
  */
 export function assetAcquisitionObligation(params: {
+  readonly id: string;
   readonly sourceId: string;
   readonly month: number;
   readonly amountCents: Cents;
   readonly orderedAccountIds: readonly string[];
 }): FinancialObligation {
   return {
-    id: `draw:${params.sourceId}`,
+    id: `draw:${params.id}`,
     sourceId: params.sourceId,
     month: params.month,
     amountCents: params.amountCents,
