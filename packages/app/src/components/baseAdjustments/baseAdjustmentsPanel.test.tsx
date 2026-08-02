@@ -6,7 +6,7 @@
  * chart click, since Recharts needs a real layout width jsdom lacks.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
   Projection,
@@ -1025,6 +1025,26 @@ describe("BaseAdjustmentsPanel — renders every obligation the month incurs", (
     expect(spin(/Housing/)).toBeTruthy();
     expect(screen.queryByRole("spinbutton", { name: /loan payment/i })).toBeNull();
     expect(screen.getByRole("link", { name: /Change the loan/i })).toBeTruthy();
+  });
+});
+
+describe("BaseAdjustmentsPanel — Funded by", () => {
+  it("names an account-funded source by its authored label, not its internal id", () => {
+    // Income far below the template budget forces a draw on the cash-savings account to cover
+    // the gap, so month 0's "Funded by" section names an "account" source: `savings`, whose
+    // authored label is "Cash savings" (see `SAVINGS_ID`/`SAVINGS_LABEL` in `projectionBase.ts`).
+    const cashFundedPlan: Plan = {
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
+      openingBalanceCents: dollarsToCents(50_000),
+      goals: [],
+    };
+    renderPanel(cashFundedPlan);
+    const funded = screen.getByText("Funded by").closest("section");
+    if (funded === null) throw new Error("expected a 'Funded by' section");
+    expect(funded.textContent).toContain("Cash savings");
+    // The internal account id must never leak through as a source label once a plan label
+    // resolves it — this is the wiring `BaseAdjustmentsPanel` supplies via `accountDescriptors()`.
+    expect(within(funded).queryByText("savings")).toBeNull();
   });
 });
 

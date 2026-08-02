@@ -94,11 +94,15 @@ export interface BaseAdjustmentsPanelProps {
   readonly household: Household;
   readonly ledger: Ledger;
   /**
-   * The two reads this panel makes: what each expense line resolves to at the selected month,
-   * and the household's standing pay the quickstart sizes its tiers against. Writes go through
-   * {@link transact}.
+   * The three reads this panel makes: what each expense line resolves to at the selected month,
+   * the household's standing pay the quickstart sizes its tiers against, and the plan's account
+   * ids/labels so the "Funded by" section can name an account rather than print its id. Writes
+   * go through {@link transact}.
    */
-  readonly projection: Pick<Projection, "expenseRowsAt" | "householdMonthlyIncomeCents">;
+  readonly projection: Pick<
+    Projection,
+    "expenseRowsAt" | "householdMonthlyIncomeCents" | "accountDescriptors"
+  >;
 }
 
 export function BaseAdjustmentsPanel({
@@ -154,6 +158,12 @@ export function BaseAdjustmentsPanel({
   // Per-obligation funding attribution: which sources covered each line, in cascade order. Includes
   // explicit draws (a home down payment) that never appear in `obligations`, so it reads its own seam.
   const resolvedFunding = selectedFlows?.resolvedFunding ?? EMPTY_FUNDING;
+  // Account id → authored label, so an account-funded source in "Funded by" reads as its name
+  // rather than its internal id — the same descriptors the net-worth breakdown chart labels by.
+  const accountLabels = useMemo(
+    () => new Map(projection.accountDescriptors().map((a) => [a.id, a.label])),
+    [projection],
+  );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
   // disclosed at a time, like the Jobs and Goals panels.
@@ -364,7 +374,11 @@ export function BaseAdjustmentsPanel({
         {/* What actually covered each obligation this month — savings, liquidation or credit —
             surfaced so a month quietly running on credit is visible here, not only later in the
             net-worth line. Includes explicit draws (a home down payment) not in the list above. */}
-        <FundingAttribution resolvedFunding={resolvedFunding} obligations={obligations} />
+        <FundingAttribution
+          resolvedFunding={resolvedFunding}
+          obligations={obligations}
+          accountLabels={accountLabels}
+        />
 
         {/* Unlike spending, these accumulate in net worth. */}
         <ContributionsEditor

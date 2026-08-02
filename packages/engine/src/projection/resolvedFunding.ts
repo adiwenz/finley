@@ -117,6 +117,17 @@ interface Layer {
 }
 
 /**
+ * `Math.round(numerator / denominator)` for non-negative operands, computed entirely in `BigInt`
+ * so multiplying two cent-denominated values (each possibly in the hundreds of millions of cents
+ * for a multi-million-dollar account) never risks exceeding `Number.MAX_SAFE_INTEGER` the way
+ * `Math.round((whole * after) / net)` would. Half rounds up, matching `Math.round`.
+ */
+function roundedShare(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) return 0n;
+  return (numerator * 2n + denominator) / (denominator * 2n);
+}
+
+/**
  * Split one liquidation's breakdown across the obligations it funds. Rounds gross and gain from the
  * running consumed-net position (not each slice independently), so the slices sum back to the
  * account's own totals with no drift — the final slice absorbs the rounding once the layer is fully
@@ -130,8 +141,15 @@ function apportionWithdrawal(
 ): NonNullable<ResolvedFundingSource["withdrawal"]> {
   const before = totals.consumedCents;
   const after = before + netTakenCents;
-  const cut = (whole: Cents): Cents =>
-    Math.round((whole * after) / totals.netCents) - Math.round((whole * before) / totals.netCents);
+  const netCents = BigInt(totals.netCents);
+  const beforeBig = BigInt(before);
+  const afterBig = BigInt(after);
+  const cut = (whole: Cents): Cents => {
+    const wholeBig = BigInt(whole);
+    const afterShare = roundedShare(wholeBig * afterBig, netCents);
+    const beforeShare = roundedShare(wholeBig * beforeBig, netCents);
+    return Number(afterShare - beforeShare);
+  };
   const grossWithdrawnCents = cut(totals.grossCents);
   const realizedGainCents = cut(totals.gainCents);
   totals.consumedCents = after;

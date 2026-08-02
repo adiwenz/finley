@@ -590,6 +590,60 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
   });
 
+  it("splits a multi-million-dollar decumulation draw across obligations without precision loss", () => {
+    // Cents this large (a $50M account funding two multi-million-dollar lines) push
+    // whole * after / net well past Number.MAX_SAFE_INTEGER if the apportionment ever multiplies
+    // two cent-denominated numbers together directly — this pins that it doesn't.
+    const month = run(
+      {
+        accounts: [cashAccount(0), preTaxAccount("pretax", dollarsToCents(50_000_000))],
+        incomeSeries: [],
+        expenseSeries: [
+          expenseLine("a", 2_000_000, 0),
+          expenseLine("b", 3_000_000, 50),
+          expenseLine("c", 900_000, 100),
+        ],
+      },
+      flatOrdinaryTax,
+    ).months[0];
+    if (month.flows?.resolvedFunding === undefined) {
+      throw new Error("expected resolvedFunding on the flow record");
+    }
+    const resolvedFunding = month.flows.resolvedFunding;
+    const slices = ["line:a", "line:b", "line:c"].map((id) => {
+      const s = byObligation(resolvedFunding, id).sources.find((x) => x.sourceId === "pretax");
+      if (s?.withdrawal === undefined) throw new Error(`expected a withdrawal breakdown on ${id}`);
+      return s;
+    });
+
+    for (const s of slices) {
+      expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
+      expect(s.amountCents).toBeGreaterThanOrEqual(0);
+      expect(s.withdrawal!.grossWithdrawnCents).toBeGreaterThanOrEqual(0);
+      expect(s.withdrawal!.principalCents).toBeGreaterThanOrEqual(0);
+      expect(s.withdrawal!.realizedGainCents).toBeGreaterThanOrEqual(0);
+      expect(s.withdrawal!.taxCents).toBeGreaterThanOrEqual(0);
+      // Every slice keeps `gross = principal + gain` and `net = gross − tax`.
+      expect(s.withdrawal!.principalCents + s.withdrawal!.realizedGainCents).toBe(
+        s.withdrawal!.grossWithdrawnCents,
+      );
+      expect(s.withdrawal!.grossWithdrawnCents - s.withdrawal!.taxCents).toBe(
+        s.withdrawal!.netDeliveredCents,
+      );
+    }
+
+    const grossReduction = dollarsToCents(50_000_000) - month.accountBalancesCents["pretax"];
+    // whole * after (e.g. grossCents * consumedNetCents) here comfortably exceeds
+    // Number.MAX_SAFE_INTEGER — the exact case a naive `Math.round((whole * after) / net)` breaks.
+    expect(grossReduction * dollarsToCents(2_000_000)).toBeGreaterThan(Number.MAX_SAFE_INTEGER);
+    const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
+      slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
+    // The slices partition the one liquidation exactly — no cent gained or lost to overflow.
+    expect(sum((w) => w.grossWithdrawnCents)).toBe(grossReduction);
+    expect(sum((w) => w.taxCents)).toBe(grossReduction - sum((w) => w.netDeliveredCents));
+    expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
+  });
+
   it("keeps funded+shortfall reconciled and sources in cascade order for every record", () => {
     const funding = attributionAt({
       accounts: [cashAccount(dollarsToCents(500)), investmentAccount(dollarsToCents(3000))],

@@ -93,6 +93,27 @@ describe("FundingAttribution", () => {
     expect(html).toContain("$60,000");
   });
 
+  it("shows the authored account name in place of the internal account id when a label is known", () => {
+    // `savings` has no obvious relation to "Household reserve" — a passing match here can only
+    // come from the label lookup, never from formatting the raw id.
+    const labels = new Map([["savings", "Household reserve"]]);
+    const record: ResolvedFunding = {
+      obligationId: "line:rent",
+      sourceId: "rent",
+      month: 0,
+      requestedCents: 100_000,
+      fundedCents: 100_000,
+      shortfallCents: 0,
+      sources: [{ kind: "account", sourceId: "savings", amountCents: 100_000 }],
+    };
+    const obligations = [{ id: "line:rent", label: "Rent" } as unknown as FinancialObligation];
+    const html = renderToStaticMarkup(
+      <FundingAttribution resolvedFunding={[record]} obligations={obligations} accountLabels={labels} />,
+    );
+    expect(html).toContain("Household reserve");
+    expect(html).not.toContain(">savings<");
+  });
+
   it("renders nothing when the month funded no obligations", () => {
     const html = renderToStaticMarkup(
       <FundingAttribution resolvedFunding={[]} obligations={[]} />,
