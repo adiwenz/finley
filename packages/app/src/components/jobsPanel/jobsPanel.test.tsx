@@ -654,6 +654,75 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     expect(oneOffMarks()).toEqual([[12, dollarsToCents(11000)]]);
   });
 
+  /**
+   * A raise and a missed paycheck dated the same month. The engine's rule is that the pay
+   * change sets the salary state and the override then changes only that month's payment, so
+   * the job's own surfaces have to show both facts rather than one cancelling the other.
+   */
+  const raiseAndMissed: Plan = {
+    ...PLAN_DEFAULTS,
+    jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+      ...j,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "setTo", cents: 0 }],
+    })),
+  };
+
+  it("marks the missed month at $0 on the chart, though the raise is in force there", () => {
+    render(<Harness initial={raiseAndMissed} />);
+    // The chart folds the override over the RAISED salary — and $6,000 set to $0 is $0.
+    expect(oneOffMarks()).toEqual([[10, 0]]);
+  });
+
+  it("lists the raise and the missed paycheck as two rows, not one", () => {
+    render(<Harness initial={raiseAndMissed} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+
+    // The raise quotes the salary it establishes; the missed month quotes what it pays.
+    expect(rows.find((t) => /Pay set to \$6,000/.test(t))).toMatch(/\$6,000\/mo/);
+    expect(rows.find((t) => /Missed paycheck/.test(t))).toMatch(/\$0 this month/);
+  });
+
+  it("removes the missed paycheck without touching the raise, and vice versa", () => {
+    const { unmount } = render(<Harness initial={raiseAndMissed} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove Missed paycheck this month at age 35 on Job 1/i }),
+    );
+    expect(authored().plan.jobs[0].incomeOverrides).toBeUndefined();
+    expect(authored().plan.jobs[0].payChanges?.map((c) => c.id)).toEqual(["p1"]);
+    unmount();
+
+    // The other direction: dropping the raise leaves the missed month standing.
+    render(<Harness initial={raiseAndMissed} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove pay change at age 35 on Job 1/i }));
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+    expect(authored().plan.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a1"]);
+  });
+
+  it("keeps a month-0 raise deferred while the month-0 miss lands on month 0", () => {
+    const atNow: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "p1", month: 0, kind: "setTo", cents: dollarsToCents(6000) }],
+        incomeOverrides: [{ id: "a1", month: 0, kind: "setTo", cents: 0 }],
+      })),
+    };
+    render(<Harness initial={atNow} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+
+    // The raise says it starts next month and quotes the month it starts; the miss is now.
+    expect(rows.find((t) => /Pay set to \$6,000/.test(t))).toMatch(/from next month/i);
+    expect(rows.find((t) => /Missed paycheck/.test(t))).toMatch(/\$0 this month/);
+    expect(oneOffMarks()).toEqual([[0, 0]]);
+    // The headline is still the stated current salary — a deferred raise has not moved it.
+    expect(headline("Job 1")).toBe("$5,000/mo now");
+  });
+
   it("describes a missed paycheck as one, not as a $0 bonus", () => {
     const missed: Plan = {
       ...PLAN_DEFAULTS,

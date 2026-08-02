@@ -599,6 +599,97 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(listed).toMatch(/bonus of \$500.*at month 6/is);
   });
 
+  /**
+   * The regression this pins: a permanent raise and a missed paycheck authored at the SAME
+   * month. The raise sets the salary state, the override changes only that month's payment, and
+   * both must stay separately visible here — the surface where both are authored.
+   */
+  it("names a same-month raise and missed paycheck as two entries, and pays $0", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(10);
+
+    openOneOff();
+    setOneOffKind("setOngoing");
+    setOneOffAmount(6000);
+    applyOneOff();
+
+    openOneOff();
+    setOneOffKind("setTo"); // "set pay this month" — 0 is a missed paycheck
+    setOneOffAmount(0);
+    applyOneOff();
+
+    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
+    expect(listed).toMatch(/pay set to \$6,000.*onward \(ongoing\)/is);
+    expect(listed).toMatch(/pay set to \$0.*at month 10/is);
+    expect(screen.getAllByRole("listitem").filter((li) => /at month 10|onward/.test(li.textContent ?? "")))
+      .toHaveLength(2);
+
+    // What the projection pays for the month — the miss wins the month, not the raise.
+    expect(incomeReadonlyDollars()).toBe(0);
+  });
+
+  it("pays the raised salary from the month after the missed one", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(10);
+    openOneOff();
+    setOneOffKind("setOngoing");
+    setOneOffAmount(6000);
+    applyOneOff();
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(0);
+    applyOneOff();
+
+    // The $0 month left no mark on the salary: an override settles nothing beyond its month.
+    selectMonth(11);
+    expect(incomeReadonlyDollars()).toBe(6000);
+    selectMonth(9);
+    expect(incomeReadonlyDollars()).toBe(5000);
+  });
+
+  it("keeps both stored on the job, each with its own identity", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(10);
+    openOneOff();
+    setOneOffKind("setOngoing");
+    setOneOffAmount(6000);
+    applyOneOff();
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(0);
+    applyOneOff();
+
+    const job = jobsOn("primary-jobs")[0];
+    // Two different collections, two different kinds of fact — neither collapsed into the other.
+    expect(job.payChanges).toEqual([
+      { id: expect.any(String), month: 10, kind: "setTo", cents: dollarsToCents(6000) },
+    ]);
+    expect(job.incomeOverrides).toEqual([
+      { id: expect.any(String), month: 10, kind: "setTo", cents: 0 },
+    ]);
+    expect(job.payChanges![0].id).not.toBe(job.incomeOverrides![0].id);
+  });
+
+  it("defers a month-0 raise to month 1 while a month-0 miss lands on month 0", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(0);
+
+    openOneOff();
+    setOneOffKind("setOngoing");
+    setOneOffAmount(6000);
+    applyOneOff();
+    openOneOff();
+    setOneOffKind("setTo");
+    setOneOffAmount(0);
+    applyOneOff();
+
+    // Month 0 is the stated current salary's, so the raise cannot displace it — but the
+    // one-month adjustment is NOT deferred, and month 0 pays nothing.
+    expect(incomeReadonlyDollars()).toBe(0);
+    selectMonth(1);
+    expect(incomeReadonlyDollars()).toBe(6000);
+  });
+
   it("stops naming an adjustment once it is removed from the plan", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);

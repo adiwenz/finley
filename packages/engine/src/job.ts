@@ -187,6 +187,21 @@ export interface JobPayChange {
 export type JobPayChangeInput = Omit<JobPayChange, "id">;
 
 /**
+ * **The two kinds compose in one order, always: salary state first, then the month's payment.**
+ *
+ * A {@link JobPayChange} establishes what the job PAYS from its month forward — it changes the
+ * salary, and every later month inherits it. A {@link JobIncomeOverride} changes only what is
+ * paid IN its month; it settles nothing and the next month is unaffected by it.
+ *
+ * So where both are dated the same month, the raise sets that month's salary and the one-month
+ * adjustment then acts on the raised figure. A missed paycheck against a same-month raise pays
+ * $0 that month and the raised salary from the next one — both authored facts survive, because
+ * they are answers to different questions. `compilePersonIncomeSeries` enforces this by calling
+ * `applyPayChanges` before `applyIncomeOverrides`, and `jobPayPath` compiles the salary state
+ * alone, which is why an authoring surface layers the adjustments on top of what it returns.
+ */
+
+/**
  * The month a permanent pay change actually takes force: its own, except at month 0, where it
  * is month 1.
  *

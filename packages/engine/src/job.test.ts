@@ -285,6 +285,121 @@ describe("Job/Person standing model — one-month income overrides", () => {
   });
 });
 
+/**
+ * A raise and a one-month adjustment dated the SAME month — the case where the two kinds could
+ * most easily be confused for one, and the one that regressed.
+ *
+ * The rule is stated on `JobPayChangeInput` in `job.ts`: the pay change establishes the salary
+ * state, then the override modifies only that month's payment. A missed paycheck against a
+ * same-month raise therefore pays nothing that month and the RAISED salary from the next one —
+ * neither fact cancels the other.
+ */
+describe("a permanent raise and a one-month adjustment in the same month", () => {
+  const person = (jobs: Job[]): Person => ({
+    id: PRIMARY_PERSON_ID,
+    name: "P",
+    birthYear: START_YEAR - samplePlan.currentAge,
+    retirementTargetAge: samplePlan.retirementAge,
+    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    jobs,
+  });
+  const monthly = (job: Job, month: number): number =>
+    compilePersonIncomeSeries(person([job]), START_YEAR, samplePlan.inflationPct / 100)[0].series.getMonthlyCents(month);
+
+  // $5,000/mo, real-flat. Months 0–11 are the first CPI year, so every figure below is round.
+  const base: Job = salariedJob(dollarsToCents(5000));
+
+  it("pays nothing in the month, and the raised salary from the next one", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "setTo", cents: 0 }],
+    };
+    expect(monthly(job, 9)).toBe(dollarsToCents(5000)); // the old salary, up to the raise
+    expect(monthly(job, 10)).toBe(0); // missed — the payment, not the salary
+    expect(monthly(job, 11)).toBe(dollarsToCents(6000)); // the raise stands, unaffected
+  });
+
+  it("survives the missed month — the raise is not undone by nothing being paid", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "setTo", cents: 0 }],
+    };
+    // A year on, the raised salary has grown at CPI off $6,000 — the $0 month left no mark on
+    // the salary state, because an override never sets one.
+    expect(monthly(job, 22)).toBe(Math.round(dollarsToCents(6000) * 1.03));
+  });
+
+  it("applies a partial one-month correction to the RAISED pay, not the old salary", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      // Half a month's work at the new salary, say. $3,000 is the authored figure either way;
+      // what matters is that the month after is still the raise.
+      incomeOverrides: [{ id: "a1", month: 10, kind: "setTo", cents: dollarsToCents(3000) }],
+    };
+    expect(monthly(job, 10)).toBe(dollarsToCents(3000));
+    expect(monthly(job, 11)).toBe(dollarsToCents(6000));
+  });
+
+  it("deducts from the raised figure when the correction is additive", () => {
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "addBonus", cents: -dollarsToCents(1500) }],
+    };
+    // $6,000 − $1,500, NOT $5,000 − $1,500: the raise set the month's salary first.
+    expect(monthly(job, 10)).toBe(dollarsToCents(4500));
+    expect(monthly(job, 11)).toBe(dollarsToCents(6000));
+  });
+
+  it("handles a raise and a missed paycheck both dated month 0", () => {
+    const job: Job = {
+      ...base,
+      // A change authored at "now" takes force NEXT month — the stated current salary owns
+      // month 0. See `payChangeEffectiveMonth`.
+      payChanges: [{ id: "p1", month: 0, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 0, kind: "setTo", cents: 0 }],
+    };
+    expect(monthly(job, 0)).toBe(0); // the override lands on month 0 itself; nothing is paid
+    expect(monthly(job, 1)).toBe(dollarsToCents(6000)); // the deferred raise begins here
+    expect(monthly(job, 2)).toBe(dollarsToCents(6000));
+  });
+
+  it("leaves the month-0 raise intact when the missed paycheck is removed again", () => {
+    // The deferral and the override are independent: dropping one must not move the other.
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 0, kind: "setTo", cents: dollarsToCents(6000) }],
+    };
+    expect(monthly(job, 0)).toBe(dollarsToCents(5000)); // the anchor still owns month 0
+    expect(monthly(job, 1)).toBe(dollarsToCents(6000));
+  });
+
+  it("reads the same figure through the helper every authoring surface folds", () => {
+    // `jobPayPath` compiles the SALARY STATE — the raise, not the override — and a surface
+    // layers the month's adjustments on top. This is that composition, asserted against what
+    // the projection actually pays, so a chart cannot draw a month the household never sees.
+    const overrides: readonly JobIncomeOverride[] = [
+      { id: "a1", month: 10, kind: "setTo", cents: 0 },
+    ];
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: overrides,
+    };
+    const span = { startMonth: -120, endMonthExclusive: 360 };
+    const path = jobPayPath(job, span);
+
+    // The path knows the raise and nothing about the missed paycheck.
+    expect(path.monthlyCentsAt(10)).toBe(dollarsToCents(6000));
+    // Folded, it agrees with the projection to the cent — for the adjusted month and the next.
+    expect(applyJobIncomeOverridesAt(path.monthlyCentsAt(10), overrides, 10)).toBe(monthly(job, 10));
+    expect(applyJobIncomeOverridesAt(path.monthlyCentsAt(11), overrides, 11)).toBe(monthly(job, 11));
+  });
+});
+
 describe("Job/Person standing model — permanent pay changes", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
