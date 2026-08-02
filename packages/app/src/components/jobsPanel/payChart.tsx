@@ -32,6 +32,20 @@
  * Recharts, like every other chart in the app. The summary and the seam mirror render OUTSIDE
  * Recharts, because jsdom gives it no real width and it draws nothing there — the same reason
  * `incomeChart` and `taxChart` carry their own mirrors.
+ *
+ * **Three things about this chart can only be checked by looking at it.** The mirrors let a test
+ * assert every figure drawn here, and the suite does; what no assertion can have an opinion on
+ * is whether the result is legible, because jsdom gives Recharts no width and so draws nothing
+ * to be legible. Anyone changing the sampling, the spike, or the axis should open it and check:
+ *
+ * 1. **Does a one-month spike read at all?** A month is about a pixel on a ninety-year axis, so
+ *    the rise is a hairline and the apex dot is doing most of the work. If a change makes the
+ *    dot smaller, or drops it, the adjustment becomes invisible without any test noticing.
+ * 2. **Does the y-axis grow to include a bonus above the pay line?** That is why the adjusted
+ *    figure is in the DATA rather than a `ReferenceDot` — a mark outside the domain is silently
+ *    clipped out of frame, and clipped looks identical to absent.
+ * 3. **Does the tooltip say "this month" on an adjusted month, and "/mo" everywhere else?** The
+ *    height there is a single payment; "/mo" would state it as a new salary.
  */
 
 import {
