@@ -18,11 +18,13 @@ import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
   orderedIncomeOverrides,
+  type FinancialObligation,
   type Household,
   type Ledger,
   type Plan,
   type Projection,
   type ProjectionSeries,
+  type ResolvedFunding,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
@@ -50,10 +52,15 @@ import { buildIncomeChartData } from "./incomeByCategory";
 import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
 import { ProjectionCharts } from "./projectionCharts";
+import { FundingAttribution } from "./fundingAttribution";
 import { SpendingEditor, type PendingEdit, type SpendingEditActions } from "./spendingEditor";
 import { ContributionsEditor } from "./contributionsEditor";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
 import styles from "./baseAdjustments.module.css";
+
+/** Stable empty defaults, hoisted so a flow-free month never mints a fresh array each render. */
+const EMPTY_OBLIGATIONS: readonly FinancialObligation[] = [];
+const EMPTY_FUNDING: readonly ResolvedFunding[] = [];
 
 /** "month 180 · 2041 · age 50". */
 function describeMonth(month: number, currentAge: number): string {
@@ -135,13 +142,18 @@ export function BaseAdjustmentsPanel({
     () => projection.expenseRowsAt(selectedMonth),
     [projection, selectedMonth],
   );
-  // The selected month's full obligation list, already priority-ordered by the engine — the
-  // health, event and debt costs the month incurs beside the user's own lines. Read off the
-  // same series the chart draws, so the editor and the graph cannot disagree.
-  const obligations = useMemo(
-    () => series.months.find((m) => m.month === selectedMonth)?.flows?.obligations ?? [],
+  // The selected month's flows, found once — the obligation list and its funding attribution both
+  // read off it, so the editor, the graph and the "Funded by" view cannot disagree.
+  const selectedFlows = useMemo(
+    () => series.months.find((m) => m.month === selectedMonth)?.flows,
     [series, selectedMonth],
   );
+  // The full obligation list, already priority-ordered by the engine — the health, event and debt
+  // costs the month incurs beside the user's own lines.
+  const obligations = selectedFlows?.obligations ?? EMPTY_OBLIGATIONS;
+  // Per-obligation funding attribution: which sources covered each line, in cascade order. Includes
+  // explicit draws (a home down payment) that never appear in `obligations`, so it reads its own seam.
+  const resolvedFunding = selectedFlows?.resolvedFunding ?? EMPTY_FUNDING;
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
   // disclosed at a time, like the Jobs and Goals panels.
@@ -348,6 +360,11 @@ export function BaseAdjustmentsPanel({
           edit={editActions}
           form={lineFormActions}
         />
+
+        {/* What actually covered each obligation this month — savings, liquidation or credit —
+            surfaced so a month quietly running on credit is visible here, not only later in the
+            net-worth line. Includes explicit draws (a home down payment) not in the list above. */}
+        <FundingAttribution resolvedFunding={resolvedFunding} obligations={obligations} />
 
         {/* Unlike spending, these accumulate in net worth. */}
         <ContributionsEditor
