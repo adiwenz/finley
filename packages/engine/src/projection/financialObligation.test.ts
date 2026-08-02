@@ -11,6 +11,7 @@ import {
   automaticFundingTotal,
   expenseReportingTotal,
   buildObligations,
+  assetAcquisitionObligation,
   obligationLiabilityId,
   orderObligationsByPriority,
   OBLIGATION_PRIORITY,
@@ -128,6 +129,41 @@ const budgetSource = (id: string, category: ObligationSource["category"]): Oblig
   id,
   category,
   editable: true,
+});
+
+describe("assetAcquisitionObligation — the down payment as an explicit obligation", () => {
+  it("represents a cross-account draw as an explicitly-funded asset acquisition", () => {
+    // The Home Purchase down payment: a fixed amount drained from an ordered source list, buying
+    // a house rather than spending — so asset-acquisition, and explicit because it names its own
+    // accounts instead of drawing the shared waterfall. The ordered list rides through verbatim.
+    const o = assetAcquisitionObligation({
+      month: 12,
+      amountCents: dollarsToCents(4_000),
+      sourceIds: ["brokerage", "savings"],
+      reason: "homeDownPayment",
+    });
+    expect(o.month).toBe(12);
+    expect(o.amountCents).toBe(dollarsToCents(4_000));
+    expect(o.treatment).toBe("asset-acquisition");
+    expect(o.funding).toEqual({
+      kind: "explicit",
+      orderedAccountIds: ["brokerage", "savings"],
+    });
+  });
+
+  it("stays out of the shared waterfall and off the expense report", () => {
+    // Explicitly funded, so it must not inflate what the waterfall covers; an acquisition, so it
+    // is not an expense — the two named sums both exclude it, exactly as they will once it is the
+    // sole record of the down payment.
+    const o = assetAcquisitionObligation({
+      month: 0,
+      amountCents: dollarsToCents(4_000),
+      sourceIds: ["brokerage"],
+      reason: "homeDownPayment",
+    });
+    expect(automaticFundingTotal([o])).toBe(0);
+    expect(expenseReportingTotal([o])).toBe(0);
+  });
 });
 
 describe("buildObligations — one obligation per source", () => {

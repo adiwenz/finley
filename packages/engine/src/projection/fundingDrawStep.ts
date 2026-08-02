@@ -18,6 +18,7 @@ import type { TaxCategory } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { FundingReason } from "../ledger/transfers";
+import { assetAcquisitionObligation } from "./financialObligation";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -218,8 +219,14 @@ export function resolveFundingDraws(
 
   for (const draw of state.fundingDraws) {
     if (draw.month !== month) continue;
+    // The draw is resolved through the explicitly-funded obligation it represents: the amount to
+    // drain and the ordered source list are read from that obligation, not the raw record. Only
+    // the report-band naming still reads `draw.reason` below, until that record is retired.
+    const obligation = assetAcquisitionObligation(draw);
+    const orderedAccountIds =
+      obligation.funding.kind === "explicit" ? obligation.funding.orderedAccountIds : [];
     const sources: FundingSourceState[] = [];
-    for (const sourceId of draw.sourceIds) {
+    for (const sourceId of orderedAccountIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
       if (account === undefined) continue;
       sources.push({
@@ -232,7 +239,7 @@ export function resolveFundingDraws(
       });
     }
     const { perSource } = resolveOrderedFundingDraw(
-      draw.amountCents,
+      obligation.amountCents,
       sources,
       jurisdiction,
       ctx,
