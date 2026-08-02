@@ -852,6 +852,64 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
   });
 });
 
+// Sibling explicit draws in one month resolve in EVENT SEQUENCE — the order the events were
+// authored (month, then sequence number). `resolveFundingDraws` drains balances in place per
+// draw, so each sibling sees what its predecessors left; a second purchase is funded from the
+// remainder, never the pre-funding balance. Two events competing for one account cannot both
+// spend it in full.
+
+describe("HomePurchaseEvent — sibling explicit draws resolve in event sequence", () => {
+  it("funds the second purchase from what the first left in the shared account", () => {
+    // A $100k pool `a` plus a $30k spillover `b`, two $60k down payments at month 3, authored
+    // first→second. The first takes $60k from `a` (→$40k); the second finds only that $40k left,
+    // drains it to zero, and spills its last $20k into `b` (→$10k). Reverse the order and the
+    // second — source `a` only — would strand $20k short instead, so this exact end state is the
+    // proof the draws resolved in authoring order off a shared, shrinking balance.
+    const base = baseWithAccounts([liquidAcct("a", 10_000_000), liquidAcct("b", 3_000_000)]);
+    let ledger = addWithBase(emptyLedger, base, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    ledger = addWithBase(ledger, base, purchase({
+      id: "buy2",
+      month: 3,
+      propertyId: "house2",
+      downPaymentSourceIds: ["a", "b"],
+    }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const m3 = series.months[3];
+
+    expect(m3.accountBalancesCents.a).toBe(0);
+    expect(m3.accountBalancesCents.b).toBe(1_000_000);
+    expect(m3.propertyValuesCents.house1).toBe(PRICE);
+    expect(m3.propertyValuesCents.house2).toBe(PRICE);
+  });
+
+  it("gates the second purchase on the first sibling's remainder, not the pre-funding balance", () => {
+    // Both purchases draw the SAME account, sized so the two $60k downs fit to the cent ($120k).
+    // The second's gate must see the first sibling's $60k already gone — the post-funding balance
+    // seam the sim resolves the second against.
+    const exact = baseWithAccounts([liquidAcct("a", 12_000_000)]);
+    const withFirst = addWithBase(emptyLedger, exact, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    const second = addEvent(
+      withFirst,
+      exact,
+      purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
+    );
+    expect(second.ok).toBe(true);
+
+    // One cent short of covering both: the first still funds, but the second is priced on the
+    // $59,999 it left and blocked. A gate reading the pre-funding $120k would wrongly accept it —
+    // gate == sim on the event-sequence axis.
+    const short = baseWithAccounts([liquidAcct("a", 12_000_000 - 1)]);
+    const shortWithFirst = addWithBase(emptyLedger, short, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    const blocked = addEvent(
+      shortWithFirst,
+      short,
+      purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
+    );
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.conflict).toMatch(/down payment/);
+  });
+});
+
 // gate == sim, the load-bearing invariant: the affordability gate prices a candidate over the
 // SAME base the simulator resolves it against, so it blocks exactly when the sim would fall
 // short — never wider. Explicit draws now resolve before automatic decumulation, so a
