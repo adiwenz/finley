@@ -15,7 +15,6 @@ import type { Cents } from "../money";
 import type { BudgetCategory } from "../budgetLine";
 import type { LiabilityKind, SimLiability } from "../liability";
 import type { SimOwnedSeries } from "./simulate.types";
-import type { FundingDraw } from "../ledger/transfers";
 
 /**
  * Which authoring model an obligation's money comes from. Provenance, not presentation: it
@@ -236,32 +235,35 @@ export function obligationLiabilityId(liabilityId: string): string {
 }
 
 /**
- * The explicitly-funded obligation a cross-account money-out {@link FundingDraw} represents: an
- * `asset-acquisition` (the money buys a house, so it is not an expense and does not reduce net
- * worth beyond any tax on liquidating its sources), funded by draining the ordered source list
- * rather than the shared waterfall. The draw's amount and sources ARE the obligation's
- * `amountCents` and `orderedAccountIds`, so the simulation-time draw resolves through this
- * representation instead of reading the raw record — which is what lets a later slice retire the
- * record without a behavioural change.
+ * An explicitly-funded `asset-acquisition` obligation: a fixed amount drained from an ordered
+ * source list (the Home Purchase down payment today), buying an asset rather than spending — so
+ * it is not an expense and does not reduce net worth beyond any tax on liquidating its sources —
+ * and naming its own funding accounts instead of drawing the shared waterfall. This is the sole
+ * record of the draw: the simulator resolves and reports it straight off the obligation.
  *
- * Identity is provisional: `id`/`sourceId`/`label` key off the draw's `reason`, the only
- * provenance a draw carries, until the draw record is retired and the obligation names its own
- * bands. `priority` is inert — an explicit obligation never ranks in the automatic waterfall
- * ({@link automaticFundingTotal} already excludes it) — so it takes the untracked tier purely to
- * satisfy the type.
+ * `sourceId` is the report-band namespace, chosen at the emission site — the simulator keys the
+ * draw's gain/tax bands off it, so a home down payment passes `"downpayment"` and gets
+ * `downpayment:<account>` / `downpayment-tax:<account>` bands. `priority` is inert — an explicit
+ * obligation never ranks in the automatic waterfall ({@link automaticFundingTotal} already
+ * excludes it) — so it takes the untracked tier purely to satisfy the type.
  */
-export function assetAcquisitionObligation(draw: FundingDraw): FinancialObligation {
+export function assetAcquisitionObligation(params: {
+  readonly sourceId: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+}): FinancialObligation {
   return {
-    id: `draw:${draw.reason}`,
-    sourceId: draw.reason,
-    month: draw.month,
-    amountCents: draw.amountCents,
+    id: `draw:${params.sourceId}`,
+    sourceId: params.sourceId,
+    month: params.month,
+    amountCents: params.amountCents,
     treatment: "asset-acquisition",
-    funding: { kind: "explicit", orderedAccountIds: draw.sourceIds },
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
     priority: OBLIGATION_PRIORITY.untracked,
     sourceKind: "untracked",
     editable: false,
-    label: draw.reason,
+    label: params.sourceId,
     category: "other",
   };
 }

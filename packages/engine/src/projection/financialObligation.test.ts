@@ -137,10 +137,10 @@ describe("assetAcquisitionObligation — the down payment as an explicit obligat
     // a house rather than spending — so asset-acquisition, and explicit because it names its own
     // accounts instead of drawing the shared waterfall. The ordered list rides through verbatim.
     const o = assetAcquisitionObligation({
+      sourceId: "downpayment",
       month: 12,
       amountCents: dollarsToCents(4_000),
-      sourceIds: ["brokerage", "savings"],
-      reason: "homeDownPayment",
+      orderedAccountIds: ["brokerage", "savings"],
     });
     expect(o.month).toBe(12);
     expect(o.amountCents).toBe(dollarsToCents(4_000));
@@ -149,6 +149,9 @@ describe("assetAcquisitionObligation — the down payment as an explicit obligat
       kind: "explicit",
       orderedAccountIds: ["brokerage", "savings"],
     });
+    // `sourceId` is the report-band namespace: the simulator names this draw's gain/tax bands
+    // `downpayment:<account>` / `downpayment-tax:<account>` off it.
+    expect(o.sourceId).toBe("downpayment");
   });
 
   it("stays out of the shared waterfall and off the expense report", () => {
@@ -156,10 +159,10 @@ describe("assetAcquisitionObligation — the down payment as an explicit obligat
     // is not an expense — the two named sums both exclude it, exactly as they will once it is the
     // sole record of the down payment.
     const o = assetAcquisitionObligation({
+      sourceId: "downpayment",
       month: 0,
       amountCents: dollarsToCents(4_000),
-      sourceIds: ["brokerage"],
-      reason: "homeDownPayment",
+      orderedAccountIds: ["brokerage"],
     });
     expect(automaticFundingTotal([o])).toBe(0);
     expect(expenseReportingTotal([o])).toBe(0);

@@ -29,6 +29,7 @@ import {
   asSeriesId,
 } from "../ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
+import { assetAcquisitionObligation } from "../projection/financialObligation";
 
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
@@ -305,16 +306,19 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (isPreExisting(event.month)) {
       return;
     }
-    // Down payment: an ordered draw across the selected liquid sources, resolved at
-    // simulation time (the per-source split is balance-dependent — see FundingDraw). When a
-    // securing loan covers the rest of the price, property value and that loan's balance cancel,
-    // leaving this draw as the only net-worth change at acquisition.
-    state.fundingDraws.push({
-      month: event.month,
-      amountCents: event.downPaymentCents,
-      sourceIds: event.downPaymentSourceIds,
-      reason: "homeDownPayment",
-    });
+    // Down payment: an explicitly-funded asset acquisition, drained across the selected liquid
+    // sources in order and resolved at simulation time (the per-source split is balance-dependent).
+    // When a securing loan covers the rest of the price, property value and that loan's balance
+    // cancel, leaving this draw as the only net-worth change at acquisition. `"downpayment"` is the
+    // report-band namespace the simulator keys the draw's gain/tax bands off.
+    state.fundingDraws.push(
+      assetAcquisitionObligation({
+        sourceId: "downpayment",
+        month: event.month,
+        amountCents: event.downPaymentCents,
+        orderedAccountIds: event.downPaymentSourceIds,
+      }),
+    );
   },
 };
 

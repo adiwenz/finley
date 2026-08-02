@@ -10,7 +10,6 @@ import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type { FinancialObligation, ObligationSource } from "./financialObligation";
-import type { FundingDraw } from "../ledger/transfers";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -348,11 +347,11 @@ export interface HouseholdSimInput {
    */
   readonly properties?: readonly SimProperty[];
   /**
-   * Each `amountCents` drains from its `sourceIds` in order at `month`, taking as much as
-   * each holds before moving on — the split is balance-dependent, so it resolves here
-   * rather than at authoring time.
+   * Explicitly-funded obligations: each drains its ordered `orderedAccountIds` for `amountCents`
+   * at `month`, taking as much as each holds before moving on — the split is balance-dependent,
+   * so it resolves here rather than at authoring time.
    */
-  readonly fundingDraws?: readonly FundingDraw[];
+  readonly fundingDraws?: readonly FinancialObligation[];
   /**
    * Prioritized waterfall destinations. Shared goals draw from the household pool,
    * personal goals from their owner's leftover. Retirement is just the highest-priority

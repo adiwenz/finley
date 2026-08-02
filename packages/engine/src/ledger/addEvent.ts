@@ -51,8 +51,8 @@ export interface FundingLookup {
  * (`flows.taxableByOwnerAfterFundingCents`) — so the gate blocks exactly when the sim would
  * fall short.
  *
- * Event-neutral, a question about a {@link import("./transfers").FundingDraw}: the Home
- * Purchase §4.5 down-payment gate and One-Time Spend get the identical answer. The month is
+ * Event-neutral, a question about an ordered cross-account draw: the Home Purchase §4.5
+ * down-payment gate and One-Time Spend get the identical answer. The month is
  * clamped into the horizon. Balances are positive-only: the cascade floors the liquid sink to
  * zero before each snapshot and every other account is drawn through `Math.max(0, …)` guards.
  */

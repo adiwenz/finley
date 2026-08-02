@@ -1,10 +1,9 @@
 /**
  * Funding draws — simulation-time resolution of an ordered, cross-account money-out draw.
  *
- * The ledger records only the intent — drain `amountCents` from these sources, in this order
- * — because the split is balance-dependent. Here it is taken, mirroring {@link
- * import("../ledger/funding").drainSources} and the pro-rata basis accounting of {@link
- * import("./withdrawal").buildWithdrawalSources}.
+ * The ledger records only the intent — an explicitly-funded obligation naming an amount and an
+ * ordered source list — because the split is balance-dependent. Here it is taken, with the
+ * pro-rata basis accounting of {@link import("./withdrawal").buildWithdrawalSources}.
  *
  * The draw is grossed up so what remains after capital-gains tax still covers the payment,
  * and the gain routes through the tax chokepoint (`allocateMonth`) as a net-neutral source.
@@ -17,8 +16,6 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { FundingReason } from "../ledger/transfers";
-import { assetAcquisitionObligation } from "./financialObligation";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -26,14 +23,6 @@ export type TaxableByOwner = Map<string, TaxableByCategory>;
 
 /** Backstop on the gross-up climb; a realistic draw converges in about a dozen steps. */
 const GROSS_UP_ITERATIONS = 1_000;
-
-/**
- * Provenance prefix stamped on the `sourceId` of a draw's bands: `<prefix>:<accountId>` for
- * the realized-gain band, `<prefix>-tax:<accountId>` for the net-neutral tax source.
- */
-const REPORT_PREFIX: Record<FundingReason, string> = {
-  homeDownPayment: "downpayment",
-};
 
 export interface FundingSourceState {
   readonly id: string;
@@ -217,14 +206,16 @@ export function resolveFundingDraws(
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
-  for (const draw of state.fundingDraws) {
-    if (draw.month !== month) continue;
-    // The draw is resolved through the explicitly-funded obligation it represents: the amount to
-    // drain and the ordered source list are read from that obligation, not the raw record. Only
-    // the report-band naming still reads `draw.reason` below, until that record is retired.
-    const obligation = assetAcquisitionObligation(draw);
-    const orderedAccountIds =
-      obligation.funding.kind === "explicit" ? obligation.funding.orderedAccountIds : [];
+  for (const obligation of state.fundingDraws) {
+    if (obligation.month !== month) continue;
+    // A funding draw is an explicitly-funded asset acquisition: `explicit` names the accounts to
+    // drain (an automatic obligation has none — the waterfall funds it), and `asset-acquisition`
+    // is what makes it a draw that books a gain band plus a net-neutral tax band. Both fields
+    // gate resolution here; the `sourceId` below is the bands' namespace.
+    if (obligation.funding.kind !== "explicit" || obligation.treatment !== "asset-acquisition") {
+      continue;
+    }
+    const orderedAccountIds = obligation.funding.orderedAccountIds;
     const sources: FundingSourceState[] = [];
     for (const sourceId of orderedAccountIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
@@ -245,8 +236,7 @@ export function resolveFundingDraws(
       ctx,
       working,
     );
-    // Bands are named for the draw's reason, not the caller's event.
-    const prefix = REPORT_PREFIX[draw.reason];
+    const prefix = obligation.sourceId;
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
