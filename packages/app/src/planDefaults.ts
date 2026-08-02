@@ -8,6 +8,17 @@ import { defaultBudgetTemplate } from "./components/baseAdjustments/budgetTempla
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
+const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
+
+/**
+ * Both anchors are the same figure, which now says exactly one thing: the payslip read $5,000
+ * at 18 and reads $5,000 today, with nothing assumed in between. History is held flat at what
+ * was authored — the engine no longer grows it — so a fresh plan states a fact rather than a
+ * trend, and there is no step at "now" to explain.
+ *
+ * A user who worked their way up says so with pay changes, or asks for the unstated years to be
+ * filled in with "Estimate missing pay history". Both are visible acts; neither is a default.
+ */
 
 /**
  * The prepopulated Base, as {@link ScenarioInput} entries. {@link defaultBudgetTemplate} authors
@@ -47,7 +58,11 @@ export const DEFAULT_INPUT: ScenarioInput = {
     {
       startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
       endYear: null,
-      salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+      salary: {
+        startingSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
+        currentSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
+        realGrowthPct: 0,
+      },
     },
   ],
   // Budget lines are the sole expense authoring surface, so a fresh plan opens with the

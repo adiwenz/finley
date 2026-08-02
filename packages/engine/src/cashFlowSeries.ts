@@ -125,10 +125,24 @@ export class SimCashFlowSeries {
   private singleMonthOverrides: Map<number, number> = new Map();
   private readonly baselineUnit: "annual" | "monthly";
   private readonly growthAnchorMode: "ownCycle" | "calendar";
-  /** The construction-time start month; getMonthlyCents returns 0 for month < startMonth. */
-  readonly startMonth: number;
+  /**
+   * The first month this series can pay; getMonthlyCents returns 0 before it, and consumers read
+   * it to decide whether the series is live at all. Normally the construction-time start, but
+   * {@link clipPaymentsBefore} moves it later without disturbing the salary path behind it — so
+   * a partner's job is correctly absent from the household until they join, while still carrying
+   * the raises it collected before then.
+   */
+  get startMonth(): number {
+    return this.paysFromMonth != null
+      ? Math.max(this.pathStartMonth, this.paysFromMonth)
+      : this.pathStartMonth;
+  }
+  /** Where the salary PATH begins — the job's own start, membership notwithstanding. */
+  private readonly pathStartMonth: number;
   readonly endMonth: number | undefined;
   readonly taxCategory: TaxCategory | undefined;
+  /** See {@link clipPaymentsBefore}. */
+  private paysFromMonth: number | undefined;
 
   /** Per-segment cache: yearsElapsed → compounded baseCents at that year. */
   private yearlyBaseCache: Map<Segment, Map<number, number>> = new Map();
@@ -140,7 +154,7 @@ export class SimCashFlowSeries {
     growthMode: GrowthMode,
     options?: SimCashFlowSeriesOptions,
   ) {
-    this.startMonth = startMonth;
+    this.pathStartMonth = startMonth;
     this.baselineUnit = options?.baselineUnit ?? "annual";
     this.growthAnchorMode = options?.growthAnchor ?? "ownCycle";
     this.endMonth = options?.endMonth;
@@ -259,6 +273,23 @@ export class SimCashFlowSeries {
       cache.set(y, cents);
     }
     return cents;
+  }
+
+  /**
+   * Stop paying before `month`, WITHOUT touching the salary path behind it — the segments, their
+   * growth clock and every layered change stay exactly as built.
+   *
+   * The distinction is the point. A partner's job pays the household only while they are a
+   * member, but the job itself ran before that and the raises it collected are part of the
+   * salary they bring in. Narrowing the series' own `startMonth` instead would drop those raises
+   * on the floor, because a change dated before the start has no segment to open.
+   *
+   * Call it AFTER layering changes and overrides: the `changeBy` and `addBonus` forms read the
+   * month's standing pay to add to, and those reads must see the real path rather than a
+   * clipped zero.
+   */
+  clipPaymentsBefore(month: number): void {
+    this.paysFromMonth = month;
   }
 
   getMonthlyCents(month: number): number {

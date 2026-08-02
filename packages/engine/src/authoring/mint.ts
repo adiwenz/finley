@@ -20,6 +20,7 @@ import { withStateLedger } from "./state";
  */
 const MINTED_KINDS = [
   "job",
+  "adjustment",
   "line",
   "goal",
   "person",
@@ -70,9 +71,22 @@ export function mint(
   return { id: `${kind}-${state.nextSeq}`, nextSeq: state.nextSeq + 1 };
 }
 
-/** A job's ids: its own, its owner's, and the account its deferral funds. */
+/**
+ * A job's ids: its own, its owner's, the account its deferral funds, and every authored
+ * adjustment riding it.
+ *
+ * The adjustments matter as much as the job: they are minted off this same counter, so a
+ * restored plan holding `adjustment-7` must push the floor past it or the next bonus authored
+ * is handed an id a stacked sibling already answers to — and removing one would then take both.
+ */
 function jobIds(job: Job): readonly (string | undefined)[] {
-  return [job.id, job.ownerId, job.deferral?.fundAccountId];
+  return [
+    job.id,
+    job.ownerId,
+    job.deferral?.fundAccountId,
+    ...(job.payChanges ?? []).map((c) => c.id),
+    ...(job.incomeOverrides ?? []).map((o) => o.id),
+  ];
 }
 
 /**

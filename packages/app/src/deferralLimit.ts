@@ -77,11 +77,12 @@ export function firstDeferralLimitCrossing(
       for (const j of deferringJobs) {
         const endYearExclusive = j.endYear ?? retirementYear;
         if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
-        // Today's-dollars salary grown by its real slope since the job's start, then
-        // CPI-indexed — the same seam the engine compiles.
+        // Projected pay grows off the CURRENT-SALARY ANCHOR, never the job's starting salary:
+        // this scan is forward-only, and the engine's forward series bases month 0 on the
+        // authored current salary. Real slope from "now", then CPI-indexed — the same seam.
         const realCents =
-          j.salary.startingSalaryCents *
-          Math.pow(1 + j.salary.realGrowthPct / 100, year - j.startYear);
+          j.salary.currentSalaryCents *
+          Math.pow(1 + j.salary.realGrowthPct / 100, year - START_YEAR);
         const nominalCents = realCents * Math.pow(1 + inflation, year - START_YEAR);
         annualDeferralCents += nominalCents * j.deferral!.deferralFraction;
       }

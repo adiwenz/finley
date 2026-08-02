@@ -68,10 +68,40 @@ export type {
   JobPatch,
   JobDeferral,
   JobIncomeOverride,
+  JobIncomeOverrideInput,
   JobPayChange,
+  JobPayChangeInput,
+  JobPaySpan,
+  JobPayPath,
+  JobPayPathOptions,
   PersonId,
   SalaryTrajectory,
 } from "./job";
+/**
+ * A job's authored pay across its whole span, read back without running a projection — what an
+ * editor draws the salary it is editing from, and where the month-0 seam is a number.
+ */
+export { jobPayPath } from "./job";
+/**
+ * The month a permanent pay change takes force — its own, except at month 0, which the authored
+ * current salary owns. An authoring surface needs it to say when the change it just took begins.
+ */
+export { payChangeEffectiveMonth } from "./job";
+/**
+ * What an adjustment DOES to a month's pay, and the order a month's adjustments apply in — the
+ * engine's own definitions, exported so an authoring surface draws and lists exactly what the
+ * projection pays instead of restating the arithmetic and drifting from it.
+ */
+export {
+  applyJobIncomeOverride,
+  applyJobIncomeOverridesAt,
+  orderedIncomeOverrides,
+} from "./job";
+/**
+ * Pay for the historical years nobody has stated, as changes a caller may apply — an explicit
+ * user action, never part of ordinary editing. See `estimateHistoryPayChanges`.
+ */
+export { estimateHistoryPayChanges } from "./job";
 export type { Person } from "./person";
 export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal";
 export type {

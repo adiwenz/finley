@@ -25,7 +25,7 @@ function jobNamed(id: string): Job {
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
     endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
+    salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   };
 }
 
@@ -67,5 +67,73 @@ describe("the id counter's floor", () => {
     // floor would stamp the next two appends the SAME sequence number.
     const normalized = withNormalizedCounters(stateHolding("job-9"));
     expect(normalized.scenario.ledger.nextSequenceNumber).toBe(10);
+  });
+});
+
+describe("the floor reads adjustment ids too", () => {
+  /** A job carrying restored adjustments, the way a reloaded plan does. */
+  function jobWithAdjustments(id: string, ...adjustmentIds: string[]): Job {
+    return {
+      ...jobNamed(id),
+      payChanges: adjustmentIds
+        .slice(0, 1)
+        .map((a) => ({ id: a, month: 12, kind: "setTo" as const, cents: 100 })),
+      incomeOverrides: adjustmentIds
+        .slice(1)
+        .map((a) => ({ id: a, month: 6, kind: "addBonus" as const, cents: 100 })),
+    };
+  }
+
+  it("steps past an adjustment id, not only the job's own", () => {
+    // The hazard this closes: the counter reissuing `adjustment-9` to a NEW bonus stacked in the
+    // same month as the restored one, after which removing either would take both.
+    const state = stateOf({
+      ...samplePlan,
+      budgetLines: [],
+      jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+    });
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(15);
+  });
+
+  it("reads adjustments on a partner's job as well, off the event carrying it", () => {
+    const state = stateOf({ ...samplePlan, budgetLines: [], jobs: [] });
+    const withPartner: ProjectionState = {
+      ...state,
+      scenario: {
+        ...state.scenario,
+        ledger: {
+          ...state.scenario.ledger,
+          events: [
+            {
+              type: "RelationshipEvent",
+              id: "e1",
+              month: 12,
+              sequenceNumber: 1,
+              person: {
+                id: "person-3" as PersonId,
+                name: "Sam",
+                birthYear: 1980,
+                retirementTargetAge: 65,
+                benefitClaimingAge: 67,
+                jobs: [jobWithAdjustments("job-4", "adjustment-21")],
+              },
+            },
+          ],
+        },
+      },
+    };
+    expect(seqFloor(withPartner.scenario, withPartner.nextSeq)).toBe(22);
+  });
+
+  it("leaves the ids themselves untouched when the counter is normalized", () => {
+    const state = stateOf({
+      ...samplePlan,
+      budgetLines: [],
+      jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+    });
+    const restored = withNormalizedCounters(state);
+    const job = restored.scenario.plan.jobs[0]!;
+    expect(job.payChanges?.map((c) => c.id)).toEqual(["adjustment-9"]);
+    expect(job.incomeOverrides?.map((o) => o.id)).toEqual(["adjustment-14"]);
   });
 });

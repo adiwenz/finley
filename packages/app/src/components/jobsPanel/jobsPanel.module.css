@@ -39,26 +39,81 @@
   color: var(--color-text-muted);
 }
 
-/* Permanent pay changes on a job (raises / cuts), listed under the meta line. */
-.payChanges {
+/* ── A job's pay across its whole span ──
+   The chart draws the same story the timeline lists. Both run through "now" rather than
+   stopping at it: the month-0 seam is an authored fact, so it is shown, and shown NEUTRALLY —
+   nothing here is styled as a warning, because the step is not one. */
+
+/* Recharts owns everything inside the plot — line, axes, shading, seam markers — so this is
+   only the box it sizes itself into. Its colours are literals in `payChart.tsx`, because
+   Recharts writes them into SVG attributes where a CSS variable cannot reach. */
+.chart {
+  width: 100%;
+  margin: 4px 0 2px;
+}
+
+/* Governs every chart and timeline below it, so it sits above the list rather than in a row. */
+.denomination {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+
+/* The pay story in age order — the start, every change, and "now" as a row among them. */
+.timeline {
   list-style: none;
   padding: 0;
   margin: 2px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
 }
 
-.payChange {
-  display: flex;
+.entry {
+  display: grid;
+  grid-template-columns: 58px 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
+  padding: 4px 0 4px 8px;
+  font-size: 12px;
+  border-left: 2px solid var(--color-border);
+}
+
+.entryAge {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entryPay {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+}
+
+.entryHistory {
+  opacity: 0.85;
+}
+
+/* "Now": the one row that cannot be removed, and the anchor everything forward runs off. */
+.entryNow {
+  border-left-color: var(--color-accent);
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 0 5px 5px 0;
+}
+
+/* The step at month 0, stated and never flagged: a pay cut, a job change or a stated salary
+   that simply doesn't match the reconstruction are all legitimate, and warning styling would
+   invite users to close the one gap the engine keeps open on purpose. */
+.seamNote {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--color-text-muted);
+  padding-left: 58px;
 }
 
-.payChange button {
+.timeline button {
   font: inherit;
   padding: 1px 7px;
   border-radius: 5px;
@@ -93,4 +148,22 @@
 .formActions {
   display: flex;
   gap: 6px;
+}
+
+/* A filled-in year, not a stated one. Held back rather than flagged: an estimate is a
+   legitimate part of the record, it just isn't somebody's recollection. */
+.entryEstimated {
+  border-left-style: dashed;
+}
+
+/* A one-month adjustment, not a salary state: dotted rather than the solid rule a permanent
+   change carries, so the two read as different KINDS down the left edge of the list. */
+.entryOneOff {
+  border-left-style: dotted;
+  border-left-color: var(--color-text);
+}
+
+.estimatedTag {
+  color: var(--color-text-muted);
+  font-style: italic;
 }

@@ -28,7 +28,7 @@ const P1 = "p1" as PersonId;
 const openEndedJob = {
   startYear: SAMPLE_START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: 100_000_00, realGrowthPct: 0 },
+  salary: { startingSalaryCents: 100_000_00, currentSalaryCents: 100_000_00, realGrowthPct: 0 },
 } as const;
 
 const expenseLine = {

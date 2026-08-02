@@ -105,6 +105,28 @@ describe("governmentBenefitBaseMonthlyCents — AIME→PIA formula", () => {
     ).toBeGreaterThanOrEqual(lowBenefit);
   });
 
+  it("caps a year's COMBINED covered earnings at the wage base — earnings over it add nothing", () => {
+    // The engine folds every employer into one per-year figure; the AIME caps THAT figure
+    // once. A year at twice the cap must price identically to one exactly at the cap, or a
+    // second high-earning job would be counted uncapped.
+    const atCap = levelRecord(2019, 35, 184_500_00);
+    const overCap = levelRecord(2019, 35, 184_500_00 * 2);
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(overCap, 2026))).toBe(
+      governmentBenefitBaseMonthlyCents(claimAtFRA(atCap, 2026)),
+    );
+  });
+
+  it("averages only the highest 35 years — extra lower years beyond 35 don't dilute the AIME", () => {
+    const top35 = levelRecord(2019, 35, 100_000_00);
+    const extended = new Map(top35.annualWagesCents);
+    // Five earlier, lower-earning years — a >35-year career, but these fall outside the top 35.
+    for (let year = 2014; year < 2019; year++) extended.set(year, 20_000_00);
+    const withExtras: EarningsRecord = { annualWagesCents: extended };
+    expect(governmentBenefitBaseMonthlyCents(claimAtFRA(withExtras, 2026))).toBe(
+      governmentBenefitBaseMonthlyCents(claimAtFRA(top35, 2026)),
+    );
+  });
+
   it("is monotonic in claiming age: earlier claims are reduced, later are credited", () => {
     const record = levelRecord(2019, 35, 80_000_00);
     // claimYear + currentAge fixed (same indexing year ⇒ same PIA base), so only the

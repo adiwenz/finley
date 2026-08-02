@@ -1,7 +1,7 @@
 /**
  * The **pay change at this month** control. Owns the disclosed form's transient state, so
  * {@link BaseAdjustmentsPanel} carries none of it. It never sees `Plan` or a transaction; it
- * hands the parent a finished {@link JobIncomeOverride} or {@link JobPayChange} to apply,
+ * hands the parent a finished {@link JobIncomeOverrideInput} or {@link JobPayChangeInput} to apply,
  * against a month the parent selects.
  *
  * Every kind rides the job's own income series, so all are taxed as wages and run through
@@ -10,8 +10,11 @@
  */
 
 import { useState } from "react";
-import { dollarsToCents, type JobIncomeOverride, type JobPayChange } from "@finley/engine";
-import { formatDollars } from "../../format";
+import {
+  dollarsToCents,
+  type JobIncomeOverrideInput,
+  type JobPayChangeInput,
+} from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import styles from "./baseAdjustments.module.css";
 
@@ -26,20 +29,37 @@ export interface PayChangeJobOption {
 }
 
 /**
- * The first two are one-month perturbations (a {@link JobIncomeOverride}); the last two are
- * permanent step changes from the month forward (a {@link JobPayChange}). Permanent cuts
+ * The first two are one-month perturbations (a {@link JobIncomeOverrideInput}); the last two are
+ * permanent step changes from the month forward (a {@link JobPayChangeInput}). Permanent cuts
  * both ways: a new ongoing pay can be lower, so this is a *pay change*, not a "raise".
  */
 export type PayChangeKind = "addBonus" | "setTo" | "setOngoing" | "changeOngoing";
 
+/**
+ * One thing already authored at the selected month, in the terms this control speaks. Derived
+ * by the parent from the plan, so it survives a reload and disappears when the underlying
+ * change does.
+ */
+export interface AppliedAdjustment {
+  /**
+   * The adjustment's own minted id — the row's identity. Not `${jobId}:${scope}`, which is what
+   * a job's second bonus in one month used to collide with, so the list showed one entry where
+   * two were stored and React reused the first row's node for the second's content.
+   */
+  readonly id: string;
+  readonly jobId: string;
+  /** Owner-qualified where needed, exactly as the job picker names it. */
+  readonly jobLabel: string;
+  /** A one-month perturbation, or a permanent change from this month forward. */
+  readonly scope: "thisMonth" | "ongoing";
+  /** "bonus of $4,000" / "pay set to $6,250" — undated; the row states the month. */
+  readonly description: string;
+}
+
 const isPermanentChange = (kind: PayChangeKind): kind is "setOngoing" | "changeOngoing" =>
   kind === "setOngoing" || kind === "changeOngoing";
 
-/**
- * The open form's live contents; `null` means closed — the single open/shut flag. The
- * confirmation note is not part of it: it reports the last applied change, so it outlives
- * the form it came from.
- */
+/** The open form's live contents; `null` means closed — the single open/shut flag. */
 interface PayChangeDraft {
   readonly kind: PayChangeKind;
   readonly dollars: number;
@@ -52,51 +72,46 @@ const freshDraft = (): PayChangeDraft => ({ kind: "addBonus", dollars: 0, jobId:
 export interface PayChangeEditorProps {
   /** Every job in the household, in join order. */
   readonly jobs: readonly PayChangeJobOption[];
+  /**
+   * Everything already authored at {@link incomeMonth}, across every job, as the parent reads
+   * it back from the plan.
+   *
+   * This used to be a `note` remembering the last thing applied, which was wrong in three ways
+   * at once: a second change replaced the first on screen even when both were stored, a change
+   * removed from the Jobs panel went on being reported here, and nothing at all showed after a
+   * reload. What is at this month is a fact about the plan, so it is read rather than recalled.
+   */
+  readonly appliedAtMonth: readonly AppliedAdjustment[];
   /** The panel's selected month, floored to a paying month. */
   readonly incomeMonth: number;
   /** Plan mutation lives in the parent. */
-  readonly onApplyOverride: (jobId: string, override: JobIncomeOverride) => void;
+  readonly onApplyOverride: (jobId: string, override: JobIncomeOverrideInput) => void;
   /** A raise or a cut. Plan mutation lives in the parent. */
-  readonly onApplyPayChange: (jobId: string, payChange: JobPayChange) => void;
+  readonly onApplyPayChange: (jobId: string, payChange: JobPayChangeInput) => void;
 }
 
 export function PayChangeEditor({
   jobs,
   incomeMonth,
+  appliedAtMonth,
   onApplyOverride,
   onApplyPayChange,
 }: PayChangeEditorProps) {
   const [draft, setDraft] = useState<PayChangeDraft | null>(null);
-  /** Echoed like the spending route's confirmation. */
-  const [note, setNote] = useState<string | null>(null);
 
   const targetJobId = draft?.jobId ?? jobs[0]?.id ?? null;
 
-  /** On success the form closes but the note stays. */
+  /** On success the form closes; what was applied shows up in {@link appliedAtMonth}. */
   function apply(): void {
     if (draft === null || targetJobId === null) return;
     const cents = dollarsToCents(draft.dollars);
-    // The note names the job as the picker does, owner and all.
-    const jobLabel = jobs.find((j) => j.id === targetJobId)?.label ?? targetJobId;
 
     if (isPermanentChange(draft.kind)) {
       const kind = draft.kind === "setOngoing" ? "setTo" : "changeBy";
       onApplyPayChange(targetJobId, { month: incomeMonth, kind, cents });
-      const what =
-        draft.kind === "setOngoing"
-          ? `pay set to ${formatDollars(cents)}`
-          : `pay changed by ${formatDollars(cents)}`;
-      setNote(`→ ${what} on ${jobLabel} from month ${incomeMonth} onward (ongoing)`);
-      setDraft(null);
-      return;
+    } else {
+      onApplyOverride(targetJobId, { month: incomeMonth, kind: draft.kind, cents });
     }
-
-    onApplyOverride(targetJobId, { month: incomeMonth, kind: draft.kind, cents });
-    const what =
-      draft.kind === "addBonus"
-        ? `bonus of ${formatDollars(cents)}`
-        : `pay set to ${formatDollars(cents)}`;
-    setNote(`→ ${what} on ${jobLabel} at month ${incomeMonth}`);
     setDraft(null);
   }
 
@@ -165,18 +180,27 @@ export function PayChangeEditor({
           type="button"
           className="btn"
           disabled={jobs.length === 0}
-          onClick={() => {
-            setNote(null);
-            setDraft(freshDraft());
-          }}
+          onClick={() => setDraft(freshDraft())}
         >
           + Change pay at this month
         </button>
       )}
-      {note && (
-        <p className={styles.routeEcho} data-testid="pay-change-route">
-          {note}
-        </p>
+      {/* Every adjustment standing at this month, not the last one applied. Several stack;
+          removing one anywhere removes it here. */}
+      {appliedAtMonth.length > 0 && (
+        <ul className={styles.routeEcho} data-testid="pay-change-route">
+          {appliedAtMonth.map((applied) => (
+            // The adjustment's own id. Keying by job and scope gave a job's two bonuses in one
+            // month the same key, so React kept one row and the second silently replaced the
+            // first's text.
+            <li key={applied.id}>
+              → {applied.description} on {applied.jobLabel}{" "}
+              {applied.scope === "ongoing"
+                ? `from month ${incomeMonth} onward (ongoing)`
+                : `at month ${incomeMonth}`}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

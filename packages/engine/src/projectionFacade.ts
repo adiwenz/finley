@@ -68,7 +68,7 @@
  */
 
 import type { Plan, PlanPatch, GoalPatch } from "./plan";
-import type { JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
+import type { JobIncomeOverrideInput, JobPatch, JobPayChangeInput, PersonId } from "./job";
 import type { BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
@@ -102,6 +102,7 @@ import {
   householdMonthlyIncomeCentsOf,
   jobDeferralFractionOf,
   jobMonthlyIncomeCentsOf,
+  jobStartingMonthlyIncomeCentsOf,
   personDeferralFractionOf,
   personMonthlyIncomeCentsOf,
   reassignProjectionJob,
@@ -111,8 +112,10 @@ import {
   removeProjectionPartnerJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
+  setProjectionJobCurrentMonthlyIncome,
   setProjectionJobDeferralFraction,
   setProjectionJobMonthlyIncome,
+  setProjectionJobStartingMonthlyIncome,
   updateProjectionJob,
   updateProjectionPartnerJob,
 } from "./authoring/jobs";
@@ -319,10 +322,25 @@ export class Projection {
   // Adjustments to ONE job, addressed by its id alone — either plane, since one counter issues
   // job ids across both and an id therefore names one job in the household or nothing at all.
 
-  /** Monthly cents in, annualized salary stored. */
+  /** Monthly cents in, annualized salary stored — on BOTH anchors, for a job stated in one
+   * number. A surface showing the two separately uses the two setters below. */
   setJobMonthlyIncome(id: string, monthlyCents: number): void {
     this.write((state) =>
       setProjectionJobMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
+    );
+  }
+
+  /** The start anchor alone — what the job paid in its own start year. Current pay untouched. */
+  setJobStartingMonthlyIncome(id: string, monthlyCents: number): void {
+    this.write((state) =>
+      setProjectionJobStartingMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
+    );
+  }
+
+  /** The month-0 anchor alone — the figure the projection starts from. Start pay untouched. */
+  setJobCurrentMonthlyIncome(id: string, monthlyCents: number): void {
+    this.write((state) =>
+      setProjectionJobCurrentMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
     );
   }
 
@@ -337,29 +355,40 @@ export class Projection {
     );
   }
 
-  /** A permanent raise or cut, at most one per (job, month). */
-  addJobPayChange(jobId: string, payChange: JobPayChange): void {
-    this.write((state) =>
+  /**
+   * A permanent raise or cut, at most one per (job, month). Returns the minted adjustment id —
+   * always minted; a caller cannot name an adjustment, exactly as they cannot name a job.
+   */
+  addJobPayChange(jobId: string, payChange: JobPayChangeInput): string {
+    return this.write((state) =>
       addProjectionJobPayChange(state, this.validationJurisdiction, jobId, payChange),
     );
   }
 
-  removeJobPayChange(jobId: string, month: number): void {
+  /** By the adjustment's id, not its month — see {@link removeJobIncomeOverride}. */
+  removeJobPayChange(jobId: string, payChangeId: string): void {
     this.write((state) =>
-      removeProjectionJobPayChange(state, this.validationJurisdiction, jobId, month),
+      removeProjectionJobPayChange(state, this.validationJurisdiction, jobId, payChangeId),
     );
   }
 
-  /** A one-month perturbation, not a new salary segment. */
-  addJobIncomeOverride(jobId: string, override: JobIncomeOverride): void {
-    this.write((state) =>
+  /**
+   * A one-month perturbation, not a new salary segment — and one of any number that may share a
+   * month. Returns the minted adjustment id.
+   */
+  addJobIncomeOverride(jobId: string, override: JobIncomeOverrideInput): string {
+    return this.write((state) =>
       addProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, override),
     );
   }
 
-  removeJobIncomeOverride(jobId: string, month: number): void {
+  /**
+   * By id: several adjustments may be dated the same month, so a month names a stack rather than
+   * an entry, and removing by month would take all of them.
+   */
+  removeJobIncomeOverride(jobId: string, overrideId: string): void {
     this.write((state) =>
-      removeProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, month),
+      removeProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, overrideId),
     );
   }
 
@@ -572,6 +601,14 @@ export class Projection {
    */
   jobMonthlyIncomeCents(jobId: string): Cents {
     return jobMonthlyIncomeCentsOf(this.state, jobId);
+  }
+
+  /**
+   * What a job paid a month in its own start year — the historical anchor, which drives the
+   * pre-"now" covered-earnings record and nothing forward.
+   */
+  jobStartingMonthlyIncomeCents(jobId: string): Cents {
+    return jobStartingMonthlyIncomeCentsOf(this.state, jobId);
   }
 
   /** One job's elected pre-tax 401(k) fraction of gross; an absent election reads as 0. */

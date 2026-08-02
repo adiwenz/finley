@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
+  orderedIncomeOverrides,
   type Household,
   type Ledger,
   type Plan,
@@ -173,6 +174,46 @@ export function BaseAdjustmentsPanel({
     () => ownedJobsOf(owners).map(({ job, label }) => ({ id: job.id, label })),
     [owners],
   );
+  /**
+   * Everything already authored at the selected month, read back off the jobs. The editor used
+   * to remember the last thing it applied instead, which showed one change where two were
+   * stored and outlived changes removed elsewhere.
+   *
+   * Every adjustment separately, keyed by its own id: a month may hold any number of one-off
+   * adjustments on one job, and each is a fact the user authored and can remove on its own.
+   * Nothing here merges or collapses them — the order is the engine's `orderedIncomeOverrides`
+   * order, which is also the order they apply in.
+   */
+  const appliedAtMonth = useMemo(
+    () =>
+      ownedJobsOf(owners).flatMap(({ job, label }) => [
+        ...(job.payChanges ?? [])
+          .filter((c) => c.month === selectedMonth)
+          .map((c) => ({
+            id: c.id,
+            jobId: job.id,
+            jobLabel: label,
+            scope: "ongoing" as const,
+            description:
+              c.kind === "setTo"
+                ? `pay set to ${formatDollars(c.cents)}`
+                : `pay changed by ${formatDollars(c.cents)}`,
+          })),
+        ...orderedIncomeOverrides(job.incomeOverrides ?? [])
+          .filter((o) => o.month === selectedMonth)
+          .map((o) => ({
+            id: o.id,
+            jobId: job.id,
+            jobLabel: label,
+            scope: "thisMonth" as const,
+            description:
+              o.kind === "addBonus"
+                ? `bonus of ${formatDollars(o.cents)}`
+                : `pay set to ${formatDollars(o.cents)}`,
+          })),
+      ]),
+    [owners, selectedMonth],
+  );
 
 
   /**
@@ -289,6 +330,7 @@ export function BaseAdjustmentsPanel({
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={selectedMonth}
+          appliedAtMonth={appliedAtMonth}
           // Addressed by job id alone: the facade finds it on whichever plane its owner is
           // authored on, and carries the job's other adjustments through.
           onApplyOverride={(jobId, override) => transact((p) => p.addJobIncomeOverride(jobId, override))}

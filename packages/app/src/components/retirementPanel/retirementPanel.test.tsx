@@ -51,7 +51,7 @@ describe("RetirementPanel", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("on track (100%)");
     expect(html).toContain("of the way there");
-    expect(html).toContain("the nearest feasible age is 78");
+    expect(html).toContain("the nearest feasible age is 76");
     expect(html).not.toContain("100% of the way there");
   });
 

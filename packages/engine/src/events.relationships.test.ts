@@ -45,7 +45,7 @@ describe("RelationshipEvent — partner jobs", () => {
         ownerId: "p2",
         startYear: 2020,
         endYear: null,
-        salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+        salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
       },
     ],
   });
@@ -158,7 +158,7 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
           ownerId: "p2",
           startYear: 2020,
           endYear: null,
-          salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
+          salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
         },
       ],
     };
@@ -186,7 +186,7 @@ describe("SeparationEvent", () => {
           ownerId: "p2",
           startYear: 2020,
           endYear: null,
-          salary: { startingSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 }, // $2,000/mo
+          salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 }, // $2,000/mo
         },
       ],
     };

@@ -30,7 +30,7 @@ const baseBudget: Plan = {
       ownerId: "p1",
       startYear: START_YEAR - 35 + 18,
       endYear: null,
-      salary: { startingSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+      salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],
   budgetLines: [

@@ -3,17 +3,22 @@
  * the `RelationshipEvent` that brought them into the household, so reaching for `Plan.jobs`
  * directly misses partners.
  *
- * One form submission can change fields *and* hand the job to another member, as one edit:
- * splitting them minted a *new* job, losing its id, one-month overrides, permanent pay changes
- * and employer match. {@link editJob} works from the existing {@link Job}, keeps its id, and
- * resolves the draft's ages against the new owner.
+ * A job belongs to the member it was added for and cannot be handed to another: moving one
+ * re-reads every age against a different birth year, which shifts the job's whole calendar and
+ * strands the pay changes falling outside the new span — more than one form submission can
+ * honestly model, and a correction would have to be an explicit transfer operation that reviews
+ * those consequences. None exists: delete the job and add it to the other member instead.
+ *
+ * So {@link addJob} names the owner and {@link editJob} derives it, working from the existing
+ * {@link Job} to keep its id, overrides, pay changes and employer match — none of which the
+ * form shows, so none of which a draft could carry.
  *
  * Nothing is written here: checks run first and a failure returns no writes, so a rejected
  * edit cannot leave a job in neither list. The caller commits.
  */
 
-import type { Job, JobInput, PersonId } from "@finley/engine";
-import { applyJobDraft, type JobDraft } from "./planPeople";
+import type { Job, JobInput, JobPayChange, PersonId } from "@finley/engine";
+import { applyJobDraft, jobInputFromDraft, type JobEditDraft } from "./planPeople";
 import type { JobOwner } from "./jobOwners";
 
 /**
@@ -22,21 +27,14 @@ import type { JobOwner } from "./jobOwners";
  * `replacePartnerJob`, `removeJob` / `removePartnerJob`) and never a list.
  * `jobWrites.ts` routes each of these to its owner's plane.
  *
- * `add` is a brand-new job and always mints. An existing job arriving from another member is a
- * `reassign` instead — a different verb, because it names an id the engine already issued and
- * must keep, and the engine performs the two-plane move itself.
+ * `add` is a brand-new job and always mints; `replace` names an id the engine already issued
+ * and keeps it. Every write names one member, because a job stays with the member it was
+ * added for — no write here crosses between two.
  */
 export type JobWrite =
   | { readonly kind: "add"; readonly owner: JobOwner; readonly job: JobInput }
   | {
       readonly kind: "replace";
-      readonly owner: JobOwner;
-      readonly jobId: string;
-      readonly job: JobInput;
-    }
-  | {
-      /** The job keeps `jobId` and lands on `owner`'s plane — see `Projection.reassignJob`. */
-      readonly kind: "reassign";
       readonly owner: JobOwner;
       readonly jobId: string;
       readonly job: JobInput;
@@ -54,16 +52,20 @@ export function jobInputOf(job: Job): JobInput {
 }
 
 /**
- * The whole outcome of one edit: every list that must change, or why nothing can. A
- * transfer carries **two** writes (the target gaining the job, the source losing it) that
- * are only ever committed together.
+ * The whole outcome of one add or edit: every list that must change, or why nothing can.
+ * Shared by {@link addJob} and {@link editJob}, which differ only in whether the owner is
+ * chosen or derived — everything downstream of that treats the two identically.
  */
 export type JobEditResult =
   | {
       readonly ok: true;
-      /** Same id, new fields, whichever owner now holds it. */
-      readonly job: Job;
       readonly writes: readonly JobWrite[];
+      /**
+       * Pay changes the edit dropped because they now predate the job's start — see
+       * {@link applyJobDraft}. Empty on an edit that strands nothing; a caller that ignores
+       * this loses an authored fact without saying so.
+       */
+      readonly strandedPayChanges: readonly JobPayChange[];
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -97,49 +99,56 @@ export function ownedJobsOf(owners: readonly JobOwner[]): readonly OwnedJob[] {
 
 
 /**
- * Apply `draft` to the job `jobId` currently held by `sourceOwnerId`.
+ * Create a job for `ownerId`, from a draft that names them. The owner is chosen HERE and
+ * nowhere else — {@link editJob} takes a draft with no owner to choose from, so this is the
+ * only moment in a job's life when the question is open.
  *
- * Same owner: replaced in place. Another member: the *same* job object — id, overrides, pay
- * changes, employer match and all — moves across, its start/end ages re-read against the
- * target's birth year.
+ * The facade mints the id and stamps the owner from the member the job is added for; nothing
+ * about ownership travels inside the {@link JobInput}.
+ */
+export function addJob(
+  owners: readonly JobOwner[],
+  ownerId: PersonId,
+  draft: JobEditDraft,
+): JobEditResult {
+  const target = owners.find((o) => o.id === ownerId);
+  if (target === undefined) {
+    return { ok: false, reason: `no household member "${ownerId}" to own this job` };
+  }
+  return {
+    ok: true,
+    // Ages resolve against the owner being created for — the same clock every later edit reads.
+    writes: [{ kind: "add", owner: target, job: jobInputFromDraft(target.birthYear, draft) }],
+    // A new job carries no pay changes, so an add can strand none.
+    strandedPayChanges: [],
+  };
+}
+
+/**
+ * Apply `draft` to the job `jobId`, replacing it in place.
+ *
+ * The owner is **derived**, not supplied: whoever holds `jobId` holds it after the edit too, and
+ * their birth year is the clock every age in the draft is read against. A {@link JobEditDraft}
+ * carries no owner, so there is nothing here to reconcile and no way to name a second person.
  */
 export function editJob(
   owners: readonly JobOwner[],
-  sourceOwnerId: PersonId,
   jobId: string,
-  draft: JobDraft,
+  draft: JobEditDraft,
 ): JobEditResult {
-  const source = owners.find((o) => o.id === sourceOwnerId);
-  if (source === undefined) return { ok: false, reason: `no household member "${sourceOwnerId}"` };
-
-  const existing = source.jobs.find((j) => j.id === jobId);
-  if (existing === undefined) {
-    return { ok: false, reason: `${source.name} holds no job "${jobId}"` };
+  const holder = owners.find((o) => o.jobs.some((j) => j.id === jobId));
+  if (holder === undefined) {
+    return { ok: false, reason: `no job "${jobId}" in this household` };
   }
+  const existing = holder.jobs.find((j) => j.id === jobId)!;
 
-  const target = owners.find((o) => o.id === draft.ownerId);
-  if (target === undefined) {
-    return { ok: false, reason: `no household member "${draft.ownerId}" to own this job` };
-  }
+  // Built from the full existing job, so its id, one-month overrides, pay changes and employer
+  // match survive an edit that only ever sees a handful of fields.
+  const { job: edited, strandedPayChanges } = applyJobDraft(existing, holder.birthYear, draft);
 
-  // Built ONCE, from the full existing job, against the new owner's clock — the same
-  // object leaves the source list and lands in the target's.
-  const edited = applyJobDraft(existing, target.birthYear, draft);
-
-  if (target.id === source.id) {
-    return {
-      ok: true,
-      job: edited,
-      writes: [{ kind: "replace", owner: source, jobId, job: jobInputOf(edited) }],
-    };
-  }
-
-  // ONE write: the engine takes the job off the source's plane and lands it on the target's
-  // under the same id, so its one-month overrides, pay changes and employer match come with it.
-  // Nothing here removes and re-adds, so there is no window where the job belongs to neither.
   return {
     ok: true,
-    job: edited,
-    writes: [{ kind: "reassign", owner: target, jobId, job: jobInputOf(edited) }],
+    writes: [{ kind: "replace", owner: holder, jobId, job: jobInputOf(edited) }],
+    strandedPayChanges,
   };
 }

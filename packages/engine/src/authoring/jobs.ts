@@ -20,15 +20,24 @@
  * partner-job edit that would strand a later event is refused exactly as any other would be.
  */
 
-import type { Job, JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "../job";
+import type {
+  Job,
+  JobIncomeOverrideInput,
+  JobPatch,
+  JobPayChangeInput,
+  PersonId,
+} from "../job";
 import {
   deferralFractionOf,
   mapJob,
   monthlyIncomeCentsOf,
+  startingMonthlyIncomeCentsOf,
+  withCurrentMonthlyIncome,
   withDeferralFraction,
   withIncomeOverride,
   withJobPatch,
   withMonthlyIncome,
+  withStartingMonthlyIncome,
   withoutIncomeOverride,
   withoutPayChange,
   withPayChange,
@@ -118,9 +127,10 @@ function editPlanJob(
   state: ProjectionState,
   id: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
   const plan = planSite(state, "jobs", id);
-  return withStatePlan(state, { ...plan, jobs: mapJob(plan.jobs, id, f) });
+  return withStatePlan(state, { ...plan, jobs: mapJob(plan.jobs, id, f) }, nextSeq);
 }
 
 /** The partner-plane counterpart of {@link editPlanJob}. */
@@ -129,6 +139,7 @@ function editPartnerJob(
   jurisdiction: Jurisdiction,
   jobId: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
   const { event } = partnerJobSite(state, jobId);
   return withPartnerJobs(
@@ -136,6 +147,7 @@ function editPartnerJob(
     jurisdiction,
     event,
     event.person.jobs.map((j) => (j.id === jobId ? f(j) : j)),
+    nextSeq,
   );
 }
 
@@ -145,12 +157,13 @@ function editJobAnywhere(
   jurisdiction: Jurisdiction,
   jobId: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
-  if (onPlan(state, jobId)) return editPlanJob(state, jobId, f);
+  if (onPlan(state, jobId)) return editPlanJob(state, jobId, f, nextSeq);
   for (const event of state.scenario.ledger.events) {
     if (event.type !== "RelationshipEvent") continue;
     if (event.person.jobs.some((j) => j.id === jobId)) {
-      return editPartnerJob(state, jurisdiction, jobId, f);
+      return editPartnerJob(state, jurisdiction, jobId, f, nextSeq);
     }
   }
   throw new Error(`Projection: cannot edit a job — no job "${jobId}" in this household`);
@@ -364,6 +377,26 @@ export function setProjectionJobMonthlyIncome(
   return editJobAnywhere(state, jurisdiction, id, (j) => withMonthlyIncome(j, monthlyCents));
 }
 
+/** See {@link withStartingMonthlyIncome} — the start anchor alone, current pay untouched. */
+export function setProjectionJobStartingMonthlyIncome(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  id: string,
+  monthlyCents: number,
+): ProjectionState {
+  return editJobAnywhere(state, jurisdiction, id, (j) => withStartingMonthlyIncome(j, monthlyCents));
+}
+
+/** See {@link withCurrentMonthlyIncome} — the month-0 anchor alone, start pay untouched. */
+export function setProjectionJobCurrentMonthlyIncome(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  id: string,
+  monthlyCents: number,
+): ProjectionState {
+  return editJobAnywhere(state, jurisdiction, id, (j) => withCurrentMonthlyIncome(j, monthlyCents));
+}
+
 /**
  * See {@link withDeferralFraction}. It exists beside {@link updateProjectionJob} because 0
  * *removes* the deferral and a positive fraction preserves the funded account and employer match
@@ -378,44 +411,75 @@ export function setProjectionJobDeferralFraction(
   return editJobAnywhere(state, jurisdiction, id, (j) => withDeferralFraction(j, fraction));
 }
 
-/** See {@link withPayChange} — a permanent raise or cut, at most one per (job, month). */
+/**
+ * See {@link withPayChange} — a permanent raise or cut, at most one per (job, month).
+ *
+ * The id is minted here rather than accepted, like every other identity in the model: an
+ * authoring input carries no id, so a caller cannot name one into existence or hand two
+ * adjustments the same one. Answers with it, since a caller that just authored an adjustment is
+ * usually the one that needs to address it next.
+ */
 export function addProjectionJobPayChange(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  payChange: JobPayChange,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withPayChange(j, payChange));
+  payChange: JobPayChangeInput,
+): Written<string> {
+  const { id, nextSeq } = mint(state, "adjustment");
+  return {
+    state: editJobAnywhere(
+      state,
+      jurisdiction,
+      jobId,
+      (j) => withPayChange(j, { ...payChange, id }),
+      nextSeq,
+    ),
+    result: id,
+  };
 }
 
-/** See {@link withoutPayChange}. */
+/** See {@link withoutPayChange} — addressed by the adjustment's own id. */
 export function removeProjectionJobPayChange(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  month: number,
+  payChangeId: string,
 ): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutPayChange(j, month));
+  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutPayChange(j, payChangeId));
 }
 
-/** See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment. */
+/**
+ * See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment, and one
+ * of any number that may share a month. The minted id is what keeps stacked siblings apart, so
+ * it is answered back for a caller that wants to remove or re-address this one.
+ */
 export function addProjectionJobIncomeOverride(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  override: JobIncomeOverride,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withIncomeOverride(j, override));
+  override: JobIncomeOverrideInput,
+): Written<string> {
+  const { id, nextSeq } = mint(state, "adjustment");
+  return {
+    state: editJobAnywhere(
+      state,
+      jurisdiction,
+      jobId,
+      (j) => withIncomeOverride(j, { ...override, id }),
+      nextSeq,
+    ),
+    result: id,
+  };
 }
 
-/** See {@link withoutIncomeOverride}. */
+/** See {@link withoutIncomeOverride} — addressed by id, since a month may hold several. */
 export function removeProjectionJobIncomeOverride(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  month: number,
+  overrideId: string,
 ): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutIncomeOverride(j, month));
+  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutIncomeOverride(j, overrideId));
 }
 
 // Reads. Ownership is on the job, so a caller reading pay or deferral never has to know which
@@ -453,6 +517,15 @@ export function jobMonthlyIncomeCentsOf(state: ProjectionState, jobId: string): 
 }
 
 /**
+ * What a job paid a month in its own `startYear` — the other authored anchor, and the one an
+ * editor showing a job's pay history opens its first field on. Read separately from
+ * {@link jobMonthlyIncomeCentsOf} because neither derives from the other.
+ */
+export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: string): Cents {
+  return startingMonthlyIncomeCentsOf(jobOrThrow(state, jobId));
+}
+
+/**
  * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a caller
  * never has to distinguish "no deferral" from "deferring nothing" — the read counterpart of
  * {@link setProjectionJobDeferralFraction}, which erases a 0 rather than recording it.
@@ -480,10 +553,12 @@ export function householdMonthlyIncomeCentsOf(state: ProjectionState): Cents {
  */
 export function personDeferralFractionOf(state: ProjectionState, personId: PersonId): number {
   const jobs = householdJobs(state).filter((j) => j.ownerId === personId);
-  const grossCents = jobs.reduce((sum, j) => sum + j.salary.startingSalaryCents, 0);
+  // Weighted by CURRENT pay — the blend is what they defer now, so a decades-stale starting
+  // salary would weight the jobs against each other wrongly.
+  const grossCents = jobs.reduce((sum, j) => sum + j.salary.currentSalaryCents, 0);
   if (grossCents <= 0) return 0;
   const deferredCents = jobs.reduce(
-    (sum, j) => sum + j.salary.startingSalaryCents * deferralFractionOf(j),
+    (sum, j) => sum + j.salary.currentSalaryCents * deferralFractionOf(j),
     0,
   );
   return deferredCents / grossCents;

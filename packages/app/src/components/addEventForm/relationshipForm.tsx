@@ -2,20 +2,13 @@
 
 import { useState } from "react";
 import { MonthSelect, type FormProps } from "./formControls";
-import { blankJobDraftFor, jobInputFromDraft, yearOfMonth, type JobDraft } from "../../planPeople";
+import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
 
 /** A generic-adult starting point, until the user says otherwise. */
 const PARTNER_DEFAULT_AGE = 40;
-
-/**
- * A placeholder owner for the partner's job drafts. The real owner is the person
- * `Projection.marry` mints, so this is never persisted — {@link jobInputFromDraft} drops it —
- * it only scopes the draft's ages while authoring.
- */
-const PARTNER_DRAFT_OWNER = "partner";
 
 /** The form's live state — one draft, not a hook per field. */
 interface RelationshipDraft {
@@ -32,7 +25,7 @@ interface RelationshipDraft {
   /** The age their government benefit begins, 62–70. */
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
-  readonly jobs: readonly JobDraft[];
+  readonly jobs: readonly JobEditDraft[];
 }
 
 export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
@@ -56,7 +49,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
    */
   const partnerBirthYear = joinYear - draft.age;
 
-  function addJob(job: JobDraft) {
+  function addJob(job: JobEditDraft) {
     setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }));
     setAddingJob(false);
   }
@@ -135,10 +128,14 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         )}
         {addingJob ? (
           <JobForm
-            // Scoped to the partner: no owner picker (they are the only one here) and the
-            // ages are theirs. Seeded at the join age, so a fresh job starts the year they
-            // arrive.
-            initial={blankJobDraftFor(PARTNER_DRAFT_OWNER, draft.age)}
+            // Scoped to the partner: there is no ownership question to ask here — `marry`
+            // stamps every one of these jobs onto the person it mints — and the ages are
+            // theirs. Seeded at the join age, so a fresh job starts the year they arrive.
+            ownership="fixed"
+            initial={blankJobDraft(draft.age)}
+            // Their age when they join, which is "now" for every age this form collects — a
+            // partner's job is authored in the terms of the moment they arrive.
+            currentAge={draft.age}
             submitLabel="Add"
             onSubmit={addJob}
             onCancel={() => setAddingJob(false)}

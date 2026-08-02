@@ -10,7 +10,6 @@ import { useMemo } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import {
   PRIMARY_PERSON_ID,
-  RETIREMENT_ID,
   Projection,
   dollarsToCents,
   type Job,
@@ -107,15 +106,25 @@ const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+  salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
 });
 
 const spin = (name: RegExp | string) => screen.getByRole("spinbutton", { name }) as HTMLInputElement;
+/**
+ * A row's headline — CURRENT pay. Addressed by its title rather than its text: the row now also
+ * charts and lists the same job's pay, so the figure legitimately appears more than once.
+ */
+const headline = (label: string): string =>
+  within(screen.getByLabelText(label)).getByTitle(/Current pay/).textContent ?? "";
+/** The pay-history list on a row, where every dated change reads back. */
+const timeline = (label: string) => within(screen.getByLabelText(`Pay history for ${label}`));
 const jobCount = () => Number(screen.getByTestId("job-count").textContent);
 const partnerJobs = (): readonly Job[] =>
   JSON.parse(screen.getByTestId("partner-jobs").textContent || "[]") as Job[];
+/** What a partner's job pays NOW — the month-0 anchor, which is what the panel's headline
+ * quotes and what the salary field on a job with a past authors. */
 const partnerMonthlyDollars = (i = 0): number =>
-  Math.round((partnerJobs()[i]?.salary.startingSalaryCents ?? 0) / 12 / 100);
+  Math.round((partnerJobs()[i]?.salary.currentSalaryCents ?? 0) / 12 / 100);
 /** Both planes as the panel left them — what the app itself would project. */
 const authored = (): { plan: Plan; ledger: Ledger } => ({
   plan: JSON.parse(screen.getByTestId("plan").textContent || "{}") as Plan,
@@ -125,9 +134,8 @@ const authored = (): { plan: Plan; ledger: Ledger } => ({
 describe("JobsPanel — listing", () => {
   it("lists the default job with its salary and open-ended span", () => {
     render(<Harness />);
-    const row = screen.getByLabelText("Job 1");
-    expect(within(row).getByText("$5,000/mo")).toBeTruthy();
-    expect(within(row).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(headline("Job 1")).toBe("$5,000/mo");
+    expect(within(screen.getByLabelText("Job 1")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
   });
 });
 
@@ -139,15 +147,15 @@ describe("JobsPanel — add / edit / delete", () => {
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     expect(jobCount()).toBe(2);
-    expect(within(screen.getByLabelText("Job 2")).getByText("$2,000/mo")).toBeTruthy();
+    expect(headline("Job 2")).toBe("$2,000/mo");
   });
 
   it("edits a job's salary in place", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "8000" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    expect(within(screen.getByLabelText("Job 1")).getByText("$8,000/mo")).toBeTruthy();
+    expect(headline("Job 1")).toBe("$8,000/mo");
   });
 
   it("caps the 401(k) contribution at 100% — you can't defer more than your salary", () => {
@@ -240,8 +248,7 @@ describe("JobsPanel — add / edit / delete", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     // Titled by the name now, not the positional "Job 1".
-    const row = screen.getByLabelText("Software Engineer");
-    expect(within(row).getByText("$5,000/mo")).toBeTruthy();
+    expect(headline("Software Engineer")).toBe("$5,000/mo");
     fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
     expect((screen.getByRole("textbox", { name: /Job name/i }) as HTMLInputElement).value).toBe(
       "Software Engineer",
@@ -263,9 +270,9 @@ describe("JobsPanel — every member's jobs", () => {
   it("lists a partner's jobs next to the primary person's, each named by its owner", () => {
     // Both earners' jobs are one list; a partner's used to be reachable only as they joined.
     render(<Harness events={withPartner()} />);
-    expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
+    expect(headline("Alex · Job 1")).toBe("$5,000/mo");
     const partnerRow = screen.getByLabelText("Sam · Job 1");
-    expect(within(partnerRow).getByText("$2,000/mo")).toBeTruthy();
+    expect(headline("Sam · Job 1")).toBe("$2,000/mo");
     // Spans read in the owner's age, not the primary person's: Sam is 40, not 35.
     expect(within(partnerRow).getByText(/from age 40/)).toBeTruthy();
   });
@@ -276,7 +283,7 @@ describe("JobsPanel — every member's jobs", () => {
     fireEvent.change(spin(/Monthly salary/i), { target: { value: "3500" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(within(screen.getByLabelText("Sam · Job 1")).getByText("$3,500/mo")).toBeTruthy();
+    expect(headline("Sam · Job 1")).toBe("$3,500/mo");
     expect(partnerMonthlyDollars()).toBe(3500); // the ledger event now carries the new pay
     expect(jobCount()).toBe(1); // and the primary person's jobs are untouched
   });
@@ -293,56 +300,21 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness events={withPartner([])} />); // partner in the household, no jobs yet
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2500" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     expect(partnerJobs()).toHaveLength(1);
     expect(partnerJobs()[0].ownerId).toBe("p-1");
     expect(partnerMonthlyDollars()).toBe(2500);
     expect(jobCount()).toBe(1); // added to the partner, NOT to the primary person
-    expect(within(screen.getByLabelText("Sam · Job 1")).getByText("$2,500/mo")).toBeTruthy();
-  });
-
-  it("reassigns a job from one member to the other, ages following the new owner", () => {
-    render(<Harness events={withPartner([])} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-
-    expect(jobCount()).toBe(0);
-    expect(partnerJobs()).toHaveLength(1);
-    expect(partnerMonthlyDollars()).toBe(5000);
-    // The start age is unchanged as a number (18), but now it is Sam's 18.
-    expect(within(screen.getByLabelText("Sam · Job 1")).getByText(/from age 18/)).toBeTruthy();
-    expect(partnerJobs()[0].startYear).toBe(START_YEAR - 40 + 18);
-  });
-
-  it("reassigns a partner's job back to the primary person, ages following the new owner", () => {
-    // The reverse direction: off the RelationshipEvent and onto the plan. The facade owns both
-    // halves (`reassignJob`), so the panel asks for a move and never sequences one.
-    render(<Harness events={withPartner([partnerJob(2500, "Nursing")])} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Nursing/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-
-    expect(partnerJobs()).toEqual([]);
-    const { plan } = authored();
-    // The same job — its id survived the crossing, so its income band did too.
-    expect(plan.jobs.map((j) => j.id)).toEqual([DEFAULT_JOB_ID, "p-1-job-1"]);
-    const moved = plan.jobs.find((j) => j.id === "p-1-job-1")!;
-    expect(moved.ownerId).toBe(PRIMARY_PERSON_ID);
-    expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(2500 * 12));
-    // Sam's age-40 start, re-read against Alex's clock: the same age, a different year.
-    expect(moved.startYear).toBe(START_YEAR - PLAN_DEFAULTS.currentAge + 40);
-    // Sam is still in the household, so titles stay owner-qualified — under Alex now.
-    expect(screen.getByLabelText("Alex · Nursing")).toBeTruthy();
+    expect(headline("Sam · Job 1")).toBe("$2,500/mo");
   });
 
   it("mints a partner's new job off the shared counter, not a per-owner scheme", () => {
     render(<Harness events={withPartner([])} />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2500" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     const { plan } = authored();
@@ -352,62 +324,80 @@ describe("JobsPanel — every member's jobs", () => {
     expect(plan.jobs.map((j) => j.id)).not.toContain(minted);
   });
 
-  it("carries the whole job across a reassignment — id, overrides, pay changes, match", () => {
-    // One edit to the existing job, so all of it rides along; minting from the form draft
-    // instead loses id, bonus, raise and match.
-    const rich = addJobPayChange(
-      setJobDeferralFraction(PLAN_DEFAULTS, DEFAULT_JOB_ID, 0.1),
-      DEFAULT_JOB_ID,
-      { month: 24, kind: "changeBy", cents: -dollarsToCents(500) },
-    );
-    const withMatch: Plan = {
-      ...rich,
-      jobs: rich.jobs.map((j) => ({
-        ...j,
-        deferral: { ...j.deferral!, employerMatchFraction: 0.5 },
-        incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
-      })),
-    };
-
-    render(<Harness initial={withMatch} events={withPartner([])} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "6000" } });
+  it("writes nothing when the ledger refuses the revision", () => {
+    // A partner's jobs ride their RelationshipEvent, so editing one is a ledger revision. A
+    // refusal must leave the job exactly as it was rather than half-edited.
+    render(<Harness events={withPartner([partnerJob(2500)])} rejectRevisions />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
+    // Sam started this job at their current age, so there is no history field beside it.
+    fireEvent.change(spin(/^Monthly salary\$$/), { target: { value: "9000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    const [moved] = partnerJobs();
-    expect(moved.id).toBe(DEFAULT_JOB_ID); // the same job, not a new one minted on the partner
-    expect(moved.ownerId).toBe("p-1");
-    expect(moved.salary.startingSalaryCents).toBe(dollarsToCents(6000 * 12)); // edited in the same submit
-    expect(moved.payChanges).toEqual([{ month: 24, kind: "changeBy", cents: -dollarsToCents(500) }]);
-    expect(moved.incomeOverrides).toEqual([{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }]);
-    expect(moved.deferral?.employerMatchFraction).toBe(0.5);
-    expect(jobCount()).toBe(0); // and it left the plan
+    expect(partnerMonthlyDollars()).toBe(2500); // the refused salary did not stick
+    expect(headline("Sam · Job 1")).toBe("$2,500/mo");
+    expect(jobCount()).toBe(1); // and the other plane was never touched either
   });
 
-  it("writes neither plane when the ledger refuses the revision", () => {
-    // Ledger first, plan only if accepted: the reverse order loses the job outright when the
-    // ledger half is refused.
-    render(<Harness events={withPartner([])} rejectRevisions />);
+  it("offers no owner picker when EDITING — the owner is fixed context instead", () => {
+    // Moving a job would re-read every age against another birth year, shifting its whole
+    // calendar and stranding the pay changes outside the new span. Delete and re-add instead.
+    render(<Harness events={withPartner([])} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Job 1/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "9000" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
+    // Not merely absent: the settled answer is stated where the picker would have been.
+    expect(screen.getByTestId("job-owner").textContent).toMatch(/Alex’s job/);
+    // Still offered while adding, where it settles whose job this will be.
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    expect(screen.getByLabelText("Whose job")).toBeTruthy();
+  });
 
-    expect(partnerJobs()).toHaveLength(0); // never landed on the partner
-    expect(jobCount()).toBe(1); // and never left the plan
-    // Untouched, not half-edited: the refused salary did not stick either.
-    expect(within(screen.getByLabelText("Alex · Job 1")).getByText("$5,000/mo")).toBeTruthy();
+  it("names the partner as the fixed owner when editing THEIR job", () => {
+    render(<Harness events={withPartner([partnerJob(2500)])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
+    expect(screen.getByTestId("job-owner").textContent).toMatch(/Sam’s job/);
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+
+  it("states no owner at all on a single-earner plan — there is nobody else it could be", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(screen.queryByTestId("job-owner")).toBeNull();
+    expect(screen.queryByLabelText("Whose job")).toBeNull();
+  });
+
+  it("creates a job for EITHER eligible owner from the same picker", () => {
+    render(<Harness events={withPartner([])} />);
+    // The primary person, explicitly — not merely the default.
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "1500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    expect(jobCount()).toBe(2);
+    expect(partnerJobs()).toHaveLength(0);
+
+    // Then the partner, from the same form. The draft opened on Alex's age 35, which is
+    // history for 40-year-old Sam — so the form now shows both anchors and "now" is the one
+    // to state.
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    expect(jobCount()).toBe(2);
+    expect(partnerJobs()).toHaveLength(1);
+    expect(partnerJobs()[0].ownerId).toBe("p-1");
   });
 
   it("removes a pay change from a partner's job, on their own plane", () => {
     // Base + Adjustments reaches every earner, so Remove must route by owner.
     const raised: Job = {
       ...partnerJob(2000),
-      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
+      payChanges: [{ id: "adjustment-7", month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
     };
     render(<Harness events={withPartner([raised])} />);
-    expect(screen.getByText(/Pay set to \$3,000\/mo from age 41/)).toBeTruthy(); // Sam is 40 now
+    // Sam is 40 now, so month 12 reads back on the age-41 row of their pay history.
+    expect(timeline("Sam · Job 1").getByText(/Pay set to \$3,000\/mo/)).toBeTruthy();
+    expect(timeline("Sam · Job 1").getByText("age 41")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: /Remove pay change at age 41 on Sam · Job 1/i }),
@@ -423,34 +413,21 @@ describe("JobsPanel — every member's jobs", () => {
   });
 });
 
-describe("JobsPanel — handing a whole job to a partner, end to end", () => {
-  // Guards the regression where reassignment was two unrelated writes — dropped from
-  // `Plan.jobs`, a fresh job minted on the partner from the draft: new id, no match, no pay
-  // change, no bonus, ages against the wrong birth year. Asserted on both planes and the
-  // projection, covering the `Plan.jobs` / `RelationshipEvent` / `compilePersonIncomeSeries` seam.
-  const PRIMARY_BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now
-  const PARTNER_BIRTH_YEAR = START_YEAR - 40; // Sam, 40 now, retiring at 65
-  const JOIN_MONTH = 60; // Sam arrives five years in
-  const PARTNER_RETIREMENT_MONTH = (65 - 40) * 12; // their open-ended jobs stop here
-  const NEW_START_AGE = 32; // Sam's 32 — a year they reached BEFORE the plan's "now"
-
-  const PAY_CHANGE = { month: 120, kind: "changeBy", cents: dollarsToCents(500) } as const;
-  const BONUS = { month: 72, kind: "addBonus", cents: dollarsToCents(2_000) } as const;
-
-  /** The primary person's job, carrying everything the edit form never shows. */
+describe("JobsPanel — an ordinary edit changes only what it names", () => {
+  /**
+   * The other half of the ownership guarantee. Proving an edit *cannot* restate the owner is a
+   * type argument; this proves the edit that does happen is otherwise inert — the stored job
+   * differs in exactly the field edited, and the projection reads it the same way it always did.
+   * Both matter: a "preserving" edit that quietly re-serialised the job would keep `ownerId` and
+   * still lose everything else.
+   */
   const richJob: Job = {
-    id: "job-1",
+    ...PLAN_DEFAULTS.jobs[0]!,
     name: "Software Engineer",
-    ownerId: PRIMARY_PERSON_ID,
-    startYear: PRIMARY_BIRTH_YEAR + 30, // Alex started it at 30
-    endYear: null,
-    salary: { startingSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
-    deferral: { deferralFraction: 0.06, fundAccountId: RETIREMENT_ID, employerMatchFraction: 0.5 },
-    payChanges: [PAY_CHANGE],
-    incomeOverrides: [BONUS],
+    payChanges: [{ id: "adjustment-8", month: 24, kind: "changeBy", cents: -dollarsToCents(500) }],
+    incomeOverrides: [{ id: "adjustment-9", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
   };
   const planWithRichJob: Plan = { ...PLAN_DEFAULTS, jobs: [richJob] };
-  const samJoinsAt = (month: number): NewLifeEvent => ({ ...partnerJoining([]), month });
 
   /** Every wage source the projection pays `ownerId` in `month`, as cents. */
   function wagesFor(series: ProjectionSeries, ownerId: string, month: number): number {
@@ -460,84 +437,303 @@ describe("JobsPanel — handing a whole job to a partner, end to end", () => {
       .reduce((sum, s) => sum + s.cashInflowCents, 0);
   }
 
-  it("moves the job itself — id, match, pay change and bonus — and the projection follows", () => {
-    render(<Harness initial={planWithRichJob} events={[samJoinsAt(JOIN_MONTH)]} />);
+  it("serialises to the same job but for the edited field — ownerId included", () => {
+    render(<Harness initial={planWithRichJob} />);
+    const before = authored().plan.jobs[0];
 
-    // One submission: a different owner, and a different salary and start age.
-    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Software Engineer/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "6000" } });
-    fireEvent.change(spin(/Start age/i), { target: { value: String(NEW_START_AGE) } });
+    fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    const { plan, ledger } = authored();
-
-    // It left the plan, and landed on the partner exactly once.
-    expect(plan.jobs).toEqual([]);
-    expect(jobCount()).toBe(0);
-    const moved = partnerJobs();
-    expect(moved).toHaveLength(1);
-    // Nothing partially transferred: one job with this id in the whole household.
-    expect([...plan.jobs, ...moved].filter((j) => j.id === "job-1")).toHaveLength(1);
-    expect(screen.queryByLabelText("Alex · Software Engineer")).toBeNull();
-    expect(screen.getByLabelText("Sam · Software Engineer")).toBeTruthy();
-
-    // The same job, edited — not a new one built from the draft.
-    const job = moved[0];
-    expect(job.id).toBe("job-1"); // the id it arrived with, not one minted on landing
-    expect(job.ownerId).toBe("p-1");
-    expect(job.name).toBe("Software Engineer");
-    expect(job.salary.startingSalaryCents).toBe(dollarsToCents(72_000)); // $6,000/mo, edited
-    expect(job.endYear).toBeNull();
-    // Ages resolve against the target owner: Sam's 32, five years earlier than Alex's would be.
-    expect(job.startYear).toBe(PARTNER_BIRTH_YEAR + NEW_START_AGE);
-    expect(job.startYear).not.toBe(PRIMARY_BIRTH_YEAR + NEW_START_AGE);
-    // Everything the form never shows rode along untouched.
-    expect(job.deferral).toEqual({
-      deferralFraction: 0.06,
-      fundAccountId: RETIREMENT_ID,
-      employerMatchFraction: 0.5,
-    });
-    expect(job.payChanges).toEqual([PAY_CHANGE]);
-    expect(job.incomeOverrides).toEqual([BONUS]);
-
-    const series = Projection.fromState(stateOf(plan, ledger), usJurisdiction).run(usJurisdiction).series;
-    // The income is the partner's now — the primary person has no job left to pay them.
-    expect(wagesFor(series, "p-1", JOIN_MONTH + 1)).toBeGreaterThan(0);
-    expect(wagesFor(series, PRIMARY_PERSON_ID, JOIN_MONTH + 1)).toBe(0);
-    // The job started in 2018, but a member's jobs pay only from the month they join.
-    expect(wagesFor(series, "p-1", 1)).toBe(0);
-    expect(wagesFor(series, "p-1", JOIN_MONTH - 1)).toBe(0);
-    // It stops at the boundary its owner carries: open-ended, so Sam's retirement age.
-    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBeGreaterThan(0);
-    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH)).toBe(0);
+    const after = authored().plan.jobs[0];
+    expect(after.salary.currentSalaryCents).toBe(dollarsToCents(8000 * 12));
+    // Everything else, key for key: put the one edited field back and the two are identical.
+    expect({ ...after, salary: { ...after.salary, currentSalaryCents: before.salary.currentSalaryCents } })
+      .toEqual(before);
+    // Named individually too, so a future `toEqual` that stops comparing deeply still fails here.
+    expect(after.ownerId).toBe(PRIMARY_PERSON_ID);
+    expect(after.id).toBe(before.id);
+    expect(after.payChanges).toEqual(before.payChanges);
+    expect(after.incomeOverrides).toEqual(before.incomeOverrides);
+    expect(after.salary.startingSalaryCents).toBe(before.salary.startingSalaryCents);
   });
 
-  it("stops the moved job's income at a separation, not at the partner's retirement", () => {
-    // The other boundary: the window that clips the income is the membership's, not the job's.
-    const separation: NewLifeEvent = {
-      id: "s1",
-      type: "SeparationEvent",
-      month: 180,
-      partnerPersonId: "p-1",
-      alimonyMonthlyCents: 0,
-      alimonyDurationMonths: 0,
-      childSupportMonthlyCents: 0,
-    };
-    render(<Harness initial={planWithRichJob} events={[samJoinsAt(JOIN_MONTH), separation]} />);
+  it("projects the edited job the same way — same owner, same span, new pay", () => {
+    render(<Harness initial={planWithRichJob} />);
+    const seriesBefore = Projection.fromState(stateOf(authored().plan, authored().ledger), usJurisdiction)
+      .run(usJurisdiction).series;
+    const lastPaidBefore = (PLAN_DEFAULTS.retirementAge - PLAN_DEFAULTS.currentAge) * 12 - 1;
+    expect(wagesFor(seriesBefore, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(5000));
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit Alex · Software Engineer/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const { plan, ledger } = authored();
-    expect(plan.jobs).toEqual([]);
-    expect(partnerJobs()).toHaveLength(1);
-
     const series = Projection.fromState(stateOf(plan, ledger), usJurisdiction).run(usJurisdiction).series;
-    expect(wagesFor(series, "p-1", 179)).toBeGreaterThan(0); // last month as a member
-    expect(wagesFor(series, "p-1", 180)).toBe(0); // gone with the separation
-    expect(wagesFor(series, "p-1", PARTNER_RETIREMENT_MONTH - 1)).toBe(0); // long since stopped
+    // Still the primary person's wages, and nobody else's.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(8000));
+    expect(wagesFor(series, "p-1", 0)).toBe(0);
+    // The bonus at month 6 and the cut at month 24 still land, on the new baseline.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 6)).toBe(dollarsToCents(8000 + 5000));
+    // Two years of CPI on the new anchor ($8,000 → $8,487.20), then the authored $500 cut.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, 24)).toBe(dollarsToCents(8487.2 - 500));
+    // And the span is untouched: it still stops at the owner's retirement.
+    expect(wagesFor(series, PRIMARY_PERSON_ID, lastPaidBefore)).toBeGreaterThan(0);
+    expect(wagesFor(series, PRIMARY_PERSON_ID, lastPaidBefore + 1)).toBe(0);
+  });
+});
+
+describe("JobsPanel — one-month adjustments show on the job", () => {
+  /**
+   * A bonus used to be COUNTED in the row's subtitle and shown nowhere else on the panel: not on
+   * the chart, not in the list, not removable from here. The projection paid it and the graphs
+   * below drew it, so the one surface that authors a job's pay was the one surface that denied
+   * a part of it existed.
+   *
+   * It rides the pay series as a ONE-MONTH spike: the month genuinely pays more, and the width
+   * is what keeps it from reading as a raise immediately reversed.
+   */
+  const BONUS = { id: "adjustment-10", month: 12, kind: "addBonus", cents: dollarsToCents(4000) } as const;
+  const withBonus: Plan = {
+    ...PLAN_DEFAULTS,
+    jobs: PLAN_DEFAULTS.jobs.map((j) => ({ ...j, incomeOverrides: [BONUS] })),
+  };
+  /** What the chart marks: `[month, cents]` per one-off, off the hidden data mirror. */
+  const oneOffMarks = (): [number, number][] =>
+    JSON.parse(screen.getByTestId("pay-chart-one-offs").textContent || "[]");
+
+  it("marks the bonus month on the chart, at what that month actually pays", () => {
+    render(<Harness initial={withBonus} />);
+    // $5,000 standing pay grown a year at 3% CPI ($5,150), plus the $4,000 bonus.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000)]]);
+  });
+
+  it("leaves the pay staircase alone — a bonus is not a raise", () => {
+    render(<Harness initial={withBonus} />);
+    // The seam is the staircase's one authored discontinuity; a bonus must not create another.
+    expect(Number(screen.getByTestId("pay-chart-seam").textContent)).toBe(0);
+    expect(headline("Job 1")).toBe("$5,000/mo");
+  });
+
+  it("lists it in the pay history, in date order among the permanent changes", () => {
+    const withBoth: Plan = {
+      ...withBonus,
+      jobs: withBonus.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "adjustment-11", month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+      })),
+    };
+    render(<Harness initial={withBoth} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    const bonusAt = rows.findIndex((t) => /Bonus \$4,000/.test(t));
+    const raiseAt = rows.findIndex((t) => /Pay set to \$7,000/.test(t));
+    expect(bonusAt).toBeGreaterThanOrEqual(0);
+    // Month 12 before month 24 — one list in date order, not two lists.
+    expect(bonusAt).toBeLessThan(raiseAt);
+    // Quoted as what THAT month pays, and said to be one month only.
+    expect(rows[bonusAt]).toMatch(/this month only/i);
+    expect(rows[bonusAt]).toMatch(/\$9,150 this month/);
+  });
+
+  it("removes it from the job, without touching the permanent changes", () => {
+    const withBoth: Plan = {
+      ...withBonus,
+      jobs: withBonus.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "adjustment-12", month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+      })),
+    };
+    render(<Harness initial={withBoth} />);
+    fireEvent.click(
+      // Named by what it is, so stacked siblings sharing a month are separately clickable.
+      screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i }),
+    );
+    expect(authored().plan.jobs[0].incomeOverrides).toBeUndefined();
+    expect(authored().plan.jobs[0].payChanges).toHaveLength(1);
+    expect(oneOffMarks()).toEqual([]);
+  });
+
+  it("stacks two bonuses in one month instead of the second replacing the first", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+
+    // Both listed, each on its own row, and the chart marks the month at the FULL stack:
+    // $5,150 grown pay + $4,000 + $1,000.
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    expect(rows.filter((t) => /Bonus \$4,000/.test(t))).toHaveLength(1);
+    expect(rows.filter((t) => /Bonus \$1,000/.test(t))).toHaveLength(1);
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000 + 1000)]]);
+  });
+
+  it("quotes each stacked row at the running total, not all of them at the same figure", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    // The fold, shown: $9,150 after the first, $10,150 after the second.
+    expect(rows.find((t) => /Bonus \$4,000/.test(t))).toMatch(/\$9,150 this month/);
+    expect(rows.find((t) => /Bonus \$1,000/.test(t))).toMatch(/\$10,150 this month/);
+  });
+
+  it("removes one of a month's stacked adjustments and leaves its sibling standing", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i }));
+
+    // By id: the month keeps the other one. Removing by month would have taken both.
+    expect(authored().plan.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a2"]);
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 1000)]]);
+  });
+
+  it("gives two adjustments in one month distinct React identity", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "setTo", cents: dollarsToCents(2000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    // Two rows and two separately-addressable Remove buttons — the shape a shared key
+    // (`jobId:scope`, or the month) collapsed into one.
+    expect(screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Remove Pay this month \$2,000 at age 36 on Job 1/i }),
+    ).toBeTruthy();
+    // A setTo authored after a bonus discards it — the engine's ordering, shown.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(2000)]]);
+  });
+
+  it("stacks a bonus on top of a permanent raise dated the same month", () => {
+    const both: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "p1", month: 12, kind: "setTo", cents: dollarsToCents(7000) }],
+        incomeOverrides: [{ id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) }],
+      })),
+    };
+    render(<Harness initial={both} />);
+    // The raise sets the month's pay and the bonus adds to THAT, not to the old salary.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(11000)]]);
+  });
+
+  /**
+   * A raise and a missed paycheck dated the same month. The engine's rule is that the pay
+   * change sets the salary state and the override then changes only that month's payment, so
+   * the job's own surfaces have to show both facts rather than one cancelling the other.
+   */
+  const raiseAndMissed: Plan = {
+    ...PLAN_DEFAULTS,
+    jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+      ...j,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(6000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "setTo", cents: 0 }],
+    })),
+  };
+
+  it("marks the missed month at $0 on the chart, though the raise is in force there", () => {
+    render(<Harness initial={raiseAndMissed} />);
+    // The chart folds the override over the RAISED salary — and $6,000 set to $0 is $0.
+    expect(oneOffMarks()).toEqual([[10, 0]]);
+  });
+
+  it("lists the raise and the missed paycheck as two rows, not one", () => {
+    render(<Harness initial={raiseAndMissed} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+
+    // The raise quotes the salary it establishes; the missed month quotes what it pays.
+    expect(rows.find((t) => /Pay set to \$6,000/.test(t))).toMatch(/\$6,000\/mo/);
+    expect(rows.find((t) => /Missed paycheck/.test(t))).toMatch(/\$0 this month/);
+  });
+
+  it("removes the missed paycheck without touching the raise, and vice versa", () => {
+    const { unmount } = render(<Harness initial={raiseAndMissed} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove Missed paycheck this month at age 35 on Job 1/i }),
+    );
+    expect(authored().plan.jobs[0].incomeOverrides).toBeUndefined();
+    expect(authored().plan.jobs[0].payChanges?.map((c) => c.id)).toEqual(["p1"]);
+    unmount();
+
+    // The other direction: dropping the raise leaves the missed month standing.
+    render(<Harness initial={raiseAndMissed} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove pay change at age 35 on Job 1/i }));
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+    expect(authored().plan.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a1"]);
+  });
+
+  it("keeps a month-0 raise deferred while the month-0 miss lands on month 0", () => {
+    const atNow: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "p1", month: 0, kind: "setTo", cents: dollarsToCents(6000) }],
+        incomeOverrides: [{ id: "a1", month: 0, kind: "setTo", cents: 0 }],
+      })),
+    };
+    render(<Harness initial={atNow} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+
+    // The raise says it starts next month and quotes the month it starts; the miss is now.
+    expect(rows.find((t) => /Pay set to \$6,000/.test(t))).toMatch(/from next month/i);
+    expect(rows.find((t) => /Missed paycheck/.test(t))).toMatch(/\$0 this month/);
+    expect(oneOffMarks()).toEqual([[0, 0]]);
+    // The headline is still the stated current salary — a deferred raise has not moved it.
+    expect(headline("Job 1")).toBe("$5,000/mo now");
+  });
+
+  it("describes a missed paycheck as one, not as a $0 bonus", () => {
+    const missed: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [{ id: "adjustment-13", month: 12, kind: "setTo", cents: 0 }],
+      })),
+    };
+    render(<Harness initial={missed} />);
+    expect(timeline("Job 1").getByText(/Missed paycheck this month/i)).toBeTruthy();
+    expect(oneOffMarks()).toEqual([[12, 0]]);
   });
 });
 
@@ -546,12 +742,12 @@ describe("JobsPanel — permanent pay changes", () => {
   // $5,000/mo while the change moves pay — showing only the headline hides it.
   const withSetToZero = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, { month: 12, kind: "setTo", cents: 0 });
 
-  it("lists a job's permanent pay changes, flagging the headline as the STARTING salary", () => {
+  it("lists a job's permanent pay changes, flagging the headline as CURRENT pay", () => {
     render(<Harness initial={withSetToZero} />);
-    const row = screen.getByLabelText("Job 1");
-    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+    expect(headline("Job 1")).toBe("$5,000/mo now");
     // The change itself is listed in full — age 36 = current 35 + month 12.
-    expect(within(row).getByText(/Pay set to \$0\/mo from age 36/)).toBeTruthy();
+    expect(timeline("Job 1").getByText(/Pay set to \$0\/mo/)).toBeTruthy();
+    expect(timeline("Job 1").getByText("age 36")).toBeTruthy();
   });
 
   it("does not conflate a permanent pay change with a one-off (single-month) adjustment", () => {
@@ -560,18 +756,19 @@ describe("JobsPanel — permanent pay changes", () => {
     expect(screen.queryByText(/one-off/i)).toBeNull();
   });
 
-  it("removes a pay change, restoring the plain starting salary", () => {
+  it("removes a pay change, restoring the plain current-pay headline", () => {
     render(<Harness initial={withSetToZero} />);
     fireEvent.click(screen.getByRole("button", { name: /Remove pay change at age 36 on Job 1/i }));
     expect(screen.queryByText(/Pay set to \$0\/mo/)).toBeNull();
-    // No pay changes left, so the headline drops the "to start" qualifier.
-    expect(within(screen.getByLabelText("Job 1")).getByText("$5,000/mo")).toBeTruthy();
+    // No pay changes left, so the headline drops the "now" qualifier.
+    expect(headline("Job 1")).toBe("$5,000/mo");
   });
 
   it("describes a delta cut with the right verb and sign", () => {
     const cut = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, { month: 24, kind: "changeBy", cents: -dollarsToCents(500) });
     render(<Harness initial={cut} />);
-    expect(screen.getByText(/Pay cut \$500\/mo from age 37/)).toBeTruthy();
+    expect(timeline("Job 1").getByText(/Pay cut \$500\/mo/)).toBeTruthy();
+    expect(timeline("Job 1").getByText("age 37")).toBeTruthy();
   });
 });
 
@@ -597,12 +794,12 @@ describe("JobsPanel — authoring a raise", () => {
 
     // Authored at age 45 with the owner 35 now → month 120, read back as age 45.
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 120, kind: "setTo", cents: dollarsToCents(8000) },
+      { id: expect.any(String), month: 120, kind: "setTo", cents: dollarsToCents(8000) },
     ]);
-    const row = screen.getByLabelText("Job 1");
-    expect(within(row).getByText(/Pay set to \$8,000\/mo from age 45/)).toBeTruthy();
-    // The headline is the STARTING salary, now qualified because a change exists.
-    expect(within(row).getByText(/\$5,000\/mo to start/)).toBeTruthy();
+    expect(timeline("Job 1").getByText(/Pay set to \$8,000\/mo/)).toBeTruthy();
+    expect(timeline("Job 1").getByText("age 45")).toBeTruthy();
+    // The headline is CURRENT pay — the month-0 anchor — qualified because a change exists.
+    expect(headline("Job 1")).toBe("$5,000/mo now");
   });
 
   it("authors a cut as a negative delta", () => {
@@ -610,9 +807,9 @@ describe("JobsPanel — authoring a raise", () => {
     openPayChange("Job 1");
     applyPayChange("changeBy", 40, -500);
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
+      { id: expect.any(String), month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
     ]);
-    expect(screen.getByText(/Pay cut \$500\/mo from age 40/)).toBeTruthy();
+    expect(timeline("Job 1").getByText(/Pay cut \$500\/mo/)).toBeTruthy();
   });
 
   it("writes a partner's raise to the event carrying their job, not the plan", () => {
@@ -622,18 +819,29 @@ describe("JobsPanel — authoring a raise", () => {
 
     // The partner is 40 now, so age 50 is month 120 — read against THEIR birth year.
     expect(partnerJobs()[0].payChanges).toEqual([
-      { month: 120, kind: "setTo", cents: dollarsToCents(6000) },
+      { id: expect.any(String), month: 120, kind: "setTo", cents: dollarsToCents(6000) },
     ]);
     // Nothing landed on the plan plane.
     expect(authored().plan.jobs[0].payChanges).toBeUndefined();
   });
 
-  it("cannot date a change before now — the form floors it at month 0", () => {
+  it("dates a change BEFORE now as a negative month — that is how a pay history is authored", () => {
+    // The floor is the job's start age (18 here), not "now": an age already lived becomes a
+    // negative month, which is what routes the change to the historical reconstruction.
     render(<Harness />);
     openPayChange("Job 1");
     applyPayChange("setTo", 20, 7000);
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 0, kind: "setTo", cents: dollarsToCents(7000) },
+      { id: expect.any(String), month: (20 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
+    ]);
+  });
+
+  it("clamps a change dated before the job existed — there is no baseline to apply it to", () => {
+    render(<Harness />); // the default job starts at 18
+    openPayChange("Job 1");
+    applyPayChange("setTo", 12, 7000);
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { id: expect.any(String), month: (18 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
     ]);
   });
 
@@ -694,5 +902,241 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
       />,
     );
     expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
+  });
+});
+
+describe("JobsPanel — authoring a job's pay history", () => {
+  // The scenario the front end could not reach at all: a start salary that differs from
+  // current pay, plus a raise dated BEFORE now. The engine has always supported both — a
+  // negative `JobPayChange.month` routes to the historical reconstruction — and this panel is
+  // the surface that authors them.
+  const BIRTH_YEAR = START_YEAR - PLAN_DEFAULTS.currentAge; // Alex, 35 now, working since 18
+
+  const openPayChange = (label: string) =>
+    fireEvent.click(screen.getByRole("button", { name: `Change pay on ${label}` }));
+
+  it("states the two salary anchors separately, and neither rewrites the other", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/Monthly salary when this job started/i), { target: { value: "3000" } });
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "6667" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const { salary } = authored().plan.jobs[0];
+    expect(salary.startingSalaryCents).toBe(dollarsToCents(3000) * 12);
+    expect(salary.currentSalaryCents).toBe(dollarsToCents(6667) * 12);
+    // The headline is the month-0 anchor, which is what the projection starts from.
+    expect(headline("Job 1")).toBe("$6,667/mo");
+  });
+
+  it("offers only one salary field on a job with no past — there is one fact to state", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i })); // starts at 35, today
+    expect(screen.queryByRole("spinbutton", { name: /Monthly salary when this job started/i })).toBeNull();
+    fireEvent.change(spin(/Monthly salary/i), { target: { value: "4000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    // One number in, both anchors out: "it pays X" means a flat history.
+    const added = authored().plan.jobs[1].salary;
+    expect(added.startingSalaryCents).toBe(dollarsToCents(4000) * 12);
+    expect(added.currentSalaryCents).toBe(dollarsToCents(4000) * 12);
+  });
+
+  it("lists a pre-'now' raise in the same age-ordered list as a future one", () => {
+    // One list through the seam, not two surfaces: finding a raise must not require first
+    // answering "before or after today?".
+    render(<Harness />);
+    openPayChange("Job 1");
+    fireEvent.change(screen.getByRole("combobox", { name: /Pay change kind/i }), {
+      target: { value: "setTo" },
+    });
+    fireEvent.change(spin(/From age/i), { target: { value: "30" } });
+    fireEvent.change(spin(/Amount/i), { target: { value: "6250" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { id: expect.any(String), month: (30 - 35) * 12, kind: "setTo", cents: dollarsToCents(6250) },
+    ]);
+    expect(timeline("Job 1").getByText("age 30")).toBeTruthy();
+    expect(timeline("Job 1").getByText(/Pay set to \$6,250\/mo/)).toBeTruthy();
+    // Left of the seam, which is where the engine reads it from: a negative month is the
+    // historical reconstruction's, and it never touches the forward series.
+    expect(timeline("Job 1").getByText(/^now ·/)).toBeTruthy();
+    // That the negative month then feeds the covered-earnings record is the engine's contract,
+    // pinned in `job.test.ts` — what this panel owes is the negative month itself.
+  });
+
+  it("redraws every job in today’s money, and defaults to the paycheck", () => {
+    // The paycheck of each month by default, because that is what every field on this panel
+    // collects — a past salary is authored in the money of its own year, and a chart
+    // disagreeing with the number just typed into it would be the worse default.
+    render(<Harness />);
+    const toggle = screen.getByRole("checkbox", { name: /today’s money/i });
+    const startRow = () => timeline("Job 1").getByText(/Started this job/).closest("li")!;
+    const nowRow = () => timeline("Job 1").getByText(/^now ·/).closest("li")!;
+
+    // The default plan states $5,000/mo at 18 and $5,000/mo now, and nothing is assumed in
+    // between — so as PAYCHECKS the history is flat at what was authored.
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(startRow().textContent).toContain("$5,000/mo");
+    expect(nowRow().textContent).toContain("$5,000/mo");
+
+    fireEvent.click(toggle);
+    // In today's money that same flat paycheck was worth MORE the further back it was, so the
+    // start row rises. Month 0 is unmoved either way: today's money IS the paycheck today, so
+    // the toggle can never disturb the anchor the projection starts from.
+    expect(startRow().textContent).not.toContain("$5,000/mo");
+    expect(nowRow().textContent).toContain("$5,000/mo");
+  });
+
+  it("estimates missing history only when asked, and only over unstated years", () => {
+    // Never during ordinary editing: an assumption about someone's earnings history has to be
+    // something they chose, so the button explains itself and waits.
+    render(<Harness />);
+    expect(authored().plan.jobs[0].payChanges ?? []).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Estimate missing pay history on Job 1/i }));
+    // Explains before it acts.
+    expect(screen.getByText(/assuming your pay kept pace with inflation/i)).toBeTruthy();
+    expect(screen.getByText(/no pay change you authored is overwritten/i)).toBeTruthy();
+    expect(authored().plan.jobs[0].payChanges ?? []).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Estimate history$/ }));
+    const filled = authored().plan.jobs[0].payChanges ?? [];
+    // Sixteen years between starting at 18 and now at 35, minus the year the start anchor
+    // already states.
+    expect(filled).toHaveLength(16);
+    expect(filled.every((c) => c.estimated === true && c.month < 0)).toBe(true);
+    // Both anchors untouched — the estimate fills the gap, it does not restate the ends.
+    const { salary } = authored().plan.jobs[0];
+    expect(salary.currentSalaryCents).toBe(PLAN_DEFAULTS.jobs[0]!.salary.currentSalaryCents);
+    expect(salary.startingSalaryCents).toBe(PLAN_DEFAULTS.jobs[0]!.salary.startingSalaryCents);
+    // Marked as estimates where they are read, not silently mixed in with stated pay.
+    expect(timeline("Job 1").getAllByText(/· estimated/).length).toBe(16);
+  });
+
+  it("keeps a raise dated at today's age, and says it starts next month", () => {
+    // The owner's own current age is month 0, which the authored current salary owns. The
+    // change is neither dropped nor allowed to displace that figure — it takes force at month
+    // 1, and the form says so before it is applied rather than after.
+    render(<Harness />);
+    openPayChange("Job 1");
+    fireEvent.change(spin(/From age/i), { target: { value: "35" } });
+    fireEvent.change(spin(/Amount/i), { target: { value: "6000" } });
+    expect(screen.getByText(/starts next month/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { id: expect.any(String), month: 0, kind: "setTo", cents: dollarsToCents(6000) },
+    ]);
+    // Today's pay is untouched; the row quotes the pay from the month it actually begins.
+    expect(headline("Job 1")).toBe("$5,000/mo now");
+    expect(timeline("Job 1").getByText(/Pay set to \$6,000\/mo — from next month/)).toBeTruthy();
+  });
+
+  it("states the month-0 step where it happens, and drops it when the two anchors agree", () => {
+    const withHistory: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        salary: { ...j.salary, currentSalaryCents: dollarsToCents(6667) * 12 },
+      })),
+    };
+    render(<Harness initial={withHistory} />);
+    // Neutral wording, and no reconciliation offered: the step is an authored fact, and the
+    // engine deliberately does not close it.
+    // The history is real-flat $5,000/mo of purchasing power, so by now it runs to $5,000 as
+    // a paycheck — against the $6,667 just stated.
+    expect(screen.getByTestId("seam-note").textContent).toContain(
+      "Your history runs to $5,000/mo by now",
+    );
+    expect(screen.getByTestId("seam-note").textContent).toContain("Today’s pay wins from here on");
+    // The chart says it too, as a shape. Recharts draws nothing in jsdom, so the step is
+    // asserted through the data mirror the chart renders beside it.
+    expect(screen.getByTestId("pay-chart-seam").textContent).toBe(
+      String(dollarsToCents(6667) - dollarsToCents(5000)),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "5000" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(screen.queryByTestId("seam-note")).toBeNull();
+    // Anchors agreed: no step to draw, and no annotation left on the chart either.
+    expect(screen.getByTestId("pay-chart-seam").textContent).toBe("0");
+  });
+
+  it("asks nothing about 'now' for a job that ended before it", () => {
+    // A wholly-past job has no month-0 pay, and the engine never reads its anchor. Asking for
+    // today's pay on an employment that is over is nonsense; the app fills the value in.
+    const past: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: [
+        {
+          ...PLAN_DEFAULTS.jobs[0],
+          startYear: BIRTH_YEAR + 22,
+          endYear: BIRTH_YEAR + 26,
+          salary: {
+            startingSalaryCents: dollarsToCents(1800) * 12,
+            currentSalaryCents: dollarsToCents(1800) * 12,
+            realGrowthPct: 0,
+          },
+          payChanges: [{ id: "adjustment-23", month: (24 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) }],
+        },
+      ],
+    };
+    render(<Harness initial={past} />);
+    // The headline says what it is, rather than quoting a current pay the engine never reads.
+    expect(within(screen.getByLabelText("Job 1")).getByText("ended at age 26")).toBeTruthy();
+    // No seam row on the timeline, and no seam note.
+    expect(timeline("Job 1").queryByText(/^now ·/)).toBeNull();
+    expect(screen.queryByTestId("seam-note")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(screen.queryByRole("spinbutton", { name: /Monthly salary now/i })).toBeNull();
+    expect(screen.getByText(/This job ended at age 26/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    // Pinned to what it last paid, not zeroed: pushing the end age past "now" later must not
+    // silently pay nothing.
+    expect(authored().plan.jobs[0].salary.currentSalaryCents).toBe(dollarsToCents(2100) * 12);
+  });
+
+  it("bounds a pay change to the job's own span, clamping a stale default on the way in", () => {
+    const past: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: [{ ...PLAN_DEFAULTS.jobs[0], startYear: BIRTH_YEAR + 22, endYear: BIRTH_YEAR + 26 }],
+    };
+    render(<Harness initial={past} />);
+    openPayChange("Job 1");
+    // The form opens on the seam (35) — outside this job — so applying it untouched must land
+    // inside the span rather than submit the default it opened on.
+    fireEvent.change(spin(/Amount/i), { target: { value: "2100" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+    expect(authored().plan.jobs[0].payChanges).toEqual([
+      { id: expect.any(String), month: (25 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) },
+    ]);
+  });
+
+  it("drops pay changes a later start age strands, and says which went", () => {
+    const withRaise = addJobPayChange(PLAN_DEFAULTS, DEFAULT_JOB_ID, {
+      month: (30 - 35) * 12,
+      kind: "setTo",
+      cents: dollarsToCents(6250),
+    });
+    render(<Harness initial={withRaise} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/Start age/i), { target: { value: "33" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    expect(authored().plan.jobs[0].payChanges).toBeUndefined();
+    // Named, not merely counted — the user can put back whichever one still applies.
+    expect(screen.getByText(/One pay change now fell before this job starts.*age 30/)).toBeTruthy();
+  });
+
+  it("says nothing when an edit strands nothing", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    fireEvent.change(spin(/Start age/i), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(screen.queryByText(/fell before this job starts/)).toBeNull();
   });
 });

@@ -10,8 +10,6 @@
  * **Atomic across the planes.** One edit can rewrite two members' lists, so every write goes
  * through ONE `Projection` handle: the facade throws on a refusal and the whole handle is
  * discarded, so a conflict cannot land a job removed from one member and missing from the other.
- * A move between members is a single `reassign` — the facade owns both halves of it, since only
- * the engine may say what a relocated job's id is.
  */
 
 import type { JobWrite } from "./jobEditing";
@@ -24,8 +22,6 @@ export function commitJobWrites(writes: readonly JobWrite[], transact: Transact)
   return (
     transact((p) => {
       // Removals first, so a list rewritten down and up in one edit lets go before it lands.
-      // A cross-member move is no longer among these — `reassign` does both halves inside the
-      // facade — so the ordering matters only to edits that genuinely remove.
       for (const write of writes) {
         if (write.kind !== "remove") continue;
         if (onPlan(write)) p.removeJob(write.jobId);
@@ -41,11 +37,6 @@ export function commitJobWrites(writes: readonly JobWrite[], transact: Transact)
           case "replace":
             if (onPlan(write)) p.replaceJob(write.jobId, write.job);
             else p.replacePartnerJob(write.jobId, write.job);
-            break;
-          case "reassign":
-            // Plane-agnostic: the engine finds where the job is and where the owner keeps
-            // theirs, so this is the one job write that does not route on `writeTarget`.
-            p.reassignJob(write.jobId, write.owner.id, write.job);
             break;
           case "remove":
             break; // already applied above

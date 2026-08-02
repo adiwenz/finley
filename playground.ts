@@ -37,7 +37,7 @@ const p = Projection.fromState(
 const jobId = p.addJob(P1, {
   startYear: SAMPLE_START_YEAR,
   endYear: null,
-  salary: { startingSalaryCents: dollarsToCents(120_000), realGrowthPct: 1 },
+  salary: { startingSalaryCents: dollarsToCents(120_000), currentSalaryCents: dollarsToCents(120_000), realGrowthPct: 1 },
 });
 
 const rentId = p.addBudgetLine({

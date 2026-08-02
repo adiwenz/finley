@@ -53,10 +53,14 @@
   font-size: 0.85rem;
 }
 
+/* A list now that several adjustments can stand at one month. No bullets: each row already
+   opens with an arrow, and the two markers together read as clutter. */
 .routeEcho {
   font-size: 0.8rem;
   color: #3f7d5f;
   margin-top: 0.5rem;
+  list-style: none;
+  padding-left: 0;
 }
 
 /* Read-only income figure (income is authored in the Jobs panel, not here). */

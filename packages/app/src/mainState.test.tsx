@@ -129,7 +129,8 @@ describe("App — event ledger", () => {
 
     // (a) The Jobs panel lists it, owned by the partner, alongside the primary's.
     const row = screen.getByLabelText("Partner · Job 1");
-    expect(within(row).getByText("$2,000/mo")).toBeTruthy();
+    // The headline, not the chart's axis label — both quote the same figure.
+    expect(within(row).getByTitle(/Current pay/).textContent).toBe("$2,000/mo");
     expect(screen.getByLabelText("Alex · Job 1")).toBeTruthy();
 
     // (b) The income-vs-spend surface counts it: $5,000 + $2,000 at a month before the
@@ -150,7 +151,9 @@ describe("App — event ledger", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(within(screen.getByLabelText("Partner · Job 1")).getByText("$3,000/mo")).toBeTruthy();
+    expect(
+      within(screen.getByLabelText("Partner · Job 1")).getByTitle(/Current pay/).textContent,
+    ).toBe("$3,000/mo");
     // Still ONE marker — revised in place, not removed and re-added. (Match "Remove"
     // exactly; the join form's job list has a "Remove job 1" button.)
     expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);

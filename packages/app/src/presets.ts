@@ -95,12 +95,20 @@ const COMFORTABLE_BUDGET = [
 ];
 
 /** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. Its
- * owner is omitted, so it binds to the primary person, and its id is minted. */
+ * owner is omitted, so it binds to the primary person, and its id is minted.
+ *
+ * Both anchors carry the stated figure: history is held flat at what was authored, so this says
+ * the payslip read the same then as now and assumes nothing in between. `realGrowthPct` shapes
+ * the FORWARD projection only. */
 function salariedJob(monthlyCents: number): JobEntry {
   return {
     startYear: START_JOB_YEAR,
     endYear: null,
-    salary: { startingSalaryCents: monthlyCents * 12, realGrowthPct: 0 },
+    salary: {
+      startingSalaryCents: monthlyCents * 12,
+      currentSalaryCents: monthlyCents * 12,
+      realGrowthPct: 0,
+    },
   };
 }
 
