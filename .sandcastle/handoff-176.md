@@ -1,57 +1,60 @@
 # Handoff — issue 176
 
-**Done so far:** Task 1 (automatic-obligation attribution) and Task 2 (explicit-obligation
-attribution). Tasks 3–6 remain.
+**Done so far:** Task 1 (automatic-obligation attribution), Task 2 (explicit-obligation
+attribution), Task 3 (full account-withdrawal breakdown on the automatic branch). Tasks 4–6 remain.
 
-The engine emits `ResolvedFunding` records on `flows.resolvedFunding` for **every** obligation now,
-not just automatic ones. The flat list is `[...explicit, ...automatic]` — explicit draws resolve
-first in the month, so their records lead (see `simulate.ts`, the `resolvedFunding` concat). Types
-and both builders live in `packages/engine/src/projection/resolvedFunding.ts`:
-`resolveFundingAttribution` (automatic) and `attributeExplicitObligation` (explicit). The explicit
-branch is driven from `fundingDrawStep.ts` off the resolver's own `perSource`, so the record is a
-mirror of the balance moves in that same loop. CONTEXT.md's "Funding attribution" entry (prior
-slice, commit d038b43) already documents the derived-interpretation requirement.
+The engine emits `ResolvedFunding` records on `flows.resolvedFunding` for **every** obligation, and
+account-funded sources on BOTH branches now carry `withdrawal` (gross/principal/gain/tax/net) with
+`amountCents === withdrawal.netDeliveredCents`. Types and both builders live in
+`packages/engine/src/projection/resolvedFunding.ts`: `resolveFundingAttribution` (automatic) and
+`attributeExplicitObligation` (explicit). CONTEXT.md's "Funding attribution" entry (commit d038b43)
+documents the derived-interpretation requirement.
 
 ## Live constraints
 - **Behavior preservation is guarded** by `packages/app/src/presets.behaviorPreservation.test.ts`
   (FNV-1a digest of each preset's per-month money shape, excluding `resolvedFunding`). **If it
   breaks, a later task moved money it had no licence to — fix the code, not the baselines.**
-  Baselines captured under `usJurisdiction`.
-- **Shared record shape is now enforced by tests, not just intent.** Explicit records are all
-  `kind: "account"`, never `income`; automatic records never emit `account` sources they didn't
-  draw. Consumers read `kind`, never parse ids. `resolvedFunding.test.ts` pins both branches
-  through the one flat list — keep them shape-identical.
+- **Shared record shape is enforced by tests.** Explicit records are all `kind: "account"`, never
+  `income`; automatic records never emit `account` sources they didn't draw. Consumers read `kind`,
+  never parse ids. `resolvedFunding.test.ts` pins both branches through one flat list.
 - **`obligationId` is identity, `sourceId` is a reporting namespace.** Records stay a flat array,
-  never keyed by `sourceId`, so two obligations sharing a `sourceId` (task 4: two `downpayment`
-  draws in one month) stay distinct. `attributeExplicitObligation` copies `obligation.id` verbatim
-  as `obligationId` and `obligation.sourceId` as `sourceId` — do not derive one from the other.
-- **`ResolvedFundingSource.withdrawal` is now POPULATED for explicit account sources** (task 2, off
-  `perSource`: gross/principal/gain/tax/net, with `amountCents === withdrawal.netDeliveredCents`).
-  It is still `undefined` for the automatic branch's decumulation and liquid-drawdown sources —
-  that is task 3's remaining job. The per-account net task 3 needs is `WithdrawalPlan.decumulationDraws`
-  in `withdrawal.ts`; task 3 must extend that draw record with the gross/basis/gain/tax it discards
-  today (computed at `withdrawal.ts` ~line 229 as `gross`, `gainCents`, `taxOnGross`).
+  never keyed by `sourceId`. Task 4's two same-`sourceId` `downpayment` draws in one month MUST stay
+  distinct records — `attributeExplicitObligation` copies `obligation.id` → `obligationId` and
+  `obligation.sourceId` → `sourceId` verbatim; do not derive one from the other. The pipeline
+  already keeps them separate (see the two explicit records for `home-1`/`home-2` in the issue);
+  task 4 is chiefly a *test* proving it, not new machinery.
+- **`ResolvedFundingSource.withdrawal` is POPULATED for every liquidated account source** — explicit
+  draws (task 2) and automatic decumulation (task 3). It stays `undefined` only for the
+  liquid-buffer drawdown, a cash spend that never passes through the withdrawal resolver. The five
+  fields obey `gross = principal + gain` and `net = gross − tax` per source.
+- **A split decumulation draw apportions its breakdown across obligations** via
+  `apportionWithdrawal` in `resolvedFunding.ts` — cumulative-rounded on gross/gain from the running
+  consumed-net, principal/tax derived, so slices sum back to the account's own totals with no drift.
+  If a later task changes how a layer is consumed, keep that invariant.
 
 ## Dead ends / traps
 - **Type-name collision:** `fundingDrawStep.ts` has its OWN local `ResolvedFundingSource` interface
-  (the resolver's per-account result), distinct from `resolvedFunding.ts`'s exported
-  `ResolvedFundingSource` (the attribution source). Task 2 avoided the clash by NOT importing the
-  latter into `fundingDrawStep.ts` — it imports only `attributeExplicitObligation` +
-  `ResolvedFunding` and feeds a structural `ExplicitDrawSource[]`. Keep that seam; don't import both
-  `ResolvedFundingSource`s into one module.
+  (the resolver's per-account result), distinct from `resolvedFunding.ts`'s exported one. Task 2
+  avoided the clash by feeding a structural `ExplicitDrawSource[]` and NOT importing both into one
+  module. Keep that seam.
+- **`WithdrawalPlan.decumulationDraws` now carries the full breakdown** (task 3 extended it from
+  `{sourceId, netDeliveredCents}` to the five-field `DecumulationDrawResult` in `withdrawal.ts`,
+  reusing the `gross`/`gainCents`/`taxOnGross` the gross-up loop already computed). `simulate.ts`
+  passes it straight into the `FundingSupplyPlan`.
+- **nullJurisdiction has no return-of-capital policy**, so a decumulation draw under it books the
+  WHOLE draw as `realizedGain` (principal 0), though untaxed (net == gross). This is why the
+  `resolvedFunding.test.ts` decumulation case asserts gain 500 / principal 0, not gain 0. A
+  jurisdiction with `taxableWithdrawalCents` (see the `capGainsTax`/`flatOrdinaryTax` test
+  jurisdictions) is needed to exercise real basis recovery.
+- **No repo prettier/eslint config.** Prettier's *default* flags every file including untouched
+  ones — do NOT run `prettier --write`. The repo's `npm run check` is purity + typecheck + test.
 - The four-layer automatic supply split lives in `simulate.ts`, not in `resolveFundingAttribution`
-  (a pure distributor). Income is capped so a capital-gains-tax rounding drift can't make a layer
-  attribute a negative — if you re-derive those amounts, keep that invariant. (Validated: 20,661
-  automatic records across presets reconcile with zero negatives.)
-- True rationing (stopping low-priority payment) is out of scope permanently — issue's #22 note.
-  An explicit obligation that falls short leaves the remainder as `shortfallCents`; it does NOT
-  cascade to credit yet (that arrives in #191, per the issue's forward note). Automatic obligations
-  stay fully funded until credit is genuinely exhausted; the leftover need on the lowest-priority
-  lines IS the insolvency residual.
+  (a pure distributor). Income is capped so a rounding drift can't make a layer attribute a
+  negative — preserve that if you re-derive those amounts.
+- True rationing (stopping low-priority payment) is out of scope permanently (issue's #22 note). An
+  explicit shortfall does NOT cascade to credit yet (arrives in #191, per the forward note).
 
 ## Deferred
-- Task 3: full withdrawal breakdown on the AUTOMATIC branch's account sources (decumulation +
-  liquid drawdown); assert `amountCents === netDeliveredCents` there too.
-- Task 4: two same-`sourceId` explicit obligations in one month stay distinct records.
+- Task 4: two same-`sourceId` explicit obligations in one month stay distinct records (test-led).
 - Task 5: scenario coverage across funding mixes.
 - Task 6: surface attribution in the UI (nothing UI-side exists yet).

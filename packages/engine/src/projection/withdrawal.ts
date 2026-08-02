@@ -135,13 +135,25 @@ export interface WithdrawalPlan {
    */
   readonly liquidDrawdownCents: Cents;
   /**
-   * Net cash each liquidated account actually delivered toward the month's obligations, in
-   * liquidation order — the decumulation slice per-line funding attribution partitions across
-   * obligations. Net (gross minus the tax the sale induced), so Σ over it is the cash the walk
-   * has to fund with, not the gross sold. Aligns 1:1 with {@link sources}; empty when nothing
-   * was liquidated.
+   * Each liquidated account's full withdrawal result, in liquidation order — the decumulation
+   * slice per-line funding attribution partitions across obligations. Carries the whole breakdown,
+   * not just the net, so a consumer never re-derives basis or tax from a flattened amount:
+   * `gross = principal + gain` (principal is the returned basis) and `net = gross − tax`. Reported
+   * net so Σ `netDeliveredCents` is the cash the walk funds with, not the gross sold. Aligns 1:1
+   * with {@link sources}; empty when nothing was liquidated.
    */
-  readonly decumulationDraws: readonly { readonly sourceId: string; readonly netDeliveredCents: Cents }[];
+  readonly decumulationDraws: readonly DecumulationDrawResult[];
+}
+
+/** One account's liquidation, gross down to the net cash it delivered toward the month. */
+export interface DecumulationDrawResult {
+  readonly sourceId: string;
+  readonly grossWithdrawnCents: Cents;
+  /** Returned basis (`gross − gain`); the amount the draw reduced the account's basis by. */
+  readonly principalCents: Cents;
+  readonly realizedGainCents: Cents;
+  readonly taxCents: Cents;
+  readonly netDeliveredCents: Cents;
 }
 
 export function buildWithdrawalSources(
@@ -192,7 +204,7 @@ export function buildWithdrawalSources(
     .sort((a, b) => liquidationRank(a, rankMap) - liquidationRank(b, rankMap));
 
   const sources: IncomeSourceMonth[] = [];
-  const decumulationDraws: { sourceId: string; netDeliveredCents: Cents }[] = [];
+  const decumulationDraws: DecumulationDrawResult[] = [];
   for (const account of orderedSources) {
     if (need <= 0) break;
     const balance = state.assetBalances.get(account.id) ?? 0;
@@ -255,7 +267,17 @@ export function buildWithdrawalSources(
       sourceId: account.id,
       label: account.label ?? account.id,
     });
-    decumulationDraws.push({ sourceId: account.id, netDeliveredCents: netDelivered });
+    // Carry the whole result the gross-up already computed, not a flattened net: `gross − gain`
+    // is the returned basis (the same figure that reduced `basisByAccount` above), and the tax is
+    // the sale's induced tax. Attribution copies these onto the funding source verbatim.
+    decumulationDraws.push({
+      sourceId: account.id,
+      grossWithdrawnCents: gross,
+      principalCents: gross - gainCents,
+      realizedGainCents: gainCents,
+      taxCents: taxOnGross,
+      netDeliveredCents: netDelivered,
+    });
   }
 
   return { sources, liquidDrawdownCents, decumulationDraws };

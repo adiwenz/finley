@@ -421,6 +421,78 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
   });
 });
 
+describe("Decumulation draws carry the full withdrawal breakdown", () => {
+  const ctx = { year: 2026 };
+
+  /** 25% on realized capital gain, with pro-rata basis recovery so a draw books only its gain. */
+  const capGainsTax: Jurisdiction = {
+    id: "capgains-25",
+    computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.25),
+    computeTaxByCategoryCents: (byCat) => {
+      const t = Math.round((byCat.capitalGains ?? 0) * 0.25);
+      return t > 0 ? { capitalGains: t } : {};
+    },
+    taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }: WithdrawalTaxBasis) =>
+      balanceCents <= 0
+        ? grossCents
+        : Math.round((grossCents * (balanceCents - basisCents)) / balanceCents),
+  };
+
+  function stateWithBasis(acc: SimAccount, balanceDollars: number, basisDollars: number): WithdrawalState {
+    return {
+      accounts: [acc],
+      assetBalances: new Map([[acc.id, dollarsToCents(balanceDollars)]]),
+      basisByAccount: new Map([[acc.id, dollarsToCents(basisDollars)]]),
+      liquidAccount: null,
+    };
+  }
+
+  it("reports gross, returned principal, realized gain, tax and net for an appreciated draw", () => {
+    // $10k balance against a $4k basis: 60% of any liquidation is realized gain.
+    const brokerage = account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 10_000);
+    const st = stateWithBasis(brokerage, 10_000, 4_000);
+    const needCents = dollarsToCents(3_000);
+    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, [], needCents, ctx);
+
+    expect(decumulationDraws).toHaveLength(1);
+    const draw = decumulationDraws[0];
+    expect(draw.sourceId).toBe("brokerage");
+
+    // Grossed up so the NET delivered lands the need exactly.
+    expect(draw.netDeliveredCents).toBe(needCents);
+    // Appreciated ⇒ gross sold exceeds cash delivered by the tax the sale induced.
+    expect(draw.grossWithdrawnCents).toBeGreaterThan(draw.netDeliveredCents);
+
+    // Internal identities: gross = principal + gain, net = gross − tax.
+    expect(draw.principalCents + draw.realizedGainCents).toBe(draw.grossWithdrawnCents);
+    expect(draw.grossWithdrawnCents - draw.taxCents).toBe(draw.netDeliveredCents);
+
+    // Gross matches the account balance reduction; principal matches the basis reduction.
+    expect(draw.grossWithdrawnCents).toBe(dollarsToCents(10_000) - (st.assetBalances.get("brokerage") ?? 0));
+    expect(draw.principalCents).toBe(dollarsToCents(4_000) - (st.basisByAccount.get("brokerage") ?? 0));
+
+    // Realized gain and tax reconcile with the jurisdiction's own reporting on that gain.
+    expect(draw.realizedGainCents).toBeGreaterThan(0);
+    expect(draw.taxCents).toBe(Math.round(draw.realizedGainCents * 0.25));
+  });
+
+  it("reports zero gain and zero tax for a cash-like draw, using the same shape", () => {
+    // basis == balance ⇒ no gain, so nothing is taxed — but the breakdown is still fully populated.
+    const savings = account("savings", CAPITAL_GAINS_TAX_PROFILE, 10_000);
+    const st = stateWithBasis(savings, 10_000, 10_000);
+    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, [], dollarsToCents(3_000), ctx);
+
+    expect(decumulationDraws[0]).toEqual({
+      sourceId: "savings",
+      grossWithdrawnCents: dollarsToCents(3_000),
+      principalCents: dollarsToCents(3_000),
+      realizedGainCents: 0,
+      taxCents: 0,
+      netDeliveredCents: dollarsToCents(3_000),
+    });
+  });
+});
+
 describe("Every taxed draw nets the need — whole-return gross-up", () => {
   const ctx = { year: 2026 };
 

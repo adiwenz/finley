@@ -14,9 +14,9 @@ import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson } from "./simulate.types";
 import type { FundingSourceKind, ResolvedFunding } from "./resolvedFunding";
 import { assetAcquisitionObligation } from "./financialObligation";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
 import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
 import { RevolvingCard } from "../liability";
 import { monthlyIncome, monthlyExpense } from "./simulate.testSupport";
 
@@ -73,16 +73,44 @@ function expenseLine(id: string, dollars: number, priority: number): SimOwnedSer
   };
 }
 
-function run(input: Omit<HouseholdSimInput, "horizonMonths" | "annualInflationRate" | "persons">) {
+function run(
+  input: Omit<HouseholdSimInput, "horizonMonths" | "annualInflationRate" | "persons">,
+  jurisdiction: Jurisdiction = nullJurisdiction,
+) {
   return simulateHousehold(
     { horizonMonths: 1, annualInflationRate: 0, persons: [PERSON], ...input },
-    nullJurisdiction,
+    jurisdiction,
   );
 }
 
+/** A non-liquid pre-tax account (basis 0 ⇒ its whole draw is taxable gain). */
+function preTaxAccount(id: string, openingCents: number): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    liquid: false,
+    taxProfile: PRE_TAX_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: 0,
+  });
+}
+
+/** 25% flat on ordinary income — a pre-tax liquidation is grossed up against it. */
+const flatOrdinaryTax: Jurisdiction = {
+  id: "flat-25",
+  computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
+  computeTaxByCategoryCents: (byCat) => {
+    const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.25);
+    return t > 0 ? { ordinaryIncome: t } : {};
+  },
+};
+
 /** The month-0 attribution list, guaranteed present on a processed month. */
-function attributionAt(input: Parameters<typeof run>[0]) {
-  const funding = run(input).months[0].flows?.resolvedFunding;
+function attributionAt(
+  input: Parameters<typeof run>[0],
+  jurisdiction: Jurisdiction = nullJurisdiction,
+) {
+  const funding = run(input, jurisdiction).months[0].flows?.resolvedFunding;
   if (funding === undefined) throw new Error("expected resolvedFunding on the flow record");
   return funding;
 }
@@ -136,7 +164,9 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
   });
 
   it("decumulation liquidates a named investment account between drawdown and credit", () => {
-    // $1000 income, no buffer, $1500 need → $500 gap liquidated from the brokerage (no gain).
+    // $1000 income, no buffer, $1500 need → $500 gap liquidated from the brokerage. nullJurisdiction
+    // has no return-of-capital policy, so the whole draw books as gain — but is untaxed, so the net
+    // delivered equals the gross sold.
     const funding = attributionAt({
       accounts: [cashAccount(0), investmentAccount(dollarsToCents(10000))],
       incomeSeries: [{ series: monthlyIncome(dollarsToCents(1000)), ownerId: "p1" }],
@@ -145,7 +175,18 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
 
     expect(byObligation(funding, "line:need").sources).toEqual([
       { kind: "income", sourceId: "income", amountCents: dollarsToCents(1000) },
-      { kind: "account", sourceId: "brokerage", amountCents: dollarsToCents(500) },
+      {
+        kind: "account",
+        sourceId: "brokerage",
+        amountCents: dollarsToCents(500),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(500),
+          principalCents: 0,
+          realizedGainCents: dollarsToCents(500),
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(500),
+        },
+      },
     ]);
   });
 
@@ -222,6 +263,101 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     const movedCents = dollarsToCents(50000) - flows.accountBalancesAfterFundingCents["savings"];
     expect(movedCents).toBe(draw.fundedCents);
     expect(draw.sources.reduce((t, s) => t + s.amountCents, 0)).toBe(draw.fundedCents);
+  });
+
+  it("surfaces the decumulation account's full withdrawal breakdown on the funding source", () => {
+    // $1000 income, no buffer, $1500 need → $500 liquidated from the brokerage.
+    const month = run({
+      accounts: [cashAccount(0), investmentAccount(dollarsToCents(10000))],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(1000)), ownerId: "p1" }],
+      expenseSeries: [expenseLine("need", 1500, 0)],
+    }).months[0];
+    if (month.flows?.resolvedFunding === undefined) {
+      throw new Error("expected resolvedFunding on the flow record");
+    }
+    const source = byObligation(month.flows.resolvedFunding, "line:need").sources.find(
+      (s) => s.sourceId === "brokerage",
+    );
+    if (source?.withdrawal === undefined) throw new Error("expected a withdrawal breakdown on the account source");
+
+    // amountCents applied to the line IS the net the account delivered.
+    expect(source.amountCents).toBe(source.withdrawal.netDeliveredCents);
+    // Internal identities hold on the surfaced breakdown.
+    expect(source.withdrawal.principalCents + source.withdrawal.realizedGainCents).toBe(
+      source.withdrawal.grossWithdrawnCents,
+    );
+    expect(source.withdrawal.grossWithdrawnCents - source.withdrawal.taxCents).toBe(
+      source.withdrawal.netDeliveredCents,
+    );
+    // Gross withdrawn matches the account balance reduction the sale actually booked.
+    expect(source.withdrawal.grossWithdrawnCents).toBe(
+      dollarsToCents(10000) - month.accountBalancesCents["brokerage"],
+    );
+  });
+
+  it("an appreciated pre-tax withdrawal reports gross withdrawn greater than net delivered", () => {
+    // $1000 income, no buffer, $2000 need → a pre-tax liquidation grossed up over 25% tax.
+    const month = run(
+      {
+        accounts: [cashAccount(0), preTaxAccount("pretax", dollarsToCents(100000))],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(1000)), ownerId: "p1" }],
+        expenseSeries: [expenseLine("need", 2000, 0)],
+      },
+      flatOrdinaryTax,
+    ).months[0];
+    if (month.flows?.resolvedFunding === undefined) {
+      throw new Error("expected resolvedFunding on the flow record");
+    }
+    const source = byObligation(month.flows.resolvedFunding, "line:need").sources.find(
+      (s) => s.sourceId === "pretax",
+    );
+    if (source?.withdrawal === undefined) throw new Error("expected a withdrawal breakdown on the account source");
+
+    expect(source.amountCents).toBe(source.withdrawal.netDeliveredCents);
+    // Tax is withheld from the sale, so gross sold exceeds the net delivered toward the line.
+    expect(source.withdrawal.grossWithdrawnCents).toBeGreaterThan(source.withdrawal.netDeliveredCents);
+    // Gross matches the balance reduction; realized gain is the whole draw (pre-tax basis 0).
+    expect(source.withdrawal.grossWithdrawnCents).toBe(
+      dollarsToCents(100000) - month.accountBalancesCents["pretax"],
+    );
+    expect(source.withdrawal.realizedGainCents).toBe(source.withdrawal.grossWithdrawnCents);
+    // Returned principal matches the (zero) basis reduction of a pre-tax account.
+    expect(source.withdrawal.principalCents).toBe(dollarsToCents(0) - month.accountBasisCents["pretax"]);
+    expect(source.withdrawal.principalCents).toBe(0);
+    expect(source.withdrawal.taxCents).toBeGreaterThan(0);
+  });
+
+  it("splits one decumulation draw across two obligations, slices summing to the account totals", () => {
+    // No income, no buffer: a single $2000 pre-tax gross (25% tax) nets $1500, funding two lines.
+    const month = run(
+      {
+        accounts: [cashAccount(0), preTaxAccount("pretax", dollarsToCents(100000))],
+        incomeSeries: [],
+        expenseSeries: [expenseLine("a", 600, 0), expenseLine("b", 900, 100)],
+      },
+      flatOrdinaryTax,
+    ).months[0];
+    if (month.flows?.resolvedFunding === undefined) {
+      throw new Error("expected resolvedFunding on the flow record");
+    }
+    const resolvedFunding = month.flows.resolvedFunding;
+    const slices = ["line:a", "line:b"].map((id) => {
+      const s = byObligation(resolvedFunding, id).sources.find((x) => x.sourceId === "pretax");
+      if (s?.withdrawal === undefined) throw new Error(`expected a withdrawal breakdown on ${id}`);
+      return s;
+    });
+
+    // Every slice's applied amount is its own net; no slice flattens gross into the amount.
+    for (const s of slices) expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
+
+    const grossReduction = dollarsToCents(100000) - month.accountBalancesCents["pretax"];
+    const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
+      slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
+    // The slices partition the one liquidation exactly: gross sums to the balance reduction, and
+    // tax sums to gross minus the total net delivered — no cent gained or lost in the split.
+    expect(sum((w) => w.grossWithdrawnCents)).toBe(grossReduction);
+    expect(sum((w) => w.taxCents)).toBe(grossReduction - sum((w) => w.netDeliveredCents));
+    expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
   });
 
   it("keeps funded+shortfall reconciled and sources in cascade order for every record", () => {

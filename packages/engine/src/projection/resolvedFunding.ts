@@ -32,9 +32,10 @@ export interface ResolvedFundingSource {
   /** Net amount delivered toward the obligation by this source. */
   readonly amountCents: Cents;
   /**
-   * Present for account-funded sources where the funding resolver performs a withdrawal or
-   * liquidation. Populated with the resolver's full breakdown by a later task; unset here for
-   * the liquid-buffer drawdown (a cash spend that realizes nothing).
+   * Present for account-funded sources the funding resolver liquidates — explicit draws and
+   * automatic decumulation — carrying the resolver's full breakdown (`amountCents` equals its
+   * `netDeliveredCents`). Unset for the liquid-buffer drawdown, a cash spend that realizes nothing
+   * and never passes through the withdrawal resolver.
    */
   readonly withdrawal?: {
     readonly grossWithdrawnCents: Cents;
@@ -60,12 +61,17 @@ export interface ResolvedFunding {
 
 /**
  * A decumulation draw's contribution toward the month's obligations: an investment account's
- * liquidation, keyed by account id and reported by its net cash delivered. The detailed
- * withdrawal breakdown (gross, basis, gain, tax) is folded into {@link ResolvedFundingSource} by
- * a later task; the attribution walk needs only the net each account delivered.
+ * liquidation, keyed by account id and carrying the resolver's full withdrawal breakdown. The walk
+ * consumes the draw by its `netDeliveredCents`, then partitions the whole breakdown across the
+ * obligations it funds (see {@link apportionWithdrawal}) so a split line still sees its pro-rata
+ * gross/basis/gain/tax rather than a flattened amount.
  */
 export interface DecumulationDraw {
   readonly sourceId: string;
+  readonly grossWithdrawnCents: Cents;
+  readonly principalCents: Cents;
+  readonly realizedGainCents: Cents;
+  readonly taxCents: Cents;
   readonly netDeliveredCents: Cents;
 }
 
@@ -90,10 +96,52 @@ export interface FundingSupplyPlan {
 const INCOME_SOURCE_ID = "income";
 const CREDIT_SOURCE_ID = "credit";
 
+/**
+ * A decumulation account layer's withdrawal breakdown, plus the running net already consumed —
+ * carried on the layer so {@link apportionWithdrawal} can split it as obligations drain the layer.
+ * `netCents` is the layer's initial `remaining`, so it never reaches 0 while the layer can be taken.
+ */
+interface WithdrawalTotals {
+  readonly grossCents: Cents;
+  readonly gainCents: Cents;
+  readonly netCents: Cents;
+  consumedCents: Cents;
+}
+
 interface Layer {
   readonly kind: FundingSourceKind;
   readonly sourceId: string;
   remaining: Cents;
+  /** Set only on decumulation account layers; income/credit/liquid-buffer layers realize nothing. */
+  readonly withdrawal?: WithdrawalTotals;
+}
+
+/**
+ * Split one liquidation's breakdown across the obligations it funds. Rounds gross and gain from the
+ * running consumed-net position (not each slice independently), so the slices sum back to the
+ * account's own totals with no drift — the final slice absorbs the rounding once the layer is fully
+ * consumed. Principal (`gross − gain`) and tax (`gross − net`) are then derived, so every slice
+ * keeps `gross = principal + gain` and `net = gross − tax`, and its `netDeliveredCents` is exactly
+ * the amount applied to the obligation.
+ */
+function apportionWithdrawal(
+  totals: WithdrawalTotals,
+  netTakenCents: Cents,
+): NonNullable<ResolvedFundingSource["withdrawal"]> {
+  const before = totals.consumedCents;
+  const after = before + netTakenCents;
+  const cut = (whole: Cents): Cents =>
+    Math.round((whole * after) / totals.netCents) - Math.round((whole * before) / totals.netCents);
+  const grossWithdrawnCents = cut(totals.grossCents);
+  const realizedGainCents = cut(totals.gainCents);
+  totals.consumedCents = after;
+  return {
+    grossWithdrawnCents,
+    principalCents: grossWithdrawnCents - realizedGainCents,
+    realizedGainCents,
+    taxCents: grossWithdrawnCents - netTakenCents,
+    netDeliveredCents: netTakenCents,
+  };
 }
 
 /** The supply as an ordered, mutable list of layers — a 0-amount layer is dropped, not offered. */
@@ -111,7 +159,17 @@ function orderedLayers(supply: FundingSupplyPlan): Layer[] {
   }
   for (const draw of supply.decumulationDraws) {
     if (draw.netDeliveredCents > 0) {
-      layers.push({ kind: "account", sourceId: draw.sourceId, remaining: draw.netDeliveredCents });
+      layers.push({
+        kind: "account",
+        sourceId: draw.sourceId,
+        remaining: draw.netDeliveredCents,
+        withdrawal: {
+          grossCents: draw.grossWithdrawnCents,
+          gainCents: draw.realizedGainCents,
+          netCents: draw.netDeliveredCents,
+          consumedCents: 0,
+        },
+      });
     }
   }
   if (supply.creditCents > 0) {
@@ -198,7 +256,16 @@ export function resolveFundingAttribution(
       const take = Math.min(need, layer.remaining);
       layer.remaining -= take;
       need -= take;
-      sources.push({ kind: layer.kind, sourceId: layer.sourceId, amountCents: take });
+      // A decumulation layer carries its withdrawal breakdown; partition it by this take so the
+      // source reports its own gross/basis/gain/tax rather than a flattened amount. Income, credit
+      // and the liquid buffer realize nothing, so they stay a bare amount.
+      const withdrawal =
+        layer.withdrawal !== undefined ? apportionWithdrawal(layer.withdrawal, take) : undefined;
+      sources.push(
+        withdrawal !== undefined
+          ? { kind: layer.kind, sourceId: layer.sourceId, amountCents: take, withdrawal }
+          : { kind: layer.kind, sourceId: layer.sourceId, amountCents: take },
+      );
     }
     resolved.push({
       obligationId: o.id,
