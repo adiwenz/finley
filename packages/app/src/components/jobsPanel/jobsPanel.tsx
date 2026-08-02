@@ -215,6 +215,11 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
     transact((p) => p.removeJobPayChange(id, month));
   }
 
+  /** The other list on a job: a single month's bonus or missed paycheck, not a salary state. */
+  function removeIncomeOverride(id: string, month: number) {
+    transact((p) => p.removeJobIncomeOverride(id, month));
+  }
+
   /**
    * The form dates a change by the owner's age; the plan stores a month. `month 0` is the
    * owner's age today, so the offset is whole years from there — and it is NOT floored, because
@@ -306,6 +311,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                 <PayChart
                   path={path}
                   payChanges={payChanges}
+                  incomeOverrides={job.incomeOverrides ?? []}
                   birthYear={owner.birthYear}
                   lifeExpectancy={budget.lifeExpectancy}
                   label={label}
@@ -320,6 +326,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                   path={path}
                   label={label}
                   onRemove={(month) => removePayChange(job.id, month)}
+                  onRemoveOverride={(month) => removeIncomeOverride(job.id, month)}
                 />
                 <div className={styles.actions}>
                   <button

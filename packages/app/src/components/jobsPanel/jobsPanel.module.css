@@ -156,6 +156,13 @@
   border-left-style: dashed;
 }
 
+/* A one-month adjustment, not a salary state: dotted rather than the solid rule a permanent
+   change carries, so the two read as different KINDS down the left edge of the list. */
+.entryOneOff {
+  border-left-style: dotted;
+  border-left-color: var(--color-text);
+}
+
 .estimatedTag {
   color: var(--color-text-muted);
   font-style: italic;

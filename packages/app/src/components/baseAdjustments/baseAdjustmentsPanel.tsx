@@ -173,6 +173,39 @@ export function BaseAdjustmentsPanel({
     () => ownedJobsOf(owners).map(({ job, label }) => ({ id: job.id, label })),
     [owners],
   );
+  /**
+   * Everything already authored at the selected month, read back off the jobs. The editor used
+   * to remember the last thing it applied instead, which showed one change where two were
+   * stored and outlived changes removed elsewhere.
+   */
+  const appliedAtMonth = useMemo(
+    () =>
+      ownedJobsOf(owners).flatMap(({ job, label }) => [
+        ...(job.payChanges ?? [])
+          .filter((c) => c.month === selectedMonth)
+          .map((c) => ({
+            jobId: job.id,
+            jobLabel: label,
+            scope: "ongoing" as const,
+            description:
+              c.kind === "setTo"
+                ? `pay set to ${formatDollars(c.cents)}`
+                : `pay changed by ${formatDollars(c.cents)}`,
+          })),
+        ...(job.incomeOverrides ?? [])
+          .filter((o) => o.month === selectedMonth)
+          .map((o) => ({
+            jobId: job.id,
+            jobLabel: label,
+            scope: "thisMonth" as const,
+            description:
+              o.kind === "addBonus"
+                ? `bonus of ${formatDollars(o.cents)}`
+                : `pay set to ${formatDollars(o.cents)}`,
+          })),
+      ]),
+    [owners, selectedMonth],
+  );
 
 
   /**
@@ -289,6 +322,7 @@ export function BaseAdjustmentsPanel({
         <PayChangeEditor
           jobs={jobOptions}
           incomeMonth={selectedMonth}
+          appliedAtMonth={appliedAtMonth}
           // Addressed by job id alone: the facade finds it on whichever plane its owner is
           // authored on, and carries the job's other adjustments through.
           onApplyOverride={(jobId, override) => transact((p) => p.addJobIncomeOverride(jobId, override))}

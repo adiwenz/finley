@@ -46,8 +46,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { payChangeEffectiveMonth, type JobPayChange, type JobPayPath } from "@finley/engine";
+import {
+  payChangeEffectiveMonth,
+  type JobIncomeOverride,
+  type JobPayChange,
+  type JobPayPath,
+} from "@finley/engine";
 import { formatDollars } from "../../format";
+import { adjustedMonthlyCents } from "../../jobAdjustments";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
 
@@ -60,6 +66,10 @@ const GRID = "#e3dcc6";
 // which, and deliberately not a second colour competing with the pay line.
 const PAST = "#000000";
 const NOW = "#1f3a2e";
+// Marks the apex of a one-month spike. The PAY colour on purpose: the spike is the pay series,
+// and a second colour would say a bonus is a different kind of quantity when it is the same
+// dollars in the same month. The mark is a pointer, not a category.
+const ONE_OFF = PAY;
 
 /** "Age 35" on a birthday, "Age 35 + 4 mo" between two — the tooltip's date, at month resolution. */
 function ageLabel(birthYear: number, month: number): string {
@@ -72,6 +82,12 @@ interface PayChartProps {
   readonly path: JobPayPath;
   /** Only to pin each change's own month as a sample — the VALUES all come from `path`. */
   readonly payChanges: readonly JobPayChange[];
+  /**
+   * One-month adjustments. Unlike {@link payChanges} these carry a value the path does not
+   * hold: `jobPayPath` compiles standing pay, and a bonus is a payment rather than a salary
+   * state. Folded into the drawn pay as a one-month spike — see the note on `rows` below.
+   */
+  readonly incomeOverrides: readonly JobIncomeOverride[];
   readonly birthYear: number;
   /** The plan's life expectancy — where the axis stops, whatever this job does. */
   readonly lifeExpectancy: number;
@@ -85,6 +101,7 @@ interface PayChartProps {
 export function PayChart({
   path,
   payChanges,
+  incomeOverrides,
   birthYear,
   lifeExpectancy,
   label,
@@ -137,13 +154,43 @@ export function PayChart({
     path.span.startMonth,
     path.span.endMonthExclusive,
     ...payChanges.map(payChangeEffectiveMonth),
+    // A one-month adjustment needs BOTH its own month and the one after it. Its own, because
+    // the quarterly backbone would miss two months in three; the one after, because
+    // `stepAfter` holds a sample until the next one — without it the bonus would be drawn as
+    // lasting a whole quarter. The pair is what makes the spike exactly one month wide. This
+    // is the one place the "no neighbouring samples" rule above is deliberately broken, and
+    // the cost it warns about (a sub-pixel band that is hard to hover) is what a one-month
+    // event honestly is.
+    ...incomeOverrides.flatMap((o) => [o.month, o.month + 1]),
   ];
   for (const month of keyMonths) {
     if (month >= firstMonth && month <= lastMonth) months.add(month);
   }
+  /**
+   * A one-month adjustment rides the pay series itself, so the shaded region briefly rises and
+   * falls back — the same way a bonus reads on the household income charts, where a month that
+   * pays more is simply drawn taller.
+   *
+   * The staircase can carry it because the sampling above pins the month AND its successor: the
+   * spike is one month wide, which is a blip and not a raise-then-cut. What makes that safe is
+   * the width, not a separate series — a bonus held for a quarter would be a lie about a rate,
+   * and a bonus held for a month is the truth about a payment.
+   *
+   * `adjusted` rides along so the tooltip can say "this month" instead of "/mo" on exactly
+   * those months: the height is a payment there, not a salary.
+   */
+  const oneOffByMonth = new Map(incomeOverrides.map((o) => [o.month, o]));
   const rows = [...months]
     .sort((a, b) => a - b)
-    .map((month) => ({ month, pay: path.monthlyCentsAt(month) }));
+    .map((month) => {
+      const standing = path.monthlyCentsAt(month);
+      const override = oneOffByMonth.get(month);
+      return {
+        month,
+        pay: override === undefined ? standing : adjustedMonthlyCents(override, standing),
+        adjusted: override !== undefined,
+      };
+    });
   const peak = Math.max(...rows.map((r) => r.pay), 1);
   /** Ages worth naming; both ends, plus whatever this job does. */
   const tickMonths = [...new Set([minAge, startAge, currentAge, endAge, maxAge])]
@@ -162,6 +209,9 @@ export function PayChart({
         `Monthly pay across ${label}, from age ${startAge} to ${endAge}, ` +
         `in ${inTodaysDollars ? "today’s money" : "the paycheck of each month"}, ` +
         `topping out at ${formatDollars(peak)} a month` +
+        (incomeOverrides.length > 0
+          ? `. ${incomeOverrides.length} single ${incomeOverrides.length === 1 ? "month rises or falls on its own" : "months rise or fall on their own"} for a one-off adjustment`
+          : "") +
         (hasSeam
           ? `. At ${currentAge} it ${step > 0 ? "steps up" : "steps down"} ${formatDollars(Math.abs(step))} a month.`
           : ".")
@@ -171,6 +221,11 @@ export function PayChart({
           exists to state — is asserted here instead of off the SVG. */}
       <output data-testid="pay-chart-seam" hidden>
         {hasSeam ? step : 0}
+      </output>
+      {/* Same reason: what the one-off marks are drawn AT, so a test can read the months and
+          the totals rather than the SVG that jsdom never produces. */}
+      <output data-testid="pay-chart-one-offs" hidden>
+        {JSON.stringify(rows.filter((r) => r.adjusted).map((r) => [r.month, r.pay]))}
       </output>
 
       <ResponsiveContainer width="100%" height={140}>
@@ -206,7 +261,13 @@ export function PayChart({
             stroke={GRID}
           />
           <Tooltip
-            formatter={(value) => [`${formatDollars(Number(value))}/mo`, "Pay"]}
+            // A rate everywhere except the months carrying a one-month adjustment, where the
+            // height is a single payment and "/mo" would read it as a new salary.
+            formatter={(value, _name, item: { payload?: { adjusted?: boolean } }) =>
+              item?.payload?.adjusted === true
+                ? [`${formatDollars(Number(value))} this month`, "Pay"]
+                : [`${formatDollars(Number(value))}/mo`, "Pay"]
+            }
             // Scrubbing is month-by-month, so the label has to be too: a bare "Age 35" would
             // read identically for twelve consecutive positions.
             labelFormatter={(month) => ageLabel(birthYear, Number(month))}
@@ -226,7 +287,19 @@ export function PayChart({
             strokeWidth={2}
             fill={PAY}
             fillOpacity={0.14}
-            dot={false}
+            // No dots on the ordinary staircase — a vertex every quarter is noise. Only the
+            // months carrying a one-month adjustment are marked, because a one-month spike is
+            // about a pixel wide on a lifetime axis and would otherwise be easy to miss
+            // entirely. The mark says "look here"; the spike itself says what happened.
+            dot={(props: { cx?: number; cy?: number; index?: number; payload?: { adjusted?: boolean } }) =>
+              props.payload?.adjusted === true && props.cx !== undefined && props.cy !== undefined ? (
+                <circle key={props.index} cx={props.cx} cy={props.cy} r={3.5} fill={ONE_OFF} />
+              ) : (
+                // Recharts requires an element back from every row; an empty group is how a
+                // row declines to draw one.
+                <g key={props.index} />
+              )
+            }
             isAnimationActive={false}
           />
 

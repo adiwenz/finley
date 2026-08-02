@@ -16,8 +16,15 @@
  * styling would invite users to close the one gap the engine keeps open on purpose.
  */
 
-import { payChangeEffectiveMonth, type Job, type JobPayChange, type JobPayPath } from "@finley/engine";
+import {
+  payChangeEffectiveMonth,
+  type Job,
+  type JobIncomeOverride,
+  type JobPayChange,
+  type JobPayPath,
+} from "@finley/engine";
 import { formatDollars } from "../../format";
+import { adjustedMonthlyCents, describeIncomeOverride } from "../../jobAdjustments";
 import { ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
 
@@ -35,24 +42,43 @@ interface PayTimelineProps {
   /** How the job is named across the household — every control here says which job it acts on. */
   readonly label: string;
   readonly onRemove: (month: number) => void;
+  /** A one-month adjustment is a different write from a pay change, so it is a different call. */
+  readonly onRemoveOverride: (month: number) => void;
 }
 
 interface Row {
   readonly key: string;
   readonly month: number;
-  readonly kind: "start" | "change" | "now";
+  readonly kind: "start" | "change" | "now" | "oneOff";
   readonly label: string;
   readonly monthlyCents: number;
   /** Filled in by "Estimate missing pay history" rather than stated by the user. */
   readonly estimated?: boolean;
   /** Present on the rows a user authored, and only those: the start and "now" are not removable. */
   readonly change?: JobPayChange;
+  /** Present on one-month rows; removing one is a different write from removing a change. */
+  readonly override?: JobIncomeOverride;
 }
 
-export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimelineProps) {
+export function PayTimeline({
+  job,
+  birthYear,
+  path,
+  label,
+  onRemove,
+  onRemoveOverride,
+}: PayTimelineProps) {
   const { startMonth, endMonthExclusive } = path.span;
   const changes = [...(job.payChanges ?? [])]
     .filter((c) => c.month >= startMonth && c.month < endMonthExclusive)
+    .sort((a, b) => a.month - b.month);
+  /**
+   * One-month adjustments, interleaved by date with the permanent changes rather than listed
+   * apart. The panel used to only COUNT them in the subtitle, which named a fact the reader
+   * could then find nowhere — and could not remove from here at all.
+   */
+  const overrides = [...(job.incomeOverrides ?? [])]
+    .filter((o) => o.month >= startMonth && o.month < endMonthExclusive)
     .sort((a, b) => a.month - b.month);
   /**
    * The job is under way and still paying, so month 0 falls inside it and the seam is a real
@@ -70,27 +96,53 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
       monthlyCents: path.monthlyCentsAt(startMonth),
     },
   ];
-  for (const change of changes) {
-    // The seam sits between the last historical change and the first forward one, so it is
+  /**
+   * Both kinds in one date order. A permanent change is placed at the month it takes FORCE (a
+   * change authored at "now" starts next month); a one-off is placed at the month it lands, and
+   * sorts after a change sharing that month, because the change sets the pay the one-off then
+   * perturbs.
+   */
+  const events = [
+    ...changes.map((change) => ({ at: payChangeEffectiveMonth(change), rank: 0, change })),
+    ...overrides.map((override) => ({ at: override.month, rank: 1, override })),
+  ].sort((a, b) => a.at - b.at || a.rank - b.rank);
+
+  for (const event of events) {
+    // The seam sits between the last historical entry and the first forward one, so it is
     // inserted on the crossing rather than appended — the list is in age order throughout.
-    if (change.month >= 0 && spansNow && !rows.some((r) => r.kind === "now")) {
+    if (event.at >= 0 && spansNow && !rows.some((r) => r.kind === "now")) {
       rows.push(nowRow(path));
     }
-    rows.push({
-      key: `c${change.month}`,
-      month: change.month,
-      kind: "change",
-      // A change authored at "now" takes force next month — the stated current salary owns
-      // month 0. Say so on the row, and quote the pay from the month it actually starts,
-      // rather than the month-0 figure that is still the old one.
-      label:
-        change.month === 0
-          ? `${describePayChange(change)} — from next month`
-          : describePayChange(change),
-      monthlyCents: path.monthlyCentsAt(payChangeEffectiveMonth(change)),
-      estimated: change.estimated === true,
-      change,
-    });
+    if ("change" in event) {
+      const { change } = event;
+      rows.push({
+        key: `c${change.month}`,
+        month: change.month,
+        kind: "change",
+        // A change authored at "now" takes force next month — the stated current salary owns
+        // month 0. Say so on the row, and quote the pay from the month it actually starts,
+        // rather than the month-0 figure that is still the old one.
+        label:
+          change.month === 0
+            ? `${describePayChange(change)} — from next month`
+            : describePayChange(change),
+        monthlyCents: path.monthlyCentsAt(payChangeEffectiveMonth(change)),
+        estimated: change.estimated === true,
+        change,
+      });
+    } else {
+      const { override } = event;
+      rows.push({
+        key: `o${override.month}`,
+        month: override.month,
+        kind: "oneOff",
+        label: `${describeIncomeOverride(override)} — this month only`,
+        // What the month ACTUALLY pays, base and adjustment together — the same figure the
+        // chart marks and the projection pays.
+        monthlyCents: adjustedMonthlyCents(override, path.monthlyCentsAt(override.month)),
+        override,
+      });
+    }
   }
   if (spansNow && !rows.some((r) => r.kind === "now")) rows.push(nowRow(path));
 
@@ -102,6 +154,7 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
           className={[
             styles.entry,
             row.kind === "now" ? styles.entryNow : "",
+            row.kind === "oneOff" ? styles.entryOneOff : "",
             row.month < 0 ? styles.entryHistory : "",
             row.estimated ? styles.entryEstimated : "",
           ]
@@ -119,13 +172,27 @@ export function PayTimeline({ job, birthYear, path, label, onRemove }: PayTimeli
                 alone would not carry it to a screen reader or a colour-blind reader. */}
             {row.estimated && <em className={styles.estimatedTag}> · estimated</em>}
           </span>
-          <span className={styles.entryPay}>{formatDollars(row.monthlyCents)}/mo</span>
+          <span className={styles.entryPay}>
+            {formatDollars(row.monthlyCents)}
+            {/* A one-off row quotes what that ONE month pays, so "/mo" — a rate — would be a
+                lie about it. */}
+            {row.kind === "oneOff" ? " this month" : "/mo"}
+          </span>
           <span>
             {row.change && (
               <button
                 type="button"
                 aria-label={`Remove pay change at age ${ownerAgeAtMonth(birthYear, row.month)} on ${label}`}
                 onClick={() => onRemove(row.month)}
+              >
+                Remove
+              </button>
+            )}
+            {row.override && (
+              <button
+                type="button"
+                aria-label={`Remove one-off adjustment at age ${ownerAgeAtMonth(birthYear, row.month)} on ${label}`}
+                onClick={() => onRemoveOverride(row.month)}
               >
                 Remove
               </button>

@@ -502,11 +502,73 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     ]);
     expect(jobsOn("primary-jobs")[0].payChanges).toBeUndefined();
     expect(incomeReadonlyDollars()).toBe(9500); // 5,000 + 4,500
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Sam/); // names whose job
     selectMonth(7);
     expect(incomeReadonlyDollars()).toBe(9500); // PERSISTS — month 12 would also carry CPI
     selectMonth(5);
     expect(incomeReadonlyDollars()).toBe(8000); // before the raise, old pay
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Sam/); // names whose job
+    // The list states what is authored AT the selected month, so it is empty on a month with
+    // nothing on it — it is a reading of the plan, not a record of the last thing applied.
+    expect(screen.queryByTestId("pay-change-route")).toBeNull();
+  });
+
+  it("lists every adjustment standing at the month, instead of only the last applied", () => {
+    // The bug: the echo was a `note` remembering the last apply, so a second adjustment
+    // REPLACED the first on screen while both were stored — and it survived a change being
+    // removed elsewhere. It is a reading of the plan now.
+    renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(3000));
+    selectMonth(6);
+
+    openOneOff();
+    setOneOffAmount(2000); // bonus on Alex's job
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/bonus of \$2,000/i);
+
+    openOneOff();
+    pickJob("p-1-job-1");
+    setOneOffAmount(1000); // a second bonus, on Sam's job, at the SAME month
+    applyOneOff();
+
+    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
+    expect(listed).toMatch(/bonus of \$2,000/i); // the first one is still named
+    expect(listed).toMatch(/bonus of \$1,000/i); // and so is the second
+    expect(screen.getAllByRole("listitem").filter((li) => /bonus of/i.test(li.textContent ?? "")))
+      .toHaveLength(2);
+  });
+
+  it("shows a permanent change and a one-off at the same month side by side", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+
+    openOneOff();
+    setOneOffKind("setOngoing");
+    setOneOffAmount(6000);
+    applyOneOff();
+
+    openOneOff();
+    setOneOffKind("addBonus");
+    setOneOffAmount(500);
+    applyOneOff();
+
+    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
+    // Both stored on the same job at the same month, and both scopes named.
+    expect(listed).toMatch(/pay set to \$6,000.*onward \(ongoing\)/is);
+    expect(listed).toMatch(/bonus of \$500.*at month 6/is);
+  });
+
+  it("stops naming an adjustment once it is removed from the plan", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+    openOneOff();
+    setOneOffAmount(2000);
+    applyOneOff();
+    expect(screen.getByTestId("pay-change-route")).toBeTruthy();
+
+    // Removing it anywhere removes it here: the echo was outliving its own change before.
+    selectMonth(7);
+    expect(screen.queryByTestId("pay-change-route")).toBeNull();
+    selectMonth(6);
+    expect(screen.getByTestId("pay-change-route")).toBeTruthy();
   });
 
   it("gives a partner's job a one-month bonus, then a missed paycheck", () => {

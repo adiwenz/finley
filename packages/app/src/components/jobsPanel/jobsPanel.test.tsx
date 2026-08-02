@@ -484,6 +484,91 @@ describe("JobsPanel — an ordinary edit changes only what it names", () => {
   });
 });
 
+describe("JobsPanel — one-month adjustments show on the job", () => {
+  /**
+   * A bonus used to be COUNTED in the row's subtitle and shown nowhere else on the panel: not on
+   * the chart, not in the list, not removable from here. The projection paid it and the graphs
+   * below drew it, so the one surface that authors a job's pay was the one surface that denied
+   * a part of it existed.
+   *
+   * It is not folded into the pay staircase, though: standing pay and a one-month payment are
+   * different facts, and drawing a bonus as a step would read as a raise immediately reversed.
+   */
+  const BONUS = { month: 12, kind: "addBonus", cents: dollarsToCents(4000) } as const;
+  const withBonus: Plan = {
+    ...PLAN_DEFAULTS,
+    jobs: PLAN_DEFAULTS.jobs.map((j) => ({ ...j, incomeOverrides: [BONUS] })),
+  };
+  /** What the chart marks: `[month, cents]` per one-off, off the hidden data mirror. */
+  const oneOffMarks = (): [number, number][] =>
+    JSON.parse(screen.getByTestId("pay-chart-one-offs").textContent || "[]");
+
+  it("marks the bonus month on the chart, at what that month actually pays", () => {
+    render(<Harness initial={withBonus} />);
+    // $5,000 standing pay grown a year at 3% CPI ($5,150), plus the $4,000 bonus.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000)]]);
+  });
+
+  it("leaves the pay staircase alone — a bonus is not a raise", () => {
+    render(<Harness initial={withBonus} />);
+    // The seam is the staircase's one authored discontinuity; a bonus must not create another.
+    expect(Number(screen.getByTestId("pay-chart-seam").textContent)).toBe(0);
+    expect(headline("Job 1")).toBe("$5,000/mo");
+  });
+
+  it("lists it in the pay history, in date order among the permanent changes", () => {
+    const withBoth: Plan = {
+      ...withBonus,
+      jobs: withBonus.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+      })),
+    };
+    render(<Harness initial={withBoth} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    const bonusAt = rows.findIndex((t) => /Bonus \$4,000/.test(t));
+    const raiseAt = rows.findIndex((t) => /Pay set to \$7,000/.test(t));
+    expect(bonusAt).toBeGreaterThanOrEqual(0);
+    // Month 12 before month 24 — one list in date order, not two lists.
+    expect(bonusAt).toBeLessThan(raiseAt);
+    // Quoted as what THAT month pays, and said to be one month only.
+    expect(rows[bonusAt]).toMatch(/this month only/i);
+    expect(rows[bonusAt]).toMatch(/\$9,150 this month/);
+  });
+
+  it("removes it from the job, without touching the permanent changes", () => {
+    const withBoth: Plan = {
+      ...withBonus,
+      jobs: withBonus.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+      })),
+    };
+    render(<Harness initial={withBoth} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove one-off adjustment at age 36 on Job 1/i }),
+    );
+    expect(authored().plan.jobs[0].incomeOverrides).toBeUndefined();
+    expect(authored().plan.jobs[0].payChanges).toHaveLength(1);
+    expect(oneOffMarks()).toEqual([]);
+  });
+
+  it("describes a missed paycheck as one, not as a $0 bonus", () => {
+    const missed: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [{ month: 12, kind: "setTo", cents: 0 }],
+      })),
+    };
+    render(<Harness initial={missed} />);
+    expect(timeline("Job 1").getByText(/Missed paycheck this month/i)).toBeTruthy();
+    expect(oneOffMarks()).toEqual([[12, 0]]);
+  });
+});
+
 describe("JobsPanel — permanent pay changes", () => {
   // A pay change lands on `payChanges`, not the starting salary, so the headline stays
   // $5,000/mo while the change moves pay — showing only the headline hides it.
