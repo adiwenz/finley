@@ -33,7 +33,14 @@ import type { Cents } from "./money";
 import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
 import type { SimOwnedSeries } from "./projection/simulate";
 import type { SimPerson } from "./projection/simulate.types";
-import { effectivePayChanges, type Job, type JobPayChange, type JobIncomeOverride } from "./job";
+import {
+  applyJobIncomeOverride,
+  effectivePayChanges,
+  orderedIncomeOverrides,
+  type Job,
+  type JobPayChange,
+  type JobIncomeOverride,
+} from "./job";
 import type { Person } from "./person";
 
 /**
@@ -98,9 +105,18 @@ function applyPayChanges(
 
 /**
  * Layer a job's one-month perturbations (bonus, missed paycheck, correction) onto its salary
- * series as `thisMonthOnly` overrides, within the inclusive `[loMonth, hiMonth]` span.
- * `addBonus` adds to the month's baseline (grown pay, after any pay change); `setTo` replaces
- * it. So they are taxed as wages and run through the job's deferral like regular pay.
+ * series as `thisMonthOnly` overrides, within the inclusive `[loMonth, hiMonth]` span. So they
+ * are taxed as wages and run through the job's deferral like regular pay.
+ *
+ * What an adjustment *means* is {@link applyJobIncomeOverride}'s to say and the order they
+ * apply in is {@link orderedIncomeOverrides}'; this only decides where the result is written and
+ * which months are in range. Every authoring surface reads the same two functions, so what the
+ * chart draws for a month cannot disagree with what the projection pays for it.
+ *
+ * **Stacking needs no special case.** Each adjustment reads the month's *current* value as its
+ * base, and a `thisMonthOnly` override is what `getMonthlyCents` answers with once written — so
+ * a second bonus in the same month lands on top of the first, exactly as folding the helper over
+ * the ordered list describes.
  */
 function applyIncomeOverrides(
   series: SimCashFlowSeries,
@@ -108,10 +124,10 @@ function applyIncomeOverrides(
   loMonth: number,
   hiMonth: number,
 ): void {
-  for (const ov of [...overrides].sort((a, b) => a.month - b.month)) {
+  for (const ov of orderedIncomeOverrides(overrides)) {
     if (ov.month < loMonth || ov.month > hiMonth) continue;
-    const target = ov.kind === "setTo" ? ov.cents : series.getMonthlyCents(ov.month) + ov.cents;
-    series.addOverride(ov.month, Math.max(0, target), "thisMonthOnly");
+    const pay = applyJobIncomeOverride(series.getMonthlyCents(ov.month), ov);
+    series.addOverride(ov.month, pay, "thisMonthOnly");
   }
 }
 

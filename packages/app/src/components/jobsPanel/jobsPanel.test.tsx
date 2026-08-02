@@ -392,7 +392,7 @@ describe("JobsPanel — every member's jobs", () => {
     // Base + Adjustments reaches every earner, so Remove must route by owner.
     const raised: Job = {
       ...partnerJob(2000),
-      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
+      payChanges: [{ id: "adjustment-7", month: 12, kind: "setTo", cents: dollarsToCents(3000) }],
     };
     render(<Harness events={withPartner([raised])} />);
     // Sam is 40 now, so month 12 reads back on the age-41 row of their pay history.
@@ -424,8 +424,8 @@ describe("JobsPanel — an ordinary edit changes only what it names", () => {
   const richJob: Job = {
     ...PLAN_DEFAULTS.jobs[0]!,
     name: "Software Engineer",
-    payChanges: [{ month: 24, kind: "changeBy", cents: -dollarsToCents(500) }],
-    incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+    payChanges: [{ id: "adjustment-8", month: 24, kind: "changeBy", cents: -dollarsToCents(500) }],
+    incomeOverrides: [{ id: "adjustment-9", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
   };
   const planWithRichJob: Plan = { ...PLAN_DEFAULTS, jobs: [richJob] };
 
@@ -491,10 +491,10 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
    * below drew it, so the one surface that authors a job's pay was the one surface that denied
    * a part of it existed.
    *
-   * It is not folded into the pay staircase, though: standing pay and a one-month payment are
-   * different facts, and drawing a bonus as a step would read as a raise immediately reversed.
+   * It rides the pay series as a ONE-MONTH spike: the month genuinely pays more, and the width
+   * is what keeps it from reading as a raise immediately reversed.
    */
-  const BONUS = { month: 12, kind: "addBonus", cents: dollarsToCents(4000) } as const;
+  const BONUS = { id: "adjustment-10", month: 12, kind: "addBonus", cents: dollarsToCents(4000) } as const;
   const withBonus: Plan = {
     ...PLAN_DEFAULTS,
     jobs: PLAN_DEFAULTS.jobs.map((j) => ({ ...j, incomeOverrides: [BONUS] })),
@@ -521,7 +521,7 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
       ...withBonus,
       jobs: withBonus.jobs.map((j) => ({
         ...j,
-        payChanges: [{ month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+        payChanges: [{ id: "adjustment-11", month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
       })),
     };
     render(<Harness initial={withBoth} />);
@@ -543,16 +543,115 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
       ...withBonus,
       jobs: withBonus.jobs.map((j) => ({
         ...j,
-        payChanges: [{ month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
+        payChanges: [{ id: "adjustment-12", month: 24, kind: "setTo", cents: dollarsToCents(7000) }],
       })),
     };
     render(<Harness initial={withBoth} />);
     fireEvent.click(
-      screen.getByRole("button", { name: /Remove one-off adjustment at age 36 on Job 1/i }),
+      // Named by what it is, so stacked siblings sharing a month are separately clickable.
+      screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i }),
     );
     expect(authored().plan.jobs[0].incomeOverrides).toBeUndefined();
     expect(authored().plan.jobs[0].payChanges).toHaveLength(1);
     expect(oneOffMarks()).toEqual([]);
+  });
+
+  it("stacks two bonuses in one month instead of the second replacing the first", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+
+    // Both listed, each on its own row, and the chart marks the month at the FULL stack:
+    // $5,150 grown pay + $4,000 + $1,000.
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    expect(rows.filter((t) => /Bonus \$4,000/.test(t))).toHaveLength(1);
+    expect(rows.filter((t) => /Bonus \$1,000/.test(t))).toHaveLength(1);
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000 + 1000)]]);
+  });
+
+  it("quotes each stacked row at the running total, not all of them at the same figure", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    const rows = timeline("Job 1")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    // The fold, shown: $9,150 after the first, $10,150 after the second.
+    expect(rows.find((t) => /Bonus \$4,000/.test(t))).toMatch(/\$9,150 this month/);
+    expect(rows.find((t) => /Bonus \$1,000/.test(t))).toMatch(/\$10,150 this month/);
+  });
+
+  it("removes one of a month's stacked adjustments and leaves its sibling standing", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    fireEvent.click(screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i }));
+
+    // By id: the month keeps the other one. Removing by month would have taken both.
+    expect(authored().plan.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a2"]);
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 1000)]]);
+  });
+
+  it("gives two adjustments in one month distinct React identity", () => {
+    const twice: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        incomeOverrides: [
+          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
+          { id: "a2", month: 12, kind: "setTo", cents: dollarsToCents(2000) },
+        ],
+      })),
+    };
+    render(<Harness initial={twice} />);
+    // Two rows and two separately-addressable Remove buttons — the shape a shared key
+    // (`jobId:scope`, or the month) collapsed into one.
+    expect(screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Remove Pay this month \$2,000 at age 36 on Job 1/i }),
+    ).toBeTruthy();
+    // A setTo authored after a bonus discards it — the engine's ordering, shown.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(2000)]]);
+  });
+
+  it("stacks a bonus on top of a permanent raise dated the same month", () => {
+    const both: Plan = {
+      ...PLAN_DEFAULTS,
+      jobs: PLAN_DEFAULTS.jobs.map((j) => ({
+        ...j,
+        payChanges: [{ id: "p1", month: 12, kind: "setTo", cents: dollarsToCents(7000) }],
+        incomeOverrides: [{ id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) }],
+      })),
+    };
+    render(<Harness initial={both} />);
+    // The raise sets the month's pay and the bonus adds to THAT, not to the old salary.
+    expect(oneOffMarks()).toEqual([[12, dollarsToCents(11000)]]);
   });
 
   it("describes a missed paycheck as one, not as a $0 bonus", () => {
@@ -560,7 +659,7 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
       ...PLAN_DEFAULTS,
       jobs: PLAN_DEFAULTS.jobs.map((j) => ({
         ...j,
-        incomeOverrides: [{ month: 12, kind: "setTo", cents: 0 }],
+        incomeOverrides: [{ id: "adjustment-13", month: 12, kind: "setTo", cents: 0 }],
       })),
     };
     render(<Harness initial={missed} />);
@@ -626,7 +725,7 @@ describe("JobsPanel — authoring a raise", () => {
 
     // Authored at age 45 with the owner 35 now → month 120, read back as age 45.
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 120, kind: "setTo", cents: dollarsToCents(8000) },
+      { id: expect.any(String), month: 120, kind: "setTo", cents: dollarsToCents(8000) },
     ]);
     expect(timeline("Job 1").getByText(/Pay set to \$8,000\/mo/)).toBeTruthy();
     expect(timeline("Job 1").getByText("age 45")).toBeTruthy();
@@ -639,7 +738,7 @@ describe("JobsPanel — authoring a raise", () => {
     openPayChange("Job 1");
     applyPayChange("changeBy", 40, -500);
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
+      { id: expect.any(String), month: 60, kind: "changeBy", cents: -dollarsToCents(500) },
     ]);
     expect(timeline("Job 1").getByText(/Pay cut \$500\/mo/)).toBeTruthy();
   });
@@ -651,7 +750,7 @@ describe("JobsPanel — authoring a raise", () => {
 
     // The partner is 40 now, so age 50 is month 120 — read against THEIR birth year.
     expect(partnerJobs()[0].payChanges).toEqual([
-      { month: 120, kind: "setTo", cents: dollarsToCents(6000) },
+      { id: expect.any(String), month: 120, kind: "setTo", cents: dollarsToCents(6000) },
     ]);
     // Nothing landed on the plan plane.
     expect(authored().plan.jobs[0].payChanges).toBeUndefined();
@@ -664,7 +763,7 @@ describe("JobsPanel — authoring a raise", () => {
     openPayChange("Job 1");
     applyPayChange("setTo", 20, 7000);
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: (20 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
+      { id: expect.any(String), month: (20 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
     ]);
   });
 
@@ -673,7 +772,7 @@ describe("JobsPanel — authoring a raise", () => {
     openPayChange("Job 1");
     applyPayChange("setTo", 12, 7000);
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: (18 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
+      { id: expect.any(String), month: (18 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
     ]);
   });
 
@@ -786,7 +885,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: (30 - 35) * 12, kind: "setTo", cents: dollarsToCents(6250) },
+      { id: expect.any(String), month: (30 - 35) * 12, kind: "setTo", cents: dollarsToCents(6250) },
     ]);
     expect(timeline("Job 1").getByText("age 30")).toBeTruthy();
     expect(timeline("Job 1").getByText(/Pay set to \$6,250\/mo/)).toBeTruthy();
@@ -858,7 +957,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: 0, kind: "setTo", cents: dollarsToCents(6000) },
+      { id: expect.any(String), month: 0, kind: "setTo", cents: dollarsToCents(6000) },
     ]);
     // Today's pay is untouched; the row quotes the pay from the month it actually begins.
     expect(headline("Job 1")).toBe("$5,000/mo now");
@@ -911,7 +1010,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
             currentSalaryCents: dollarsToCents(1800) * 12,
             realGrowthPct: 0,
           },
-          payChanges: [{ month: (24 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) }],
+          payChanges: [{ id: "adjustment-23", month: (24 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) }],
         },
       ],
     };
@@ -944,7 +1043,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     fireEvent.change(spin(/Amount/i), { target: { value: "2100" } });
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
     expect(authored().plan.jobs[0].payChanges).toEqual([
-      { month: (25 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) },
+      { id: expect.any(String), month: (25 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) },
     ]);
   });
 

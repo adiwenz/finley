@@ -74,3 +74,42 @@ describe("no reassignment path survives in the app", () => {
     expect(offenders.map((m) => m.name)).toEqual([]);
   });
 });
+
+/**
+ * The adjustment-arithmetic guard: what a bonus DOES to a month is the engine's to say.
+ *
+ * The app had its own copy — `kind === "setTo" ? cents : base + cents`, clamped at zero — and
+ * the copy is exactly why a chart, a list and a projection could disagree about the same month.
+ * `applyJobIncomeOverride` is now the one definition, exported from the engine beside the
+ * compiler that uses it, and this bans the shape of a second one growing back.
+ *
+ * The rule is deliberately narrow: reading an adjustment's `kind` is fine and common, because a
+ * surface has to choose WORDS for it — `describeIncomeOverride` and `describePayChange` both do.
+ * What is banned is arithmetic on an adjustment's `cents`, which is the only way to restate the
+ * rule and the one thing a labelling function never needs.
+ */
+describe("no app-side copy of the adjustment arithmetic", () => {
+  it("adds an adjustment's cents to nothing — that sum is the engine's", () => {
+    // `base + override.cents` or `change.cents + base`, the whole of what layering one on is.
+    const sum = /(\+\s*\w+\.cents\b)|(\b\w+\.cents\s*\+(?!\+))/;
+    const offenders = modules.filter((m) => sum.test(m.source));
+    expect(offenders.map((m) => m.name)).toEqual([]);
+  });
+
+  it("names the addBonus branch nowhere it could compute one", () => {
+    // The same rule written from the other end: `addBonus` is a discriminator the engine reads.
+    // An app module naming it beside any arithmetic operator is reconstructing the fold.
+    const offenders = modules.filter((m) =>
+      /["']addBonus["'][\s\S]{0,120}?\bcents\b\s*[+\-*]/.test(m.source),
+    );
+    expect(offenders.map((m) => m.name)).toEqual([]);
+  });
+
+  it("still lets a surface read the kind to choose its words", () => {
+    // The guard must not have been satisfied by deleting the labelling: `describeIncomeOverride`
+    // reads `kind` and is exactly what should survive.
+    const labels = modules.find((m) => m.name === "jobAdjustments.ts");
+    expect(labels).toBeDefined();
+    expect(/kind === "setTo"/.test(labels!.source)).toBe(true);
+  });
+});

@@ -31,8 +31,8 @@ const richJob: Job = {
   endYear: null,
   salary: { startingSalaryCents: 60_000_00, currentSalaryCents: 60_000_00, realGrowthPct: 1 },
   deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
-  incomeOverrides: [{ month: 6, kind: "addBonus", cents: 5_000_00 }],
-  payChanges: [{ month: 24, kind: "changeBy", cents: -500_00 }],
+  incomeOverrides: [{ id: "adjustment-1", month: 6, kind: "addBonus", cents: 5_000_00 }],
+  payChanges: [{ id: "adjustment-2", month: 24, kind: "changeBy", cents: -500_00 }],
 };
 
 const owner = (over: Partial<JobOwner> & Pick<JobOwner, "id" | "name" | "birthYear" | "jobs">): JobOwner => ({
@@ -293,9 +293,9 @@ describe("editJob — moving the start age still strands pay changes", () => {
     ...richJob,
     startYear: ALEX_BIRTH_YEAR + 20, // started at 20
     payChanges: [
-      { month: -60, kind: "setTo", cents: 4_000_00 }, // Alex's age 30
-      { month: -12, kind: "changeBy", cents: 500_00 }, // age 34
-      { month: 24, kind: "changeBy", cents: -500_00 }, // age 37
+      { id: "adjustment-3", month: -60, kind: "setTo", cents: 4_000_00 }, // Alex's age 30
+      { id: "adjustment-4", month: -12, kind: "changeBy", cents: 500_00 }, // age 34
+      { id: "adjustment-5", month: 24, kind: "changeBy", cents: -500_00 }, // age 37
     ],
   };
 
@@ -306,7 +306,7 @@ describe("editJob — moving the start age still strands pay changes", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.strandedPayChanges).toEqual([{ month: -60, kind: "setTo", cents: 4_000_00 }]);
+    expect(result.strandedPayChanges).toEqual([{ id: "adjustment-3", month: -60, kind: "setTo", cents: 4_000_00 }]);
     const jobs = applied(owners, result).get(PRIMARY_PERSON_ID)!;
     expect(jobs[0].payChanges?.map((c) => c.month)).toEqual([-12, 24]);
     // The edit that dropped them did not also move the job to someone else.

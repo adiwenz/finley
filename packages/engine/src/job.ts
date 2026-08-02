@@ -62,11 +62,83 @@ export interface SalaryTrajectory {
  * 401(k) deferral like regular pay.
  */
 export interface JobIncomeOverride {
+  /**
+   * Stable authored identity, minted once and preserved through every edit, serialization and
+   * projection. A month does NOT name an adjustment: several may share one — a signing bonus
+   * and a missed paycheck can land together, and both are real. The id is what a surface keys
+   * a list row on and what {@link withoutIncomeOverride} removes, so removing one leaves the
+   * others exactly where they were.
+   */
+  readonly id: string;
   /** Absolute simulation month (from "now") the override applies to. */
   readonly month: number;
   readonly kind: "setTo" | "addBonus";
   /** For `setTo`, the month's absolute monthly pay; for `addBonus`, the amount added. */
   readonly cents: Cents;
+}
+
+/** A one-month adjustment as a caller authors it — the id is the engine's to issue. */
+export type JobIncomeOverrideInput = Omit<JobIncomeOverride, "id">;
+
+/**
+ * What a month pays once ONE adjustment is applied to what already stands there — the single
+ * definition of what an adjustment *means*, and the only place the arithmetic lives.
+ *
+ * Every surface reads through it: the projection compiler, the authoring chart, the pay
+ * timeline, and the Base + Adjustments list. They cannot agree by coincidence, and a duplicated
+ * `kind === "setTo" ? … : base + …` in the UI is a second definition that drifts the first time
+ * either changes — which is exactly what it did.
+ *
+ * `basePayCents` is what the month pays *before this adjustment*, which for the second of two
+ * stacked adjustments is the first one's result. Stacking therefore needs no special case: fold
+ * this over {@link orderedIncomeOverrides} and the composition falls out.
+ *
+ * Two rules it owns:
+ *
+ *  - **Zero floor.** A deduction larger than the paycheck is a missed paycheck, never a negative
+ *    one — the household cannot be billed by its employer.
+ *  - **Whole cents.** Cents are integers everywhere in the model; rounding here means no caller
+ *    can introduce a fractional cent that a later comparison then fails on.
+ */
+export function applyJobIncomeOverride(
+  basePayCents: Cents,
+  override: JobIncomeOverride,
+): Cents {
+  const target = override.kind === "setTo" ? override.cents : basePayCents + override.cents;
+  return Math.max(0, Math.round(target));
+}
+
+/**
+ * A job's one-month adjustments in the order they apply — the ordering rule the compiler and
+ * every authoring surface share, so none of them can stack in a different order than the
+ * projection pays.
+ *
+ * By month, then **by authoring order** within a month, since `sort` is stable. Authoring order
+ * is the only defensible tie-break: two adjustments dated the same month have nothing else to
+ * separate them, and the user watched themselves add the second one after the first. It matters
+ * whenever a `setTo` shares a month with an additive adjustment — a `setTo` authored first is a
+ * new baseline the bonus then adds to, and authored second it discards the bonus, which is what
+ * "set this month's pay to X" says.
+ */
+export function orderedIncomeOverrides(
+  overrides: readonly JobIncomeOverride[],
+): readonly JobIncomeOverride[] {
+  return [...overrides].sort((a, b) => a.month - b.month);
+}
+
+/**
+ * What a job's `month` pays once every adjustment dated there is applied to `basePayCents` —
+ * the whole stack, folded in {@link orderedIncomeOverrides} order. Returns `basePayCents`
+ * untouched for a month carrying none, which is nearly every month.
+ */
+export function applyJobIncomeOverridesAt(
+  basePayCents: Cents,
+  overrides: readonly JobIncomeOverride[],
+  month: number,
+): Cents {
+  return orderedIncomeOverrides(overrides)
+    .filter((o) => o.month === month)
+    .reduce((pay, override) => applyJobIncomeOverride(pay, override), basePayCents);
 }
 
 /**
@@ -88,6 +160,13 @@ export interface JobIncomeOverride {
  */
 export interface JobPayChange {
   /**
+   * Stable authored identity — see {@link JobIncomeOverride.id}. A pay change is at most one per
+   * (job, month), so unlike an override its month *does* name it; it carries an id anyway so that
+   * every authored adjustment is addressed the same way, and so a list mixing the two kinds has
+   * one key rule rather than two.
+   */
+  readonly id: string;
+  /**
    * Absolute simulation month (from "now") the change is **authored at**. The month it takes
    * force is {@link payChangeEffectiveMonth} of it, which differs only at month 0.
    */
@@ -103,6 +182,9 @@ export interface JobPayChange {
    */
   readonly estimated?: boolean;
 }
+
+/** A pay change as a caller authors it — the id is the engine's to issue. */
+export type JobPayChangeInput = Omit<JobPayChange, "id">;
 
 /**
  * The month a permanent pay change actually takes force: its own, except at month 0, where it
@@ -339,8 +421,18 @@ export function withDeferralFraction(job: Job, fraction: number): Job {
 }
 
 /**
- * Attach a permanent raise or cut, in force from its month forward. At most one per
- * (job, month) — re-authoring the same month replaces rather than stacking.
+ * Attach a permanent raise or cut, in force from its month forward.
+ *
+ * **At most one per (job, month), unlike a one-month adjustment** — re-authoring a month
+ * replaces what stood there. Not an arbitrary limit: a pay change opens a salary *segment*, and
+ * two segments beginning the same month is a contradiction rather than a stack, since the second
+ * would immediately supersede the first for every month either covers. It is also what makes
+ * "Estimate missing pay history" re-runnable — {@link estimateHistoryPayChanges} re-offers the
+ * same months, and replacement refreshes them where stacking would pile up duplicates nobody
+ * authored.
+ *
+ * Stacking within a month is what {@link withIncomeOverride} is for: several *payments* in one
+ * month is an ordinary fact, where several *salaries* is not.
  */
 export function withPayChange(job: Job, payChange: JobPayChange): Job {
   return {
@@ -349,10 +441,10 @@ export function withPayChange(job: Job, payChange: JobPayChange): Job {
   };
 }
 
-/** Drop the pay change at `month`, if any; the field goes away entirely once empty. */
-export function withoutPayChange(job: Job, month: number): Job {
+/** Drop the pay change with this id, if any; the field goes away entirely once empty. */
+export function withoutPayChange(job: Job, payChangeId: string): Job {
   if (job.payChanges === undefined) return job;
-  const kept = job.payChanges.filter((c) => c.month !== month);
+  const kept = job.payChanges.filter((c) => c.id !== payChangeId);
   if (kept.length === job.payChanges.length) return job;
   if (kept.length === 0) {
     const { payChanges: _drop, ...rest } = job;
@@ -363,23 +455,31 @@ export function withoutPayChange(job: Job, month: number): Job {
 
 /**
  * Attach a one-month income perturbation — a bonus, a missed paycheck, a correction. Where
- * {@link withPayChange} opens a new salary segment, this touches exactly one month. At most
- * one per (job, month).
+ * {@link withPayChange} opens a new salary segment, this touches exactly one month.
+ *
+ * **Stacks.** Any number may share a month, and each stays its own authored fact: a signing
+ * bonus, a performance bonus and a deduction in the same month are three things that happened,
+ * and collapsing them into one figure would lose which was which and make the second edit erase
+ * the first. They compose in {@link orderedIncomeOverrides} order, each applied to what the ones
+ * before it left — see {@link applyJobIncomeOverride}.
+ *
+ * Appends rather than replacing, so nothing already authored is disturbed; editing one is
+ * removing it by id and adding the new one.
  */
 export function withIncomeOverride(job: Job, override: JobIncomeOverride): Job {
-  return {
-    ...job,
-    incomeOverrides: [
-      ...(job.incomeOverrides ?? []).filter((o) => o.month !== override.month),
-      override,
-    ],
-  };
+  return { ...job, incomeOverrides: [...(job.incomeOverrides ?? []), override] };
 }
 
-/** Drop the one-month override at `month`, if any; the field goes away entirely once empty. */
-export function withoutIncomeOverride(job: Job, month: number): Job {
+/**
+ * Drop the one-month adjustment with this id, if any; the field goes away entirely once empty.
+ *
+ * By id, not by month: a month may hold several and removing "the bonus in March" has to mean
+ * one of them. Removing by month would take the whole stack, which is how a second bonus used
+ * to make the first one unreachable.
+ */
+export function withoutIncomeOverride(job: Job, overrideId: string): Job {
   if (job.incomeOverrides === undefined) return job;
-  const kept = job.incomeOverrides.filter((o) => o.month !== month);
+  const kept = job.incomeOverrides.filter((o) => o.id !== overrideId);
   if (kept.length === job.incomeOverrides.length) return job;
   if (kept.length === 0) {
     const { incomeOverrides: _drop, ...rest } = job;
@@ -627,7 +727,7 @@ export function estimateHistoryPayChanges(
   job: Job,
   span: JobPaySpan,
   inflationRate: number,
-): readonly JobPayChange[] {
+): readonly JobPayChangeInput[] {
   const historyEndExclusive = Math.min(span.endMonthExclusive, 0);
   if (historyEndExclusive <= span.startMonth || inflationRate === 0) return [];
 
@@ -636,7 +736,7 @@ export function estimateHistoryPayChanges(
     .sort((a, b) => a.month - b.month);
   const authoredMonths = new Set(authored.map((c) => c.month));
 
-  const out: JobPayChange[] = [];
+  const out: JobPayChangeInput[] = [];
   let baseMonth = span.startMonth;
   let baseCents = Math.round(job.salary.startingSalaryCents / 12);
   let next = 0;

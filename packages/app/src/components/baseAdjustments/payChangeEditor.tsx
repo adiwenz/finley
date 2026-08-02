@@ -1,7 +1,7 @@
 /**
  * The **pay change at this month** control. Owns the disclosed form's transient state, so
  * {@link BaseAdjustmentsPanel} carries none of it. It never sees `Plan` or a transaction; it
- * hands the parent a finished {@link JobIncomeOverride} or {@link JobPayChange} to apply,
+ * hands the parent a finished {@link JobIncomeOverrideInput} or {@link JobPayChangeInput} to apply,
  * against a month the parent selects.
  *
  * Every kind rides the job's own income series, so all are taxed as wages and run through
@@ -10,7 +10,11 @@
  */
 
 import { useState } from "react";
-import { dollarsToCents, type JobIncomeOverride, type JobPayChange } from "@finley/engine";
+import {
+  dollarsToCents,
+  type JobIncomeOverrideInput,
+  type JobPayChangeInput,
+} from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import styles from "./baseAdjustments.module.css";
 
@@ -25,8 +29,8 @@ export interface PayChangeJobOption {
 }
 
 /**
- * The first two are one-month perturbations (a {@link JobIncomeOverride}); the last two are
- * permanent step changes from the month forward (a {@link JobPayChange}). Permanent cuts
+ * The first two are one-month perturbations (a {@link JobIncomeOverrideInput}); the last two are
+ * permanent step changes from the month forward (a {@link JobPayChangeInput}). Permanent cuts
  * both ways: a new ongoing pay can be lower, so this is a *pay change*, not a "raise".
  */
 export type PayChangeKind = "addBonus" | "setTo" | "setOngoing" | "changeOngoing";
@@ -37,6 +41,12 @@ export type PayChangeKind = "addBonus" | "setTo" | "setOngoing" | "changeOngoing
  * change does.
  */
 export interface AppliedAdjustment {
+  /**
+   * The adjustment's own minted id — the row's identity. Not `${jobId}:${scope}`, which is what
+   * a job's second bonus in one month used to collide with, so the list showed one entry where
+   * two were stored and React reused the first row's node for the second's content.
+   */
+  readonly id: string;
   readonly jobId: string;
   /** Owner-qualified where needed, exactly as the job picker names it. */
   readonly jobLabel: string;
@@ -75,9 +85,9 @@ export interface PayChangeEditorProps {
   /** The panel's selected month, floored to a paying month. */
   readonly incomeMonth: number;
   /** Plan mutation lives in the parent. */
-  readonly onApplyOverride: (jobId: string, override: JobIncomeOverride) => void;
+  readonly onApplyOverride: (jobId: string, override: JobIncomeOverrideInput) => void;
   /** A raise or a cut. Plan mutation lives in the parent. */
-  readonly onApplyPayChange: (jobId: string, payChange: JobPayChange) => void;
+  readonly onApplyPayChange: (jobId: string, payChange: JobPayChangeInput) => void;
 }
 
 export function PayChangeEditor({
@@ -180,7 +190,10 @@ export function PayChangeEditor({
       {appliedAtMonth.length > 0 && (
         <ul className={styles.routeEcho} data-testid="pay-change-route">
           {appliedAtMonth.map((applied) => (
-            <li key={`${applied.jobId}:${applied.scope}`}>
+            // The adjustment's own id. Keying by job and scope gave a job's two bonuses in one
+            // month the same key, so React kept one row and the second silently replaced the
+            // first's text.
+            <li key={applied.id}>
               → {applied.description} on {applied.jobLabel}{" "}
               {applied.scope === "ongoing"
                 ? `from month ${incomeMonth} onward (ongoing)`

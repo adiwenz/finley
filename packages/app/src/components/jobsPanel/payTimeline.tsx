@@ -17,6 +17,8 @@
  */
 
 import {
+  applyJobIncomeOverride,
+  orderedIncomeOverrides,
   payChangeEffectiveMonth,
   type Job,
   type JobIncomeOverride,
@@ -24,7 +26,7 @@ import {
   type JobPayPath,
 } from "@finley/engine";
 import { formatDollars } from "../../format";
-import { adjustedMonthlyCents, describeIncomeOverride } from "../../jobAdjustments";
+import { describeIncomeOverride } from "../../jobAdjustments";
 import { ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
 
@@ -41,9 +43,14 @@ interface PayTimelineProps {
   readonly path: JobPayPath;
   /** How the job is named across the household — every control here says which job it acts on. */
   readonly label: string;
-  readonly onRemove: (month: number) => void;
-  /** A one-month adjustment is a different write from a pay change, so it is a different call. */
-  readonly onRemoveOverride: (month: number) => void;
+  /** By the adjustment's own id — see {@link onRemoveOverride}. */
+  readonly onRemove: (payChangeId: string) => void;
+  /**
+   * A one-month adjustment is a different write from a pay change, so it is a different call —
+   * and it is addressed by id, because a month may hold several and removing "the bonus in
+   * March" has to mean the one whose row was clicked.
+   */
+  readonly onRemoveOverride: (overrideId: string) => void;
 }
 
 interface Row {
@@ -77,9 +84,22 @@ export function PayTimeline({
    * apart. The panel used to only COUNT them in the subtitle, which named a fact the reader
    * could then find nowhere — and could not remove from here at all.
    */
-  const overrides = [...(job.incomeOverrides ?? [])]
-    .filter((o) => o.month >= startMonth && o.month < endMonthExclusive)
-    .sort((a, b) => a.month - b.month);
+  const overrides = orderedIncomeOverrides(job.incomeOverrides ?? []).filter(
+    (o) => o.month >= startMonth && o.month < endMonthExclusive,
+  );
+  /**
+   * What a month pays after each adjustment in turn — the running fold, so three bonuses in one
+   * month read $7,000 / $8,000 / $8,500 rather than three rows all claiming the same figure.
+   * Called once per row in list order, which is the engine's own order, so the last row of a
+   * month states exactly what the projection pays for it.
+   */
+  const runningPay = new Map<number, number>();
+  const payAfter = (override: JobIncomeOverride): number => {
+    const base = runningPay.get(override.month) ?? path.monthlyCentsAt(override.month);
+    const next = applyJobIncomeOverride(base, override);
+    runningPay.set(override.month, next);
+    return next;
+  };
   /**
    * The job is under way and still paying, so month 0 falls inside it and the seam is a real
    * row. A job wholly behind us has no month-0 pay and never reads one; a job that has not
@@ -116,7 +136,7 @@ export function PayTimeline({
     if ("change" in event) {
       const { change } = event;
       rows.push({
-        key: `c${change.month}`,
+        key: change.id,
         month: change.month,
         kind: "change",
         // A change authored at "now" takes force next month — the stated current salary owns
@@ -133,13 +153,13 @@ export function PayTimeline({
     } else {
       const { override } = event;
       rows.push({
-        key: `o${override.month}`,
+        key: override.id,
         month: override.month,
         kind: "oneOff",
         label: `${describeIncomeOverride(override)} — this month only`,
-        // What the month ACTUALLY pays, base and adjustment together — the same figure the
-        // chart marks and the projection pays.
-        monthlyCents: adjustedMonthlyCents(override, path.monthlyCentsAt(override.month)),
+        // What the month pays with this adjustment and everything stacked before it — the
+        // same figure the chart marks and the projection pays.
+        monthlyCents: payAfter(override),
         override,
       });
     }
@@ -183,7 +203,7 @@ export function PayTimeline({
               <button
                 type="button"
                 aria-label={`Remove pay change at age ${ownerAgeAtMonth(birthYear, row.month)} on ${label}`}
-                onClick={() => onRemove(row.month)}
+                onClick={() => onRemove(row.change!.id)}
               >
                 Remove
               </button>
@@ -191,8 +211,10 @@ export function PayTimeline({
             {row.override && (
               <button
                 type="button"
-                aria-label={`Remove one-off adjustment at age ${ownerAgeAtMonth(birthYear, row.month)} on ${label}`}
-                onClick={() => onRemoveOverride(row.month)}
+                // Named by what it IS, not only when: stacked siblings share a month, and
+                // "Remove one-off adjustment at age 36" would be the same name twice.
+                aria-label={`Remove ${describeIncomeOverride(row.override)} at age ${ownerAgeAtMonth(birthYear, row.month)} on ${label}`}
+                onClick={() => onRemoveOverride(row.override!.id)}
               >
                 Remove
               </button>

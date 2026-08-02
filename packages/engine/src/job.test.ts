@@ -13,14 +13,20 @@ import {
   deferralFractionOf,
   deriveRealGrowthPct,
   estimateHistoryPayChanges,
+  applyJobIncomeOverride,
+  applyJobIncomeOverridesAt,
   jobPayPath,
   monthlyIncomeCentsOf,
+  orderedIncomeOverrides,
   startingMonthlyIncomeCentsOf,
   withCurrentMonthlyIncome,
   withDeferralFraction,
   withMonthlyIncome,
   withStartingMonthlyIncome,
   type Job,
+  type JobIncomeOverride,
+  type JobPayChange,
+  type JobPayChangeInput,
 } from "./job";
 import type { Person } from "./person";
 import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
@@ -28,6 +34,15 @@ import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
 const START_YEAR = 2026;
+
+/**
+ * Ids for estimator output, which is authoring INPUT — the engine mints when a caller applies
+ * it, so a test standing a job up directly has to stamp them itself. Sequential and local, since
+ * nothing here asserts on the ids; what matters is that each change has its own.
+ */
+let idSeq = 0;
+const withIds = (changes: readonly JobPayChangeInput[]): readonly JobPayChange[] =>
+  changes.map((c) => ({ ...c, id: `adjustment-est-${++idSeq}` }));
 
 function ctx(): ProjectionContext {
   return { jurisdiction: nullJurisdiction, startYear: START_YEAR };
@@ -104,6 +119,46 @@ describe("Job/Person standing model — additive compilation", () => {
   });
 });
 
+describe("applyJobIncomeOverride — the one definition of what an adjustment means", () => {
+  const bonus = (cents: number): JobIncomeOverride => ({ id: "a", month: 0, kind: "addBonus", cents });
+  const setTo = (cents: number): JobIncomeOverride => ({ id: "a", month: 0, kind: "setTo", cents });
+
+  it("adds an additive adjustment to what already stands there", () => {
+    expect(applyJobIncomeOverride(600000, bonus(200000))).toBe(800000);
+  });
+
+  it("replaces the month's pay for setTo, whatever stood there", () => {
+    expect(applyJobIncomeOverride(600000, setTo(400000))).toBe(400000);
+    expect(applyJobIncomeOverride(0, setTo(400000))).toBe(400000);
+  });
+
+  it("floors at zero — a deduction bigger than the paycheck is a missed one, not a debt", () => {
+    expect(applyJobIncomeOverride(600000, bonus(-900000))).toBe(0);
+    expect(applyJobIncomeOverride(600000, setTo(-1))).toBe(0);
+  });
+
+  it("answers in whole cents, so no caller can introduce a fraction of one", () => {
+    expect(applyJobIncomeOverride(100.4, bonus(0.2))).toBe(101); // 100.6, rounded
+    expect(Number.isInteger(applyJobIncomeOverride(1, bonus(0.5)))).toBe(true);
+  });
+
+  it("composes by folding, which is the whole of what stacking is", () => {
+    const stack = [bonus(100), setTo(900), bonus(50)];
+    expect(stack.reduce(applyJobIncomeOverride, 600)).toBe(950);
+  });
+
+  it("orders by month, then by the order they were authored", () => {
+    const later: JobIncomeOverride = { id: "b", month: 5, kind: "addBonus", cents: 1 };
+    const first: JobIncomeOverride = { id: "c", month: 1, kind: "addBonus", cents: 2 };
+    const second: JobIncomeOverride = { id: "d", month: 1, kind: "addBonus", cents: 3 };
+    expect(orderedIncomeOverrides([later, first, second]).map((o) => o.id)).toEqual([
+      "c",
+      "d",
+      "b",
+    ]);
+  });
+});
+
 describe("Job/Person standing model — one-month income overrides", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
@@ -121,34 +176,109 @@ describe("Job/Person standing model — one-month income overrides", () => {
 
   it("leaves every other month untouched (override is one month only)", () => {
     // Months 0–11 are year 0; a real-flat salary grows at CPI, so later years are not round.
-    const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "setTo", cents: 0 }] };
+    const job: Job = { ...base, incomeOverrides: [{ id: "adjustment-60", month: 6, kind: "setTo", cents: 0 }] };
     expect(monthly(job, 5)).toBe(dollarsToCents(6000));
     expect(monthly(job, 6)).toBe(0);
     expect(monthly(job, 7)).toBe(dollarsToCents(6000));
   });
 
   it("setTo 0 models a missed paycheck; setTo X a one-month salary correction", () => {
-    expect(monthly({ ...base, incomeOverrides: [{ month: 10, kind: "setTo", cents: 0 }] }, 10)).toBe(0);
+    expect(monthly({ ...base, incomeOverrides: [{ id: "adjustment-61", month: 10, kind: "setTo", cents: 0 }] }, 10)).toBe(0);
     expect(
-      monthly({ ...base, incomeOverrides: [{ month: 10, kind: "setTo", cents: dollarsToCents(9000) }] }, 10),
+      monthly({ ...base, incomeOverrides: [{ id: "adjustment-62", month: 10, kind: "setTo", cents: dollarsToCents(9000) }] }, 10),
     ).toBe(dollarsToCents(9000));
   });
 
   it("addBonus adds on top of the month's grown baseline pay", () => {
-    const job: Job = { ...base, incomeOverrides: [{ month: 10, kind: "addBonus", cents: dollarsToCents(2000) }] };
+    const job: Job = { ...base, incomeOverrides: [{ id: "adjustment-63", month: 10, kind: "addBonus", cents: dollarsToCents(2000) }] };
     expect(monthly(job, 10)).toBe(dollarsToCents(8000)); // 6000 base + 2000 bonus
   });
 
   it("ignores an override outside the job's paid span — a job cannot pay when not worked", () => {
     // A fixed-term job ending before month 24 gets a bonus at month 30: no effect.
-    const ended: Job = { ...base, endYear: START_YEAR + 1, incomeOverrides: [{ month: 30, kind: "addBonus", cents: dollarsToCents(5000) }] };
+    const ended: Job = { ...base, endYear: START_YEAR + 1, incomeOverrides: [{ id: "adjustment-64", month: 30, kind: "addBonus", cents: dollarsToCents(5000) }] };
     expect(monthly(ended, 30)).toBe(0);
+  });
+
+  it("stacks several adjustments in one month, each applied to what the last one left", () => {
+    // $6,000 base + $2,000 + $1,000. Two payments in one month is an ordinary fact, and
+    // neither displaces the other.
+    const job: Job = {
+      ...base,
+      incomeOverrides: [
+        { id: "a1", month: 10, kind: "addBonus", cents: dollarsToCents(2000) },
+        { id: "a2", month: 10, kind: "addBonus", cents: dollarsToCents(1000) },
+      ],
+    };
+    expect(monthly(job, 10)).toBe(dollarsToCents(9000));
+    expect(monthly(job, 9)).toBe(dollarsToCents(6000));
+  });
+
+  it("lets a setTo authored first become the baseline a later bonus adds to", () => {
+    // Ordering is authoring order within a month — see `orderedIncomeOverrides`.
+    const job: Job = {
+      ...base,
+      incomeOverrides: [
+        { id: "a1", month: 10, kind: "setTo", cents: dollarsToCents(4000) },
+        { id: "a2", month: 10, kind: "addBonus", cents: dollarsToCents(1500) },
+      ],
+    };
+    expect(monthly(job, 10)).toBe(dollarsToCents(5500));
+  });
+
+  it("lets a setTo authored last discard the bonus before it — that is what setTo says", () => {
+    const job: Job = {
+      ...base,
+      incomeOverrides: [
+        { id: "a1", month: 10, kind: "addBonus", cents: dollarsToCents(1500) },
+        { id: "a2", month: 10, kind: "setTo", cents: dollarsToCents(4000) },
+      ],
+    };
+    expect(monthly(job, 10)).toBe(dollarsToCents(4000));
+  });
+
+  it("floors a stack at zero rather than paying a negative wage", () => {
+    const job: Job = {
+      ...base,
+      incomeOverrides: [
+        { id: "a1", month: 10, kind: "addBonus", cents: -dollarsToCents(4000) },
+        { id: "a2", month: 10, kind: "addBonus", cents: -dollarsToCents(5000) },
+      ],
+    };
+    // −$9,000 against $6,000 of pay is a missed paycheck, never a bill from the employer.
+    expect(monthly(job, 10)).toBe(0);
+  });
+
+  it("stacks a one-month bonus on top of a permanent raise dated the same month", () => {
+    // Different kinds entirely: the raise opens a salary segment and the bonus perturbs the
+    // one month. Both are in force, and the bonus lands on the RAISED pay.
+    const job: Job = {
+      ...base,
+      payChanges: [{ id: "p1", month: 10, kind: "setTo", cents: dollarsToCents(7000) }],
+      incomeOverrides: [{ id: "a1", month: 10, kind: "addBonus", cents: dollarsToCents(2000) }],
+    };
+    expect(monthly(job, 10)).toBe(dollarsToCents(9000));
+    expect(monthly(job, 11)).toBe(dollarsToCents(7000)); // the raise stands; the bonus does not
+  });
+
+  it("reads the same stacked figure as the authoring surfaces do", () => {
+    // `applyJobIncomeOverridesAt` is what the chart, the timeline and the Base + Adjustments
+    // list fold over. It must agree with what the projection actually pays, or a bonus is
+    // drawn at a figure the household never receives.
+    const overrides: readonly JobIncomeOverride[] = [
+      { id: "a1", month: 10, kind: "addBonus", cents: dollarsToCents(2000) },
+      { id: "a2", month: 10, kind: "addBonus", cents: dollarsToCents(1000) },
+    ];
+    const job: Job = { ...base, incomeOverrides: overrides };
+    expect(applyJobIncomeOverridesAt(dollarsToCents(6000), overrides, 10)).toBe(monthly(job, 10));
+    // A month with none is left exactly as it was.
+    expect(applyJobIncomeOverridesAt(dollarsToCents(6000), overrides, 9)).toBe(dollarsToCents(6000));
   });
 
   it("taxes a bonus as wages through the projection, not as untaxed cash", () => {
     // A one-month bonus raises that month's gross wages, so the income flow reads
     // base + bonus.
-    const job: Job = { ...base, incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
+    const job: Job = { ...base, incomeOverrides: [{ id: "adjustment-65", month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
     const series = project({ ...samplePlan, jobs: [job] }).months;
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // 6000 + 3000
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
@@ -171,18 +301,18 @@ describe("Job/Person standing model — permanent pay changes", () => {
   const base: Job = salariedJob(dollarsToCents(6000));
 
   it("setTo sets a new ongoing pay that holds from its month forward, unlike a one-month override", () => {
-    const job: Job = { ...base, payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
+    const job: Job = { ...base, payChanges: [{ id: "adjustment-66", month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
     expect(monthly(job, 5)).toBe(dollarsToCents(6000)); // before the change: old pay
     expect(monthly(job, 6)).toBe(dollarsToCents(9000)); // the pay-change month
     expect(monthly(job, 11)).toBe(dollarsToCents(9000)); // and it PERSISTS (not one month)
   });
 
   it("changeBy adds to the month's baseline from its month forward; a negative delta is a cut", () => {
-    const up: Job = { ...base, payChanges: [{ month: 6, kind: "changeBy", cents: dollarsToCents(2000) }] };
+    const up: Job = { ...base, payChanges: [{ id: "adjustment-67", month: 6, kind: "changeBy", cents: dollarsToCents(2000) }] };
     expect(monthly(up, 5)).toBe(dollarsToCents(6000));
     expect(monthly(up, 6)).toBe(dollarsToCents(8000)); // 6000 + 2000, ongoing
     expect(monthly(up, 11)).toBe(dollarsToCents(8000));
-    const cut: Job = { ...base, payChanges: [{ month: 6, kind: "changeBy", cents: -dollarsToCents(2000) }] };
+    const cut: Job = { ...base, payChanges: [{ id: "adjustment-68", month: 6, kind: "changeBy", cents: -dollarsToCents(2000) }] };
     expect(monthly(cut, 6)).toBe(dollarsToCents(4000)); // a pay cut
   });
 
@@ -190,8 +320,8 @@ describe("Job/Person standing model — permanent pay changes", () => {
     const job: Job = {
       ...base,
       payChanges: [
-        { month: 6, kind: "setTo", cents: dollarsToCents(9000) },
-        { month: 9, kind: "changeBy", cents: dollarsToCents(1000) },
+        { id: "adjustment-69", month: 6, kind: "setTo", cents: dollarsToCents(9000) },
+        { id: "adjustment-70", month: 9, kind: "changeBy", cents: dollarsToCents(1000) },
       ],
     };
     expect(monthly(job, 6)).toBe(dollarsToCents(9000));
@@ -201,8 +331,8 @@ describe("Job/Person standing model — permanent pay changes", () => {
   it("applies pay changes BEFORE one-month overrides, so a later bonus lands on the changed pay", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }],
-      incomeOverrides: [{ month: 8, kind: "addBonus", cents: dollarsToCents(1000) }],
+      payChanges: [{ id: "adjustment-71", month: 6, kind: "setTo", cents: dollarsToCents(9000) }],
+      incomeOverrides: [{ id: "adjustment-72", month: 8, kind: "addBonus", cents: dollarsToCents(1000) }],
     };
     expect(monthly(job, 7)).toBe(dollarsToCents(9000)); // changed pay
     expect(monthly(job, 8)).toBe(dollarsToCents(10000)); // changed pay + bonus
@@ -210,12 +340,12 @@ describe("Job/Person standing model — permanent pay changes", () => {
   });
 
   it("ignores a pay change outside the job's paid span — a job cannot be repriced when not worked", () => {
-    const ended: Job = { ...base, endYear: START_YEAR + 1, payChanges: [{ month: 30, kind: "setTo", cents: dollarsToCents(9000) }] };
+    const ended: Job = { ...base, endYear: START_YEAR + 1, payChanges: [{ id: "adjustment-73", month: 30, kind: "setTo", cents: dollarsToCents(9000) }] };
     expect(monthly(ended, 30)).toBe(0);
   });
 
   it("carries the changed pay through the projection as taxable wages, every month after", () => {
-    const job: Job = { ...base, payChanges: [{ month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
+    const job: Job = { ...base, payChanges: [{ id: "adjustment-74", month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
     const series = project({ ...samplePlan, jobs: [job] }).months;
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000));
@@ -251,7 +381,7 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
   it("reflects a pre-'now' permanent raise from the year it took effect (effective-dated pay change)", () => {
     // setTo $10,000/mo from month −24 (start of 2024): 2024–2025 pay the raised salary,
     // earlier years the original — the record tracks the actual paycheck, not one flat figure.
-    const raised: Job = { ...flat72k, payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(10_000) }] };
+    const raised: Job = { ...flat72k, payChanges: [{ id: "adjustment-75", month: -24, kind: "setTo", cents: dollarsToCents(10_000) }] };
     const prior = priorFor([raised]);
     expect(prior[2023]).toBe(dollarsToCents(72_000));
     expect(prior[2024]).toBe(dollarsToCents(120_000));
@@ -259,7 +389,7 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
   });
 
   it("adds a pre-'now' covered bonus to exactly its year", () => {
-    const withBonus: Job = { ...flat72k, incomeOverrides: [{ month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }] };
+    const withBonus: Job = { ...flat72k, incomeOverrides: [{ id: "adjustment-76", month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }] };
     const prior = priorFor([withBonus]);
     expect(prior[2025]).toBe(dollarsToCents(77_000)); // 72,000 + 5,000 one-off
     expect(prior[2024]).toBe(dollarsToCents(72_000));
@@ -274,7 +404,7 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
   it("excludes a future-dated pay change from the pre-'now' record (the forward series owns it)", () => {
     // A raise at month 12 (year 2027) must not leak into the pre-"now" years, or the same
     // earnings would be double-counted once the forward accumulation reaches 2027.
-    const raisedLater: Job = { ...flat72k, payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(20_000) }] };
+    const raisedLater: Job = { ...flat72k, payChanges: [{ id: "adjustment-77", month: 12, kind: "setTo", cents: dollarsToCents(20_000) }] };
     const prior = priorFor([raisedLater]);
     expect(prior[2025]).toBe(dollarsToCents(72_000));
     expect(prior[2027]).toBeUndefined();
@@ -326,7 +456,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
   it("reconstructs history from a `setTo` raise, then starts month 0 at the current salary", () => {
     // Start $60k; raised to $75k/yr ($6,250/mo) from month −24; authored current pay $80k.
     const job = jobWith(START_60K, CURRENT_80K, {
-      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
+      payChanges: [{ id: "adjustment-78", month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
     });
 
     const prior = priorFor(job);
@@ -343,7 +473,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
   it("applies a historical `changeBy` to prior earnings without reapplying it to current salary", () => {
     // Start $60k ($5,000/mo); +$1,000/mo from month −12 → $6,000/mo for 2025.
     const job = jobWith(START_60K, CURRENT_80K, {
-      payChanges: [{ month: -12, kind: "changeBy", cents: dollarsToCents(1_000) }],
+      payChanges: [{ id: "adjustment-79", month: -12, kind: "changeBy", cents: dollarsToCents(1_000) }],
     });
 
     const prior = priorFor(job);
@@ -359,8 +489,8 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     const job = jobWith(START_60K, CURRENT_80K, {
       payChanges: [
         // Authored out of order on purpose — application is by date, not array order.
-        { month: -12, kind: "changeBy", cents: dollarsToCents(500) }, // → $6,500/mo
-        { month: -36, kind: "setTo", cents: dollarsToCents(6_000) }, // → $6,000/mo
+        { id: "adjustment-80", month: -12, kind: "changeBy", cents: dollarsToCents(500) }, // → $6,500/mo
+        { id: "adjustment-81", month: -36, kind: "setTo", cents: dollarsToCents(6_000) }, // → $6,000/mo
       ],
     });
 
@@ -374,7 +504,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
 
   it("keeps a historical one-month override in its own month and out of projected pay", () => {
     const job = jobWith(START_60K, CURRENT_80K, {
-      incomeOverrides: [{ month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }],
+      incomeOverrides: [{ id: "adjustment-82", month: -6, kind: "addBonus", cents: dollarsToCents(5_000) }],
     });
 
     const prior = priorFor(job);
@@ -390,7 +520,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     // History ends at $75k/yr; current pay is authored at $80k. The engine does not reconcile
     // them — the discontinuity is the authored truth, and month 0 is exactly the current pay.
     const job = jobWith(START_60K, CURRENT_80K, {
-      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
+      payChanges: [{ id: "adjustment-83", month: -24, kind: "setTo", cents: dollarsToCents(6_250) }],
     });
 
     const endOfHistoryAnnual = priorFor(job)[2025]!;
@@ -404,8 +534,8 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
   it("applies a FUTURE pay change to the current-salary anchor, not the historical pay", () => {
     const job = jobWith(START_60K, CURRENT_80K, {
       payChanges: [
-        { month: -24, kind: "setTo", cents: dollarsToCents(6_250) }, // history: $6,250/mo
-        { month: 6, kind: "changeBy", cents: dollarsToCents(1_000) }, // future: +$1,000/mo
+        { id: "adjustment-84", month: -24, kind: "setTo", cents: dollarsToCents(6_250) }, // history: $6,250/mo
+        { id: "adjustment-85", month: 6, kind: "changeBy", cents: dollarsToCents(1_000) }, // future: +$1,000/mo
       ],
     });
 
@@ -516,7 +646,7 @@ describe("stating pay and deferral, and reading them back", () => {
   it("reads the STARTING monthly salary, before growth and pay changes", () => {
     const raised: Job = {
       ...job,
-      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+      payChanges: [{ id: "adjustment-86", month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
     expect(monthlyIncomeCentsOf(raised)).toBe(dollarsToCents(6_000));
   });
@@ -578,8 +708,8 @@ describe("jobPayPath — a job's authored pay across its span", () => {
       realGrowthPct: 0,
     },
     payChanges: [
-      { month: -60, kind: "setTo", cents: dollarsToCents(6_250) },
-      { month: 72, kind: "setTo", cents: dollarsToCents(7_500) },
+      { id: "adjustment-87", month: -60, kind: "setTo", cents: dollarsToCents(6_250) },
+      { id: "adjustment-88", month: 72, kind: "setTo", cents: dollarsToCents(7_500) },
     ],
   };
   const span = { startMonth: -132, endMonthExclusive: (67 - 41) * 12 };
@@ -630,7 +760,7 @@ describe("jobPayPath — a job's authored pay across its span", () => {
         currentSalaryCents: dollarsToCents(21_600),
         realGrowthPct: 0,
       },
-      payChanges: [{ month: -204, kind: "setTo", cents: dollarsToCents(2_100) }],
+      payChanges: [{ id: "adjustment-89", month: -204, kind: "setTo", cents: dollarsToCents(2_100) }],
     };
     const path = jobPayPath(barista, { startMonth: -228, endMonthExclusive: -180 });
     expect(path.endedBeforeNow).toBe(true);
@@ -690,7 +820,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   it("setTo: month 0 still pays the stated current salary, month 1 pays the new one", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
+      payChanges: [{ id: "adjustment-90", month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
     };
     expect(projected(job, 0)).toBe(dollarsToCents(5_000));
     expect(projected(job, 1)).toBe(dollarsToCents(6_000));
@@ -702,7 +832,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   it("changeBy: the delta lands on month 1, off the month-0 salary", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 0, kind: "changeBy", cents: dollarsToCents(6_000) / 12 }],
+      payChanges: [{ id: "adjustment-91", month: 0, kind: "changeBy", cents: dollarsToCents(6_000) / 12 }],
     };
     expect(projected(job, 0)).toBe(dollarsToCents(5_000));
     expect(projected(job, 1)).toBe(dollarsToCents(5_500));
@@ -718,8 +848,8 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     const job: Job = {
       ...base,
       payChanges: [
-        { month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
-        { month: 0, kind: "changeBy", cents: dollarsToCents(500) },
+        { id: "adjustment-92", month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
+        { id: "adjustment-93", month: 0, kind: "changeBy", cents: dollarsToCents(500) },
       ],
     };
     expect(projected(job, 0)).toBe(dollarsToCents(5_000));
@@ -733,8 +863,8 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     const job: Job = {
       ...base,
       payChanges: [
-        { month: 1, kind: "changeBy", cents: dollarsToCents(1_000) },
-        { month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
+        { id: "adjustment-94", month: 1, kind: "changeBy", cents: dollarsToCents(1_000) },
+        { id: "adjustment-95", month: 0, kind: "setTo", cents: dollarsToCents(6_000) },
       ],
     };
     expect(projected(job, 1)).toBe(dollarsToCents(7_000));
@@ -746,7 +876,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     // anchor is not in question and there is nothing to defer.
     const job: Job = {
       ...base,
-      incomeOverrides: [{ month: 0, kind: "addBonus", cents: dollarsToCents(2_000) }],
+      incomeOverrides: [{ id: "adjustment-96", month: 0, kind: "addBonus", cents: dollarsToCents(2_000) }],
     };
     expect(projected(job, 0)).toBe(dollarsToCents(7_000));
     expect(projected(job, 1)).toBe(dollarsToCents(5_000));
@@ -756,7 +886,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     // The fix special-cases the month-0 boundary only; nothing else shifts by a month.
     const job: Job = {
       ...base,
-      payChanges: [{ month: 1, kind: "setTo", cents: dollarsToCents(6_000) }],
+      payChanges: [{ id: "adjustment-97", month: 1, kind: "setTo", cents: dollarsToCents(6_000) }],
     };
     expect(projected(job, 0)).toBe(dollarsToCents(5_000));
     expect(projected(job, 1)).toBe(dollarsToCents(6_000));
@@ -767,7 +897,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     const historical: Job = {
       ...base,
       startYear: START_YEAR - 5,
-      payChanges: [{ month: -24, kind: "setTo", cents: dollarsToCents(4_000) }],
+      payChanges: [{ id: "adjustment-98", month: -24, kind: "setTo", cents: dollarsToCents(4_000) }],
     };
     const path = jobPayPath(historical, { startMonth: -60, endMonthExclusive: 120 });
     expect(path.monthlyCentsAt(-25)).toBe(dollarsToCents(5_000));
@@ -782,7 +912,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     // the figure the projection actually pays this month. A month-0 change used to break it.
     const job: Job = {
       ...base,
-      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
+      payChanges: [{ id: "adjustment-99", month: 0, kind: "setTo", cents: dollarsToCents(72_000) / 12 }],
     };
     expect(monthlyIncomeCentsOf(job)).toBe(projected(job, 0));
   });
@@ -791,8 +921,8 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     const job: Job = {
       ...base,
       payChanges: [
-        { month: 0, kind: "changeBy", cents: dollarsToCents(500) },
-        { month: 36, kind: "setTo", cents: dollarsToCents(9_000) },
+        { id: "adjustment-100", month: 0, kind: "changeBy", cents: dollarsToCents(500) },
+        { id: "adjustment-101", month: 36, kind: "setTo", cents: dollarsToCents(9_000) },
       ],
     };
     for (const month of [0, 1, 2, 11, 12, 35, 36, 60]) {
@@ -887,7 +1017,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
   it("takes a pay change's stated amount verbatim in BOTH denominations", () => {
     // `JobPayChange.cents` is documented as nominal at its own month, so it is not deflated
     // for today's dollars. The inherited wrinkle, asserted so a future change to it is loud.
-    const raised: Job = { ...job, payChanges: [{ month: 60, kind: "setTo", cents: dollarsToCents(9_000) }] };
+    const raised: Job = { ...job, payChanges: [{ id: "adjustment-102", month: 60, kind: "setTo", cents: dollarsToCents(9_000) }] };
     expect(jobPayPath(raised, span).monthlyCentsAt(60)).toBe(dollarsToCents(9_000));
     expect(jobPayPath(raised, span, { inflationRate: CPI }).monthlyCentsAt(60)).toBe(
       dollarsToCents(9_000),
@@ -923,6 +1053,8 @@ describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
     expect(estimates).toHaveLength(9);
     expect(estimates.every((c) => c.estimated === true)).toBe(true);
     expect(estimates.every((c) => c.month < 0 && c.month >= span.startMonth)).toBe(true);
+    // No id: the estimator answers with authoring INPUT, and identity is the engine's to
+    // issue when a caller applies it.
     expect(estimates[0]).toEqual({
       month: -108,
       kind: "setTo",
@@ -940,7 +1072,7 @@ describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
   it("never overwrites an authored change, and grows the following years FROM it", () => {
     const raised: Job = {
       ...job,
-      payChanges: [{ month: -60, kind: "setTo", cents: dollarsToCents(8_000) }],
+      payChanges: [{ id: "adjustment-104", month: -60, kind: "setTo", cents: dollarsToCents(8_000) }],
     };
     const estimates = estimateHistoryPayChanges(raised, span, 0.03);
     expect(estimates.some((c) => c.month === -60)).toBe(false);
@@ -951,7 +1083,7 @@ describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
 
   it("is idempotent — re-running reads through its own prior estimates", () => {
     const once = estimateHistoryPayChanges(job, span, 0.03);
-    const twice = estimateHistoryPayChanges({ ...job, payChanges: once }, span, 0.03);
+    const twice = estimateHistoryPayChanges({ ...job, payChanges: withIds(once) }, span, 0.03);
     expect(twice).toEqual(once);
   });
 
@@ -975,7 +1107,7 @@ describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
     const before = compilePersonPriorEarnings(person(job), START_YEAR);
     expect(before[START_YEAR - 10]).toBe(before[START_YEAR - 1]);
 
-    const applied = { ...job, payChanges: estimateHistoryPayChanges(job, span, 0.03) };
+    const applied = { ...job, payChanges: withIds(estimateHistoryPayChanges(job, span, 0.03)) };
     const after = compilePersonPriorEarnings(person(applied), START_YEAR);
     expect(after[START_YEAR - 10]).toBe(before[START_YEAR - 10]); // the authored first year
     expect(after[START_YEAR - 1]).toBeGreaterThan(before[START_YEAR - 1]!);
@@ -1022,7 +1154,7 @@ describe("historical pay is flat until estimated", () => {
   it("grows only the unstated years once the estimate is applied", () => {
     const applied = {
       ...base,
-      payChanges: estimateHistoryPayChanges(base, span, CPI),
+      payChanges: withIds(estimateHistoryPayChanges(base, span, CPI)),
     };
     const prior = compilePersonPriorEarnings(person([applied]), START_YEAR);
     // The first year is the authored anchor and does not move; later years climb at CPI.
@@ -1034,7 +1166,7 @@ describe("historical pay is flat until estimated", () => {
   it("leaves an authored historical change authoritative, and flat after it", () => {
     const raised: Job = {
       ...base,
-      payChanges: [{ month: -60, kind: "setTo", cents: dollarsToCents(7_000) }],
+      payChanges: [{ id: "adjustment-105", month: -60, kind: "setTo", cents: dollarsToCents(7_000) }],
     };
     const prior = compilePersonPriorEarnings(person([raised]), START_YEAR);
     expect(prior[START_YEAR - 6]).toBe(dollarsToCents(60_000));
@@ -1060,7 +1192,7 @@ describe("historical pay is flat until estimated", () => {
   it("restores the flat authored history when the estimates are removed again", () => {
     const before = compilePersonPriorEarnings(person([base]), START_YEAR);
     const estimates = estimateHistoryPayChanges(base, span, CPI);
-    const applied = { ...base, payChanges: estimates };
+    const applied = { ...base, payChanges: withIds(estimates) };
     expect(compilePersonPriorEarnings(person([applied]), START_YEAR)).not.toEqual(before);
 
     // Removing exactly what was generated — the flag is what makes them identifiable.
@@ -1069,7 +1201,7 @@ describe("historical pay is flat until estimated", () => {
   });
 
   it("still gives month 0 to the current salary, whatever the history did", () => {
-    const applied = { ...base, payChanges: estimateHistoryPayChanges(base, span, CPI) };
+    const applied = { ...base, payChanges: withIds(estimateHistoryPayChanges(base, span, CPI)) };
     const forward = compilePersonIncomeSeries(person([applied]), START_YEAR, CPI)[0].series;
     expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(96_000 / 12));
     expect(jobPayPath(applied, span, { inflationRate: CPI }).monthlyCentsAt(0)).toBe(
@@ -1121,7 +1253,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("carries a pre-join setTo into the salary the partner brings with them", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+      payChanges: [{ id: "adjustment-106", month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
     expect(paid(job, 12)).toBe(0); // not a member yet — nothing is paid
     expect(paid(job, JOIN)).toBe(dollarsToCents(9_000)); // arrives on the RAISED salary
@@ -1130,7 +1262,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("carries a pre-join changeBy, composed against the pay standing at the time", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(1_500) }],
+      payChanges: [{ id: "adjustment-107", month: 12, kind: "changeBy", cents: dollarsToCents(1_500) }],
     };
     expect(paid(job, JOIN)).toBe(dollarsToCents(7_500)); // 6,000 + 1,500
   });
@@ -1139,9 +1271,9 @@ describe("membership clips what the household is paid, not the job's salary path
     const job: Job = {
       ...base,
       payChanges: [
-        { month: 6, kind: "setTo", cents: dollarsToCents(8_000) },
-        { month: 12, kind: "changeBy", cents: dollarsToCents(500) },
-        { month: 18, kind: "changeBy", cents: dollarsToCents(-1_000) },
+        { id: "adjustment-108", month: 6, kind: "setTo", cents: dollarsToCents(8_000) },
+        { id: "adjustment-109", month: 12, kind: "changeBy", cents: dollarsToCents(500) },
+        { id: "adjustment-110", month: 18, kind: "changeBy", cents: dollarsToCents(-1_000) },
       ],
     };
     expect(paid(job, JOIN)).toBe(dollarsToCents(7_500)); // 8,000 + 500 − 1,000
@@ -1150,7 +1282,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("excludes a pre-join bonus — a bonus is a payment, not a salary state", () => {
     const job: Job = {
       ...base,
-      incomeOverrides: [{ month: 12, kind: "addBonus", cents: dollarsToCents(5_000) }],
+      incomeOverrides: [{ id: "adjustment-111", month: 12, kind: "addBonus", cents: dollarsToCents(5_000) }],
     };
     expect(paid(job, 12)).toBe(0);
     expect(paid(job, JOIN)).toBe(dollarsToCents(6_000)); // unchanged by the bonus it missed
@@ -1159,7 +1291,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("includes a bonus that lands during membership", () => {
     const job: Job = {
       ...base,
-      incomeOverrides: [{ month: 36, kind: "addBonus", cents: dollarsToCents(5_000) }],
+      incomeOverrides: [{ id: "adjustment-112", month: 36, kind: "addBonus", cents: dollarsToCents(5_000) }],
     };
     expect(paid(job, 36)).toBe(dollarsToCents(11_000));
     expect(paid(job, 37)).toBe(dollarsToCents(6_000));
@@ -1168,7 +1300,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("stops paying when membership ends, leaving the job's own path untouched", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 60, kind: "setTo", cents: dollarsToCents(9_000) }],
+      payChanges: [{ id: "adjustment-113", month: 60, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
     const window = { startMonth: JOIN, endMonthExclusive: 48 };
     expect(paid(job, 47, window)).toBe(dollarsToCents(6_000));
@@ -1182,7 +1314,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("keeps month-0 semantics under a membership window", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 0, kind: "setTo", cents: dollarsToCents(9_000) }],
+      payChanges: [{ id: "adjustment-114", month: 0, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
     const fromNow = { startMonth: 0, endMonthExclusive: Infinity };
     expect(paid(job, 0, fromNow)).toBe(dollarsToCents(6_000)); // the anchor still owns month 0
@@ -1192,7 +1324,7 @@ describe("membership clips what the household is paid, not the job's salary path
   it("leaves jobPayPath alone — it knows nothing about households", () => {
     const job: Job = {
       ...base,
-      payChanges: [{ month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
+      payChanges: [{ id: "adjustment-115", month: 12, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
     const path = jobPayPath(job, { startMonth: -120, endMonthExclusive: 300 });
     expect(path.monthlyCentsAt(12)).toBe(dollarsToCents(9_000));

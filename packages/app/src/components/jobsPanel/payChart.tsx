@@ -47,13 +47,13 @@ import {
   YAxis,
 } from "recharts";
 import {
+  applyJobIncomeOverridesAt,
   payChangeEffectiveMonth,
   type JobIncomeOverride,
   type JobPayChange,
   type JobPayPath,
 } from "@finley/engine";
 import { formatDollars } from "../../format";
-import { adjustedMonthlyCents } from "../../jobAdjustments";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
 
@@ -178,17 +178,22 @@ export function PayChart({
    *
    * `adjusted` rides along so the tooltip can say "this month" instead of "/mo" on exactly
    * those months: the height is a payment there, not a salary.
+   *
+   * Several adjustments may share a month. They are folded through the engine's own
+   * {@link applyJobIncomeOverridesAt}, so the spike is drawn at what the projection pays rather
+   * than at whichever one the chart happened to look at last.
    */
-  const oneOffByMonth = new Map(incomeOverrides.map((o) => [o.month, o]));
+  const adjustedMonths = new Set(incomeOverrides.map((o) => o.month));
   const rows = [...months]
     .sort((a, b) => a - b)
     .map((month) => {
       const standing = path.monthlyCentsAt(month);
-      const override = oneOffByMonth.get(month);
       return {
         month,
-        pay: override === undefined ? standing : adjustedMonthlyCents(override, standing),
-        adjusted: override !== undefined,
+        // The whole stack, not one of them: a month may carry several adjustments, and the
+        // engine folds them in order. Drawing only the last would understate a double bonus.
+        pay: applyJobIncomeOverridesAt(standing, incomeOverrides, month),
+        adjusted: adjustedMonths.has(month),
       };
     });
   const peak = Math.max(...rows.map((r) => r.pay), 1);

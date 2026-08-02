@@ -210,14 +210,19 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
     setAuthoring(null);
   }
 
-  function removePayChange(id: string, month: number) {
+  function removePayChange(jobId: string, payChangeId: string) {
     // Addressed by job id alone: an id names one job in the household.
-    transact((p) => p.removeJobPayChange(id, month));
+    transact((p) => p.removeJobPayChange(jobId, payChangeId));
   }
 
-  /** The other list on a job: a single month's bonus or missed paycheck, not a salary state. */
-  function removeIncomeOverride(id: string, month: number) {
-    transact((p) => p.removeJobIncomeOverride(id, month));
+  /**
+   * The other list on a job: a single month's bonus or missed paycheck, not a salary state.
+   *
+   * By the adjustment's own id, not its month — several may share a month, and a month would
+   * name the whole stack.
+   */
+  function removeIncomeOverride(jobId: string, overrideId: string) {
+    transact((p) => p.removeJobIncomeOverride(jobId, overrideId));
   }
 
   /**
@@ -325,8 +330,8 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                   birthYear={owner.birthYear}
                   path={path}
                   label={label}
-                  onRemove={(month) => removePayChange(job.id, month)}
-                  onRemoveOverride={(month) => removeIncomeOverride(job.id, month)}
+                  onRemove={(payChangeId) => removePayChange(job.id, payChangeId)}
+                  onRemoveOverride={(overrideId) => removeIncomeOverride(job.id, overrideId)}
                 />
                 <div className={styles.actions}>
                   <button

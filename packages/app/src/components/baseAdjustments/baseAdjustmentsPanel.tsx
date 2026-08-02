@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
+  orderedIncomeOverrides,
   type Household,
   type Ledger,
   type Plan,
@@ -177,6 +178,11 @@ export function BaseAdjustmentsPanel({
    * Everything already authored at the selected month, read back off the jobs. The editor used
    * to remember the last thing it applied instead, which showed one change where two were
    * stored and outlived changes removed elsewhere.
+   *
+   * Every adjustment separately, keyed by its own id: a month may hold any number of one-off
+   * adjustments on one job, and each is a fact the user authored and can remove on its own.
+   * Nothing here merges or collapses them — the order is the engine's `orderedIncomeOverrides`
+   * order, which is also the order they apply in.
    */
   const appliedAtMonth = useMemo(
     () =>
@@ -184,6 +190,7 @@ export function BaseAdjustmentsPanel({
         ...(job.payChanges ?? [])
           .filter((c) => c.month === selectedMonth)
           .map((c) => ({
+            id: c.id,
             jobId: job.id,
             jobLabel: label,
             scope: "ongoing" as const,
@@ -192,9 +199,10 @@ export function BaseAdjustmentsPanel({
                 ? `pay set to ${formatDollars(c.cents)}`
                 : `pay changed by ${formatDollars(c.cents)}`,
           })),
-        ...(job.incomeOverrides ?? [])
+        ...orderedIncomeOverrides(job.incomeOverrides ?? [])
           .filter((o) => o.month === selectedMonth)
           .map((o) => ({
+            id: o.id,
             jobId: job.id,
             jobLabel: label,
             scope: "thisMonth" as const,

@@ -174,8 +174,8 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
     // bonus in 2025 (month −6); a second concurrent $2,000/mo job runs alongside.
     const main = {
       ...salariedJob(dollarsToCents(6000)),
-      payChanges: [{ month: -24, kind: "setTo" as const, cents: dollarsToCents(10_000) }],
-      incomeOverrides: [{ month: -6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
+      payChanges: [{ id: "adjustment-116", month: -24, kind: "setTo" as const, cents: dollarsToCents(10_000) }],
+      incomeOverrides: [{ id: "adjustment-117", month: -6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
     };
     const side = { ...salariedJob(dollarsToCents(2000)), id: "job-side" };
     const record = recordAtClaim(zeroInflation([main, side]));
@@ -205,7 +205,7 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
         currentSalaryCents: dollarsToCents(96_000),
         realGrowthPct: 0,
       },
-      payChanges: [{ month: -24, kind: "setTo" as const, cents: dollarsToCents(6_250) }],
+      payChanges: [{ id: "adjustment-118", month: -24, kind: "setTo" as const, cents: dollarsToCents(6_250) }],
     };
     const plan = zeroInflation([job]);
 

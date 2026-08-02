@@ -488,7 +488,11 @@ describe("Projection root — editing and removing a job", () => {
   it("patches only the named fields, carrying the rest of the job through", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, matchedJob);
-    p.addJobPayChange(jobId, { month: 12, kind: "changeBy", cents: dollarsToCents(500) });
+    const raise = p.addJobPayChange(jobId, {
+      month: 12,
+      kind: "changeBy",
+      cents: dollarsToCents(500),
+    });
 
     p.updateJob(jobId, { name: "Night job", endYear: SAMPLE_START_YEAR + 10 });
 
@@ -501,7 +505,9 @@ describe("Projection root — editing and removing a job", () => {
       ownerId: P1,
       salary: matchedJob.salary,
       deferral: matchedJob.deferral,
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+      // The adjustment keeps the id it was minted with; a patch of other fields cannot
+      // re-identify what was already authored.
+      payChanges: [{ id: raise, month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
   });
 
@@ -586,15 +592,15 @@ describe("Projection root — editing and removing a job", () => {
     // accumulated adjustments, not a blank draft's fields.
     const jobId = p.addJob(P1, {
       ...matchedJob,
-      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+      incomeOverrides: [{ id: "adjustment-39", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ id: "adjustment-40", month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
     expect(p.plan.jobs[0]).toMatchObject({
       id: jobId,
       name: "Day job",
       deferral: matchedJob.deferral,
-      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+      incomeOverrides: [{ id: "adjustment-39", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ id: "adjustment-40", month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
   });
 
@@ -683,15 +689,15 @@ describe("Projection root — jobs on a partner's plane", () => {
     const { p, partnerId } = withPartner();
     const jobId = p.addPartnerJob(partnerId, {
       ...matchedJob,
-      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+      incomeOverrides: [{ id: "adjustment-43", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ id: "adjustment-44", month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
     expect(partnerJobs(p)[0]).toMatchObject({
       id: jobId,
       name: "Day job",
       deferral: matchedJob.deferral,
-      incomeOverrides: [{ month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
-      payChanges: [{ month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
+      incomeOverrides: [{ id: "adjustment-43", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
+      payChanges: [{ id: "adjustment-44", month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
   });
 
@@ -758,8 +764,8 @@ describe("Projection root — moving a job between the two planes", () => {
     ...openEndedJob,
     name: "Software Engineer",
     deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
-    incomeOverrides: [{ month: 6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
-    payChanges: [{ month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
+    incomeOverrides: [{ id: "adjustment-47", month: 6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
+    payChanges: [{ id: "adjustment-48", month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
   } as const;
 
   /** A job as authoring input — its id and owner are the engine's, not the caller's. */
@@ -857,6 +863,53 @@ describe("Projection root — one counter across both planes, across a round tri
     expect(new Set(minted).size).toBe(minted.length);
   });
 
+  it("carries every adjustment id through a state round trip, unchanged", () => {
+    const authored = freshProjection();
+    const jobId = authored.addJob(P1, openEndedJob);
+    const raise = authored.addJobPayChange(jobId, {
+      month: 12,
+      kind: "setTo",
+      cents: dollarsToCents(9000),
+    });
+    const first = authored.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 });
+    const second = authored.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 200 });
+
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
+      nullJurisdiction,
+    );
+
+    // Identity is what makes a stacked sibling addressable, so it has to survive the boundary
+    // that a saved plan crosses — not be regenerated into a fresh set on the way back in.
+    const job = reloaded.plan.jobs[0]!;
+    expect(job.payChanges?.map((c) => c.id)).toEqual([raise]);
+    expect(job.incomeOverrides?.map((o) => o.id)).toEqual([first, second]);
+
+    // And removal still finds exactly one of them on the far side.
+    reloaded.removeJobIncomeOverride(jobId, first);
+    expect(reloaded.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([second]);
+  });
+
+  it("never reissues an adjustment id to a new adjustment after a round trip", () => {
+    const authored = freshProjection();
+    const jobId = authored.addJob(P1, openEndedJob);
+    const held = new Set([
+      authored.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 }),
+      authored.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: 100 }),
+    ]);
+
+    const reloaded = Projection.fromState(
+      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
+      nullJurisdiction,
+    );
+
+    // A reissued id would make the new bonus and the restored one the same row to every
+    // surface, and removing either would take both.
+    const minted = reloaded.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 200 });
+    expect(held.has(minted)).toBe(false);
+    expect(reloaded.plan.jobs[0]?.incomeOverrides).toHaveLength(2);
+  });
+
   it("steps past a partner job an imported scenario already holds", () => {
     // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
     // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
@@ -910,49 +963,114 @@ describe("Projection root — pay changes and one-month income overrides", () =>
     const jobId = p.addJob(P1, openEndedJob);
     p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
     p.addJobPayChange(jobId, { month: 24, kind: "changeBy", cents: dollarsToCents(500) });
-    // Re-authoring the same month replaces rather than stacking a second change there.
+    // Re-authoring the same month replaces rather than stacking: a pay change opens a salary
+    // segment, and two segments beginning together is a contradiction, not a stack.
     p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9500) });
 
     expect(p.plan.jobs[0]?.payChanges).toEqual([
-      { month: 24, kind: "changeBy", cents: dollarsToCents(500) },
-      { month: 12, kind: "setTo", cents: dollarsToCents(9500) },
+      { id: expect.any(String), month: 24, kind: "changeBy", cents: dollarsToCents(500) },
+      { id: expect.any(String), month: 12, kind: "setTo", cents: dollarsToCents(9500) },
     ]);
   });
 
-  it("removes a pay change, dropping the field once none are left", () => {
+  it("mints an id for every adjustment, off the same counter as everything else", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
-    p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
-    p.addJobPayChange(jobId, { month: 24, kind: "setTo", cents: dollarsToCents(9500) });
+    const raise = p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
+    const bonus = p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 });
 
-    p.removeJobPayChange(jobId, 12);
+    // Distinct from each other and from the job's own id — one counter issues all three.
+    expect(new Set([jobId, raise, bonus]).size).toBe(3);
+    expect(p.plan.jobs[0]?.payChanges?.[0]?.id).toBe(raise);
+    expect(p.plan.jobs[0]?.incomeOverrides?.[0]?.id).toBe(bonus);
+  });
+
+  it("removes a pay change by id, dropping the field once none are left", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const first = p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
+    const second = p.addJobPayChange(jobId, { month: 24, kind: "setTo", cents: dollarsToCents(9500) });
+
+    p.removeJobPayChange(jobId, first);
     expect(p.plan.jobs[0]?.payChanges).toEqual([
-      { month: 24, kind: "setTo", cents: dollarsToCents(9500) },
+      { id: second, month: 24, kind: "setTo", cents: dollarsToCents(9500) },
     ]);
 
-    p.removeJobPayChange(jobId, 24);
+    p.removeJobPayChange(jobId, second);
     expect(p.plan.jobs[0]).not.toHaveProperty("payChanges");
   });
 
   it("attaches a one-month override and removes it, dropping the field once empty", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
-    p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: dollarsToCents(5000) });
-    p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: dollarsToCents(6000) });
+    const bonus = p.addJobIncomeOverride(jobId, {
+      month: 6,
+      kind: "addBonus",
+      cents: dollarsToCents(5000),
+    });
     expect(p.plan.jobs[0]?.incomeOverrides).toEqual([
-      { month: 6, kind: "addBonus", cents: dollarsToCents(6000) },
+      { id: bonus, month: 6, kind: "addBonus", cents: dollarsToCents(5000) },
     ]);
 
-    p.removeJobIncomeOverride(jobId, 6);
+    p.removeJobIncomeOverride(jobId, bonus);
     expect(p.plan.jobs[0]).not.toHaveProperty("incomeOverrides");
+  });
+
+  it("stacks several one-month adjustments in one month, each keeping its own identity", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const signing = p.addJobIncomeOverride(jobId, {
+      month: 6,
+      kind: "addBonus",
+      cents: dollarsToCents(5000),
+    });
+    const performance = p.addJobIncomeOverride(jobId, {
+      month: 6,
+      kind: "addBonus",
+      cents: dollarsToCents(2000),
+    });
+
+    // Two payments in one month is an ordinary fact. The second must not displace the first —
+    // that displacement is what made a second bonus erase the first everywhere it was listed.
+    expect(p.plan.jobs[0]?.incomeOverrides).toEqual([
+      { id: signing, month: 6, kind: "addBonus", cents: dollarsToCents(5000) },
+      { id: performance, month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
+    ]);
+    expect(signing).not.toBe(performance);
+  });
+
+  it("removes one of a month's stacked adjustments and leaves its siblings alone", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const first = p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 });
+    const second = p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 200 });
+    const third = p.addJobIncomeOverride(jobId, { month: 6, kind: "setTo", cents: 900 });
+
+    p.removeJobIncomeOverride(jobId, second);
+
+    // By id, so the month keeps the other two. Removing by month would have taken all three.
+    expect(p.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([first, third]);
+  });
+
+  it("keeps adjustment ids stable across an unrelated edit to the same job", () => {
+    const p = freshProjection();
+    const jobId = p.addJob(P1, openEndedJob);
+    const raise = p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
+    const bonus = p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 });
+
+    p.updateJob(jobId, { name: "Renamed" });
+    p.setJobCurrentMonthlyIncome(jobId, dollarsToCents(8000));
+
+    expect(p.plan.jobs[0]?.payChanges?.map((c) => c.id)).toEqual([raise]);
+    expect(p.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([bonus]);
   });
 
   it("removing an adjustment that is not there leaves the job untouched", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, openEndedJob);
     const before = p.plan.jobs[0];
-    p.removeJobPayChange(jobId, 99);
-    p.removeJobIncomeOverride(jobId, 99);
+    p.removeJobPayChange(jobId, "adjustment-nope");
+    p.removeJobIncomeOverride(jobId, "adjustment-nope");
     expect(p.plan.jobs[0]).toEqual(before);
   });
 });

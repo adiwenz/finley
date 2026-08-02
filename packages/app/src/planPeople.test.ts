@@ -144,8 +144,8 @@ describe("applyJobDraft — the two salary anchors", () => {
 
 describe("applyJobDraft — pay changes an edit can no longer hold", () => {
   const NOW_BIRTH_YEAR = START_YEAR - 41;
-  const historical = { month: (30 - 41) * 12, kind: "setTo", cents: 6_250_00 } as const;
-  const future = { month: 72, kind: "setTo", cents: 7_500_00 } as const;
+  const historical = { id: "adjustment-34", month: (30 - 41) * 12, kind: "setTo", cents: 6_250_00 } as const;
+  const future = { id: "adjustment-35", month: 72, kind: "setTo", cents: 7_500_00 } as const;
   const existing = job({
     startYear: NOW_BIRTH_YEAR + 28,
     payChanges: [historical, future],
@@ -182,7 +182,7 @@ describe("a job that ended before now — the anchor the engine never reads", ()
     startYear: NOW_BIRTH_YEAR + 22,
     endYear: NOW_BIRTH_YEAR + 26,
     salary: { startingSalaryCents: 21_600_00, currentSalaryCents: 21_600_00, realGrowthPct: 0 },
-    payChanges: [{ month: (24 - 41) * 12, kind: "setTo", cents: 2_100_00 }],
+    payChanges: [{ id: "adjustment-36", month: (24 - 41) * 12, kind: "setTo", cents: 2_100_00 }],
   });
 
   it("pins the dead month-0 anchor to what the job last paid, never to zero", () => {

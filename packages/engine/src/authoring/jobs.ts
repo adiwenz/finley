@@ -20,7 +20,13 @@
  * partner-job edit that would strand a later event is refused exactly as any other would be.
  */
 
-import type { Job, JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "../job";
+import type {
+  Job,
+  JobIncomeOverrideInput,
+  JobPatch,
+  JobPayChangeInput,
+  PersonId,
+} from "../job";
 import {
   deferralFractionOf,
   mapJob,
@@ -121,9 +127,10 @@ function editPlanJob(
   state: ProjectionState,
   id: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
   const plan = planSite(state, "jobs", id);
-  return withStatePlan(state, { ...plan, jobs: mapJob(plan.jobs, id, f) });
+  return withStatePlan(state, { ...plan, jobs: mapJob(plan.jobs, id, f) }, nextSeq);
 }
 
 /** The partner-plane counterpart of {@link editPlanJob}. */
@@ -132,6 +139,7 @@ function editPartnerJob(
   jurisdiction: Jurisdiction,
   jobId: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
   const { event } = partnerJobSite(state, jobId);
   return withPartnerJobs(
@@ -139,6 +147,7 @@ function editPartnerJob(
     jurisdiction,
     event,
     event.person.jobs.map((j) => (j.id === jobId ? f(j) : j)),
+    nextSeq,
   );
 }
 
@@ -148,12 +157,13 @@ function editJobAnywhere(
   jurisdiction: Jurisdiction,
   jobId: string,
   f: (job: Job) => Job,
+  nextSeq?: number,
 ): ProjectionState {
-  if (onPlan(state, jobId)) return editPlanJob(state, jobId, f);
+  if (onPlan(state, jobId)) return editPlanJob(state, jobId, f, nextSeq);
   for (const event of state.scenario.ledger.events) {
     if (event.type !== "RelationshipEvent") continue;
     if (event.person.jobs.some((j) => j.id === jobId)) {
-      return editPartnerJob(state, jurisdiction, jobId, f);
+      return editPartnerJob(state, jurisdiction, jobId, f, nextSeq);
     }
   }
   throw new Error(`Projection: cannot edit a job — no job "${jobId}" in this household`);
@@ -401,44 +411,75 @@ export function setProjectionJobDeferralFraction(
   return editJobAnywhere(state, jurisdiction, id, (j) => withDeferralFraction(j, fraction));
 }
 
-/** See {@link withPayChange} — a permanent raise or cut, at most one per (job, month). */
+/**
+ * See {@link withPayChange} — a permanent raise or cut, at most one per (job, month).
+ *
+ * The id is minted here rather than accepted, like every other identity in the model: an
+ * authoring input carries no id, so a caller cannot name one into existence or hand two
+ * adjustments the same one. Answers with it, since a caller that just authored an adjustment is
+ * usually the one that needs to address it next.
+ */
 export function addProjectionJobPayChange(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  payChange: JobPayChange,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withPayChange(j, payChange));
+  payChange: JobPayChangeInput,
+): Written<string> {
+  const { id, nextSeq } = mint(state, "adjustment");
+  return {
+    state: editJobAnywhere(
+      state,
+      jurisdiction,
+      jobId,
+      (j) => withPayChange(j, { ...payChange, id }),
+      nextSeq,
+    ),
+    result: id,
+  };
 }
 
-/** See {@link withoutPayChange}. */
+/** See {@link withoutPayChange} — addressed by the adjustment's own id. */
 export function removeProjectionJobPayChange(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  month: number,
+  payChangeId: string,
 ): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutPayChange(j, month));
+  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutPayChange(j, payChangeId));
 }
 
-/** See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment. */
+/**
+ * See {@link withIncomeOverride} — a one-month perturbation, not a new salary segment, and one
+ * of any number that may share a month. The minted id is what keeps stacked siblings apart, so
+ * it is answered back for a caller that wants to remove or re-address this one.
+ */
 export function addProjectionJobIncomeOverride(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  override: JobIncomeOverride,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withIncomeOverride(j, override));
+  override: JobIncomeOverrideInput,
+): Written<string> {
+  const { id, nextSeq } = mint(state, "adjustment");
+  return {
+    state: editJobAnywhere(
+      state,
+      jurisdiction,
+      jobId,
+      (j) => withIncomeOverride(j, { ...override, id }),
+      nextSeq,
+    ),
+    result: id,
+  };
 }
 
-/** See {@link withoutIncomeOverride}. */
+/** See {@link withoutIncomeOverride} — addressed by id, since a month may hold several. */
 export function removeProjectionJobIncomeOverride(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   jobId: string,
-  month: number,
+  overrideId: string,
 ): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutIncomeOverride(j, month));
+  return editJobAnywhere(state, jurisdiction, jobId, (j) => withoutIncomeOverride(j, overrideId));
 }
 
 // Reads. Ownership is on the job, so a caller reading pay or deferral never has to know which

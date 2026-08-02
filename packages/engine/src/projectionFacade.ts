@@ -68,7 +68,7 @@
  */
 
 import type { Plan, PlanPatch, GoalPatch } from "./plan";
-import type { JobIncomeOverride, JobPatch, JobPayChange, PersonId } from "./job";
+import type { JobIncomeOverrideInput, JobPatch, JobPayChangeInput, PersonId } from "./job";
 import type { BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
@@ -355,29 +355,40 @@ export class Projection {
     );
   }
 
-  /** A permanent raise or cut, at most one per (job, month). */
-  addJobPayChange(jobId: string, payChange: JobPayChange): void {
-    this.write((state) =>
+  /**
+   * A permanent raise or cut, at most one per (job, month). Returns the minted adjustment id —
+   * always minted; a caller cannot name an adjustment, exactly as they cannot name a job.
+   */
+  addJobPayChange(jobId: string, payChange: JobPayChangeInput): string {
+    return this.write((state) =>
       addProjectionJobPayChange(state, this.validationJurisdiction, jobId, payChange),
     );
   }
 
-  removeJobPayChange(jobId: string, month: number): void {
+  /** By the adjustment's id, not its month — see {@link removeJobIncomeOverride}. */
+  removeJobPayChange(jobId: string, payChangeId: string): void {
     this.write((state) =>
-      removeProjectionJobPayChange(state, this.validationJurisdiction, jobId, month),
+      removeProjectionJobPayChange(state, this.validationJurisdiction, jobId, payChangeId),
     );
   }
 
-  /** A one-month perturbation, not a new salary segment. */
-  addJobIncomeOverride(jobId: string, override: JobIncomeOverride): void {
-    this.write((state) =>
+  /**
+   * A one-month perturbation, not a new salary segment — and one of any number that may share a
+   * month. Returns the minted adjustment id.
+   */
+  addJobIncomeOverride(jobId: string, override: JobIncomeOverrideInput): string {
+    return this.write((state) =>
       addProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, override),
     );
   }
 
-  removeJobIncomeOverride(jobId: string, month: number): void {
+  /**
+   * By id: several adjustments may be dated the same month, so a month names a stack rather than
+   * an entry, and removing by month would take all of them.
+   */
+  removeJobIncomeOverride(jobId: string, overrideId: string): void {
     this.write((state) =>
-      removeProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, month),
+      removeProjectionJobIncomeOverride(state, this.validationJurisdiction, jobId, overrideId),
     );
   }
 

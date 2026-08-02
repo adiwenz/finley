@@ -498,7 +498,7 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
 
     // It landed on the partner's job — on the LEDGER plane, not the plan.
     expect(jobsOn("partner-jobs")[0].payChanges).toEqual([
-      { month: 6, kind: "setTo", cents: dollarsToCents(4500) },
+      { id: expect.any(String), month: 6, kind: "setTo", cents: dollarsToCents(4500) },
     ]);
     expect(jobsOn("primary-jobs")[0].payChanges).toBeUndefined();
     expect(incomeReadonlyDollars()).toBe(9500); // 5,000 + 4,500
@@ -534,6 +534,49 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(listed).toMatch(/bonus of \$1,000/i); // and so is the second
     expect(screen.getAllByRole("listitem").filter((li) => /bonus of/i.test(li.textContent ?? "")))
       .toHaveLength(2);
+  });
+
+  it("lists two bonuses on the SAME job in the same month as two entries", () => {
+    // The sharpest form of the collision: same job, same month, same scope — which the old
+    // `${jobId}:${scope}` key made indistinguishable, so React kept one row and the second
+    // bonus overwrote the first's text.
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+
+    openOneOff();
+    setOneOffAmount(2000);
+    applyOneOff();
+
+    openOneOff();
+    setOneOffAmount(1500);
+    applyOneOff();
+
+    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
+    expect(listed).toMatch(/bonus of \$2,000/i);
+    expect(listed).toMatch(/bonus of \$1,500/i);
+    expect(
+      screen.getAllByRole("listitem").filter((li) => /bonus of/i.test(li.textContent ?? "")),
+    ).toHaveLength(2);
+  });
+
+  it("keeps both stored on the job, and pays their sum", () => {
+    renderPanel(PLAN_DEFAULTS);
+    selectMonth(6);
+
+    openOneOff();
+    setOneOffAmount(2000);
+    applyOneOff();
+    openOneOff();
+    setOneOffAmount(1500);
+    applyOneOff();
+
+    // Two authored facts with distinct ids, neither collapsed into the other.
+    const overrides = jobsOn("primary-jobs")[0].incomeOverrides ?? [];
+    expect(overrides).toHaveLength(2);
+    expect(new Set(overrides.map((o) => o.id)).size).toBe(2);
+    expect(overrides.map((o) => o.cents)).toEqual([dollarsToCents(2000), dollarsToCents(1500)]);
+    // $5,000 standing pay for the month + both bonuses — what the projection actually pays.
+    expect(incomeReadonlyDollars()).toBe(5000 + 2000 + 1500);
   });
 
   it("shows a permanent change and a one-off at the same month side by side", () => {
@@ -592,8 +635,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
 
     // Both overrides are on the partner's job, and the earlier one survived the later.
     expect(jobsOn("partner-jobs")[0].incomeOverrides).toEqual([
-      { month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
-      { month: 7, kind: "setTo", cents: 0 },
+      { id: expect.any(String), month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
+      { id: expect.any(String), month: 7, kind: "setTo", cents: 0 },
     ]);
   });
 
@@ -619,8 +662,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(incomeReadonlyDollars()).toBe(7200); // the cut still stands; the correction does not
 
     const job = jobsOn("partner-jobs")[0];
-    expect(job.payChanges).toEqual([{ month: 6, kind: "changeBy", cents: -dollarsToCents(800) }]);
-    expect(job.incomeOverrides).toEqual([{ month: 6, kind: "setTo", cents: dollarsToCents(1000) }]);
+    expect(job.payChanges).toEqual([{ id: expect.any(String), month: 6, kind: "changeBy", cents: -dollarsToCents(800) }]);
+    expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 6, kind: "setTo", cents: dollarsToCents(1000) }]);
   });
 
   it("changes only the job it was applied to, and nothing else about it", () => {
@@ -634,7 +677,7 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
 
     // The primary's job took the change; the partner's is untouched, byte for byte.
     expect(jobsOn("primary-jobs")[0].payChanges).toEqual([
-      { month: 6, kind: "changeBy", cents: dollarsToCents(1000) },
+      { id: expect.any(String), month: 6, kind: "changeBy", cents: dollarsToCents(1000) },
     ]);
     expect(jobsOn("partner-jobs")[0]).toEqual(partnerBefore);
   });
@@ -662,8 +705,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(job.endYear).toBeNull();
     expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), currentSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
     // The bonus from the first adjustment survived the second, which is a different kind.
-    expect(job.incomeOverrides).toEqual([{ month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
-    expect(job.payChanges).toEqual([{ month: 9, kind: "setTo", cents: dollarsToCents(3500) }]);
+    expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
+    expect(job.payChanges).toEqual([{ id: expect.any(String), month: 9, kind: "setTo", cents: dollarsToCents(3500) }]);
   });
 });
 

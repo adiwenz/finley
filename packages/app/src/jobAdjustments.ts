@@ -1,5 +1,5 @@
 /**
- * One-month adjustments, read the way every surface must read them.
+ * How a one-month adjustment READS. Only the words — the arithmetic is the engine's.
  *
  * A {@link JobIncomeOverride} is not part of a job's salary path: `jobPayPath` compiles standing
  * pay and knows nothing about bonuses, deliberately, because a bonus is a payment and not a
@@ -7,31 +7,22 @@
  * draws or lists "what this job pays" while silently dropping it is telling a reader something
  * false about that month.
  *
- * So the arithmetic lives here once, mirroring `applyIncomeOverrides` in the engine — `setTo`
- * replaces the month's pay, `addBonus` adds to it, and neither can drive it below zero. Two
- * surfaces reading it (the pay chart and the pay timeline) must agree with each other and with
- * what the projection actually pays, and one function is how that stays true.
+ * What that month comes to is `applyJobIncomeOverride` / `applyJobIncomeOverridesAt`, exported
+ * from the engine beside the compiler that uses them. This module deliberately holds no copy of
+ * that rule: it had one, and a UI that restates the engine's arithmetic is a second definition
+ * that drifts the first time either side changes.
  */
 
 import type { JobIncomeOverride } from "@finley/engine";
 import { formatDollars } from "./format";
 
 /**
- * What a job pays in `month` once a one-month adjustment there is applied — `null` when the
- * month has none, which is nearly every month. `basePayCents` is the standing pay from
- * `jobPayPath`, so the caller states which denomination it is reading in and this never
- * silently mixes two.
+ * "Bonus $4,000" / "Pay this month $0" — a one-month adjustment, undated.
+ *
+ * Says what KIND of thing it is, not what the month totals: several may share a month, so a row
+ * naming only a figure would leave a reader unable to tell two of them apart. The total is the
+ * row's own job to state.
  */
-export function adjustedMonthlyCents(
-  override: JobIncomeOverride,
-  basePayCents: number,
-): number {
-  // `Math.max(0, …)` matches the engine: a deduction larger than the paycheck is a missed
-  // paycheck, never a negative one.
-  return Math.max(0, override.kind === "setTo" ? override.cents : basePayCents + override.cents);
-}
-
-/** "Bonus $4,000" / "Pay this month $0" — a one-month adjustment, undated. */
 export function describeIncomeOverride(override: JobIncomeOverride): string {
   if (override.kind === "setTo") {
     return override.cents === 0
