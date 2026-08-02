@@ -47,7 +47,10 @@ export function buildFlows(
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
   payrollTaxCents: Cents = 0,
   payrollTaxBySourceCents: Readonly<Record<string, Cents>> = {},
-): ProjectionMonthFlows {
+  // `resolvedFunding` is a partition of the FUNDED total, known only after the shortfall cascade
+  // settles which obligations came up short — later than this reporting pass — so the simulator
+  // attaches it to the returned bands rather than this pure re-description computing it.
+): Omit<ProjectionMonthFlows, "resolvedFunding"> {
   const incomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Bands on `cashInflowCents`, the realized cash paid: for accrued interest that is the

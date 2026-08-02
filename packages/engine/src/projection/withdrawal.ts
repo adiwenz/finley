@@ -134,6 +134,14 @@ export interface WithdrawalPlan {
    * directly, so injecting it would double-count and mis-tax it.
    */
   readonly liquidDrawdownCents: Cents;
+  /**
+   * Net cash each liquidated account actually delivered toward the month's obligations, in
+   * liquidation order — the decumulation slice per-line funding attribution partitions across
+   * obligations. Net (gross minus the tax the sale induced), so Σ over it is the cash the walk
+   * has to fund with, not the gross sold. Aligns 1:1 with {@link sources}; empty when nothing
+   * was liquidated.
+   */
+  readonly decumulationDraws: readonly { readonly sourceId: string; readonly netDeliveredCents: Cents }[];
 }
 
 export function buildWithdrawalSources(
@@ -166,7 +174,7 @@ export function buildWithdrawalSources(
       : incomeTaxableByOwner;
 
   const gap = obligationsCents - netIncomeCents;
-  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0 };
+  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
 
   // Spend the liquid buffer first: the cascade charges whatever the withdrawal leaves
   // uncovered against the liquid account.
@@ -176,7 +184,7 @@ export function buildWithdrawalSources(
       : 0;
   const liquidDrawdownCents = Math.min(gap, liquidBuffer);
   let need = gap - liquidBuffer;
-  if (need <= 0) return { sources: [], liquidDrawdownCents };
+  if (need <= 0) return { sources: [], liquidDrawdownCents, decumulationDraws: [] };
 
   const rankMap = liquidationRankMap(liquidationOrder);
   const orderedSources = state.accounts
@@ -184,6 +192,7 @@ export function buildWithdrawalSources(
     .sort((a, b) => liquidationRank(a, rankMap) - liquidationRank(b, rankMap));
 
   const sources: IncomeSourceMonth[] = [];
+  const decumulationDraws: { sourceId: string; netDeliveredCents: Cents }[] = [];
   for (const account of orderedSources) {
     if (need <= 0) break;
     const balance = state.assetBalances.get(account.id) ?? 0;
@@ -246,7 +255,8 @@ export function buildWithdrawalSources(
       sourceId: account.id,
       label: account.label ?? account.id,
     });
+    decumulationDraws.push({ sourceId: account.id, netDeliveredCents: netDelivered });
   }
 
-  return { sources, liquidDrawdownCents };
+  return { sources, liquidDrawdownCents, decumulationDraws };
 }

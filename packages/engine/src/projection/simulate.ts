@@ -5,6 +5,7 @@ import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
+import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
 import type {
   HouseholdSimInput,
   ProjectionMonth,
@@ -204,6 +205,42 @@ export function simulateHousehold(
     const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
     const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
 
+    // Per-line funding attribution — a partition of the SAME funded total, in the order the
+    // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
+    // real, sized movements (buffer spent, each account liquidated) are attributed as-is; income
+    // is the waterfall's own obligation coverage net of the decumulation folded into it, and
+    // credit absorbs the residual so the four layers sum to `fundedObligationTotalCents`. Income
+    // is capped so that residual is never negative — a capital-gains-tax rounding drift the sizing
+    // pass leaves in the liquid buffer to self-correct cannot make a layer attribute a loss.
+    const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
+      (total, d) => total + d.netDeliveredCents,
+      0,
+    );
+    const liquidToObligationsCents = Math.min(withdrawal.liquidDrawdownCents, fundedObligationTotalCents);
+    const incomeToObligationsCents = Math.max(
+      0,
+      Math.min(
+        automaticFundingCents - preCascadeObligationShortfallCents - decumulationTotalCents,
+        Math.max(0, fundedObligationTotalCents - liquidToObligationsCents - decumulationTotalCents),
+      ),
+    );
+    const supply: FundingSupplyPlan = {
+      incomeCents: incomeToObligationsCents,
+      liquidDrawdown:
+        state.liquidAccount !== null && liquidToObligationsCents > 0
+          ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
+          : null,
+      decumulationDraws: withdrawal.decumulationDraws,
+      creditCents: Math.max(
+        0,
+        fundedObligationTotalCents -
+          incomeToObligationsCents -
+          liquidToObligationsCents -
+          decumulationTotalCents,
+      ),
+    };
+    const resolvedFunding = resolveFundingAttribution(obligations, supply);
+
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
     advanceLiabilities(state, month, appliedLiabilityPayments);
@@ -239,6 +276,7 @@ export function simulateHousehold(
     // explicit draws in resolution, so this base is its marginal context.
     const flows = {
       ...bands,
+      resolvedFunding,
       taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
       accountBalancesAfterFundingCents,
       accountBasisAfterFundingCents,
