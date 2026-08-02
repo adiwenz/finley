@@ -105,6 +105,40 @@ const flatOrdinaryTax: Jurisdiction = {
   },
 };
 
+/**
+ * 25% on realized capital gain, with pro-rata basis recovery: only the gain fraction of a
+ * liquidation is taxable, so an appreciated draw books partial principal AND partial gain.
+ * The `taxableWithdrawalCents` seam is what separates this from `flatOrdinaryTax` (basis 0,
+ * whole draw taxable) — it is the return-of-capital policy an appreciated account needs.
+ */
+const flatCapitalGainsTax: Jurisdiction = {
+  id: "capgains-25",
+  computeTaxCents: (byCat) => Math.round((byCat.capitalGains ?? 0) * 0.25),
+  computeTaxByCategoryCents: (byCat) => {
+    const t = Math.round((byCat.capitalGains ?? 0) * 0.25);
+    return t > 0 ? { capitalGains: t } : {};
+  },
+  taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) =>
+    balanceCents <= 0 ? grossCents : Math.round((grossCents * (balanceCents - basisCents)) / balanceCents),
+};
+
+/**
+ * A non-liquid capital-gains account with a growth rate. Its basis opens at the balance, so
+ * the only way an unrealized gain appears is compounding across months — the sim never lets a
+ * post-tax account open already appreciated. Run it forward and draw in a LATER month to
+ * liquidate genuine appreciation.
+ */
+function appreciatingAccount(id: string, openingCents: number, annualRate: number): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    liquid: false,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: annualRate,
+  });
+}
+
 /** The month-0 attribution list, guaranteed present on a processed month. */
 function attributionAt(
   input: Parameters<typeof run>[0],
@@ -246,6 +280,59 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
 
     // The automatic branch still attributes to income through the SAME flat list — one pipeline.
     expect(kinds(byObligation(funding, "line:rent"))).toEqual(["income"]);
+  });
+
+  it("attributes one explicit purchase across two accounts, draining them in ordered turn", () => {
+    // A $40k purchase against `["savings-a", "savings-b"]`: savings-a holds only $30k, so it is
+    // emptied first and savings-b covers the $10k remainder. One obligation, two account sources —
+    // the ordered draw, not two records. nullJurisdiction: basis == balance ⇒ no gain, no tax, so
+    // each source's net delivered is exactly the cash pulled from that account.
+    const funding = attributionAt({
+      accounts: [
+        cashAccount(0),
+        namedAccount("savings-a", dollarsToCents(30000)),
+        namedAccount("savings-b", dollarsToCents(50000)),
+      ],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+      expenseSeries: [expenseLine("rent", 1000, 0)],
+      fundingDraws: [downPayment(dollarsToCents(40000), ["savings-a", "savings-b"])],
+    });
+
+    const draw = byObligation(funding, "draw:downpayment:home-1");
+    expect(draw.shortfallCents).toBe(0);
+    expect(draw.fundedCents).toBe(dollarsToCents(40000));
+    expect(draw.fundedCents + draw.shortfallCents).toBe(draw.requestedCents);
+    // Both drained accounts surface as `account` sources, in the order the draw consumed them —
+    // savings-a exhausted before savings-b is touched.
+    expect(kinds(draw)).toEqual(["account", "account"]);
+    expect(draw.sources).toEqual([
+      {
+        kind: "account",
+        sourceId: "savings-a",
+        amountCents: dollarsToCents(30000),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(30000),
+          principalCents: dollarsToCents(30000),
+          realizedGainCents: 0,
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(30000),
+        },
+      },
+      {
+        kind: "account",
+        sourceId: "savings-b",
+        amountCents: dollarsToCents(10000),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(10000),
+          principalCents: dollarsToCents(10000),
+          realizedGainCents: 0,
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(10000),
+        },
+      },
+    ]);
+    // The two source amounts still reconcile to the single obligation's funded total.
+    expect(draw.sources.reduce((t, s) => t + s.amountCents, 0)).toBe(draw.fundedCents);
   });
 
   it("keeps two same-purpose explicit obligations in one month as distinct records", () => {
@@ -404,6 +491,70 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     expect(source.withdrawal.principalCents).toBe(dollarsToCents(0) - month.accountBasisCents["pretax"]);
     expect(source.withdrawal.principalCents).toBe(0);
     expect(source.withdrawal.taxCents).toBeGreaterThan(0);
+  });
+
+  it("liquidates an appreciated capital-gains account, booking partial principal, gain and tax", () => {
+    // The brokerage opens at basis == balance and grows 12%/yr. After a year of deferred
+    // appreciation its basis sits below its balance, so an explicit $40k purchase in month 12
+    // realizes a PROPORTIONAL gain — grossed up over the 25% capital-gains tax so the net still
+    // lands the $40k. Income covers the recurring rent every month, so nothing forces an automatic
+    // draw: the appreciated account is touched only by the explicit purchase. A year is the
+    // shortest honest way to embed the gain — the sim never opens a post-tax account already
+    // appreciated, so the basis gap can only come from compounding across months.
+    const result = simulateHousehold(
+      {
+        horizonMonths: 13,
+        annualInflationRate: 0,
+        persons: [PERSON],
+        accounts: [cashAccount(0), appreciatingAccount("brokerage", dollarsToCents(100000), 0.12)],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+        expenseSeries: [expenseLine("rent", 1000, 0)],
+        fundingDraws: [
+          assetAcquisitionObligation({
+            id: "downpayment:home-1",
+            sourceId: "downpayment",
+            month: 12,
+            amountCents: dollarsToCents(40000),
+            orderedAccountIds: ["brokerage"],
+          }),
+        ],
+      },
+      flatCapitalGainsTax,
+    );
+
+    // The month before the draw: basis still at contributions, balance grown past it — the account
+    // carries an unrealized gain waiting to be realized on withdrawal.
+    const prior = result.months[11];
+    expect(prior.accountBasisCents["brokerage"]).toBe(dollarsToCents(100000));
+    expect(prior.accountBalancesCents["brokerage"]).toBeGreaterThan(prior.accountBasisCents["brokerage"]);
+
+    const funding = result.months[12].flows?.resolvedFunding;
+    if (funding === undefined) throw new Error("expected resolvedFunding on month 12");
+    const draw = byObligation(funding, "draw:downpayment:home-1");
+    expect(draw.shortfallCents).toBe(0);
+    expect(draw.fundedCents).toBe(dollarsToCents(40000));
+
+    const source = draw.sources.find((s) => s.sourceId === "brokerage");
+    if (source?.withdrawal === undefined) {
+      throw new Error("expected a withdrawal breakdown on the brokerage source");
+    }
+    const w = source.withdrawal;
+
+    // Genuine partial appreciation: a returned-principal slice AND a taxed-gain slice both present,
+    // unlike a pre-tax draw (all gain, principal 0) or a cash draw (all principal, gain 0).
+    expect(w.principalCents).toBeGreaterThan(0);
+    expect(w.realizedGainCents).toBeGreaterThan(0);
+    expect(w.taxCents).toBeGreaterThan(0);
+
+    // The surfaced breakdown obeys its identities, and the amount applied to the line is the net.
+    expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);
+    expect(w.grossWithdrawnCents - w.taxCents).toBe(w.netDeliveredCents);
+    expect(source.amountCents).toBe(w.netDeliveredCents);
+    expect(w.netDeliveredCents).toBe(dollarsToCents(40000));
+    // Gross sold exceeds the cash delivered by exactly the capital-gains tax the sale induced.
+    expect(w.grossWithdrawnCents).toBeGreaterThan(w.netDeliveredCents);
+    // Tax reconciles with the jurisdiction's own 25% on the realized gain.
+    expect(w.taxCents).toBe(Math.round(w.realizedGainCents * 0.25));
   });
 
   it("splits one decumulation draw across two obligations, slices summing to the account totals", () => {

@@ -2,11 +2,11 @@
 
 **Done so far:** Task 1 (automatic-obligation attribution), Task 2 (explicit-obligation
 attribution), Task 3 (full account-withdrawal breakdown on the automatic branch), Task 4 (guard test
-proving two same-`sourceId` explicit obligations in one month stay distinct records). Tasks 5–6
-remain.
+proving two same-`sourceId` explicit obligations in one month stay distinct records), Task 5
+(scenario coverage across funding mixes). **Only Task 6 (surface attribution in the UI) remains.**
 
 The engine emits `ResolvedFunding` records on `flows.resolvedFunding` for **every** obligation, and
-account-funded sources on BOTH branches now carry `withdrawal` (gross/principal/gain/tax/net) with
+account-funded sources on BOTH branches carry `withdrawal` (gross/principal/gain/tax/net) with
 `amountCents === withdrawal.netDeliveredCents`. Types and both builders live in
 `packages/engine/src/projection/resolvedFunding.ts`: `resolveFundingAttribution` (automatic) and
 `attributeExplicitObligation` (explicit). CONTEXT.md's "Funding attribution" entry documents the
@@ -15,49 +15,56 @@ derived-interpretation requirement.
 ## Live constraints
 - **Behavior preservation is guarded** by `packages/app/src/presets.behaviorPreservation.test.ts`
   (FNV-1a digest of each preset's per-month money shape, excluding `resolvedFunding`). **If it
-  breaks, a later task moved money it had no licence to — fix the code, not the baselines.**
+  breaks, a later task moved money it had no licence to — fix the code, not the baselines.** Task 6
+  is UI-only and must not touch engine money flow, so this must stay green untouched.
 - **Shared record shape is enforced by tests.** Explicit records are all `kind: "account"`, never
   `income`; automatic records never emit `account` sources they didn't draw. Consumers read `kind`,
-  never parse ids. `resolvedFunding.test.ts` pins both branches through one flat list.
-- **`obligationId` is identity, `sourceId` is a reporting namespace.** Records stay a flat array,
-  never keyed by `sourceId`. Task 4's test (`keeps two same-purpose explicit obligations in one
-  month as distinct records` in `resolvedFunding.test.ts`) pins this: two `downpayment` draws in one
-  month yield two records with distinct `obligationId`s, each retaining its own requested/funded/
-  shortfall/sources. The per-draw loop in `fundingDrawStep.ts:214` pushes one record per obligation
-  into a flat array — do NOT introduce any keying/dedup on `sourceId` there or in `simulate.ts`.
-- **`ResolvedFundingSource.withdrawal` is POPULATED for every liquidated account source** — explicit
-  draws (task 2) and automatic decumulation (task 3). It stays `undefined` only for the
-  liquid-buffer drawdown, a cash spend that never passes through the withdrawal resolver. The five
-  fields obey `gross = principal + gain` and `net = gross − tax` per source.
-- **A split decumulation draw apportions its breakdown across obligations** via
-  `apportionWithdrawal` in `resolvedFunding.ts` — cumulative-rounded on gross/gain from the running
-  consumed-net, principal/tax derived, so slices sum back to the account's own totals with no drift.
-  If a later task changes how a layer is consumed, keep that invariant.
+  never parse ids. The UI (task 6) must do the same — branch on `kind`, never on the id string.
+- **`obligationId` is identity, `sourceId` is a reporting namespace.** Records are a flat array,
+  never keyed by `sourceId`. Two same-`sourceId` explicit draws in one month yield two records with
+  distinct `obligationId`s (pinned by `resolvedFunding.test.ts`). **The UI must show each purchase
+  independently even when several share one month + `sourceId`** — aggregation, if any, is a
+  deliberate reduce at the reporting layer, never an assumption that `sourceId` is unique.
+- **`ResolvedFundingSource.withdrawal` is populated for every liquidated account source** — explicit
+  draws and automatic decumulation. It is `undefined` only for the liquid-buffer drawdown (a cash
+  spend that never passes the withdrawal resolver). The UI must render account details only when
+  `withdrawal` is present. Five fields obey `gross = principal + gain` and `net = gross − tax`.
+
+## Test coverage map (task 5)
+`packages/engine/src/projection/resolvedFunding.test.ts` now covers all six issue scenarios through
+the `flows.resolvedFunding` seam. Earlier tasks left four; task 5 added the remaining two:
+- **Explicit purchase across multiple accounts** — one obligation, `orderedAccountIds` longer than
+  the first account's balance, drains each account in ordered turn → one record, two `account`
+  sources. This is the shape the UI must render for a single multi-account purchase.
+- **Appreciated investment incurring capital-gains tax** — a `CAPITAL_GAINS_TAX_PROFILE` account is
+  grown 12%/yr for a year (the sim never opens a post-tax account already appreciated, so the basis
+  gap can ONLY come from compounding across months), then an explicit month-12 draw realizes a
+  partial gain under a 25% cap-gains jurisdiction. Asserts genuine partial principal AND gain AND
+  tax, distinct from the pre-tax whole-gain case. Fixtures: `flatCapitalGainsTax`,
+  `appreciatingAccount`.
 
 ## Dead ends / traps
-- **Type-name collision:** `fundingDrawStep.ts` has its OWN local `ResolvedFundingSource` interface
-  (the resolver's per-account result), distinct from `resolvedFunding.ts`'s exported one. Task 2
-  avoided the clash by feeding a structural `ExplicitDrawSource[]` and NOT importing both into one
-  module. Keep that seam.
-- **`WithdrawalPlan.decumulationDraws` carries the full breakdown** (task 3 extended it from
-  `{sourceId, netDeliveredCents}` to the five-field `DecumulationDrawResult` in `withdrawal.ts`).
-  `simulate.ts` passes it straight into the `FundingSupplyPlan`.
+- **No opening-basis input.** `initSimState` (`runState.ts:126`) sets a post-tax account's basis to
+  its opening balance; only compounding across months opens a basis-below-balance gap. Any future
+  "appreciated account" fixture must grow the account and draw in a LATER month (draw resolves
+  before `compoundAssets`, `simulate.ts:143` vs `:251`). A single-month horizon shows zero gain.
+- **`proportionalFraction` transfers scale basis WITH balance** (`assetSteps.ts:17`), so they cannot
+  manufacture an unrealized gain — do not reach for them to fake appreciation.
+- **Type-name collision:** `fundingDrawStep.ts` has its OWN local `ResolvedFundingSource` (the
+  resolver's per-account result), distinct from `resolvedFunding.ts`'s exported one. Keep the seam:
+  feed a structural `ExplicitDrawSource[]`, don't import both into one module.
 - **nullJurisdiction has no return-of-capital policy**, so a decumulation draw under it books the
-  WHOLE draw as `realizedGain` (principal 0), though untaxed (net == gross). The `resolvedFunding`
-  decumulation case asserts gain 500 / principal 0. Use a jurisdiction with a real tax profile (the
-  `flatOrdinaryTax` fixture / `PRE_TAX_TAX_PROFILE` in `resolvedFunding.test.ts`) to exercise basis
-  recovery and non-zero tax.
-- **No repo prettier/eslint config.** Prettier's *default* flags every file including untouched
-  ones — do NOT run `prettier --write`. The repo's `npm run check` is purity + typecheck + test.
-- The four-layer automatic supply split lives in `simulate.ts`, not in `resolveFundingAttribution`
-  (a pure distributor). Income is capped so a rounding drift can't make a layer attribute a
-  negative — preserve that if you re-derive those amounts.
+  WHOLE draw as `realizedGain` (principal 0), though untaxed. Use a jurisdiction with
+  `taxableWithdrawalCents` (`flatCapitalGainsTax` in the test, or the `flatOrdinaryTax`/
+  `PRE_TAX_TAX_PROFILE` pair) to exercise basis recovery and non-zero tax.
+- **No repo prettier/eslint config.** Prettier's *default* flags every file — do NOT run
+  `prettier --write`. The gate is `npm run check` (purity + typecheck + test), all green as of task 5.
 - True rationing (stopping low-priority payment) is out of scope permanently (issue's #22 note). An
   explicit shortfall does NOT cascade to credit yet (arrives in #191, per the forward note).
 
 ## Deferred
-- Task 5: scenario coverage across funding mixes (the issue's acceptance breadth — a month mixing
-  income/drawdown/decumulation/credit across automatic AND explicit obligations at once).
-- Task 6: surface attribution in the UI (nothing UI-side reads `flows.resolvedFunding` yet). The
-  UI must show each explicit purchase independently even when several share one month + `sourceId`
-  (task 4's invariant is what makes that possible) and expose withdrawal details per account source.
+- **Task 6: surface attribution in the UI.** Nothing UI-side reads `flows.resolvedFunding` yet. Show
+  each explicit purchase independently even when several share one month + `sourceId`, and expose
+  the per-account `withdrawal` breakdown for account sources. This is the last task — its commit
+  writes `.sandcastle/summary-176.md` and deletes this handoff. Invoke `/vercel-react-best-practices`
+  for anything under `packages/app/src/`.
