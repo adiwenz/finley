@@ -15,7 +15,7 @@ import type { SimGoal } from "../goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
 import { PRE_NOW_MONTH, isPreExisting } from "./nowMarker";
-import type { FundingDraw } from "../ledger/transfers";
+import type { FinancialObligation } from "./financialObligation";
 
 /**
  * The resolved, mutable state one `simulateHousehold` run threads through its per-month
@@ -57,10 +57,10 @@ export interface SimState {
   readonly liabilityBalances: Map<string, Cents>;
   readonly properties: readonly SimProperty[];
   /**
-   * Ordered cross-account down-payment / spend draws, resolved per month by
-   * {@link import("./fundingDrawStep").applyFundingDraws}. Fixed for the whole run.
+   * Explicitly-funded obligations — ordered cross-account down-payment / spend draws, resolved
+   * per month by {@link import("./fundingDrawStep").resolveFundingDraws}. Fixed for the whole run.
    */
-  readonly fundingDraws: readonly FundingDraw[];
+  readonly fundingDraws: readonly FinancialObligation[];
   /** Authoritative current value of each property — updated by advanceProperties. */
   readonly propertyValues: Map<string, Cents>;
   /** Every person who appears as an income owner or roster member — waterfall pools. */

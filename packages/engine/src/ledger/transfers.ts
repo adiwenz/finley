@@ -24,31 +24,3 @@ export interface AccountTransfer {
   /** Negative = outflow. */
   readonly amountCents: Cents;
 }
-
-/**
- * Reporting provenance only: the simulator names the draw's flow bands from it
- * (`REPORT_PREFIX` in {@link import("../projection/fundingDrawStep")}); nothing in the
- * resolution reads it. A new money-out event adds a reason here plus its prefix there and
- * reuses the channel unchanged.
- */
-export type FundingReason = "homeDownPayment";
-
-/**
- * An ordered, cross-account outflow resolved at SIMULATION time — the money-out primitive for
- * events funding a fixed amount from a user-ordered source list (Home Purchase today).
- *
- * Unlike an {@link AccountTransfer}, whose per-account amount is fixed at authoring time, a
- * funding draw's split depends on each source's BALANCE at `month`, known only once the
- * projection runs. So the ledger records the intent (drain `amountCents` from `sourceIds`, in
- * order) and the simulator resolves it, taking as much as each source holds before moving to
- * the next — mirroring {@link import("./funding").drainSources}. Each contributing draw
- * reduces its account's balance and returns basis pro-rata.
- */
-export interface FundingDraw {
-  readonly month: number;
-  /** Total to drain across the sources (the down payment). */
-  readonly amountCents: Cents;
-  /** Eligible funding accounts in drain order; earlier ids empty before later ones. */
-  readonly sourceIds: readonly string[];
-  readonly reason: FundingReason;
-}

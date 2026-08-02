@@ -10,7 +10,6 @@ import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type { FinancialObligation, ObligationSource } from "./financialObligation";
-import type { FundingDraw } from "../ledger/transfers";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -147,6 +146,21 @@ export interface ProjectionMonthFlows {
   readonly taxableByOwnerAfterFundingCents?: Readonly<
     Readonly<Record<string, Readonly<Record<string, Cents>>>>
   >;
+  /**
+   * Per-account balances (and their matching {@link accountBasisAfterFundingCents}) at the
+   * post-explicit-draw, pre-decumulation seam — the state a newly authored money-out event,
+   * last in ledger order, actually resolves against. Since the reorder, explicit draws run
+   * before decumulation, so end-of-month `accountBalancesCents` is TOO LATE for the gate:
+   * decumulation and this month's compounding have both moved it. Reading these instead is
+   * what keeps the gate's shortfall equal to the sim's — a candidate whose source
+   * decumulation would later drain still sees the full balance it draws from first.
+   *
+   * Keyed like `accountBalancesCents`. Optional: attached after `buildFlows`, absent on the
+   * `opening` snapshot (where the gate already reads pre-decumulation balances directly).
+   */
+  readonly accountBalancesAfterFundingCents?: Readonly<Record<string, Cents>>;
+  /** Basis companion to {@link accountBalancesAfterFundingCents}; untaxed gain is `balance − basis`. */
+  readonly accountBasisAfterFundingCents?: Readonly<Record<string, Cents>>;
   /** Authored budget lines + health + any event-created expenses. */
   readonly expensesCents: Cents;
   /** Mortgages, loans, card minimums. */
@@ -333,11 +347,11 @@ export interface HouseholdSimInput {
    */
   readonly properties?: readonly SimProperty[];
   /**
-   * Each `amountCents` drains from its `sourceIds` in order at `month`, taking as much as
-   * each holds before moving on — the split is balance-dependent, so it resolves here
-   * rather than at authoring time.
+   * Explicitly-funded obligations: each drains its ordered `orderedAccountIds` for `amountCents`
+   * at `month`, taking as much as each holds before moving on — the split is balance-dependent,
+   * so it resolves here rather than at authoring time.
    */
-  readonly fundingDraws?: readonly FundingDraw[];
+  readonly fundingDraws?: readonly FinancialObligation[];
   /**
    * Prioritized waterfall destinations. Shared goals draw from the household pool,
    * personal goals from their owner's leftover. Retirement is just the highest-priority

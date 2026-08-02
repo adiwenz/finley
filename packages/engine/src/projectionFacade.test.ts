@@ -2695,11 +2695,16 @@ describe("Projection reads — over authored state", () => {
 
   it("names the events a goal's fund account pays for, and nothing else", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    // The down payment must fit the emergency fund AS THE DRAW SEES IT. The fund builds toward
+    // $20k by month 24, but a money-out draw resolves before that month's contribution and
+    // interest post, so at month 12 only 11 months' worth (~$9.8k) is on hand — $9k clears it
+    // with room. (A $10k down payment used to pass on the fund's end-of-month balance, which the
+    // draw never reaches; the gate now prices it against the pre-draw balance, matching the sim.)
     const homeId = p.buyHome({
       month: 12,
       ownerId: P1,
       purchasePriceCents: dollarsToCents(100000),
-      downPaymentCents: dollarsToCents(10000),
+      downPaymentCents: dollarsToCents(9000),
       downPaymentSourceIds: [goalFundAccountId(samplePlan.goals[0])],
       mortgageApr: 0.05,
       mortgageTermMonths: 360,

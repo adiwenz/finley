@@ -143,14 +143,27 @@ export function buildWithdrawalSources(
   obligationsCents: Cents,
   ctx: JurisdictionContext,
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
+  priorTaxableByOwner?: ReadonlyMap<string, TaxableByCategory>,
 ): WithdrawalPlan {
   const computeTaxCents = (taxable: TaxableByCategory): Cents =>
     jurisdiction.computeTaxCents(taxable, ctx);
 
-  const { netIncomeCents, taxableByOwner } = estimateNetIncome(
+  const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } = estimateNetIncome(
     nonWithdrawalSources,
     computeTaxCents,
   );
+
+  // Explicit obligations resolve first, so any gains they realized already sit in the month's
+  // taxable base; decumulation stacks its own gains ON TOP, bearing the higher marginal bracket.
+  // `priorTaxableByOwner` already folds this month's non-withdrawal income in (it is built from
+  // the same sources), so it REPLACES the income-only base rather than adding to it — merging
+  // would double-count that income. Absent it (a direct unit call, or a month with no explicit
+  // draw) the base is non-withdrawal income alone, unchanged. The gap below is sized on
+  // `netIncomeCents` either way: explicit draws are net-neutral and never move it.
+  const taxableByOwner =
+    priorTaxableByOwner !== undefined
+      ? new Map(Array.from(priorTaxableByOwner, ([owner, byCat]) => [owner, { ...byCat }]))
+      : incomeTaxableByOwner;
 
   const gap = obligationsCents - netIncomeCents;
   if (gap <= 0) return { sources: [], liquidDrawdownCents: 0 };

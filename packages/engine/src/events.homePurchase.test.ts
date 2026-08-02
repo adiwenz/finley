@@ -14,6 +14,7 @@ import { planAccount, type PlanAccount } from "./planAccount";
 import type { PersonId } from "./job";
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import { validateLedger } from "./ledger/validateLedger";
+import { SYNTHETIC_CARD_ID } from "./liability";
 
 function savings(openingCents: number, rate = 0): PlanAccount {
   return planAccount({
@@ -650,6 +651,59 @@ function bracketedCapitalGains(thresholdCents: number, rate: number): Jurisdicti
   };
 }
 
+// Explicit obligations resolve BEFORE the automatic waterfall, so a down-payment draw sells its
+// sources first and decumulation sizes its liquidation against the balances left behind. When
+// both compete for one account, the draw takes its share first and the automatic resolver can be
+// starved — falling short spills to the credit cascade rather than pre-empting the purchase.
+
+describe("HomePurchaseEvent — explicit draw resolves before automatic decumulation", () => {
+  // `cash` is the liquid sink (first liquid account), left empty so it holds no buffer;
+  // `brokerage` funds both the down payment and any decumulation. A $30k/mo obligation with no
+  // income forces a $30k decumulation gap every month.
+  function baseWithExpense(): LedgerBaseConfig {
+    return {
+      horizonMonths: 3,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [liquidAcct("cash", 0), liquidAcct("brokerage", 6_000_000)],
+      initialExpenseSeries: [
+        {
+          series: new SimCashFlowSeries(0, dollarsToCents(30_000), { type: "fixed" }, { baselineUnit: "monthly" }),
+          ownerId: "p1" as PersonId,
+        },
+      ],
+    };
+  }
+
+  it("spills the automatic obligation to credit once the draw takes the account first", () => {
+    // $60k brokerage, $40k down payment at month 0, $30k automatic obligation. Explicit first:
+    // the draw takes its $40k, leaving $20k — decumulation covers only $20k of its $30k gap, so
+    // the remaining $10k of groceries is financed on the synthetic card. Were the automatic
+    // resolver to run first it would fund the whole $30k from the untouched $60k and borrow
+    // nothing; the down payment would fall short instead. The credit balance is the proof of
+    // order: it exists ONLY because the explicit draw resolved ahead of decumulation.
+    const base = baseWithExpense();
+    const ledger = addWithBase(emptyLedger, base, purchase({ month: 0, downPaymentCents: 4_000_000, downPaymentSourceIds: ["brokerage"] }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // The draw delivered in full: brokerage drained to zero.
+    expect(series.months[0].accountBalancesCents.brokerage).toBe(0);
+    // The $10k decumulation could no longer cover, financed on the cascade card — the borrowed
+    // principal plus one month of its interest, so at least $10k and under $10.5k.
+    const financed = series.months[0].liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0;
+    expect(financed).toBeGreaterThanOrEqual(1_000_000);
+    expect(financed).toBeLessThan(1_050_000);
+  });
+
+  it("borrows nothing for the same obligation when no draw competes for the account", () => {
+    // The control: the $30k obligation alone draws $30k from the untouched $60k brokerage and
+    // finances nothing — so the borrowing above is the draw's doing, not the obligation's size.
+    const base = baseWithExpense();
+    const series = buildProjection(interpretLedger(emptyLedger, base), base, nullJurisdiction);
+    expect(series.months[0].liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
+  });
+});
+
 describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
   it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
     // An otherwise-identical no-tax run isolates the tax from the month's growth.
@@ -795,6 +849,165 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
   it("accepts that same second purchase when it has no sibling (the block IS the stacking)", () => {
     // The control: identical but for the sibling.
     expect(addEvent(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).ok).toBe(true);
+  });
+});
+
+// Sibling explicit draws in one month resolve in EVENT SEQUENCE — the order the events were
+// authored (month, then sequence number). `resolveFundingDraws` drains balances in place per
+// draw, so each sibling sees what its predecessors left; a second purchase is funded from the
+// remainder, never the pre-funding balance. Two events competing for one account cannot both
+// spend it in full.
+
+describe("HomePurchaseEvent — sibling explicit draws resolve in event sequence", () => {
+  it("funds the second purchase from what the first left in the shared account", () => {
+    // A $100k pool `a` plus a $30k spillover `b`, two $60k down payments at month 3, authored
+    // first→second. The first takes $60k from `a` (→$40k); the second finds only that $40k left,
+    // drains it to zero, and spills its last $20k into `b` (→$10k). Reverse the order and the
+    // second — source `a` only — would strand $20k short instead, so this exact end state is the
+    // proof the draws resolved in authoring order off a shared, shrinking balance.
+    const base = baseWithAccounts([liquidAcct("a", 10_000_000), liquidAcct("b", 3_000_000)]);
+    let ledger = addWithBase(emptyLedger, base, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    ledger = addWithBase(ledger, base, purchase({
+      id: "buy2",
+      month: 3,
+      propertyId: "house2",
+      downPaymentSourceIds: ["a", "b"],
+    }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const m3 = series.months[3];
+
+    expect(m3.accountBalancesCents.a).toBe(0);
+    expect(m3.accountBalancesCents.b).toBe(1_000_000);
+    expect(m3.propertyValuesCents.house1).toBe(PRICE);
+    expect(m3.propertyValuesCents.house2).toBe(PRICE);
+  });
+
+  it("gates the second purchase on the first sibling's remainder, not the pre-funding balance", () => {
+    // Both purchases draw the SAME account, sized so the two $60k downs fit to the cent ($120k).
+    // The second's gate must see the first sibling's $60k already gone — the post-funding balance
+    // seam the sim resolves the second against.
+    const exact = baseWithAccounts([liquidAcct("a", 12_000_000)]);
+    const withFirst = addWithBase(emptyLedger, exact, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    const second = addEvent(
+      withFirst,
+      exact,
+      purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
+    );
+    expect(second.ok).toBe(true);
+
+    // One cent short of covering both: the first still funds, but the second is priced on the
+    // $59,999 it left and blocked. A gate reading the pre-funding $120k would wrongly accept it —
+    // gate == sim on the event-sequence axis.
+    const short = baseWithAccounts([liquidAcct("a", 12_000_000 - 1)]);
+    const shortWithFirst = addWithBase(emptyLedger, short, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    const blocked = addEvent(
+      shortWithFirst,
+      short,
+      purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
+    );
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.conflict).toMatch(/down payment/);
+  });
+});
+
+describe("HomePurchaseEvent — down-payment obligation ids", () => {
+  it("gives two home purchases distinct, stable FinancialObligation ids", () => {
+    // Every purchase shares `sourceId: "downpayment"` for report-band namespacing, but each is
+    // its own obligation — sharing an `id` too would make the second purchase silently overwrite
+    // or collide with the first wherever obligations are keyed by id.
+    const base = baseWithAccounts([liquidAcct("a", 20_000_000), liquidAcct("b", 20_000_000)]);
+    let ledger = addWithBase(emptyLedger, base, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
+    ledger = addWithBase(
+      ledger,
+      base,
+      purchase({ id: "buy2", month: 10, propertyId: "house2", downPaymentSourceIds: ["b"] }),
+    );
+
+    const draws = interpretLedger(ledger, base).fundingDraws;
+    expect(draws).toHaveLength(2);
+    const ids = draws.map((d) => d.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).toEqual(["draw:downpayment:buy1", "draw:downpayment:buy2"]);
+    // `sourceId` stays the shared report-band namespace for both.
+    expect(draws.every((d) => d.sourceId === "downpayment")).toBe(true);
+
+    // Stable: re-interpreting the same ledger reproduces the same ids.
+    const idsAgain = interpretLedger(ledger, base).fundingDraws.map((d) => d.id);
+    expect(idsAgain).toEqual(ids);
+  });
+});
+
+// gate == sim, the load-bearing invariant: the affordability gate prices a candidate over the
+// SAME base the simulator resolves it against, so it blocks exactly when the sim would fall
+// short — never wider. Explicit draws now resolve before automatic decumulation, so a
+// candidate's marginal context is "after explicit draws, before decumulation": decumulation's
+// gains come AFTER it and are none of the candidate's tax. A gate that still read the
+// after-decumulation base would stack decumulation's gain under the candidate, over-tax the
+// sale, and block a purchase the sim funds in full — this fixture is the guard against that
+// regression.
+
+describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", () => {
+  // The candidate draws `cash` (a $60k buffer, no gain); decumulation draws the appreciated
+  // `nest`. The gains-above-$15k jurisdiction taxes `nest`'s liquidation but never the cash
+  // draw, so the candidate's shortfall is purely a question of balance — precisely the axis the
+  // reorder moved.
+  const jur = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+  // One decumulation month at the purchase: $150k of expense with no income at month 23 only,
+  // so `nest` grows untouched until then and liquidates exactly once, alongside the draw. In the
+  // PRE-CANDIDATE projection the gate probes, decumulation would spend the whole $60k `cash`
+  // buffer here and liquidate `nest` for the rest — so end-of-month `cash` reads $0. The gate
+  // must instead see `cash` as it stands BEFORE decumulation, which is what the candidate (first
+  // in resolution order) actually draws from.
+  const baseWithLateExpense = (): LedgerBaseConfig => ({
+    horizonMonths: 24,
+    annualInflationRate: 0,
+    initialPersons: [personLit("p1", "Alice")],
+    initialAccounts: [liquidAcct("cash", DOWN, 0), liquidAcct("nest", 20_000_000, 0.1)],
+    initialExpenseSeries: [
+      {
+        series: new SimCashFlowSeries(
+          23,
+          dollarsToCents(150_000),
+          { type: "fixed" },
+          { baselineUnit: "monthly", endMonth: 23 },
+        ),
+        ownerId: "p1" as PersonId,
+      },
+    ],
+  });
+  const buy = purchase({ month: 23, downPaymentSourceIds: ["cash"] });
+
+  it("accepts a candidate the sim funds in full from a buffer decumulation would otherwise spend", () => {
+    const base = baseWithLateExpense();
+
+    // The gate, probing the pre-candidate ledger, prices the $60k down payment against `cash` as
+    // it stands BEFORE the month's decumulation — the full $60k buffer — so it predicts zero
+    // shortfall and (cash has no gain) zero tax. This is the load-bearing read: end-of-month
+    // `cash` is $0 there, and a gate reading it would predict a full $60k shortfall and block.
+    const gate = fundingLookup(emptyLedger, base, jur()).availabilityAt(["cash"], DOWN, 23);
+    expect(gate.taxCents).toBe(0);
+    expect(gate.shortfallCents).toBe(0);
+
+    // The discriminating assertion: the gate accepts, matching the sim below. Read the
+    // post-decumulation balance and it would block a purchase the simulator funds in full.
+    const accepted = addEvent(emptyLedger, base, buy, jur());
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+
+    const series = buildProjection(interpretLedger(accepted.ledger, base), base, jur());
+    const at = series.months[23];
+
+    // gate == sim: the candidate resolved FIRST and took the full $60k `cash` buffer, draining
+    // it to exactly zero — the shortfall the gate predicted (none) is the shortfall the sim
+    // produced (none), and the property was acquired.
+    expect(at.accountBalancesCents.cash).toBe(0);
+    expect(at.propertyValuesCents.house1).toBe(PRICE);
+    // The month genuinely decumulated AND taxed it: the $150k expense forced `nest`'s
+    // liquidation, whose gain crossed the $15k threshold — the very decumulation whose balance
+    // drain and tax the gate had to keep off the candidate.
+    expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000));
+    expect(at.flows!.taxCents).toBeGreaterThan(0);
+    expect(at.accountBalancesCents.nest).toBeLessThan(series.months[22].accountBalancesCents.nest);
   });
 });
 

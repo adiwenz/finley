@@ -235,6 +235,45 @@ export function obligationLiabilityId(liabilityId: string): string {
 }
 
 /**
+ * An explicitly-funded `asset-acquisition` obligation: a fixed amount drained from an ordered
+ * source list (the Home Purchase down payment today), buying an asset rather than spending — so
+ * it is not an expense and does not reduce net worth beyond any tax on liquidating its sources —
+ * and naming its own funding accounts instead of drawing the shared waterfall. This is the sole
+ * record of the draw: the simulator resolves and reports it straight off the obligation.
+ *
+ * `sourceId` is the report-band namespace, chosen at the emission site — the simulator keys the
+ * draw's gain/tax bands off it, so a home down payment passes `"downpayment"` and gets
+ * `downpayment:<account>` / `downpayment-tax:<account>` bands. It is deliberately *not* what
+ * `id` derives from: every home purchase shares the same `sourceId`, so two purchases in one
+ * plan would otherwise collide on `draw:downpayment` and stomp each other's obligation. `id`
+ * instead derives from the caller-supplied `id` param — the authoring event's own id — which is
+ * unique per purchase and stable across months. `priority` is inert — an explicit obligation
+ * never ranks in the automatic waterfall ({@link automaticFundingTotal} already excludes it) —
+ * so it takes the untracked tier purely to satisfy the type.
+ */
+export function assetAcquisitionObligation(params: {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: params.sourceId,
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "asset-acquisition",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.sourceId,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's

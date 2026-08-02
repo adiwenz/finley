@@ -18,7 +18,8 @@ import type {
   SeriesId,
 } from "../ids";
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
-import type { AccountTransfer, FundingDraw, LiabilityTransfer } from "./transfers";
+import type { AccountTransfer, LiabilityTransfer } from "./transfers";
+import type { FinancialObligation } from "../projection/financialObligation";
 
 export interface PersonMembership {
   readonly person: Person;
@@ -91,11 +92,11 @@ export interface InterpretState {
   readonly propertiesById: Map<PropertyId, PropertyDef>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
   /**
-   * Cross-account down-payment / spend draws, appended in event order. The simulator resolves
-   * each against the sources' month-M balances; they cannot be pre-split here, since the split
-   * is balance-dependent and replay carries no balances.
+   * Explicitly-funded obligations — cross-account down-payment / spend draws, appended in event
+   * order. The simulator resolves each against the sources' month-M balances; they cannot be
+   * pre-split here, since the split is balance-dependent and replay carries no balances.
    */
-  readonly fundingDraws: FundingDraw[];
+  readonly fundingDraws: FinancialObligation[];
 }
 
 export function freshState(): InterpretState {
