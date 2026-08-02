@@ -33,8 +33,9 @@ cp .sandcastle/.env.example .sandcastle/.env
 
 | Variable | Required | How to get it |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | yes | `claude setup-token` (uses your Claude subscription). Or set `ANTHROPIC_API_KEY` instead. |
-| `GH_TOKEN` | yes | A GitHub token with **Issues: read/write** and **Metadata: read**. Used to read the queue and relabel issues. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | yes | `claude setup-token` (uses your Claude subscription). Or set `ANTHROPIC_API_KEY` instead. Runs the implementer. |
+| `OPENAI_API_KEY` | yes | An OpenAI API key. Runs the per-issue reviewer, which uses Codex (`sandcastle.codex(...)`). |
+| `GH_TOKEN` | yes | A GitHub token with **Issues: read/write**, **Pull requests: read/write**, and **Metadata: read**. Used to read the queue, relabel issues, and open the per-issue PR. |
 
 Only variables whose **key** appears in `.sandcastle/.env` are forwarded into the
 sandbox, so keep the keys present even if a value comes from your environment.
@@ -150,12 +151,19 @@ Add repo secrets under **Settings → Secrets and variables → Actions**:
 
 | Secret | Needed for |
 |---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | always |
+| `CLAUDE_CODE_OAUTH_TOKEN` | always (implementer) |
+| `OPENAI_API_KEY` | always (reviewer, runs Codex) |
 | `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | cloud mode |
 | `VERCEL_SANDBOX_IMAGE` | cloud mode, optional (VCR image ref, e.g. `finley-sandcastle`) |
 
-`GITHUB_TOKEN` is provided automatically (git push + issue relabel). Docker mode
-needs no Vercel secrets — just the Claude token.
+`GITHUB_TOKEN` is provided automatically (git push, issue relabel, and opening
+the per-issue PR) — the workflow's `permissions:` block grants it `contents:
+write`, `issues: write`, and `pull-requests: write`. If `gh pr create` still
+fails with "Resource not accessible by integration", check **Settings → Actions
+→ General → Workflow permissions** and enable "Allow GitHub Actions to create
+and approve pull requests" — that repo-level toggle overrides the workflow's own
+permissions block. Docker mode needs no Vercel secrets — just the Claude and
+OpenAI tokens.
 
 Trigger it: **Actions → Sandcastle → Run workflow**, and pick the **Sandbox
 provider** (`cloud` or `docker`). For docker mode the workflow builds the image

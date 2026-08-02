@@ -3,7 +3,8 @@
 # Bakes in the agent toolchain so a cloud sandbox needs no per-run install:
 #   - git         : the agent commits its work
 #   - GitHub CLI  : the prompts query issues (`gh issue list` / `gh issue view`)
-#   - Claude Code : the `claude` binary Sandcastle invokes as the agent
+#   - Claude Code : the `claude` binary Sandcastle invokes as the implementer
+#   - Codex CLI   : the `codex` binary Sandcastle invokes as the reviewer
 #   - node + npm  : run the project's typecheck / tests
 #
 # Boot from it by setting VERCEL_SANDBOX_IMAGE to this image's VCR ref (see the
@@ -34,8 +35,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Codex CLI — the reviewer agent runs as `sandcastle.codex(...)`, which execs
+# the `codex` binary directly (no interpreter fallback), so it must be on PATH.
+RUN npm install -g @openai/codex@latest
+
 # Fail the build early if any required tool is missing from PATH.
-RUN command -v git && command -v gh && command -v node && command -v npm && command -v claude
+RUN command -v git && command -v gh && command -v node && command -v npm && command -v claude && command -v codex
 
 # Vercel starts the container and execs commands into it; keep it alive in case
 # the image's own CMD is what runs.

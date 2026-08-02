@@ -10,7 +10,8 @@ name: Sandcastle
 # with `.sandcastle/new_flow/create-review-worktree.sh <branch> <issue-id>`.
 #
 # Required repository secrets (Settings → Secrets and variables → Actions):
-#   CLAUDE_CODE_OAUTH_TOKEN — from `claude setup-token`; runs Claude Code in the sandbox.
+#   CLAUDE_CODE_OAUTH_TOKEN — from `claude setup-token`; runs Claude Code (the implementer) in the sandbox.
+#   OPENAI_API_KEY          — runs Codex (the per-issue reviewer) in the sandbox.
 #   VERCEL_TOKEN            — Vercel access token used to create cloud sandboxes.
 #   VERCEL_TEAM_ID         — the Vercel team the sandbox is created under.
 #   VERCEL_PROJECT_ID      — the Vercel project the sandbox is created under.
@@ -20,7 +21,12 @@ name: Sandcastle
 #   VERCEL_SANDBOX_IMAGE   — a VCR image ref (see .sandcastle/vercel.Dockerfile) to
 #                            boot from, with the toolchain pre-baked. Unset → the
 #                            sandbox boots a stock runtime and installs tools per run.
-# GITHUB_TOKEN is provided automatically and is used for git push + issue labels.
+# GITHUB_TOKEN is provided automatically and is used for git push, issue labels,
+# and opening the per-issue PR — the job's `permissions:` block below must grant
+# it `pull-requests: write`, and the repo setting "Allow GitHub Actions to create
+# and approve pull requests" (Settings → Actions → General) must be enabled, or
+# `gh pr create` fails with "Resource not accessible by integration" even though
+# the workflow permission is correct.
 
 on:
   workflow_dispatch:
@@ -50,6 +56,7 @@ jobs:
     permissions:
       contents: write # push implementation branches to origin
       issues: write # relabel Sandcastle → sandcastle-done via `gh`
+      pull-requests: write # open the per-issue review PR via `gh pr create`
     env:
       # Orchestrator-side env, read by makeSandbox() on the runner: the Vercel
       # provider is created with VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID
@@ -62,6 +69,7 @@ jobs:
       VERCEL_SANDBOX_IMAGE: ${{ secrets.VERCEL_SANDBOX_IMAGE }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       CI: "true"
     steps:
       - uses: actions/checkout@v4
@@ -80,15 +88,17 @@ jobs:
         # Sandcastle only forwards an env var INTO the sandbox if its KEY is
         # present in `.sandcastle/.env` (it reads that file, then falls back to
         # process.env per key). This file is for what the AGENT needs inside the
-        # sandbox — the Claude token and a GH token for its git/gh operations.
-        # Vercel creds are NOT here: they authenticate the orchestrator that
-        # creates the sandbox and live in job-level env instead. Values come from
-        # env vars, not templated into the command, so secrets aren't expanded
-        # onto the shell command line.
+        # sandbox — the Claude token for the implementer, the OpenAI key for the
+        # Codex reviewer, and a GH token for git/gh operations. Vercel creds are
+        # NOT here: they authenticate the orchestrator that creates the sandbox
+        # and live in job-level env instead. Values come from env vars, not
+        # templated into the command, so secrets aren't expanded onto the shell
+        # command line.
         run: |
           mkdir -p .sandcastle
           {
             echo "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}"
+            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
             echo "GH_TOKEN=${GH_TOKEN}"
           } > .sandcastle/.env
 
