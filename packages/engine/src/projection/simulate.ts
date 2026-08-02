@@ -185,9 +185,29 @@ export function simulateHousehold(
       shortfallCents: preCascadeShortfallCents,
       obligationShortfallCents: preCascadeObligationShortfallCents,
     } = allocateMonth(state, allocationSources, ctx, jurisdiction, automaticFundingCents, month);
+    // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it
+    // borrows onto credit (see below) is measured off actual liability movement rather than
+    // re-derived from the pre-allocation withdrawal sizing pass, which is estimated off
+    // `netIncomeCents` and can miss a shortfall only `allocateMonth`'s exact tax math finds —
+    // a residual the liquid buffer alone (with room to spare) absorbs without a card ever
+    // being touched.
+    const cascadeCardBalancesBeforeCents = new Map(
+      state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]),
+    );
     // Nothing — savings or credit — could absorb this: the terminal flag.
     const uncoveredCents = applyShortfallCascade(state, month);
     const isInsolvent = uncoveredCents > 0;
+    // What the cascade actually moved onto a card this month, in real cents — ground truth for
+    // the "credit" layer below, independent of any estimate.
+    const borrowedOntoCreditCents = state.cascadeCards.reduce(
+      (total, card) =>
+        total +
+        Math.max(
+          0,
+          (state.liabilityBalances.get(card.id) ?? 0) - (cascadeCardBalancesBeforeCents.get(card.id) ?? 0),
+        ),
+      0,
+    );
     // A committed contribution deposits in full and borrows the rest; if that borrowing
     // couldn't be funded (this uncovered slice), unwind the phantom deposit.
     unwindUnfundedContributions(state, contributions, uncoveredCents);
@@ -207,16 +227,27 @@ export function simulateHousehold(
 
     // Per-line funding attribution — a partition of the SAME funded total, in the order the
     // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
-    // real, sized movements (buffer spent, each account liquidated) are attributed as-is; income
-    // is the waterfall's own obligation coverage net of the decumulation folded into it, and
-    // credit absorbs the residual so the four layers sum to `fundedObligationTotalCents`. Income
-    // is capped so that residual is never negative — a capital-gains-tax rounding drift the sizing
-    // pass leaves in the liquid buffer to self-correct cannot make a layer attribute a loss.
+    // real, sized movements (each account liquidated, cards actually borrowed against) are
+    // attributed as-is; income is the waterfall's own obligation coverage net of the decumulation
+    // folded into it, and liquid absorbs whatever of the obligation's own share of the cascade's
+    // covering capacity ({@link obligationCoveredCents}) the real credit draw didn't need — so a
+    // rounding-sized gap the pre-allocation withdrawal sizing missed, but the liquid buffer (with
+    // room to spare) quietly covered, is attributed to savings rather than falsely to a card that
+    // was never touched.
     const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
       (total, d) => total + d.netDeliveredCents,
       0,
     );
-    const liquidToObligationsCents = Math.min(withdrawal.liquidDrawdownCents, fundedObligationTotalCents);
+    // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
+    // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
+    // reasoning) — the total this layer split has to divide between liquid and credit.
+    const obligationCoveredCents = preCascadeObligationShortfallCents - unfundedObligationCents;
+    // Real credit used for obligations: obligations claim the cascade's combined capacity before
+    // contributions, so a card is only touched on their behalf once the household's REAL liquid
+    // contribution (covering capacity minus what genuinely landed on a card) can't cover them.
+    const realHouseholdLiquidCents = Math.max(0, coveredCapacityCents - borrowedOntoCreditCents);
+    const creditForObligationsCents = Math.max(0, obligationCoveredCents - realHouseholdLiquidCents);
+    const liquidToObligationsCents = obligationCoveredCents - creditForObligationsCents;
     const incomeToObligationsCents = Math.max(
       0,
       Math.min(

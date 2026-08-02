@@ -197,6 +197,45 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     ]);
   });
 
+  it("attributes a payroll-tax-sized shortfall the pre-allocation estimate missed to savings, not credit", () => {
+    // The withdrawal-sizing pass's gap check (`estimateNetIncome` in withdrawal.ts) only calls
+    // `computeTaxCents` — never `computePayrollTaxCents` — so a jurisdiction charging payroll tax
+    // makes that estimate systematically overstate net income by the payroll-tax amount. Here
+    // wages of $1000 exactly cover the $1000 need BEFORE payroll tax, so the sizing pass sees no
+    // gap and never offers the ample cash buffer as a source; only the REAL allocation (which does
+    // charge the 10% payroll tax) finds the $100 shortfall. It must still land on the buffer that
+    // was sitting right there — never on a credit layer that was never actually touched.
+    // `monthlyIncome`/`incomeSeries` tags no explicit `taxCategory`, so `buildIncomeSources`
+    // falls back to `ordinaryIncome` — key the payroll seam off that, not `wages`.
+    const payrollOnlyTax: Jurisdiction = {
+      id: "payroll-only-10",
+      computeTaxCents: () => 0,
+      computeTaxByCategoryCents: () => ({}),
+      computePayrollTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.1),
+      computePayrollTaxByCategoryCents: (byCat) => {
+        const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.1);
+        return t > 0 ? { ordinaryIncome: t } : {};
+      },
+    };
+    const funding = attributionAt(
+      {
+        accounts: [cashAccount(dollarsToCents(50000))],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(1000)), ownerId: "p1" }],
+        expenseSeries: [expenseLine("need", 1000, 0)],
+      },
+      payrollOnlyTax,
+    );
+
+    const record = byObligation(funding, "line:need");
+    expect(record.shortfallCents).toBe(0);
+    expect(record.fundedCents).toBe(record.requestedCents);
+    expect(kinds(record)).not.toContain("credit");
+    expect(record.sources).toEqual([
+      { kind: "income", sourceId: "income", amountCents: dollarsToCents(900) },
+      { kind: "account", sourceId: "cash", amountCents: dollarsToCents(100) },
+    ]);
+  });
+
   it("decumulation liquidates a named investment account between drawdown and credit", () => {
     // $1000 income, no buffer, $1500 need → $500 gap liquidated from the brokerage. nullJurisdiction
     // has no return-of-capital policy, so the whole draw books as gain — but is untaxed, so the net
