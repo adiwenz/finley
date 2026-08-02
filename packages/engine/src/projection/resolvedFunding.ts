@@ -121,9 +121,61 @@ function orderedLayers(supply: FundingSupplyPlan): Layer[] {
 }
 
 /**
+ * One account's contribution to an explicit draw, as the funding resolver measured it: the
+ * withdrawal breakdown plus which account delivered it. {@link attributeExplicitObligation} copies
+ * it verbatim onto a source, so `netDeliveredCents` is both the source's `amountCents` and its
+ * `withdrawal.netDeliveredCents` — the two agree by construction, never by a separate reconcile.
+ */
+export interface ExplicitDrawSource {
+  readonly accountId: string;
+  readonly grossWithdrawnCents: Cents;
+  readonly principalCents: Cents;
+  readonly realizedGainCents: Cents;
+  readonly taxCents: Cents;
+  readonly netDeliveredCents: Cents;
+}
+
+/**
+ * Attribute an explicitly-funded obligation to the accounts it named. It drains its own ordered
+ * accounts instead of the shared supply, so every source is `kind: "account"` and none is ever
+ * income — the SAME record shape the automatic branch emits, so a consumer reads `kind` and never
+ * parses ids to tell the two branches apart. `fundedCents` is Σ net delivered; whatever the named
+ * accounts could not cover is left as `shortfallCents` (the money is not rationed onto credit —
+ * that only arrives in a later slice).
+ */
+export function attributeExplicitObligation(
+  obligation: FinancialObligation,
+  drawSources: readonly ExplicitDrawSource[],
+): ResolvedFunding {
+  const sources: ResolvedFundingSource[] = drawSources.map((s): ResolvedFundingSource => ({
+    kind: "account",
+    sourceId: s.accountId,
+    amountCents: s.netDeliveredCents,
+    withdrawal: {
+      grossWithdrawnCents: s.grossWithdrawnCents,
+      principalCents: s.principalCents,
+      realizedGainCents: s.realizedGainCents,
+      taxCents: s.taxCents,
+      netDeliveredCents: s.netDeliveredCents,
+    },
+  }));
+  const fundedCents = sources.reduce((total, s) => total + s.amountCents, 0);
+  return {
+    obligationId: obligation.id,
+    sourceId: obligation.sourceId,
+    month: obligation.month,
+    requestedCents: obligation.amountCents,
+    fundedCents,
+    shortfallCents: Math.max(0, obligation.amountCents - fundedCents),
+    sources,
+  };
+}
+
+/**
  * Attribute each automatically-funded obligation to the sources that paid it. Explicit obligations
- * are excluded here — they name their own accounts and never draw this shared supply; a later task
- * records them through the same shape.
+ * are excluded here — they name their own accounts and never draw this shared supply, so
+ * {@link attributeExplicitObligation} records them separately from the resolver that drains those
+ * accounts. Both branches yield the identical {@link ResolvedFunding} shape.
  *
  * The layers carry mutable `remaining` so a higher-priority obligation drains a layer before a
  * lower-priority one reaches it — that draining IS the interpretation. Whatever supply is left

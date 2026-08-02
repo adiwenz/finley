@@ -239,7 +239,14 @@ export function simulateHousehold(
           decumulationTotalCents,
       ),
     };
-    const resolvedFunding = resolveFundingAttribution(obligations, supply);
+    // Explicit draws resolved first in the month, so their records lead the flat list; the
+    // automatic obligations follow, attributed from the shared supply. Both are the same shape —
+    // a consumer reads `kind`, never the id, to tell an account-drained purchase from an
+    // income-funded line.
+    const resolvedFunding = [
+      ...fundingDraw.resolvedFunding,
+      ...resolveFundingAttribution(obligations, supply),
+    ];
 
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);

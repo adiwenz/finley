@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson } from "./simulate.types";
 import type { FundingSourceKind, ResolvedFunding } from "./resolvedFunding";
+import { assetAcquisitionObligation } from "./financialObligation";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
 import { dollarsToCents } from "../cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction";
@@ -43,6 +44,23 @@ function investmentAccount(openingCents: number): SimAccount {
     openingBalanceCents: openingCents,
     initialAnnualRate: 0,
   });
+}
+
+/** A named account an explicit obligation drains by id; basis == balance ⇒ no gain, no tax. */
+function namedAccount(id: string, openingCents: number): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    liquid: false,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: 0,
+  });
+}
+
+/** An explicitly-funded down-payment draw: identity `draw:<id>`, reporting namespace `downpayment`. */
+function downPayment(amountCents: number, orderedAccountIds: string[], id = "downpayment:home-1") {
+  return assetAcquisitionObligation({ id, sourceId: "downpayment", month: 0, amountCents, orderedAccountIds });
 }
 
 /** An automatically-funded expense line carrying an explicit priority (lower funded first). */
@@ -153,6 +171,57 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     expect(debt.shortfallCents).toBe(0);
     expect(debt.fundedCents).toBe(debt.requestedCents);
     expect(kinds(debt)).toEqual(["income"]);
+  });
+
+  it("attributes an explicit obligation to its named account through the same pipeline, never income", () => {
+    const funding = attributionAt({
+      accounts: [cashAccount(0), namedAccount("savings", dollarsToCents(50000))],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+      expenseSeries: [expenseLine("rent", 1000, 0)],
+      fundingDraws: [downPayment(dollarsToCents(40000), ["savings"])],
+    });
+
+    // Identity is the draw's own id, distinct from the shared reporting namespace `downpayment`.
+    const draw = byObligation(funding, "draw:downpayment:home-1");
+    expect(draw.sourceId).toBe("downpayment");
+    expect(draw.shortfallCents).toBe(0);
+    expect(draw.fundedCents).toBe(dollarsToCents(40000));
+    expect(draw.fundedCents + draw.shortfallCents).toBe(draw.requestedCents);
+    expect(kinds(draw)).toEqual(["account"]);
+    expect(draw.sources).toEqual([
+      {
+        kind: "account",
+        sourceId: "savings",
+        amountCents: dollarsToCents(40000),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(40000),
+          principalCents: dollarsToCents(40000),
+          realizedGainCents: 0,
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(40000),
+        },
+      },
+    ]);
+
+    // The automatic branch still attributes to income through the SAME flat list — one pipeline.
+    expect(kinds(byObligation(funding, "line:rent"))).toEqual(["income"]);
+  });
+
+  it("reconciles an explicit obligation's fundedCents with the account balance it actually moved", () => {
+    const flows = run({
+      accounts: [cashAccount(0), namedAccount("savings", dollarsToCents(50000))],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+      expenseSeries: [expenseLine("rent", 1000, 0)],
+      fundingDraws: [downPayment(dollarsToCents(40000), ["savings"])],
+    }).months[0].flows;
+    if (flows?.resolvedFunding === undefined || flows.accountBalancesAfterFundingCents === undefined) {
+      throw new Error("expected resolvedFunding and post-funding balances on the flow record");
+    }
+    const draw = byObligation(flows.resolvedFunding, "draw:downpayment:home-1");
+    // No tax under nullJurisdiction, so cash out of the account IS cash delivered to the purchase.
+    const movedCents = dollarsToCents(50000) - flows.accountBalancesAfterFundingCents["savings"];
+    expect(movedCents).toBe(draw.fundedCents);
+    expect(draw.sources.reduce((t, s) => t + s.amountCents, 0)).toBe(draw.fundedCents);
   });
 
   it("keeps funded+shortfall reconciled and sources in cascade order for every record", () => {
