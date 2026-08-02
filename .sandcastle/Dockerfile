@@ -15,6 +15,10 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && apt-get update && apt-get install -y gh \
   && rm -rf /var/lib/apt/lists/*
 
+# Codex CLI — the reviewer agent runs as `sandcastle.codex(...)`, which execs
+# the `codex` binary directly (no interpreter fallback), so it must be on PATH.
+RUN npm install -g @openai/codex@latest
+
 # Build-args for UID/GID alignment: sandcastle docker build-image
 # defaults these to the host user's UID/GID so image-built files
 # and bind-mounted files share an owner without runtime chown.

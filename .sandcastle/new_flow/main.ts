@@ -197,7 +197,7 @@ function makeSandbox(kind: SandboxKind) {
   // gitignored file isn't present), so it drops these — pass them straight from
   // the orchestrator's process.env and let the provider apply them per command.
   const sandboxEnv: Record<string, string> = {};
-  for (const key of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "GH_TOKEN"]) {
+  for (const key of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "GH_TOKEN", "OPENAI_API_KEY"]) {
     const value = process.env[key];
     if (value) sandboxEnv[key] = value;
   }
@@ -246,14 +246,16 @@ const copyToWorktree = SANDBOX_KIND === "cloud" ? [] : ["node_modules"];
 // The Docker image (.sandcastle/Dockerfile) — and a VERCEL_SANDBOX_IMAGE VCR
 // image — bake in the agent's toolchain, so those only need `npm install`. A
 // stock Vercel cloud runtime starts bare: it has git (it cloned the repo) and
-// node, but NOT the GitHub CLI the prompts call (`gh issue list/view`) nor the
-// `claude` binary Sandcastle invokes. So a stock-runtime cloud run installs
-// those first, then installs deps.
+// node, but NOT the GitHub CLI the prompts call (`gh issue list/view`), the
+// `claude` binary the implementer needs, or the `codex` binary the reviewer
+// needs. So a stock-runtime cloud run installs those first, then installs deps.
 //
 // These target the Vercel node runtime; `gh` comes from the official release
-// tarball (no package-manager assumptions) and `claude` from its installer,
-// symlinked onto the system PATH so it resolves in every `sh -c` the agent runs.
-// GH_TOKEN (from .sandcastle/.env) authenticates gh in the sandbox.
+// tarball (no package-manager assumptions), `claude` from its installer
+// symlinked onto the system PATH, and `codex` from its npm package (which
+// installs straight onto PATH via npm's global bin) — all so each resolves in
+// every `sh -c` the agent runs. GH_TOKEN (from .sandcastle/.env) authenticates
+// gh in the sandbox; OPENAI_API_KEY (same file) authenticates codex.
 const GH_CLI_VERSION = "2.62.0";
 const cloudProvisioning = [
   {
@@ -270,6 +272,10 @@ const cloudProvisioning = [
       "command -v claude >/dev/null 2>&1 || { " +
       "curl -fsSL https://claude.ai/install.sh | bash && " +
       '{ command -v sudo >/dev/null 2>&1 && S=sudo || S=; } && $S ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude; }',
+    timeoutMs: 180_000,
+  },
+  {
+    command: "command -v codex >/dev/null 2>&1 || npm install -g @openai/codex@latest",
     timeoutMs: 180_000,
   },
   { command: "npm install", timeoutMs: 600_000 },
