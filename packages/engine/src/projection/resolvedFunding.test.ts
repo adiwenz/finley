@@ -248,6 +248,85 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     expect(kinds(byObligation(funding, "line:rent"))).toEqual(["income"]);
   });
 
+  it("keeps two same-purpose explicit obligations in one month as distinct records", () => {
+    // Two home-purchase down payments in the same month sharing the reporting namespace
+    // `downpayment`. They must survive as two records: identity is per-purchase (`obligationId`),
+    // and `sourceId` is a shared reporting band, never the key. Different amounts and different
+    // named accounts so a merge would be visible as a lost or overwritten figure, not hidden by
+    // coincidentally-equal values.
+    const funding = attributionAt({
+      accounts: [
+        cashAccount(0),
+        namedAccount("savings-a", dollarsToCents(50000)),
+        namedAccount("savings-b", dollarsToCents(50000)),
+      ],
+      incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+      expenseSeries: [expenseLine("rent", 1000, 0)],
+      fundingDraws: [
+        downPayment(dollarsToCents(40000), ["savings-a"], "downpayment:home-1"),
+        downPayment(dollarsToCents(25000), ["savings-b"], "downpayment:home-2"),
+      ],
+    });
+
+    const purchases = funding.filter((f) => f.sourceId === "downpayment");
+    // Two purchases in, two records out — neither collapsed the other on the shared `sourceId`.
+    expect(purchases.length).toBe(2);
+    // Distinct, stable identities derived from each purchase's own id, not the shared namespace.
+    expect(purchases.map((p) => p.obligationId).sort()).toEqual([
+      "draw:downpayment:home-1",
+      "draw:downpayment:home-2",
+    ]);
+
+    const home1 = byObligation(funding, "draw:downpayment:home-1");
+    const home2 = byObligation(funding, "draw:downpayment:home-2");
+
+    // Each keeps its own requested/funded/shortfall — no figure bled across the shared namespace.
+    expect([home1.requestedCents, home1.fundedCents, home1.shortfallCents]).toEqual([
+      dollarsToCents(40000),
+      dollarsToCents(40000),
+      0,
+    ]);
+    expect([home2.requestedCents, home2.fundedCents, home2.shortfallCents]).toEqual([
+      dollarsToCents(25000),
+      dollarsToCents(25000),
+      0,
+    ]);
+
+    // Each retains its own source allocation, drawn from its own named account.
+    expect(home1.sources).toEqual([
+      {
+        kind: "account",
+        sourceId: "savings-a",
+        amountCents: dollarsToCents(40000),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(40000),
+          principalCents: dollarsToCents(40000),
+          realizedGainCents: 0,
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(40000),
+        },
+      },
+    ]);
+    expect(home2.sources).toEqual([
+      {
+        kind: "account",
+        sourceId: "savings-b",
+        amountCents: dollarsToCents(25000),
+        withdrawal: {
+          grossWithdrawnCents: dollarsToCents(25000),
+          principalCents: dollarsToCents(25000),
+          realizedGainCents: 0,
+          taxCents: 0,
+          netDeliveredCents: dollarsToCents(25000),
+        },
+      },
+    ]);
+
+    // Aggregating the two purchases is a deliberate reduce over distinct records at the reporting
+    // layer — available on demand, but never what the engine stored in their place.
+    expect(purchases.reduce((t, p) => t + p.requestedCents, 0)).toBe(dollarsToCents(65000));
+  });
+
   it("reconciles an explicit obligation's fundedCents with the account balance it actually moved", () => {
     const flows = run({
       accounts: [cashAccount(0), namedAccount("savings", dollarsToCents(50000))],
