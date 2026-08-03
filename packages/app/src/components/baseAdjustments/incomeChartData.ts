@@ -1,5 +1,8 @@
 /**
- * Monthly income graph data, the income-side companion to {@link import("./perLineBudget")}.
+ * Monthly income-source chart data, the income-side companion to {@link import("./perLineBudget")}.
+ * Prepares the source bands and per-month rows the income chart stacks, and collapses them into
+ * Simple and Advanced views ({@link incomeBandsForMode}); the pure-data half of the chart, free
+ * of Recharts.
  *
  * Bands are the engine's per-source flows (`ProjectionMonthFlows.incomeSources`), not tax
  * buckets, so each band names *which* job pays and *which* account a draw drains. Banding by

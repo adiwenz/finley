@@ -48,7 +48,7 @@ import {
   type EditScope,
   type MonthEditRoute,
 } from "./monthEdit";
-import { buildIncomeChartData } from "./incomeByCategory";
+import { buildIncomeChartData } from "./incomeChartData";
 import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
 import { ProjectionCharts } from "./projectionCharts";

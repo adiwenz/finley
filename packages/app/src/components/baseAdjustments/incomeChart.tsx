@@ -20,7 +20,7 @@ import {
   type IncomeChartData,
   type IncomeMode,
   type IncomeSourceBand,
-} from "./incomeByCategory";
+} from "./incomeChartData";
 
 /**
  * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
