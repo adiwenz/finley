@@ -10,6 +10,7 @@ import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
 import type { FinancialObligation, ObligationSource } from "./financialObligation";
+import type { ResolvedFunding } from "./resolvedFunding";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -187,6 +188,15 @@ export interface ProjectionMonthFlows {
    * invariant test).
    */
   readonly totalObligationsCents: Cents;
+  /**
+   * Per-line funding attribution: which sources paid each obligation this month and how much, in
+   * the order the cascade consumed them. A DERIVED interpretation the priority order imposes on a
+   * fungible pool (see CONTEXT.md, "Funding attribution"), not a ledger fact — surfaced, never
+   * presented as authored. One record per obligation, automatic or explicit — an explicit draw's
+   * sources are the accounts it named, never income — with Σ `fundedCents` reconciling with the
+   * month's actual account and liability movements.
+   */
+  readonly resolvedFunding: readonly ResolvedFunding[];
 }
 
 /**

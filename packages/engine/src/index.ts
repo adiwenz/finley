@@ -123,6 +123,11 @@ export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
 export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 export type { FinancialObligation } from "./projection/financialObligation";
+export type {
+  ResolvedFunding,
+  ResolvedFundingSource,
+  FundingSourceKind,
+} from "./projection/resolvedFunding";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
 export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";

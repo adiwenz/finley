@@ -16,6 +16,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
+import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -175,13 +176,16 @@ export function resolveOrderedFundingDraw(
  *   into `incomeSources` BEFORE `allocateMonth`;
  * - `taxableByOwnerAfter` — the taxable base with this month's draws stacked in, read by the
  *   authoring gate (via `flows`) so a second money-out event in the same month is priced
- *   over its sibling's realized gain.
+ *   over its sibling's realized gain;
+ * - `resolvedFunding` — one per-line attribution record per explicit draw, every source an
+ *   account, so the flow view carries explicit and automatic obligations through one shape.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
   readonly principalDrawdownCents: Cents;
   readonly taxSources: readonly IncomeSourceMonth[];
   readonly taxableByOwnerAfter: TaxableByOwner;
+  readonly resolvedFunding: readonly ResolvedFunding[];
 }
 
 /**
@@ -201,6 +205,7 @@ export function resolveFundingDraws(
 ): FundingDrawReport {
   const gainSources: IncomeSourceMonth[] = [];
   const taxSources: IncomeSourceMonth[] = [];
+  const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
 
   const working: TaxableByOwner = new Map();
@@ -235,6 +240,25 @@ export function resolveFundingDraws(
       jurisdiction,
       ctx,
       working,
+    );
+    // Attribution mirrors the money exactly: each drained account (a zero-gross source touched
+    // nothing) becomes one `account` source carrying its own withdrawal breakdown, and Σ net
+    // delivered is the obligation's funded amount. Recorded off the same `perSource` the balance
+    // moves below read, so the record and the ledger cannot diverge.
+    resolvedFunding.push(
+      attributeExplicitObligation(
+        obligation,
+        perSource
+          .filter((s) => s.grossCents > 0)
+          .map((s) => ({
+            accountId: s.id,
+            grossWithdrawnCents: s.grossCents,
+            principalCents: s.principalCents,
+            realizedGainCents: s.gainCents,
+            taxCents: s.taxCents,
+            netDeliveredCents: s.netDeliveredCents,
+          })),
+      ),
     );
     const prefix = obligation.sourceId;
 
@@ -278,5 +302,5 @@ export function resolveFundingDraws(
     }
   }
 
-  return { gainSources, principalDrawdownCents, taxSources, taxableByOwnerAfter: working };
+  return { gainSources, principalDrawdownCents, taxSources, taxableByOwnerAfter: working, resolvedFunding };
 }
