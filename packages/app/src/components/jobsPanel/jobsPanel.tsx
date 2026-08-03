@@ -44,8 +44,6 @@ import {
   blankJobDraftFor,
   jobToDraftFor,
   jobPayPathFor,
-  jobStartAgeFor,
-  jobEndAgeFor,
   ownerAgeAtMonth,
   type JobEditDraft,
   type NewJobDraft,
@@ -57,9 +55,8 @@ import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
-import { PayChangeForm, type PayChangeDraft } from "./payChangeForm";
-import { PayChart } from "./payChart";
-import { PayTimeline } from "./payTimeline";
+import { JobCard, type JobCardAuthoring } from "./jobCard";
+import { type PayChangeDraft } from "./payChangeForm";
 import styles from "./jobsPanel.module.css";
 
 interface JobsPanelProps {
@@ -89,15 +86,6 @@ type Authoring =
   | { kind: "payChange"; id: string; seedAge?: number }
   | { kind: "new" }
   | null;
-
-/** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
-function describeSpan(owner: JobOwner, job: Job): string {
-  const start = jobStartAgeFor(owner.birthYear, job);
-  const end = jobEndAgeFor(owner.birthYear, job);
-  return end === null
-    ? `from age ${start} · open-ended (to retirement)`
-    : `age ${start}–${end}`;
-}
 
 /**
  * What to say about pay changes an edit stranded — named, never merely counted, because the
@@ -179,7 +167,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
 
   function remove(owner: JobOwner, id: string) {
     commit([{ kind: "remove", owner, jobId: id }]);
-    if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
+    if (authoring && authoring.kind !== "new" && authoring.id === id) setAuthoring(null);
   }
 
   function removePayChange(jobId: string, payChangeId: string) {
@@ -237,134 +225,51 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
           </label>
         <ul className={styles.list}>
           {rows.map(({ owner, job, label }) => {
-            const monthlyCents = projection.jobMonthlyIncomeCents(job.id);
-            const overrideCount = job.incomeOverrides?.length ?? 0;
-            const payChanges = job.payChanges ?? [];
             // The job's whole pay story, both sides of "now" — what the chart draws and the
             // timeline lists, read straight off the two authored anchors. Chart and timeline
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
             const path = jobPayPathFor(owner, job, budget.inflationPct / 100, inTodaysDollars);
-            const currentAge = ownerAgeAtMonth(owner.birthYear, 0);
-            const startAge = jobStartAgeFor(owner.birthYear, job);
-            // The last age the job still pays: its span end is exclusive, so a change dated
-            // there would have nothing left to change.
-            const lastPaidAge = ownerAgeAtMonth(owner.birthYear, path.span.endMonthExclusive) - 1;
+            // Narrow the panel's authoring state to this one card, so nothing but its own open
+            // panel reaches it.
+            const cardAuthoring: JobCardAuthoring =
+              authoring !== null && authoring.kind !== "new" && authoring.id === job.id
+                ? authoring.kind === "payChange"
+                  ? { kind: "payChange", ...(authoring.seedAge !== undefined ? { seedAge: authoring.seedAge } : {}) }
+                  : { kind: authoring.kind }
+                : null;
             return (
-              <li key={job.id} className={styles.row} aria-label={label}>
-                <div className={styles.head}>
-                  <span className={styles.name}>{label}</span>
-                  {/* A job that is over has no current pay to headline — quoting one would
-                      state a figure the engine never reads. What it paid is on the list below,
-                      where it belongs: in the past tense. */}
-                  {path.endedBeforeNow ? (
-                    <span className={styles.salary} title="This job has ended">
-                      ended at age {lastPaidAge + 1}
-                    </span>
-                  ) : (
-                    <span className={styles.salary} title="Current pay — see pay changes below">
-                      {formatDollars(monthlyCents)}/mo{payChanges.length > 0 ? " now" : ""}
-                    </span>
-                  )}
-                </div>
-                <div className={styles.meta}>{describeSpan(owner, job)}</div>
-                {(job.deferral || overrideCount > 0) && (
-                  <div className={styles.meta}>
-                    {job.deferral
-                      ? `${Math.round(job.deferral.deferralFraction * 100)}% to 401(k)${
-                          job.deferral.employerMatchFraction
-                            ? ` · ${Math.round(job.deferral.employerMatchFraction * 100)}% match`
-                            : ""
-                        }`
-                      : ""}
-                    {job.deferral && overrideCount > 0 ? " · " : ""}
-                    {overrideCount > 0
-                      ? `${overrideCount} one-off (single-month) adjustment${overrideCount === 1 ? "" : "s"}`
-                      : ""}
-                  </div>
-                )}
-                {/* The job's pay across the whole employment, seam and all. Clicking an age
-                    seeds a change there — the chart is an input, not a picture. */}
-                <PayChart
-                  path={path}
-                  payChanges={payChanges}
-                  incomeOverrides={job.incomeOverrides ?? []}
-                  birthYear={owner.birthYear}
-                  lifeExpectancy={budget.lifeExpectancy}
-                  label={label}
-                  inTodaysDollars={inTodaysDollars}
-                  onPickAge={(age) =>
-                    setAuthoring({ kind: "payChange", id: job.id, seedAge: age })
-                  }
-                />
-                <PayTimeline
-                  job={job}
-                  birthYear={owner.birthYear}
-                  path={path}
-                  label={label}
-                  onRemove={(payChangeId) => removePayChange(job.id, payChangeId)}
-                  onRemoveOverride={(overrideId) => removeIncomeOverride(job.id, overrideId)}
-                />
-                <div className={styles.actions}>
-                  <button
-                    type="button"
-                    aria-label={`Edit ${label}`}
-                    onClick={() =>
-                      setAuthoring((a) =>
-                        a?.kind === "edit" && a.id === job.id ? null : { kind: "edit", id: job.id },
-                      )
-                    }
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Change pay on ${label}`}
-                    onClick={() =>
-                      setAuthoring((a) =>
-                        a?.kind === "payChange" && a.id === job.id
-                          ? null
-                          : { kind: "payChange", id: job.id },
-                      )
-                    }
-                  >
-                    Change pay
-                  </button>
-                  <button type="button" aria-label={`Delete ${label}`} onClick={() => remove(owner, job.id)}>
-                    Delete
-                  </button>
-                </div>
-                {authoring?.kind === "payChange" && authoring.id === job.id && (
-                  <PayChangeForm
-                    // Floored at the job's START age, not at "now": a change before the job
-                    // existed has no baseline to apply to, but one before today does — that is
-                    // exactly what authoring a pay history is.
-                    minAge={startAge}
-                    maxAge={lastPaidAge}
-                    // Opens on the clicked age, else on the seam, so the direction stays an
-                    // explicit choice instead of a bias baked into the default.
-                    defaultAge={authoring.seedAge ?? currentAge}
-                    currentAge={currentAge}
-                    onSubmit={(draft) => addPayChange(owner, job.id, draft)}
-                    onCancel={() => setAuthoring(null)}
-                  />
-                )}
-                {authoring?.kind === "edit" && authoring.id === job.id && (
-                  <JobForm
-                    initial={jobToDraftFor(projection, owner.birthYear, job)}
-                    currentAge={currentAge}
-                    submitLabel="Save"
-                    // Fixed, and shown as context when there is anyone else it could have
-                    // been. The submission type carries no owner at all.
-                    ownership="fixed"
-                    {...(severalOwners
-                      ? { owner: { name: owner.name, isPrimary: owner.id === owners[0].id } }
-                      : {})}
-                    onSubmit={(draft) => edit(owner, job.id, draft)}
-                    onCancel={() => setAuthoring(null)}
-                  />
-                )}
-              </li>
+              <JobCard
+                key={job.id}
+                owner={owner}
+                job={job}
+                label={label}
+                monthlyCents={projection.jobMonthlyIncomeCents(job.id)}
+                initialEditDraft={jobToDraftFor(projection, owner.birthYear, job)}
+                path={path}
+                lifeExpectancy={budget.lifeExpectancy}
+                inTodaysDollars={inTodaysDollars}
+                severalOwners={severalOwners}
+                isPrimaryOwner={owner.id === owners[0].id}
+                authoring={cardAuthoring}
+                onEdit={() =>
+                  setAuthoring((a) =>
+                    a?.kind === "edit" && a.id === job.id ? null : { kind: "edit", id: job.id },
+                  )
+                }
+                onDelete={() => remove(owner, job.id)}
+                onSaveEdit={(draft) => edit(owner, job.id, draft)}
+                onCancel={() => setAuthoring(null)}
+                onStartPayChange={() =>
+                  setAuthoring((a) =>
+                    a?.kind === "payChange" && a.id === job.id ? null : { kind: "payChange", id: job.id },
+                  )
+                }
+                onPickAge={(age) => setAuthoring({ kind: "payChange", id: job.id, seedAge: age })}
+                onSubmitPayChange={(draft) => addPayChange(owner, job.id, draft)}
+                onRemovePayChange={(payChangeId) => removePayChange(job.id, payChangeId)}
+                onRemoveOverride={(overrideId) => removeIncomeOverride(job.id, overrideId)}
+              />
             );
           })}
         </ul>

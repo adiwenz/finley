@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
@@ -13,14 +13,8 @@ import {
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
-import {
-  describeIncomeGap,
-  incomeBandsForMode,
-  type IncomeBasis,
-  type IncomeChartData,
-  type IncomeMode,
-  type IncomeSourceBand,
-} from "./incomeByCategory";
+import type { IncomeBasis, IncomeChartData, IncomeMode } from "./incomeChartData";
+import { buildIncomeChartModel } from "./incomeChartModel";
 
 /**
  * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
@@ -31,69 +25,34 @@ import {
  * Bands are take-home by default (after the source's own tax and pre-tax deferral); gross
  * would show money that never reaches the checking account, overstating headroom.
  *
- * The summary and data mirrors render outside Recharts (jsdom gives no real width).
+ * Pure preparation — band collapse, colours, row mapping, formatting — lives in {@link
+ * buildIncomeChartModel}; this component owns only the local mode/basis state, the click
+ * gesture and the Recharts JSX. The summary and data mirrors render outside Recharts (jsdom
+ * gives no real width).
  */
 
-// Wages: one blue step per job, cooler than the budget chart's earth tones so the two charts
-// read as different quantities.
-const WAGE_COLORS = ["#2f5d7c", "#4a8db5", "#7fb3ce", "#a8cbdd"];
-// The government benefit: one teal step per CLAIMANT, so "whose benefit starts when" is
-// readable off the chart. Out of the blue family: the old steel blue (#6b93b8) sat ΔE 4.0 from
-// the second job's wage band (dataviz palette checker), near-indistinguishable from a paycheck.
-// These two steps separate at ΔE 17.9 normal / 17.8 CVD — past the ≥15 / ≥8 floors — while
-// staying inside the chart's muted register.
-const BENEFIT_COLORS = ["#2f6b66", "#5aa39a"];
-// Living off savings is NOT income — a muted earth family, set apart from the cool income
-// bands above it.
-const DRAW_COLORS = ["#c6b784", "#b08968", "#9c8459", "#d8c79a"];
 const SPENDING_NEED_COLOR = "#9c5b39"; // the dashed "is it enough" line
 const BROKE_COLOR = "#b23a2e"; // the "plan runs out" marker
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e"; // the selected-month rule
 
-/** Namespaced so the dataKey can't clash with a source id. */
-const SPENDING_NEED_KEY = "__spendingNeed";
-
 /**
- * The engine reports a signed per-source net cash flow
- * ({@link import("@finley/engine").ProjectionIncomeSource.netCashFlowCents}) — negative when a
- * source's tax + deferral exceed its cash inflow — but a negative segment renders below the
- * axis and distorts the stack. This is the ONLY place the clamp lives; the engine and the
- * chart's data model keep the honest signed figures. No-op on the gross basis.
+ * Off-screen but in the accessibility tree — the standard clip-rect idiom, not `display:none`
+ * (which would drop it from a screen reader too). Carries the nonvisual data table Recharts'
+ * SVG can't be.
  */
-function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [id, cents] of Object.entries(centsBySource)) out[id] = Math.max(0, cents);
-  return out;
-}
-
-/**
- * Each family is walked in band order, which is stable across the Simple/Advanced toggle — so a
- * person's benefit keeps its colour when the view changes.
- */
-function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, string> {
-  const colors = new Map<string, string>();
-  let wage = 0;
-  let benefit = 0;
-  let draw = 0;
-  for (const s of sources) {
-    if (s.category === "wages") colors.set(s.id, WAGE_COLORS[wage++ % WAGE_COLORS.length]!);
-    else if (s.category === "governmentRetirementBenefit") {
-      colors.set(s.id, BENEFIT_COLORS[benefit++ % BENEFIT_COLORS.length]!);
-    } else colors.set(s.id, DRAW_COLORS[draw++ % DRAW_COLORS.length]!);
-  }
-  return colors;
-}
-
-/** The household's age at `month`, to the nearest quarter-year: "69¾". */
-const QUARTERS = ["", "¼", "½", "¾"] as const;
-function formatBrokeAge(currentAge: number, month: number): string {
-  const wholeYears = Math.floor(month / 12);
-  const quarter = Math.round((month - wholeYears * 12) / 3); // 0..4
-  const age = currentAge + wholeYears + (quarter === 4 ? 1 : 0);
-  return `${age}${quarter === 4 ? "" : QUARTERS[quarter]}`;
-}
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 export interface IncomeChartProps {
   readonly data: IncomeChartData;
@@ -118,43 +77,20 @@ export function IncomeChart({
 }: IncomeChartProps) {
   const [mode, setMode] = useState<IncomeMode>("simple");
   const [basis, setBasis] = useState<IncomeBasis>("takeHome");
-  const summary = describeIncomeGap(data);
   // None of this depends on `selectedMonth`, so scrubbing the selection — a frequent re-render
   // — doesn't recompute the band collapse or remap every month row.
-  const view = useMemo(
-    () => incomeBandsForMode(data, mode, basis, personNames),
-    [data, mode, basis, personNames],
+  const model = useMemo(
+    () => buildIncomeChartModel(data, { mode, basis, personNames, currentAge }),
+    [data, mode, basis, personNames, currentAge],
   );
-  const colors = useMemo(() => colorsForBands(view.sources), [view]);
-  // On the shared months-from-now axis. This is a chart of FLOWS, so the axis' today slot
-  // stays empty — no flow has run at "now" — and the bands start at end-of-month-0. The slot
-  // is still reserved, so this chart's x lines up with the net-worth charts' above it.
-  const rows = useMemo(
-    () =>
-      view.rows.map((r) => ({
-        month: toAxisX(r.month),
-        [SPENDING_NEED_KEY]: r.spendingNeedCents,
-        ...clampBandsForStack(r.centsBySource),
-      })),
-    [view],
-  );
-  const lastX = toAxisX(view.rows[view.rows.length - 1]?.month ?? 0);
-  const brokeMonth = data.firstInsolventMonth;
 
   return (
-    <div
-      role="img"
-      aria-label={
-        summary
-          ? `Monthly cash flows vs. spending. ${summary}`
-          : "Monthly cash flows vs. spending — cash flow continues across the whole horizon."
-      }
-    >
+    <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         {/* Informational, not a warning: a retirement income gap is expected. The
             plan-is-broken case is the broke marker plus the budget chart's amber band. */}
         <p className="hint" data-testid="income-summary">
-          {summary ?? "Cash flow continues across the whole horizon."}
+          {model.gapSummary ?? "Cash flow continues across the whole horizon."}
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
           {/* Gross reads raw earning power. */}
@@ -166,39 +102,91 @@ export function IncomeChart({
             />
             Show gross cash flows
           </label>
-          {/* Advanced splits every source into its own band. */}
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
-            <input
-              type="checkbox"
-              checked={mode === "advanced"}
-              onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
-            />
-            Advanced view
-          </label>
+          {/* Two chart presentations, not a feature that's on or off: a radio group states the
+              choice explicitly and keeps one active mode visible, where a lone "Advanced"
+              checkbox left "Simple" unnamed. Native radios carry the keyboard and a11y
+              semantics; `mode` stays the single union, never a boolean per option. */}
+          <fieldset
+            style={{ display: "inline-flex", alignItems: "center", gap: 10, margin: 0, padding: 0, border: 0, fontSize: 12 }}
+          >
+            <legend style={{ padding: 0, marginRight: 4, float: "left" }}>Chart detail:</legend>
+            {(["simple", "advanced"] as const).map((m) => (
+              <label key={m} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                <input
+                  type="radio"
+                  name="income-mode"
+                  checked={mode === m}
+                  onChange={() => setMode(m)}
+                />
+                {m === "simple" ? "Simple" : "Advanced"}
+              </label>
+            ))}
+          </fieldset>
         </div>
       </div>
 
-      {/* Hidden data mirrors for tests / screen readers. */}
+      {/* The chart as a nonvisual table: not one unlabeled starting snapshot, but a row per
+          moment worth reading — the projection's start, a band beginning/ending/changing, a
+          spending-need change, the first savings withdrawal, insolvency — each headed by when
+          and why. The visual chart below is marked role="img" with a one-line label, so a
+          screen reader gets the gist from the image and the detail here. */}
+      <table style={VISUALLY_HIDDEN} data-testid="income-a11y-table">
+        <caption>{model.accessibleSummary}</caption>
+        {model.accessibleMoments.map((moment, i) => (
+          <tbody key={i}>
+            <tr>
+              <th scope="rowgroup" colSpan={2}>
+                {moment.label} — {moment.reason}
+              </th>
+            </tr>
+            <tr>
+              <th scope="col">Source</th>
+              <th scope="col">Monthly amount</th>
+            </tr>
+            {moment.sources.map((row, j) => (
+              <tr key={`${row.label}-${j}`}>
+                <th scope="row">{row.label}</th>
+                <td>{row.amount}</td>
+              </tr>
+            ))}
+            <tr>
+              <th scope="row">Total cash available</th>
+              <td>{moment.totalCashFlow}</td>
+            </tr>
+            <tr>
+              <th scope="row">Spending need</th>
+              <td>{moment.spendingNeed}</td>
+            </tr>
+          </tbody>
+        ))}
+      </table>
+
+      {/* Test-only mirrors, `hidden` so they stay out of the accessibility tree (the table
+          above is the screen-reader representation); jsdom reads their textContent regardless.
+          The first two rows are both mirrored because month 0 is an ORIGINATION month: a loan
+          authored at Year 0 is not serviced until month 1, so only the second row shows what
+          servicing it costs. */}
       <output data-testid="income-first-row" hidden>
-        {JSON.stringify(view.rows[0]?.centsBySource ?? {})}
+        {JSON.stringify(model.bands.reduce<Record<string, number>>((acc, b) => {
+          const cents = model.rows[0]?.[b.id];
+          if (cents !== undefined) acc[b.id] = cents;
+          return acc;
+        }, {}))}
       </output>
       <output data-testid="income-bands" hidden>
-        {JSON.stringify(view.sources.map((s) => s.label))}
+        {JSON.stringify(model.bands.map((b) => b.label))}
       </output>
-      {/* The spending need is expenses plus scheduled liability payments — a loan on the
-          timeline is part of what income has to cover. The second row is mirrored too: a loan
-          authored at Year 0 originates in month 0 and is first serviced in month 1, so only
-          the second row shows what servicing it costs. */}
       <output data-testid="income-first-spending-need" hidden>
-        {view.rows[0]?.spendingNeedCents ?? 0}
+        {model.rows[0]?.[model.spendingNeedKey] ?? 0}
       </output>
       <output data-testid="income-second-spending-need" hidden>
-        {view.rows[1]?.spendingNeedCents ?? 0}
+        {model.rows[1]?.[model.spendingNeedKey] ?? 0}
       </output>
 
+      <div role="img" aria-label={model.accessibleSummary}>
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart
-          data={rows}
+          data={model.rows as Record<string, number>[]}
           margin={{ top: 16, right: 16, bottom: 8, left: 16 }}
           style={{ cursor: "pointer" }}
           onClick={(state: { activeLabel?: string | number } | null) => {
@@ -210,9 +198,9 @@ export function IncomeChart({
           <XAxis
             dataKey="month"
             type="number"
-            domain={[TODAY_X, lastX]}
+            domain={[TODAY_X, model.lastX]}
             allowDataOverflow
-            ticks={yearTickXs(lastX)}
+            ticks={yearTickXs(model.lastX)}
             tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
@@ -230,39 +218,39 @@ export function IncomeChart({
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
-          {brokeMonth !== null && (
+          {model.brokeMonth !== null && (
             <ReferenceLine
-              x={toAxisX(brokeMonth)}
+              x={toAxisX(model.brokeMonth)}
               stroke={BROKE_COLOR}
               strokeWidth={1.5}
               strokeDasharray="2 4"
               label={{
-                value: `broke · ${formatBrokeAge(currentAge, brokeMonth)}`,
+                value: `broke · ${model.brokeAgeLabel}`,
                 position: "top",
                 fill: BROKE_COLOR,
                 fontSize: 11,
               }}
             />
           )}
-          {view.sources.map((source) => (
+          {model.bands.map((band) => (
             <Area
-              key={source.id}
+              key={band.id}
               type="monotone"
-              dataKey={source.id}
-              name={source.label}
+              dataKey={band.id}
+              name={band.label}
               stackId="income"
               // Not a surface-coloured separator hairline: Recharts keys the legend swatch and
               // tooltip entry to `stroke`, so a surface stroke erases both. The full-opacity
               // stroke over the 0.6 fill gives each band its darker edge.
-              stroke={colors.get(source.id)}
-              fill={colors.get(source.id)}
+              stroke={band.color}
+              fill={band.color}
               fillOpacity={0.6}
               isAnimationActive={false}
             />
           ))}
           <Line
             type="monotone"
-            dataKey={SPENDING_NEED_KEY}
+            dataKey={model.spendingNeedKey}
             name="Spending need"
             stroke={SPENDING_NEED_COLOR}
             strokeWidth={2}
@@ -272,6 +260,7 @@ export function IncomeChart({
           />
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

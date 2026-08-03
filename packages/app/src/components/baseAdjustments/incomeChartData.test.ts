@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
-import { buildIncomeChartData, describeIncomeGap, incomeBandsForMode } from "./incomeByCategory";
+import { buildIncomeChartData, describeIncomeGap, incomeBandsForMode } from "./incomeChartData";
 
 /** A minimal series fixture: month 0 has no flows; later months carry income sources. */
 function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {

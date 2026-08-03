@@ -12,7 +12,7 @@ import { memo } from "react";
 import { IncomeChart } from "./incomeChart";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
 import { TaxChart } from "./taxChart";
-import type { IncomeChartData } from "./incomeByCategory";
+import type { IncomeChartData } from "./incomeChartData";
 import type { PerLineBudgetData } from "./perLineBudget";
 import type { TaxChartData } from "./taxesByMonth";
 import styles from "./baseAdjustments.module.css";
