@@ -1,0 +1,320 @@
+/**
+ * Regression guard for the net-worth uptick in the first insolvent month.
+ *
+ * **The bug.** The engine reported a real net worth for the month the plan failed and nulled it
+ * only from the month AFTER. But that month is already contaminated: the shortfall cascade tops
+ * up the synthetic card to its $50,000 limit, absorbs whatever fraction of the month's spending
+ * fits, and DROPS the rest. So the balance sheet keeps that month's home appreciation and
+ * principal paydown while losing most of its cost — and net worth ticks UP, at exactly the point
+ * the chart labels "runs out". The plan looked like it improved in the month it went broke.
+ *
+ * **The scenario**: the default plan and a $300k home with $50k down at month 12. It fails
+ * partway through the horizon with the card pinned at its limit.
+ *
+ * The originally reported repro paired this with a standalone $250k `takeLoan` of kind
+ * `mortgage`, which is no longer authorable — a bare mortgage books debt with no house against
+ * it, and {@link import("@finley/engine").OriginableLoanKind} now refuses it. The loan was never
+ * what produced the uptick; the home's appreciation and amortization were. Dropping it leaves the
+ * bug reproducing from a positive net worth, which is if anything the clearer demonstration.
+ *
+ * These assertions are deliberately split between the two things that had to hold together — the
+ * engine must stop *stating* the contaminated figure, and the chart must stop *drawing* it —
+ * because either alone leaves the misleading tick on screen.
+ */
+
+import { readFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+import {
+  Projection,
+  SYNTHETIC_CARD_ID,
+  SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+  dollarsToCents,
+  type PersonId,
+  type ProjectionSeries,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { DEFAULT_INPUT } from "../../planDefaults";
+import { buildNetWorthChartData } from "./netWorthChartData";
+import { toAxisX } from "../monthAxis";
+
+const PURCHASE_MONTH = 12;
+
+/**
+ * The default plan opened with enough cash to clear the down-payment gate, then given the
+ * purchase. The raised opening balance is what makes the purchase authorable at all — the gate
+ * refuses it from the stock $10k — and is not itself under test.
+ */
+function repro(): ProjectionSeries {
+  const built = Projection.fromInput(
+    { ...DEFAULT_INPUT, openingBalanceCents: dollarsToCents(60_000) },
+    usJurisdiction,
+  );
+  if (!built.ok) throw new Error(`repro input rejected: ${built.error.reason}`);
+  const p = built.projection;
+
+  p.buyHome({
+    month: PURCHASE_MONTH,
+    ownerId: "p1" as PersonId,
+    purchasePriceCents: dollarsToCents(300_000),
+    downPaymentCents: dollarsToCents(50_000),
+    downPaymentSourceIds: ["savings", "brokerage", "fund-goal-2", "fund-goal-1"],
+    mortgageApr: 0.065,
+    mortgageTermMonths: 360,
+  });
+
+  return p.run(usJurisdiction).series;
+}
+
+describe("the first insolvent month, on the home-purchase repro", () => {
+  const series = repro();
+  const insolventIndex = series.months.findIndex((m) => m.isInsolvent);
+  const insolvent = series.months[insolventIndex];
+  const lastFunded = series.months[insolventIndex - 1];
+
+  it("fails at a month partway through the horizon, with a solvent month before it", () => {
+    expect(insolventIndex).toBeGreaterThan(PURCHASE_MONTH);
+    expect(insolvent).toBeDefined();
+    expect(lastFunded?.isInsolvent).toBe(false);
+  });
+
+  it("never borrows the credit card past its real limit, through the failure", () => {
+    // Every month the chart draws, plus the failure itself. The cascade caps each card at its
+    // limit and reports the remainder as uncovered — it never overdraws one to make the
+    // shortfall visible on a balance sheet.
+    //
+    // Deliberately NOT asserted past this point: the balance drifts above the limit decades
+    // later as interest compounds on a maxed card whose payment is never funded. That is
+    // post-insolvency fiction the engine already refuses to total, and it is not borrowing.
+    for (const m of series.months.slice(0, insolventIndex + 1)) {
+      expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBeLessThanOrEqual(
+        SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+      );
+    }
+    // And at the failure itself the card is genuinely pinned — the shortfall is uncovered
+    // because credit ran out, not because the cascade declined to use it.
+    expect(insolvent.liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeGreaterThan(
+      SYNTHETIC_CARD_CREDIT_LIMIT_CENTS - dollarsToCents(1_000),
+    );
+  });
+
+  it("reports a net worth for the last fully funded month", () => {
+    expect(lastFunded.netWorthNominalCents).not.toBeNull();
+    expect(lastFunded.netWorthRealCents).not.toBeNull();
+    // Positive here: the plan fails while still solvent on paper, which is exactly the case the
+    // uptick made look survivable.
+    expect(lastFunded.netWorthNominalCents).toBeGreaterThan(0);
+  });
+
+  it("reports NO net worth for the first insolvent month — not the contaminated figure", () => {
+    expect(insolvent.netWorthNominalCents).toBeNull();
+    expect(insolvent.netWorthRealCents).toBeNull();
+    for (const m of series.months.slice(insolventIndex)) {
+      expect(m.netWorthNominalCents).toBeNull();
+    }
+  });
+
+  it("reports the uncovered shortfall, and only where the plan actually fell short", () => {
+    expect(insolvent.uncoveredCents).toBeGreaterThan(0);
+    // The flag is exactly this quantity's sign — one fact, stated once.
+    for (const m of series.months) {
+      expect(m.isInsolvent).toBe(m.uncoveredCents > 0);
+    }
+    for (const m of series.months.slice(0, insolventIndex)) {
+      expect(m.uncoveredCents).toBe(0);
+    }
+    expect(series.opening.uncoveredCents).toBe(0);
+  });
+
+  it("emits the insolvency report on the first insolvent month and nowhere else", () => {
+    expect(insolvent.insolvencyReport).toBeDefined();
+    expect(series.opening.insolvencyReport).toBeUndefined();
+    // Not on any solvent month, and — the case that matters — not on the LATER insolvent ones,
+    // which keep reporting a shortfall but have no defined counterfactual to offer.
+    const withReport = series.months.filter((m) => m.insolvencyReport !== undefined);
+    expect(withReport).toHaveLength(1);
+    expect(withReport[0].month).toBe(insolvent.month);
+    const laterInsolvent = series.months.filter((m) => m.isInsolvent && m.month > insolvent.month);
+    expect(laterInsolvent.length).toBeGreaterThan(0);
+    expect(laterInsolvent.every((m) => m.uncoveredCents > 0)).toBe(true);
+    expect(laterInsolvent.every((m) => m.insolvencyReport === undefined)).toBe(true);
+  });
+
+  it("computes the debt-funded figure from the balance sheet minus the shortfall", () => {
+    const report = insolvent.insolvencyReport!;
+    // The contaminated total is not published, so derive it here from the month's own balances —
+    // which is exactly what the engine summed, and what the chart used to plot directly.
+    const balanceSheet =
+      Object.values(insolvent.accountBalancesCents).reduce((a, b) => a + b, 0) +
+      Object.values(insolvent.propertyValuesCents).reduce((a, b) => a + b, 0) -
+      Object.values(insolvent.liabilityBalancesCents).reduce((a, b) => a + b, 0);
+    expect(report.uncoveredCents).toBe(insolvent.uncoveredCents);
+    expect(report.debtFundedNetWorthNominalCents).toBe(balanceSheet - report.uncoveredCents);
+    // And it is genuinely a markdown on the contaminated sheet, not a restatement of it.
+    expect(report.debtFundedNetWorthNominalCents).toBeLessThan(balanceSheet);
+  });
+
+  it("does not publish the contaminated balance-sheet total on its own", () => {
+    // The raw sum has no safe reading — the only form it ships in is one that has charged the
+    // shortfall back. Guards against it creeping back onto the public month.
+    expect(insolvent).not.toHaveProperty("preShortfallNetWorthNominalCents");
+    expect(lastFunded).not.toHaveProperty("preShortfallNetWorthNominalCents");
+  });
+
+  it("leaves accounts and liabilities untouched — only the aggregate is withheld", () => {
+    // The contaminated month still emits its full balance sheet for diagnosis; what changed is
+    // that the engine no longer sums it into a headline figure.
+    expect(Object.keys(insolvent.accountBalancesCents).length).toBeGreaterThan(0);
+    expect(Object.keys(insolvent.liabilityBalancesCents).length).toBeGreaterThan(0);
+    expect(Object.keys(insolvent.propertyValuesCents).length).toBeGreaterThan(0);
+
+    // The passive movements that used to fake the uptick are still simulated, unchanged: the
+    // home appreciates and both loans amortize down across the failure boundary.
+    const [property] = Object.keys(insolvent.propertyValuesCents);
+    expect(insolvent.propertyValuesCents[property]).toBeGreaterThan(
+      lastFunded.propertyValuesCents[property],
+    );
+    for (const id of Object.keys(insolvent.liabilityBalancesCents)) {
+      if (id === SYNTHETIC_CARD_ID) continue;
+      expect(insolvent.liabilityBalancesCents[id]).toBeLessThan(
+        lastFunded.liabilityBalancesCents[id],
+      );
+    }
+
+    // The proof the uptick was real and is now simply not reported: summing the insolvent
+    // month's own balance sheet by hand still yields MORE than the last funded month's net
+    // worth. That sum is what the chart used to plot.
+    const sum = (m: typeof insolvent) =>
+      Object.values(m.accountBalancesCents).reduce((a, b) => a + b, 0) +
+      Object.values(m.propertyValuesCents).reduce((a, b) => a + b, 0) -
+      Object.values(m.liabilityBalancesCents).reduce((a, b) => a + b, 0);
+    expect(sum(insolvent)).toBeGreaterThan(lastFunded.netWorthNominalCents as number);
+  });
+});
+
+describe("what the chart draws for that run", () => {
+  const series = repro();
+  const insolventIndex = series.months.findIndex((m) => m.isInsolvent);
+  const insolvent = series.months[insolventIndex];
+  const data = buildNetWorthChartData(series);
+
+  it("ends the solid curve at the last fully funded month", () => {
+    expect(data.lastFundedX).toBe(toAxisX(series.months[insolventIndex - 1].month));
+    for (const p of data.points) {
+      if (p.x > data.lastFundedX) expect(p.nominalCents).toBeNull();
+    }
+  });
+
+  it("renders no upward final net-worth point", () => {
+    const drawn = data.points.filter((p) => p.nominalCents !== null);
+    const last = drawn[drawn.length - 1];
+    const previous = drawn[drawn.length - 2];
+    // The plan is failing: its last drawn month must not be its best one.
+    expect(last.nominalCents as number).toBeLessThan(previous.nominalCents as number);
+    expect(last.x).toBe(data.lastFundedX);
+  });
+
+  it("puts the runs-out marker on the first insolvent month", () => {
+    expect(data.runsOut).not.toBeNull();
+    expect(data.runsOut?.x).toBe(toAxisX(insolvent.month));
+    expect(data.runsOut?.x).toBeGreaterThan(data.lastFundedX);
+    expect(data.runsOut?.x).toBeLessThanOrEqual(data.xMax);
+  });
+
+  it("passes the engine's figure through without doing arithmetic on it", () => {
+    // The whole contract of this module: both values are READ off the engine's report, never
+    // derived here. Identity, not equality-after-computation.
+    const runsOut = data.runsOut!;
+    const report = insolvent.insolvencyReport!;
+    expect(runsOut.debtFundedNetWorthCents).toBe(report.debtFundedNetWorthNominalCents);
+    expect(runsOut.uncoveredCents).toBe(report.uncoveredCents);
+    // Below the last funded point, so the curve keeps falling into the failure.
+    expect(runsOut.debtFundedNetWorthCents).toBeLessThan(data.lastFundedNominalCents as number);
+  });
+
+  it("has no financial arithmetic in its source", () => {
+    // Structural, deliberately: the pass-through assertion above still passes if the module
+    // recomputes the same number itself, and re-deriving a financial claim in the app is exactly
+    // what this move was meant to end. The module may do axis math; it may not touch cents.
+    const source = readFileSync(new URL("./netWorthChartData.ts", import.meta.url), "utf8");
+    // Comments stripped first: this asserts about code, and the doc comments legitimately
+    // describe the subtraction the engine performs.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    // Any monetary identifier adjacent to an arithmetic operator, on either side, including
+    // through a property access (`report.uncoveredCents`).
+    const moneyOperand = String.raw`[\w.?]*[Cc]ents\b`;
+    expect(code).not.toMatch(new RegExp(`${moneyOperand}\\s*[-+*/]`));
+    expect(code).not.toMatch(new RegExp(`[-+*/]\\s*${moneyOperand}`));
+  });
+
+  it("continues the trajectory rather than flattening", () => {
+    // The regression that made this endpoint necessary: subtracting the shortfall from the last
+    // funded point drew a near-horizontal dash, because the first insolvent month's
+    // `uncoveredCents` is a threshold-crossing residual, not the size of the ongoing failure.
+    // Anchoring on the month's own balance sheet fixes it — the dashed drop must be of the same
+    // order as the curve's own slope.
+    const drawn = data.points.filter((p) => p.nominalCents !== null);
+    const priorSlope =
+      (drawn[drawn.length - 1].nominalCents as number) -
+      (drawn[drawn.length - 2].nominalCents as number);
+    const dashedDrop =
+      data.runsOut!.debtFundedNetWorthCents - (data.lastFundedNominalCents as number);
+    expect(priorSlope).toBeLessThan(0);
+    expect(dashedDrop).toBeLessThan(priorSlope / 2);
+  });
+
+  it("draws exactly one counterfactual point, and nothing after it", () => {
+    const runsOut = data.runsOut!;
+    // Two non-null values total, so `connectNulls` yields one segment: the join at the last
+    // funded month, and the single endpoint at the failure.
+    const dashed = data.points.filter((p) => p.debtFundedNetWorthCents !== null);
+    expect(dashed).toHaveLength(2);
+    expect(dashed.map((p) => p.x)).toEqual([data.lastFundedX, runsOut.x]);
+    expect(dashed[0].debtFundedNetWorthCents).toBe(data.lastFundedNominalCents);
+    expect(dashed[1].debtFundedNetWorthCents).toBe(runsOut.debtFundedNetWorthCents);
+    // No later counterfactual: every month past the failure contributes nothing to draw, even
+    // though the engine keeps reporting an uncovered shortfall for each of them.
+    const laterInsolvent = series.months.filter((m) => m.isInsolvent && m.month > insolvent.month);
+    expect(laterInsolvent.length).toBeGreaterThan(0);
+    expect(laterInsolvent.every((m) => m.uncoveredCents > 0)).toBe(true);
+    for (const p of data.points) {
+      if (p.x > runsOut.x) expect(p.debtFundedNetWorthCents).toBeNull();
+    }
+  });
+
+  it("keeps the counterfactual out of the reported series", () => {
+    // Drawn, never stated: no month's net worth equals it, and nothing feeds it back.
+    const adjusted = data.runsOut!.debtFundedNetWorthCents;
+    for (const m of series.months) {
+      if (m.netWorthNominalCents !== null) expect(m.netWorthNominalCents).not.toBe(adjusted);
+    }
+  });
+
+  it("leaves liabilities capped and untouched by the counterfactual", () => {
+    // The assumed borrowing is arithmetic on a reported figure, not a transaction: the card is
+    // no higher than it was, and no higher than its limit.
+    expect(insolvent.liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThanOrEqual(
+      SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+    );
+    const rebuilt = buildNetWorthChartData(repro());
+    expect(rebuilt.runsOut?.debtFundedNetWorthCents).toBe(data.runsOut?.debtFundedNetWorthCents);
+    // Building the chart data cannot have moved anything: the balance sheet is identical.
+    const rebuiltInsolvent = repro().months.find((m) => m.isInsolvent)!;
+    expect(rebuiltInsolvent.liabilityBalancesCents).toEqual(insolvent.liabilityBalancesCents);
+    expect(rebuiltInsolvent.accountBalancesCents).toEqual(insolvent.accountBalancesCents);
+  });
+});
+
+describe("a plan that survives its horizon", () => {
+  const built = Projection.fromInput(DEFAULT_INPUT, usJurisdiction);
+  if (!built.ok) throw new Error("default input rejected");
+  const data = buildNetWorthChartData(built.projection.run(usJurisdiction).series);
+
+  it("draws no runs-out marker and no dashed segment", () => {
+    // The default plan does eventually fail; this only asserts the shape holds when it doesn't.
+    if (data.runsOut === null) {
+      expect(data.points.every((p) => p.debtFundedNetWorthCents === null)).toBe(true);
+    } else {
+      expect(data.runsOut.uncoveredCents).toBeGreaterThan(0);
+    }
+  });
+});

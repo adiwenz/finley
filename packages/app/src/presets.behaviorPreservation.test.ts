@@ -28,18 +28,30 @@ function seriesOf(preset: Preset): ProjectionSeries {
   return built.projection.run(usJurisdiction).series;
 }
 
-/** The money-bearing slice of a month — everything attribution is forbidden from moving. */
-function moneyShape(m: ProjectionMonth) {
+/**
+ * The BALANCES a month holds — everything attribution is forbidden from moving, and the part
+ * that is money rather than commentary on it. Split out from {@link moneyShape} so a change to
+ * how net worth is *reported* can never be confused with a change to what the household
+ * actually has. Only a `balancesDigest` break means money moved.
+ */
+function balancesShape(m: ProjectionMonth) {
   return {
     month: m.month,
-    netWorthNominalCents: m.netWorthNominalCents,
-    netWorthRealCents: m.netWorthRealCents,
     accountBalancesCents: m.accountBalancesCents,
     accountBasisCents: m.accountBasisCents,
     liabilityBalancesCents: m.liabilityBalancesCents,
     propertyValuesCents: m.propertyValuesCents,
     isInsolvent: m.isInsolvent,
     taxCents: m.flows?.taxCents ?? null,
+  };
+}
+
+/** The balances plus the reported net-worth aggregate derived from them. */
+function moneyShape(m: ProjectionMonth) {
+  return {
+    ...balancesShape(m),
+    netWorthNominalCents: m.netWorthNominalCents,
+    netWorthRealCents: m.netWorthRealCents,
   };
 }
 
@@ -54,20 +66,41 @@ function digest(text: string): string {
 }
 
 function moneyDigest(series: ProjectionSeries): string {
-  const shape = [series.opening, ...series.months].map(moneyShape);
-  return digest(JSON.stringify(shape));
+  return digest(JSON.stringify([series.opening, ...series.months].map(moneyShape)));
 }
 
-/** Pre-slice digests + anchors, captured against the engine before ResolvedFunding existed. */
+function balancesDigest(series: ProjectionSeries): string {
+  return digest(JSON.stringify([series.opening, ...series.months].map(balancesShape)));
+}
+
+/**
+ * Pre-slice digests + anchors, captured against the engine before ResolvedFunding existed.
+ *
+ * `balances` carries the pre-slice numbers unchanged — its VALUES were computed against the
+ * engine as it stood before net worth started being withheld from the first insolvent month
+ * (the misleading uptick — see `netWorthChart/insolventMonthNetWorth.test.ts`), and they still
+ * hold. That is the claim worth making: the uptick fix withheld a derived figure for one month
+ * per insolvent preset and moved no money.
+ *
+ * `digest` was re-baselined at the same time. Every preset's value moved, including the solvent
+ * one, because {@link moneyShape} was also restructured and JSON key order feeds the hash — so
+ * a `digest` break alone is weak evidence. `balances` is the load-bearing guard.
+ */
 const PRE_SLICE: Record<
   string,
-  { digest: string; months: number; finalNetWorthCents: number | null; firstInsolventMonth: number | null }
+  {
+    digest: string;
+    balances: string;
+    months: number;
+    finalNetWorthCents: number | null;
+    firstInsolventMonth: number | null;
+  }
 > = {
-  default: { digest: "771c48f3", months: 660, finalNetWorthCents: null, firstInsolventMonth: 364 },
-  "paycheck-to-paycheck": { digest: "ccdd15f5", months: 660, finalNetWorthCents: null, firstInsolventMonth: 85 },
-  "living-on-credit": { digest: "792820a7", months: 660, finalNetWorthCents: null, firstInsolventMonth: 40 },
-  "student-loan": { digest: "9d753232", months: 660, finalNetWorthCents: 52_977_436, firstInsolventMonth: null },
-  "taxed-in-retirement": { digest: "7c339e84", months: 444, finalNetWorthCents: null, firstInsolventMonth: 64 },
+  default: { digest: "9bacbd4e", balances: "565174cf", months: 660, finalNetWorthCents: null, firstInsolventMonth: 364 },
+  "paycheck-to-paycheck": { digest: "3bd9f23e", balances: "7884bb2d", months: 660, finalNetWorthCents: null, firstInsolventMonth: 85 },
+  "living-on-credit": { digest: "4c4ee7c6", balances: "7b25f211", months: 660, finalNetWorthCents: null, firstInsolventMonth: 40 },
+  "student-loan": { digest: "d7f446be", balances: "ce4973c1", months: 660, finalNetWorthCents: 52_977_436, firstInsolventMonth: null },
+  "taxed-in-retirement": { digest: "b1eafcf8", balances: "135e86a3", months: 444, finalNetWorthCents: null, firstInsolventMonth: 64 },
 };
 
 const firstInsolventMonthOf = (series: ProjectionSeries): number | null =>
@@ -85,6 +118,11 @@ describe("behavior preservation across the default plan and every preset", () =>
         expected.finalNetWorthCents,
       );
       expect(firstInsolventMonthOf(series)).toBe(expected.firstInsolventMonth);
+      // Balances first: this is the one that means money moved, and it must never be
+      // re-baselined to make a change go green.
+      expect(balancesDigest(series), "balances moved — money changed hands").toBe(
+        expected.balances,
+      );
       expect(moneyDigest(series)).toBe(expected.digest);
     },
   );

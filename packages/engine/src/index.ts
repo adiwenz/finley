@@ -55,7 +55,12 @@ export type {
   HaveExistingChildInput,
 } from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
-export type { TakeLoanInput, CarryLoanInput, PayOffDebtInput } from "./authoring/liabilities";
+export type {
+  TakeLoanInput,
+  OriginableLoanKind,
+  CarryLoanInput,
+  PayOffDebtInput,
+} from "./authoring/liabilities";
 export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.
@@ -120,7 +125,12 @@ export type { Household } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
-export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type {
+  ProjectionSeries,
+  ProjectionMonth,
+  InsolvencyReport,
+  IncomeSourceCategory,
+} from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 export type { FinancialObligation } from "./projection/financialObligation";
 export type {
@@ -175,7 +185,7 @@ export { liabilityKindLabel } from "./liability";
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
 export { RETIREMENT_ID } from "./ids";
 export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
-export { SYNTHETIC_CARD_ID } from "./liability";
+export { SYNTHETIC_CARD_ID, SYNTHETIC_CARD_CREDIT_LIMIT_CENTS } from "./liability";
 export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";
 
 // Declarative authoring: the app's seed plans and starter scenarios are `ScenarioInput`

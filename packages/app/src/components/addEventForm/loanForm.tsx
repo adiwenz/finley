@@ -1,7 +1,7 @@
 /** A new liability is taken on — a LoanEvent. */
 
 import { useRef, useState } from "react";
-import { dollarsToCents, PRIMARY_PERSON_ID, type LiabilityKind } from "@finley/engine";
+import { dollarsToCents, PRIMARY_PERSON_ID, type OriginableLoanKind } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { MonthSelect, type FormProps } from "./formControls";
 
@@ -15,12 +15,15 @@ const DEFAULT_TERM_YEARS = 5;
 type LoanCommon = { readonly month: number; readonly amount: number; readonly apr: number };
 type LoanDraft =
   | (LoanCommon & { readonly kind: "creditCard" })
-  | (LoanCommon & { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly termYears: number });
+  | (LoanCommon & {
+      readonly kind: Exclude<OriginableLoanKind, "creditCard">;
+      readonly termYears: number;
+    });
 
 export function LoanForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
   const [draft, setDraft] = useState<LoanDraft>(() => ({
     month: defaultMonth,
-    kind: "auto",
+    kind: "studentLoan",
     amount: 2000,
     apr: 6,
     termYears: DEFAULT_TERM_YEARS,
@@ -36,7 +39,7 @@ export function LoanForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
 
   // Switching kind rebuilds the arm with a valid value for its own field, preserving the
   // shared amount/apr/month.
-  function setKind(kind: LiabilityKind) {
+  function setKind(kind: OriginableLoanKind) {
     setDraft((d) => {
       if (d.kind === kind) return d;
       const common: LoanCommon = { month: d.month, amount: d.amount, apr: d.apr };
@@ -72,10 +75,8 @@ export function LoanForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
       <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
       <label className="field">
         <span className="field-label">Type</span>
-        <select value={draft.kind} onChange={(e) => setKind(e.target.value as LiabilityKind)}>
-          <option value="auto">Auto loan</option>
+        <select value={draft.kind} onChange={(e) => setKind(e.target.value as OriginableLoanKind)}>
           <option value="studentLoan">Student loan</option>
-          <option value="mortgage">Mortgage</option>
           <option value="creditCard">Credit card</option>
         </select>
       </label>

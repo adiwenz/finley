@@ -61,7 +61,7 @@ describe("LoanForm — kind gates the term", () => {
 
     // Back to amortizing: the field returns with the user's 7, not the default 5.
     fireEvent.change(screen.getByRole("combobox", { name: /Type/i }), {
-      target: { value: "auto" },
+      target: { value: "studentLoan" },
     });
     expect(Number(spin(/Term/i).value)).toBe(7);
   });
@@ -74,7 +74,7 @@ describe("LoanForm — kind gates the term", () => {
     fireEvent.change(spin(/Term/i), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
     expect(p.takeLoan).toHaveBeenLastCalledWith(
-      expect.objectContaining({ kind: "auto", termMonths: 72 }),
+      expect.objectContaining({ kind: "studentLoan", termMonths: 72 }),
     );
     expect(p.takeLoan.mock.calls[0][0]).not.toHaveProperty("creditLimitCents");
 
