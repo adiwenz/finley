@@ -217,11 +217,24 @@ export function createProjectionBase(
 
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
+  //
+  // `retirementTargetAge` is the primary's OWN natural-end input to `jobEndYearExclusive`
+  // (compilePerson.ts) — the same field a partner's job is capped against there, never
+  // extended past it. Mid-solve, the candidate age under test IS the primary's hypothesis for
+  // that field (the whole reason `evaluateAtAge`/`evaluateFullRetirementAtAge` can explore ages
+  // past the authored `budget.retirementAge`), so it's resolved here from the boundary rather
+  // than left at the authored figure — otherwise the shared, owner-agnostic cap in
+  // `jobEndYearExclusive` would clip the primary's own search candidate back down to
+  // `budget.retirementAge` and the solver could never test past it. A partner's own
+  // `retirementTargetAge`, authored on their RelationshipEvent, is never touched this way —
+  // only the primary's stands in for "the age this solve is testing."
+  const retirementTargetAge =
+    stopWorking === undefined ? budget.retirementAge : stopWorking.boundaryYearExclusive - birthYear;
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
-    retirementTargetAge: budget.retirementAge,
+    retirementTargetAge,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
   };

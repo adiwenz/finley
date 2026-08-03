@@ -20,6 +20,8 @@ import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate"
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
 import type { Plan } from "./plan";
+import type { Person } from "./person";
+import type { Job } from "./job";
 import type { Household } from "./ledger/household";
 
 /**
@@ -233,31 +235,61 @@ export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionCon
 }
 
 /**
- * `max(job endYears)` as an age — the latest any authored job is scheduled to stop. An
- * open-ended job resolves to its `retirementTargetAge` end. Null when the plan has no jobs
- * (a scalar plan stops earned income at `retirementAge`, already reported by the partial
- * retirement age).
+ * Every job authored anywhere in the household, paired with its owner — the primary's plan
+ * jobs AND every partner's, via the same {@link Household.memberships} roster
+ * `interpretLedger` builds and `partnerJobSeries` draws its persons from. One traversal, so a
+ * household-wide read (this, or a future one) can never disagree with what the projection
+ * actually rosters, and never has to special-case the primary to reach a partner's jobs.
  */
-export function latestAuthoredWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  const { plan } = scenario;
-  const jobs = plan.jobs ?? [];
-  if (jobs.length === 0) return null;
-  const birthYear = ctx.startYear - plan.currentAge;
-  const maxEndExclusive = Math.max(
-    ...jobs.map((job) => job.endYear ?? birthYear + plan.retirementAge),
-  );
-  return maxEndExclusive - birthYear;
+function householdJobOwners(scenario: Scenario, ctx: ProjectionContext): { job: Job; owner: Person }[] {
+  const base = createProjectionBase(scenario.plan, ctx);
+  const household = interpretLedger(scenario.ledger, base);
+  return household.memberships.flatMap((m) => m.person.jobs.map((job) => ({ job, owner: m.person })));
 }
 
 /**
- * The default retirement result off one {@link Scenario}: the full-retirement search plus the
- * derived latest-authored-work-stop age. Partial retirement is a separate, opt-in solve
- * ({@link earliestPartialRetirementAge}) and is deliberately not run here, so the default query
- * performs a single binary search rather than two.
+ * The exclusive calendar year the household's authored plan pays its final wage — a plain
+ * READ of what's already authored, not a search: `max` over EVERY job anywhere in the
+ * household (the primary's plan jobs AND every partner's, joined via a RelationshipEvent) of
+ * that job's own natural end (its authored `endYear`, or its OWNER's own `retirementTargetAge`
+ * for an open-ended job — a partner's, not the primary's, when it is the partner's job).
+ * `null` when the household has no jobs (a scalar plan stops earned income at `retirementAge`,
+ * already reported by the partial retirement age).
+ *
+ * Distinct from {@link fullRetirementAge}, which is a SOLVED value: the earliest age the
+ * household can stop working and still remain solvent. This is the opposite direction — it
+ * never asks whether the plan survives, only when the plan as authored today runs out of
+ * income of its own accord.
+ */
+function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number | null {
+  const jobOwners = householdJobOwners(scenario, ctx);
+  if (jobOwners.length === 0) return null;
+  return Math.max(...jobOwners.map(({ job, owner }) => job.endYear ?? owner.birthYear + owner.retirementTargetAge));
+}
+
+/**
+ * {@link plannedWorkStopYear} as an age — the convention every other solver output uses, so a
+ * partner's later calendar-year stop is converted through the PRIMARY's birth year, never
+ * reported as if it were the partner's own age. `null` when the household has no jobs.
+ */
+export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
+  const year = plannedWorkStopYear(scenario, ctx);
+  if (year === null) return null;
+  const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
+  return year - primaryBirthYear;
+}
+
+/**
+ * The default retirement result off one {@link Scenario}: the full-retirement search
+ * ({@link fullRetirementAge} — solved, "can we afford to stop") plus the planned work-stop age
+ * ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its own"). Partial
+ * retirement is a separate, opt-in solve ({@link earliestPartialRetirementAge}) and is
+ * deliberately not run here, so the default query performs a single binary search rather than
+ * two.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   return {
     fullRetirementAge: earliestFullRetirementAge(scenario, ctx),
-    latestAuthoredWorkStopAge: latestAuthoredWorkStopAge(scenario, ctx),
+    plannedWorkStopAge: plannedWorkStopAge(scenario, ctx),
   };
 }

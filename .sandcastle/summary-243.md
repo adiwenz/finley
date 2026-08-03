@@ -78,3 +78,65 @@ primary and any partner through the one compilation path they share.
 - Full suite: **1577 tests green** (925 in `packages/engine`), 45 todo. Existing single-earner
   solver behaviour (survival monotonicity, threshold ages, partial < full on the barista plan,
   latest-authored-work-stop age) is unchanged.
+
+## Correctness follow-up (post-review)
+
+Two correctness issues surfaced in review of the above, plus a naming cleanup:
+
+### 1. The boundary could extend a job past its own natural end
+
+`jobEndYearExclusive` (compilePerson.ts) now always derives a job's natural end first —
+`job.endYear ?? owner.birthYear + owner.retirementTargetAge` — and only ever narrows it with
+`Math.min(natural, boundary)`, in both `"full"` and `"partial"` mode. Previously an open-ended
+job resolved straight to `stopWorking.boundaryYearExclusive`, which could EXTEND a partner past
+their own authored `retirementTargetAge` (or an owner's explicit `endYear`) whenever the
+boundary — derived from the primary's candidate age — fell later than that owner's own natural
+stop. Fixed jobs already correctly resisted extension (via a prior `Math.min` in full mode, and
+by being left untouched in partial mode); only open-ended jobs needed the fix.
+
+**Partial-mode semantics, stated precisely:** a partial stop moves an open-ended job's end to
+`min(its own natural end, the boundary)` — i.e. it can shorten an open-ended job toward the
+boundary, but never past its own authored natural end, and it never touches an explicit
+`endYear` in either direction. Full mode applies the same `min` to every job, including
+fixed-term ones (already the existing, correct behavior there).
+
+This meant the primary's own open-ended job needed a matching change so the solver can still
+search candidate ages *past* the authored `retirementAge` (the entire point of
+`earliestFullRetirementAge`/`earliestPartialRetirementAge`): `createProjectionBase`
+(projectionBase.ts) now resolves the compiled `standingPerson.retirementTargetAge` from the
+boundary itself when a solve is under way (`boundaryYearExclusive − birthYear`), rather than
+leaving it pinned at `budget.retirementAge`. This keeps the natural-end cap in
+`jobEndYearExclusive` fully owner-agnostic (no primary-special-casing there) while making the
+primary's own candidate age — not a partner's — the one thing the cap can never fall behind.
+A partner's `retirementTargetAge`, authored on their `RelationshipEvent`, is never touched this
+way, so it acts as a real ceiling on their job precisely as the fix intends.
+
+Regression tests (`retirementSolver.test.ts`): an older partner whose own natural retirement
+predates the primary's candidate boundary (full and partial mode), a fixed-term partner job with
+an explicit end before the boundary, and confirmation the boundary still shortens a partner
+authored to work later than the candidate — including that no wage or payroll tax posts past
+the natural end.
+
+### 2. `latestAuthoredWorkStopAge` → `plannedWorkStopAge`, and made household-wide
+
+Renamed throughout (no more "latest" in names/comments — the concept is "the household's planned
+work stop," not a max-of-a-collection detail) and split into two pieces:
+
+- `plannedWorkStopYear` (internal): the household-wide `max` calendar year, over EVERY job
+  anywhere in the household (primary's plan jobs and every partner's, via
+  `Household.memberships` — the same roster `interpretLedger` builds and `partnerJobSeries`
+  already draws its persons from, so this can never disagree with what the projection rosters).
+- `plannedWorkStopAge` (public, on `RetirementSolution`): the year converted to an age through
+  the PRIMARY's birth year — never a partner's own age, even when the partner's job is the one
+  that sets the household-wide max.
+
+Previously this only looked at `scenario.plan.jobs`, so a partner's job (which lives on their
+`RelationshipEvent`, not the plan) was invisible to it entirely — the same class of bug #243
+fixed for the boundary itself.
+
+Regression tests cover: a partner job outliving every primary job, a partner with a different
+birth year (converted through the primary's, not their own), an open-ended vs. explicitly-ended
+partner job, a separated (inactive) partner's job still counting (per `Household.memberships`'
+own existing roster rule — nothing new invented), and multiple relationship events.
+
+Full suite: 1587 tests green (up from 1577), typecheck and purity clean.

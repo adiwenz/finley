@@ -26,7 +26,9 @@ import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 import type { Person } from "./person";
+import type { Job } from "./job";
 import type { Scenario } from "./scenario";
+import type { ProjectionSeries } from "./projection/simulate";
 
 const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
@@ -153,50 +155,66 @@ describe("retirementSolver — partial vs full retirement", () => {
     expect(partial as number).toBeLessThan(full as number);
   });
 
-  it("reports the latest-authored-work-stop age as the latest authored job end", () => {
-    // max job endYear is the barista's (birthYear + 75) → age 75.
+  it("reports the planned work-stop age as the age the household's own jobs stop paying", () => {
+    // max job endYear across the household is the barista's (birthYear + 75) → age 75.
     const solution = solveRetirement(scenarioOf(baristaPlan), CTX);
-    expect(solution.latestAuthoredWorkStopAge).toBe(75);
+    expect(solution.plannedWorkStopAge).toBe(75);
   });
 });
+
+/** Primary's birth year in every solver test below: SAMPLE_START_YEAR − samplePlan.currentAge. */
+const PRIMARY_BIRTH_YEAR = START_YEAR - samplePlan.currentAge;
 
 describe("retirementSolver — the stop-working boundary reaches every earner", () => {
   // A partner's jobs live on the RelationshipEvent, not on the plan, so a solve that rewrote
   // only the plan's own job list never ceased them — the household kept one earner working
   // past the stop-working age and the retirement answer was wrong for every two-earner
   // household. Deriving each job's end at compile time from a single boundary fixes it.
-  const partnerWithLateJob = (): Person => ({
-    id: "p2",
-    name: "Partner",
-    // Same age as the primary (born SAMPLE_START_YEAR − 40), authored to work far past any
-    // plausible full-stop age so their wage can only stop because the boundary stopped it.
-    birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: 80,
-    benefitClaimingAge: 67,
-    jobs: [
-      {
-        id: "pj1",
-        ownerId: "p2",
-        startYear: START_YEAR,
-        endYear: null, // open-ended — ceases at the household stop-working boundary
-        salary: {
-          startingSalaryCents: dollarsToCents(24_000),
-          currentSalaryCents: dollarsToCents(24_000),
-          realGrowthPct: 0,
-        },
+  function partnerJob(overrides: Partial<Job> = {}): Job {
+    return {
+      id: "pj1",
+      ownerId: "p2",
+      startYear: START_YEAR,
+      endYear: null, // open-ended by default — natural end is retirementTargetAge
+      salary: {
+        startingSalaryCents: dollarsToCents(24_000),
+        currentSalaryCents: dollarsToCents(24_000),
+        realGrowthPct: 0,
       },
-    ],
-  });
+      ...overrides,
+    };
+  }
 
-  function twoEarnerScenario(): Scenario {
+  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+    return {
+      id: "p2",
+      name: "Partner",
+      birthYear: PRIMARY_BIRTH_YEAR,
+      retirementTargetAge: 80,
+      benefitClaimingAge: 67,
+      ...overrides,
+    };
+  }
+
+  const partnerWithLateJob = (): Person =>
+    // Authored to work far past any plausible full-stop age so their wage can only stop
+    // because the boundary stopped it.
+    partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] });
+
+  function twoEarnerScenario(partner: Person = partnerWithLateJob()): Scenario {
     const added = addEvent(emptyLedger, createProjectionBase(samplePlan, CTX), {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: partnerWithLateJob(),
+      person: partner,
     });
     if (!added.ok) throw new Error(`fixture rejected: ${added.conflict}`);
     return withLedger(scenarioOf(samplePlan), added.ledger);
+  }
+
+  /** The partner's own job-income source for one projected month, or undefined if absent. */
+  function partnerSource(series: ProjectionSeries, month: number) {
+    return series.months[month]?.flows?.incomeSources.find((s) => s.sourceId === "job:pj1");
   }
 
   it("a full stop ceases the partner's jobs too", () => {
@@ -219,5 +237,183 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
     evaluateAtAge(scenario, 55, CTX);
     solveRetirement(scenario, CTX);
     expect(JSON.stringify(scenario)).toBe(before);
+  });
+
+  describe("a boundary can only shorten a job, never extend it past its own natural end", () => {
+    it("an older partner's earlier retirementTargetAge caps a FULL stop, even though the primary's candidate boundary is later", () => {
+      // Partner's own natural end: birthYear + 45 → year PRIMARY_BIRTH_YEAR+45, month 60.
+      // Primary's full-stop candidate is 70 → boundary year PRIMARY_BIRTH_YEAR+70, month 360 —
+      // far later than the partner's own stated retirement. A boundary that ignores the
+      // partner's own retirementTargetAge would keep paying them all the way to month 360.
+      const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 45, jobs: [partnerJob()] }));
+      const series = projectFullRetirement(scenario, 70, CTX);
+      expect(partnerSource(series, 59)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 60)).toBeUndefined();
+      expect(partnerSource(series, 300)).toBeUndefined();
+      // No wage means no payroll tax attributed to this source either.
+      expect(series.months[60]?.flows?.payrollTaxBySourceCents["job:pj1"]).toBeUndefined();
+    });
+
+    it("a partner with a lower retirementTargetAge than the primary's candidate age is capped under a PARTIAL stop too", () => {
+      // Partial mode only moves open-ended jobs to the boundary — but still must never move
+      // one PAST its owner's own natural end. Partner's natural end: month 60 (as above).
+      // Primary's partial candidate is 65 (well past both the partner's natural end and the
+      // primary's own default retirement age of 60), boundary month (65−40)×12 = 300.
+      const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 45, jobs: [partnerJob()] }));
+      const series = projectScenario(scenario, CTX, {
+        boundaryYearExclusive: PRIMARY_BIRTH_YEAR + 65,
+        mode: "partial",
+      });
+      expect(partnerSource(series, 59)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 60)).toBeUndefined();
+    });
+
+    it("an explicitly-ended partner job keeps its authored end under a FULL stop, even though the candidate boundary is later", () => {
+      // Fixed-term (endYear set) — natural end is the authored endYear itself, ignoring
+      // retirementTargetAge entirely. Ends at month 36 (3 years); the full-stop candidate (70)
+      // resolves to a boundary hundreds of months later.
+      const explicitEnd = PRIMARY_BIRTH_YEAR + samplePlan.currentAge + 3;
+      const scenario = twoEarnerScenario(
+        partnerWith({ retirementTargetAge: 80, jobs: [partnerJob({ endYear: explicitEnd })] }),
+      );
+      const series = projectFullRetirement(scenario, 70, CTX);
+      expect(partnerSource(series, 35)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 36)).toBeUndefined();
+    });
+
+    it("the boundary can still SHORTEN a partner's job whose natural end is later than the candidate", () => {
+      // The inverse direction still works: a partner authored to work to 80 (as in
+      // partnerWithLateJob) really does stop early when the candidate boundary asks for it —
+      // capping is bidirectional, not "never touch retirementTargetAge at all".
+      const series = projectFullRetirement(twoEarnerScenario(), 50, CTX);
+      expect(partnerSource(series, 119)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 120)).toBeUndefined();
+    });
+  });
+});
+
+describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
+  // Same fixture shapes as the boundary describe block above, kept local: `plannedWorkStopAge`
+  // is a plain read (no boundary involved), so these tests exercise it in isolation.
+  function partnerJob(overrides: Partial<Job> = {}): Job {
+    return {
+      id: "pj1",
+      ownerId: "p2",
+      startYear: START_YEAR,
+      endYear: null,
+      salary: {
+        startingSalaryCents: dollarsToCents(24_000),
+        currentSalaryCents: dollarsToCents(24_000),
+        realGrowthPct: 0,
+      },
+      ...overrides,
+    };
+  }
+
+  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+    return {
+      id: "p2",
+      name: "Partner",
+      birthYear: PRIMARY_BIRTH_YEAR,
+      retirementTargetAge: 80,
+      benefitClaimingAge: 67,
+      ...overrides,
+    };
+  }
+
+  function twoEarnerScenario(partner: Person): Scenario {
+    const added = addEvent(emptyLedger, createProjectionBase(samplePlan, CTX), {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partner,
+    });
+    if (!added.ok) throw new Error(`fixture rejected: ${added.conflict}`);
+    return withLedger(scenarioOf(samplePlan), added.ledger);
+  }
+
+  it("an open-ended partner job resolves via the PARTNER's own retirementTargetAge, later than every primary job", () => {
+    // Primary's only job is open-ended, natural end birthYear + 60 (samplePlan.retirementAge)
+    // → age 60. Partner's open-ended job, retirementTargetAge 80 (same birth year) → the
+    // household-wide max is the partner's, age 80 — later than any primary job alone.
+    const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }));
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
+  });
+
+  it("a partner's later calendar-year stop converts through the PRIMARY's birth year, not their own", () => {
+    // Partner is 10 years older (birthYear 10 years earlier) but authored to work to age 90 —
+    // their natural-end CALENDAR YEAR is (PRIMARY_BIRTH_YEAR − 10) + 90 = PRIMARY_BIRTH_YEAR + 80,
+    // i.e. 80 years past the PRIMARY's own birth year, not 90 (which would be the partner's own
+    // age at that year, and reporting that would misattribute the partner's stop as if it were
+    // the primary's age).
+    const scenario = twoEarnerScenario(
+      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, retirementTargetAge: 90, jobs: [partnerJob()] }),
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
+  });
+
+  it("an explicitly-ended partner job is read via its authored endYear, not retirementTargetAge", () => {
+    const explicitEndYear = PRIMARY_BIRTH_YEAR + 95; // later than any retirementTargetAge here
+    const scenario = twoEarnerScenario(
+      partnerWith({ retirementTargetAge: 45, jobs: [partnerJob({ endYear: explicitEndYear })] }),
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(95);
+  });
+
+  it("counts a separated (inactive) partner's job too — Household.memberships rosters them regardless of endMonth", () => {
+    // Household.memberships never drops a member on separation, only clips WHEN their series
+    // pays via the membership window — plannedWorkStopAge reads the same roster, so a
+    // separated partner's authored job still counts toward the household-wide figure.
+    const base = createProjectionBase(samplePlan, CTX);
+    const married = addEvent(emptyLedger, base, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+    });
+    if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+    const separated = addEvent(married.ledger, base, {
+      id: "s1",
+      type: "SeparationEvent",
+      month: 12,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+    if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+    const scenario = withLedger(scenarioOf(samplePlan), separated.ledger);
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
+  });
+
+  it("multiple relationship events: the household-wide max wins across every partner ever added", () => {
+    const base = createProjectionBase(samplePlan, CTX);
+    const first = addEvent(emptyLedger, base, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWith({ id: "p2", retirementTargetAge: 55, jobs: [partnerJob({ id: "pj1", ownerId: "p2" })] }),
+    });
+    if (!first.ok) throw new Error(`fixture rejected: ${first.conflict}`);
+    const separated = addEvent(first.ledger, base, {
+      id: "s1",
+      type: "SeparationEvent",
+      month: 12,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+    if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+    const second = addEvent(separated.ledger, base, {
+      id: "r2",
+      type: "RelationshipEvent",
+      month: 24,
+      person: partnerWith({ id: "p3", retirementTargetAge: 85, jobs: [partnerJob({ id: "pj2", ownerId: "p3" })] }),
+    });
+    if (!second.ok) throw new Error(`fixture rejected: ${second.conflict}`);
+    const scenario = withLedger(scenarioOf(samplePlan), second.ledger);
+    // Latest of: primary (60), first partner (55), second partner (85) → 85.
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(85);
   });
 });

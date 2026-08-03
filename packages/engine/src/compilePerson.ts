@@ -80,17 +80,25 @@ export interface StopWorkingBoundary {
 }
 
 /**
- * A job's exclusive end calendar year. Absent a boundary an open-ended job runs to the owner's
- * own `retirementTargetAge`; under one it is derived instead — a full stop caps every job at the
- * boundary, a partial stop moves only the open-ended jobs to it and keeps each fixed-term end.
+ * A job's exclusive end calendar year: never later than its own natural end — its authored
+ * `endYear`, or the owner's `retirementTargetAge` for an open-ended job. A boundary can only
+ * CAP that natural end earlier, never extend it; `Math.min` is load-bearing, not a formality,
+ * because the boundary is a single household-wide scalar that has no idea an individual owner
+ * (a partner especially) may have authored a shorter working life of their own.
+ *
+ * Absent a boundary (an ordinary projection), the natural end stands as-is. Under one, a
+ * `"full"` stop caps EVERY job — open-ended or fixed-term — at the boundary; a `"partial"`
+ * stop caps only the open-ended jobs and leaves each fixed-term job its own authored end,
+ * untouched by the boundary in either direction.
  */
 function jobEndYearExclusive(job: Job, owner: Person, stopWorking?: StopWorkingBoundary): number {
-  if (stopWorking === undefined) {
-    return job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+  const naturalEndYearExclusive = job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+  if (stopWorking === undefined) return naturalEndYearExclusive;
+  if (stopWorking.mode === "full") {
+    return Math.min(naturalEndYearExclusive, stopWorking.boundaryYearExclusive);
   }
-  if (job.endYear === null) return stopWorking.boundaryYearExclusive;
-  return stopWorking.mode === "full"
-    ? Math.min(job.endYear, stopWorking.boundaryYearExclusive)
+  return job.endYear === null
+    ? Math.min(naturalEndYearExclusive, stopWorking.boundaryYearExclusive)
     : job.endYear;
 }
 
