@@ -9,6 +9,7 @@ import {
   type ProjectionState,
   CURRENT_FORMAT_VERSION,
   UnsupportedVersionError,
+  resolvedJobEndMonth,
 } from "./index";
 import { validateLedger } from "./ledger/validateLedger";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
@@ -3014,5 +3015,37 @@ describe("Projection root — previewing a stop-working age", () => {
     expect(preview.household.memberships).toHaveLength(1);
     expect(preview.report).toBeDefined();
     expect(Object.isFrozen(preview)).toBe(true);
+  });
+
+  describe("resolvedJobEndMonth — the resolved end every chart should read instead of re-deriving it", () => {
+    // The sample primary's open-ended job (`job-main`) naturally ends at the authored
+    // retirement age, 60, from a current age of 40.
+    it("reads the authored retirement age off the authored run", () => {
+      const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+      expect(resolvedJobEndMonth(p.run(nullJurisdiction).household, "job-main")).toBe(
+        (60 - samplePlan.currentAge) * 12 - 1,
+      );
+    });
+
+    it("extends an open-ended job past the authored age when the preview candidate is later", () => {
+      const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+      const preview = p.runAtStopWorkingAge(nullJurisdiction, 65);
+      expect(resolvedJobEndMonth(preview.household, "job-main")).toBe(
+        (65 - samplePlan.currentAge) * 12 - 1,
+      );
+    });
+
+    it("caps an open-ended job short of the authored age when the preview candidate is earlier", () => {
+      const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+      const preview = p.runAtStopWorkingAge(nullJurisdiction, 45);
+      expect(resolvedJobEndMonth(preview.household, "job-main")).toBe(
+        (45 - samplePlan.currentAge) * 12 - 1,
+      );
+    });
+
+    it("returns null for an id with no matching job series", () => {
+      const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+      expect(resolvedJobEndMonth(p.run(nullJurisdiction).household, "no-such-job")).toBeNull();
+    });
   });
 });

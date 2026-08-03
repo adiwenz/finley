@@ -129,3 +129,22 @@ export interface Household {
    */
   readonly fundingDraws: readonly FinancialObligation[];
 }
+
+/**
+ * One job's resolved employment window, already intersecting everything that can end it —
+ * the job's own authored end, its owner's `retirementTargetAge`, and (mid-solve, or under a
+ * preview run) any {@link import("../householdJob").StopWorkingBoundary} — read straight off
+ * the income series {@link import("../compilePerson").compileJobIncome} built for it.
+ *
+ * `null` means the job pays the household no month at or after "now": already over before the
+ * projection starts, or capped by a boundary that lands at or before its own start. Every
+ * caller that needs "when does this job's employment actually end" should read it from here
+ * rather than re-deriving the boundary math (owner's retirement age, any candidate stop-working
+ * age) itself — that resolution is asymmetric (a boundary REPLACES the primary's own
+ * `retirementTargetAge` but only CAPS everyone else's, and only caps a fixed-term job) and is
+ * meant to live in exactly one place.
+ */
+export function resolvedJobEndMonth(household: Household, jobId: string): number | null {
+  const series = household.series.find((s) => s.sourceId === `job:${jobId}`);
+  return series?.endMonth ?? null;
+}

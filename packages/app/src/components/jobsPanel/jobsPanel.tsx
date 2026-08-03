@@ -33,6 +33,8 @@ import { useMemo, useState } from "react";
 import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
+  jobPayPath,
+  resolvedJobEndMonth,
   type Job,
   type JobPayChange,
   type Household,
@@ -43,7 +45,7 @@ import {
 import {
   blankJobDraftFor,
   jobToDraftFor,
-  jobPayPathFor,
+  jobPaySpanFor,
   ownerAgeAtMonth,
   type JobEditDraft,
   type NewJobDraft,
@@ -79,13 +81,17 @@ interface JobsPanelProps {
     "jobMonthlyIncomeCents" | "jobStartingMonthlyIncomeCents" | "jobDeferralFraction"
   >;
   /**
-   * The age the Retirement panel is previewing everyone stopping work at, or `null` when not
-   * previewing. Only bends an open-ended job's pay CHART to that age — the same display-only
-   * swap the net-worth and income charts make. Editing (Edit, Change pay, Delete) always reads
-   * and writes the authored job regardless: this panel is the authoring surface, so its forms
-   * stay on the real plan even while its chart previews a hypothesis.
+   * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
+   * previewing — the same display-only swap the net-worth and income charts make. Each job's
+   * pay CHART reads its end month off this household via {@link resolvedJobEndMonth} rather
+   * than re-deriving the boundary (an open-ended job's owner may extend or cap depending on
+   * whether they're the primary the solve is testing; a fixed-term job only ever caps) — that
+   * resolution is the engine's, already computed once for the preview run, and is not
+   * recomputed here. Editing (Edit, Change pay, Delete) always reads and writes the authored
+   * `job` regardless: this panel is the authoring surface, so its forms stay on the real plan
+   * even while its chart previews a hypothesis.
    */
-  previewStopAge?: number | null;
+  previewHousehold?: Household | null;
 }
 
 type Authoring =
@@ -114,7 +120,7 @@ export function JobsPanel({
   household,
   ledger,
   projection,
-  previewStopAge = null,
+  previewHousehold = null,
 }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household in join order, primary person first. Every row carries its
@@ -245,13 +251,25 @@ export function JobsPanel({
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
             //
-            // While previewing, an open-ended job's chart terminus swaps to the previewed stop
-            // age — display only. `owner` itself (birth year, id, everything the edit forms and
-            // labels read) is untouched, so nothing here changes what Edit/Delete/Change pay act
-            // on.
-            const chartOwner =
-              previewStopAge !== null ? { ...owner, retirementTargetAge: previewStopAge } : owner;
-            const path = jobPayPathFor(chartOwner, job, budget.inflationPct / 100, inTodaysDollars);
+            // The START stays app-side: a plain calendar-year-to-month conversion of an
+            // authored field, the same unit conversion `ownerAgeAtMonth` does everywhere else
+            // in this panel — not a business rule. The END is a business rule (whose it is,
+            // capped by what) and while previewing is read from the engine's own resolved
+            // household rather than re-derived here — see `previewHousehold` above.
+            const authoredSpan = jobPaySpanFor(owner, job);
+            const resolvedEnd = previewHousehold
+              ? resolvedJobEndMonth(previewHousehold, job.id)
+              : null;
+            const path = jobPayPath(
+              job,
+              resolvedEnd !== null
+                ? { startMonth: authoredSpan.startMonth, endMonthExclusive: resolvedEnd + 1 }
+                : authoredSpan,
+              {
+                inflationRate: budget.inflationPct / 100,
+                denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
+              },
+            );
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.
             const cardAuthoring: JobCardAuthoring =

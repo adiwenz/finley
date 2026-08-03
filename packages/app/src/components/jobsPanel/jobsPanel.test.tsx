@@ -62,6 +62,15 @@ function Harness({
   const ledger = state.scenario.ledger;
   const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
   const household = useMemo(() => projection.run(usJurisdiction).household, [projection]);
+  // A real preview run — the resolved household a stop-working candidate produces — rather
+  // than a hand-built stand-in, so these tests exercise the same engine path the app does.
+  const previewHousehold = useMemo(
+    () =>
+      previewStopAge === null
+        ? null
+        : projection.runAtStopWorkingAge(usJurisdiction, previewStopAge).household,
+    [projection, previewStopAge],
+  );
 
   return (
     <>
@@ -71,7 +80,7 @@ function Harness({
         household={household}
         ledger={ledger}
         projection={projection}
-        previewStopAge={previewStopAge}
+        previewHousehold={previewHousehold}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -161,12 +170,12 @@ describe("JobsPanel — listing", () => {
     expect(screen.queryByRole("spinbutton", { name: /End age/i })).toBeNull(); // still open-ended
   });
 
-  it("leaves a fixed-term job's chart alone while previewing — only open-ended jobs bend", () => {
+  it("leaves a fixed-term job's chart alone when its own end already falls before the preview age", () => {
     render(
       <Harness
         initial={{
           ...PLAN_DEFAULTS,
-          jobs: [{ ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 13 }],
+          jobs: [{ ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 13 }], // ends at age 48
         }}
         previewStopAge={76}
       />,
@@ -174,6 +183,24 @@ describe("JobsPanel — listing", () => {
     expect(
       screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 48,/i }),
     ).toBeTruthy();
+  });
+
+  it("caps a fixed-term job's chart at the preview age too — never extends past it, but never lets one outlast the boundary either", () => {
+    render(
+      <Harness
+        initial={{
+          ...PLAN_DEFAULTS,
+          jobs: [{ ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 45 }], // authored to age 80
+        }}
+        previewStopAge={76}
+      />,
+    );
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
+    ).toBeTruthy();
+    // The authored span — what Edit shows and would save — is untouched.
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(Number(spin(/End age/i).value)).toBe(80);
   });
 });
 

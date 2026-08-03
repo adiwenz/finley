@@ -237,7 +237,7 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          previewStopAge={previewing ? retirement.headlineAge : null}
+          previewHousehold={previewing ? previewResult?.household ?? null : null}
         />
       </div>
 

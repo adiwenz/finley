@@ -117,6 +117,7 @@ export type { Scenario } from "./scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
+export { resolvedJobEndMonth } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
