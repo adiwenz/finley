@@ -61,8 +61,15 @@ export function compoundAssets(
  * opening or loan origination; a sold property (past `endMonth`) drops to 0 and leaves net
  * worth. Runs after the liability step so a same-month sale (future) settles consistently.
  */
-export function advanceProperties(state: SimState, month: number): void {
+export function advanceProperties(
+  state: SimState,
+  month: number,
+  suppressedPropertyIds?: ReadonlySet<string>,
+): void {
   for (const p of state.properties) {
+    // A property whose acquisition blocked never originates — omitting it is what keeps the
+    // blocked month from minting the equity the purchase could not pay for.
+    if (suppressedPropertyIds?.has(p.id)) continue;
     if (month < p.startMonth) continue;
     if (p.endMonth !== null && month > p.endMonth) {
       state.propertyValues.set(p.id, 0);

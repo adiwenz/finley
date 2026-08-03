@@ -290,6 +290,28 @@ export interface ProjectionIncomeSource {
   readonly netCashFlowCents: Cents;
 }
 
+/**
+ * The obligation that stopped a {@link ProjectionSeries}, and the funding gap that stopped it.
+ * Presentation-only: nothing here is a balance or a later month's input — it exists so the chart
+ * can name the failed purchase and the size of its shortfall. All figures are net of the
+ * capital-gains tax liquidating the named sources would owe, exactly as the sim would have priced
+ * it.
+ */
+export interface BlockedObligation {
+  /** The blocking obligation's {@link FinancialObligation.id}. */
+  readonly obligationId: string;
+  /** The authoring event that spawned it (a home purchase), for naming and artifact suppression. */
+  readonly sourceEventId?: string;
+  readonly label: string;
+  /** The month it was scheduled for — equals {@link ProjectionSeries.blockedAtMonth}. */
+  readonly month: number;
+  readonly requiredCents: Cents;
+  /** What the named sources could actually deliver, net of tax. */
+  readonly availableCents: Cents;
+  /** `requiredCents − availableCents`, always > 0. */
+  readonly shortfallCents: Cents;
+}
+
 export interface ProjectionSeries {
   /**
    * The household as it stands NOW, before any flow runs — no income, compounding, or draws
@@ -301,8 +323,26 @@ export interface ProjectionSeries {
   /**
    * Every entry is a fully processed, end-of-month snapshot with `months[i].month === i`;
    * `months[0..11]` all belong to calendar year 0, so year 0 accrues a full 12 flow-months.
+   * TRUNCATED when {@link status} is `"blocked"`: the last entry is the blocked month and
+   * nothing after it is simulated.
    */
   readonly months: readonly ProjectionMonth[];
+  /**
+   * A statement about the SIMULATION, not the plan's health. `"ran-to-horizon"` does NOT mean
+   * healthy — an insolvent-but-unblocked plan reports it too, since insolvency keeps simulating
+   * (net worth nulled). `"blocked"` means an explicitly-funded obligation could not be funded, so
+   * the projection stopped rather than mint an asset it could not pay for.
+   */
+  readonly status: "ran-to-horizon" | "blocked";
+  /**
+   * The index of the last emitted month (`months.length - 1`). Equals {@link blockedAtMonth} when
+   * blocked — the blocked month IS emitted — so a consumer never has to special-case truncation.
+   */
+  readonly simulatedThroughMonth: number;
+  /** Present iff `status === "blocked"`: the month the blocking obligation was scheduled for. */
+  readonly blockedAtMonth?: number;
+  /** Present iff `status === "blocked"`: the obligation that stopped the projection. */
+  readonly blockingObligation?: BlockedObligation;
 }
 
 /**
@@ -405,6 +445,17 @@ export interface SimProperty {
   readonly endMonth: number | null;
   readonly openingValueCents: Cents;
   readonly appreciationAnnualRate: number;
+  /**
+   * The authoring event that acquired it — matched against a blocked obligation's
+   * {@link BlockedObligation.sourceEventId} to suppress origination of a purchase that could not
+   * be funded. Absent on properties built outside the event pipeline (raw engine tests).
+   */
+  readonly causedByEventId?: string;
+  /**
+   * The financing mortgage this property secures, if any — suppressed alongside the property when
+   * the purchase blocks, so a stranded home leaves neither a phantom asset nor a phantom loan.
+   */
+  readonly mortgageLiabilityId?: string | null;
 }
 
 export interface HouseholdSimInput {

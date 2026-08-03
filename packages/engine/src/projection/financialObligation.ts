@@ -74,6 +74,13 @@ export interface FinancialObligation {
   readonly id: string;
   /** Id of the authoring fact: the budget line, the series, the liability. */
   readonly sourceId: string;
+  /**
+   * The life event that spawned this obligation, when one did — a home purchase's down payment
+   * carries the purchase event id. Read only when the obligation blocks, to suppress the property
+   * and mortgage that same event would otherwise originate. Absent on obligations with no event
+   * provenance (budget lines, liability payments).
+   */
+  readonly sourceEventId?: string;
   readonly month: number;
   /** Requested/owed, nominal at `month` — not the affordable or actually-charged amount. */
   readonly amountCents: Cents;
@@ -257,10 +264,13 @@ export function assetAcquisitionObligation(params: {
   readonly month: number;
   readonly amountCents: Cents;
   readonly orderedAccountIds: readonly string[];
+  /** The purchase event this draw funds, so a block can suppress its property and mortgage. */
+  readonly sourceEventId?: string;
 }): FinancialObligation {
   return {
     id: `draw:${params.id}`,
     sourceId: params.sourceId,
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
     month: params.month,
     amountCents: params.amountCents,
     treatment: "asset-acquisition",

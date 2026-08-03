@@ -31,9 +31,12 @@ function mkMonth(m: MonthSpec, month: number) {
 }
 
 function series(months: readonly MonthSpec[]): ProjectionSeries {
+  const built = months.map(mkMonth);
   return {
     opening: mkMonth({}, 0),
-    months: months.map(mkMonth),
+    months: built,
+    status: "ran-to-horizon",
+    simulatedThroughMonth: built.length - 1,
   };
 }
 
@@ -203,6 +206,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 1000 } }, 0),
         months: [mkMonth({ accounts: { savings: 1050 } }, 0)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 0,
       },
       META,
     );
@@ -217,6 +222,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 5000, brokerage: 0 } }, 0),
         months: [mkMonth({ accounts: { savings: 0, brokerage: 0 } }, 0)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 0,
       },
       META,
     );
@@ -228,6 +235,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 9000 } }, 0),
         months: [mkMonth({ accounts: { savings: 8000 } }, 0), mkMonth({ accounts: { savings: 7000 } }, 1)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 1,
       },
       META,
     );

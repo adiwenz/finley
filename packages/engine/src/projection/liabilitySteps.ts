@@ -102,8 +102,12 @@ export function advanceLiabilities(
   state: SimState,
   month: number,
   appliedPayments: ReadonlyMap<string, Cents>,
+  suppressedLiabilityIds?: ReadonlySet<string>,
 ): void {
   for (const liab of state.liabilities) {
+    // The mortgage of a blocked purchase never originates — suppressed alongside its property so a
+    // stranded home leaves neither a phantom asset nor a phantom loan on the balance sheet.
+    if (suppressedLiabilityIds?.has(liab.id)) continue;
     if (month < liab.startMonth) continue; // not originated yet — stays at 0
     if (month === liab.startMonth) {
       // Origination: balance appears with no interest or payment, mirroring an account's

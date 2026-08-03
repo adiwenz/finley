@@ -132,6 +132,7 @@ export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
 export type {
   ProjectionSeries,
   ProjectionMonth,
+  BlockedObligation,
   InsolvencyReport,
   IncomeSourceCategory,
 } from "./projection/simulate.types";

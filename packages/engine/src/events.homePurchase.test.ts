@@ -1052,3 +1052,50 @@ describe("fundingLookup — the source pool", () => {
     ]);
   });
 });
+
+describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the projection", () => {
+  // The epic's core bug: an affordable purchase becomes unfundable after it was authored — the
+  // gate never re-runs on the stranded event, so only the simulator can catch it. It must stop,
+  // not fabricate the home. Reproduced by draining the down-payment source with an earlier cash
+  // purchase authored AFTER the financed one, so neither trips the append-time gate.
+  it("originates no property, mortgage, or drained cash for the stranded purchase", () => {
+    const base = baseWith(10_000_000); // $100k liquid savings
+
+    // A financed home at month 3 needing a $60k down payment — affordable when authored.
+    const withFinanced = addFinanced(emptyLedger, base);
+    // Then a $70k cash home at month 1 that drains savings to $30k — still affordable at month 1,
+    // and it does not re-litigate the month-3 purchase.
+    const ledger = addWithBase(
+      withFinanced,
+      base,
+      purchase({
+        id: "buy0",
+        propertyId: "house0",
+        month: 1,
+        purchasePriceCents: 7_000_000,
+        downPaymentCents: 7_000_000,
+        downPaymentSourceIds: ["savings"],
+      }),
+    );
+
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    // The month-3 purchase now falls $30k short of its $60k down payment: the projection stops.
+    expect(series.status).toBe("blocked");
+    expect(series.blockedAtMonth).toBe(3);
+    expect(series.blockingObligation?.sourceEventId).toBe("buy1");
+    expect(series.blockingObligation?.shortfallCents).toBe(3_000_000);
+    expect(series.months).toHaveLength(4);
+
+    const blocked = series.months[3];
+    // No fictional equity: neither the home nor its mortgage originate.
+    expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
+    // The affordable cash home DID execute — blocking is scoped to the one stranded purchase.
+    expect(blocked.propertyValuesCents.house0).toBe(7_000_000);
+    // Savings retains the $30k the stranded draw never took.
+    expect(blocked.accountBalancesCents.savings).toBe(3_000_000);
+    // Net worth is exactly the genuine $100k: $30k cash + $70k cash home, no minted equity.
+    expect(blocked.netWorthNominalCents).toBe(10_000_000);
+  });
+});

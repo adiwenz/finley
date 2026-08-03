@@ -100,6 +100,10 @@ export function buildHouseholdSimInput(
     endMonth: p.endMonth,
     openingValueCents: p.openingValueCents,
     appreciationAnnualRate: growthAnnualRate(p.appreciationMode),
+    // Carried so the simulator can suppress this property and its mortgage when the down-payment
+    // draw for the same event blocks — the linkage the block decision matches on.
+    causedByEventId: p.causedByEventId,
+    mortgageLiabilityId: p.mortgageLiabilityId,
   }));
 
   // Everyone who ever joined; membership intervals govern each person's income series

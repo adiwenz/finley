@@ -17,6 +17,7 @@ import type { TaxCategory } from "../cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
+import type { FinancialObligation } from "./financialObligation";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -186,15 +187,37 @@ export interface FundingDrawReport {
   readonly taxSources: readonly IncomeSourceMonth[];
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
+  /**
+   * The first draw this month whose named sources could not cover it, if any — the block. When
+   * set, this draw and every draw after it were NOT applied: no balance moved, no gain or tax
+   * booked, no attribution recorded. Draws before it resolved and applied normally.
+   */
+  readonly block?: FundingBlock;
+}
+
+/** A draw that fell short of its named sources — the projection's terminal event. */
+export interface FundingBlock {
+  readonly obligation: FinancialObligation;
+  readonly requiredCents: Cents;
+  /** What the named sources delivered net of tax — `required − shortfall`. */
+  readonly availableCents: Cents;
+  readonly shortfallCents: Cents;
 }
 
 /**
- * Resolve every funding draw scheduled at `month` against the live `SimState`, applying the
- * balance/basis moves in place. The gross-up is {@link resolveOrderedFundingDraw}, the one
- * definition the §4.5 gate shares — so an accepted purchase never lands short here.
+ * Resolve every funding draw scheduled at `month` against the live `SimState`. PRE-FLIGHTED: each
+ * draw is priced against a scratch copy of the affected balances before any real balance moves, so
+ * the first draw whose named sources fall short is identified as the {@link FundingBlock} WITHOUT
+ * having half-drained an account. A block omits its own draw and every draw after it — the block is
+ * a structural state, not a partial mutation that depends on execution order. Draws before it
+ * resolve and apply exactly as they always did.
  *
- * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each
- * draw's gain onto the next, and comes back as `taxableByOwnerAfter`.
+ * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so
+ * an accepted purchase never lands short here, and a stranded one blocks identically.
+ *
+ * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each applied
+ * draw's gain onto the next, and comes back as `taxableByOwnerAfter`. A blocked draw's gain is
+ * never stacked — it did not sell anything.
  */
 export function resolveFundingDraws(
   state: SimState,
@@ -207,9 +230,17 @@ export function resolveFundingDraws(
   const taxSources: IncomeSourceMonth[] = [];
   const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
+  let block: FundingBlock | undefined;
 
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
+
+  // Scratch balances/basis: each applied draw drains these before the next is priced, and the real
+  // `state` maps are only touched once a draw is known to be fundable, one draw at a time.
+  const scratchBalances = new Map<string, Cents>();
+  const scratchBasis = new Map<string, Cents>();
+  const readScratch = (map: Map<string, Cents>, fallback: Map<string, Cents>, id: string): Cents =>
+    map.has(id) ? (map.get(id) ?? 0) : (fallback.get(id) ?? 0);
 
   for (const obligation of state.fundingDraws) {
     if (obligation.month !== month) continue;
@@ -229,18 +260,35 @@ export function resolveFundingDraws(
         id: sourceId,
         ownerId: account.ownerId,
         category: account.taxProfile.withdrawalCategory,
-        balanceCents: state.assetBalances.get(sourceId) ?? 0,
-        basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
+        balanceCents: readScratch(scratchBalances, state.assetBalances, sourceId),
+        basisCents: Math.max(0, readScratch(scratchBasis, state.basisByAccount, sourceId)),
         label: account.label ?? sourceId,
       });
     }
-    const { perSource } = resolveOrderedFundingDraw(
+    // Probe against a COPY of the running taxable base: a blocked draw must not stack its partial
+    // gains onto `working`, since it never sells anything.
+    const probe: TaxableByOwner = new Map();
+    for (const [ownerId, byCategory] of working) probe.set(ownerId, { ...byCategory });
+    const { perSource, shortfallCents } = resolveOrderedFundingDraw(
       obligation.amountCents,
       sources,
       jurisdiction,
       ctx,
-      working,
+      probe,
     );
+    if (shortfallCents > 0) {
+      // The block. Omit this draw and everything after it — no state moves, no attribution.
+      block = {
+        obligation,
+        requiredCents: obligation.amountCents,
+        availableCents: obligation.amountCents - shortfallCents,
+        shortfallCents,
+      };
+      break;
+    }
+    // Fundable: commit the probe's taxable base, drain the scratch balances, then apply the real
+    // moves. Scratch and real drain identically (scratch opened from real), so the two agree.
+    for (const [ownerId, byCategory] of probe) working.set(ownerId, byCategory);
     // Attribution mirrors the money exactly: each drained account (a zero-gross source touched
     // nothing) becomes one `account` source carrying its own withdrawal breakdown, and Σ net
     // delivered is the obligation's funded amount. Recorded off the same `perSource` the balance
@@ -264,11 +312,12 @@ export function resolveFundingDraws(
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
-      state.assetBalances.set(s.id, (state.assetBalances.get(s.id) ?? 0) - s.grossCents);
-      state.basisByAccount.set(
-        s.id,
-        Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
-      );
+      const balanceBefore = readScratch(scratchBalances, state.assetBalances, s.id);
+      const basisBefore = readScratch(scratchBasis, state.basisByAccount, s.id);
+      scratchBalances.set(s.id, balanceBefore - s.grossCents);
+      scratchBasis.set(s.id, Math.max(0, basisBefore - s.principalCents));
+      state.assetBalances.set(s.id, balanceBefore - s.grossCents);
+      state.basisByAccount.set(s.id, Math.max(0, basisBefore - s.principalCents));
       principalDrawdownCents += s.principalCents;
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
@@ -302,5 +351,12 @@ export function resolveFundingDraws(
     }
   }
 
-  return { gainSources, principalDrawdownCents, taxSources, taxableByOwnerAfter: working, resolvedFunding };
+  return {
+    gainSources,
+    principalDrawdownCents,
+    taxSources,
+    taxableByOwnerAfter: working,
+    resolvedFunding,
+    ...(block !== undefined ? { block } : {}),
+  };
 }

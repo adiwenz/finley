@@ -42,6 +42,7 @@ export type {
   ProjectionIncomeSource,
   IncomeSourceCategory,
   ProjectionSeries,
+  BlockedObligation,
   SimProperty,
 } from "./simulate.types";
 
@@ -85,6 +86,9 @@ export function simulateHousehold(
   // every month after it, reports net worth as null. The insolvent month is included because
   // it is already contaminated — see {@link snapshotMonth}.
   let priorInsolvency = false;
+  // A block is terminal for the whole simulation: the blocked month is emitted and completed, then
+  // the loop stops. Set once, in the first month a funding draw falls short.
+  let blockingObligation: ProjectionSeries["blockingObligation"];
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
   // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
@@ -143,6 +147,22 @@ export function simulateHousehold(
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
+    // A blocked draw suppresses the property and mortgage its authoring event would originate this
+    // month — otherwise `advanceProperties`/`advanceLiabilities` would mint a house and a loan with
+    // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off the
+    // event id the draw carries; the block is terminal, so only this month needs suppressing.
+    const blockedEventId = fundingDraw.block?.obligation.sourceEventId;
+    const suppressedProperties = state.properties.filter((p) => p.causedByEventId === blockedEventId);
+    const suppressedPropertyIds = new Set(
+      blockedEventId !== undefined ? suppressedProperties.map((p) => p.id) : [],
+    );
+    const suppressedLiabilityIds = new Set(
+      blockedEventId !== undefined
+        ? suppressedProperties.flatMap((p) =>
+            p.mortgageLiabilityId != null ? [p.mortgageLiabilityId] : [],
+          )
+        : [],
+    );
 
     // Snapshot balances/basis at THIS seam — after the explicit draws sold their sources, before
     // decumulation liquidates anything — because that is the state a would-be money-out event
@@ -283,8 +303,8 @@ export function simulateHousehold(
 
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
-    advanceLiabilities(state, month, appliedLiabilityPayments);
-    advanceProperties(state, month);
+    advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
+    advanceProperties(state, month, suppressedPropertyIds);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
@@ -338,7 +358,37 @@ export function simulateHousehold(
       }),
     );
     if (isInsolvent) priorInsolvency = true;
+
+    // Truncate at the first blocked month: it ran to completion (income, tax, cascade, compounding
+    // above) with only the blocking obligation and its artifacts omitted, and its net worth is a
+    // genuine end-of-month figure. Nothing after it is simulated — a truncated curve the caller can
+    // trust beats an extended one it cannot.
+    if (fundingDraw.block !== undefined) {
+      const { obligation, requiredCents, availableCents, shortfallCents } = fundingDraw.block;
+      blockingObligation = {
+        obligationId: obligation.id,
+        ...(obligation.sourceEventId !== undefined
+          ? { sourceEventId: obligation.sourceEventId }
+          : {}),
+        label: obligation.label,
+        month,
+        requiredCents,
+        availableCents,
+        shortfallCents,
+      };
+      break;
+    }
   }
 
-  return { opening, months };
+  const blockedAtMonth = blockingObligation?.month;
+  return {
+    opening,
+    months,
+    status: blockedAtMonth !== undefined ? "blocked" : "ran-to-horizon",
+    // The last emitted month's index; equals `blockedAtMonth` when blocked, since the loop breaks
+    // right after pushing that month.
+    simulatedThroughMonth: months.length - 1,
+    ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
+    ...(blockingObligation !== undefined ? { blockingObligation } : {}),
+  };
 }
