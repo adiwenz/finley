@@ -141,6 +141,8 @@ describe("projection blocking — an unfundable purchase", () => {
     expect(block?.requiredCents).toBe(DOWN);
     expect(block?.availableCents).toBe(5_000_000);
     expect(block?.shortfallCents).toBe(DOWN - 5_000_000);
+    // The presentation marker sits the shortfall below the genuine $50k net worth: $50k − $30k.
+    expect(block?.markerNetWorthCents).toBe(5_000_000 - (DOWN - 5_000_000));
   });
 
   it("reports blocked even when the same month has also exhausted its credit", () => {

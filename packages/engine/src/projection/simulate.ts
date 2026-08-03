@@ -365,6 +365,9 @@ export function simulateHousehold(
     // trust beats an extended one it cannot.
     if (fundingDraw.block !== undefined) {
       const { obligation, requiredCents, availableCents, shortfallCents } = fundingDraw.block;
+      // The just-pushed blocked month's genuine net worth, dropped by the shortfall for the marker.
+      // `null` when the month has no stated net worth (also insolvent) — the offset has no anchor.
+      const blockedNetWorth = months[months.length - 1]?.netWorthNominalCents ?? null;
       blockingObligation = {
         obligationId: obligation.id,
         ...(obligation.sourceEventId !== undefined
@@ -375,6 +378,7 @@ export function simulateHousehold(
         requiredCents,
         availableCents,
         shortfallCents,
+        markerNetWorthCents: blockedNetWorth === null ? null : blockedNetWorth - shortfallCents,
       };
       break;
     }

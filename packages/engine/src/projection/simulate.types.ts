@@ -310,6 +310,15 @@ export interface BlockedObligation {
   readonly availableCents: Cents;
   /** `requiredCents − availableCents`, always > 0. */
   readonly shortfallCents: Cents;
+  /**
+   * Where a presentation-only blocked marker sits: the blocked month's genuine net worth dropped
+   * by the shortfall, so the missing capital reads as a visible gap. NOT a net worth and never a
+   * simulation input — the household did NOT lose this money; the marker communicates the size of
+   * the funding failure, nothing more. `null` when the blocked month has no stated net worth (it
+   * was also insolvent), where the offset has no anchor. Computed by the engine, like the
+   * insolvency counterfactual, so the app draws it without making the financial claim.
+   */
+  readonly markerNetWorthCents: Cents | null;
 }
 
 export interface ProjectionSeries {

@@ -29,6 +29,28 @@
 import type { InsolvencyReport, ProjectionSeries } from "@finley/engine";
 import { TODAY_X, toAxisX, yearTickXs } from "../monthAxis";
 
+/**
+ * The terminal marker for a BLOCKED projection: the attempted obligation that could not be funded,
+ * and the gap that stopped it. Presentation-only — never a simulated month, never compounded,
+ * never fed back to the engine. Every figure is READ off {@link ProjectionSeries.blockingObligation}
+ * (the y off the engine's already-adjusted `markerNetWorthCents`), so this module does no arithmetic
+ * on cents.
+ */
+export interface BlockedMarker {
+  /** Axis position of the blocked month — where the marker sits. */
+  readonly x: number;
+  /**
+   * The marker's y: the blocked month's genuine net worth dropped by the shortfall, straight off
+   * the engine. NOT a net worth the household holds — a visualization of the missing capital.
+   */
+  readonly netWorthCents: number;
+  /** The blocking obligation's human name. */
+  readonly label: string;
+  readonly requiredCents: number;
+  readonly availableCents: number;
+  readonly shortfallCents: number;
+}
+
 export interface NetWorthChartPoint {
   /** Axis position, not a model month — see {@link import("../monthAxis")}. */
   readonly x: number;
@@ -65,6 +87,8 @@ export interface NetWorthChartData {
   /** That point's nominal net worth — the last honest figure the plan produced. */
   readonly lastFundedNominalCents: number | null;
   readonly runsOut: RunsOutMarker | null;
+  /** The terminal blocked marker, or null for a projection that ran to the horizon. */
+  readonly blocked: BlockedMarker | null;
   readonly xMax: number;
   readonly yearTicks: readonly number[];
 }
@@ -131,14 +155,37 @@ export function buildNetWorthChartData(series: ProjectionSeries): NetWorthChartD
             : null,
   }));
 
+  // The terminal blocked marker. Only the y is financial, and it is READ from the engine's
+  // already-adjusted figure — no cents arithmetic happens here, exactly as the runs-out endpoint
+  // is read, not computed. Absent unless the projection blocked and the engine anchored a marker.
+  const blocking = series.blockingObligation;
+  const blocked: BlockedMarker | null =
+    series.status === "blocked" &&
+    blocking !== undefined &&
+    blocking.markerNetWorthCents !== null &&
+    series.blockedAtMonth !== undefined
+      ? {
+          x: toAxisX(series.blockedAtMonth),
+          netWorthCents: blocking.markerNetWorthCents,
+          label: blocking.label,
+          requiredCents: blocking.requiredCents,
+          availableCents: blocking.availableCents,
+          shortfallCents: blocking.shortfallCents,
+        }
+      : null;
+
   const horizonX = base[base.length - 1]?.x ?? TODAY_X;
-  const xMax = computeXMax(horizonX, Math.max(lastFundedX, runsOut?.x ?? lastFundedX));
+  const xMax = computeXMax(
+    horizonX,
+    Math.max(lastFundedX, runsOut?.x ?? lastFundedX, blocked?.x ?? lastFundedX),
+  );
 
   return {
     points,
     lastFundedX,
     lastFundedNominalCents,
     runsOut,
+    blocked,
     xMax,
     yearTicks: yearTickXs(xMax),
   };

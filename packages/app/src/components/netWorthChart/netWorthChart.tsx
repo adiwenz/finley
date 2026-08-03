@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX } from "../monthAxis";
-import { buildNetWorthChartData, type RunsOutMarker } from "./netWorthChartData";
+import { buildNetWorthChartData, type BlockedMarker, type RunsOutMarker } from "./netWorthChartData";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
@@ -33,11 +33,13 @@ function NetWorthTooltip({
   payload,
   label,
   runsOut,
+  blocked,
 }: {
   active?: boolean;
   payload?: readonly { dataKey?: unknown; value?: number | null }[];
   label?: string | number;
   runsOut: RunsOutMarker | null;
+  blocked: BlockedMarker | null;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const x = Number(label) || 0;
@@ -45,6 +47,7 @@ function NetWorthTooltip({
   const nominal = at("nominalCents");
   const real = at("realCents");
   const isRunsOut = runsOut !== null && x === runsOut.x;
+  const isBlocked = blocked !== null && x === blocked.x;
 
   return (
     <div
@@ -73,6 +76,19 @@ function NetWorthTooltip({
             Savings and credit are exhausted, so net worth is no longer reported from here. The
             dashed figure assumes the unfunded obligations were paid with additional debt — an
             illustration of where this month would have landed, not a projected balance.
+          </div>
+        </>
+      )}
+      {isBlocked && (
+        <>
+          <div style={{ fontWeight: 600, marginTop: 6, color: RED }}>{blocked.label} — blocked</div>
+          <Row label="Required" cents={blocked.requiredCents} />
+          <Row label="Available" cents={blocked.availableCents} />
+          <Row label="Shortfall" cents={blocked.shortfallCents} color={RED} strong />
+          <div style={{ marginTop: 6, color: AXIS, maxWidth: 250 }}>
+            This purchase can't be funded from its named sources, so the projection stops here. The
+            marker sits the shortfall below the last real net worth to show the missing capital —
+            it is not money the household holds.
           </div>
         </>
       )}
@@ -118,7 +134,7 @@ export function NetWorthChart({
   // Every decision about where the curve ends, where the marker goes and what the dashed drop
   // represents lives in `buildNetWorthChartData`, which is unit-tested; this component only
   // draws what it is handed. See {@link import("../monthAxis")} for the shared x-axis.
-  const { points, runsOut, xMax, yearTicks } = buildNetWorthChartData(series);
+  const { points, runsOut, blocked, xMax, yearTicks } = buildNetWorthChartData(series);
 
   return (
     <div
@@ -156,7 +172,7 @@ export function NetWorthChart({
               label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
             />
           )}
-          <Tooltip content={<NetWorthTooltip runsOut={runsOut} />} />
+          <Tooltip content={<NetWorthTooltip runsOut={runsOut} blocked={blocked} />} />
           <Area
             type="monotone"
             dataKey="nominalCents"
@@ -202,6 +218,19 @@ export function NetWorthChart({
               fill={RED}
               stroke="none"
               label={{ value: "runs out", position: "right", fill: AXIS, fontSize: 11 }}
+            />
+          )}
+          {/* The terminal blocked marker: the attempted obligation the plan could not fund. Same
+              failure-red language as "runs out", sitting the shortfall below the last real net
+              worth. Presentation-only — it is not a simulated month and nothing continues past it. */}
+          {blocked !== null && (
+            <ReferenceDot
+              x={blocked.x}
+              y={blocked.netWorthCents}
+              r={4}
+              fill={RED}
+              stroke="none"
+              label={{ value: "blocked", position: "right", fill: AXIS, fontSize: 11 }}
             />
           )}
         </ComposedChart>
