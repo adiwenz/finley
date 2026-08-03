@@ -45,11 +45,14 @@ function Harness({
   initial = PLAN_DEFAULTS,
   events = [],
   rejectRevisions = false,
+  previewStopAge = null,
 }: {
   initial?: Plan;
   events?: readonly NewLifeEvent[];
   /** Stands in for a conflict: the transaction is refused, as the facade would refuse it. */
   rejectRevisions?: boolean;
+  /** Stands in for the Retirement panel's preview toggle, on at this age. */
+  previewStopAge?: number | null;
 }) {
   const { state, transact } = useTestProjection(initial, {
     events: events.map((e, i) => ({ ...e, sequenceNumber: i })),
@@ -68,6 +71,7 @@ function Harness({
         household={household}
         ledger={ledger}
         projection={projection}
+        previewStopAge={previewStopAge}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -136,6 +140,40 @@ describe("JobsPanel — listing", () => {
     render(<Harness />);
     expect(headline("Job 1")).toBe("$5,000/mo");
     expect(within(screen.getByLabelText("Job 1")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+  });
+
+  it("charts an open-ended job to the authored retirement age when not previewing", () => {
+    render(<Harness />);
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 65,/i }),
+    ).toBeTruthy();
+  });
+
+  it("charts an open-ended job to the previewed stop-working age instead — display only", () => {
+    render(<Harness previewStopAge={76} />);
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
+    ).toBeTruthy();
+    // The span label and the edit form still read the authored plan — the preview never
+    // touches what Edit/Delete/Change pay act on.
+    expect(within(screen.getByLabelText("Job 1")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(screen.queryByRole("spinbutton", { name: /End age/i })).toBeNull(); // still open-ended
+  });
+
+  it("leaves a fixed-term job's chart alone while previewing — only open-ended jobs bend", () => {
+    render(
+      <Harness
+        initial={{
+          ...PLAN_DEFAULTS,
+          jobs: [{ ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 13 }],
+        }}
+        previewStopAge={76}
+      />,
+    );
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 48,/i }),
+    ).toBeTruthy();
   });
 });
 

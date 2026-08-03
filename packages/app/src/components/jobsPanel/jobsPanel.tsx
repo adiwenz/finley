@@ -78,6 +78,14 @@ interface JobsPanelProps {
     Projection,
     "jobMonthlyIncomeCents" | "jobStartingMonthlyIncomeCents" | "jobDeferralFraction"
   >;
+  /**
+   * The age the Retirement panel is previewing everyone stopping work at, or `null` when not
+   * previewing. Only bends an open-ended job's pay CHART to that age — the same display-only
+   * swap the net-worth and income charts make. Editing (Edit, Change pay, Delete) always reads
+   * and writes the authored job regardless: this panel is the authoring surface, so its forms
+   * stay on the real plan even while its chart previews a hypothesis.
+   */
+  previewStopAge?: number | null;
 }
 
 type Authoring =
@@ -100,7 +108,14 @@ function strandedNotice(owner: JobOwner, dropped: readonly JobPayChange[]): stri
   return `${dropped.length === 1 ? "One pay change" : `${dropped.length} pay changes`} now fell before this job starts, so ${dropped.length === 1 ? "it was" : "they were"} dropped: ${ages}.`;
 }
 
-export function JobsPanel({ budget, transact, household, ledger, projection }: JobsPanelProps) {
+export function JobsPanel({
+  budget,
+  transact,
+  household,
+  ledger,
+  projection,
+  previewStopAge = null,
+}: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household in join order, primary person first. Every row carries its
   // owner — whose birth year every age on it reads against — and the label the app names that
@@ -229,7 +244,14 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
             // timeline lists, read straight off the two authored anchors. Chart and timeline
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
-            const path = jobPayPathFor(owner, job, budget.inflationPct / 100, inTodaysDollars);
+            //
+            // While previewing, an open-ended job's chart terminus swaps to the previewed stop
+            // age — display only. `owner` itself (birth year, id, everything the edit forms and
+            // labels read) is untouched, so nothing here changes what Edit/Delete/Change pay act
+            // on.
+            const chartOwner =
+              previewStopAge !== null ? { ...owner, retirementTargetAge: previewStopAge } : owner;
+            const path = jobPayPathFor(chartOwner, job, budget.inflationPct / 100, inTodaysDollars);
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.
             const cardAuthoring: JobCardAuthoring =
