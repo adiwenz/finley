@@ -54,7 +54,7 @@ const carGoal = {
  */
 function shapesTheCompilerMustReject(p: Projection): void {
   // Standing edits.
-  // @ts-expect-error — a job's id is the engine's; `reassignJob` names an existing one instead
+  // @ts-expect-error — a job's id is the engine's; a caller cannot name one into existence
   p.addJob(P1, { ...openEndedJob, id: "stolen" });
   // @ts-expect-error — a budget line's id is the engine's
   p.addBudgetLine({ ...expenseLine, id: "stolen" });
@@ -62,10 +62,10 @@ function shapesTheCompilerMustReject(p: Projection): void {
   p.addGoal({ ...carGoal, id: "stolen" });
   // @ts-expect-error — replacing a job keeps the id it already has
   p.replaceJob("job-1", { ...openEndedJob, id: "stolen" });
+  // @ts-expect-error — a job cannot change owner; an edit patch names no `ownerId`
+  p.updateJob("job-1", { ownerId: P1 });
   // @ts-expect-error — a partner's job is minted like any other
   p.addPartnerJob(P1, { ...openEndedJob, id: "stolen" });
-  // @ts-expect-error — reassigning names the id as an argument, never in the payload
-  p.reassignJob("job-1", P1, { ...openEndedJob, id: "stolen" });
 
   // Transactions.
   // @ts-expect-error — the person a marriage creates is named by the engine

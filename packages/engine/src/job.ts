@@ -300,9 +300,11 @@ export function deriveRealGrowthPct(
 // the deferral" is a rule that can drift; keeping the rule in one place and duplicating
 // only the wiring is what makes the two surfaces safe to keep.
 
-/** Every {@link Job} field except the stable `id`. `ownerId` is patchable — an edit can
- * reassign a job to another household member. */
-export type JobPatch = Partial<Omit<Job, "id">>;
+/** Every editable {@link Job} field. The stable `id` and the `ownerId` are both out: a job
+ * cannot change owner — re-reading its dates against another birthday would rewrite the
+ * employment the person stated — so moving a job between members is delete-and-re-add, never a
+ * patch. */
+export type JobPatch = Partial<Omit<Job, "id" | "ownerId">>;
 
 /** Apply `f` to the job with `id`, leaving the rest of the list alone. */
 export function mapJob(
@@ -316,11 +318,11 @@ export function mapJob(
 /**
  * Overwrite the named fields, carrying everything else through — the other salary fields,
  * the deferral's funded account and employer match, accumulated adjustments, and any field
- * added to {@link Job} later. The `id` is stripped, so an edit can never re-point a job.
+ * added to {@link Job} later. Neither `id` nor `ownerId` is in {@link JobPatch}, so an edit can
+ * re-point a job to neither a new identity nor a new owner.
  */
 export function withJobPatch(job: Job, patch: JobPatch): Job {
-  const { id: _drop, ...rest } = patch as Partial<Job>;
-  return { ...job, ...rest };
+  return { ...job, ...patch };
 }
 
 /**
