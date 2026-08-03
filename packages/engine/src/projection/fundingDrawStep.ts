@@ -206,11 +206,12 @@ export interface FundingBlock {
 
 /**
  * Resolve every funding draw scheduled at `month` against the live `SimState`. PRE-FLIGHTED: each
- * draw is priced against a scratch copy of the affected balances before any real balance moves, so
- * the first draw whose named sources fall short is identified as the {@link FundingBlock} WITHOUT
- * having half-drained an account. A block omits its own draw and every draw after it — the block is
- * a structural state, not a partial mutation that depends on execution order. Draws before it
- * resolve and apply exactly as they always did.
+ * draw is fully priced — {@link resolveOrderedFundingDraw} reads the balances but never mutates
+ * them — before any of its balance moves are committed, so the first draw whose named sources fall
+ * short is identified as the {@link FundingBlock} WITHOUT having half-drained an account. A block
+ * omits its own draw and every draw after it — the block is a structural state, not a partial
+ * mutation that depends on execution order. Draws before it resolve and apply exactly as they
+ * always did, so the next draw prices over the balances they left behind.
  *
  * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so
  * an accepted purchase never lands short here, and a stranded one blocks identically.
@@ -235,13 +236,6 @@ export function resolveFundingDraws(
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
-  // Scratch balances/basis: each applied draw drains these before the next is priced, and the real
-  // `state` maps are only touched once a draw is known to be fundable, one draw at a time.
-  const scratchBalances = new Map<string, Cents>();
-  const scratchBasis = new Map<string, Cents>();
-  const readScratch = (map: Map<string, Cents>, fallback: Map<string, Cents>, id: string): Cents =>
-    map.has(id) ? (map.get(id) ?? 0) : (fallback.get(id) ?? 0);
-
   for (const obligation of state.fundingDraws) {
     if (obligation.month !== month) continue;
     // A funding draw is an explicitly-funded asset acquisition: `explicit` names the accounts to
@@ -260,8 +254,8 @@ export function resolveFundingDraws(
         id: sourceId,
         ownerId: account.ownerId,
         category: account.taxProfile.withdrawalCategory,
-        balanceCents: readScratch(scratchBalances, state.assetBalances, sourceId),
-        basisCents: Math.max(0, readScratch(scratchBasis, state.basisByAccount, sourceId)),
+        balanceCents: state.assetBalances.get(sourceId) ?? 0,
+        basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
         label: account.label ?? sourceId,
       });
     }
@@ -286,8 +280,7 @@ export function resolveFundingDraws(
       };
       break;
     }
-    // Fundable: commit the probe's taxable base, drain the scratch balances, then apply the real
-    // moves. Scratch and real drain identically (scratch opened from real), so the two agree.
+    // Fundable: commit the probe's taxable base, then apply the balance moves.
     for (const [ownerId, byCategory] of probe) working.set(ownerId, byCategory);
     // Attribution mirrors the money exactly: each drained account (a zero-gross source touched
     // nothing) becomes one `account` source carrying its own withdrawal breakdown, and Σ net
@@ -312,12 +305,11 @@ export function resolveFundingDraws(
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
-      const balanceBefore = readScratch(scratchBalances, state.assetBalances, s.id);
-      const basisBefore = readScratch(scratchBasis, state.basisByAccount, s.id);
-      scratchBalances.set(s.id, balanceBefore - s.grossCents);
-      scratchBasis.set(s.id, Math.max(0, basisBefore - s.principalCents));
-      state.assetBalances.set(s.id, balanceBefore - s.grossCents);
-      state.basisByAccount.set(s.id, Math.max(0, basisBefore - s.principalCents));
+      state.assetBalances.set(s.id, (state.assetBalances.get(s.id) ?? 0) - s.grossCents);
+      state.basisByAccount.set(
+        s.id,
+        Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
+      );
       principalDrawdownCents += s.principalCents;
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
