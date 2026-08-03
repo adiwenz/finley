@@ -6,6 +6,7 @@
  * rendering React; the component owns only local UI state, event handling and JSX.
  */
 
+import { formatDollars } from "../../format";
 import { toAxisX } from "../monthAxis";
 import {
   describeIncomeGap,
@@ -77,6 +78,12 @@ export interface IncomeChartBand {
   readonly color: string;
 }
 
+/** One row of the chart's nonvisual table: a user-facing label and a formatted dollar amount. */
+export interface IncomeChartAccessibleRow {
+  readonly label: string;
+  readonly amount: string;
+}
+
 /**
  * One Recharts datum: the month on the shared axis, the spending-need under {@link
  * SPENDING_NEED_KEY}, and one stacked (clamped-at-0) figure per band id. Flat so Recharts reads
@@ -111,6 +118,16 @@ export interface IncomeChartModel {
   readonly gapSummary: string | null;
   /** A human-readable sentence for the chart's accessible label. Never empty. */
   readonly accessibleSummary: string;
+  /**
+   * The chart as a nonvisual table anchored on the first flowed month (the projection's starting
+   * point): one entry per band with its user label and formatted monthly cash. Labels and
+   * currency, never source ids or raw cents — the values a screen-reader user actually needs.
+   */
+  readonly accessibleSources: readonly IncomeChartAccessibleRow[];
+  /** The starting month's total cash across all bands, formatted. */
+  readonly accessibleTotalIncome: string;
+  /** The starting month's spending need (expenses + liability payments), formatted. */
+  readonly accessibleSpendingNeed: string;
 }
 
 /**
@@ -141,6 +158,15 @@ export function buildIncomeChartModel(
   const brokeMonth = data.firstInsolventMonth;
   const summary = describeIncomeGap(data);
 
+  // The nonvisual table reads the first flowed month, drawn from the same clamped figures the
+  // stacked bands show, so it never quotes a band a value the chart doesn't.
+  const firstRow = rows[0];
+  const accessibleSources: IncomeChartAccessibleRow[] = bands.map((b) => ({
+    label: b.label,
+    amount: formatDollars(firstRow?.[b.id] ?? 0),
+  }));
+  const totalIncomeCents = bands.reduce((sum, b) => sum + (firstRow?.[b.id] ?? 0), 0);
+
   return {
     bands,
     rows,
@@ -152,5 +178,8 @@ export function buildIncomeChartModel(
     accessibleSummary: summary
       ? `Monthly cash flows vs. spending. ${summary}`
       : "Monthly cash flows vs. spending — cash flow continues across the whole horizon.",
+    accessibleSources,
+    accessibleTotalIncome: formatDollars(totalIncomeCents),
+    accessibleSpendingNeed: formatDollars(firstRow?.[SPENDING_NEED_KEY] ?? 0),
   };
 }

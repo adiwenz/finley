@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
@@ -37,6 +37,23 @@ const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e"; // the selected-month rule
 
+/**
+ * Off-screen but in the accessibility tree — the standard clip-rect idiom, not `display:none`
+ * (which would drop it from a screen reader too). Carries the nonvisual data table Recharts'
+ * SVG can't be.
+ */
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface IncomeChartProps {
   readonly data: IncomeChartData;
   /** The household's age at month 0, which turns the broke marker's month into an age. */
@@ -68,7 +85,7 @@ export function IncomeChart({
   );
 
   return (
-    <div role="img" aria-label={model.accessibleSummary}>
+    <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         {/* Informational, not a warning: a retirement income gap is expected. The
             plan-is-broken case is the broke marker plus the budget chart's amber band. */}
@@ -97,7 +114,40 @@ export function IncomeChart({
         </div>
       </div>
 
-      {/* Hidden data mirrors for tests / screen readers. */}
+      {/* The chart as a nonvisual table: what a sighted user reads off the stack, in user
+          labels and formatted dollars. The visual chart below is marked role="img" with a
+          one-line label, so a screen reader gets the gist from the image and the detail here. */}
+      <table style={VISUALLY_HIDDEN} data-testid="income-a11y-table">
+        <caption>{model.accessibleSummary}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Source</th>
+            <th scope="col">Monthly amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {model.accessibleSources.map((row, i) => (
+            <tr key={`${row.label}-${i}`}>
+              <th scope="row">{row.label}</th>
+              <td>{row.amount}</td>
+            </tr>
+          ))}
+          <tr>
+            <th scope="row">Total income</th>
+            <td>{model.accessibleTotalIncome}</td>
+          </tr>
+          <tr>
+            <th scope="row">Spending need</th>
+            <td>{model.accessibleSpendingNeed}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Test-only mirrors, `hidden` so they stay out of the accessibility tree (the table
+          above is the screen-reader representation); jsdom reads their textContent regardless.
+          The first two rows are both mirrored because month 0 is an ORIGINATION month: a loan
+          authored at Year 0 is not serviced until month 1, so only the second row shows what
+          servicing it costs. */}
       <output data-testid="income-first-row" hidden>
         {JSON.stringify(model.bands.reduce<Record<string, number>>((acc, b) => {
           const cents = model.rows[0]?.[b.id];
@@ -108,10 +158,6 @@ export function IncomeChart({
       <output data-testid="income-bands" hidden>
         {JSON.stringify(model.bands.map((b) => b.label))}
       </output>
-      {/* The spending need is expenses plus scheduled liability payments — a loan on the
-          timeline is part of what income has to cover. The second row is mirrored too: a loan
-          authored at Year 0 originates in month 0 and is first serviced in month 1, so only
-          the second row shows what servicing it costs. */}
       <output data-testid="income-first-spending-need" hidden>
         {model.rows[0]?.[model.spendingNeedKey] ?? 0}
       </output>
@@ -119,6 +165,7 @@ export function IncomeChart({
         {model.rows[1]?.[model.spendingNeedKey] ?? 0}
       </output>
 
+      <div role="img" aria-label={model.accessibleSummary}>
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart
           data={model.rows as Record<string, number>[]}
@@ -195,6 +242,7 @@ export function IncomeChart({
           />
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

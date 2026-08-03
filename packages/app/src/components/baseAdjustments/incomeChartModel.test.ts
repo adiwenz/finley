@@ -79,4 +79,36 @@ describe("buildIncomeChartModel", () => {
     const model = buildIncomeChartModel(data, { mode: "simple" });
     expect(model.accessibleSummary).toMatch(/living off savings/i);
   });
+
+  it("describes each source with a user label and formatted dollars, never ids or raw cents", () => {
+    const data = buildIncomeChartData(seriesOf([wages]));
+    const model = buildIncomeChartModel(data, { mode: "advanced" });
+    const row = model.accessibleSources.find((r) => r.label === "job:a");
+    expect(row).toBeDefined();
+    // Formatted currency, not the 500000-cent integer.
+    expect(row!.amount).toBe("$5,000");
+    expect(model.accessibleTotalIncome).toBe("$5,000");
+  });
+
+  it("formats the spending need for assistive tech rather than exposing cents", () => {
+    const data = buildIncomeChartData(
+      seriesOf([source("job:a", dollarsToCents(5_000), "wages", {})]),
+    );
+    const withNeed = {
+      months: [
+        { month: 0 },
+        {
+          month: 1,
+          flows: {
+            incomeSources: [source("job:a", dollarsToCents(5_000), "wages")],
+            expensesCents: dollarsToCents(3_000),
+            liabilityPaymentsCents: dollarsToCents(200),
+          },
+        },
+      ],
+    } as unknown as ProjectionSeries;
+    void data;
+    const model = buildIncomeChartModel(buildIncomeChartData(withNeed), { mode: "simple" });
+    expect(model.accessibleSpendingNeed).toBe("$3,200");
+  });
 });
