@@ -69,7 +69,6 @@ function NetWorthTooltip({
             color={RED}
             strong
           />
-          <Row label="Unfunded obligations" cents={runsOut.uncoveredCents} color={AXIS} />
           <div style={{ marginTop: 6, color: AXIS, maxWidth: 250 }}>
             Savings and credit are exhausted, so net worth is no longer reported from here. The
             dashed figure assumes the unfunded obligations were paid with additional debt — an

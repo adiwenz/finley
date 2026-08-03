@@ -131,7 +131,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       events: [
         // @ts-expect-error — an event entry names no id, only a build-time ref
         { type: "takeLoan", id: "stolen", month: 0, ownerRef: PRIMARY_PERSON_REF,
-          kind: "auto", openingBalanceCents: 1, apr: 4, termMonths: 12 },
+          kind: "studentLoan", openingBalanceCents: 1, apr: 4, termMonths: 12 },
       ],
     };
 

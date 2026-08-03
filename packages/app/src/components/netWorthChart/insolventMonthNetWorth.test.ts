@@ -8,8 +8,14 @@
  * principal paydown while losing most of its cost — and net worth ticks UP, at exactly the point
  * the chart labels "runs out". The plan looked like it improved in the month it went broke.
  *
- * **The scenario** is the reported repro: the default plan, a $250k loan, and a $300k home with
- * $50k down at month 12. It fails in month 30 with the card pinned at its limit.
+ * **The scenario**: the default plan and a $300k home with $50k down at month 12. It fails
+ * partway through the horizon with the card pinned at its limit.
+ *
+ * The originally reported repro paired this with a standalone $250k `takeLoan` of kind
+ * `mortgage`, which is no longer authorable — a bare mortgage books debt with no house against
+ * it, and {@link import("@finley/engine").OriginableLoanKind} now refuses it. The loan was never
+ * what produced the uptick; the home's appreciation and amortization were. Dropping it leaves the
+ * bug reproducing from a positive net worth, which is if anything the clearer demonstration.
  *
  * These assertions are deliberately split between the two things that had to hold together — the
  * engine must stop *stating* the contaminated figure, and the chart must stop *drawing* it —
@@ -35,8 +41,8 @@ const PURCHASE_MONTH = 12;
 
 /**
  * The default plan opened with enough cash to clear the down-payment gate, then given the
- * reported loan + purchase. The raised opening balance is what makes the purchase authorable at
- * all — the gate refuses it from the stock $10k — and is not itself under test.
+ * purchase. The raised opening balance is what makes the purchase authorable at all — the gate
+ * refuses it from the stock $10k — and is not itself under test.
  */
 function repro(): ProjectionSeries {
   const built = Projection.fromInput(
@@ -46,14 +52,6 @@ function repro(): ProjectionSeries {
   if (!built.ok) throw new Error(`repro input rejected: ${built.error.reason}`);
   const p = built.projection;
 
-  p.takeLoan({
-    month: PURCHASE_MONTH,
-    ownerId: "p1" as PersonId,
-    kind: "mortgage",
-    openingBalanceCents: dollarsToCents(250_000),
-    apr: 0.065,
-    termMonths: 360,
-  });
   p.buyHome({
     month: PURCHASE_MONTH,
     ownerId: "p1" as PersonId,
@@ -67,7 +65,7 @@ function repro(): ProjectionSeries {
   return p.run(usJurisdiction).series;
 }
 
-describe("the first insolvent month, on the reported home-purchase repro", () => {
+describe("the first insolvent month, on the home-purchase repro", () => {
   const series = repro();
   const insolventIndex = series.months.findIndex((m) => m.isInsolvent);
   const insolvent = series.months[insolventIndex];
@@ -102,7 +100,9 @@ describe("the first insolvent month, on the reported home-purchase repro", () =>
   it("reports a net worth for the last fully funded month", () => {
     expect(lastFunded.netWorthNominalCents).not.toBeNull();
     expect(lastFunded.netWorthRealCents).not.toBeNull();
-    expect(lastFunded.netWorthNominalCents).toBeLessThan(0); // deep underwater, as the repro is
+    // Positive here: the plan fails while still solvent on paper, which is exactly the case the
+    // uptick made look survivable.
+    expect(lastFunded.netWorthNominalCents).toBeGreaterThan(0);
   });
 
   it("reports NO net worth for the first insolvent month — not the contaminated figure", () => {

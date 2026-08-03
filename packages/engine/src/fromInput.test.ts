@@ -364,7 +364,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     p.addBudgetLine({ label: "Gym", category: "wants", target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: 5_000 } });
     p.takeLoan({ month: 48, ownerId: PRIMARY_PERSON_ID, openingBalanceCents: 500_000,
-      apr: 0.07, kind: "auto", termMonths: 60 });
+      apr: 0.07, kind: "studentLoan", termMonths: 60 });
 
     const after = allIds(p);
     expect(new Set(after).size).toBe(after.length);

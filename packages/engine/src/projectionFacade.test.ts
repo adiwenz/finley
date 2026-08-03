@@ -81,7 +81,90 @@ describe("Projection root — creating writes mint deterministic ids", () => {
       disposition: "retain",
       annualReturnPct: 3,
     })).toBe("goal-3");
-    expect(p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
+    expect(p.takeLoan({ month: 6, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(20000), apr: 5, termMonths: 60 })).toBe("loan-4");
+  });
+
+  describe("only asset-free loans can be originated", () => {
+    // A `LoanEvent` books a liability and nothing else. That is right for a card (the balance IS
+    // money already spent) and a student loan (the asset is an education), and wrong for a car or
+    // a house, where booking the debt alone drops net worth by the whole loan and delivers
+    // nothing. The type excludes both; these cover input that never met the compiler.
+    const originate = (kind: string) => () =>
+      freshProjection().takeLoan({
+        month: 6,
+        ownerId: P1,
+        // Cast: the point is precisely that this shape does not typecheck.
+        kind: kind as "studentLoan",
+        openingBalanceCents: dollarsToCents(30_000),
+        apr: 5,
+        termMonths: 60,
+      });
+
+    it("refuses an auto loan, naming what to do instead", () => {
+      expect(originate("auto")).toThrow(/"auto" loan cannot be originated on its own/);
+      expect(originate("auto")).toThrow(/carryLoan/);
+    });
+
+    it("refuses a bare mortgage — a house is bought, not borrowed against from nothing", () => {
+      expect(originate("mortgage")).toThrow(/"mortgage" loan cannot be originated on its own/);
+      expect(originate("mortgage")).toThrow(/buying\s+a home/);
+    });
+
+    it("still originates the two kinds that carry no asset", () => {
+      expect(originate("studentLoan")).not.toThrow();
+      expect(() =>
+        freshProjection().takeLoan({
+          month: 6,
+          ownerId: P1,
+          kind: "creditCard",
+          openingBalanceCents: dollarsToCents(2_000),
+          apr: 20,
+          creditLimitCents: dollarsToCents(5_000),
+        }),
+      ).not.toThrow();
+    });
+
+    it("leaves `carryLoan` unrestricted — an existing car loan is a fact, not an origination", () => {
+      // The household already owns the car and owes on it. Refusing that would refuse to
+      // describe a real balance sheet.
+      const p = freshProjection();
+      expect(() =>
+        p.carryLoan({
+          ownerId: P1,
+          kind: "auto",
+          balanceCents: dollarsToCents(12_000),
+          apr: 6,
+          remainingTermMonths: 36,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        p.carryLoan({
+          ownerId: P1,
+          kind: "mortgage",
+          balanceCents: dollarsToCents(200_000),
+          apr: 4,
+          remainingTermMonths: 240,
+        }),
+      ).not.toThrow();
+    });
+
+    it("still lets a home purchase mint its own mortgage", () => {
+      // The one legitimate mortgage origination path: `buyHome` emits the loan AND the property,
+      // so both sides land together and the restriction has nothing to catch.
+      const p = freshProjection();
+      p.addJob(P1, openEndedJob);
+      expect(() =>
+        p.ownHome({
+          ownerId: P1,
+          valueCents: dollarsToCents(300_000),
+          mortgage: {
+            balanceCents: dollarsToCents(200_000),
+            apr: 0.05,
+            remainingTermMonths: 240,
+          },
+        }),
+      ).not.toThrow();
+    });
   });
 
   it("mints a job id whatever the caller passes — `JobInput` cannot name one", () => {
@@ -113,7 +196,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     const loanId = p.takeLoan({
       month: 12,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(25000),
       apr: 6,
       termMonths: 60,
@@ -132,7 +215,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     const baseRetirement = before.scenario.plan.retirementAge;
 
     p.setRetirementTarget(55);
-    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
 
     expect(p.state.scenario.plan.retirementAge).toBe(55);
     expect(p.state.scenario.ledger.events).toHaveLength(1);
@@ -145,7 +228,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     // `Scenario` is one projectable unit: a standing edit carries the timeline through
     // (withPlan), a transaction the standing numbers (withLedger), so no spread drops half.
     const p = freshProjection();
-    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
     p.setRetirementTarget(55); // a standing edit AFTER a transaction
 
     expect(p.state.scenario.ledger.events).toHaveLength(1);
@@ -219,7 +302,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     p.takeLoan({
       month: 6,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(20000),
       apr: 5,
       termMonths: 60,
@@ -228,7 +311,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     const [card, auto] = p.state.scenario.ledger.events;
     expect(card).toMatchObject({ kind: "creditCard", creditLimitCents: dollarsToCents(8000) });
     expect(card).not.toHaveProperty("termMonths");
-    expect(auto).toMatchObject({ kind: "auto", termMonths: 60 });
+    expect(auto).toMatchObject({ kind: "studentLoan", termMonths: 60 });
     expect(auto).not.toHaveProperty("creditLimitCents");
   });
 
@@ -1236,7 +1319,7 @@ describe("Projection root — patching the plan's standing scalars", () => {
 
   it("setRetirementTarget writes the same scalar and carries the ledger through", () => {
     const p = freshProjection();
-    p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
     p.setRetirementTarget(58);
     expect(p.plan.retirementAge).toBe(58);
     expect(p.ledger.events).toHaveLength(1);
@@ -1302,7 +1385,7 @@ describe("Projection root — the remaining ledger transactions", () => {
     const loanId = p.takeLoan({
       month: 6,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(20000),
       apr: 5,
       termMonths: 60,
@@ -1342,8 +1425,8 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
 
   it("removes a transaction by id, not by position", () => {
     const p = freshProjection();
-    const first = p.takeLoan({ month: 3, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
-    const second = p.takeLoan({ month: 6, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(5000), apr: 4, termMonths: 24 });
+    const first = p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
+    const second = p.takeLoan({ month: 6, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(5000), apr: 4, termMonths: 24 });
 
     p.removeTransaction(first);
     expect(p.ledger.events.map((e) => e.id)).toEqual([second]);
@@ -1416,7 +1499,7 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
   it("refuses the companion field belonging to the other loan arm", () => {
     const p = freshProjection();
     const loanId = p.takeLoan({
-      month: 3, ownerId: P1, kind: "auto",
+      month: 3, ownerId: P1, kind: "studentLoan",
       openingBalanceCents: dollarsToCents(10_000), apr: 4, termMonths: 48,
     });
     // `kind` is fixed by the event, so a term loan has no credit limit to revise.
@@ -1480,7 +1563,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
   it("keeps the liability and owner ids across a takeLoan revision", () => {
     const p = freshProjection();
     const loanId = p.takeLoan({
-      month: 3, ownerId: P1, kind: "auto",
+      month: 3, ownerId: P1, kind: "studentLoan",
       openingBalanceCents: dollarsToCents(10_000), apr: 4, termMonths: 48,
     });
 
@@ -1491,7 +1574,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(event?.type === "LoanEvent" && event.liabilityId).toBe(loanId);
     expect(event?.type === "LoanEvent" && event.ownerId).toBe(P1);
     // `kind` is identity-adjacent: a card and a term loan are different instruments.
-    expect(event?.type === "LoanEvent" && event.kind).toBe("auto");
+    expect(event?.type === "LoanEvent" && event.kind).toBe("studentLoan");
   });
 
   it("keeps the property and its securing-mortgage link across a buyHome revision", () => {
@@ -1626,7 +1709,7 @@ describe("Projection root — restoring a timeline that already holds ids", () =
     const loanId = p.takeLoan({
       month: 12,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(5_000),
       apr: 4,
       termMonths: 24,
@@ -1724,7 +1807,7 @@ describe("Projection root — fromState restores a plan and its timeline togethe
     expect(p.addJob(P1, openEndedJob)).toBe("job-5");
     // One shared counter: the sequence side was lifted to that same floor, so the next append
     // lands at or above 5 — well clear of the restored event still sitting at 2.
-    const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
+    const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
     const appended = p.ledger.events.find((e) => e.id === eventId);
     expect(appended?.sequenceNumber).toBeGreaterThanOrEqual(5);
   });
@@ -1735,7 +1818,7 @@ describe("Projection root — fromState restores a plan and its timeline togethe
     authored.takeLoan({
       month: 6,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(20000),
       apr: 5,
       termMonths: 60,
@@ -1765,7 +1848,7 @@ describe("Projection root — fromState restores a plan and its timeline togethe
     authored.takeLoan({
       month: 6,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(20000),
       apr: 5,
       termMonths: 60,
@@ -2080,8 +2163,8 @@ describe("Projection root — the id counter starts clear of the plan it is give
       nullJurisdiction,
     );
 
-    const a = q.takeLoan({ month: 12, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
-    const b = q.takeLoan({ month: 18, ownerId: P1, kind: "auto", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    const a = q.takeLoan({ month: 12, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
+    const b = q.takeLoan({ month: 18, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
     expect(a).not.toBe(b);
     const eventIds = q.ledger.events.map((e) => e.id);
     expect(new Set(eventIds).size).toBe(eventIds.length);
@@ -2126,7 +2209,7 @@ describe("Projection root — the counter floors ids it did not mint", () => {
       p.takeLoan({
         month: 6,
         ownerId: P1,
-        kind: "auto",
+        kind: "studentLoan",
         openingBalanceCents: dollarsToCents(20000),
         apr: 5,
         termMonths: 60,
@@ -2339,7 +2422,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     const loanId = p.takeLoan({
       month: 12,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(5_000),
       apr: 4,
       termMonths: 24,
@@ -2957,7 +3040,7 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
     p.takeLoan({
       month: 0,
       ownerId: P1,
-      kind: "auto",
+      kind: "studentLoan",
       openingBalanceCents: dollarsToCents(60000),
       apr: 6,
       termMonths: 60,

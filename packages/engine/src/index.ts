@@ -55,7 +55,12 @@ export type {
   HaveExistingChildInput,
 } from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
-export type { TakeLoanInput, CarryLoanInput, PayOffDebtInput } from "./authoring/liabilities";
+export type {
+  TakeLoanInput,
+  OriginableLoanKind,
+  CarryLoanInput,
+  PayOffDebtInput,
+} from "./authoring/liabilities";
 export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.

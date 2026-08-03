@@ -32,6 +32,7 @@ import type { Plan, GoalPlan } from "./plan";
 import type { Job, JobDeferral } from "./job";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import type { LiabilityKind } from "./liability";
+import type { OriginableLoanKind } from "./authoring/liabilities";
 import type { GrowthMode } from "./cashFlowSeries";
 // Type-only, and cyclic: `Projection` imports these authoring types, so a value import back
 // would close the loop. `FromInputResult` names the class only in a field, which a type import
@@ -212,7 +213,10 @@ export type TakeLoanEntry = EventEntryCommon & {
   readonly apr: number;
 } & (
     | { readonly kind: "creditCard"; readonly creditLimitCents: number }
-    | { readonly kind: Exclude<LiabilityKind, "creditCard">; readonly termMonths: number }
+    | {
+        readonly kind: Exclude<OriginableLoanKind, "creditCard">;
+        readonly termMonths: number;
+      }
   );
 
 /**

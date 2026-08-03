@@ -53,7 +53,9 @@ p.setRetirementTarget(62); // an edit, not a creating write — mints no id
 const loanId = p.takeLoan({
   month: 12,
   ownerId: P1,
-  kind: "auto",
+  // Only asset-free kinds originate: a car loan books debt with no car (see
+  // `OriginableLoanKind`). An existing one is `carryLoan`.
+  kind: "studentLoan",
   openingBalanceCents: dollarsToCents(25_000),
   apr: 6,
   termMonths: 60,
