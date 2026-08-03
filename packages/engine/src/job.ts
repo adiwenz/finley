@@ -174,13 +174,6 @@ export interface JobPayChange {
   readonly kind: "setTo" | "changeBy";
   /** For `setTo`, the new monthly pay; for `changeBy`, the amount added on — negative is a cut. */
   readonly cents: Cents;
-  /**
-   * This change was FILLED IN, not stated — see {@link estimateHistoryPayChanges}. Absent on
-   * everything a user typed, which is the default and the case that matters: the engine treats
-   * the two identically, and the flag exists so a surface can show which figures are somebody's
-   * recollection and which are the app's arithmetic. Never set it on a user's own entry.
-   */
-  readonly estimated?: boolean;
 }
 
 /** A pay change as a caller authors it — the id is the engine's to issue. */
@@ -307,9 +300,11 @@ export function deriveRealGrowthPct(
 // the deferral" is a rule that can drift; keeping the rule in one place and duplicating
 // only the wiring is what makes the two surfaces safe to keep.
 
-/** Every {@link Job} field except the stable `id`. `ownerId` is patchable — an edit can
- * reassign a job to another household member. */
-export type JobPatch = Partial<Omit<Job, "id">>;
+/** Every editable {@link Job} field. The stable `id` and the `ownerId` are both out: a job
+ * cannot change owner — re-reading its dates against another birthday would rewrite the
+ * employment the person stated — so moving a job between members is delete-and-re-add, never a
+ * patch. */
+export type JobPatch = Partial<Omit<Job, "id" | "ownerId">>;
 
 /** Apply `f` to the job with `id`, leaving the rest of the list alone. */
 export function mapJob(
@@ -323,11 +318,11 @@ export function mapJob(
 /**
  * Overwrite the named fields, carrying everything else through — the other salary fields,
  * the deferral's funded account and employer match, accumulated adjustments, and any field
- * added to {@link Job} later. The `id` is stripped, so an edit can never re-point a job.
+ * added to {@link Job} later. Neither `id` nor `ownerId` is in {@link JobPatch}, so an edit can
+ * re-point a job to neither a new identity nor a new owner.
  */
 export function withJobPatch(job: Job, patch: JobPatch): Job {
-  const { id: _drop, ...rest } = patch as Partial<Job>;
-  return { ...job, ...rest };
+  return { ...job, ...patch };
 }
 
 /**
@@ -441,10 +436,7 @@ export function withDeferralFraction(job: Job, fraction: number): Job {
  * **At most one per (job, month), unlike a one-month adjustment** — re-authoring a month
  * replaces what stood there. Not an arbitrary limit: a pay change opens a salary *segment*, and
  * two segments beginning the same month is a contradiction rather than a stack, since the second
- * would immediately supersede the first for every month either covers. It is also what makes
- * "Estimate missing pay history" re-runnable — {@link estimateHistoryPayChanges} re-offers the
- * same months, and replacement refreshes them where stacking would pile up duplicates nobody
- * authored.
+ * would immediately supersede the first for every month either covers.
  *
  * Stacking within a month is what {@link withIncomeOverride} is for: several *payments* in one
  * month is an ordinary fact, where several *salaries* is not.
@@ -720,57 +712,4 @@ export function jobPayPath(job: Job, span: JobPaySpan, opts?: JobPayPathOptions)
     historyReachMonthlyCents,
     monthZeroStepCents: Math.abs(rawStep) < 100 ? 0 : Math.round(rawStep / 100) * 100,
   };
-}
-
-/**
- * Estimated pay for the years between a job's start and "now" that nobody has stated — pay
- * keeping pace with inflation, as one `setTo` per year, each marked `estimated`.
- *
- * An **explicit** action, never part of ordinary editing. The result is a list of changes for a
- * caller to apply; nothing here writes. That is the point: the figures become authored entries
- * a user can see, edit and remove, instead of an assumption living inside the compiler.
- *
- * Authored changes are never overwritten and never re-estimated. Where one falls, it becomes
- * the base the following years grow from, so a stated raise propagates forward instead of being
- * flattened by the estimate that surrounds it. Existing estimates are ignored when reading the
- * base, so re-running this is idempotent rather than compounding.
- *
- * Both anchors are left alone: `startingSalaryCents` already states year one, and
- * `currentSalaryCents` owns month 0 and is not part of the history at all.
- */
-export function estimateHistoryPayChanges(
-  job: Job,
-  span: JobPaySpan,
-  inflationRate: number,
-): readonly JobPayChangeInput[] {
-  const historyEndExclusive = Math.min(span.endMonthExclusive, 0);
-  if (historyEndExclusive <= span.startMonth || inflationRate === 0) return [];
-
-  const authored = [...(job.payChanges ?? [])]
-    .filter((c) => !c.estimated && c.month >= span.startMonth && c.month < historyEndExclusive)
-    .sort((a, b) => a.month - b.month);
-  const authoredMonths = new Set(authored.map((c) => c.month));
-
-  const out: JobPayChangeInput[] = [];
-  let baseMonth = span.startMonth;
-  let baseCents = Math.round(job.salary.startingSalaryCents / 12);
-  let next = 0;
-  // Year by year from the job's start. The start anchor already states the first year, so the
-  // first estimate is a year in.
-  for (let month = span.startMonth + 12; month < historyEndExclusive; month += 12) {
-    while (next < authored.length && authored[next]!.month <= month) {
-      const c = authored[next++]!;
-      baseCents = c.kind === "setTo" ? c.cents : Math.max(0, baseCents + c.cents);
-      baseMonth = c.month;
-    }
-    if (authoredMonths.has(month)) continue;
-    const years = (month - baseMonth) / 12;
-    out.push({
-      month,
-      kind: "setTo",
-      cents: Math.round(baseCents * Math.pow(1 + inflationRate, years)),
-      estimated: true,
-    });
-  }
-  return out;
 }

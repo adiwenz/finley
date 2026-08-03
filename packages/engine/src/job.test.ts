@@ -12,7 +12,6 @@ import { samplePlan, salariedJob } from "./testing/samplePlan";
 import {
   deferralFractionOf,
   deriveRealGrowthPct,
-  estimateHistoryPayChanges,
   applyJobIncomeOverride,
   applyJobIncomeOverridesAt,
   jobPayPath,
@@ -25,8 +24,6 @@ import {
   withStartingMonthlyIncome,
   type Job,
   type JobIncomeOverride,
-  type JobPayChange,
-  type JobPayChangeInput,
 } from "./job";
 import type { Person } from "./person";
 import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
@@ -34,15 +31,6 @@ import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
 const START_YEAR = 2026;
-
-/**
- * Ids for estimator output, which is authoring INPUT — the engine mints when a caller applies
- * it, so a test standing a job up directly has to stamp them itself. Sequential and local, since
- * nothing here asserts on the ids; what matters is that each change has its own.
- */
-let idSeq = 0;
-const withIds = (changes: readonly JobPayChangeInput[]): readonly JobPayChange[] =>
-  changes.map((c) => ({ ...c, id: `adjustment-est-${++idSeq}` }));
 
 function ctx(): ProjectionContext {
   return { jurisdiction: nullJurisdiction, startYear: START_YEAR };
@@ -1142,99 +1130,11 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
 });
 
 /**
- * Filling the unstated historical years — an EXPLICIT action, so what matters is that it never
- * touches anything the user said and that running it twice does not compound.
+ * The pre-"now" half is REMEMBERED, not projected. Neither CPI nor `realGrowthPct` reaches a
+ * month before 0: a historical wage holds at whatever was authored until a dated pay change
+ * supersedes it, and only the forward half grows.
  */
-describe("estimateHistoryPayChanges — filling in what nobody stated", () => {
-  const CURRENT_AGE = 40;
-  const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
-  /** Started at 30 on $5,000/mo — the paycheck of that year. Ten years of history. */
-  const job: Job = {
-    id: "job-1",
-    ownerId: PRIMARY_PERSON_ID,
-    startYear: BIRTH_YEAR + 30,
-    endYear: null,
-    salary: {
-      startingSalaryCents: dollarsToCents(60_000),
-      currentSalaryCents: dollarsToCents(100_000),
-      realGrowthPct: 0,
-    },
-  };
-  const span = { startMonth: -120, endMonthExclusive: (65 - CURRENT_AGE) * 12 };
-
-  it("fills one year at a time, from the start anchor, and stops at 'now'", () => {
-    const estimates = estimateHistoryPayChanges(job, span, 0.03);
-    // Nine: the start anchor already states year one, and month 0 belongs to the current anchor.
-    expect(estimates).toHaveLength(9);
-    expect(estimates.every((c) => c.estimated === true)).toBe(true);
-    expect(estimates.every((c) => c.month < 0 && c.month >= span.startMonth)).toBe(true);
-    // No id: the estimator answers with authoring INPUT, and identity is the engine's to
-    // issue when a caller applies it.
-    expect(estimates[0]).toEqual({
-      month: -108,
-      kind: "setTo",
-      cents: Math.round(dollarsToCents(5_000) * 1.03),
-      estimated: true,
-    });
-  });
-
-  it("leaves both anchors alone — neither is part of what it fills in", () => {
-    const estimates = estimateHistoryPayChanges(job, span, 0.03);
-    expect(estimates.some((c) => c.month === span.startMonth)).toBe(false);
-    expect(estimates.some((c) => c.month === 0)).toBe(false);
-  });
-
-  it("never overwrites an authored change, and grows the following years FROM it", () => {
-    const raised: Job = {
-      ...job,
-      payChanges: [{ id: "adjustment-104", month: -60, kind: "setTo", cents: dollarsToCents(8_000) }],
-    };
-    const estimates = estimateHistoryPayChanges(raised, span, 0.03);
-    expect(estimates.some((c) => c.month === -60)).toBe(false);
-    // The year after the authored raise is estimated off $8,000, not off the start anchor.
-    const next = estimates.find((c) => c.month === -48)!;
-    expect(next.cents).toBe(Math.round(dollarsToCents(8_000) * 1.03));
-  });
-
-  it("is idempotent — re-running reads through its own prior estimates", () => {
-    const once = estimateHistoryPayChanges(job, span, 0.03);
-    const twice = estimateHistoryPayChanges({ ...job, payChanges: withIds(once) }, span, 0.03);
-    expect(twice).toEqual(once);
-  });
-
-  it("has nothing to fill for a job with no past, or with no inflation to assume", () => {
-    const future = { startMonth: 12, endMonthExclusive: 240 };
-    expect(estimateHistoryPayChanges(job, future, 0.03)).toEqual([]);
-    expect(estimateHistoryPayChanges(job, span, 0)).toEqual([]);
-  });
-
-  it("reaches the covered-earnings record once applied, and not before", () => {
-    const person = (j: Job): Person => ({
-      id: PRIMARY_PERSON_ID,
-      name: "P",
-      birthYear: BIRTH_YEAR,
-      retirementTargetAge: 65,
-      benefitClaimingAge: samplePlan.benefitClaimingAge,
-      jobs: [j],
-    });
-    // Before: flat at what was authored, every year. After: the unstated years rise with CPI.
-    // This is the whole point of the action — nothing estimates until it is asked for.
-    const before = compilePersonPriorEarnings(person(job), START_YEAR);
-    expect(before[START_YEAR - 10]).toBe(before[START_YEAR - 1]);
-
-    const applied = { ...job, payChanges: withIds(estimateHistoryPayChanges(job, span, 0.03)) };
-    const after = compilePersonPriorEarnings(person(applied), START_YEAR);
-    expect(after[START_YEAR - 10]).toBe(before[START_YEAR - 10]); // the authored first year
-    expect(after[START_YEAR - 1]).toBeGreaterThan(before[START_YEAR - 1]!);
-  });
-});
-
-/**
- * The pre-"now" half is REMEMBERED, not projected. Nothing grows there until the user asks for
- * it, which is what makes "Estimate missing pay history" an honest offer rather than a relabelling
- * of something the compiler already did.
- */
-describe("historical pay is flat until estimated", () => {
+describe("historical pay is flat", () => {
   const CURRENT_AGE = 40;
   const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
   const person = (jobs: Job[]): Person => ({
@@ -1266,19 +1166,9 @@ describe("historical pay is flat until estimated", () => {
     }
   });
 
-  it("grows only the unstated years once the estimate is applied", () => {
-    const applied = {
-      ...base,
-      payChanges: withIds(estimateHistoryPayChanges(base, span, CPI)),
-    };
-    const prior = compilePersonPriorEarnings(person([applied]), START_YEAR);
-    // The first year is the authored anchor and does not move; later years climb at CPI.
-    expect(prior[START_YEAR - 10]).toBe(dollarsToCents(60_000));
-    expect(prior[START_YEAR - 9]).toBe(Math.round(dollarsToCents(60_000) * 1.03));
-    expect(prior[START_YEAR - 1]!).toBeGreaterThan(prior[START_YEAR - 9]!);
-  });
-
-  it("leaves an authored historical change authoritative, and flat after it", () => {
+  it("holds a dated historical change from its month, and grows it not at all", () => {
+    // The one way a past year rises is a change the user dated there — read verbatim and held,
+    // never compounded by CPI on the way to "now".
     const raised: Job = {
       ...base,
       payChanges: [{ id: "adjustment-105", month: -60, kind: "setTo", cents: dollarsToCents(7_000) }],
@@ -1304,22 +1194,16 @@ describe("historical pay is flat until estimated", () => {
     );
   });
 
-  it("restores the flat authored history when the estimates are removed again", () => {
-    const before = compilePersonPriorEarnings(person([base]), START_YEAR);
-    const estimates = estimateHistoryPayChanges(base, span, CPI);
-    const applied = { ...base, payChanges: withIds(estimates) };
-    expect(compilePersonPriorEarnings(person([applied]), START_YEAR)).not.toEqual(before);
-
-    // Removing exactly what was generated — the flag is what makes them identifiable.
-    const cleared = { ...applied, payChanges: applied.payChanges.filter((c) => !c.estimated) };
-    expect(compilePersonPriorEarnings(person([cleared]), START_YEAR)).toEqual(before);
-  });
-
   it("still gives month 0 to the current salary, whatever the history did", () => {
-    const applied = { ...base, payChanges: withIds(estimateHistoryPayChanges(base, span, CPI)) };
-    const forward = compilePersonIncomeSeries(person([applied]), START_YEAR, CPI)[0].series;
+    // A dated historical change reconstructs the past and is dropped at the boundary: month 0 is
+    // the authored current salary, not wherever the history reached.
+    const withHistory: Job = {
+      ...base,
+      payChanges: [{ id: "adjustment-106", month: -48, kind: "setTo", cents: dollarsToCents(7_000) }],
+    };
+    const forward = compilePersonIncomeSeries(person([withHistory]), START_YEAR, CPI)[0].series;
     expect(forward.getMonthlyCents(0)).toBe(dollarsToCents(96_000 / 12));
-    expect(jobPayPath(applied, span, { inflationRate: CPI }).monthlyCentsAt(0)).toBe(
+    expect(jobPayPath(withHistory, span, { inflationRate: CPI }).monthlyCentsAt(0)).toBe(
       dollarsToCents(96_000 / 12),
     );
   });

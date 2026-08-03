@@ -6,15 +6,17 @@
  * `RelationshipEvent` that brought them into the household. Nothing outside this module needs
  * that distinction — the facade delegates here and the plane is worked out from the id.
  *
- * Three shapes of write, for three different reasons:
+ * Two shapes of write, for two different reasons:
  *
  *  - **Plane-explicit creation.** `addProjectionJob` / `addProjectionPartnerJob` need the person
  *    a job belongs to, and a person is on one plane or the other, so the caller says which.
  *  - **Plane-agnostic adjustment.** One counter issues job ids across both planes, so an id
  *    names one job in the household or nothing at all — "give job-3 a raise" has one answer, and
  *    the caller does not have to know which plane job-3 is authored on to ask for it.
- *  - **Crossing.** {@link reassignProjectionJob} is a removal from one plane and a landing on
- *    the other, keeping the id.
+ *
+ * A job cannot change owner. Re-reading its dates against a different birthday would shift the
+ * employment in time or shift it to a different age, both rewriting something the person stated,
+ * so moving a job between household members is delete-and-re-add and not a field edit.
  *
  * The partner plane is written through the same replay-validated path a revision uses, so a
  * partner-job edit that would strand a later event is refused exactly as any other would be.
@@ -45,7 +47,6 @@ import {
 import type { Jurisdiction } from "../jurisdiction";
 import type { Cents } from "../money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
-import { PRIMARY_PERSON_ID } from "../projectionBase";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";
 import { mint } from "./mint";
@@ -53,9 +54,7 @@ import { replaceEvent } from "./eventWrite";
 
 /**
  * A job as a caller authors it — no `id` and no `ownerId`. The engine issues the id and the
- * plane it lands on stamps the owner. Relocating a job between members without re-minting is
- * {@link reassignProjectionJob}, which takes the existing id as an argument rather than letting
- * one ride in here.
+ * plane it lands on stamps the owner.
  */
 export type JobInput = Omit<Job, "id" | "ownerId">;
 
@@ -71,13 +70,6 @@ export function relationshipFor(
   }
   throw new Error(
     `Projection: cannot author a partner job — no partner "${personId}" in this timeline`,
-  );
-}
-
-/** Whether this member's jobs live on the ledger plane — i.e. they joined as a partner. */
-function isPartner(state: ProjectionState, personId: PersonId): boolean {
-  return state.scenario.ledger.events.some(
-    (e) => e.type === "RelationshipEvent" && e.person.id === personId,
   );
 }
 
@@ -174,9 +166,8 @@ function editJobAnywhere(
 /**
  * Add a job to the plan plane, answering with the minted `"job-N"` id.
  *
- * Every {@link JobInput} field carries through: a job arriving here may be an *existing* one
- * moving between household members, and it keeps its one-month overrides, permanent pay changes
- * and display name across the move.
+ * Every {@link JobInput} field carries through — one-month overrides, permanent pay changes and
+ * the display name — so re-adding a job deleted from another member preserves its whole history.
  */
 export function addProjectionJob(
   state: ProjectionState,
@@ -202,7 +193,8 @@ export function addProjectionJob(
  * out with neither. That is what a form re-submitted with the 401(k) rate zeroed and the name
  * blanked has to mean.
  *
- * `ownerId` stays as it was — reassignment is a two-plane move, not a field edit.
+ * `ownerId` stays as it was — a job cannot change owner, so nothing an edit carries can restate
+ * it.
  */
 export function replaceProjectionJob(
   state: ProjectionState,
@@ -249,8 +241,7 @@ export function removeProjectionJob(state: ProjectionState, id: string): Project
  * namespace across both planes, which is what lets the counter floor recognize a partner's job
  * on the way back in and step past it.
  *
- * The id is always minted; a caller cannot name a job. Moving an EXISTING job onto this plane
- * keeps its id, and is {@link reassignProjectionJob}.
+ * The id is always minted; a caller cannot name a job.
  */
 export function addProjectionPartnerJob(
   state: ProjectionState,
@@ -312,57 +303,6 @@ export function removeProjectionPartnerJob(
     event,
     event.person.jobs.filter((j) => j.id !== jobId),
   );
-}
-
-/**
- * Hand a job to another household member, keeping its `id` — and with it every adjustment
- * addressed by that id: one-month income overrides, permanent pay changes, the employer match.
- *
- * This is the ONE operation that needs an already-issued job id, and it takes it as an argument
- * rather than letting one ride in on a {@link JobInput}, so authoring a job and relocating one
- * stay different verbs and no caller can name a job into existence.
- *
- * A move crosses the two planes, so it is a removal from one and a landing on the other. Both
- * are derived here in that order (the id is never live in both places), and the target member is
- * proved to exist BEFORE the source gives the job up, so a bad owner cannot strip a job from
- * whoever holds it. A refusal from either plane throws having derived nothing, so a job can
- * never end up in neither list.
- *
- * `job` carries the fields the move lands with, so a form that re-owns a job and edits it is one
- * write. An `ownerId` is not among them: the target names the owner.
- */
-export function reassignProjectionJob(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  jobId: string,
-  toOwnerId: PersonId,
-  job: JobInput,
-): ProjectionState {
-  // Proved BEFORE the source gives the job up: a member is either the primary person, whose jobs
-  // are standing plan data, or a partner, whose ride their `RelationshipEvent`. Anyone else is
-  // not in the household, and a job handed to them would vanish from both planes.
-  const toPartner = isPartner(state, toOwnerId);
-  if (!toPartner && toOwnerId !== PRIMARY_PERSON_ID) {
-    throw new Error(
-      `Projection: cannot reassign a job — no household member "${toOwnerId}" to own it`,
-    );
-  }
-
-  const plan = state.scenario.plan;
-  const lifted = onPlan(state, jobId)
-    ? withStatePlan(state, { ...plan, jobs: plan.jobs.filter((j) => j.id !== jobId) })
-    : // Refuses an id neither plane holds, naming it.
-      removeProjectionPartnerJob(state, jurisdiction, jobId);
-
-  const landed: Job = { ...job, id: jobId, ownerId: toOwnerId };
-  if (toPartner) {
-    // Re-read off the lifted state: the removal derived a new one, so an event captured before
-    // it is stale.
-    const event = relationshipFor(lifted, toOwnerId);
-    return withPartnerJobs(lifted, jurisdiction, event, [...event.person.jobs, landed]);
-  }
-  const after = lifted.scenario.plan;
-  return withStatePlan(lifted, { ...after, jobs: [...after.jobs, landed] });
 }
 
 // Adjustments to ONE job, addressed by its id alone — see the plane-agnostic note at the top.

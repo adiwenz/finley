@@ -193,7 +193,6 @@ const WRITES_THAT_MUST_STAY_INTERNAL = [
   "withPlan",
   "withLedger",
   "addProjectionJob",
-  "reassignProjectionJob",
   "addProjectionBudgetLine",
   "removeProjectionGoal",
   "applyMarriage",

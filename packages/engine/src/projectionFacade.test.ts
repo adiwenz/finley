@@ -19,7 +19,7 @@ import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
-import type { Job, PersonId } from "./job";
+import type { PersonId } from "./job";
 import type { BudgetLine } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
 
@@ -168,8 +168,8 @@ describe("Projection root — creating writes mint deterministic ids", () => {
   });
 
   it("mints a job id whatever the caller passes — `JobInput` cannot name one", () => {
-    // Jobs take no `id` at all: authoring one is the engine's to name, and relocating an
-    // existing one is `reassignJob`, which names the id as an argument instead.
+    // Jobs take no `id` at all: authoring one is the engine's to name, and a job cannot change
+    // owner, so no write ever needs to name an existing one.
     const p = freshProjection();
     expect(p.addJob(P1, openEndedJob)).toBe("job-1");
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
@@ -594,12 +594,14 @@ describe("Projection root — editing and removing a job", () => {
     });
   });
 
-  it("reassigns a job to another owner", () => {
+  it("keeps a job's owner through an edit — a job cannot change owner", () => {
+    // The one way to move a job between members is delete-and-re-add. An ordinary edit carries no
+    // `ownerId` (the patch type omits it), so the owner it was created with is preserved.
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     const jobId = p.addJob(P1, openEndedJob);
-    p.updateJob(jobId, { ownerId: partnerId });
-    expect(p.plan.jobs[0]?.ownerId).toBe(partnerId);
+    p.updateJob(jobId, { name: "Renamed", endYear: SAMPLE_START_YEAR + 10 });
+    expect(p.plan.jobs[0]?.ownerId).toBe(P1);
   });
 
   it("removes a job, leaving the others alone", () => {
@@ -839,86 +841,6 @@ describe("Projection root — jobs on a partner's plane", () => {
     expect(() => p.addPartnerJob("nobody" as PersonId, openEndedJob)).toThrow();
     // Same state object: a refused write consumes no id and commits nothing.
     expect(p.state).toBe(before);
-  });
-});
-
-describe("Projection root — moving a job between the two planes", () => {
-  const richJob = {
-    ...openEndedJob,
-    name: "Software Engineer",
-    deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
-    incomeOverrides: [{ id: "adjustment-47", month: 6, kind: "addBonus" as const, cents: dollarsToCents(5000) }],
-    payChanges: [{ id: "adjustment-48", month: 12, kind: "changeBy" as const, cents: dollarsToCents(500) }],
-  } as const;
-
-  /** A job as authoring input — its id and owner are the engine's, not the caller's. */
-  const inputOf = (job: Job) => {
-    const { id: _id, ownerId: _owner, ...rest } = job;
-    return rest;
-  };
-
-  it("moves a job from the plan to a partner, whole and with its id intact", () => {
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    const jobId = p.addJob(P1, richJob);
-
-    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
-
-    expect(p.plan.jobs).toEqual([]);
-    // The same job, not a new one: id, overrides, pay changes and employer match all survive.
-    expect(partnerEvent(p).person.jobs).toEqual([{ ...richJob, id: jobId, ownerId: partnerId }]);
-  });
-
-  it("moves a job from a partner back to the plan, whole and with its id intact", () => {
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    const jobId = p.addPartnerJob(partnerId, richJob);
-
-    p.reassignJob(jobId, P1, inputOf(partnerEvent(p).person.jobs[0]!));
-
-    expect(partnerEvent(p).person.jobs).toEqual([]);
-    expect(p.plan.jobs).toEqual([{ ...richJob, id: jobId, ownerId: P1 }]);
-  });
-
-  it("never leaves the id live on both planes at once", () => {
-    // The old remove-then-add dance could not be reordered without briefly duplicating the id,
-    // which keys the income bands. One method owns both halves, so there is no ordering left
-    // for a caller to get wrong.
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    const jobId = p.addJob(P1, richJob);
-
-    p.reassignJob(jobId, partnerId, inputOf(p.plan.jobs[0]!));
-
-    const everywhere = [
-      ...p.plan.jobs.map((j) => j.id),
-      ...partnerEvent(p).person.jobs.map((j) => j.id),
-    ];
-    expect(everywhere).toEqual([jobId]);
-  });
-
-  it("applies the fields the move lands with, so re-owning and editing are one write", () => {
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    const jobId = p.addJob(P1, richJob);
-
-    p.reassignJob(jobId, partnerId, { ...inputOf(p.plan.jobs[0]!), name: "Consulting" });
-
-    const moved = partnerEvent(p).person.jobs[0]!;
-    expect(moved.id).toBe(jobId);
-    expect(moved.name).toBe("Consulting");
-    expect(moved.incomeOverrides).toEqual(richJob.incomeOverrides);
-  });
-
-  it("refuses an unknown job, and an owner who is not in the household", () => {
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
-    const jobId = p.addJob(P1, richJob);
-
-    expect(() => p.reassignJob("no-such-job", partnerId, richJob)).toThrow(/no-such-job/);
-    // Refused BEFORE the source gives the job up, so a bad owner cannot strip a held job.
-    expect(() => p.reassignJob(jobId, "ghost" as PersonId, richJob)).toThrow();
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
   });
 });
 
