@@ -114,6 +114,31 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(html).toContain(String(feasible.headlineAge));
   });
 
+  it("names the PRIMARY's own age, not a claim that every member turns it", () => {
+    // `runAtStopWorkingAge` reads the headline age as the primary's timeline age and turns it
+    // into one shared calendar boundary — a partner authored at a different age reaches that
+    // month at a different age of their own. "everyone stopped working at 76" would claim every
+    // member personally turns 76; the copy instead anchors the age to whoever it's actually the
+    // primary's age (PLAN_DEFAULTS names them "Alex").
+    const html = renderWithView(feasible);
+    expect(html).toContain(`Alex turns`);
+    expect(html).toContain(String(feasible.headlineAge));
+    expect(html).not.toMatch(/everyone stopped working at\s*(<[^>]+>)?\s*\d/i);
+  });
+
+  it("falls back to 'you' when the plan has no authored name", () => {
+    const unnamed = renderToStaticMarkup(
+      <RetirementPanel
+        view={feasible}
+        budget={{ ...PLAN_DEFAULTS, name: "" }}
+        previewing={false}
+        onTogglePreview={noop}
+      />,
+    );
+    expect(unnamed).toContain("you turn");
+    expect(unnamed).not.toContain("undefined turns");
+  });
+
   it("reflects the on state, so the box shows checked while previewing", () => {
     expect(renderWithView(feasible, false)).not.toContain("checked");
     expect(renderWithView(feasible, true)).toContain("checked");

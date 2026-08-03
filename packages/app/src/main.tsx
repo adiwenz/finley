@@ -79,22 +79,24 @@ export function App() {
 
   // The "what if everyone stopped working at the solved age" run — the same non-mutating
   // stop-working boundary the solver searched with, surfaced instead of discarded. Computed
-  // only when a feasible headline age exists, and memoized beside the authored run so flipping
-  // the toggle re-renders the charts without re-simulating.
+  // only when the toggle is actually on AND a feasible headline age exists — an ordinary plan
+  // edit re-renders this memo on every keystroke, and the preview toggle is off far more often
+  // than it's on, so gating on `previewRetirement` keeps an unused extra projection from
+  // running on every edit. Turning the toggle ON is what should pay for the simulation.
   const previewResult = useMemo(
     () =>
-      retirement.headlineAge === null
-        ? null
-        : projection.runAtStopWorkingAge(usJurisdiction, retirement.headlineAge),
-    [projection, retirement.headlineAge],
+      previewRetirement && retirement.headlineAge !== null
+        ? projection.runAtStopWorkingAge(usJurisdiction, retirement.headlineAge)
+        : null,
+    [projection, previewRetirement, retirement.headlineAge],
   );
-  // A stale `previewRetirement` cannot draw an absent preview: with no feasible age `previewResult`
-  // is null, so the charts fall back to the authored series and the toggle reports itself off.
-  const previewing = previewRetirement && previewResult !== null;
+  // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
+  // simple null check — a stale toggle with no feasible age still reports itself off.
+  const previewing = previewResult !== null;
   // The series the charts draw — the preview when previewing, the authored run otherwise. The
   // guard narrows `previewResult` here; only the CHARTS swap, every authoring/editing surface
   // below stays on the authored `result`.
-  const chartSeries = previewRetirement && previewResult ? previewResult.series : series;
+  const chartSeries = previewResult ? previewResult.series : series;
 
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);

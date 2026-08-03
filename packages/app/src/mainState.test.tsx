@@ -284,6 +284,51 @@ describe("App — retirement chart preview", () => {
     fireEvent.click(toggle());
     expect(incomeDollars()).toBe(authored);
   });
+
+  it("does not run the stop-working preview projection until the toggle is on", () => {
+    // The preview is a second full projection — ordinary plan edits (and the initial render)
+    // must not pay for it while nobody has asked to see it. Only flipping the toggle should.
+    const spy = vi.spyOn(engine.Projection.prototype, "runAtStopWorkingAge");
+    render(<App />);
+    expect(spy).not.toHaveBeenCalled();
+
+    // A plan edit reprojects the authored run and re-renders the preview memo's dependencies,
+    // but must not trigger the extra simulation while the toggle is still off.
+    fireEvent.change(screen.getByLabelText(/Savings return/), { target: { value: "5" } });
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // Toggling off and back on is a legitimate reason to run it again — nothing here asserts
+    // it's called only once ever, only that it's never called for free.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the primary, not a shared age for everyone, once a differently-aged partner joins", () => {
+    // `runAtStopWorkingAge` reads the headline age as the PRIMARY's own age and applies the
+    // resulting calendar boundary household-wide — a partner authored at a different age
+    // reaches that same month at a different personal age. A partner joining at 25, sixty
+    // years apart from the solved headline age, would make "everyone stopped working at
+    // <headlineAge>" a specific, checkable lie about the partner if the copy still said it.
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText(/Their age in/), { target: { value: "25" } });
+    fireEvent.click(screen.getByText("Add event"));
+
+    // Still feasible with the partner added — the toggle is there to read.
+    const toggleText = screen.getByRole("checkbox", { name: /Preview the charts/ }).closest("label")
+      ?.textContent;
+    // Names the primary ("Alex", PLAN_DEFAULTS' name) turning their own solved age — never a
+    // bare "at <age>" that would claim it for the whole household, partner included.
+    expect(toggleText).toMatch(/Alex turns \d+/);
+    expect(toggleText).not.toMatch(/everyone stopped working at\s*\d/i);
+  });
 });
 
 describe("App — budget edits", () => {
