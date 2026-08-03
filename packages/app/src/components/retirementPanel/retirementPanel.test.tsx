@@ -114,16 +114,19 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(html).toContain(String(feasible.headlineAge));
   });
 
-  it("names the PRIMARY's own age, not a claim that every member turns it", () => {
+  it("names the PRIMARY's own age, not a claim that every member turns it simultaneously", () => {
     // `runAtStopWorkingAge` reads the headline age as the primary's timeline age and turns it
-    // into one shared calendar boundary — a partner authored at a different age reaches that
-    // month at a different age of their own. "everyone stopped working at 76" would claim every
-    // member personally turns 76; the copy instead anchors the age to whoever it's actually the
-    // primary's age (PLAN_DEFAULTS names them "Alex").
+    // into one shared calendar boundary no job pays past — a partner authored at a different
+    // age reaches that month at a different age of their own, and a fixed-term job or a
+    // partner's own job can already end BEFORE the boundary rather than exactly at it (the
+    // boundary only ever caps, never extends, anyone but the primary). "everyone stopped
+    // working at 76" would claim every member personally turns 76 at once; "by the time Alex
+    // turns 76" claims only what's guaranteed — nobody earns past that point.
     const html = renderWithView(feasible);
+    expect(html).toContain(`by the time`);
     expect(html).toContain(`Alex turns`);
     expect(html).toContain(String(feasible.headlineAge));
-    expect(html).not.toMatch(/everyone stopped working at\s*(<[^>]+>)?\s*\d/i);
+    expect(html).not.toMatch(/everyone stopped working (at|when)\s*(<[^>]+>)?\s*\d/i);
   });
 
   it("falls back to 'you' when the plan has no authored name", () => {
@@ -135,7 +138,7 @@ describe("RetirementPanel — chart preview toggle", () => {
         onTogglePreview={noop}
       />,
     );
-    expect(unnamed).toContain("you turn");
+    expect(unnamed).toContain("by the time you turn");
     expect(unnamed).not.toContain("undefined turns");
   });
 

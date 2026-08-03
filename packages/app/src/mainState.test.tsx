@@ -307,12 +307,14 @@ describe("App — retirement chart preview", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  it("names the primary, not a shared age for everyone, once a differently-aged partner joins", () => {
+  it("names the primary, not a shared simultaneous age for everyone, once a differently-aged partner joins", () => {
     // `runAtStopWorkingAge` reads the headline age as the PRIMARY's own age and applies the
     // resulting calendar boundary household-wide — a partner authored at a different age
-    // reaches that same month at a different personal age. A partner joining at 25, sixty
-    // years apart from the solved headline age, would make "everyone stopped working at
-    // <headlineAge>" a specific, checkable lie about the partner if the copy still said it.
+    // reaches that same month at a different personal age, and their own job could already
+    // have ended before it (the boundary only caps a partner's job, never extends it out to
+    // meet the primary's). A partner joining at 25, sixty years apart from the solved headline
+    // age, would make "everyone stopped working at/when <headlineAge>" a specific, checkable
+    // lie about the partner if the copy still claimed a shared moment.
     render(<App />);
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "RelationshipEvent" },
@@ -324,10 +326,10 @@ describe("App — retirement chart preview", () => {
     // Still feasible with the partner added — the toggle is there to read.
     const toggleText = screen.getByRole("checkbox", { name: /Preview the charts/ }).closest("label")
       ?.textContent;
-    // Names the primary ("Alex", PLAN_DEFAULTS' name) turning their own solved age — never a
-    // bare "at <age>" that would claim it for the whole household, partner included.
-    expect(toggleText).toMatch(/Alex turns \d+/);
-    expect(toggleText).not.toMatch(/everyone stopped working at\s*\d/i);
+    // "by the time Alex turns <age>" — a cap everyone is guaranteed to be under, never a claim
+    // that the whole household (partner included) reaches that age together.
+    expect(toggleText).toMatch(/by the time Alex turns \d+/);
+    expect(toggleText).not.toMatch(/everyone stopped working (at|when)\s*\d/i);
   });
 });
 

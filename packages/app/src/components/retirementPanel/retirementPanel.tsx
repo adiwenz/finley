@@ -30,11 +30,11 @@ export function RetirementPanel({
           strictly worse, so there is no hypothetical worth drawing. Toggles the CHARTS, not the
           plan — the underlying scenario is never touched.
           `runAtStopWorkingAge` reads `headlineAge` as the PRIMARY's own age and turns it into one
-          household-wide calendar boundary every job stops at — a partner authored at a different
-          age reaches that same calendar month at a different age of their own. "Everyone stopped
-          working at 76" would claim every member personally turns 76 there, which is only true
-          for the primary; naming the primary as the clock the boundary is set by keeps the claim
-          accurate for a household with any age spread. */}
+          household-wide calendar boundary no job pays past — a fixed-term job or a partner's own
+          job can already end BEFORE that boundary (the boundary only ever caps them, never
+          extends them out to it — see `resolvedJobEndMonth`), so "everyone stopped working WHEN
+          Alex turns 76" would overclaim simultaneity as well as age. "By the time" says only what
+          is actually guaranteed: nobody is still earning past that point. */}
       {view.headlineAge !== null ? (
         <label className="preview-toggle">
           <input
@@ -43,7 +43,7 @@ export function RetirementPanel({
             onChange={(e) => onTogglePreview(e.target.checked)}
           />
           <span>
-            Preview the charts as if everyone stopped working when{" "}
+            Preview the charts as if everyone stopped working by the time{" "}
             {budget.name ? (
               <>
                 {budget.name} turns <strong>{view.headlineAge}</strong>
