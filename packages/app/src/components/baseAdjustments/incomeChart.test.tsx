@@ -69,6 +69,17 @@ describe("IncomeChart — accessible nonvisual representation", () => {
     // No accessible element serialises an object literal to a screen reader.
     expect(screen.queryByRole("table")!.textContent).not.toContain("{");
   });
+
+  it("scopes each moment heading to its own tbody as a rowgroup, not a colgroup", () => {
+    renderChart();
+    // Each moment heading spans two columns but groups the ROWS beneath it within its own
+    // <tbody>, not a group of columns — `colgroup` would misdescribe it to a screen reader.
+    const headings = screen.getAllByRole("rowheader", { name: /month \d+/ });
+    expect(headings.length).toBeGreaterThan(0);
+    for (const heading of headings) {
+      expect(heading.getAttribute("scope")).toBe("rowgroup");
+    }
+  });
 });
 
 describe("IncomeChart — mode and basis controls", () => {

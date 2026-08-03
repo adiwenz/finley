@@ -135,7 +135,7 @@ export function IncomeChart({
         {model.accessibleMoments.map((moment, i) => (
           <tbody key={i}>
             <tr>
-              <th scope="colgroup" colSpan={2}>
+              <th scope="rowgroup" colSpan={2}>
                 {moment.label} — {moment.reason}
               </th>
             </tr>
