@@ -264,6 +264,28 @@ describe("App — starter simulations", () => {
   });
 });
 
+describe("App — retirement chart preview", () => {
+  const incomeDollars = () =>
+    Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
+
+  it("swaps the income chart to the stop-working preview, and back", () => {
+    render(<App />);
+
+    // Age 70 (month 420): the authored default plan retires the primary at 65, so no wages; the
+    // solved headline age (76) keeps them working, so previewing adds those wages back.
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Month" }), { target: { value: "420" } });
+    const authored = incomeDollars();
+
+    const toggle = () => screen.getByRole("checkbox", { name: /Preview the charts/ });
+    fireEvent.click(toggle());
+    expect(incomeDollars()).toBeGreaterThan(authored);
+
+    // Turning the preview off restores the authored figure — the toggle changed no plan data.
+    fireEvent.click(toggle());
+    expect(incomeDollars()).toBe(authored);
+  });
+});
+
 describe("App — budget edits", () => {
   it("reprojects on a budget edit but not on scrub", () => {
     // The read handle is memoized on the state object, so scrubbing (which touches only the

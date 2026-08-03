@@ -35,16 +35,21 @@ const INITIAL_STATE = presetState(PRESETS[0]);
 export function App() {
   const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
+  // Whether the charts show the "if everyone stopped working at the solved age" preview rather
+  // than the authored plan. A pure view flag — it never touches the state the app authors.
+  const [previewRetirement, setPreviewRetirement] = useState(false);
   const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
   // Load a starter simulation wholesale: plan AND seed timeline together, floored on the way
-  // in by the facade. The scrub cursor snaps back to "now".
+  // in by the facade. The scrub cursor snaps back to "now", and the preview drops back to the
+  // authored view — a fresh scenario is shown as authored, not through the last one's hypothesis.
   function loadPreset(preset: Preset) {
     setPresetId(preset.id);
     loadState(presetState(preset));
     setScrubMonth(DEFAULT_SCRUB_MONTH);
+    setPreviewRetirement(false);
   }
 
   // One handle over the current state answers every read: the graph, snapshot roster, and debug
@@ -71,6 +76,26 @@ export function App() {
     () => retirementView(projection, usJurisdiction),
     [projection],
   );
+
+  // The "what if everyone stopped working at the solved age" run — the same non-mutating
+  // stop-working boundary the solver searched with, surfaced instead of discarded. Computed
+  // only when a feasible headline age exists, and memoized beside the authored run so flipping
+  // the toggle re-renders the charts without re-simulating.
+  const previewResult = useMemo(
+    () =>
+      retirement.headlineAge === null
+        ? null
+        : projection.runAtStopWorkingAge(usJurisdiction, retirement.headlineAge),
+    [projection, retirement.headlineAge],
+  );
+  // A stale `previewRetirement` cannot draw an absent preview: with no feasible age `previewResult`
+  // is null, so the charts fall back to the authored series and the toggle reports itself off.
+  const previewing = previewRetirement && previewResult !== null;
+  // The series the charts draw — the preview when previewing, the authored run otherwise. The
+  // guard narrows `previewResult` here; only the CHARTS swap, every authoring/editing surface
+  // below stays on the authored `result`.
+  const chartSeries = previewRetirement && previewResult ? previewResult.series : series;
+
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 
@@ -87,11 +112,11 @@ export function App() {
     for (const liability of household.liabilities) {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
-    return buildNetWorthBreakdown(series, {
+    return buildNetWorthBreakdown(chartSeries, {
       accounts: projection.accountDescriptors(),
       liabilityLabels,
     });
-  }, [series, projection, household]);
+  }, [chartSeries, projection, household]);
 
   return (
     <>
@@ -119,7 +144,7 @@ export function App() {
       <div className="layout">
         <div className="main-col">
           <div className="card">
-            <NetWorthChart series={series} retirementMonth={retirement.headlineMonth} />
+            <NetWorthChart series={chartSeries} retirementMonth={retirement.headlineMonth} />
 
             {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
                 an event-spawned expense or a loan payment (see Base + Adjustments). */}
@@ -195,7 +220,12 @@ export function App() {
           </div>
 
           <div className="card">
-            <RetirementPanel view={retirement} budget={budget} />
+            <RetirementPanel
+              view={retirement}
+              budget={budget}
+              previewing={previewing}
+              onTogglePreview={setPreviewRetirement}
+            />
           </div>
         </div>
       </div>
@@ -218,7 +248,7 @@ export function App() {
         <BaseAdjustmentsPanel
           plan={budget}
           transact={transact}
-          series={series}
+          series={chartSeries}
           personNames={personNames}
           household={household}
           ledger={ledger}

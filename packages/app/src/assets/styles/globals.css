@@ -109,6 +109,21 @@ p.sub {
   color: var(--color-text-muted);
 }
 
+/* Retirement chart preview toggle: a checkbox and its label on one row, aligned to the top so a
+   wrapped label keeps the box beside its first line rather than centred against the block. */
+.preview-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  margin: 4px 0 8px;
+  cursor: pointer;
+}
+
+.preview-toggle input {
+  margin-top: 2px;
+}
+
 /* The starter-scenario picker (issue #119): a bounded control, not a full-width row. */
 .preset-picker {
   max-width: 420px;

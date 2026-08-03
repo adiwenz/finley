@@ -10,13 +10,26 @@ import { Projection, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "../../testing/projectionHarness";
 import { RetirementPanel } from "./retirementPanel";
-import { retirementView } from "../../retirementView";
+import { retirementView, type RetirementView } from "../../retirementView";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import type { Plan } from "@finley/engine";
 
+const noop = () => {};
+
 function render(budget: Plan) {
   return renderToStaticMarkup(
-    <RetirementPanel view={retirementView(Projection.fromState(stateOf(budget), usJurisdiction))} budget={budget} />,
+    <RetirementPanel
+      view={retirementView(Projection.fromState(stateOf(budget), usJurisdiction))}
+      budget={budget}
+      previewing={false}
+      onTogglePreview={noop}
+    />,
+  );
+}
+
+function renderWithView(view: RetirementView, previewing = false) {
+  return renderToStaticMarkup(
+    <RetirementPanel view={view} budget={PLAN_DEFAULTS} previewing={previewing} onTogglePreview={noop} />,
   );
 }
 
@@ -85,5 +98,33 @@ describe("RetirementPanel", () => {
     // proving the panel follows the budget rather than a plan scalar.
     expect(render(withHealth(0, { retirementAge: 55 }))).toContain("self-funded");
     expect(render(withHealth(5_000, { retirementAge: 55 }))).not.toContain("self-funded");
+  });
+});
+
+describe("RetirementPanel — chart preview toggle", () => {
+  const feasible = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+
+  it("offers a preview toggle naming the solved headline age", () => {
+    // The default plan solves to a feasible headline (age 76), so the toggle is available and
+    // names the age whose charts it previews.
+    expect(feasible.headlineAge).not.toBeNull();
+    const html = renderWithView(feasible);
+    expect(html).toContain("checkbox");
+    expect(html).toContain(`Preview`);
+    expect(html).toContain(String(feasible.headlineAge));
+  });
+
+  it("reflects the on state, so the box shows checked while previewing", () => {
+    expect(renderWithView(feasible, false)).not.toContain("checked");
+    expect(renderWithView(feasible, true)).toContain("checked");
+  });
+
+  it("hides the toggle when no retirement age is feasible — there is nothing to preview", () => {
+    // A null headline means even working to life expectancy never survives; capping work earlier
+    // could only be worse, so offering to preview it would be offering an empty hypothetical.
+    const infeasible: RetirementView = { ...feasible, headlineAge: null, headlineMonth: null };
+    const html = renderWithView(infeasible);
+    expect(html).not.toContain("checkbox");
+    expect(html).not.toContain("Preview");
   });
 });

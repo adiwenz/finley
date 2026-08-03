@@ -12,13 +12,36 @@ import { formatDollars } from "../../format";
 export function RetirementPanel({
   view,
   budget,
+  previewing,
+  onTogglePreview,
 }: {
   view: RetirementView;
   budget: Plan;
+  /** Whether the net-worth and income charts are currently showing the stop-working preview. */
+  previewing: boolean;
+  /** Flip the preview on or off. The parent owns the state; the panel only reports the intent. */
+  onTogglePreview: (next: boolean) => void;
 }) {
   return (
     <>
       <h2>Retirement</h2>
+
+      {/* Offered only when a feasible headline age exists: with none, capping work any earlier is
+          strictly worse, so there is no hypothetical worth drawing. Toggles the CHARTS, not the
+          plan — the underlying scenario is never touched. */}
+      {view.headlineAge !== null ? (
+        <label className="preview-toggle">
+          <input
+            type="checkbox"
+            checked={previewing}
+            onChange={(e) => onTogglePreview(e.target.checked)}
+          />
+          <span>
+            Preview the charts as if everyone stopped working at{" "}
+            <strong>{view.headlineAge}</strong>
+          </span>
+        </label>
+      ) : null}
       {view.headlineAge === null ? (
         <p className="alert alert-red" role="status">
           On these numbers the money never lasts to age {budget.lifeExpectancy} — no
