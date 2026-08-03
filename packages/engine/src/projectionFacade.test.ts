@@ -2973,3 +2973,46 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
     expect(withLoan.assessment.backEndRatio).toBeGreaterThan(clean.assessment.backEndRatio);
   });
 });
+
+describe("Projection root — previewing a stop-working age", () => {
+  /** Wages the household draws in `month`, the signal the income chart bands. */
+  const wagesAt = (result: ReturnType<Projection["run"]>, month: number): number =>
+    result.series.months[month]?.flows?.incomeByCategoryCents.wages ?? 0;
+
+  // The sample primary works an open-ended job to age 60 (`retirementAge`), from age 40.
+  const AGE_50_MONTH = (50 - samplePlan.currentAge) * 12;
+
+  it("ceases every job at the candidate age without touching the authored plan", () => {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    const before = p.state;
+
+    // Stop at 45: fifteen years short of the authored age-60 stop, so age 50 has no wages.
+    const preview = p.runAtStopWorkingAge(nullJurisdiction, 45);
+    expect(wagesAt(preview, AGE_50_MONTH)).toBe(0);
+
+    // The authored run is untouched — the primary still earns to 60 — and no write happened.
+    expect(wagesAt(p.run(nullJurisdiction), AGE_50_MONTH)).toBeGreaterThan(0);
+    expect(p.state).toBe(before);
+  });
+
+  it("keeps working past the authored age when the candidate is later", () => {
+    // The candidate stands in for the primary's own retirement target, so a candidate ABOVE the
+    // authored age extends the open-ended job rather than being clipped back to it — the very
+    // thing that lets the solver find a feasible age later than the plan's own.
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    const AGE_63_MONTH = (63 - samplePlan.currentAge) * 12;
+    expect(wagesAt(p.run(nullJurisdiction), AGE_63_MONTH)).toBe(0); // authored: retired at 60
+    expect(wagesAt(p.runAtStopWorkingAge(nullJurisdiction, 65), AGE_63_MONTH)).toBeGreaterThan(0);
+  });
+
+  it("hands back a whole read-only result, answered under the run jurisdiction", () => {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    const preview = p.runAtStopWorkingAge(nullJurisdiction, 55);
+    // The full ProjectionResult — roster and report beside the series — so the income and
+    // net-worth charts read one preview pass, exactly as they read one authored pass.
+    expect(preview.jurisdictionId).toBe(nullJurisdiction.id);
+    expect(preview.household.memberships).toHaveLength(1);
+    expect(preview.report).toBeDefined();
+    expect(Object.isFrozen(preview)).toBe(true);
+  });
+});

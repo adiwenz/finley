@@ -98,6 +98,11 @@ function retirementMonth(budget: Plan, age: number): number {
   return Math.max(0, (age - budget.currentAge) * 12);
 }
 
+/** The calendar year the primary turns `age` — the boundary a stop at `age` applies to every earner. */
+function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): number {
+  return startYear - budget.currentAge + age;
+}
+
 /**
  * The candidate boundary for a solve at `age`: the calendar year the primary turns `age`, applied
  * to every earner. `mode` decides whether the fixed-term jobs cap with the rest (`"full"`) or only
@@ -110,8 +115,21 @@ function stopWorkingBoundaryAt(
   ctx: ProjectionContext,
   mode: StopWorkingBoundary["mode"],
 ): StopWorkingBoundary {
-  const birthYear = ctx.startYear - budget.currentAge;
-  return { boundaryYearExclusive: birthYear + age, mode };
+  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, ctx.startYear), mode };
+}
+
+/**
+ * The full-retirement boundary at `age` — every earner stops — for a caller outside the solver's
+ * own search: {@link Projection.runAtStopWorkingAge} previews a candidate age's charts through it.
+ * Full mode is the only one exposed, because a "what if we both stopped working then" preview is
+ * exactly the full-retirement question the headline age answers, never the partial one.
+ */
+export function fullStopWorkingBoundaryAt(
+  budget: Plan,
+  age: number,
+  startYear: number,
+): StopWorkingBoundary {
+  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, startYear), mode: "full" };
 }
 
 /**

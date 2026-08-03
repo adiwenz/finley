@@ -15,6 +15,7 @@
 import type { Jurisdiction } from "./jurisdiction";
 import type { ProjectionState } from "./authoring/state";
 import type { ProjectionSeries } from "./projection/simulate";
+import type { StopWorkingBoundary } from "./householdJob";
 import { projectScenarioParts } from "./retirementSolver";
 import { summarizeSimulation } from "./projection/report";
 import type { SimulationReport } from "./projection/report";
@@ -70,6 +71,11 @@ export interface ProjectionResult {
  * share, and summarizes the report off the same series so the debug view reuses the run the chart
  * drew rather than simulating twice.
  *
+ * `stopWorking` is the retirement solver's non-destructive boundary: absent for the ordinary
+ * authored run, and set only for a hypothetical "what if everyone stopped working at this age"
+ * preview. It rewrites no job — it caps the compiled spans — so the whole result stays a pure
+ * function of state and the authored plan is never mutated.
+ *
  * `meta` echoes the whole authored plan plus the run's jurisdiction id, so knobs the sim input
  * compiles away — life expectancy, retirement age, health lines — survive into the report and its
  * download.
@@ -77,12 +83,14 @@ export interface ProjectionResult {
 export function runProjection(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
+  stopWorking?: StopWorkingBoundary,
 ): ProjectionResult {
   const plan = state.scenario.plan;
-  const { household, simInput, series } = projectScenarioParts(state.scenario, {
-    jurisdiction,
-    startYear: state.startYear,
-  });
+  const { household, simInput, series } = projectScenarioParts(
+    state.scenario,
+    { jurisdiction, startYear: state.startYear },
+    stopWorking,
+  );
   const report = summarizeSimulation(
     simInput,
     series,

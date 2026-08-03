@@ -86,6 +86,7 @@ import { runProjection } from "./projectionRun";
 import type { ProjectionResult } from "./projectionRun";
 import { buildRetirementOutlook } from "./retirementOutlook";
 import type { RetirementOutlook } from "./retirementOutlook";
+import { fullStopWorkingBoundaryAt } from "./retirementSolver";
 
 import type { ProjectionState, Written } from "./authoring/state";
 import { emptyState } from "./authoring/state";
@@ -555,6 +556,26 @@ export class Projection {
    */
   run(jurisdiction: Jurisdiction): ProjectionResult {
     return runProjection(this.current, jurisdiction);
+  }
+
+  /**
+   * {@link run}, but with every earner's job ceased at `age` — a non-destructive preview of "what
+   * if the whole household stopped working then." The full {@link ProjectionResult} comes back so
+   * the net-worth and income charts read one preview pass exactly as they read the authored one.
+   *
+   * The boundary caps compiled job spans and rewrites nothing (see {@link StopWorkingBoundary}),
+   * so the plan this handle holds is byte-for-byte untouched — a caller can flip between the
+   * authored charts and the preview without ever committing the hypothetical. `age` is the
+   * primary's own timeline age, the convention every retirement output already uses, so the solved
+   * headline age drops straight in; a candidate BELOW the authored stop shortens working life, one
+   * ABOVE it extends the open-ended jobs, exactly as the solver's own search does.
+   */
+  runAtStopWorkingAge(jurisdiction: Jurisdiction, age: number): ProjectionResult {
+    return runProjection(
+      this.current,
+      jurisdiction,
+      fullStopWorkingBoundaryAt(this.plan, age, this.current.startYear),
+    );
   }
 
   /**
