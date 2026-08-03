@@ -16,8 +16,7 @@ const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
  * was authored — the engine no longer grows it — so a fresh plan states a fact rather than a
  * trend, and there is no step at "now" to explain.
  *
- * A user who worked their way up says so with pay changes, or asks for the unstated years to be
- * filled in with "Estimate missing pay history". Both are visible acts; neither is a default.
+ * A user who worked their way up says so with dated pay changes — a visible act, never a default.
  */
 
 /**

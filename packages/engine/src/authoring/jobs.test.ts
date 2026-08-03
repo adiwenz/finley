@@ -21,7 +21,6 @@ import {
   addProjectionPartnerJob,
   householdJobs,
   jobMonthlyIncomeCentsOf,
-  reassignProjectionJob,
   relationshipFor,
   setProjectionJobMonthlyIncome,
 } from "./jobs";
@@ -125,72 +124,5 @@ describe("job authoring — the module owns which plane a job lives on", () => {
     expect(() =>
       setProjectionJobMonthlyIncome(state, nullJurisdiction, "job-99", 1),
     ).toThrow(/no job "job-99" in this household/);
-  });
-});
-
-describe("job authoring — reassignment crosses the planes atomically", () => {
-  it("moves a job from the plan onto a partner's event, keeping its id", () => {
-    const { state, partnerId } = withPartner();
-    const { state: withJob, result: jobId } = addProjectionJob(
-      state,
-      PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
-    );
-
-    const moved = reassignProjectionJob(
-      withJob,
-      nullJurisdiction,
-      jobId,
-      partnerId,
-      openEndedJob,
-    );
-
-    expect(moved.scenario.plan.jobs).toEqual([]);
-    expect(partnerJobs(moved, partnerId).map((j) => j.id)).toEqual([jobId]);
-  });
-
-  it("moves one back the other way", () => {
-    const { state, partnerId } = withPartner();
-    const { state: withJob, result: jobId } = addProjectionPartnerJob(
-      state,
-      nullJurisdiction,
-      partnerId,
-      openEndedJob,
-    );
-
-    const moved = reassignProjectionJob(
-      withJob,
-      nullJurisdiction,
-      jobId,
-      PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
-    );
-
-    expect(partnerJobs(moved, partnerId)).toEqual([]);
-    expect(moved.scenario.plan.jobs.map((j) => j.id)).toEqual([jobId]);
-  });
-
-  it("derives nothing when the target owner is in neither plane", () => {
-    // The refusal is what makes the two-step move safe: the source must not give the job up
-    // before the target is proved. As a pure derivation the caller's state cannot be half-written
-    // even in principle — there is one value, and it is never handed back.
-    const { state: withJob, result: jobId } = addProjectionJob(
-      emptyState(),
-      PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
-    );
-
-    expect(() =>
-      reassignProjectionJob(
-        withJob,
-        nullJurisdiction,
-        jobId,
-        "nobody" as PersonId,
-        openEndedJob,
-      ),
-    ).toThrow(/no household member "nobody" to own it/);
-
-    // The job is still exactly where it was.
-    expect(withJob.scenario.plan.jobs.map((j) => j.id)).toEqual([jobId]);
   });
 });

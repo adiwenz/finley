@@ -9,12 +9,12 @@
  * today and reachable again the moment someone wires a caller to it. Reassignment is not a
  * feature with the UI hidden; it is a feature that is gone.
  *
- * The engine keeps `reassignProjectionJob`, tested on its own. Relocating a job is a coherent
- * operation — it is just not one an ordinary edit may perform, because it re-reads every age
- * against another birth year, restates the job's whole calendar, and strands the pay changes
- * that fall outside the new span. Bringing it back means an explicit transfer operation that
- * puts those consequences in front of the user. Until then the app must not name it, and
- * `planWrites.guard.test.ts` independently bans importing it.
+ * The engine no longer carries the operation either: `reassignProjectionJob` is gone, because
+ * re-reading a job's dates against another birthday would shift the employment in time or shift
+ * it to a different age, both rewriting something the person stated. Moving a job between members
+ * is delete-and-re-add. Bringing a first-class move back would mean an explicit transfer that
+ * puts those consequences in front of the user; until then the app must not name it, and
+ * `planWrites.guard.test.ts` independently bans importing any such write.
  *
  * Scanned as source text, because what is being banned is the *absence* of code — there is no
  * signature left to constrain once the write kind is gone.

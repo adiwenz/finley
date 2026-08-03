@@ -245,7 +245,7 @@ export function JobForm(props: JobFormProps) {
           <p className="hint">
             <strong>Enter the amount you were actually paid at the time.</strong> Finley stores
             your historical pay exactly as entered, and holds it there until you say otherwise.
-            Inflation is only used for projections and optional historical estimates.
+            Inflation is only used for projections.
           </p>
         </>
       )}

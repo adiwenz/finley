@@ -33,7 +33,6 @@ import { useMemo, useState } from "react";
 import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
-  estimateHistoryPayChanges,
   type Job,
   type JobPayChange,
   type Household,
@@ -45,7 +44,6 @@ import {
   blankJobDraftFor,
   jobToDraftFor,
   jobPayPathFor,
-  jobPaySpanFor,
   jobStartAgeFor,
   jobEndAgeFor,
   ownerAgeAtMonth,
@@ -89,8 +87,6 @@ type Authoring =
   | { kind: "edit"; id: string }
   /** `seedAge` is where the form opens — an age clicked on the chart, else the seam. */
   | { kind: "payChange"; id: string; seedAge?: number }
-  /** Explaining what estimating a job's missing history would do, BEFORE it does it. */
-  | { kind: "estimate"; id: string }
   | { kind: "new" }
   | null;
 
@@ -184,30 +180,6 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
   function remove(owner: JobOwner, id: string) {
     commit([{ kind: "remove", owner, jobId: id }]);
     if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
-  }
-
-  /**
-   * Fill the unstated historical years with pay keeping pace with inflation, as ordinary dated
-   * changes marked `estimated`. Explicit and one-shot: nothing here runs during normal editing,
-   * and what it writes is editable and removable exactly like a change the user typed.
-   */
-  function estimateHistory(owner: JobOwner, job: Job) {
-    const estimates = estimateHistoryPayChanges(
-      job,
-      jobPaySpanFor(owner, job),
-      budget.inflationPct / 100,
-    );
-    if (estimates.length > 0) {
-      transact((p) => {
-        for (const change of estimates) p.addJobPayChange(job.id, change);
-      });
-    }
-    setNotice(
-      estimates.length === 0
-        ? "There were no unstated years to estimate on this job."
-        : `Filled in ${estimates.length} estimated ${estimates.length === 1 ? "year" : "years"} of pay history. They are marked “estimated”, and you can edit or remove any of them.`,
-    );
-    setAuthoring(null);
   }
 
   function removePayChange(jobId: string, payChangeId: string) {
@@ -358,55 +330,10 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                   >
                     Change pay
                   </button>
-                  {/* Only where there is a past to estimate. Secondary, and never automatic:
-                      an assumption about someone's earnings history should be something they
-                      chose, not something they discover in a chart. */}
-                  {path.span.startMonth < 0 && (
-                    <button
-                      type="button"
-                      aria-label={`Estimate missing pay history on ${label}`}
-                      onClick={() =>
-                        setAuthoring((a) =>
-                          a?.kind === "estimate" && a.id === job.id
-                            ? null
-                            : { kind: "estimate", id: job.id },
-                        )
-                      }
-                    >
-                      Estimate missing pay history
-                    </button>
-                  )}
                   <button type="button" aria-label={`Delete ${label}`} onClick={() => remove(owner, job.id)}>
                     Delete
                   </button>
                 </div>
-                {authoring?.kind === "estimate" && authoring.id === job.id && (
-                  /* States what it will do, in full, BEFORE it does it — the whole point of
-                     making the assumption explicit is that the user reads it and agrees. */
-                  <div className={styles.form} role="group" aria-label="Estimate missing pay history">
-                    <p className="hint">
-                      Estimate the missing years between your starting salary and your current
-                      salary by assuming your pay kept pace with inflation ({budget.inflationPct}%
-                      a year), except where you have authored pay changes. This creates estimated
-                      history to improve projections such as Social&nbsp;Security covered
-                      earnings. Your starting salary and your current salary are left exactly as
-                      you entered them, and no pay change you authored is overwritten. You can
-                      edit or replace the estimate at any time.
-                    </p>
-                    <div className={styles.formActions}>
-                      <button
-                        type="button"
-                        className="btn primary"
-                        onClick={() => estimateHistory(owner, job)}
-                      >
-                        Estimate history
-                      </button>
-                      <button type="button" className="btn" onClick={() => setAuthoring(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
                 {authoring?.kind === "payChange" && authoring.id === job.id && (
                   <PayChangeForm
                     // Floored at the job's START age, not at "now": a change before the job

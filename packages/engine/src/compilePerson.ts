@@ -17,8 +17,8 @@
  *   reconciled — see {@link import("./job").SalaryTrajectory}.
  * - **Growth.** Only the forward half grows. `salaryGrowthMode` applies to months from 0 onward;
  *   the past is held flat at what was authored, because it is remembered rather than projected.
- *   Filling in the unstated years is a user's explicit act
- *   ({@link import("./job").estimateHistoryPayChanges}), not a compiler default.
+ *   Reconstructing an unstated year is a dated {@link import("./job").JobPayChange} the user
+ *   authors, never a compiler default.
  *
  * Household membership narrows only where a series PAYS. The salary path is compiled over the
  * job's whole natural span either way, so a raise a partner collected before joining is part of
@@ -138,11 +138,10 @@ function applyIncomeOverrides(
  *
  * **Nothing grows here.** Neither CPI nor `realGrowthPct` is applied to a month before 0, and
  * that is the whole rule: the past is not projected, it is remembered. Inventing raises nobody
- * mentioned would put fabricated wages into the covered-earnings record that prices a benefit —
- * and it did, silently, which is what made "Estimate missing pay history" a lie the moment it
- * was offered as an explicit choice. A user who wants the unstated years filled in asks for it
- * ({@link import("./job").estimateHistoryPayChanges}), and gets dated changes they can see and
- * remove. Growth belongs to the forward half, where a projection is the point.
+ * mentioned would put fabricated wages into the covered-earnings record that prices a benefit. A
+ * user who worked an unstated year at a different wage records it as a dated
+ * {@link import("./job").JobPayChange}, which the reconstruction reads. Growth belongs to the
+ * forward half, where a projection is the point.
  *
  * Deliberately stops at month −1 and is never continued across the boundary: month 0 belongs
  * to the authored current salary. Carrying this series forward would reapply historical raises

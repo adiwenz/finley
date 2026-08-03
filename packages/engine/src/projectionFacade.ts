@@ -34,11 +34,11 @@
  * Nothing else adopts caller-named data. No authoring method takes an `id`; no method takes an
  * id-bearing `Plan`, `Ledger` or `LifeEvent`. An editing method may take an existing id as the
  * TARGET it addresses — `updateJob(jobId, …)`, `reviseTransaction(eventId, …)` — but what it is
- * handed can never replace that id or any identity nested beneath it. The two operations that
- * genuinely need to name an existing identity say so in their signature rather than accepting it
- * in a payload: {@link Projection.reassignJob} moves a job between members keeping its id, and
- * {@link Projection.reviseTransaction} changes an event's data while rebuilding it from what is
- * already in the log. `authoringInputs.guard.test.ts` holds that boundary to the compiler.
+ * handed can never replace that id or any identity nested beneath it. The one operation that
+ * genuinely needs to name an existing identity says so in its signature rather than accepting it
+ * in a payload: {@link Projection.reviseTransaction} changes an event's data while rebuilding it
+ * from what is already in the log. `authoringInputs.guard.test.ts` holds that boundary to the
+ * compiler.
  *
  * Every authorable thing is add / edit / remove, not add-only: a caller that can author a goal, a
  * job, a budget line or a transaction can also revise and retract it, so the API is a full editor
@@ -105,7 +105,6 @@ import {
   jobStartingMonthlyIncomeCentsOf,
   personDeferralFractionOf,
   personMonthlyIncomeCentsOf,
-  reassignProjectionJob,
   removeProjectionJob,
   removeProjectionJobIncomeOverride,
   removeProjectionJobPayChange,
@@ -217,8 +216,8 @@ export class Projection {
    *
    * Nothing is adopted until the deriving function RETURNS, which is what makes a refusal atomic:
    * a throw anywhere inside it — a missing id, a ledger conflict, a funding guard — leaves
-   * `current` exactly as it was, even for a multi-step write like {@link reassignJob} that
-   * touches both planes.
+   * `current` exactly as it was, even for a multi-step write like {@link reviseTransaction} that
+   * replays the whole ledger.
    *
    * Adoption goes through {@link withFlooredIdCounter}, which is the safeguard behind restored
    * state: its counters may be stale, so every write from such a handle onward is re-floored
@@ -241,9 +240,8 @@ export class Projection {
   /**
    * Returns the minted `"job-N"` id.
    *
-   * Every {@link JobInput} field carries through: a job arriving here may be an *existing* one
-   * moving between household members, and it keeps its one-month overrides, permanent pay
-   * changes and display name across the move.
+   * Every {@link JobInput} field carries through — one-month overrides, permanent pay changes and
+   * the display name — so re-adding a job removed from another member preserves its whole history.
    *
    * For a partner, {@link addPartnerJob}: their jobs are not plan data at all.
    */
@@ -288,20 +286,6 @@ export class Projection {
   replacePartnerJob(jobId: string, job: JobInput): void {
     this.write((state) =>
       replaceProjectionPartnerJob(state, this.validationJurisdiction, jobId, job),
-    );
-  }
-
-  /**
-   * Hand a job to another household member, keeping its `id` — and with it every adjustment
-   * addressed by that id: one-month income overrides, permanent pay changes, the employer match.
-   *
-   * This is the ONE operation that needs an already-issued job id, and it takes it as an argument
-   * rather than letting one ride in on a {@link JobInput}, so authoring a job and relocating one
-   * stay different verbs and no caller can name a job into existence.
-   */
-  reassignJob(jobId: string, toOwnerId: PersonId, job: JobInput): void {
-    this.write((state) =>
-      reassignProjectionJob(state, this.validationJurisdiction, jobId, toOwnerId, job),
     );
   }
 

@@ -614,7 +614,7 @@ async function runReviewer(issue: { id: string; title: string; branch: string })
     // the implementer's budget — a review that needs 20 iterations has stopped
     // being a review.
     maxIterations: 20,
-    agent: sandcastle.codex("gpt-5.4"),
+    agent: sandcastle.claudeCode("claude-opus-4-8"),
     promptFile: "./.sandcastle/new_flow/review-prompt.md",
     promptArgs: {
       TASK_ID: issue.id,
