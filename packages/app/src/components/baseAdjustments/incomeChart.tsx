@@ -102,15 +102,26 @@ export function IncomeChart({
             />
             Show gross cash flows
           </label>
-          {/* Advanced splits every source into its own band. */}
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
-            <input
-              type="checkbox"
-              checked={mode === "advanced"}
-              onChange={(e) => setMode(e.target.checked ? "advanced" : "simple")}
-            />
-            Advanced view
-          </label>
+          {/* Two chart presentations, not a feature that's on or off: a radio group states the
+              choice explicitly and keeps one active mode visible, where a lone "Advanced"
+              checkbox left "Simple" unnamed. Native radios carry the keyboard and a11y
+              semantics; `mode` stays the single union, never a boolean per option. */}
+          <fieldset
+            style={{ display: "inline-flex", alignItems: "center", gap: 10, margin: 0, padding: 0, border: 0, fontSize: 12 }}
+          >
+            <legend style={{ padding: 0, marginRight: 4, float: "left" }}>Chart detail:</legend>
+            {(["simple", "advanced"] as const).map((m) => (
+              <label key={m} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                <input
+                  type="radio"
+                  name="income-mode"
+                  checked={mode === m}
+                  onChange={() => setMode(m)}
+                />
+                {m === "simple" ? "Simple" : "Advanced"}
+              </label>
+            ))}
+          </fieldset>
         </div>
       </div>
 

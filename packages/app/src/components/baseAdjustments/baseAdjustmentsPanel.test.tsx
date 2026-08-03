@@ -222,7 +222,7 @@ describe("BaseAdjustmentsPanel — Base", () => {
     expect(bands()).not.toContain("Government benefit");
     expect(bands()).not.toContain("Savings drawdown");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /Advanced view/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /Advanced/i }));
     expect(bands()).toContain("Government benefit");
     expect(bands()).toContain("Savings drawdown");
     expect(bands()).not.toContain("Living off savings");

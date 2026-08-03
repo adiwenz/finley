@@ -72,16 +72,34 @@ describe("IncomeChart — accessible nonvisual representation", () => {
 });
 
 describe("IncomeChart — mode and basis controls", () => {
-  it("switches from Simple to Advanced and back", () => {
+  it("switches from Simple to Advanced and back through an explicit mode control", () => {
     const data = buildIncomeChartData(
       seriesOf([source("acct:a", dollarsToCents(1_000), "savingsDrawdown")]),
     );
     renderChart(data);
     const bandLabels = () =>
       within(screen.getByRole("table")).getAllByRole("rowheader").map((el) => el.textContent);
+    const simple = screen.getByRole("radio", { name: /Simple/i }) as HTMLInputElement;
+    const advanced = screen.getByRole("radio", { name: /Advanced/i }) as HTMLInputElement;
+
+    // The active mode is exposed through the radio's checked state, not a checkbox.
+    expect(simple.checked).toBe(true);
+    expect(advanced.checked).toBe(false);
     expect(bandLabels()).toContain("Living off savings");
-    fireEvent.click(screen.getByRole("checkbox", { name: /Advanced view/i }));
+
+    fireEvent.click(advanced);
+    expect(advanced.checked).toBe(true);
     expect(bandLabels()).not.toContain("Living off savings");
     expect(bandLabels()).toContain("acct:a");
+
+    fireEvent.click(simple);
+    expect(simple.checked).toBe(true);
+    expect(bandLabels()).toContain("Living off savings");
+  });
+
+  it("still toggles gross vs take-home separately from the mode", () => {
+    renderChart();
+    // The basis toggle stays a checkbox — it is not part of the Simple/Advanced mode.
+    expect(screen.getByRole("checkbox", { name: /Show gross cash flows/i })).toBeDefined();
   });
 });
