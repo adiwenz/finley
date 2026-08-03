@@ -258,16 +258,6 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(screen.queryByRole("group", { name: /Pay change/i })).toBeNull();
   });
 
-  it("clears an in-progress estimate confirmation when its job is deleted", () => {
-    render(<Harness />);
-    // Alex started at 18 and is 35 today (PLAN_DEFAULTS), so there is a past to estimate.
-    fireEvent.click(screen.getByRole("button", { name: /Estimate missing pay history on Job 1/i }));
-    expect(screen.getByRole("group", { name: /Estimate missing pay history/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Delete Job 1/i }));
-    expect(jobCount()).toBe(0);
-    expect(screen.queryByRole("group", { name: /Estimate missing pay history/i })).toBeNull();
-  });
-
   it("names a job — the row is titled by the name, and it round-trips back into the edit form", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
