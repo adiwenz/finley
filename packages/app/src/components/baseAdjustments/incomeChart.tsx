@@ -125,33 +125,40 @@ export function IncomeChart({
         </div>
       </div>
 
-      {/* The chart as a nonvisual table: what a sighted user reads off the stack, in user
-          labels and formatted dollars. The visual chart below is marked role="img" with a
-          one-line label, so a screen reader gets the gist from the image and the detail here. */}
+      {/* The chart as a nonvisual table: not one unlabeled starting snapshot, but a row per
+          moment worth reading — the projection's start, a band beginning/ending/changing, a
+          spending-need change, the first savings withdrawal, insolvency — each headed by when
+          and why. The visual chart below is marked role="img" with a one-line label, so a
+          screen reader gets the gist from the image and the detail here. */}
       <table style={VISUALLY_HIDDEN} data-testid="income-a11y-table">
         <caption>{model.accessibleSummary}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Source</th>
-            <th scope="col">Monthly amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {model.accessibleSources.map((row, i) => (
-            <tr key={`${row.label}-${i}`}>
-              <th scope="row">{row.label}</th>
-              <td>{row.amount}</td>
+        {model.accessibleMoments.map((moment, i) => (
+          <tbody key={i}>
+            <tr>
+              <th scope="colgroup" colSpan={2}>
+                {moment.label} — {moment.reason}
+              </th>
             </tr>
-          ))}
-          <tr>
-            <th scope="row">Total income</th>
-            <td>{model.accessibleTotalIncome}</td>
-          </tr>
-          <tr>
-            <th scope="row">Spending need</th>
-            <td>{model.accessibleSpendingNeed}</td>
-          </tr>
-        </tbody>
+            <tr>
+              <th scope="col">Source</th>
+              <th scope="col">Monthly amount</th>
+            </tr>
+            {moment.sources.map((row, j) => (
+              <tr key={`${row.label}-${j}`}>
+                <th scope="row">{row.label}</th>
+                <td>{row.amount}</td>
+              </tr>
+            ))}
+            <tr>
+              <th scope="row">Total cash available</th>
+              <td>{moment.totalCashFlow}</td>
+            </tr>
+            <tr>
+              <th scope="row">Spending need</th>
+              <td>{moment.spendingNeed}</td>
+            </tr>
+          </tbody>
+        ))}
       </table>
 
       {/* Test-only mirrors, `hidden` so they stay out of the accessibility tree (the table

@@ -14,6 +14,7 @@ import {
   type IncomeBasis,
   type IncomeChartData,
   type IncomeMode,
+  type IncomeMonthRow,
   type IncomeSourceBand,
 } from "./incomeChartData";
 
@@ -53,11 +54,16 @@ function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, strin
 
 /** The household's age at `month`, to the nearest quarter-year: "69¾". */
 const QUARTERS = ["", "¼", "½", "¾"] as const;
-function formatBrokeAge(currentAge: number, month: number): string {
+function formatAgeAtMonth(currentAge: number, month: number): string {
   const wholeYears = Math.floor(month / 12);
   const quarter = Math.round((month - wholeYears * 12) / 3); // 0..4
   const age = currentAge + wholeYears + (quarter === 4 ? 1 : 0);
   return `${age}${quarter === 4 ? "" : QUARTERS[quarter]}`;
+}
+
+/** Identifies a moment on the nonvisual table unambiguously, regardless of `currentAge`. */
+function formatMomentLabel(currentAge: number, month: number): string {
+  return `age ${formatAgeAtMonth(currentAge, month)} (month ${month})`;
 }
 
 /**
@@ -72,16 +78,97 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
   return out;
 }
 
+/**
+ * Which months are worth a screen-reader user's attention, and why: the projection's start,
+ * any month a band begins, ends or changes amount, any month the spending need changes, the
+ * first savings withdrawal, and insolvency. Walks `view.rows` once, diffing each month's
+ * clamped-at-0 band figures (the same figures the stacked chart draws) against the month
+ * before, so the moments never quote a value the chart doesn't.
+ */
+function buildAccessibleMoments(
+  view: { readonly rows: readonly IncomeMonthRow[] },
+  bands: readonly IncomeChartBand[],
+  currentAge: number,
+  firstSavingsDrawdownMonth: number | null,
+  firstInsolventMonth: number | null,
+): IncomeChartAccessibleMoment[] {
+  const reasonsByMonth = new Map<number, string[]>();
+  const addReason = (month: number, reason: string) => {
+    const list = reasonsByMonth.get(month);
+    if (list) list.push(reason);
+    else reasonsByMonth.set(month, [reason]);
+  };
+
+  let prevClamped: Record<string, number> | null = null;
+  let prevSpendingNeedCents: number | null = null;
+  for (const [i, r] of view.rows.entries()) {
+    const clamped = clampBandsForStack(r.centsBySource);
+    if (i === 0) addReason(r.month, "Projection starts");
+    if (prevClamped !== null) {
+      for (const b of bands) {
+        const before = prevClamped[b.id] ?? 0;
+        const after = clamped[b.id] ?? 0;
+        if (before === after) continue;
+        if (before === 0) addReason(r.month, `${b.label} begins`);
+        else if (after === 0) addReason(r.month, `${b.label} ends`);
+        else addReason(r.month, `${b.label} changes`);
+      }
+    }
+    if (prevSpendingNeedCents !== null && prevSpendingNeedCents !== r.spendingNeedCents) {
+      addReason(r.month, "Spending need changes");
+    }
+    prevClamped = clamped;
+    prevSpendingNeedCents = r.spendingNeedCents;
+  }
+  // Named explicitly even when a band-begins reason already covers the same month, so the
+  // reason a screen-reader user hears never depends on which mode collapsed which band.
+  if (firstSavingsDrawdownMonth !== null) addReason(firstSavingsDrawdownMonth, "First savings withdrawal");
+  if (firstInsolventMonth !== null) addReason(firstInsolventMonth, "Plan becomes insolvent");
+
+  const rowByMonth = new Map(view.rows.map((r) => [r.month, r]));
+  return [...reasonsByMonth.keys()]
+    .sort((a, b) => a - b)
+    .map((month) => {
+      const row = rowByMonth.get(month);
+      const clamped = clampBandsForStack(row?.centsBySource ?? {});
+      const totalCents = bands.reduce((sum, b) => sum + (clamped[b.id] ?? 0), 0);
+      return {
+        label: formatMomentLabel(currentAge, month),
+        reason: reasonsByMonth.get(month)!.join("; "),
+        sources: bands.map((b) => ({ label: b.label, amount: formatDollars(clamped[b.id] ?? 0) })),
+        totalCashFlow: formatDollars(totalCents),
+        spendingNeed: formatDollars(row?.spendingNeedCents ?? 0),
+      };
+    });
+}
+
 export interface IncomeChartBand {
   readonly id: string;
   readonly label: string;
   readonly color: string;
 }
 
-/** One row of the chart's nonvisual table: a user-facing label and a formatted dollar amount. */
+/** One source line within a moment of the chart's nonvisual table: label and formatted dollars. */
 export interface IncomeChartAccessibleRow {
   readonly label: string;
   readonly amount: string;
+}
+
+/**
+ * One point in time worth reading out: the projection's start, a band beginning, ending or
+ * changing, a spending-need change, the first savings withdrawal, or insolvency. `label`
+ * identifies *when* (age and month, so it stands alone without the moments around it); `reason`
+ * says *why* this moment was picked, so a screen-reader user isn't left to infer it from the
+ * numbers.
+ */
+export interface IncomeChartAccessibleMoment {
+  readonly label: string;
+  readonly reason: string;
+  readonly sources: readonly IncomeChartAccessibleRow[];
+  /** This moment's total cash across all bands, formatted — broader than "income": drawdowns count. */
+  readonly totalCashFlow: string;
+  /** This moment's spending need (expenses + liability payments), formatted. */
+  readonly spendingNeed: string;
 }
 
 /**
@@ -119,15 +206,12 @@ export interface IncomeChartModel {
   /** A human-readable sentence for the chart's accessible label. Never empty. */
   readonly accessibleSummary: string;
   /**
-   * The chart as a nonvisual table anchored on the first flowed month (the projection's starting
-   * point): one entry per band with its user label and formatted monthly cash. Labels and
-   * currency, never source ids or raw cents — the values a screen-reader user actually needs.
+   * The chart as a nonvisual table of the moments worth reading out — never every month, and
+   * never rendered as raw ids or cents — so a screen-reader user gets the shape of the
+   * projection over time, not one unlabeled starting snapshot. See {@link
+   * IncomeChartAccessibleMoment}.
    */
-  readonly accessibleSources: readonly IncomeChartAccessibleRow[];
-  /** The starting month's total cash across all bands, formatted. */
-  readonly accessibleTotalIncome: string;
-  /** The starting month's spending need (expenses + liability payments), formatted. */
-  readonly accessibleSpendingNeed: string;
+  readonly accessibleMoments: readonly IncomeChartAccessibleMoment[];
 }
 
 /**
@@ -158,14 +242,13 @@ export function buildIncomeChartModel(
   const brokeMonth = data.firstInsolventMonth;
   const summary = describeIncomeGap(data);
 
-  // The nonvisual table reads the first flowed month, drawn from the same clamped figures the
-  // stacked bands show, so it never quotes a band a value the chart doesn't.
-  const firstRow = rows[0];
-  const accessibleSources: IncomeChartAccessibleRow[] = bands.map((b) => ({
-    label: b.label,
-    amount: formatDollars(firstRow?.[b.id] ?? 0),
-  }));
-  const totalIncomeCents = bands.reduce((sum, b) => sum + (firstRow?.[b.id] ?? 0), 0);
+  const accessibleMoments = buildAccessibleMoments(
+    view,
+    bands,
+    currentAge,
+    data.firstSavingsDrawdownMonth,
+    data.firstInsolventMonth,
+  );
 
   return {
     bands,
@@ -173,13 +256,11 @@ export function buildIncomeChartModel(
     spendingNeedKey: SPENDING_NEED_KEY,
     lastX,
     brokeMonth,
-    brokeAgeLabel: brokeMonth === null ? null : formatBrokeAge(currentAge, brokeMonth),
+    brokeAgeLabel: brokeMonth === null ? null : formatAgeAtMonth(currentAge, brokeMonth),
     gapSummary: summary,
     accessibleSummary: summary
       ? `Monthly cash flows vs. spending. ${summary}`
       : "Monthly cash flows vs. spending — cash flow continues across the whole horizon.",
-    accessibleSources,
-    accessibleTotalIncome: formatDollars(totalIncomeCents),
-    accessibleSpendingNeed: formatDollars(firstRow?.[SPENDING_NEED_KEY] ?? 0),
+    accessibleMoments,
   };
 }

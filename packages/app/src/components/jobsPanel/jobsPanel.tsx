@@ -167,7 +167,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
 
   function remove(owner: JobOwner, id: string) {
     commit([{ kind: "remove", owner, jobId: id }]);
-    if (authoring?.kind === "edit" && authoring.id === id) setAuthoring(null);
+    if (authoring && authoring.kind !== "new" && authoring.id === id) setAuthoring(null);
   }
 
   function removePayChange(jobId: string, payChangeId: string) {
