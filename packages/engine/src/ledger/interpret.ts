@@ -14,7 +14,7 @@ import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
 import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
-import { compilePersonIncomeSeries } from "../compilePerson";
+import { compilePersonIncomeSeries, type StopWorkingBoundary } from "../compilePerson";
 import { authoringAccounts } from "../planAccount";
 import {
   freshState,
@@ -129,11 +129,18 @@ function partnerJobSeries(
   membership: PersonMembership,
   nowYear: number,
   inflationRate: number,
+  stopWorking: StopWorkingBoundary | undefined,
 ): HouseholdSeries[] {
-  const compiled = compilePersonIncomeSeries(membership.person, nowYear, inflationRate, {
-    startMonth: membership.startMonth,
-    endMonthExclusive: membership.endMonth ?? Number.POSITIVE_INFINITY,
-  });
+  const compiled = compilePersonIncomeSeries(
+    membership.person,
+    nowYear,
+    inflationRate,
+    {
+      startMonth: membership.startMonth,
+      endMonthExclusive: membership.endMonth ?? Number.POSITIVE_INFINITY,
+    },
+    stopWorking,
+  );
   return compiled.map((os, i) =>
     ownedSeries(os, asSeriesId(`partner-${membership.person.id}-income-${i}`), "income"),
   );
@@ -148,7 +155,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     // `base.initialIncomeSeries` — so a partner's jobs never double-count.
     ...[...state.personsById.values()]
       .filter((m) => Number.isFinite(m.startMonth))
-      .flatMap((m) => partnerJobSeries(m, nowYear, base.annualInflationRate)),
+      .flatMap((m) => partnerJobSeries(m, nowYear, base.annualInflationRate, base.stopWorking)),
     ...[...state.seriesById.values()].map((def): HouseholdSeries => {
       const common = {
         id: def.id,

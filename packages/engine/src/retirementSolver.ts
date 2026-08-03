@@ -13,13 +13,12 @@
 import { interpretLedger } from "./ledger/interpret";
 import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
 import { simulateHousehold } from "./projection/simulate";
-import { withPlan } from "./scenario";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
+import type { StopWorkingBoundary } from "./compilePerson";
 import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
-import type { Job } from "./job";
 import type { Plan } from "./plan";
 import type { Household } from "./ledger/household";
 
@@ -47,8 +46,12 @@ export interface ScenarioProjection {
  * household and the sim input are computed here on the way to the series regardless, so
  * returning them rather than dropping them costs nothing and spares the caller a second run.
  */
-export function projectScenarioParts(scenario: Scenario, ctx: ProjectionContext): ScenarioProjection {
-  const base = createProjectionBase(scenario.plan, ctx);
+export function projectScenarioParts(
+  scenario: Scenario,
+  ctx: ProjectionContext,
+  stopWorking?: StopWorkingBoundary,
+): ScenarioProjection {
+  const base = createProjectionBase(scenario.plan, ctx, stopWorking);
   const household = interpretLedger(scenario.ledger, base);
   const simInput = buildHouseholdSimInput(household, base);
   const series = simulateHousehold(simInput, ctx.jurisdiction);
@@ -57,10 +60,16 @@ export function projectScenarioParts(scenario: Scenario, ctx: ProjectionContext)
 
 /**
  * Run the full projection for a {@link Scenario} — its plan's standing numbers with the
- * scenario's timeline events replayed on top.
+ * scenario's timeline events replayed on top. `stopWorking` caps every earner's jobs at a
+ * candidate boundary while the retirement solver searches; it edits nothing on the scenario, so
+ * the search leaves the plan and its jobs byte-for-byte untouched.
  */
-export function projectScenario(scenario: Scenario, ctx: ProjectionContext): ProjectionSeries {
-  return projectScenarioParts(scenario, ctx).series;
+export function projectScenario(
+  scenario: Scenario,
+  ctx: ProjectionContext,
+  stopWorking?: StopWorkingBoundary,
+): ProjectionSeries {
+  return projectScenarioParts(scenario, ctx, stopWorking).series;
 }
 
 /**
@@ -82,6 +91,22 @@ export function planSurvives(series: ProjectionSeries): boolean {
 
 function retirementMonth(budget: Plan, age: number): number {
   return Math.max(0, (age - budget.currentAge) * 12);
+}
+
+/**
+ * The candidate boundary for a solve at `age`: the calendar year the primary turns `age`, applied
+ * to every earner. `mode` decides whether the fixed-term jobs cap with the rest (`"full"`) or only
+ * the open-ended ones move (`"partial"`). Purely a compilation input — it rewrites no job, which is
+ * what makes a solve non-destructive.
+ */
+function stopWorkingBoundaryAt(
+  budget: Plan,
+  age: number,
+  ctx: ProjectionContext,
+  mode: StopWorkingBoundary["mode"],
+): StopWorkingBoundary {
+  const birthYear = ctx.startYear - budget.currentAge;
+  return { boundaryYearExclusive: birthYear + age, mode };
 }
 
 /**
@@ -117,7 +142,7 @@ export function evaluateAtAge(
   age: number,
   ctx: ProjectionContext,
 ): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-  const series = projectScenario(withPlan(scenario, { ...scenario.plan, retirementAge: age }), ctx);
+  const series = projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx, "partial"));
   const feasible = planSurvives(series);
   return {
     retirementAge: age,
@@ -152,8 +177,8 @@ function earliestSurvivingAge(
 /**
  * **Partial retirement**: the earliest age every **open-ended** (`null`-end) job can end while
  * the authored fixed-term jobs + passive income + government benefit keep running and the plan
- * still lasts to life expectancy. Pinning the age moves every open-ended job's end via
- * `retirementTargetAge`.
+ * still lasts to life expectancy. Pinning the age moves every open-ended job's end via a
+ * partial-mode {@link StopWorkingBoundary} the compiler applies to every earner.
  *
  * Opt-in and standalone: it is NOT part of {@link solveRetirement}'s default result. A caller
  * that wants the partial-retirement milestone (e.g. a "stepped back" option in the panel) runs
@@ -165,37 +190,18 @@ export function earliestPartialRetirementAge(scenario: Scenario, ctx: Projection
 }
 
 /**
- * The plan's jobs with every end capped at the calendar year the owner turns `age`. An
- * open-ended job resolves to `age` itself — here the candidate age *is* the work-exit target.
- * A fixed-term job ending earlier keeps its authored end.
- */
-function ceaseAllJobsAtAge(budget: Plan, age: number, ctx: ProjectionContext): Job[] {
-  const birthYear = ctx.startYear - budget.currentAge;
-  const capYear = birthYear + age;
-  return (budget.jobs ?? []).map((job) => {
-    const naturalEndExclusive = job.endYear ?? capYear;
-    return { ...job, endYear: Math.min(naturalEndExclusive, capYear) };
-  });
-}
-
-/**
  * Run the projection with ALL jobs ceased at `age`, leaving passive income + government
- * benefit + assets to carry the plan to life expectancy. For a scalar plan (no jobs) this
- * collapses to a partial-retirement projection at `age` — nothing left to drop.
+ * benefit + assets to carry the plan to life expectancy. The full-mode boundary caps every
+ * earner's jobs — the primary's AND a partner's — at the calendar year the primary turns `age`,
+ * without rewriting a single one. For a scalar plan (no jobs) it collapses to a partial-retirement
+ * projection at `age` — nothing left to drop.
  */
 export function projectFullRetirement(
   scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
 ): ProjectionSeries {
-  return projectScenario(
-    withPlan(scenario, {
-      ...scenario.plan,
-      jobs: ceaseAllJobsAtAge(scenario.plan, age, ctx),
-      retirementAge: age,
-    }),
-    ctx,
-  );
+  return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx, "full"));
 }
 
 /**

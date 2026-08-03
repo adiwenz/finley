@@ -6,6 +6,7 @@
 
 import type { SimOwnedSeries } from "../projection/simulate";
 import type { Person } from "../person";
+import type { StopWorkingBoundary } from "../compilePerson";
 import type { PlanAccount } from "../planAccount";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";
@@ -22,6 +23,13 @@ export interface LedgerBaseConfig {
   readonly startYear?: number;
   /** Persons present before any events — authoring {@link Person}s. */
   readonly initialPersons?: readonly Person[];
+  /**
+   * The retirement solver's candidate stop-working boundary, when a solve is under way. Rides on
+   * the base so BOTH job-compilation paths see it — the primary's in `createProjectionBase` and a
+   * partner's in `interpret` — and every earner ceases at the same point. Absent for an ordinary
+   * projection, where each person's own `retirementTargetAge` ends their open-ended jobs.
+   */
+  readonly stopWorking?: StopWorkingBoundary;
   /**
    * The household's accounts, each carrying both its authoring and compiled aspect (see
    * {@link PlanAccount}) so the roster's `household.accounts` and the simulation's accounts

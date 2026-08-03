@@ -22,7 +22,7 @@ import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan, GoalAccountType } from "./plan";
 import { type Person } from "./person";
-import { compilePersonIncomeSeries } from "./compilePerson";
+import { compilePersonIncomeSeries, type StopWorkingBoundary } from "./compilePerson";
 import { compileExpenseBudgetLines } from "./compileBudget";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
@@ -201,7 +201,16 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
   });
 }
 
-export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
+/**
+ * Compile a {@link Plan} into the ledger base. `stopWorking` is the retirement solver's candidate
+ * boundary — supplied only mid-solve and threaded to every job-compilation path so all earners
+ * cease together; absent, each person's own `retirementTargetAge` ends their open-ended jobs.
+ */
+export function createProjectionBase(
+  budget: Plan,
+  ctx: ProjectionContext,
+  stopWorking?: StopWorkingBoundary,
+): LedgerBaseConfig {
   const { startYear } = ctx;
   const inflationRate = budget.inflationPct / 100;
   const birthYear = startYear - budget.currentAge;
@@ -241,6 +250,8 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     standingPerson,
     startYear,
     inflationRate,
+    undefined,
+    stopWorking,
   );
 
   // Leftover cash idles in the liquid account unless `surplusCashTo` sweeps it into the
@@ -265,6 +276,9 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     contributionLines,
     sharedScheme: budget.sharedScheme,
     surplusDestination,
+    // Carried through so `interpret` caps a partner's jobs at the same boundary this call just
+    // capped the primary's at.
+    stopWorking,
   };
 }
 

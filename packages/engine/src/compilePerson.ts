@@ -59,9 +59,39 @@ export function compilePerson(person: Person, nowYear: number, inflationRate: nu
   };
 }
 
-/** An open-ended job stops at the owner's retirement target age. */
-function jobEndYearExclusive(job: Job, owner: Person): number {
-  return job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+/**
+ * A household-wide simulation boundary that ends earned work, applied here at compile time in
+ * place of rewriting any job. It is the retirement solver's single varied scalar, resolved to a
+ * calendar year so the same cap reaches every earner — including a partner whose jobs live on a
+ * RelationshipEvent rather than on the plan — without touching a single authored figure.
+ */
+export interface StopWorkingBoundary {
+  /**
+   * Exclusive calendar year past which no job pays. A calendar year, not an age, so every earner
+   * stops at the same point in time regardless of their own birthday; the boundary is never
+   * before "now", so it can only ever shorten a job, never resurrect a wage.
+   */
+  readonly boundaryYearExclusive: number;
+  /**
+   * `"full"` caps EVERY job at the boundary — the whole household stops. `"partial"` resolves
+   * only the open-ended jobs to it and leaves each authored fixed-term job its own later end.
+   */
+  readonly mode: "full" | "partial";
+}
+
+/**
+ * A job's exclusive end calendar year. Absent a boundary an open-ended job runs to the owner's
+ * own `retirementTargetAge`; under one it is derived instead — a full stop caps every job at the
+ * boundary, a partial stop moves only the open-ended jobs to it and keeps each fixed-term end.
+ */
+function jobEndYearExclusive(job: Job, owner: Person, stopWorking?: StopWorkingBoundary): number {
+  if (stopWorking === undefined) {
+    return job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+  }
+  if (job.endYear === null) return stopWorking.boundaryYearExclusive;
+  return stopWorking.mode === "full"
+    ? Math.min(job.endYear, stopWorking.boundaryYearExclusive)
+    : job.endYear;
 }
 
 /**
@@ -256,8 +286,9 @@ function compileJobIncome(
   inflationRate: number,
   displayName: string,
   membership?: MembershipWindow,
+  stopWorking?: StopWorkingBoundary,
 ): SimOwnedSeries | null {
-  const endYearExclusive = jobEndYearExclusive(job, owner);
+  const endYearExclusive = jobEndYearExclusive(job, owner, stopWorking);
   const endMonthExclusive = (endYearExclusive - nowYear) * 12;
   if (endMonthExclusive <= 0) return null; // wholly in the past
 
@@ -354,7 +385,8 @@ export interface MembershipWindow {
 /**
  * One {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
  * contribute only to {@link compilePersonPriorEarnings}. Any number of jobs may be
- * open-ended (`null`-end); each ends at the owner's `retirementTargetAge`. Omit
+ * open-ended (`null`-end); each ends at the owner's `retirementTargetAge`, or at
+ * `stopWorking` when the retirement solver is exploring a candidate boundary. Omit
  * `membership` for the primary earner, who is always present.
  */
 export function compilePersonIncomeSeries(
@@ -362,11 +394,20 @@ export function compilePersonIncomeSeries(
   nowYear: number,
   inflationRate: number,
   membership?: MembershipWindow,
+  stopWorking?: StopWorkingBoundary,
 ): SimOwnedSeries[] {
   const names = jobDisplayNames(person);
   const series: SimOwnedSeries[] = [];
   for (const job of person.jobs) {
-    const compiled = compileJobIncome(job, person, nowYear, inflationRate, names.get(job.id)!, membership);
+    const compiled = compileJobIncome(
+      job,
+      person,
+      nowYear,
+      inflationRate,
+      names.get(job.id)!,
+      membership,
+      stopWorking,
+    );
     if (compiled) series.push(compiled);
   }
   return series;

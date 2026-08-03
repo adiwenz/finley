@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   projectScenario,
+  projectFullRetirement,
   planSurvives,
   earliestPartialRetirementAge,
   earliestFullRetirementAge,
@@ -24,6 +25,8 @@ import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
+import type { Person } from "./person";
+import type { Scenario } from "./scenario";
 
 const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
@@ -154,5 +157,67 @@ describe("retirementSolver — partial vs full retirement", () => {
     // max job endYear is the barista's (birthYear + 75) → age 75.
     const solution = solveRetirement(scenarioOf(baristaPlan), CTX);
     expect(solution.latestAuthoredWorkStopAge).toBe(75);
+  });
+});
+
+describe("retirementSolver — the stop-working boundary reaches every earner", () => {
+  // A partner's jobs live on the RelationshipEvent, not on the plan, so a solve that rewrote
+  // only the plan's own job list never ceased them — the household kept one earner working
+  // past the stop-working age and the retirement answer was wrong for every two-earner
+  // household. Deriving each job's end at compile time from a single boundary fixes it.
+  const partnerWithLateJob = (): Person => ({
+    id: "p2",
+    name: "Partner",
+    // Same age as the primary (born SAMPLE_START_YEAR − 40), authored to work far past any
+    // plausible full-stop age so their wage can only stop because the boundary stopped it.
+    birthYear: START_YEAR - samplePlan.currentAge,
+    retirementTargetAge: 80,
+    benefitClaimingAge: 67,
+    jobs: [
+      {
+        id: "pj1",
+        ownerId: "p2",
+        startYear: START_YEAR,
+        endYear: null, // open-ended — ceases at the household stop-working boundary
+        salary: {
+          startingSalaryCents: dollarsToCents(24_000),
+          currentSalaryCents: dollarsToCents(24_000),
+          realGrowthPct: 0,
+        },
+      },
+    ],
+  });
+
+  function twoEarnerScenario(): Scenario {
+    const added = addEvent(emptyLedger, createProjectionBase(samplePlan, CTX), {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partnerWithLateJob(),
+    });
+    if (!added.ok) throw new Error(`fixture rejected: ${added.conflict}`);
+    return withLedger(scenarioOf(samplePlan), added.ledger);
+  }
+
+  it("a full stop ceases the partner's jobs too", () => {
+    // Full stop at 50 → boundary calendar year birthYear + 50 = month (50 − 40) × 12 = 120.
+    // Ten years later (month 240) neither earner draws a wage; the mock jurisdiction pays no
+    // benefit, so any earned income here is a job the solve failed to stop.
+    const series = projectFullRetirement(twoEarnerScenario(), 50, CTX);
+    expect(series.months[240]?.flows?.totalIncomeCents).toBe(0);
+  });
+
+  it("a full solve never mutates a job — serialized state is identical before and after", () => {
+    // The whole point of a boundary over a rewrite: the search runs a dozen candidate ages and
+    // touches nothing. Snapshot the scenario, solve every entry point over it, and it must
+    // round-trip unchanged — job dates, salaries and the ledger's partner jobs included.
+    const scenario = twoEarnerScenario();
+    const before = JSON.stringify(scenario);
+    earliestFullRetirementAge(scenario, CTX);
+    earliestPartialRetirementAge(scenario, CTX);
+    evaluateFullRetirementAtAge(scenario, 55, CTX);
+    evaluateAtAge(scenario, 55, CTX);
+    solveRetirement(scenario, CTX);
+    expect(JSON.stringify(scenario)).toBe(before);
   });
 });
