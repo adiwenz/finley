@@ -22,7 +22,12 @@ import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan, GoalAccountType } from "./plan";
 import { type Person } from "./person";
-import { compilePersonIncomeSeries } from "./compilePerson";
+import { compileHouseholdJobSeries } from "./compilePerson";
+import {
+  personJobContexts,
+  resolveHouseholdJobs,
+  type StopWorkingBoundary,
+} from "./householdJob";
 import { compileExpenseBudgetLines } from "./compileBudget";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
@@ -201,18 +206,40 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
   });
 }
 
-export function createProjectionBase(budget: Plan, ctx: ProjectionContext): LedgerBaseConfig {
+/**
+ * Compile a {@link Plan} into the ledger base. `stopWorking` is the retirement solver's candidate
+ * boundary — supplied only mid-solve and threaded to every job-compilation path so all earners
+ * cease together; absent, each person's own `retirementTargetAge` ends their open-ended jobs.
+ */
+export function createProjectionBase(
+  budget: Plan,
+  ctx: ProjectionContext,
+  stopWorking?: StopWorkingBoundary,
+): LedgerBaseConfig {
   const { startYear } = ctx;
   const inflationRate = budget.inflationPct / 100;
   const birthYear = startYear - budget.currentAge;
 
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
+  //
+  // `retirementTargetAge` is the primary's OWN natural-end input to `jobEndYearExclusive`
+  // (compilePerson.ts) — the same field a partner's job is capped against there, never
+  // extended past it. Mid-solve, the candidate age under test IS the primary's hypothesis for
+  // that field (the whole reason `evaluateAtAge`/`evaluateFullRetirementAtAge` can explore ages
+  // past the authored `budget.retirementAge`), so it's resolved here from the boundary rather
+  // than left at the authored figure — otherwise the shared, owner-agnostic cap in
+  // `jobEndYearExclusive` would clip the primary's own search candidate back down to
+  // `budget.retirementAge` and the solver could never test past it. A partner's own
+  // `retirementTargetAge`, authored on their RelationshipEvent, is never touched this way —
+  // only the primary's stands in for "the age this solve is testing."
+  const retirementTargetAge =
+    stopWorking === undefined ? budget.retirementAge : stopWorking.boundaryYearExclusive - birthYear;
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
-    retirementTargetAge: budget.retirementAge,
+    retirementTargetAge,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
   };
@@ -237,8 +264,17 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
 
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
-  const initialIncomeSeries: readonly SimOwnedSeries[] = compilePersonIncomeSeries(
-    standingPerson,
+  //
+  // The primary's membership runs the whole projection — they are the household from month
+  // `-Infinity` and never separate from it — so it clips nothing; it is passed anyway so the
+  // primary's jobs take exactly the path a partner's do, with no primary-only branch anywhere
+  // in job resolution or compilation.
+  const initialIncomeSeries: readonly SimOwnedSeries[] = compileHouseholdJobSeries(
+    resolveHouseholdJobs(
+      personJobContexts({ person: standingPerson, startMonth: -Infinity, endMonth: null }),
+      startYear,
+      stopWorking,
+    ),
     startYear,
     inflationRate,
   );
@@ -265,6 +301,9 @@ export function createProjectionBase(budget: Plan, ctx: ProjectionContext): Ledg
     contributionLines,
     sharedScheme: budget.sharedScheme,
     surplusDestination,
+    // Carried through so `interpret` caps a partner's jobs at the same boundary this call just
+    // capped the primary's at.
+    stopWorking,
   };
 }
 

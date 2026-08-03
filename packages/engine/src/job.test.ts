@@ -26,7 +26,8 @@ import {
   type JobIncomeOverride,
 } from "./job";
 import type { Person } from "./person";
-import { compilePersonIncomeSeries, compilePersonPriorEarnings } from "./compilePerson";
+import { compileHouseholdJobSeries, compilePersonPriorEarnings } from "./compilePerson";
+import { personJobContexts, resolveHouseholdJobs } from "./householdJob";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";
 
@@ -34,6 +35,19 @@ const START_YEAR = 2026;
 
 function ctx(): ProjectionContext {
   return { jurisdiction: nullJurisdiction, startYear: START_YEAR };
+}
+
+/**
+ * One person's jobs compiled as an always-present household member — the shape these tests
+ * care about, with the membership window (a partner's concern) left wide open.
+ */
+function compilePersonIncomeSeries(person: Person, nowYear: number, inflationRate: number) {
+  const membership = { person, startMonth: -Infinity, endMonth: null };
+  return compileHouseholdJobSeries(
+    resolveHouseholdJobs(personJobContexts(membership), nowYear),
+    nowYear,
+    inflationRate,
+  );
 }
 
 function project(plan: Plan) {
@@ -1239,12 +1253,12 @@ describe("membership clips what the household is paid, not the job's salary path
     },
   };
   /** Zero CPI, so a paycheck is the authored figure and a raise is visible as itself. */
-  const paid = (job: Job, month: number, window?: { startMonth: number; endMonthExclusive: number }) => {
-    const compiled = compilePersonIncomeSeries(
-      partner([job]),
+  const paid = (job: Job, month: number, span?: { startMonth: number; endMonth: number | null }) => {
+    const membership = { person: partner([job]), ...(span ?? { startMonth: JOIN, endMonth: null }) };
+    const compiled = compileHouseholdJobSeries(
+      resolveHouseholdJobs(personJobContexts(membership), START_YEAR),
       START_YEAR,
       0,
-      window ?? { startMonth: JOIN, endMonthExclusive: Infinity },
     );
     return compiled.length === 0 ? 0 : compiled[0]!.series.getMonthlyCents(month);
   };
@@ -1301,11 +1315,11 @@ describe("membership clips what the household is paid, not the job's salary path
       ...base,
       payChanges: [{ id: "adjustment-113", month: 60, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
-    const window = { startMonth: JOIN, endMonthExclusive: 48 };
+    const window = { startMonth: JOIN, endMonth: 48 };
     expect(paid(job, 47, window)).toBe(dollarsToCents(6_000));
     expect(paid(job, 48, window)).toBe(0);
     // The raise at month 60 is still the job's own — read without a membership window it lands.
-    expect(paid(job, 60, { startMonth: 0, endMonthExclusive: Infinity })).toBe(
+    expect(paid(job, 60, { startMonth: 0, endMonth: null })).toBe(
       dollarsToCents(9_000),
     );
   });
@@ -1315,7 +1329,7 @@ describe("membership clips what the household is paid, not the job's salary path
       ...base,
       payChanges: [{ id: "adjustment-114", month: 0, kind: "setTo", cents: dollarsToCents(9_000) }],
     };
-    const fromNow = { startMonth: 0, endMonthExclusive: Infinity };
+    const fromNow = { startMonth: 0, endMonth: null };
     expect(paid(job, 0, fromNow)).toBe(dollarsToCents(6_000)); // the anchor still owns month 0
     expect(paid(job, 1, fromNow)).toBe(dollarsToCents(9_000));
   });
