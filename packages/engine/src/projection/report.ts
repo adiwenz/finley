@@ -14,6 +14,7 @@ import { simulateHousehold } from "./simulate";
 import { MODEL_ASSUMPTIONS, type ModelAssumption } from "./assumptions";
 import type {
   HouseholdSimInput,
+  InsolvencyReport,
   LiabilityPaymentRecord,
   ProjectionSeries,
 } from "./simulate.types";
@@ -167,6 +168,8 @@ export interface ReportMonth {
   readonly isInsolvent: boolean;
   /** The dropped, unfundable shortfall — see {@link ProjectionMonth.uncoveredCents}. */
   readonly uncoveredCents: Cents;
+  /** Present on the first insolvent month only — see {@link InsolvencyReport}. */
+  readonly insolvencyReport?: InsolvencyReport;
 }
 
 /**
@@ -343,6 +346,7 @@ export function summarizeSimulation(
       liabilityPaymentRecords: m.liabilityPaymentRecords,
       isInsolvent: m.isInsolvent,
       uncoveredCents: m.uncoveredCents,
+      ...(m.insolvencyReport ? { insolvencyReport: m.insolvencyReport } : {}),
     };
   });
 

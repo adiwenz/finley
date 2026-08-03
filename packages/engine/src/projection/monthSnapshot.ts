@@ -1,6 +1,7 @@
 import type { Cents } from "../money";
 import type { SimState } from "./runState";
 import type {
+  InsolvencyReport,
   LiabilityPaymentRecord,
   ProjectionMonth,
   ProjectionMonthFlows,
@@ -35,8 +36,12 @@ export interface MonthSnapshotParams {
    * it from a balance sheet that never recorded it.
    */
   readonly uncoveredCents: Cents;
-  /** This month or a prior one went insolvent — nulls the aggregates, not the balances. */
-  readonly netWorthTerminated: boolean;
+  /**
+   * A PRIOR month went insolvent. Together with {@link isInsolvent} this locates the FIRST
+   * insolvent month — the only one that carries an {@link InsolvencyReport} — and decides
+   * termination, so both facts are derived here rather than passed in pre-combined.
+   */
+  readonly priorInsolvency: boolean;
   readonly liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>;
   /** Absent only on `opening`: no flow has run at "now". */
   readonly flows: ProjectionMonthFlows | undefined;
@@ -44,9 +49,9 @@ export interface MonthSnapshotParams {
 
 /**
  * Step 11: net worth = Σassets + Σproperties − Σliabilities; real = nominal / (1+infl)^yrs.
- * Under `netWorthTerminated` both figures are `null` — once unfunded spending has been dropped
- * the model can no longer say what net worth is. Balances are still emitted for diagnosis; only
- * the aggregate is nulled.
+ * Once insolvency hits both figures are `null` — once unfunded spending has been dropped the
+ * model can no longer say what net worth is. Balances are still emitted for diagnosis; only the
+ * aggregate is nulled.
  *
  * Termination starts at the insolvent month ITSELF, not the one after it. That month is already
  * contaminated: the cascade charged only the sliver of spending credit could still absorb and
@@ -54,12 +59,11 @@ export interface MonthSnapshotParams {
  * while losing most of the cost — a net worth that ticks UP in the month the plan fails. The
  * last honest figure is the last FULLY FUNDED month.
  *
- * The contaminated sum is still emitted, as
- * {@link ProjectionMonth.preShortfallNetWorthNominalCents} — the balance sheet BEFORE the dropped
- * obligations are accounted for. It is reporting-only: nothing in the simulator reads it back,
- * and it is not a net worth. It exists so a consumer can state the counterfactual "where this
- * month would have landed had the shortfall been borrowed" without re-deriving a total the
- * engine already computed.
+ * The FIRST insolvent month additionally carries an {@link InsolvencyReport}, the one place the
+ * contaminated sum is put to use: `balance sheet − uncoveredCents`, what the month would have
+ * been worth had the dropped obligations been honoured with equivalent additional borrowing.
+ * The raw contaminated total is NOT itself published — it is a number with no safe reading, and
+ * the only question worth asking of it is answered here.
  */
 export function snapshotMonth(state: SimState, params: MonthSnapshotParams): ProjectionMonth {
   const {
@@ -68,10 +72,13 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     annualInflationRate,
     isInsolvent,
     uncoveredCents,
-    netWorthTerminated,
+    priorInsolvency,
     liabilityPaymentRecords,
     flows,
   } = params;
+  // Insolvency is terminal for the aggregate; the report belongs to the month it first happens.
+  const netWorthTerminated = priorInsolvency || isInsolvent;
+  const isFirstInsolventMonth = isInsolvent && !priorInsolvency;
   let nominalNetWorth: Cents = 0;
 
   const accountBalancesCents: Record<string, Cents> = {};
@@ -105,9 +112,17 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     netWorthRealCents: netWorthTerminated
       ? null
       : toRealCents(nominalNetWorth, annualInflationRate, elapsedMonths),
-    // The same sum, never withheld. Identical to `netWorthNominalCents` for a fully funded
-    // month; only where spending was dropped do the two part company.
-    preShortfallNetWorthNominalCents: nominalNetWorth,
+    // Present on exactly one month per run. `nominalNetWorth` is the contaminated total — the
+    // figure the plan reached only by dropping what it could not pay — so the only form it is
+    // published in is one that has charged the shortfall back.
+    ...(isFirstInsolventMonth
+      ? {
+          insolvencyReport: {
+            uncoveredCents,
+            debtFundedNetWorthNominalCents: nominalNetWorth - uncoveredCents,
+          },
+        }
+      : {}),
     accountBalancesCents,
     accountBasisCents,
     liabilityBalancesCents,

@@ -31,6 +31,39 @@ export interface LiabilityPaymentRecord {
 }
 
 /**
+ * What the engine can honestly say about the month a plan fails, carried on that month alone
+ * ({@link ProjectionMonth.insolvencyReport}).
+ *
+ * Both figures are REPORTING-ONLY. Nothing here is a balance, nothing is charged to any card or
+ * liability, and no later month is derived from it — the simulation continues from the real,
+ * unpaid state, exactly as it would if this report did not exist.
+ */
+export interface InsolvencyReport {
+  /**
+   * The deficit nothing could absorb: what the cascade DROPPED rather than charged, once savings
+   * were spent and every card had reached its limit. It appears in no balance and in no
+   * liability, which is why it has to be stated rather than read off the balance sheet.
+   */
+  readonly uncoveredCents: Cents;
+  /**
+   * Illustrative net worth if the uncovered obligations were honoured through equivalent
+   * additional borrowing — the month's balance-sheet total with the shortfall charged back to
+   * it. This is what makes the contaminated total safe to publish: on its own that total flatters
+   * the household by the spending it silently skipped, and subtracting the shortfall is what
+   * puts the cost back.
+   *
+   * Not carried into later months, and not a net worth: {@link ProjectionMonth.netWorthNominalCents}
+   * stays `null` from this month on, and this figure never substitutes for it.
+   *
+   * First-order: where an unfunded obligation was debt PRINCIPAL, honouring it by borrowing
+   * would have swapped one liability for another rather than adding one, so this overstates the
+   * cost by that share. The error is bounded by a single month's unfunded principal and always
+   * conservative.
+   */
+  readonly debtFundedNetWorthNominalCents: Cents;
+}
+
+/**
  * The engine's public output and the chart's data contract: one entry per simulated
  * month, starting at "now" (month 0).
  *
@@ -48,20 +81,11 @@ export interface ProjectionMonth {
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
   /**
-   * The month's raw balance-sheet total — Σassets + Σproperties − Σliabilities — stated even
-   * where {@link netWorthNominalCents} is withheld. **This is not a net worth.** In an insolvent
-   * month it is the figure the plan reached only by DROPPING obligations it could not fund, so
-   * it flatters the household by roughly the spending that went unpaid.
-   *
-   * Reporting-only, and deliberately inert: nothing in the simulator reads it back, no later
-   * month is derived from it. It exists so a consumer can state the counterfactual
-   * `preShortfallNetWorthNominalCents − uncoveredCents` — where the month would have landed had
-   * the dropped obligations been met with equivalent additional borrowing — without re-summing a
-   * balance sheet the engine already totalled.
-   *
-   * Equal to {@link netWorthNominalCents} in every fully funded month.
+   * Present on the FIRST insolvent month and no other — the one month where "how far short did
+   * this plan fall, and what would that have cost?" has a defined answer. Absent everywhere
+   * else, including on later insolvent months, which have no such answer to give.
    */
-  readonly preShortfallNetWorthNominalCents: Cents;
+  readonly insolvencyReport?: InsolvencyReport;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   /**
    * Post-tax principal, keyed like `accountBalancesCents`; untaxed gain is

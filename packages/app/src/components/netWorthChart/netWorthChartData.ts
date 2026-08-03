@@ -13,24 +13,20 @@
  * chart that plotted it would draw an upward tick at exactly the point labelled "runs out".
  *
  * What replaces it is {@link NetWorthChartData.runsOut}: a DASHED segment from the last funded
- * point to a single **shortfall-adjusted** endpoint at the first insolvent month,
+ * point to a single endpoint at the first insolvent month, taken from the engine's
+ * {@link InsolvencyReport.debtFundedNetWorthNominalCents} — what the month would have been worth
+ * had the dropped obligations been honoured with equivalent additional borrowing.
  *
- *     preShortfallNetWorthNominalCents − uncoveredCents
+ * **No financial arithmetic happens in this module.** The endpoint is read, not computed. That
+ * boundary is deliberate: the figure encodes a claim about what insolvency costs a household,
+ * which is the engine's to make. This module decides only where things sit on an axis.
  *
- * — where the month would have landed had the dropped obligations been met with equivalent
- * additional borrowing. Anchoring on the pre-shortfall balance sheet rather than on the last
- * funded point is what makes the segment continue the curve's trajectory instead of flattening:
- * the first insolvent month's `uncoveredCents` is a THRESHOLD-CROSSING RESIDUAL (whatever sliver
- * didn't fit once the card hit its limit — $59 in one preset against a $1,778/mo slope), not the
- * size of the ongoing failure. Subtracting it from the last funded point drew a near-horizontal
- * dash at a household about to fall short every month, which read as "it levels off".
- *
- * The endpoint is illustrative and counterfactual. It is never fed back into the simulation,
- * never mixed into the solid series, never reported as a balance, and no LATER counterfactual
- * point is drawn — one endpoint, then the chart stops.
+ * The endpoint is counterfactual. It is never mixed into the solid series, never reported as a
+ * balance, and no LATER counterfactual point is drawn — the engine emits the report for one
+ * month only, and the chart draws one endpoint, then stops.
  */
 
-import type { ProjectionSeries } from "@finley/engine";
+import type { InsolvencyReport, ProjectionSeries } from "@finley/engine";
 import { TODAY_X, toAxisX, yearTickXs } from "../monthAxis";
 
 export interface NetWorthChartPoint {
@@ -42,10 +38,10 @@ export interface NetWorthChartPoint {
   /**
    * The dashed segment, non-null at exactly two points: the last funded month (where it equals
    * `nominalCents`, so the segment joins the solid curve) and the first insolvent one (the
-   * shortfall-adjusted endpoint). Null everywhere else, so a `connectNulls` line draws one
+   * engine's debt-funded endpoint). Null everywhere else, so a `connectNulls` line draws one
    * segment and nothing more.
    */
-  readonly shortfallAdjustedCents: number | null;
+  readonly debtFundedNetWorthCents: number | null;
 }
 
 /** Where the plan fails, in chart terms. Null for a plan that survives the horizon. */
@@ -53,11 +49,11 @@ export interface RunsOutMarker {
   /** Axis position of the FIRST INSOLVENT month — where the marker goes. */
   readonly x: number;
   /**
-   * `preShortfallNetWorthNominalCents − uncoveredCents`: the counterfactual y the dashed
-   * segment lands on, assuming the unfunded obligations were paid with additional debt. NOT a
-   * net worth, and not carried forward.
+   * The y the dashed segment lands on, straight off
+   * {@link InsolvencyReport.debtFundedNetWorthNominalCents}. NOT a net worth, and not carried
+   * forward.
    */
-  readonly shortfallAdjustedCents: number;
+  readonly debtFundedNetWorthCents: number;
   /** The month's dropped, unfundable shortfall — what the counterfactual assumes was borrowed. */
   readonly uncoveredCents: number;
 }
@@ -110,29 +106,28 @@ export function buildNetWorthChartData(series: ProjectionSeries): NetWorthChartD
     }
   }
 
-  const firstInsolvent = series.months.find((m) => m.isInsolvent) ?? null;
+  // The engine emits a report for the first insolvent month and no other, so finding the month
+  // that HAS one is the same as finding the failure — and there is nothing to compute from it.
+  const firstInsolvent = series.months.find((m) => m.insolvencyReport !== undefined) ?? null;
+  const report = firstInsolvent?.insolvencyReport;
   const runsOut: RunsOutMarker | null =
-    firstInsolvent && lastFundedNominalCents !== null
+    firstInsolvent && report && lastFundedNominalCents !== null
       ? {
           x: toAxisX(firstInsolvent.month),
-          // Subtraction, never addition: paying the dropped obligations would have meant taking
-          // on that much more debt, so the counterfactual sits BELOW the balance sheet the month
-          // reached by not paying them.
-          shortfallAdjustedCents:
-            firstInsolvent.preShortfallNetWorthNominalCents - firstInsolvent.uncoveredCents,
-          uncoveredCents: firstInsolvent.uncoveredCents,
+          debtFundedNetWorthCents: report.debtFundedNetWorthNominalCents,
+          uncoveredCents: report.uncoveredCents,
         }
       : null;
 
   const points: NetWorthChartPoint[] = base.map((p) => ({
     ...p,
-    shortfallAdjustedCents:
+    debtFundedNetWorthCents:
       runsOut === null
         ? null
         : p.x === lastFundedX
           ? lastFundedNominalCents
           : p.x === runsOut.x
-            ? runsOut.shortfallAdjustedCents
+            ? runsOut.debtFundedNetWorthCents
             : null,
   }));
 

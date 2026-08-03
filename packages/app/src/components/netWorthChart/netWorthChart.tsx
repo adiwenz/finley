@@ -65,7 +65,7 @@ function NetWorthTooltip({
         <>
           <Row
             label="Shortfall-adjusted net worth"
-            cents={runsOut.shortfallAdjustedCents}
+            cents={runsOut.debtFundedNetWorthCents}
             color={RED}
             strong
           />
@@ -184,7 +184,7 @@ export function NetWorthChart({
           {runsOut !== null && (
             <Line
               type="linear"
-              dataKey="shortfallAdjustedCents"
+              dataKey="debtFundedNetWorthCents"
               name="Shortfall-adjusted net worth"
               stroke={RED}
               strokeWidth={2}
@@ -198,7 +198,7 @@ export function NetWorthChart({
           {runsOut !== null && (
             <ReferenceDot
               x={runsOut.x}
-              y={runsOut.shortfallAdjustedCents}
+              y={runsOut.debtFundedNetWorthCents}
               r={4}
               fill={RED}
               stroke="none"

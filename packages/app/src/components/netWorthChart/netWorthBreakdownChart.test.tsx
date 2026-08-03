@@ -31,7 +31,6 @@ function mkMonth(m: MonthSpec, month: number) {
     propertyValuesCents: m.properties ?? {},
     isInsolvent: false,
     uncoveredCents: 0,
-    preShortfallNetWorthNominalCents: 0,
   };
 }
 

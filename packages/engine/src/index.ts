@@ -120,7 +120,12 @@ export type { Household } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
-export type { ProjectionSeries, ProjectionMonth, IncomeSourceCategory } from "./projection/simulate.types";
+export type {
+  ProjectionSeries,
+  ProjectionMonth,
+  InsolvencyReport,
+  IncomeSourceCategory,
+} from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 export type { FinancialObligation } from "./projection/financialObligation";
 export type {
