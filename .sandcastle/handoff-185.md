@@ -3,9 +3,9 @@
 Whole-issue mode (no declared tasks). I split it into three coherent parts:
 
 **My breakdown:**
-1. **Engine truncation & blocking** — DONE (this commit).
-2. **Retirement solver blocked state** — REMAINING.
-3. **UI: chart blocked marker + retirement panel copy** — REMAINING.
+1. **Engine truncation & blocking** — DONE (commit c6d3d15).
+2. **Retirement solver blocked state + panel copy** — DONE (this commit).
+3. **UI: net-worth chart — no months after `blockedAtMonth` + terminal blocked marker** — REMAINING.
 
 Design source of truth: `docs/projection-blocking-design.md` (§3 blocking semantics, §7 simulator,
 §8 retirement solve, §10 UI). The issue body scopes it down — follow the issue's acceptance
@@ -21,7 +21,7 @@ funding draws against a scratch copy, and on the first shortfall completes the m
 + its property/mortgage suppressed, emits that month, and stops. `BlockedObligation` is exported
 from the engine barrel.
 
-## Live constraints (Parts 2 & 3 must honour)
+## Live constraints (Part 3 must honour)
 
 - **`simulatedThroughMonth === months.length - 1` always**, and `=== blockedAtMonth` when blocked.
   The blocked month IS emitted (it's the last entry of `months`). Do not treat blocked as "the
@@ -31,24 +31,24 @@ from the engine barrel.
   `simulate.blocking.test.ts` "reports blocked even when the same month has also exhausted its
   credit"). Insolvency behaviour is unchanged: `netWorth == null`, `isInsolvent`, sim continues,
   status stays `"ran-to-horizon"`.
-- **Part 2 — the live `planSurvives` bug (§8).** `retirementSolver.ts:93` is
-  `series.months.every(monthSurvives)`; `Array.every` over a TRUNCATED series returns `true`, so a
-  blocked plan currently reports as *surviving*. This is the first thing to test (fails in the
-  "everything is fine" direction). Blocked must become a third solver state distinct from `null`
-  (`null` = "no age works, retire later"; blocked = "projection stopped, fund the purchase
-  differently"). Touch: `RetirementSolution`, `RetirementEvaluation` (`retirementTypes.ts`),
-  `planSurvives` + `evaluateAtAge`/`evaluateFullRetirementAtAge` + `earliestSurvivingAge`
-  (`retirementSolver.ts`), `computeOnTrackFraction` (its `horizon = series.months.length - 1`
-  collapses to the blocked month — §8), and app `retirementView.ts` / the retirement panel. Panel
-  copy required: *"Can't compute a retirement age — your projection is blocked at age 40."*
-  (age = `plan.currentAge + blockedAtMonth/12`).
+- **Part 2 done — how blocked propagates (Part 3 reads these).** `ProjectionSeries.status` /
+  `blockedAtMonth` / `blockingObligation` (Part 1). `RetirementSolution.blocked` +
+  `blockedAtMonth`, `RetirementEvaluation.blocked` + `blockedAtMonth` (`retirementTypes.ts`).
+  `planOutcome()` (new, exported) is the block-aware survival read; `planSurvives` now goes through
+  it. `RetirementView.blocked` + `blockedAtAge` (app `retirementView.ts`). The panel renders the
+  blocked copy and suppresses the headline/on-track lines when `view.blocked`.
 - **Part 3 — chart (§10).** Render no simulated month after `blockedAtMonth` (the series already
-  omits them). Add a terminal blocked marker in the same visual language as insolvency; it must
-  identify the blocking obligation and show required / available / shortfall (all on
-  `series.blockingObligation`). The marker is presentation-only — never a simulation month, never
-  compounds, never enters retirement solving. It MAY be drawn below the final net worth by the
-  shortfall amount (design's optional visual). Chart entry points:
-  `packages/app/src/components/netWorthChart/`.
+  omits them — the chart just needs to draw the terminal marker and not assume a full horizon). Add
+  a terminal blocked marker in the same visual language as insolvency (see how the chart already
+  handles the insolvent/`netWorth == null` tail — reuse that language). The marker must identify
+  the blocking obligation and show required / available / shortfall (all on
+  `series.blockingObligation`: `label`, `requiredCents`, `availableCents`, `shortfallCents`,
+  `month`). The marker is presentation-only — NEVER a simulation month, never compounds, never
+  enters retirement solving, never an engine input. It MAY be drawn below the final simulated net
+  worth by the shortfall amount (design's optional visual — the "$450k − $30k = displayed $420k"
+  example in the issue). Chart entry points: `packages/app/src/components/netWorthChart/`
+  (`netWorthChart.tsx`, `netWorthChartData.ts`, `netWorthBreakdown.ts`). The insolvency-marker
+  test at `insolventMonthNetWorth.test.ts` is the closest existing pattern.
 
 ## Dead ends (do not re-propose)
 

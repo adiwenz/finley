@@ -74,6 +74,37 @@ describe("retirementView — one query behind every figure", () => {
   });
 });
 
+describe("retirementView — a blocked projection can't be solved", () => {
+  // A stub outlook whose projection blocked: the solver reports no age and the reason is a block,
+  // not "no age works". The view must surface the block and the age it stopped at, not a headline.
+  function blockedReader(plan: Plan, blockedAtMonth: number) {
+    const real = Projection.fromState(stateOf(plan), usJurisdiction);
+    const outlook = real.retirement(usJurisdiction);
+    return {
+      plan: real.plan,
+      retirement: (_j: Jurisdiction) => ({
+        ...outlook,
+        solution: { ...outlook.solution, fullRetirementAge: null, blocked: true, blockedAtMonth },
+        fullRetirementMonth: null,
+      }),
+    };
+  }
+
+  it("reports blocked and the age the projection stopped at", () => {
+    // Blocked 24 months out on a plan aged 40 → age 42.
+    const view = retirementView(blockedReader({ ...PLAN_DEFAULTS, currentAge: 40 }, 24));
+    expect(view.blocked).toBe(true);
+    expect(view.blockedAtAge).toBe(42);
+    expect(view.headlineAge).toBeNull();
+  });
+
+  it("is not blocked for an ordinary plan", () => {
+    const view = viewOf(PLAN_DEFAULTS);
+    expect(view.blocked).toBe(false);
+    expect(view.blockedAtAge).toBeNull();
+  });
+});
+
 describe("retirementView — headline age driven off the real projection", () => {
   it("reports the full-retirement age the facade found, not a second search", () => {
     const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);

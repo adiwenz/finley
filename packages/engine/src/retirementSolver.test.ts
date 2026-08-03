@@ -22,11 +22,21 @@ import { scenarioOf, withLedger } from "./scenario";
 import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
 import { dollarsToCents } from "./cashFlowSeries";
-import { createProjectionBase } from "./projectionBase";
+import { createProjectionBase, SAVINGS_ID } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
+import type { ProjectionMonth } from "./projection/simulate";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, salariedJob, stateOf, SAMPLE_START_YEAR, SAMPLE_JOB_END_AGE } from "./testing/samplePlan";
+import {
+  samplePlan,
+  baristaPlan,
+  salariedJob,
+  stateOf,
+  SAMPLE_START_YEAR,
+  SAMPLE_JOB_END_AGE,
+  spendLine,
+  healthLine,
+} from "./testing/samplePlan";
 import { Projection } from "./projectionFacade";
 import type { Plan } from "./plan";
 import type { Person } from "./person";
@@ -127,6 +137,111 @@ describe("retirementSolver — survival off the real projection", () => {
     // Precondition: the plan really does produce null net-worth months.
     expect(series.months.some((m) => m.netWorthRealCents === null)).toBe(true);
     expect(planSurvives(series)).toBe(false);
+  });
+});
+
+describe("retirementSolver — a blocked projection is a third state", () => {
+  // A no-income household whose $40k opening is stranded: a $25k cash home at month 1 drains it,
+  // and a $22k down payment at month 2 can no longer be funded — reproduced with two purchases
+  // authored so neither trips the append-time gate (the second drains what the first relied on).
+  function strandedScenario(): Scenario {
+    const strandPlan: Plan = {
+      ...samplePlan,
+      jobs: [],
+      goals: [],
+      openingBalanceCents: dollarsToCents(40_000),
+      budgetLines: [spendLine(dollarsToCents(4000)), healthLine(dollarsToCents(600))],
+    };
+    const base = createProjectionBase(strandPlan, CTX);
+    const financed = addEvent(emptyLedger, base, {
+      id: "mtg1",
+      type: "LoanEvent",
+      month: 2,
+      liabilityId: "mtg1",
+      ownerId: "p1",
+      kind: "mortgage",
+      openingBalanceCents: dollarsToCents(178_000),
+      apr: 0.06,
+      termMonths: 360,
+    });
+    if (!financed.ok) throw new Error(`mortgage rejected: ${financed.conflict}`);
+    const withHome = addEvent(financed.ledger, base, {
+      id: "buy1",
+      type: "HomePurchaseEvent",
+      month: 2,
+      propertyId: "house1",
+      ownerId: "p1",
+      purchasePriceCents: dollarsToCents(200_000),
+      downPaymentCents: dollarsToCents(22_000),
+      downPaymentSourceIds: [SAVINGS_ID],
+      securedByLiabilityId: "mtg1",
+    });
+    if (!withHome.ok) throw new Error(`purchase rejected: ${withHome.conflict}`);
+    const withDrain = addEvent(withHome.ledger, base, {
+      id: "buy0",
+      type: "HomePurchaseEvent",
+      month: 1,
+      propertyId: "house0",
+      ownerId: "p1",
+      purchasePriceCents: dollarsToCents(25_000),
+      downPaymentCents: dollarsToCents(25_000),
+      downPaymentSourceIds: [SAVINGS_ID],
+    });
+    if (!withDrain.ok) throw new Error(`drain rejected: ${withDrain.conflict}`);
+    return withLedger(scenarioOf(strandPlan), withDrain.ledger);
+  }
+
+  it("does not count a truncated projection as surviving", () => {
+    // The core §8 bug: `Array.every` over a truncated series is vacuously `true`, so a blocked
+    // plan would report as surviving. Every emitted month here is healthy; the block is the only
+    // reason survival must be false.
+    const healthyMonth: ProjectionMonth = {
+      month: 0,
+      netWorthNominalCents: 1_000_000,
+      netWorthRealCents: 1_000_000,
+      accountBalancesCents: {},
+      accountBasisCents: {},
+      liabilityBalancesCents: {},
+      liabilityPaymentRecords: {},
+      propertyValuesCents: {},
+      isInsolvent: false,
+      uncoveredCents: 0,
+    };
+    const blocked: ProjectionSeries = {
+      opening: healthyMonth,
+      months: [healthyMonth],
+      status: "blocked",
+      simulatedThroughMonth: 0,
+      blockedAtMonth: 0,
+    };
+    expect(planSurvives(blocked)).toBe(false);
+  });
+
+  it("reports blocked from solveRetirement — distinct from null", () => {
+    const scenario = strandedScenario();
+    // Precondition: projecting even at life expectancy (the most-funded case) is blocked.
+    expect(projectFullRetirement(scenario, scenario.plan.lifeExpectancy, CTX).status).toBe("blocked");
+
+    const solution = solveRetirement(scenario, CTX);
+    expect(solution.blocked).toBe(true);
+    // No age is reported — but for a different reason than "no age works".
+    expect(solution.fullRetirementAge).toBeNull();
+  });
+
+  it("keeps a genuinely-infeasible plan as null, NOT blocked", () => {
+    // Insolvency without a block: no age works, and nothing is blocked.
+    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const solution = solveRetirement(scenarioOf(broke), CTX);
+    expect(solution.fullRetirementAge).toBeNull();
+    expect(solution.blocked).toBe(false);
+  });
+
+  it("marks the evaluation blocked and names the month it stopped", () => {
+    const scenario = strandedScenario();
+    const evaluation = evaluateFullRetirementAtAge(scenario, scenario.plan.currentAge, CTX);
+    expect(evaluation.blocked).toBe(true);
+    expect(evaluation.feasible).toBe(false);
+    expect(evaluation.blockedAtMonth).toBe(2);
   });
 });
 

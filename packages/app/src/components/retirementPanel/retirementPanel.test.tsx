@@ -436,4 +436,27 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(html).not.toContain("checkbox");
     expect(html).not.toContain("Preview");
   });
+
+  it("reports that the age can't be computed because the projection is blocked", () => {
+    // A blocked projection has no computable age at all — the panel must say so, and name the age
+    // it stopped at, rather than fall back to the "no age is feasible" copy (a different remedy).
+    const blockedView: RetirementView = {
+      headlineAge: null,
+      headlineMonth: null,
+      blocked: true,
+      blockedAtAge: 40,
+      plannedWorkStopAge: null,
+      authoredPlanSurvives: false,
+      earlyRetireeHealth: { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
+      continuedJobs: [],
+    };
+    const html = renderToStaticMarkup(
+      <RetirementPanel view={blockedView} budget={PLAN_DEFAULTS} previewing={false} onTogglePreview={noop} />,
+    );
+    expect(html).toContain("blocked at age 40");
+    expect(html).toContain("Can’t compute a retirement age");
+    // Not the ordinary infeasible copy, and no on-track line.
+    expect(html).not.toContain("no retirement age is feasible");
+    expect(html).not.toContain("of the way there");
+  });
 });

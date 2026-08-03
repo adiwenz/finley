@@ -35,6 +35,14 @@ export interface RetirementView {
    */
   readonly headlineMonth: number | null;
   /**
+   * The projection could not be simulated to the horizon — an obligation blocked it — so no
+   * retirement age is computable. Distinct from `headlineAge === null` ("no age works, retire
+   * later"): a block needs the plan changed to fund the obligation, not a later age.
+   */
+  readonly blocked: boolean;
+  /** The primary's age when the projection blocked; present (non-null) iff {@link blocked}. */
+  readonly blockedAtAge: number | null;
+  /**
    * The age the plan AS AUTHORED stops earning — the last year any job pays this household,
    * read off the jobs rather than solved, and `null` for a household holding none.
    *
@@ -87,6 +95,13 @@ export function retirementView(
   return {
     headlineAge: solution.fullRetirementAge,
     headlineMonth: fullRetirementMonth,
+    blocked: solution.blocked,
+    // The block's month expressed as the primary's age — the panel's "blocked at age N". Floored
+    // to whole years like every other age the panel shows.
+    blockedAtAge:
+      solution.blocked && solution.blockedAtMonth !== undefined
+        ? projection.plan.currentAge + Math.floor(solution.blockedAtMonth / 12)
+        : null,
     plannedWorkStopAge: solution.plannedWorkStopAge,
     authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,

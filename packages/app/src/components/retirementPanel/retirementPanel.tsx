@@ -79,6 +79,22 @@ export function RetirementPanel({
   /** Flip the preview on or off. The parent owns the state; the panel only reports the intent. */
   onTogglePreview: (next: boolean) => void;
 }) {
+  // A blocked projection has no computable retirement age at all — the money question can't be
+  // asked past the block. Report that and the age it stopped at, and suppress the headline and
+  // on-track lines: both would state a survival verdict the truncated projection cannot support.
+  if (view.blocked) {
+    return (
+      <>
+        <h2>Retirement</h2>
+        <p className="alert alert-red" role="status">
+          Can’t compute a retirement age — your projection is{" "}
+          <strong>blocked at age {view.blockedAtAge}</strong>. Fund the blocking obligation
+          differently to see how far your plan reaches.
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <h2>Retirement</h2>
