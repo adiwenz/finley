@@ -1,8 +1,8 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
-import { AGE_LIMITS, MAX_LIVED_AGE } from "@finley/engine";
-import { MonthSelect, type FormProps } from "./formControls";
+import { AGE_LIMITS, MAX_LIVED_AGE, type RelationshipEvent } from "@finley/engine";
+import { MonthSelect, type EditProps, type FormProps } from "./formControls";
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
@@ -27,14 +27,40 @@ interface RelationshipDraft {
   readonly jobs: readonly JobEditDraft[];
 }
 
-export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
-  const [draft, setDraft] = useState<RelationshipDraft>(() => ({
-    month: defaultMonth,
-    name: "",
-    age: PARTNER_DEFAULT_AGE,
-    claimingAge: 67,
+/**
+ * Seed an edit from the partner already on the timeline. Their birth year becomes the age at
+ * the join year — the term this form collects — so a correction is made in the same vocabulary
+ * the partner was authored in. Jobs are not carried: a `marry` revision cannot touch them (they
+ * are edited in the Jobs panel), so the draft starts them empty and the form hides the section.
+ */
+function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
+  const { month, person } = event;
+  return {
+    month,
+    name: person.name,
+    age: yearOfMonth(month) - person.birthYear,
+    claimingAge: person.benefitClaimingAge,
     jobs: [],
-  }));
+  };
+}
+
+export function RelationshipForm({
+  defaultMonth,
+  horizonMonths,
+  onAdd,
+  edit,
+}: FormProps & { edit?: EditProps<RelationshipEvent> }) {
+  const [draft, setDraft] = useState<RelationshipDraft>(() =>
+    edit
+      ? draftFromEvent(edit.event)
+      : {
+          month: defaultMonth,
+          name: "",
+          age: PARTNER_DEFAULT_AGE,
+          claimingAge: 67,
+          jobs: [],
+        },
+  );
   const [addingJob, setAddingJob] = useState(false);
   const patch = (fields: Partial<RelationshipDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
@@ -57,6 +83,21 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
   }
 
   function submit() {
+    // A revision names only the person's own fields; the `marry` verb and revision share them,
+    // so the same draft feeds both paths. Jobs are absent from the revision — the engine keeps
+    // the partner's existing list untouched, and the Jobs panel is where they change.
+    if (edit) {
+      edit.onRevise((p) =>
+        p.reviseTransaction(edit.event.id, {
+          type: "marry",
+          month: draft.month,
+          name: draft.name || "Partner",
+          birthYear: partnerBirthYear,
+          benefitClaimingAge: draft.claimingAge,
+        }),
+      );
+      return;
+    }
     // `marry` mints the partner's person id and every job id, and stamps each job's owner to
     // that person — so the form hands over jobs as inputs, scoped only by the partner's birth
     // year, and invents no id of its own. Their jobs drive earned income, 401(k) deferral, and
@@ -97,7 +138,12 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         step={1}
       />
 
-      {/* The same job model and form the primary earner uses, scoped to the partner. */}
+      {/* The same job model and form the primary earner uses, scoped to the partner. Hidden
+          when editing: a `marry` revision cannot rewrite the job list, so authoring here would
+          silently do nothing — their jobs are edited in the Jobs panel instead. */}
+      {edit ? (
+        <p className="hint">Edit this partner’s jobs in the Jobs &amp; income panel below.</p>
+      ) : (
       <div className="field">
         <span className="field-label">Jobs (optional)</span>
         {draft.jobs.length === 0 ? (
@@ -143,6 +189,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           </button>
         )}
       </div>
+      )}
 
       {/* Labelled "Their …" because the primary earner's versions are on screen at the same
           time, in the Budget editor. */}
@@ -168,7 +215,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
       </details>
 
       <button className="btn primary" onClick={submit}>
-        Add event
+        {edit ? "Save changes" : "Add event"}
       </button>
     </>
   );

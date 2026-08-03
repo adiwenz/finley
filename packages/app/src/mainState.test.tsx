@@ -155,6 +155,46 @@ describe("App — event ledger", () => {
     expect(incomeDollars()).toBe(8000);
   });
 
+  it("edits an authored partner from the timeline, revising the event in place", () => {
+    render(<App />);
+
+    // Author a partner joining now, unnamed (records as "Partner").
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("Partner joins the household")).toBeTruthy();
+
+    // The timeline marker offers Edit beside Remove; opening it pre-fills the join form.
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    const nameField = screen.getByPlaceholderText(/Partner's name/i) as HTMLInputElement;
+    fireEvent.change(nameField, { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    // Revised in place: one marker still, now naming Sam — not removed and re-added.
+    expect(screen.getByText("Sam joins the household")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
+    // The edit surface closed on success, so the add form's type picker is back.
+    expect(screen.getByLabelText("What happened?")).toBeTruthy();
+  });
+
+  it("closes the edit surface on Cancel without revising", () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.click(screen.getByText("Add event"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Partner's name/i), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+
+    // Abandoned: still the original unnamed partner, and the add form is back.
+    expect(screen.getByText("Partner joins the household")).toBeTruthy();
+    expect(screen.getByLabelText("What happened?")).toBeTruthy();
+  });
+
   it("blocks a removal whose dependent would fail, and surfaces the conflict", () => {
     render(<App />);
 

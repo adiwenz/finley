@@ -1,5 +1,6 @@
 /** Timeline track: markers on the shared time axis. */
 
+import type { LifeEvent } from "@finley/engine";
 import { monthLabel } from "../../format";
 import type { TimelineMarker } from "../../ledgerView";
 import styles from "./timeline.module.css";
@@ -12,14 +13,22 @@ export function Timeline({
   markers,
   scrubMonth,
   horizonMonths,
+  editableTypes,
   onScrub,
+  onEdit,
   onRemove,
 }: {
   markers: readonly TimelineMarker[];
   scrubMonth: number;
   /** Full span of the axis — matches the net-worth chart so the two align. */
   horizonMonths: number;
+  /**
+   * The event types that have an authoring form, so their markers can offer Edit. A type with
+   * no form (a debt payoff, authored elsewhere) shows Remove alone rather than a dead control.
+   */
+  editableTypes: ReadonlySet<LifeEvent["type"]>;
   onScrub: (month: number) => void;
+  onEdit: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
   // Position markers/handle as a fraction of the plan's horizon (to life expectancy).
@@ -63,6 +72,11 @@ export function Timeline({
               <span className={styles.mlWhen}>{monthLabel(m.month)}</span>
               <span className={styles.mlLabel}>{m.label}</span>
               <span className={styles.mlDetail}>{m.detail}</span>
+              {editableTypes.has(m.type) && (
+                <button className="btn link" onClick={() => onEdit(m.id)}>
+                  Edit
+                </button>
+              )}
               <button className="btn link" onClick={() => onRemove(m.id)}>
                 Remove
               </button>

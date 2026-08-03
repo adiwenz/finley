@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState } from "react";
+import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Projection, liabilityKindLabel, SYNTHETIC_CARD_ID } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -9,6 +9,7 @@ import { timelineMarkers } from "./ledgerView";
 import { planHorizonMonths } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
+import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
 import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
@@ -39,19 +40,40 @@ export function App() {
   // Whether the charts show the "if everyone stopped working at the solved age" preview rather
   // than the authored plan. A pure view flag — it never touches the state the app authors.
   const [previewRetirement, setPreviewRetirement] = useState(false);
+  // Which timeline event is open for editing, by id — the add-event card reopens pre-filled on
+  // it. Held by id, not by value, so it always resolves against the live ledger and a revision
+  // that moved the event is reflected without re-seeding.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
   // Load a starter simulation wholesale: plan AND seed timeline together, floored on the way
-  // in by the facade. The scrub cursor snaps back to "now", and the preview drops back to the
-  // authored view — a fresh scenario is shown as authored, not through the last one's hypothesis.
+  // in by the facade. The scrub cursor snaps back to "now", the preview drops back to the
+  // authored view — a fresh scenario is shown as authored, not through the last one's hypothesis
+  // — and any open edit is abandoned, since its event belongs to the timeline being replaced.
   function loadPreset(preset: Preset) {
     setPresetId(preset.id);
     loadState(presetState(preset));
     setScrubMonth(DEFAULT_SCRUB_MONTH);
     setPreviewRetirement(false);
+    setEditingId(null);
   }
+
+  // Commit an event revision, then close the edit surface. Only on success — a refused revision
+  // (returns `undefined`) leaves the surface open with the conflict shown, so the user's in-flight
+  // edits survive. The sentinel disambiguates success from a write that returns nothing of its own.
+  const reviseEvent = useCallback(
+    (write: (p: Projection) => void): void => {
+      const ok =
+        transact((p) => {
+          write(p);
+          return true as const;
+        }) === true;
+      if (ok) setEditingId(null);
+    },
+    [transact],
+  );
 
   // One handle over the current state answers every read: the graph, snapshot roster, and debug
   // report come off a single `run`, and the funding picker off the same handle's `funding` — so
@@ -69,6 +91,12 @@ export function App() {
     [household],
   );
   const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
+  // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
+  // when the target was removed out from under an open edit — either way the add form is shown.
+  const editingEvent = useMemo(
+    () => (editingId === null ? null : ledger.events.find((e) => e.id === editingId) ?? null),
+    [ledger, editingId],
+  );
   const insolventMonth = result.firstInsolventMonth;
   // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
   // live ledger — so "when can we retire?" reflects every event the user added (a child, a
@@ -156,7 +184,9 @@ export function App() {
                 markers={markers}
                 scrubMonth={scrubMonth}
                 horizonMonths={horizonMonths}
+                editableTypes={EDITABLE_EVENT_TYPES}
                 onScrub={setScrubMonth}
+                onEdit={setEditingId}
                 onRemove={removeEvent}
               />
             </div>
@@ -202,6 +232,11 @@ export function App() {
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
               onAdd={transact}
+              editing={
+                editingEvent
+                  ? { event: editingEvent, onRevise: reviseEvent, onCancel: () => setEditingId(null) }
+                  : undefined
+              }
             />
           </div>
 

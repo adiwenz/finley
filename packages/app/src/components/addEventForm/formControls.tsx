@@ -1,6 +1,6 @@
 /** Shared controls and props for the per-event authoring forms. */
 
-import type { Projection } from "@finley/engine";
+import type { LifeEvent, Projection } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
@@ -13,6 +13,23 @@ export interface FormProps {
    * a form describes the event in the caller's terms and never invents an id of its own.
    */
   onAdd: (write: (projection: Projection) => void) => void;
+}
+
+/** The single `LifeEvent` variant a given form authors and edits — e.g. `EventOf<"ChildEvent">`. */
+export type EventOf<T extends LifeEvent["type"]> = Extract<LifeEvent, { type: T }>;
+
+/**
+ * A form in edit mode: the event whose data seeds the draft, and the sink that commits the
+ * revision. Passing this to a form flips it from authoring a new event to revising `event` in
+ * place through `Projection.reviseTransaction` — its id, type, and everything the form doesn't
+ * show (a partner's jobs, a mortgage) are kept by the engine. Absent means add mode.
+ *
+ * `onRevise` never reports the outcome: the surrounding surface closes on success and, on a
+ * refusal, leaves the form open with the conflict shown — so a form never inspects the result.
+ */
+export interface EditProps<E extends LifeEvent> {
+  readonly event: E;
+  readonly onRevise: (write: (projection: Projection) => void) => void;
 }
 
 /** The "When" year picker, shared by every event form. Spans the plan's horizon. */
