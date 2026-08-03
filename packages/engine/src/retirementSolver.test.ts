@@ -21,6 +21,7 @@ import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
 import { dollarsToCents } from "./cashFlowSeries";
 import { createProjectionBase } from "./projectionBase";
+import { RETIREMENT_ID } from "./ids";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
@@ -290,6 +291,88 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       expect(partnerSource(series, 120)).toBeUndefined();
     });
   });
+
+  describe("household membership is a cap of its own, composed with the rest", () => {
+    /** The partner, deferring into the retirement account so a match rides on the same wage. */
+    const deferringPartner = (retirementTargetAge: number): Person =>
+      partnerWith({
+        retirementTargetAge,
+        jobs: [
+          partnerJob({
+            deferral: {
+              deferralFraction: 0.1,
+              fundAccountId: RETIREMENT_ID,
+              employerMatchFraction: 0.5,
+            },
+          }),
+        ],
+      });
+
+    /** Marry at month 0, separate at `separationMonth`. */
+    function separatedScenario(partner: Person, separationMonth: number): Scenario {
+      const base = createProjectionBase(samplePlan, CTX);
+      const married = addEvent(emptyLedger, base, {
+        id: "r1",
+        type: "RelationshipEvent",
+        month: 0,
+        person: partner,
+      });
+      if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+      const separated = addEvent(married.ledger, base, {
+        id: "s1",
+        type: "SeparationEvent",
+        month: separationMonth,
+        partnerPersonId: partner.id,
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      });
+      if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+      return withLedger(scenarioOf(samplePlan), separated.ledger);
+    }
+
+    it("an ACTIVE partner pays the household every month of their membership window", () => {
+      // Nothing to clip: an unseparated membership has no end, so the wage runs to the
+      // partner's own natural end and every wage-derived quantity runs with it.
+      const series = projectScenario(scenarioWithDeferringPartner(80), CTX);
+      expect(partnerSource(series, 0)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 240)?.cashInflowCents).toBeGreaterThan(0);
+      // Deferral stands in for the whole wage-derived chain here: the mock jurisdiction levies
+      // no payroll tax, so a FICA assertion would pass whatever the window did.
+      expect(series.months[240]?.flows?.deferralBySourceCents?.["job:pj1"]).toBeGreaterThan(0);
+    });
+
+    it("a SEPARATED partner stops paying the household at the separation, wages and everything derived from them", () => {
+      // The membership ends at month 120 while the job itself runs to 80. Every wage-derived
+      // quantity reads the same resolved window, so none of them survives the separation:
+      // no wage, no payroll tax, no deferral — and no employer match, which exists only as a
+      // fraction of a deferral that is no longer happening.
+      const series = projectScenario(separatedScenario(deferringPartner(80), 120), CTX);
+      expect(partnerSource(series, 119)?.cashInflowCents).toBeGreaterThan(0);
+      expect(series.months[119]?.flows?.deferralBySourceCents?.["job:pj1"]).toBeGreaterThan(0);
+      expect(partnerSource(series, 120)).toBeUndefined();
+      expect(series.months[120]?.flows?.deferralBySourceCents?.["job:pj1"]).toBeUndefined();
+    });
+
+    it("a candidate boundary can shorten a membership-clipped job, never outlive the separation", () => {
+      // Both caps in play at once. Separation at month 120; a full-stop candidate of 45 lands at
+      // month 60, so the wage stops there — the boundary shortens. Raise the candidate to 70
+      // (month 360) and the separation still ends it at 120: neither cap can extend past the
+      // other, whichever is tighter.
+      const scenario = separatedScenario(deferringPartner(80), 120);
+      const shortened = projectFullRetirement(scenario, 45, CTX);
+      expect(partnerSource(shortened, 59)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(shortened, 60)).toBeUndefined();
+
+      const late = projectFullRetirement(scenario, 70, CTX);
+      expect(partnerSource(late, 119)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(late, 120)).toBeUndefined();
+    });
+
+    function scenarioWithDeferringPartner(retirementTargetAge: number): Scenario {
+      return twoEarnerScenario(deferringPartner(retirementTargetAge));
+    }
+  });
 });
 
 describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
@@ -360,30 +443,56 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(95);
   });
 
-  it("counts a separated (inactive) partner's job too — Household.memberships rosters them regardless of endMonth", () => {
-    // Household.memberships never drops a member on separation, only clips WHEN their series
-    // pays via the membership window — plannedWorkStopAge reads the same roster, so a
-    // separated partner's authored job still counts toward the household-wide figure.
+  /** Marry `partner` at month 0, then separate at `separationMonth`. */
+  function separatedScenario(partner: Person, separationMonth: number): Scenario {
     const base = createProjectionBase(samplePlan, CTX);
     const married = addEvent(emptyLedger, base, {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+      person: partner,
     });
     if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
     const separated = addEvent(married.ledger, base, {
       id: "s1",
       type: "SeparationEvent",
-      month: 12,
-      partnerPersonId: "p2",
+      month: separationMonth,
+      partnerPersonId: partner.id,
       alimonyMonthlyCents: 0,
       alimonyDurationMonths: 0,
       childSupportMonthlyCents: 0,
     });
     if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
-    const scenario = withLedger(scenarioOf(samplePlan), separated.ledger);
-    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
+    return withLedger(scenarioOf(samplePlan), separated.ledger);
+  }
+
+  it("a separated partner's job stops counting at the separation, not at their own retirement target", () => {
+    // The partner is authored to work to 80, but leaves the household at month 300 — the
+    // primary's age 65. Their wages after that are no longer this household's, so the household
+    // stops being paid for that job then, and the read reports 65 rather than the 80 the job
+    // would reach in a household the partner is no longer in.
+    const scenario = separatedScenario(
+      partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+      300,
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(65);
+  });
+
+  it("falls back to the primary's own job once an early separation ends the partner's wages", () => {
+    // Same partner, separating at month 12 (age 41) — before even the primary's own open-ended
+    // job ends at `samplePlan.retirementAge`. The household's final wage is the primary's.
+    const scenario = separatedScenario(
+      partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+      12,
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(samplePlan.retirementAge);
+  });
+
+  it("an ACTIVE partner is capped by their own retirement target, never by a membership that has no end", () => {
+    // The mirror of the two above: an unseparated membership runs forever, so it clips nothing
+    // and the partner's own authored working life is what ends the household's wages.
+    const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 72, jobs: [partnerJob()] }));
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(72);
   });
 
   it("multiple relationship events: the household-wide max wins across every partner ever added", () => {
@@ -413,7 +522,8 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     });
     if (!second.ok) throw new Error(`fixture rejected: ${second.conflict}`);
     const scenario = withLedger(scenarioOf(samplePlan), second.ledger);
-    // Latest of: primary (60), first partner (55), second partner (85) → 85.
+    // The household's final wage across: primary (60), first partner (separated at month 12, so
+    // 41 rather than the 55 they were authored to work to), second partner (85) → 85.
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(85);
   });
 });

@@ -15,13 +15,16 @@ import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
 import { simulateHousehold } from "./projection/simulate";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
-import type { StopWorkingBoundary } from "./compilePerson";
+import {
+  householdJobContexts,
+  householdWageEndYearExclusive,
+  resolveHouseholdJobs,
+  type StopWorkingBoundary,
+} from "./householdJob";
 import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
 import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
 import type { Plan } from "./plan";
-import type { Person } from "./person";
-import type { Job } from "./job";
 import type { Household } from "./ledger/household";
 
 /**
@@ -235,26 +238,18 @@ export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionCon
 }
 
 /**
- * Every job authored anywhere in the household, paired with its owner — the primary's plan
- * jobs AND every partner's, via the same {@link Household.memberships} roster
- * `interpretLedger` builds and `partnerJobSeries` draws its persons from. One traversal, so a
- * household-wide read (this, or a future one) can never disagree with what the projection
- * actually rosters, and never has to special-case the primary to reach a partner's jobs.
- */
-function householdJobOwners(scenario: Scenario, ctx: ProjectionContext): { job: Job; owner: Person }[] {
-  const base = createProjectionBase(scenario.plan, ctx);
-  const household = interpretLedger(scenario.ledger, base);
-  return household.memberships.flatMap((m) => m.person.jobs.map((job) => ({ job, owner: m.person })));
-}
-
-/**
- * The exclusive calendar year the household's authored plan pays its final wage — a plain
- * READ of what's already authored, not a search: `max` over EVERY job anywhere in the
- * household (the primary's plan jobs AND every partner's, joined via a RelationshipEvent) of
- * that job's own natural end (its authored `endYear`, or its OWNER's own `retirementTargetAge`
- * for an open-ended job — a partner's, not the primary's, when it is the partner's job).
- * `null` when the household has no jobs (a scalar plan stops earned income at `retirementAge`,
- * already reported by the partial retirement age).
+ * The exclusive calendar year the household's authored plan collects its final WAGE — a plain
+ * READ of what's already authored, not a search: `max` over every resolved household job of the
+ * year that job stops paying THIS HOUSEHOLD.
+ *
+ * "Paying this household" is {@link resolveHouseholdJobs}'s answer, not a rule restated here,
+ * which is what makes this agree with the projection by construction. In particular a job is
+ * bounded by its owner's membership as well as by its own end, so a separated partner's job
+ * stops counting at the separation rather than running on to a retirement target they will
+ * reach outside this household. A job that never pays the household at all does not count.
+ *
+ * `null` when no job in the household ever pays it (a scalar plan stops earned income at
+ * `retirementAge`, already reported by the partial retirement age).
  *
  * Distinct from {@link fullRetirementAge}, which is a SOLVED value: the earliest age the
  * household can stop working and still remain solvent. This is the opposite direction — it
@@ -262,9 +257,14 @@ function householdJobOwners(scenario: Scenario, ctx: ProjectionContext): { job: 
  * income of its own accord.
  */
 function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number | null {
-  const jobOwners = householdJobOwners(scenario, ctx);
-  if (jobOwners.length === 0) return null;
-  return Math.max(...jobOwners.map(({ job, owner }) => job.endYear ?? owner.birthYear + owner.retirementTargetAge));
+  const base = createProjectionBase(scenario.plan, ctx);
+  const household = interpretLedger(scenario.ledger, base);
+  // No `stopWorking`: this reads the plan AS AUTHORED. A solver candidate is a hypothesis about
+  // a plan the user has not adopted, and must never move what their own plan says.
+  const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear);
+  const paying = resolved.filter((r) => r.paysHousehold);
+  if (paying.length === 0) return null;
+  return Math.max(...paying.map((r) => householdWageEndYearExclusive(r, ctx.startYear)));
 }
 
 /**

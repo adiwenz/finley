@@ -42,6 +42,7 @@ import {
   type JobIncomeOverride,
 } from "./job";
 import type { Person } from "./person";
+import { naturalJobEndYearExclusive, type ResolvedHouseholdJob } from "./householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
@@ -57,49 +58,6 @@ export function compilePerson(person: Person, nowYear: number, inflationRate: nu
     benefitClaimingAge: person.benefitClaimingAge,
     priorEarningsCents: compilePersonPriorEarnings(person, nowYear, inflationRate),
   };
-}
-
-/**
- * A household-wide simulation boundary that ends earned work, applied here at compile time in
- * place of rewriting any job. It is the retirement solver's single varied scalar, resolved to a
- * calendar year so the same cap reaches every earner — including a partner whose jobs live on a
- * RelationshipEvent rather than on the plan — without touching a single authored figure.
- */
-export interface StopWorkingBoundary {
-  /**
-   * Exclusive calendar year past which no job pays. A calendar year, not an age, so every earner
-   * stops at the same point in time regardless of their own birthday; the boundary is never
-   * before "now", so it can only ever shorten a job, never resurrect a wage.
-   */
-  readonly boundaryYearExclusive: number;
-  /**
-   * `"full"` caps EVERY job at the boundary — the whole household stops. `"partial"` resolves
-   * only the open-ended jobs to it and leaves each authored fixed-term job its own later end.
-   */
-  readonly mode: "full" | "partial";
-}
-
-/**
- * A job's exclusive end calendar year: never later than its own natural end — its authored
- * `endYear`, or the owner's `retirementTargetAge` for an open-ended job. A boundary can only
- * CAP that natural end earlier, never extend it; `Math.min` is load-bearing, not a formality,
- * because the boundary is a single household-wide scalar that has no idea an individual owner
- * (a partner especially) may have authored a shorter working life of their own.
- *
- * Absent a boundary (an ordinary projection), the natural end stands as-is. Under one, a
- * `"full"` stop caps EVERY job — open-ended or fixed-term — at the boundary; a `"partial"`
- * stop caps only the open-ended jobs and leaves each fixed-term job its own authored end,
- * untouched by the boundary in either direction.
- */
-function jobEndYearExclusive(job: Job, owner: Person, stopWorking?: StopWorkingBoundary): number {
-  const naturalEndYearExclusive = job.endYear ?? owner.birthYear + owner.retirementTargetAge;
-  if (stopWorking === undefined) return naturalEndYearExclusive;
-  if (stopWorking.mode === "full") {
-    return Math.min(naturalEndYearExclusive, stopWorking.boundaryYearExclusive);
-  }
-  return job.endYear === null
-    ? Math.min(naturalEndYearExclusive, stopWorking.boundaryYearExclusive)
-    : job.endYear;
 }
 
 /**
@@ -198,7 +156,9 @@ function reconstructHistoricalCompensation(
   const startMonth = (job.startYear - nowYear) * 12;
   // History is months < 0: clip a still-running job at "now", and skip one that only starts at
   // or after it (all of its earnings are the forward series' job).
-  const endMonthExclusive = Math.min((jobEndYearExclusive(job, owner) - nowYear) * 12, 0);
+  // The person's OWN natural end, never a household one: neither a candidate solver boundary
+  // nor a late household join may edit what this person actually earned before "now".
+  const endMonthExclusive = Math.min((naturalJobEndYearExclusive(job, owner) - nowYear) * 12, 0);
   if (endMonthExclusive <= startMonth) return null;
 
   // Taken VERBATIM: `startingSalaryCents` is the paycheck of the job's own start year, in that
@@ -282,30 +242,25 @@ export function compilePersonPriorEarnings(
  * all; they belong to the recurring-compensation work, which is where a raise *schedule* would
  * be authored.
  *
- * `membership` clips the *paid* span to a household-membership interval: a partner's job
- * only pays the household while they are a member. It narrows where the series pays, never
- * the growth anchor, so the salary path is unchanged and only outside months are zeroed.
- * Absent (the primary earner, always a member) it is a no-op.
+ * Every WINDOW question — when the employment ends, when a solver candidate caps it, when the
+ * household is actually paid for it — is already answered by the {@link ResolvedHouseholdJob}
+ * handed in. Nothing here re-derives one. The paid window narrows where the series pays, never
+ * the growth anchor, so the salary path is the same whoever is collecting it and only outside
+ * months are zeroed.
  */
 function compileJobIncome(
-  job: Job,
-  owner: Person,
+  resolved: ResolvedHouseholdJob,
   nowYear: number,
   inflationRate: number,
   displayName: string,
-  membership?: MembershipWindow,
-  stopWorking?: StopWorkingBoundary,
 ): SimOwnedSeries | null {
-  const endYearExclusive = jobEndYearExclusive(job, owner, stopWorking);
-  const endMonthExclusive = (endYearExclusive - nowYear) * 12;
-  if (endMonthExclusive <= 0) return null; // wholly in the past
+  const { job, owner } = resolved;
+  if (!resolved.paysHousehold) return null;
 
-  const naturalStart = Math.max(0, (job.startYear - nowYear) * 12);
-  const paidStart = membership ? Math.max(naturalStart, membership.startMonth) : naturalStart;
-  const paidEndExclusive = membership
-    ? Math.min(endMonthExclusive, membership.endMonthExclusive)
-    : endMonthExclusive;
-  if (paidEndExclusive <= paidStart) return null; // no paid month falls inside the window
+  const employmentEndMonthExclusive = (resolved.endYearExclusive - nowYear) * 12;
+  const naturalStart = resolved.employmentStartMonth;
+  const paidStart = resolved.paidStartMonth;
+  const paidEndExclusive = resolved.paidEndMonthExclusive;
 
   // THE CURRENT-SALARY ANCHOR. The authored figure enters here and nowhere else, which is what
   // makes it authoritative: the series is built fresh on it rather than continued from the
@@ -350,7 +305,7 @@ function compileJobIncome(
   // PERMANENT changes run the job's whole natural span, membership or not: a raise a partner
   // got before joining is part of the salary they arrive on, so it has to be layered even
   // though nobody was paid for it at the time.
-  applyPayChanges(series, job.payChanges ?? [], naturalStart, endMonthExclusive - 1);
+  applyPayChanges(series, job.payChanges ?? [], naturalStart, employmentEndMonthExclusive - 1);
   // One-month perturbations are the opposite case: a bonus is a payment, not a salary state, so
   // one landing before the join never reaches this household. Bounded to the paid window, and
   // the clip below would exclude it regardless. Overrides tax as wages and run through the
@@ -382,40 +337,31 @@ function compileJobIncome(
 }
 
 /**
- * A household-membership interval that clips a person's paid job span. `endMonthExclusive`
- * is one past their last member month (a separation), or `+Infinity` while still a member.
+ * One {@link SimOwnedSeries} per {@link ResolvedHouseholdJob} that actually pays this household;
+ * a job wholly in the past, or one whose employment never overlaps its owner's membership,
+ * drops out here (a past one still contributes to {@link compilePersonPriorEarnings}).
+ *
+ * Takes RESOLVED jobs, never persons and windows: every cap — the authored end, the owner's
+ * retirement target, the membership, a solver's candidate boundary — is already intersected by
+ * {@link resolveHouseholdJobs}, so wages, payroll tax, deferral and employer match all fall out
+ * of exactly the window every other household calculation reads.
  */
-export interface MembershipWindow {
-  readonly startMonth: number;
-  readonly endMonthExclusive: number;
-}
-
-/**
- * One {@link SimOwnedSeries} per job that still pays at or after "now"; wholly-past jobs
- * contribute only to {@link compilePersonPriorEarnings}. Any number of jobs may be
- * open-ended (`null`-end); each ends at the owner's `retirementTargetAge`, or at
- * `stopWorking` when the retirement solver is exploring a candidate boundary. Omit
- * `membership` for the primary earner, who is always present.
- */
-export function compilePersonIncomeSeries(
-  person: Person,
+export function compileHouseholdJobSeries(
+  resolvedJobs: readonly ResolvedHouseholdJob[],
   nowYear: number,
   inflationRate: number,
-  membership?: MembershipWindow,
-  stopWorking?: StopWorkingBoundary,
 ): SimOwnedSeries[] {
-  const names = jobDisplayNames(person);
+  // Display names are an owner-wide fact (they ordinal-number an owner's untitled jobs), so
+  // they are computed per owner rather than per job.
+  const namesByOwner = new Map<string, Map<string, string>>();
   const series: SimOwnedSeries[] = [];
-  for (const job of person.jobs) {
-    const compiled = compileJobIncome(
-      job,
-      person,
-      nowYear,
-      inflationRate,
-      names.get(job.id)!,
-      membership,
-      stopWorking,
-    );
+  for (const resolved of resolvedJobs) {
+    let names = namesByOwner.get(resolved.owner.id);
+    if (names === undefined) {
+      names = jobDisplayNames(resolved.owner);
+      namesByOwner.set(resolved.owner.id, names);
+    }
+    const compiled = compileJobIncome(resolved, nowYear, inflationRate, names.get(resolved.job.id)!);
     if (compiled) series.push(compiled);
   }
   return series;

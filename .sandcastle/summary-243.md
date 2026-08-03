@@ -140,3 +140,46 @@ partner job, a separated (inactive) partner's job still counting (per `Household
 own existing roster rule — nothing new invented), and multiple relationship events.
 
 Full suite: 1587 tests green (up from 1577), typecheck and purity clean.
+
+## One membership-aware household job (follow-up refactor)
+
+`{ job, owner }` lost the household membership, which is a real cap on when a person's wages
+belong to the projected household — so the two places that needed it (`compilePerson` and the
+`plannedWorkStopAge` read) had to reassemble it separately, and only one of them did.
+
+New `householdJob.ts` holds the single derived concept:
+
+- `HouseholdJobContext` — `{ job, owner, membership }`, built only via `personJobContexts()` /
+  `householdJobContexts(memberships)` so `owner` and `membership.person` cannot come apart.
+- `ResolvedHouseholdJob` — a context with every cap intersected: `endYearExclusive` (the
+  employment's end, capped by any candidate boundary), `employmentStartMonth` (the salary-growth
+  anchor), `paidStartMonth` / `paidEndMonthExclusive` (the household participation window), and
+  `paysHousehold`.
+- `resolveHouseholdJobs()` — the one function that does the intersecting.
+
+Four caps, one direction. An authored `endYear`, an owner's `retirementTargetAge`, a household
+membership, and a solver's candidate `StopWorkingBoundary` are all ceilings; resolution takes the
+tightest and none of them can extend past another. `StopWorkingBoundary` moved here too, since
+it is now one cap among four rather than a compilation detail.
+
+Everything wage-derived now reads that one window. `compilePersonIncomeSeries(person, ...,
+membership?, stopWorking?)` became `compileHouseholdJobSeries(resolvedJobs, ...)` — it no longer
+computes a span at all, so employment income, payroll tax, 401(k) deferral and employer match
+(all downstream of the compiled series) inherit the resolved window by construction rather than
+by four callers agreeing. `createProjectionBase` passes the primary's own always-open membership
+(`startMonth: -Infinity`, `endMonth: null`) instead of `undefined`, which removes the last
+primary-only branch from job compilation.
+
+Authored vs. derived stays split: `Job` grows no "effective end". The intersection exists only as
+a `ResolvedHouseholdJob`, rebuilt each pass, which is what keeps a solver candidate from touching
+the scenario.
+
+**One behaviour change.** `plannedWorkStopAge` now reports the household's final WAGE rather than
+the final job owned by anyone who ever belonged to the household: a separated partner's job stops
+counting at the separation, not at the retirement target they will reach outside this household.
+That is what the projection was already paying, so the read and the graph now agree.
+
+Tests: an active partner paying through their whole window (wage and deferral), a separated
+partner whose wage, deferral and employer match all stop at the separation, a candidate boundary
+shortening a membership-clipped job without ever outliving the separation, and the
+`plannedWorkStopAge` reads for both an active and a separated partner.

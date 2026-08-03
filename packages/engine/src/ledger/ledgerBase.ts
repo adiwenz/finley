@@ -6,7 +6,7 @@
 
 import type { SimOwnedSeries } from "../projection/simulate";
 import type { Person } from "../person";
-import type { StopWorkingBoundary } from "../compilePerson";
+import type { StopWorkingBoundary } from "../householdJob";
 import type { PlanAccount } from "../planAccount";
 import type { SimGoal } from "../goal";
 import type { BudgetLine } from "../budgetLine";

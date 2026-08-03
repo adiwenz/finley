@@ -22,7 +22,12 @@ import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
 import type { Plan, GoalPlan, GoalAccountType } from "./plan";
 import { type Person } from "./person";
-import { compilePersonIncomeSeries, type StopWorkingBoundary } from "./compilePerson";
+import { compileHouseholdJobSeries } from "./compilePerson";
+import {
+  personJobContexts,
+  resolveHouseholdJobs,
+  type StopWorkingBoundary,
+} from "./householdJob";
 import { compileExpenseBudgetLines } from "./compileBudget";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
@@ -259,12 +264,19 @@ export function createProjectionBase(
 
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
-  const initialIncomeSeries: readonly SimOwnedSeries[] = compilePersonIncomeSeries(
-    standingPerson,
+  //
+  // The primary's membership runs the whole projection — they are the household from month
+  // `-Infinity` and never separate from it — so it clips nothing; it is passed anyway so the
+  // primary's jobs take exactly the path a partner's do, with no primary-only branch anywhere
+  // in job resolution or compilation.
+  const initialIncomeSeries: readonly SimOwnedSeries[] = compileHouseholdJobSeries(
+    resolveHouseholdJobs(
+      personJobContexts({ person: standingPerson, startMonth: -Infinity, endMonth: null }),
+      startYear,
+      stopWorking,
+    ),
     startYear,
     inflationRate,
-    undefined,
-    stopWorking,
   );
 
   // Leftover cash idles in the liquid account unless `surplusCashTo` sweeps it into the

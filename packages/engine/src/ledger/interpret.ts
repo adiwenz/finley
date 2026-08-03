@@ -14,7 +14,12 @@ import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
 import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
-import { compilePersonIncomeSeries, type StopWorkingBoundary } from "../compilePerson";
+import { compileHouseholdJobSeries } from "../compilePerson";
+import {
+  personJobContexts,
+  resolveHouseholdJobs,
+  type StopWorkingBoundary,
+} from "../householdJob";
 import { authoringAccounts } from "../planAccount";
 import {
   freshState,
@@ -131,15 +136,10 @@ function partnerJobSeries(
   inflationRate: number,
   stopWorking: StopWorkingBoundary | undefined,
 ): HouseholdSeries[] {
-  const compiled = compilePersonIncomeSeries(
-    membership.person,
+  const compiled = compileHouseholdJobSeries(
+    resolveHouseholdJobs(personJobContexts(membership), nowYear, stopWorking),
     nowYear,
     inflationRate,
-    {
-      startMonth: membership.startMonth,
-      endMonthExclusive: membership.endMonth ?? Number.POSITIVE_INFINITY,
-    },
-    stopWorking,
   );
   return compiled.map((os, i) =>
     ownedSeries(os, asSeriesId(`partner-${membership.person.id}-income-${i}`), "income"),
