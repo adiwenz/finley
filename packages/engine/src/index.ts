@@ -175,7 +175,7 @@ export { liabilityKindLabel } from "./liability";
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
 export { RETIREMENT_ID } from "./ids";
 export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
-export { SYNTHETIC_CARD_ID } from "./liability";
+export { SYNTHETIC_CARD_ID, SYNTHETIC_CARD_CREDIT_LIMIT_CENTS } from "./liability";
 export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";
 
 // Declarative authoring: the app's seed plans and starter scenarios are `ScenarioInput`

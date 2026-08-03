@@ -84,9 +84,14 @@ describe("budget contribution lines fund their account", () => {
     expect(firstInsolvent).toBeLessThan(13); // immediate, not a far-future failure
   });
 
-  it("does NOT inflate net worth when a committed contribution overshoots into insolvency", () => {
-    // A $10,000,000/mo contribution you can't fund must not show as a ~$10M net-worth spike in
-    // the insolvent month. The unfundable part is unwound rather than booked as an asset.
+  it("does NOT inflate the balance sheet when a committed contribution overshoots into insolvency", () => {
+    // A $10,000,000/mo contribution you can't fund must not show as a ~$10M asset in the
+    // insolvent month. The unfundable part is unwound rather than booked as one.
+    //
+    // Asserted on the ACCOUNT, not on net worth: the insolvent month reports no net worth at
+    // all now (it dropped the spending it couldn't fund, so any total would flatter it). The
+    // balance sheet is still emitted for exactly this kind of diagnosis, and reading the
+    // phantom off the account it would have landed in is the more direct guard anyway.
     const absurd: Plan = {
       ...samplePlan,
       goals: [],
@@ -95,10 +100,20 @@ describe("budget contribution lines fund their account", () => {
     const months = project(absurd).months;
     const firstInsolvent = months.findIndex((m) => m.isInsolvent);
     expect(firstInsolvent).toBeGreaterThanOrEqual(0); // month 0 now processes flows, so it can itself be the insolvent month
-    const nw = months[firstInsolvent].netWorthNominalCents;
-    expect(nw).not.toBeNull();
-    // Nowhere near the $10M deposit: around opening savings + real monthly saving.
-    expect(nw!).toBeLessThan(dollarsToCents(1_000_000));
+    const insolvent = months[firstInsolvent];
+    // No net worth is stated for the failure month — that is the contract now.
+    expect(insolvent.netWorthNominalCents).toBeNull();
+    // But the phantom deposit is absent from the balances, which is the real claim: nowhere
+    // near the $10M contribution.
+    expect(insolvent.accountBalancesCents["brokerage"] ?? 0).toBeLessThan(
+      dollarsToCents(1_000_000),
+    );
+    // The last fully funded month is likewise unspiked, and still carries a real figure.
+    const lastFunded = months[firstInsolvent - 1];
+    if (lastFunded) {
+      expect(lastFunded.netWorthNominalCents).not.toBeNull();
+      expect(lastFunded.netWorthNominalCents!).toBeLessThan(dollarsToCents(1_000_000));
+    }
   });
 
   it("an overshoot covered by savings is a neutral transfer — no phantom, and NOT insolvent", () => {

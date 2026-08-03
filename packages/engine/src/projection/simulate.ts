@@ -74,14 +74,15 @@ export function simulateHousehold(
     elapsedMonths: 0,
     annualInflationRate: input.annualInflationRate,
     isInsolvent: false,
+    uncoveredCents: 0,
     netWorthTerminated: false,
     liabilityPaymentRecords: {},
     flows: undefined,
   });
   const months: ProjectionMonth[] = [];
-  // Insolvency is terminal for net-worth reporting: once a month exhausts all credit, every
-  // LATER month reports net worth as null. The first insolvent month still reports its
-  // honest, negative value.
+  // Insolvency is terminal for net-worth reporting: the month that exhausts all credit, and
+  // every month after it, reports net worth as null. The insolvent month is included because
+  // it is already contaminated — see {@link snapshotMonth}.
   let priorInsolvency = false;
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
@@ -329,7 +330,8 @@ export function simulateHousehold(
         elapsedMonths: month + 1,
         annualInflationRate: input.annualInflationRate,
         isInsolvent,
-        netWorthTerminated: priorInsolvency,
+        uncoveredCents,
+        netWorthTerminated: priorInsolvency || isInsolvent,
         liabilityPaymentRecords: paymentRecords,
         flows,
       }),

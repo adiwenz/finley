@@ -165,6 +165,8 @@ export interface ReportMonth {
   readonly liabilityPaymentsCents: Cents;
   readonly liabilityPaymentRecords: Readonly<Record<string, LiabilityPaymentRecord>>;
   readonly isInsolvent: boolean;
+  /** The dropped, unfundable shortfall — see {@link ProjectionMonth.uncoveredCents}. */
+  readonly uncoveredCents: Cents;
 }
 
 /**
@@ -340,6 +342,7 @@ export function summarizeSimulation(
       liabilityPaymentsCents: flows?.liabilityPaymentsCents ?? 0,
       liabilityPaymentRecords: m.liabilityPaymentRecords,
       isInsolvent: m.isInsolvent,
+      uncoveredCents: m.uncoveredCents,
     };
   });
 

@@ -220,12 +220,13 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     expect(series.months[1].isInsolvent).toBe(true);
   });
 
-  it("net worth is null for every month AFTER the first insolvent one; the first keeps its value", () => {
+  it("net worth is null from the first insolvent month ONWARD; the last funded month keeps its value", () => {
     // A modest starting balance funds a couple of months, then a sustained deficit runs the
     // plan insolvent — so there are solvent months, a first insolvent month, and months
-    // beyond it. Net worth is real up to and INCLUDING the first insolvent month (the honest
-    // "money runs out" point), then null — the model has no fidelity once unfunded spending
-    // is dropped.
+    // beyond it. Net worth is real up to but NOT INCLUDING the first insolvent month: that
+    // month already dropped the spending it could not fund, so totalling its balance sheet
+    // flatters it (see {@link snapshotMonth}). The last honest figure is the last fully
+    // funded month.
     const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
     const series = simulateHousehold(
       {
@@ -243,18 +244,21 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
     expect(firstInsolvent).toBeGreaterThan(0); // there IS a solvent stretch first
 
     for (const m of series.months) {
-      if (m.month <= firstInsolvent) {
-        // Real value through the terminal (first insolvent) month.
+      if (m.month < firstInsolvent) {
+        // Real value through the last FULLY FUNDED month.
         expect(m.netWorthNominalCents).not.toBeNull();
         expect(m.netWorthRealCents).not.toBeNull();
       } else {
-        // Nulled from there on — the lines end at insolvency.
+        // Nulled from the failure on — the lines end at the last funded month.
         expect(m.netWorthNominalCents).toBeNull();
         expect(m.netWorthRealCents).toBeNull();
       }
     }
-    // isInsolvent itself is unaffected — still flagged per month, including nulled ones.
+    // isInsolvent itself is unaffected — still flagged per month, including nulled ones, and
+    // the size of the hole is stated separately rather than left to a balance sheet.
     expect(series.months[firstInsolvent].isInsolvent).toBe(true);
+    expect(series.months[firstInsolvent].uncoveredCents).toBeGreaterThan(0);
+    expect(series.months[firstInsolvent - 1].uncoveredCents).toBe(0);
   });
 
   it("proportional transfer: −0.2 fraction removes 20% of balance", () => {

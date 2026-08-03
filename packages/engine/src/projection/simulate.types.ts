@@ -34,10 +34,14 @@ export interface LiabilityPaymentRecord {
  * The engine's public output and the chart's data contract: one entry per simulated
  * month, starting at "now" (month 0).
  *
- * Net worth is `null` for every month AFTER the first insolvent one — later balances are
- * fiction once the shortfall cascade drops unfundable spending. The first insolvent month
- * keeps its real (negative) value. `null` means "insolvent from here", NOT zero
- * (`null >= 0` is `true` in JS).
+ * Net worth is `null` from the first insolvent month ONWARD — the insolvent month included.
+ * Once the shortfall cascade drops unfundable spending the balance sheet is fiction, and that
+ * is true of the month the drop happens, not just the ones after it: a month that charged only
+ * the sliver of spending credit could absorb keeps its appreciation and amortization while
+ * losing most of its cost, so its net worth reads HIGHER than the last solvent month's. The
+ * last non-null figure is therefore the last fully funded month. `null` means "insolvent from
+ * here", NOT zero (`null >= 0` is `true` in JS); the size of the shortfall that ended the plan
+ * is {@link ProjectionMonth.uncoveredCents}.
  */
 export interface ProjectionMonth {
   readonly month: number;
@@ -61,6 +65,14 @@ export interface ProjectionMonth {
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;
   /** True where the shortfall cascade exhausted all available credit. */
   readonly isInsolvent: boolean;
+  /**
+   * The deficit left over once savings and every card were exhausted — spending the model
+   * DROPPED rather than charged to anything, so it appears in no balance and in no liability.
+   * Exactly `isInsolvent ? > 0 : 0`. This is the only place the size of the failure is stated;
+   * without it a consumer would have to read it off a card that, by definition, could not
+   * absorb it. Cards stay at their real limits — none is overdrawn to make this visible.
+   */
+  readonly uncoveredCents: Cents;
   /** Present on every processed month; absent only on {@link ProjectionSeries.opening}. */
   readonly flows?: ProjectionMonthFlows;
 }

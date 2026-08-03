@@ -29,7 +29,13 @@ export interface MonthSnapshotParams {
   readonly elapsedMonths: number;
   readonly annualInflationRate: number;
   readonly isInsolvent: boolean;
-  /** A PRIOR month went insolvent — nulls the aggregates, not the balances. */
+  /**
+   * The deficit nothing could absorb this month — what the cascade DROPPED rather than
+   * charged. Reported so a consumer can say how far short the month fell instead of inferring
+   * it from a balance sheet that never recorded it.
+   */
+  readonly uncoveredCents: Cents;
+  /** This month or a prior one went insolvent — nulls the aggregates, not the balances. */
   readonly netWorthTerminated: boolean;
   readonly liabilityPaymentRecords: Record<string, LiabilityPaymentRecord>;
   /** Absent only on `opening`: no flow has run at "now". */
@@ -38,9 +44,15 @@ export interface MonthSnapshotParams {
 
 /**
  * Step 11: net worth = Σassets + Σproperties − Σliabilities; real = nominal / (1+infl)^yrs.
- * Under `netWorthTerminated` (a PRIOR month went insolvent) both figures are `null` — once
- * unfunded spending has been dropped the model can no longer say what net worth is. Balances
- * are still emitted for diagnosis; only the aggregate is nulled.
+ * Under `netWorthTerminated` both figures are `null` — once unfunded spending has been dropped
+ * the model can no longer say what net worth is. Balances are still emitted for diagnosis; only
+ * the aggregate is nulled.
+ *
+ * Termination starts at the insolvent month ITSELF, not the one after it. That month is already
+ * contaminated: the cascade charged only the sliver of spending credit could still absorb and
+ * dropped the rest, so its balance sheet keeps the passive gains (appreciation, amortization)
+ * while losing most of the cost — a net worth that ticks UP in the month the plan fails. The
+ * last honest figure is the last FULLY FUNDED month.
  */
 export function snapshotMonth(state: SimState, params: MonthSnapshotParams): ProjectionMonth {
   const {
@@ -48,6 +60,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     elapsedMonths,
     annualInflationRate,
     isInsolvent,
+    uncoveredCents,
     netWorthTerminated,
     liabilityPaymentRecords,
     flows,
@@ -91,6 +104,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     liabilityPaymentRecords,
     propertyValuesCents,
     isInsolvent,
+    uncoveredCents,
     ...(flows !== undefined ? { flows } : {}),
   };
 }

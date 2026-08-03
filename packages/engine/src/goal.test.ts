@@ -26,6 +26,7 @@ function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSer
     liabilityPaymentRecords: {},
     propertyValuesCents: {},
     isInsolvent: false,
+    uncoveredCents: 0,
   });
   // Opening is inert here — goal progress reads only the processed months — so mirror the
   // first balance rather than modelling a distinct pre-flow value.

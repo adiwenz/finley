@@ -12,20 +12,93 @@ import {
   YAxis,
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
-import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
+import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX } from "../monthAxis";
+import { buildNetWorthChartData, type RunsOutMarker } from "./netWorthChartData";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
+const RED = "#9b2c2c"; // the unfunded drop — a failure, not a series
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 
-type Point = {
-  month: number;
-  // Null from the first insolvent month on. Recharts breaks the line at the null, so the
-  // curves END at insolvency rather than flatlining as if stable.
-  nominalCents: number | null;
-  realCents: number | null;
-};
+/**
+ * The tooltip. Two jobs beyond formatting: it never shows the illustrative drop as if it were
+ * a net worth, and on the insolvent month it names the hole for what it is — **unfunded
+ * obligations**, money owed and not paid. Reporting that as credit-card debt would be a lie in
+ * the other direction: the cards are at their limits precisely because they could NOT absorb it.
+ */
+function NetWorthTooltip({
+  active,
+  payload,
+  label,
+  runsOut,
+}: {
+  active?: boolean;
+  payload?: readonly { dataKey?: unknown; value?: number | null }[];
+  label?: string | number;
+  runsOut: RunsOutMarker | null;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const x = Number(label) || 0;
+  const at = (key: string) => payload.find((p) => p.dataKey === key)?.value ?? null;
+  const nominal = at("nominalCents");
+  const real = at("realCents");
+  const isRunsOut = runsOut !== null && x === runsOut.x;
+
+  return (
+    <div
+      style={{
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        borderRadius: 6,
+        padding: "8px 10px",
+        fontSize: 12,
+        color: "var(--color-text)",
+        minWidth: 180,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{axisPointLabel(x, monthLabel)}</div>
+      {nominal !== null && <Row label="Nominal" cents={Number(nominal)} />}
+      {real !== null && <Row label="Real (today's dollars)" cents={Number(real)} />}
+      {isRunsOut && (
+        <>
+          <Row label="Unfunded obligations" cents={runsOut.uncoveredCents} color={RED} strong />
+          <div style={{ marginTop: 6, color: AXIS, maxWidth: 240 }}>
+            Savings and credit are exhausted. Net worth is no longer reported from here — this
+            month's spending was dropped rather than paid, so a balance sheet would flatter it.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  label,
+  cents,
+  color,
+  strong,
+}: {
+  label: string;
+  cents: number;
+  color?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 16,
+        color,
+        fontWeight: strong ? 600 : 400,
+      }}
+    >
+      <span>{label}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDollars(cents)}</span>
+    </div>
+  );
+}
 
 /** `retirementMonth`: the solved Mode-1 retirement age as a month offset. */
 export function NetWorthChart({
@@ -35,42 +108,10 @@ export function NetWorthChart({
   series: ProjectionSeries;
   retirementMonth?: number | null;
 }) {
-  // The shared months-from-now axis: `opening` (today) at TODAY_X, each processed month at
-  // `toAxisX(m.month)`. See {@link import("../monthAxis")} for why the shift exists and why
-  // every projection chart draws on it.
-  const data: Point[] = [
-    {
-      month: TODAY_X,
-      nominalCents: series.opening.netWorthNominalCents,
-      realCents: series.opening.netWorthRealCents,
-    },
-    ...series.months.map((m) => ({
-      month: toAxisX(m.month),
-      nominalCents: m.netWorthNominalCents,
-      realCents: m.netWorthRealCents,
-    })),
-  ];
-
-  // Where the curve ends: the last point with a non-null value — the "money runs out" point
-  // for a failed plan, the horizon for a surviving one. These are AXIS positions, not model
-  // months; only `data` is indexed from here on.
-  const horizonX = data[data.length - 1]?.month ?? TODAY_X;
-  const insolvent = series.months.some((m) => m.isInsolvent);
-  let lastMeaningfulX = horizonX;
-  let terminalCents: number | null = null;
-  for (let i = data.length - 1; i >= 0; i--) {
-    const p = data[i];
-    if (p.nominalCents !== null) {
-      lastMeaningfulX = p.month;
-      terminalCents = p.nominalCents;
-      break;
-    }
-  }
-  // Zoom the x-axis just past where the curve ends, so an early failure is legible instead
-  // of a spike against decades of empty chart. The 2-year floor keeps a very early failure
-  // roomy.
-  const xMax = Math.min(horizonX, Math.max(24, Math.ceil((lastMeaningfulX + 6) / 12) * 12));
-  const yearTicks = yearTickXs(xMax);
+  // Every decision about where the curve ends, where the marker goes and what the dashed drop
+  // represents lives in `buildNetWorthChartData`, which is unit-tested; this component only
+  // draws what it is handed. See {@link import("../monthAxis")} for the shared x-axis.
+  const { points, runsOut, xMax, yearTicks } = buildNetWorthChartData(series);
 
   return (
     <div
@@ -79,16 +120,16 @@ export function NetWorthChart({
     >
       <ResponsiveContainer width="100%" height={320}>
         <ComposedChart
-          data={data}
+          data={[...points]}
           margin={{ top: 16, right: 16, bottom: 8, left: 16 }}
         >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
-            dataKey="month"
+            dataKey="x"
             type="number"
             domain={[TODAY_X, xMax]}
             allowDataOverflow
-            ticks={yearTicks}
+            ticks={[...yearTicks]}
             tickFormatter={(x: number) => axisYearTickLabel(x, yearOf)}
             tick={{ fill: AXIS, fontSize: 11 }}
             stroke={GRID}
@@ -108,14 +149,7 @@ export function NetWorthChart({
               label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
             />
           )}
-          <Tooltip
-            formatter={(value, name) => [
-              value == null ? "—" : formatDollars(Number(value)),
-              name,
-            ]}
-            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
-            contentStyle={{ fontSize: 12 }}
-          />
+          <Tooltip content={<NetWorthTooltip runsOut={runsOut} />} />
           <Area
             type="monotone"
             dataKey="nominalCents"
@@ -136,12 +170,28 @@ export function NetWorthChart({
             dot={false}
             isAnimationActive={false}
           />
-          {insolvent && terminalCents !== null && (
+          {/* The illustrative drop. Dashed and separately coloured so it cannot be mistaken for
+              a projected balance, and `connectNulls` joins its only two non-null points. */}
+          {runsOut !== null && (
+            <Line
+              type="linear"
+              dataKey="unfundedCents"
+              name="Unfunded obligations"
+              stroke={RED}
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              connectNulls
+              dot={false}
+              legendType="none"
+              isAnimationActive={false}
+            />
+          )}
+          {runsOut !== null && (
             <ReferenceDot
-              x={lastMeaningfulX}
-              y={terminalCents}
+              x={runsOut.x}
+              y={runsOut.illustrativeCents}
               r={4}
-              fill={INK}
+              fill={RED}
               stroke="none"
               label={{ value: "runs out", position: "right", fill: AXIS, fontSize: 11 }}
             />

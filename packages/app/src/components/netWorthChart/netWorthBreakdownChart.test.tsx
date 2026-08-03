@@ -30,6 +30,7 @@ function mkMonth(m: MonthSpec, month: number) {
     liabilityPaymentRecords: {},
     propertyValuesCents: m.properties ?? {},
     isInsolvent: false,
+    uncoveredCents: 0,
   };
 }
 
