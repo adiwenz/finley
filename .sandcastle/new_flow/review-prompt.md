@@ -44,7 +44,10 @@ You are a fresh agent that did not write this code.
 
 If your change touches React or TSX (anything under `packages/app/src/`), invoke **`/vercel-react-best-practices`** and apply it.
 
----
+**Code review.** Invoke **`/code-review`** to run a structured code review and apply its findings.
+
+---</thinking>
+</invoke>
 
 ### 🧪 Verification
 
