@@ -12,10 +12,22 @@
  * paydown while losing most of its cost and reads HIGHER than the solvent month before it. A
  * chart that plotted it would draw an upward tick at exactly the point labelled "runs out".
  *
- * What replaces it is {@link NetWorthChartData.runsOut}: a DASHED segment dropping from the last
- * funded point by the month's `uncoveredCents`. That endpoint is illustrative — "this is the size
- * of the hole", not a net worth. It is never fed back into the simulation, never mixed into the
- * solid series, and never reported as a balance.
+ * What replaces it is {@link NetWorthChartData.runsOut}: a DASHED segment from the last funded
+ * point to a single **shortfall-adjusted** endpoint at the first insolvent month,
+ *
+ *     preShortfallNetWorthNominalCents − uncoveredCents
+ *
+ * — where the month would have landed had the dropped obligations been met with equivalent
+ * additional borrowing. Anchoring on the pre-shortfall balance sheet rather than on the last
+ * funded point is what makes the segment continue the curve's trajectory instead of flattening:
+ * the first insolvent month's `uncoveredCents` is a THRESHOLD-CROSSING RESIDUAL (whatever sliver
+ * didn't fit once the card hit its limit — $59 in one preset against a $1,778/mo slope), not the
+ * size of the ongoing failure. Subtracting it from the last funded point drew a near-horizontal
+ * dash at a household about to fall short every month, which read as "it levels off".
+ *
+ * The endpoint is illustrative and counterfactual. It is never fed back into the simulation,
+ * never mixed into the solid series, never reported as a balance, and no LATER counterfactual
+ * point is drawn — one endpoint, then the chart stops.
  */
 
 import type { ProjectionSeries } from "@finley/engine";
@@ -28,21 +40,25 @@ export interface NetWorthChartPoint {
   readonly nominalCents: number | null;
   readonly realCents: number | null;
   /**
-   * The dashed illustrative drop, non-null at exactly two points: the last funded month (where
-   * it equals `nominalCents`, so the segment joins the solid curve) and the first insolvent one
-   * (where it equals that value minus the uncovered shortfall). Null everywhere else, so a
-   * `connectNulls` line draws one segment and nothing more.
+   * The dashed segment, non-null at exactly two points: the last funded month (where it equals
+   * `nominalCents`, so the segment joins the solid curve) and the first insolvent one (the
+   * shortfall-adjusted endpoint). Null everywhere else, so a `connectNulls` line draws one
+   * segment and nothing more.
    */
-  readonly unfundedCents: number | null;
+  readonly shortfallAdjustedCents: number | null;
 }
 
 /** Where the plan fails, in chart terms. Null for a plan that survives the horizon. */
 export interface RunsOutMarker {
   /** Axis position of the FIRST INSOLVENT month — where the marker goes. */
   readonly x: number;
-  /** The illustrative y the dashed segment lands on. NOT a net worth. */
-  readonly illustrativeCents: number;
-  /** The month's dropped, unfundable shortfall — the tooltip's "Unfunded obligations". */
+  /**
+   * `preShortfallNetWorthNominalCents − uncoveredCents`: the counterfactual y the dashed
+   * segment lands on, assuming the unfunded obligations were paid with additional debt. NOT a
+   * net worth, and not carried forward.
+   */
+  readonly shortfallAdjustedCents: number;
+  /** The month's dropped, unfundable shortfall — what the counterfactual assumes was borrowed. */
   readonly uncoveredCents: number;
 }
 
@@ -99,23 +115,24 @@ export function buildNetWorthChartData(series: ProjectionSeries): NetWorthChartD
     firstInsolvent && lastFundedNominalCents !== null
       ? {
           x: toAxisX(firstInsolvent.month),
-          // Subtraction, never addition: the shortfall is money the household owed and could
-          // not pay, so the illustrative point is strictly BELOW the last funded one whenever
-          // there is anything uncovered at all.
-          illustrativeCents: lastFundedNominalCents - firstInsolvent.uncoveredCents,
+          // Subtraction, never addition: paying the dropped obligations would have meant taking
+          // on that much more debt, so the counterfactual sits BELOW the balance sheet the month
+          // reached by not paying them.
+          shortfallAdjustedCents:
+            firstInsolvent.preShortfallNetWorthNominalCents - firstInsolvent.uncoveredCents,
           uncoveredCents: firstInsolvent.uncoveredCents,
         }
       : null;
 
   const points: NetWorthChartPoint[] = base.map((p) => ({
     ...p,
-    unfundedCents:
+    shortfallAdjustedCents:
       runsOut === null
         ? null
         : p.x === lastFundedX
           ? lastFundedNominalCents
           : p.x === runsOut.x
-            ? runsOut.illustrativeCents
+            ? runsOut.shortfallAdjustedCents
             : null,
   }));
 

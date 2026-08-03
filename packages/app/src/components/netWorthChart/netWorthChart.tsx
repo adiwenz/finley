@@ -17,15 +17,16 @@ import { buildNetWorthChartData, type RunsOutMarker } from "./netWorthChartData"
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
-const RED = "#9b2c2c"; // the unfunded drop — a failure, not a series
+const RED = "#9b2c2c"; // the shortfall-adjusted endpoint — a counterfactual, not a series
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 
 /**
- * The tooltip. Two jobs beyond formatting: it never shows the illustrative drop as if it were
- * a net worth, and on the insolvent month it names the hole for what it is — **unfunded
- * obligations**, money owed and not paid. Reporting that as credit-card debt would be a lie in
- * the other direction: the cards are at their limits precisely because they could NOT absorb it.
+ * The tooltip. Two jobs beyond formatting: it never shows the counterfactual endpoint as if it
+ * were a reported net worth, and on the insolvent month it states the assumption that produced
+ * it — that the unfunded obligations were met with additional debt. Presenting the shortfall as
+ * credit-card debt would be a lie in the other direction: the cards are at their limits
+ * precisely because they could NOT absorb it.
  */
 function NetWorthTooltip({
   active,
@@ -62,10 +63,17 @@ function NetWorthTooltip({
       {real !== null && <Row label="Real (today's dollars)" cents={Number(real)} />}
       {isRunsOut && (
         <>
-          <Row label="Unfunded obligations" cents={runsOut.uncoveredCents} color={RED} strong />
-          <div style={{ marginTop: 6, color: AXIS, maxWidth: 240 }}>
-            Savings and credit are exhausted. Net worth is no longer reported from here — this
-            month's spending was dropped rather than paid, so a balance sheet would flatter it.
+          <Row
+            label="Shortfall-adjusted net worth"
+            cents={runsOut.shortfallAdjustedCents}
+            color={RED}
+            strong
+          />
+          <Row label="Unfunded obligations" cents={runsOut.uncoveredCents} color={AXIS} />
+          <div style={{ marginTop: 6, color: AXIS, maxWidth: 250 }}>
+            Savings and credit are exhausted, so net worth is no longer reported from here. The
+            dashed figure assumes the unfunded obligations were paid with additional debt — an
+            illustration of where this month would have landed, not a projected balance.
           </div>
         </>
       )}
@@ -170,13 +178,14 @@ export function NetWorthChart({
             dot={false}
             isAnimationActive={false}
           />
-          {/* The illustrative drop. Dashed and separately coloured so it cannot be mistaken for
-              a projected balance, and `connectNulls` joins its only two non-null points. */}
+          {/* The counterfactual segment. Dashed and separately coloured so it cannot be mistaken
+              for a projected balance, and `connectNulls` joins its only two non-null points —
+              there is no third, so nothing continues past the failure. */}
           {runsOut !== null && (
             <Line
               type="linear"
-              dataKey="unfundedCents"
-              name="Unfunded obligations"
+              dataKey="shortfallAdjustedCents"
+              name="Shortfall-adjusted net worth"
               stroke={RED}
               strokeWidth={2}
               strokeDasharray="5 4"
@@ -189,7 +198,7 @@ export function NetWorthChart({
           {runsOut !== null && (
             <ReferenceDot
               x={runsOut.x}
-              y={runsOut.illustrativeCents}
+              y={runsOut.shortfallAdjustedCents}
               r={4}
               fill={RED}
               stroke="none"

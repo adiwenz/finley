@@ -124,6 +124,25 @@ describe("the first insolvent month, on the reported home-purchase repro", () =>
     expect(series.opening.uncoveredCents).toBe(0);
   });
 
+  it("preserves the pre-shortfall balance sheet total as a reporting-only value", () => {
+    // Withheld from `netWorthNominalCents`, still stated here — and it is exactly the sum of the
+    // month's own balances, i.e. the figure the chart used to plot.
+    const sum =
+      Object.values(insolvent.accountBalancesCents).reduce((a, b) => a + b, 0) +
+      Object.values(insolvent.propertyValuesCents).reduce((a, b) => a + b, 0) -
+      Object.values(insolvent.liabilityBalancesCents).reduce((a, b) => a + b, 0);
+    expect(insolvent.preShortfallNetWorthNominalCents).toBe(sum);
+    expect(insolvent.netWorthNominalCents).toBeNull();
+
+    // In a fully funded month the two agree — the split only opens up where spending was dropped.
+    for (const m of series.months.slice(0, insolventIndex)) {
+      expect(m.preShortfallNetWorthNominalCents).toBe(m.netWorthNominalCents);
+    }
+    expect(series.opening.preShortfallNetWorthNominalCents).toBe(
+      series.opening.netWorthNominalCents,
+    );
+  });
+
   it("leaves accounts and liabilities untouched — only the aggregate is withheld", () => {
     // The contaminated month still emits its full balance sheet for diagnosis; what changed is
     // that the engine no longer sums it into a headline figure.
@@ -184,28 +203,69 @@ describe("what the chart draws for that run", () => {
     expect(data.runsOut?.x).toBeLessThanOrEqual(data.xMax);
   });
 
-  it("drops the dashed segment by the uncovered shortfall, and never upward", () => {
+  it("lands the dashed endpoint on preShortfallNetWorth − uncovered", () => {
     const runsOut = data.runsOut!;
     expect(runsOut.uncoveredCents).toBe(insolvent.uncoveredCents);
-    expect(runsOut.illustrativeCents).toBe(
-      (data.lastFundedNominalCents as number) - insolvent.uncoveredCents,
+    expect(runsOut.shortfallAdjustedCents).toBe(
+      insolvent.preShortfallNetWorthNominalCents - insolvent.uncoveredCents,
     );
-    expect(runsOut.illustrativeCents).toBeLessThan(data.lastFundedNominalCents as number);
-
-    // Exactly two non-null points, so `connectNulls` draws one segment: the join at the last
-    // funded month, and the illustrative landing at the failure.
-    const dashed = data.points.filter((p) => p.unfundedCents !== null);
-    expect(dashed.map((p) => p.x)).toEqual([data.lastFundedX, runsOut.x]);
-    expect(dashed[0].unfundedCents).toBe(data.lastFundedNominalCents);
-    expect(dashed[1].unfundedCents).toBe(runsOut.illustrativeCents);
+    // Below the last funded point, so the curve keeps falling into the failure.
+    expect(runsOut.shortfallAdjustedCents).toBeLessThan(data.lastFundedNominalCents as number);
   });
 
-  it("keeps the illustrative value out of the reported series", () => {
-    // It is drawn, never stated: no month's net worth equals it, and nothing feeds it back.
-    const illustrative = data.runsOut!.illustrativeCents;
-    for (const m of series.months) {
-      if (m.netWorthNominalCents !== null) expect(m.netWorthNominalCents).not.toBe(illustrative);
+  it("continues the trajectory rather than flattening", () => {
+    // The regression that made this endpoint necessary: anchoring on the last funded point
+    // instead of the pre-shortfall balance sheet drew a near-horizontal dash, because the first
+    // insolvent month's `uncoveredCents` is a threshold-crossing residual, not the size of the
+    // ongoing failure. The dashed drop must be of the same order as the curve's own slope.
+    const drawn = data.points.filter((p) => p.nominalCents !== null);
+    const priorSlope =
+      (drawn[drawn.length - 1].nominalCents as number) -
+      (drawn[drawn.length - 2].nominalCents as number);
+    const dashedDrop = data.runsOut!.shortfallAdjustedCents - (data.lastFundedNominalCents as number);
+    expect(priorSlope).toBeLessThan(0);
+    expect(dashedDrop).toBeLessThan(priorSlope / 2);
+  });
+
+  it("draws exactly one counterfactual point, and nothing after it", () => {
+    const runsOut = data.runsOut!;
+    // Two non-null values total, so `connectNulls` yields one segment: the join at the last
+    // funded month, and the single endpoint at the failure.
+    const dashed = data.points.filter((p) => p.shortfallAdjustedCents !== null);
+    expect(dashed).toHaveLength(2);
+    expect(dashed.map((p) => p.x)).toEqual([data.lastFundedX, runsOut.x]);
+    expect(dashed[0].shortfallAdjustedCents).toBe(data.lastFundedNominalCents);
+    expect(dashed[1].shortfallAdjustedCents).toBe(runsOut.shortfallAdjustedCents);
+    // No later counterfactual: every month past the failure contributes nothing to draw, even
+    // though the engine keeps reporting an uncovered shortfall for each of them.
+    const laterInsolvent = series.months.filter((m) => m.isInsolvent && m.month > insolvent.month);
+    expect(laterInsolvent.length).toBeGreaterThan(0);
+    expect(laterInsolvent.every((m) => m.uncoveredCents > 0)).toBe(true);
+    for (const p of data.points) {
+      if (p.x > runsOut.x) expect(p.shortfallAdjustedCents).toBeNull();
     }
+  });
+
+  it("keeps the counterfactual out of the reported series", () => {
+    // Drawn, never stated: no month's net worth equals it, and nothing feeds it back.
+    const adjusted = data.runsOut!.shortfallAdjustedCents;
+    for (const m of series.months) {
+      if (m.netWorthNominalCents !== null) expect(m.netWorthNominalCents).not.toBe(adjusted);
+    }
+  });
+
+  it("leaves liabilities capped and untouched by the counterfactual", () => {
+    // The assumed borrowing is arithmetic on a reported figure, not a transaction: the card is
+    // no higher than it was, and no higher than its limit.
+    expect(insolvent.liabilityBalancesCents[SYNTHETIC_CARD_ID]).toBeLessThanOrEqual(
+      SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
+    );
+    const rebuilt = buildNetWorthChartData(repro());
+    expect(rebuilt.runsOut?.shortfallAdjustedCents).toBe(data.runsOut?.shortfallAdjustedCents);
+    // Building the chart data cannot have moved anything: the balance sheet is identical.
+    const rebuiltInsolvent = repro().months.find((m) => m.isInsolvent)!;
+    expect(rebuiltInsolvent.liabilityBalancesCents).toEqual(insolvent.liabilityBalancesCents);
+    expect(rebuiltInsolvent.accountBalancesCents).toEqual(insolvent.accountBalancesCents);
   });
 });
 
@@ -214,10 +274,10 @@ describe("a plan that survives its horizon", () => {
   if (!built.ok) throw new Error("default input rejected");
   const data = buildNetWorthChartData(built.projection.run(usJurisdiction).series);
 
-  it("draws no runs-out marker and no dashed drop", () => {
+  it("draws no runs-out marker and no dashed segment", () => {
     // The default plan does eventually fail; this only asserts the shape holds when it doesn't.
     if (data.runsOut === null) {
-      expect(data.points.every((p) => p.unfundedCents === null)).toBe(true);
+      expect(data.points.every((p) => p.shortfallAdjustedCents === null)).toBe(true);
     } else {
       expect(data.runsOut.uncoveredCents).toBeGreaterThan(0);
     }

@@ -53,6 +53,13 @@ export interface MonthSnapshotParams {
  * dropped the rest, so its balance sheet keeps the passive gains (appreciation, amortization)
  * while losing most of the cost — a net worth that ticks UP in the month the plan fails. The
  * last honest figure is the last FULLY FUNDED month.
+ *
+ * The contaminated sum is still emitted, as
+ * {@link ProjectionMonth.preShortfallNetWorthNominalCents} — the balance sheet BEFORE the dropped
+ * obligations are accounted for. It is reporting-only: nothing in the simulator reads it back,
+ * and it is not a net worth. It exists so a consumer can state the counterfactual "where this
+ * month would have landed had the shortfall been borrowed" without re-deriving a total the
+ * engine already computed.
  */
 export function snapshotMonth(state: SimState, params: MonthSnapshotParams): ProjectionMonth {
   const {
@@ -98,6 +105,9 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     netWorthRealCents: netWorthTerminated
       ? null
       : toRealCents(nominalNetWorth, annualInflationRate, elapsedMonths),
+    // The same sum, never withheld. Identical to `netWorthNominalCents` for a fully funded
+    // month; only where spending was dropped do the two part company.
+    preShortfallNetWorthNominalCents: nominalNetWorth,
     accountBalancesCents,
     accountBasisCents,
     liabilityBalancesCents,

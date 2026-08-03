@@ -47,6 +47,21 @@ export interface ProjectionMonth {
   readonly month: number;
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
+  /**
+   * The month's raw balance-sheet total — Σassets + Σproperties − Σliabilities — stated even
+   * where {@link netWorthNominalCents} is withheld. **This is not a net worth.** In an insolvent
+   * month it is the figure the plan reached only by DROPPING obligations it could not fund, so
+   * it flatters the household by roughly the spending that went unpaid.
+   *
+   * Reporting-only, and deliberately inert: nothing in the simulator reads it back, no later
+   * month is derived from it. It exists so a consumer can state the counterfactual
+   * `preShortfallNetWorthNominalCents − uncoveredCents` — where the month would have landed had
+   * the dropped obligations been met with equivalent additional borrowing — without re-summing a
+   * balance sheet the engine already totalled.
+   *
+   * Equal to {@link netWorthNominalCents} in every fully funded month.
+   */
+  readonly preShortfallNetWorthNominalCents: Cents;
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   /**
    * Post-tax principal, keyed like `accountBalancesCents`; untaxed gain is
