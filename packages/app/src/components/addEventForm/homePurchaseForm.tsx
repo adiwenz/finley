@@ -12,7 +12,7 @@ import {
 } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
-import { MonthSelect, type FormProps } from "./formControls";
+import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
 /** Opening values — a plausible starter purchase to edit, not a recommendation. */
@@ -47,24 +47,39 @@ export function HomePurchaseForm({
   onAdd,
   result,
   funding,
+  edit,
 }: FormProps & {
   /** The live run — the DTI advisory is read off it, never re-simulated here. */
   result: ProjectionResult;
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
+  edit?: EditProps<EventOf<"HomePurchaseEvent">>;
 }) {
   // Accounts that can actually pay at `month`, largest-first (drain-order friendly); the
   // pool itself also lists accounts holding nothing, which the picker greys out.
   const fundableAt = (month: number) =>
     funding.sourcesAt(month).filter((s) => s.balanceCents > 0).map((s) => s.id);
 
-  const [draft, setDraft] = useState<HomePurchaseDraft>(() => ({
-    month: defaultMonth,
-    ...DEFAULTS,
-    // The largest account that can pay that month: a visible, editable default rather than
-    // a hardcoded one.
-    sourceIds: fundableAt(defaultMonth).slice(0, 1),
-  }));
+  const [draft, setDraft] = useState<HomePurchaseDraft>(() =>
+    edit
+      ? {
+          month: edit.event.month,
+          price: edit.event.purchasePriceCents / 100,
+          down: edit.event.downPaymentCents / 100,
+          // The mortgage's own fields — a `buyHome` revision cannot reach them, so they are not
+          // shown; carried at their defaults only to satisfy the draft shape.
+          apr: DEFAULTS.apr,
+          termYears: DEFAULTS.termYears,
+          sourceIds: edit.event.downPaymentSourceIds,
+        }
+      : {
+          month: defaultMonth,
+          ...DEFAULTS,
+          // The largest account that can pay that month: a visible, editable default rather than
+          // a hardcoded one.
+          sourceIds: fundableAt(defaultMonth).slice(0, 1),
+        },
+  );
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   /**
@@ -104,6 +119,21 @@ export function HomePurchaseForm({
   });
 
   function submit() {
+    // A `buyHome` revision touches only the property's own fields — the financing mortgage is a
+    // separate `LoanEvent`, revised through its own timeline marker — so its rate and term never
+    // ride here. Price, down payment, drain order, and month do.
+    if (edit) {
+      edit.onRevise((p) =>
+        p.reviseTransaction(edit.event.id, {
+          type: "buyHome",
+          month: draft.month,
+          purchasePriceCents: dollarsToCents(draft.price),
+          downPaymentCents: dollarsToCents(draft.down),
+          downPaymentSourceIds: sourceIds,
+        }),
+      );
+      return;
+    }
     // `buyHome` mints the property id and derives `<propertyId>-mortgage` from it.
     onAdd((p) =>
       p.buyHome({
@@ -124,8 +154,14 @@ export function HomePurchaseForm({
       <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={setMonth} />
       <NumInput label="Price" value={draft.price} onChange={(price) => patch({ price })} prefix="$" step={10000} />
       <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
-      <NumInput label="Mortgage APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
-      <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
+      {/* The mortgage's rate and term are the financing loan's, not the property's — an edit
+          leaves them to that loan's own marker and shows neither here. */}
+      {!edit && (
+        <>
+          <NumInput label="Mortgage APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
+          <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
+        </>
+      )}
       <FundingSourcePicker
         pool={pool}
         selected={sourceIds}
@@ -135,9 +171,11 @@ export function HomePurchaseForm({
         label="Down payment paid from"
       />
       <button className="btn primary" onClick={submit}>
-        Add event
+        {edit ? "Save changes" : "Add event"}
       </button>
-      {dti.exceeded && <DtiWarning dti={dti} />}
+      {/* The advisory reads the mortgage payment, so it belongs to authoring — an edit here
+          cannot change the financing that drives it. */}
+      {!edit && dti.exceeded && <DtiWarning dti={dti} />}
       <p className="hint">
         Accounts are drained in the order you pick them, and only cash and
         investment accounts can pay — retirement savings and credit can’t.

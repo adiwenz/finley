@@ -179,6 +179,23 @@ describe("App — event ledger", () => {
     expect(screen.getByLabelText("What happened?")).toBeTruthy();
   });
 
+  it("edits a loan's amount from the timeline, revising it in place", () => {
+    render(<App />);
+
+    // The default add is a $2,000 student loan; its marker reads the balance.
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    // The kind is fixed on a revision, so the edit form drops the type picker.
+    expect(screen.queryByRole("combobox", { name: /Type/i })).toBeNull();
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "5000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    expect(screen.getByText("student loan, $5,000")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
+  });
+
   it("closes the edit surface on Cancel without revising", () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText("What happened?"), {

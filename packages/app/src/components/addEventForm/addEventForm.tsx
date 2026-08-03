@@ -82,6 +82,8 @@ export function AddEventForm({
     return (
       <EditEventForm
         editing={editing}
+        result={result}
+        funding={funding}
         defaultMonth={defaultMonth}
         horizonMonths={horizonMonths}
         onAdd={onAdd}

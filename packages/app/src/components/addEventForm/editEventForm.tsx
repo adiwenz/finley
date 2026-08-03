@@ -1,26 +1,47 @@
 /** Edit an existing timeline event — the add forms, opened pre-filled and committed as a revision. */
 
-import type { LifeEvent, Projection } from "@finley/engine";
+import type {
+  LifeEvent,
+  Projection,
+  FundingLookup,
+  ProjectionResult,
+} from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
+import { ChildForm } from "./childForm";
+import { LoanForm } from "./loanForm";
+import { HomePurchaseForm } from "./homePurchaseForm";
+import { SeparationForm } from "./separationForm";
 import type { EditingEvent } from "./addEventForm";
 import styles from "./addEventForm.module.css";
 
 /**
  * The event types this surface can reopen for editing — exactly those with an authoring form.
  * The timeline reads it to decide which markers get an Edit control, so a type absent here (a
- * debt payoff, authored elsewhere) never opens a form that cannot render it.
+ * debt payoff, authored elsewhere) never opens a form that cannot render it. Keep this in step
+ * with the `form()` switch below: a type in one but not the other either opens a `null` form or
+ * hides an Edit control that would work.
  */
 export const EDITABLE_EVENT_TYPES: ReadonlySet<LifeEvent["type"]> = new Set<LifeEvent["type"]>([
   "RelationshipEvent",
+  "ChildEvent",
+  "LoanEvent",
+  "HomePurchaseEvent",
+  "SeparationEvent",
 ]);
 
 export function EditEventForm({
   editing,
+  result,
+  funding,
   defaultMonth,
   horizonMonths,
   onAdd,
 }: {
   editing: EditingEvent;
+  /** Read by the forms that need it — the separation form for the household, the home form's DTI. */
+  result: ProjectionResult;
+  /** The home form's down-payment source picker. */
+  funding: FundingLookup;
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
@@ -34,6 +55,16 @@ export function EditEventForm({
     switch (event.type) {
       case "RelationshipEvent":
         return <RelationshipForm {...formProps} edit={{ event, onRevise }} />;
+      case "ChildEvent":
+        return <ChildForm {...formProps} edit={{ event, onRevise }} />;
+      case "LoanEvent":
+        return <LoanForm {...formProps} edit={{ event, onRevise }} />;
+      case "HomePurchaseEvent":
+        return (
+          <HomePurchaseForm {...formProps} result={result} funding={funding} edit={{ event, onRevise }} />
+        );
+      case "SeparationEvent":
+        return <SeparationForm {...formProps} result={result} edit={{ event, onRevise }} />;
       default:
         // Unreachable: the timeline only offers Edit for {@link EDITABLE_EVENT_TYPES}.
         return null;

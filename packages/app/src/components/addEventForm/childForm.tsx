@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { MonthSelect, type FormProps } from "./formControls";
+import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 
 // Illustrative default annual cost of raising a child (today's dollars).
 const DEFAULT_ANNUAL_COST = 15_000;
@@ -15,17 +15,36 @@ interface ChildDraft {
   readonly annualCost: number;
 }
 
-export function ChildForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
-  const [draft, setDraft] = useState<ChildDraft>(() => ({
-    month: defaultMonth,
-    name: "",
-    annualCost: DEFAULT_ANNUAL_COST,
-  }));
+export function ChildForm({
+  defaultMonth,
+  horizonMonths,
+  onAdd,
+  edit,
+}: FormProps & { edit?: EditProps<EventOf<"ChildEvent">> }) {
+  const [draft, setDraft] = useState<ChildDraft>(() =>
+    edit
+      ? { month: edit.event.month, name: edit.event.childName, annualCost: edit.event.annualCostCents / 100 }
+      : { month: defaultMonth, name: "", annualCost: DEFAULT_ANNUAL_COST },
+  );
   const patch = (fields: Partial<ChildDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   function submit() {
     // `birthMonth` defaults to `month` in the facade, so recording a birth as it happens needs
     // only the month; the child id (and its 18-year cost stream) is minted by `haveChild`.
+    if (edit) {
+      // Keep the form's invariant that birth is the recorded month — the same coupling the add
+      // path makes — so moving the child moves its cost stream too.
+      edit.onRevise((p) =>
+        p.reviseTransaction(edit.event.id, {
+          type: "haveChild",
+          month: draft.month,
+          name: draft.name || "Child",
+          birthMonth: draft.month,
+          annualCostCents: dollarsToCents(draft.annualCost),
+        }),
+      );
+      return;
+    }
     onAdd((p) =>
       p.haveChild({
         month: draft.month,
@@ -59,7 +78,7 @@ export function ChildForm({ defaultMonth, horizonMonths, onAdd }: FormProps) {
       />
       <p className="hint">Adds a child-cost expense for 18 years from birth.</p>
       <button className="btn primary" onClick={submit}>
-        Add event
+        {edit ? "Save changes" : "Add event"}
       </button>
     </>
   );
