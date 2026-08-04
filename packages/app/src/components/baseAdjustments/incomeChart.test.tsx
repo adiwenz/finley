@@ -70,6 +70,26 @@ describe("IncomeChart — accessible nonvisual representation", () => {
     expect(screen.queryByRole("table")!.textContent).not.toContain("{");
   });
 
+  it("hides the table by WRAPPING it, so it cannot stretch the page it is invisible on", () => {
+    // A `<table>` sizes to its content: `width: 1px` / `height: 1px` are minimums it ignores,
+    // and neither `overflow: hidden` nor the legacy `clip` stops it laying out at full size.
+    // With the off-screen style on the table itself, this one — a row per interesting moment
+    // in a lifetime projection — laid out ~103,000px tall and, being absolutely positioned,
+    // left the document scrolling a hundred thousand pixels past the last visible thing.
+    renderChart();
+    const table = screen.getByTestId("income-a11y-table");
+    expect(table.style.position).toBe(""); // the hiding is NOT on the table
+    const wrapper = table.parentElement!;
+    expect(wrapper.tagName).toBe("DIV");
+    expect(wrapper.style.position).toBe("absolute");
+    expect(wrapper.style.overflow).toBe("hidden");
+    // A div honours all of these; the table inside keeps its own display and semantics.
+    expect(wrapper.style.width).toBe("1px");
+    expect(wrapper.style.height).toBe("1px");
+    // Still reachable to a screen reader — hidden is not `display: none` or `hidden`.
+    expect(screen.getByRole("table")).toBe(table);
+  });
+
   it("scopes each moment heading to its own tbody as a rowgroup, not a colgroup", () => {
     renderChart();
     // Each moment heading spans two columns but groups the ROWS beneath it within its own

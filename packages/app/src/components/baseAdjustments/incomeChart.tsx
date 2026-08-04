@@ -42,6 +42,17 @@ const MARKER = "#1f3a2e"; // the selected-month rule
  * (which would drop it from a screen reader too). Carries the nonvisual data table Recharts'
  * SVG can't be.
  */
+/**
+ * Off-screen for sight, present for a screen reader — and it must go on a WRAPPER, never on the
+ * thing being hidden, when that thing is a `<table>`.
+ *
+ * A table sizes to its content: `width`/`height` are minimums it ignores, and neither `overflow`
+ * nor the legacy `clip` keeps it from laying out at full size. The a11y table below runs to a row
+ * per interesting moment in a lifetime projection — some 4,900 rows — so hidden-on-the-table
+ * left an absolutely-positioned 103,000px element on the page and the document scrolled a
+ * hundred thousand pixels past the last thing anyone could see. A `<div>` honours all three
+ * properties, and the table inside keeps its own display and its semantics intact.
+ */
 const VISUALLY_HIDDEN: CSSProperties = {
   position: "absolute",
   width: 1,
@@ -50,6 +61,7 @@ const VISUALLY_HIDDEN: CSSProperties = {
   margin: -1,
   overflow: "hidden",
   clip: "rect(0 0 0 0)",
+  clipPath: "inset(50%)",
   whiteSpace: "nowrap",
   border: 0,
 };
@@ -130,36 +142,38 @@ export function IncomeChart({
           spending-need change, the first savings withdrawal, insolvency — each headed by when
           and why. The visual chart below is marked role="img" with a one-line label, so a
           screen reader gets the gist from the image and the detail here. */}
-      <table style={VISUALLY_HIDDEN} data-testid="income-a11y-table">
-        <caption>{model.accessibleSummary}</caption>
-        {model.accessibleMoments.map((moment, i) => (
-          <tbody key={i}>
-            <tr>
-              <th scope="rowgroup" colSpan={2}>
-                {moment.label} — {moment.reason}
-              </th>
-            </tr>
-            <tr>
-              <th scope="col">Source</th>
-              <th scope="col">Monthly amount</th>
-            </tr>
-            {moment.sources.map((row, j) => (
-              <tr key={`${row.label}-${j}`}>
-                <th scope="row">{row.label}</th>
-                <td>{row.amount}</td>
+      <div style={VISUALLY_HIDDEN}>
+        <table data-testid="income-a11y-table">
+          <caption>{model.accessibleSummary}</caption>
+          {model.accessibleMoments.map((moment, i) => (
+            <tbody key={i}>
+              <tr>
+                <th scope="rowgroup" colSpan={2}>
+                  {moment.label} — {moment.reason}
+                </th>
               </tr>
-            ))}
-            <tr>
-              <th scope="row">Total cash available</th>
-              <td>{moment.totalCashFlow}</td>
-            </tr>
-            <tr>
-              <th scope="row">Spending need</th>
-              <td>{moment.spendingNeed}</td>
-            </tr>
-          </tbody>
-        ))}
-      </table>
+              <tr>
+                <th scope="col">Source</th>
+                <th scope="col">Monthly amount</th>
+              </tr>
+              {moment.sources.map((row, j) => (
+                <tr key={`${row.label}-${j}`}>
+                  <th scope="row">{row.label}</th>
+                  <td>{row.amount}</td>
+                </tr>
+              ))}
+              <tr>
+                <th scope="row">Total cash available</th>
+                <td>{moment.totalCashFlow}</td>
+              </tr>
+              <tr>
+                <th scope="row">Spending need</th>
+                <td>{moment.spendingNeed}</td>
+              </tr>
+            </tbody>
+          ))}
+        </table>
+      </div>
 
       {/* Test-only mirrors, `hidden` so they stay out of the accessibility tree (the table
           above is the screen-reader representation); jsdom reads their textContent regardless.
