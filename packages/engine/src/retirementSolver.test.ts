@@ -16,6 +16,7 @@ import {
   continuedJobsAt,
 } from "./retirementSolver";
 import { continuationJobIdOf } from "./householdJob";
+import { compilePersonPriorEarnings } from "./compilePerson";
 import { scenarioOf, withLedger } from "./scenario";
 import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
@@ -807,6 +808,35 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     expect(continued.jobId).toBe("career");
     expect(continued.overlaps).toEqual([]);
+  });
+
+  it("does not backfill the covered-earnings record for years already behind us", () => {
+    // The seam worth being explicit about. Continuing a completed job says it never ended, and
+    // the FORWARD wages it now pays do accrue toward the benefit exactly as real work would —
+    // they are months the scenario actually simulates. But the pre-"now" record is read off each
+    // job's AUTHORED end and nothing else, so the five years between a bar job left at 30 and an
+    // Alex who is 40 stay a gap in the earnings history.
+    //
+    // Deliberate, and the one place the counterfactual is not carried all the way through: a
+    // benefit is priced off what a person actually earned, and a hypothesis about the future may
+    // not rewrite that. So the record shows a gap the scenario's own story denies.
+    const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
+    const person = (continuationJobId: string | null): Person => ({
+      id: "p1",
+      name: samplePlan.name,
+      birthYear: BIRTH_YEAR,
+      benefitClaimingAge: 67,
+      jobs,
+      continuationJobId,
+    });
+
+    // A function of the authored jobs alone — no boundary reaches it, whatever was selected.
+    const chosen = compilePersonPriorEarnings(person("bar"), START_YEAR);
+    expect(compilePersonPriorEarnings(person(null), START_YEAR)).toEqual(chosen);
+    // And the gap is real: the bar job's authored years are recorded, the years after are not.
+    expect(chosen[at(29)]).toBeGreaterThan(0);
+    expect(chosen[at(30)]).toBeUndefined();
+    expect(chosen[at(34)]).toBeUndefined();
   });
 
   it("changes NOTHING about the authored projection — the selection is about hypotheticals only", () => {

@@ -3154,3 +3154,98 @@ describe("Projection root — previewing a stop-working age", () => {
     });
   });
 });
+
+/**
+ * `setContinuationJob` as the npm API surface — the one write that names a PERSON rather than a
+ * job, and therefore the one that has to settle a plane from a person id instead of taking the
+ * caller's word for it.
+ *
+ * The state function underneath is covered in `authoring/jobs.test.ts`. What is asserted here is
+ * the contract a package consumer actually holds: one method for both planes, reads that answer
+ * with what was written, and refusals that leave the handle usable.
+ */
+describe("Projection.setContinuationJob — naming the job a what-if may continue", () => {
+  it("writes the primary's answer where the primary's data lives — the plan", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const jobId = p.addJob("p1" as PersonId, plainJob);
+
+    // Unset until asked: "never chosen" is a state the engine resolves on read, so authoring a
+    // job must not quietly settle it.
+    expect(p.plan.continuationJobId).toBeUndefined();
+
+    p.setContinuationJob("p1" as PersonId, jobId);
+    expect(p.plan.continuationJobId).toBe(jobId);
+
+    p.setContinuationJob("p1" as PersonId, null);
+    expect(p.plan.continuationJobId).toBeNull();
+  });
+
+  it("writes a partner's answer to their RelationshipEvent, through the same method", () => {
+    // A caller names the person and nothing else. Which plane their record lives on is the
+    // facade's to know — the same thing that makes `addJob` and `addPartnerJob` two methods is
+    // deliberately NOT surfaced here, because this writes the person, not the job.
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerJobId = p.addPartnerJob(partnerId, plainJob);
+
+    p.setContinuationJob(partnerId, partnerJobId);
+    expect(partnerEvent(p).person.continuationJobId).toBe(partnerJobId);
+    // Nothing landed on the plan: two members, two independent answers.
+    expect(p.plan.continuationJobId).toBeUndefined();
+
+    p.setContinuationJob(partnerId, null);
+    expect(partnerEvent(p).person.continuationJobId).toBeNull();
+  });
+
+  it("refuses a job that is not this member's, and refuses an id that is nobody's", () => {
+    // Both would otherwise resolve to `null` on read — losing the choice in silence — or extend
+    // one member's employment when a different member worked longer.
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const planJobId = p.addJob("p1" as PersonId, plainJob);
+
+    expect(() => p.setContinuationJob(partnerId, planJobId)).toThrow(/belongs to/);
+    expect(() => p.setContinuationJob("p1" as PersonId, "job-99")).toThrow(
+      /no job "job-99" in this household/,
+    );
+    expect(() => p.setContinuationJob("nobody" as PersonId, null)).toThrow(
+      /no member "nobody" in this household/,
+    );
+    // A refused write leaves the handle exactly as it was, and still usable.
+    expect(p.plan.continuationJobId).toBeUndefined();
+    p.setContinuationJob("p1" as PersonId, planJobId);
+    expect(p.plan.continuationJobId).toBe(planJobId);
+  });
+
+  it("clears the answer when the job it names is removed, on either plane", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const planJobId = p.addJob("p1" as PersonId, plainJob);
+    const partnerJobId = p.addPartnerJob(partnerId, plainJob);
+    p.setContinuationJob("p1" as PersonId, planJobId);
+    p.setContinuationJob(partnerId, partnerJobId);
+
+    p.removeJob(planJobId);
+    expect(p.plan.continuationJobId).toBeNull();
+    // The partner's is untouched by the primary's removal.
+    expect(partnerEvent(p).person.continuationJobId).toBe(partnerJobId);
+
+    p.removePartnerJob(partnerJobId);
+    expect(partnerEvent(p).person.continuationJobId).toBeNull();
+  });
+
+  it("survives a state round-trip on both planes", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const planJobId = p.addJob("p1" as PersonId, plainJob);
+    p.setContinuationJob("p1" as PersonId, planJobId);
+    p.setContinuationJob(partnerId, null);
+
+    const restored = Projection.fromState(
+      JSON.parse(JSON.stringify(p.toState())),
+      nullJurisdiction,
+    );
+    expect(restored.plan.continuationJobId).toBe(planJobId);
+    expect(partnerEvent(restored).person.continuationJobId).toBeNull();
+  });
+});
