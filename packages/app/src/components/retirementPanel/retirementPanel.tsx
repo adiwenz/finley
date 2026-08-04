@@ -69,6 +69,26 @@ export function RetirementPanel({
         </p>
       )}
 
+      {/* The premise behind the age, stated whenever there is one. An answer that only works
+          because somebody keeps working past what they wrote down is a different answer, and the
+          household may never have opened the picker that chose which job that was — so the
+          assumption is disclosed rather than left for them to find. Nothing is said when the age
+          needed no extra work, because then nothing was assumed. */}
+      {view.headlineAge !== null && view.continuedJobs.length > 0 && (
+        <p className="hint" role="status">
+          You could stop working at {view.headlineAge} if you continued{" "}
+          {view.continuedJobs.map((c, i) => (
+            <span key={c.jobId}>
+              {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
+              <strong>{c.jobLabel}</strong>
+              {/* Whose job it is only matters once there is more than one earner to confuse. */}
+              {view.continuedJobs.length > 1 ? ` (${c.ownerName})` : ""}
+            </span>
+          ))}{" "}
+          through age {view.headlineAge}.
+        </p>
+      )}
+
       <p className="hint">
         Your target is age {budget.retirementAge}:{" "}
         {view.target.feasible ? (

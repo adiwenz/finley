@@ -147,6 +147,27 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(renderWithView(feasible, true)).toContain("checked");
   });
 
+  it("discloses the job a headline age assumed would continue", () => {
+    // The age alone states a conclusion and hides its premise, and the household may never have
+    // opened the picker that chose the job — so the assumption is named beside the answer.
+    const html = renderWithView({
+      ...feasible,
+      continuedJobs: [
+        { jobId: "job-1", jobLabel: "Software Engineer", ownerId: "p1", ownerName: "Alex" },
+      ],
+    });
+    expect(html).toContain("Software Engineer");
+    expect(html).toContain(`You could stop working at ${feasible.headlineAge}`);
+    expect(html).toContain(`through age ${feasible.headlineAge}`);
+  });
+
+  it("says nothing about continued work when the age assumed none", () => {
+    // Silence is the correct disclosure for a household that can already stop inside its own
+    // authored plan: there is no assumption to surface, and inventing a reassuring sentence
+    // would be its own kind of claim.
+    expect(renderWithView({ ...feasible, continuedJobs: [] })).not.toContain("if you continued");
+  });
+
   it("hides the toggle when no retirement age is feasible — there is nothing to preview", () => {
     // A null headline means even working to life expectancy never survives; capping work earlier
     // could only be worse, so offering to preview it would be offering an empty hypothetical.

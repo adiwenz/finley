@@ -466,6 +466,38 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     for (const id of before) expect(after).toContain(id);
   });
 
+  it("names the continuation job by ref, since a document holds no ids", () => {
+    // The one plan field that points INTO a collection, so it is authored the way every other
+    // pointer in a document is. Applied after the jobs are bound, which is what lets it name a
+    // job declared anywhere in the list rather than only one already applied.
+    const twoJobs = [
+      { ref: ref("early"), startYear: 2026, endYear: 2050,
+        salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 } },
+      { ref: ref("late"), startYear: 2050, endYear: 2060,
+        salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 } },
+    ];
+    const p = built({ ...base, jobs: twoJobs, continuationJobRef: ref("early") });
+    expect(p.plan.continuationJobId).toBe(p.plan.jobs[0].id);
+
+    // `null` states None outright; omitting it leaves the choice unmade, which the engine
+    // resolves on read. The two must not collapse into each other.
+    expect(built({ ...base, jobs: twoJobs, continuationJobRef: null }).plan.continuationJobId).toBeNull();
+    expect(built({ ...base, jobs: twoJobs }).plan.continuationJobId).toBeUndefined();
+  });
+
+  it("refuses a continuation job naming a ref no job declares", () => {
+    // Reported as a refusal like any other bad ref, rather than thrown as an internal error:
+    // it is a fact about the document, and the document's author is the one who can fix it.
+    const result = Projection.fromInput(
+      { ...base, jobs: [{ ref: ref("only"), startYear: 2026, endYear: 2060,
+        salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 } }],
+        continuationJobRef: ref("typo") },
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.reason).toMatch(/typo/);
+  });
+
   it("round-trips through fromState, which is where ids that already exist belong", () => {
     // The division of labour: `fromInput` authors and mints; `fromState` (fed by `toJSON`)
     // restores state whose ids were issued earlier and floors the counter past them. A round

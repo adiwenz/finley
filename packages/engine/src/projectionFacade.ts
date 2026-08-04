@@ -110,6 +110,7 @@ import {
   removeProjectionJobIncomeOverride,
   removeProjectionJobPayChange,
   removeProjectionPartnerJob,
+  setProjectionContinuationJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
   setProjectionJobCurrentMonthlyIncome,
@@ -297,10 +298,27 @@ export class Projection {
     );
   }
 
-  /** Drop a partner-owned job. See {@link removeJob}: there is nothing to guard. */
+  /** Drop a partner-owned job. See {@link removeJob}. */
   removePartnerJob(jobId: string): void {
     this.write((state) =>
       removeProjectionPartnerJob(state, this.validationJurisdiction, jobId),
+    );
+  }
+
+  /**
+   * **Name the one job a what-if may run past its authored end for this member**, or `null` for
+   * none — see {@link import("./person").Person.continuationJobId}.
+   *
+   * One method for both planes, unlike the job writes either side of it, because this names a
+   * PERSON: whichever plane their record lives on is settled from their id, exactly as it is for
+   * every other fact about them. The job must be one of theirs.
+   *
+   * Changes no projection. It is read only when the retirement solver tests an age past what the
+   * household authored, and by the stop-working preview that shows the same hypothesis.
+   */
+  setContinuationJob(personId: PersonId, jobId: string | null): void {
+    this.write((state) =>
+      setProjectionContinuationJob(state, this.validationJurisdiction, personId, jobId),
     );
   }
 

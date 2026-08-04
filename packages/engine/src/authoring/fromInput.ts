@@ -60,7 +60,7 @@ export function interpretScenarioInput(
   // id-bearing collections start EMPTY and are filled by the minting methods below. That is what
   // makes this an authoring path: the state it starts from holds no id at all, so restoration has
   // nothing to floor past and the counter opens at 1.
-  const { jobs, goals, budgetLines, events: _events, ...scalars } = input;
+  const { jobs, goals, budgetLines, events: _events, continuationJobRef, ...scalars } = input;
   // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
   // checked here and reported like any other thing wrong with the input.
@@ -116,6 +116,15 @@ export function interpretScenarioInput(
           ? { kind: "account", accountId: idFor(target.accountRef), taxTreatment: target.taxTreatment }
           : { kind: "expense" };
       bind(ref, projection.addBudgetLine({ ...rest, target: resolvedTarget }));
+    }
+    // Last on this plane: it names a job, so every job entry has to be bound first. Omitted
+    // stays omitted — "not chosen" is a state the engine resolves on read, and writing anything
+    // here would settle it.
+    if (continuationJobRef !== undefined) {
+      projection.setContinuationJob(
+        idFor(PRIMARY_PERSON_REF),
+        continuationJobRef === null ? null : idFor(continuationJobRef),
+      );
     }
   } catch (e) {
     return refusal(messageOf(e));

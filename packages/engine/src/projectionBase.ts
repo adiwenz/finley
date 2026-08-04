@@ -236,6 +236,10 @@ export function createProjectionBase(
     birthYear,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
+    // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
+    // `undefined` included: "not chosen yet" is a state `continuationJobIdOf` resolves on read,
+    // so defaulting it here would freeze an answer the plan never gave.
+    continuationJobId: budget.continuationJobId,
   };
 
   // Expenses are authored solely as budget lines — there is no separate general-expense

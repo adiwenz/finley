@@ -7,7 +7,7 @@
  * surface out of the sim core.
  */
 
-import type { Job, PersonId } from "./job";
+import type { Job, JobId, PersonId } from "./job";
 
 export interface Person {
   readonly id: PersonId;
@@ -16,4 +16,31 @@ export interface Person {
   /** An input, never solved for. */
   readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
+  /**
+   * **If this person needed to work longer than they authored, which job would continue?**
+   *
+   * The single job a what-if may run past its authored end — read by the retirement solver and
+   * the stop-working preview, and by nothing else. The authored projection pays every job over
+   * exactly the years it was given, whatever this holds. See
+   * {@link import("./householdJob").continuationJobIdOf}, which is the only thing that reads it.
+   *
+   * Three states, all distinct:
+   *
+   *  - a {@link JobId} — that job, and only that job, is carried to a later candidate age.
+   *  - `null` — **None.** They have said there is no work to continue, so a candidate age past
+   *    their authored plan simply has no income behind it. The solver reports that age as
+   *    unreachable rather than inventing employment nobody claimed.
+   *  - `undefined` — **not chosen yet**, the state every person starts in and stays in until
+   *    someone picks. Resolved on read by the initialization rule in `continuationJobIdOf`,
+   *    never by writing a value here. Kept distinct from `null` because "I have not been asked"
+   *    and "I answered none" are different facts, and collapsing them would either make every
+   *    unasked household unable to work a day longer than it wrote down, or make an explicit
+   *    "none" evaporate the next time anything re-derived a default.
+   *
+   * **Never inferred from the dates, and never re-derived once set.** A job's end year says
+   * nothing about whether the work could go on, and adding, removing or reordering jobs does not
+   * revisit a choice already made — see the initialization rule for the one moment dates are
+   * consulted at all.
+   */
+  readonly continuationJobId?: JobId | null;
 }

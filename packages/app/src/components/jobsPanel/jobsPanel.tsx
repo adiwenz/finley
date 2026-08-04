@@ -53,12 +53,14 @@ import {
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
 import { addJob, editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
+import { START_YEAR } from "../../config";
 import { commitJobWrites } from "../../jobWrites";
 import type { Transact } from "../../hooks/useProjection";
 import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
 import { JobCard, type JobCardAuthoring } from "./jobCard";
+import { ContinuationPicker } from "./continuationPicker";
 import { type PayChangeDraft } from "./payChangeForm";
 import styles from "./jobsPanel.module.css";
 
@@ -143,6 +145,14 @@ export function JobsPanel({
   // owner — whose birth year every age on it reads against — and the label the app names that
   // job by (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
+  /**
+   * What this panel calls each job, keyed by id — so the continuation picker offers the same
+   * names the cards above it carry. Owner-unqualified: the question already names whose it is.
+   */
+  const titleOf = useMemo(
+    () => new Map(rows.map((r) => [r.job.id, r.title])),
+    [rows],
+  );
   const [authoring, setAuthoring] = useState<Authoring>(null);
   /**
    * What the last edit dropped on its way through, in the user's words. An edit that moves a
@@ -324,6 +334,21 @@ export function JobsPanel({
             );
           })}
         </ul>
+        {/* One question per earner, under the jobs it is asked about. Only for a member who has
+            any: there is nothing to continue otherwise, and an empty picker would ask a question
+            with one possible answer. */}
+        {owners
+          .filter((o) => o.jobs.length > 0)
+          .map((owner) => (
+            <ContinuationPicker
+              key={owner.id}
+              owner={owner}
+              jobTitleOf={(job) => titleOf.get(job.id) ?? job.id}
+              nowYear={START_YEAR}
+              severalOwners={severalOwners}
+              onChange={(jobId) => transact((p) => p.setContinuationJob(owner.id, jobId))}
+            />
+          ))}
         </>
       )}
 

@@ -14,6 +14,7 @@ import {
   evaluateFullRetirementAtAge,
   solveRetirement,
 } from "./retirementSolver";
+import { continuationJobIdOf } from "./householdJob";
 import { scenarioOf, withLedger } from "./scenario";
 import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
@@ -201,7 +202,6 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       ownerId: "p2",
       startYear: START_YEAR,
       endYear: SAMPLE_START_YEAR + 40, // a long-running job unless a test says otherwise
-      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -416,7 +416,6 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       ownerId: "p2",
       startYear: START_YEAR,
       endYear: SAMPLE_START_YEAR + 40,
-      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -569,45 +568,50 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
 });
 
 /**
- * The per-job {@link Job.retirementStrategy} policy: which job — if any — a what-if carries
- * past the authored plan when it asks about a LATER stop-working age.
+ * **Which job — if any — a what-if carries past the authored plan when it asks about a LATER
+ * stop-working age.**
  *
- * The rule these pin replaced one that read the answer off the dates: the chronologically last
- * job was extended, whatever it was. That is wrong in the one shape it most needs to be right
- * for — a term contract taken at the end of a career — and the dates cannot tell the two apart,
- * because every job has an end date and none of them says whether the work could continue.
+ * One selection per person ({@link Person.continuationJobId}), and these pin what selecting
+ * something does, what selecting `null` does, and what happens before anybody has selected at
+ * all. The rule they replaced read the answer off the dates — the chronologically last job was
+ * extended, whatever it was — which is wrong in the one shape it most needs to be right for, a
+ * term contract taken at the end of a career, and the dates cannot tell the two apart because
+ * every job has an end date and none of them says whether the work could continue.
  *
  * Asserted on the primary's plan jobs, so each case is a plan and a candidate age with nothing
- * else moving. The mock jurisdiction pays no benefit, so every cent of income in these series
- * is a wage and `job:<id>` names which job paid it.
+ * else moving. The mock jurisdiction pays no benefit, so every cent of income in these series is
+ * a wage and `job:<id>` names which job paid it.
  */
-describe("retirementSolver — which job a later candidate age extends", () => {
+describe("retirementSolver — which job a later candidate age continues", () => {
   const BIRTH_YEAR = PRIMARY_BIRTH_YEAR;
   const at = (age: number) => BIRTH_YEAR + age;
   /** Months from "now" to the primary's `age` — the fixture's current age is `samplePlan`'s. */
   const monthAt = (age: number) => (age - samplePlan.currentAge) * 12;
 
-  function job(
-    id: string,
-    startAge: number,
-    endAge: number,
-    retirementStrategy: Job["retirementStrategy"],
-  ): Job {
+  function job(id: string, startAge: number, endAge: number, annualDollars = 90_000): Job {
     return {
       id,
       ownerId: "p1",
       startYear: at(startAge),
       endYear: at(endAge),
-      retirementStrategy,
       salary: {
-        startingSalaryCents: dollarsToCents(90_000),
-        currentSalaryCents: dollarsToCents(90_000),
+        startingSalaryCents: dollarsToCents(annualDollars),
+        currentSalaryCents: dollarsToCents(annualDollars),
         realGrowthPct: 0,
       },
     };
   }
 
-  const planWithJobs = (jobs: readonly Job[]): Plan => ({ ...samplePlan, jobs });
+  /**
+   * A plan holding `jobs`, with the primary's selection stated. Omitting `continuationJobId`
+   * leaves it UNSTATED — the "nobody has chosen yet" case the initialization rule answers — which
+   * is a different plan from one stating `null`, so the two are never spelled the same way here.
+   */
+  const planWithJobs = (jobs: readonly Job[], continuationJobId?: string | null): Plan => ({
+    ...samplePlan,
+    jobs,
+    ...(continuationJobId !== undefined ? { continuationJobId } : {}),
+  });
 
   /** What `job:<id>` paid the household in `month`, or 0 when it paid nothing at all. */
   function wageAt(series: ProjectionSeries, id: string, month: number): number {
@@ -621,14 +625,32 @@ describe("retirementSolver — which job a later candidate age extends", () => {
   const incomeAt = (series: ProjectionSeries, month: number): number =>
     series.months[month]?.flows?.totalIncomeCents ?? 0;
 
-  it("carries an EARLIER extendable job past a later fixed one — the dates do not decide", () => {
-    // The spec case, and the whole reason the policy is authored: a career (35–65, extendable)
-    // followed by a two-year contract (65–70, fixed). Asked whether they could stop at 71, the
-    // plan must carry the CAREER on — not run the contract past a term that was never theirs
-    // to extend, and not conclude they simply keep working because something ends last.
-    const career = job("career", 35, 65, "extendable");
-    const contract = job("contract", 65, 70, "fixed");
-    const series = projectFullRetirement(scenarioOf(planWithJobs([career, contract])), 71, CTX);
+  /**
+   * A career and the token job that follows it, read against `baristaPlan`'s OWN clock — the
+   * two cases below that turn on a solved age use that fixture's tighter budget, and its
+   * `currentAge` differs from `samplePlan`'s.
+   */
+  const baristaJobs: readonly Job[] = (() => {
+    const birthYear = START_YEAR - baristaPlan.currentAge;
+    const atBarista = (age: number) => birthYear + age;
+    const shift = (j: Job, startAge: number, endAge: number): Job => ({
+      ...j,
+      startYear: atBarista(startAge),
+      endYear: atBarista(endAge),
+    });
+    return [
+      shift(job("career", 35, 65, 90_000), 35, 65),
+      shift(job("token", 65, 70, 12_000), 65, 70),
+    ];
+  })();
+
+  it("continues the SELECTED job, not the one that happens to end last", () => {
+    // The spec case, and the whole reason the selection is authored: a career (35–65) followed
+    // by a two-year contract (65–70). Asked whether they could stop at 71 with the CAREER named,
+    // the plan carries the career on — it does not run the contract past a term that was never
+    // theirs to extend, and does not conclude they keep working because something ends last.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "career")), 71, CTX);
 
     // The contract stops dead on its own term, though it is the later-ending job.
     expect(wageAt(series, "contract", monthAt(69))).toBeGreaterThan(0);
@@ -639,25 +661,43 @@ describe("retirementSolver — which job a later candidate age extends", () => {
     expect(wageAt(series, "career", monthAt(71))).toBe(0);
   });
 
-  it("picks the LATEST extendable job when there is more than one", () => {
-    // Two continuable jobs. The one they were still in at the end of the authored plan is the
-    // one "keep working" means, so the earlier one keeps its own end and is not resurrected.
-    const early = job("early", 30, 50, "extendable");
-    const late = job("late", 50, 65, "extendable");
-    const series = projectFullRetirement(scenarioOf(planWithJobs([early, late])), 72, CTX);
+  it("continues the later job instead when THAT is what was selected", () => {
+    // The same two jobs and the same candidate age, one field different — so the assertion is
+    // that the selection decides, and not that some other property of these jobs does.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "contract")), 71, CTX);
 
-    expect(wageAt(series, "early", monthAt(49))).toBeGreaterThan(0);
-    expect(wageAt(series, "early", monthAt(50))).toBe(0); // its own end, not extended
-    expect(wageAt(series, "late", monthAt(71))).toBeGreaterThan(0);
-    expect(wageAt(series, "late", monthAt(72))).toBe(0);
+    expect(wageAt(series, "career", monthAt(65))).toBe(0);
+    expect(wageAt(series, "contract", monthAt(70))).toBeGreaterThan(0);
+    expect(wageAt(series, "contract", monthAt(71))).toBe(0);
   });
 
-  it("invents NO income when the household marked nothing extendable", () => {
-    // Every job fixed: there is no honest way to answer "could you work to 75?", so the plan
-    // pays nothing past the work it was actually given rather than conjuring a wage. The
+  it("answers a different retirement AGE depending on which job was selected", () => {
+    // The two previous cases in the terms the user actually meets. An earlier well-paid career
+    // and a later token job, on `baristaPlan`'s budget — tight enough that the difference
+    // between continuing $90k of work and continuing $12k of it decides the whole answer.
+    //
+    // Nothing but the selection differs between these three runs, and they are the same three
+    // jobs the date-based rule would have chosen the LAST of every time.
+    const onChoice = (chosen: string | null) =>
+      earliestFullRetirementAge(
+        scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: chosen }),
+        CTX,
+      );
+
+    expect(onChoice("career")).toBe(74);
+    // The token job cannot fund the gap however long it runs, so there is no age at all — the
+    // honest answer, and the one the household gets by naming it.
+    expect(onChoice("token")).toBeNull();
+    expect(onChoice(null)).toBeNull();
+  });
+
+  it("invents NO income when the household selected None", () => {
+    // `null` is an answer, not an absence: there is no honest way to fund working to 75, so the
+    // plan pays nothing past the work it was actually given rather than conjuring a wage. The
     // candidate then fails on its own merits, which is the right answer and not a bug.
     const series = projectFullRetirement(
-      scenarioOf(planWithJobs([job("only", 35, 65, "fixed")])),
+      scenarioOf(planWithJobs([job("only", 35, 65)], null)),
       75,
       CTX,
     );
@@ -667,11 +707,11 @@ describe("retirementSolver — which job a later candidate age extends", () => {
     expect(incomeAt(series, monthAt(70))).toBe(0);
   });
 
-  it("never extends a fixed job, even as the household's only one", () => {
+  it("never continues an unselected job, even as the household's only one", () => {
     // The narrowest statement of the rule, held apart from the case above: it is not that a
-    // household with no extendable job gets no answer, it is that THIS JOB is never run on.
+    // household answering None gets no answer, it is that a job nobody named is never run on.
     const series = projectFullRetirement(
-      scenarioOf(planWithJobs([job("term", 35, 60, "fixed")])),
+      scenarioOf(planWithJobs([job("term", 35, 60)], null)),
       80,
       CTX,
     );
@@ -679,13 +719,12 @@ describe("retirementSolver — which job a later candidate age extends", () => {
   });
 
   it("still truncates normally at a candidate age INSIDE the authored plan", () => {
-    // Below the plan's own end nothing is extended, whatever its policy — the question is only
-    // how much of the authored plan survives. In particular an extendable job that ends EARLY
-    // is not pulled forward to cover a later fixed job's years: asked about stopping at 68,
+    // Below the plan's own end nothing is extended, whoever was selected — the question is only
+    // how much of the authored plan survives. In particular the selected job, which here ends
+    // EARLY, is not pulled forward to cover the later job's years: asked about stopping at 68,
     // the career does not come back for the three years the contract was going to fill.
-    const career = job("career", 35, 65, "extendable");
-    const contract = job("contract", 65, 70, "fixed");
-    const series = projectFullRetirement(scenarioOf(planWithJobs([career, contract])), 68, CTX);
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "career")), 68, CTX);
 
     expect(wageAt(series, "career", monthAt(64))).toBeGreaterThan(0);
     expect(wageAt(series, "career", monthAt(65))).toBe(0); // its own end, not stretched to 68
@@ -693,66 +732,163 @@ describe("retirementSolver — which job a later candidate age extends", () => {
     expect(wageAt(series, "contract", monthAt(68))).toBe(0); // cut at the candidate
   });
 
-  it("carries BOTH of two extendable jobs authored to end in the same year", () => {
-    // The documented tie rule, unchanged from the behaviour concurrent jobs already had.
-    // Ending together is the household saying they hold both; picking one would invent a
-    // preference they never stated and understate the very months the model calls "working".
-    const a = job("a", 30, 65, "extendable");
-    const b = job("b", 40, 65, "extendable");
-    const series = projectFullRetirement(scenarioOf(planWithJobs([a, b])), 70, CTX);
+  it("lets a COMPLETED job be the selection", () => {
+    // A job already behind them is a legitimate answer — "I could go back to that" is knowledge
+    // the plan does not have — so it is honoured rather than quietly ignored. Note what carrying
+    // one means in a model where a job is one continuous span: it resumes from now, alongside
+    // whatever else is running, not only for the years past the authored plan. That is the same
+    // overlap the spec's own career-plus-contract example produces, made more visible.
+    const jobs = [job("past", 25, 30, 20_000), job("current", 35, 65)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "past")), 70, CTX);
 
-    for (const id of ["a", "b"]) {
-      expect(wageAt(series, id, monthAt(69))).toBeGreaterThan(0);
-      expect(wageAt(series, id, monthAt(70))).toBe(0);
-    }
+    expect(wageAt(series, "past", monthAt(69))).toBeGreaterThan(0);
+    expect(wageAt(series, "past", monthAt(70))).toBe(0);
+    // And the unselected job still stops exactly where it was authored to.
+    expect(wageAt(series, "current", monthAt(65))).toBe(0);
   });
 
-  it("changes NOTHING about the authored projection — the policy is about hypotheticals only", () => {
-    // The load-bearing guarantee: `retirementStrategy` is read by the solver and the preview,
-    // and by nothing that draws the user's own plan. Flipping it must leave the ordinary
-    // projection byte-for-byte identical, extendable and fixed alike.
-    const asFixed = scenarioOf(planWithJobs([job("only", 35, 65, "fixed")]));
-    const asExtendable = scenarioOf(planWithJobs([job("only", 35, 65, "extendable")]));
+  it("changes NOTHING about the authored projection — the selection is about hypotheticals only", () => {
+    // The load-bearing guarantee: the selection is read by the solver and the preview, and by
+    // nothing that draws the user's own plan. Moving it, or clearing it, must leave the ordinary
+    // projection byte-for-byte identical.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
     const monthsOf = (s: Scenario) =>
       JSON.stringify(projectScenario(s, CTX).months.map((m) => m.flows?.totalIncomeCents ?? 0));
+    const onCareer = monthsOf(scenarioOf(planWithJobs(jobs, "career")));
 
-    expect(monthsOf(asFixed)).toBe(monthsOf(asExtendable));
-    // And the authored plan really does end where it was authored to, under either policy.
-    const series = projectScenario(asExtendable, CTX);
-    expect(wageAt(series, "only", monthAt(64))).toBeGreaterThan(0);
-    expect(wageAt(series, "only", monthAt(65))).toBe(0);
+    expect(monthsOf(scenarioOf(planWithJobs(jobs, "contract")))).toBe(onCareer);
+    expect(monthsOf(scenarioOf(planWithJobs(jobs, null)))).toBe(onCareer);
+    expect(monthsOf(scenarioOf(planWithJobs(jobs)))).toBe(onCareer);
+    // And the authored plan really does end where each job was authored to end.
+    const series = projectScenario(scenarioOf(planWithJobs(jobs, "career")), CTX);
+    expect(wageAt(series, "career", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(65))).toBe(0);
   });
 
-  it("applies the same policy to the stop-working PREVIEW, not just the search", () => {
-    // The preview exists to show what the solved age means, so it must resolve jobs the same
-    // way the solve did. Run through `Projection.runAtStopWorkingAge` — the app's own entry
-    // point — rather than the solver's internals, so the two cannot drift apart unnoticed.
-    const career = job("career", 35, 65, "extendable");
-    const contract = job("contract", 65, 70, "fixed");
-    const p = Projection.fromState(stateOf(planWithJobs([career, contract])), mockJurisdiction());
+  it("applies the same selection to the stop-working PREVIEW, not just the search", () => {
+    // The preview exists to show what the solved age means, so it must resolve jobs the same way
+    // the solve did. Run through `Projection.runAtStopWorkingAge` — the app's own entry point —
+    // rather than the solver's internals, so the two cannot drift apart unnoticed.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const p = Projection.fromState(stateOf(planWithJobs(jobs, "career")), mockJurisdiction());
     const previewed = p.runAtStopWorkingAge(mockJurisdiction(), 71).series;
 
     expect(wageAt(previewed, "career", monthAt(70))).toBeGreaterThan(0);
     expect(wageAt(previewed, "contract", monthAt(70))).toBe(0);
   });
 
-  it("survives a state round-trip, for both values", () => {
-    // The field is authored, so it is persisted — a plan reloaded from disk must solve the way
-    // it solved before it was saved. Asserted on the restored jobs AND on the answer, since a
-    // field that round-trips into a shape nothing reads would pass the first check alone.
-    const jobs = [job("career", 35, 65, "extendable"), job("contract", 65, 70, "fixed")];
-    const original = Projection.fromState(stateOf(planWithJobs(jobs)), mockJurisdiction());
-    const restored = Projection.fromState(
-      JSON.parse(JSON.stringify(original.toState())),
-      mockJurisdiction(),
+  it("discloses the job a solved age assumed would continue", () => {
+    // The age alone hides its premise: 74 means something different if it quietly took nine
+    // years of work past the plan. `continuedJobs` is read back off the resolution the run
+    // performed, so it names a job exactly when the projection really did pay it for years the
+    // plan does not contain.
+    const solved = solveRetirement(
+      scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: "career" }),
+      CTX,
     );
-
-    expect(restored.plan.jobs.map((j) => [j.id, j.retirementStrategy])).toEqual([
-      ["career", "extendable"],
-      ["contract", "fixed"],
+    expect(solved.fullRetirementAge).toBe(74);
+    expect(solved.continuedJobs).toEqual([
+      { jobId: "career", jobLabel: "career", ownerId: "p1", ownerName: baristaPlan.name },
     ]);
-    const previewed = restored.runAtStopWorkingAge(mockJurisdiction(), 71).series;
-    expect(wageAt(previewed, "career", monthAt(70))).toBeGreaterThan(0);
-    expect(wageAt(previewed, "contract", monthAt(70))).toBe(0);
+
+    // Nothing to disclose where nothing was assumed: this household can stop inside its own
+    // authored plan, so its age rests on no extra work at all.
+    const unaided = solveRetirement(scenarioOf(planWithJobs([job("career", 35, 65)])), CTX);
+    expect(unaided.fullRetirementAge).not.toBeNull();
+    expect(unaided.continuedJobs).toEqual([]);
+  });
+
+  it("survives a state round-trip, for a named job and for None alike", () => {
+    // The selection is authored, so it is persisted — a plan reloaded from disk must solve the
+    // way it solved before it was saved. Asserted on the restored field AND on the answer, since
+    // a field that round-trips into a shape nothing reads would pass the first check alone.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const reload = (plan: Plan) =>
+      Projection.fromState(
+        JSON.parse(JSON.stringify(Projection.fromState(stateOf(plan), mockJurisdiction()).toState())),
+        mockJurisdiction(),
+      );
+
+    const onContract = reload(planWithJobs(jobs, "contract"));
+    expect(onContract.plan.continuationJobId).toBe("contract");
+    const previewed = onContract.runAtStopWorkingAge(mockJurisdiction(), 71).series;
+    expect(wageAt(previewed, "contract", monthAt(70))).toBeGreaterThan(0);
+    expect(wageAt(previewed, "career", monthAt(70))).toBe(0);
+
+    // `null` and "never chosen" are different states, and neither may decay into the other.
+    expect(reload(planWithJobs(jobs, null)).plan.continuationJobId).toBeNull();
+    expect(reload(planWithJobs(jobs)).plan.continuationJobId).toBeUndefined();
+  });
+});
+
+/**
+ * The rule that answers "which job would continue?" for a household that has never been asked —
+ * see {@link continuationJobIdOf}. It runs on READ, so it follows the jobs a person holds today
+ * rather than freezing an answer at the moment their plan was created (for the primary, before a
+ * single job existed), and it never displaces a choice already made.
+ *
+ * Pinned directly on the rule rather than through a projection: every case here is about which
+ * id comes out, and routing that through a simulation would test the wiring instead.
+ */
+describe("continuationJobIdOf — what a household that never chose gets", () => {
+  const NOW = 2000;
+  const job = (id: string, startYear: number, endYear: number): Job => ({
+    id,
+    ownerId: "p1",
+    startYear,
+    endYear,
+    salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 },
+  });
+  const person = (jobs: readonly Job[], continuationJobId?: string | null): Person => ({
+    id: "p1",
+    name: "A",
+    birthYear: 1960,
+    benefitClaimingAge: 67,
+    jobs,
+    ...(continuationJobId !== undefined ? { continuationJobId } : {}),
+  });
+
+  it("picks the job they are working NOW", () => {
+    const jobs = [job("past", 1980, 1990), job("current", 1995, 2020), job("later", 2020, 2030)];
+    expect(continuationJobIdOf(person(jobs), NOW)).toBe("current");
+  });
+
+  it("picks the earliest job still to START when none is running yet", () => {
+    const jobs = [job("soon", 2005, 2030), job("later", 2010, 2040)];
+    expect(continuationJobIdOf(person(jobs), NOW)).toBe("soon");
+  });
+
+  it("picks nothing when every job is behind them", () => {
+    // Re-entering finished employment is not something to assume on a person's behalf. Those
+    // jobs stay selectable; they are simply never chosen for them.
+    expect(continuationJobIdOf(person([job("past", 1980, 1990)]), NOW)).toBeNull();
+    expect(continuationJobIdOf(person([]), NOW)).toBeNull();
+  });
+
+  it("resolves several concurrent jobs to the latest-ending one, deterministically", () => {
+    // Arbitrary between equals, which is exactly why it is stated: the job they would still be
+    // in once the others finish. An exact tie falls to the first authored.
+    const jobs = [job("short", 1995, 2010), job("long", 1998, 2025)];
+    expect(continuationJobIdOf(person(jobs), NOW)).toBe("long");
+    expect(continuationJobIdOf(person([...jobs].reverse()), NOW)).toBe("long");
+    const tied = [job("first", 1995, 2020), job("second", 1998, 2020)];
+    expect(continuationJobIdOf(person(tied), NOW)).toBe("first");
+  });
+
+  it("never revisits a choice already made — including None", () => {
+    // The stability guarantee the picker depends on. Adding a job that WOULD have won the
+    // initialization rule changes nothing, because the rule does not run once someone has
+    // answered.
+    const current = job("current", 1995, 2020);
+    expect(continuationJobIdOf(person([current], "current"), NOW)).toBe("current");
+    const withNewer = person([current, job("newer", 1998, 2030)], "current");
+    expect(continuationJobIdOf(withNewer, NOW)).toBe("current");
+    expect(continuationJobIdOf(person([current, job("newer", 1998, 2030)], null), NOW)).toBeNull();
+  });
+
+  it("reads a selection whose job is gone as None, never as an unbounded extension", () => {
+    // The authoring path clears the selection with the job it named, so this only catches a
+    // state restored from outside — where a dangling id must not become licence to work forever.
+    expect(continuationJobIdOf(person([job("current", 1995, 2020)], "deleted"), NOW)).toBeNull();
   });
 });

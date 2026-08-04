@@ -105,7 +105,6 @@ const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
             ownerId: "p-1",
             startYear: START_YEAR,
             endYear: START_YEAR - 40 + 65,
-            retirementStrategy: "extendable",
             salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
           },
         ],

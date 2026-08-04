@@ -24,14 +24,13 @@
 
 import type {
   Job,
+  JobId,
   JobIncomeOverrideInput,
   JobPatch,
   JobPayChangeInput,
   PersonId,
 } from "../job";
-import type { RetirementStrategy } from "../job";
 import {
-  DEFAULT_RETIREMENT_STRATEGY,
   deferralFractionOf,
   mapJob,
   monthlyIncomeCentsOf,
@@ -47,6 +46,7 @@ import {
   withPayChange,
 } from "../job";
 import { MAX_LIVED_AGE } from "../plan";
+import { PRIMARY_PERSON_ID } from "../projectionBase";
 import type { Jurisdiction } from "../jurisdiction";
 import type { Cents } from "../money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
@@ -59,32 +59,23 @@ import { replaceEvent } from "./eventWrite";
  * A job as a caller authors it — no `id` and no `ownerId`. The engine issues the id and the
  * plane it lands on stamps the owner.
  *
- * {@link Job.retirementStrategy} is the one field that may be left out, and the only field with
- * a default anywhere in the model. It is a policy about a hypothetical, not a fact about the
- * employment, so a caller stating what a job IS should not have to answer it — every other
- * authored field describes the job itself and has no defensible default. {@link
- * DEFAULT_RETIREMENT_STRATEGY} is applied here, at the boundary, so the resolved {@link Job} is
- * total and nothing downstream ever has to decide what an absent policy meant.
+ * Every remaining field is required, because every one of them is a fact about the employment
+ * with no defensible default. Whether the retirement solver may run this job on past its end is
+ * NOT among them: that is one choice per person, not per job — see
+ * {@link setProjectionContinuationJob}.
  */
-export type JobInput = Omit<Job, "id" | "ownerId" | "retirementStrategy"> & {
-  readonly retirementStrategy?: RetirementStrategy;
-};
+export type JobInput = Omit<Job, "id" | "ownerId">;
 
 /**
- * A {@link JobInput} resolved into the {@link Job} that gets stored — identity stamped, policy
- * defaulted. The single place both happen, so the two write paths (create and replace, on both
- * planes) cannot disagree about either.
+ * A {@link JobInput} resolved into the {@link Job} that gets stored — identity stamped. The
+ * single place it happens, so the two write paths (create and replace, on both planes) cannot
+ * disagree about it.
  *
  * Exported for `relationships.ts`, which mints a partner's jobs inline with the person they
  * belong to and so cannot route through the writes below.
  */
-export function resolveJobInput(job: JobInput, id: string, ownerId: PersonId): Job {
-  return {
-    ...job,
-    id,
-    ownerId,
-    retirementStrategy: job.retirementStrategy ?? DEFAULT_RETIREMENT_STRATEGY,
-  };
+export function resolveJobInput(job: JobInput, id: JobId, ownerId: PersonId): Job {
+  return { ...job, id, ownerId };
 }
 
 // Finding a job: the plane lookups every write and read below is built on.
@@ -198,10 +189,10 @@ function editJobAnywhere(
  * year is the plan's own `startYear − currentAge`; a partner carries theirs on the event they
  * joined on.
  *
- * Both ends are bounded, because both are authored: every job states when it ends.
- * {@link Job.retirementStrategy} is deliberately not consulted — an extendable job may be
- * carried past this bound by a solver candidate, but only inside a hypothesis that is never
- * stored, and capping the authored end is about what the user may write down.
+ * Both ends are bounded, because both are authored: every job states when it ends. Whether the
+ * job is its owner's continuation job is deliberately not consulted — it may be carried past
+ * this bound by a solver candidate, but only inside a hypothesis that is never stored, and
+ * capping the authored end is about what the user may write down.
  */
 function assertJobAgesWithin(state: ProjectionState, ownerId: PersonId, job: JobInput): void {
   const birthYear = birthYearOf(state, ownerId);
@@ -296,12 +287,86 @@ export function updateProjectionJob(
 }
 
 /**
- * Drop a plan-plane job. Unlike a goal there is nothing to guard: a job derives no account an
- * event can reference, so no ledger reference can dangle.
+ * Drop a plan-plane job.
+ *
+ * The one reference that CAN dangle is the owner's own continuation selection, so a job that was
+ * it takes the selection with it — see {@link clearedContinuation}. Nothing else points at a
+ * job: unlike a goal it derives no account an event could spend from.
  */
-export function removeProjectionJob(state: ProjectionState, id: string): ProjectionState {
+export function removeProjectionJob(state: ProjectionState, id: JobId): ProjectionState {
   const plan = planSite(state, "jobs", id);
-  return withStatePlan(state, { ...plan, jobs: plan.jobs.filter((j) => j.id !== id) });
+  return withStatePlan(state, {
+    ...plan,
+    jobs: plan.jobs.filter((j) => j.id !== id),
+    ...clearedContinuation(plan.continuationJobId, id),
+  });
+}
+
+/**
+ * The continuation-selection fields to spread over a person losing the job with `removedId` —
+ * empty unless that job WAS their selection, in which case an explicit `null`.
+ *
+ * `null` rather than back to `undefined`: this is the one moment a selection changes without
+ * the user choosing, and re-opening the initialization rule would silently hand them a different
+ * job to work on into retirement, on the strength of an edit they made about something else.
+ * `null` is the conservative reading — the work they named is gone, so no work is assumed — and
+ * it is visible in the picker as "None" rather than as some other job quietly selected.
+ */
+function clearedContinuation(
+  stated: JobId | null | undefined,
+  removedId: JobId,
+): { continuationJobId?: null } {
+  return stated === removedId ? { continuationJobId: null } : {};
+}
+
+/**
+ * Name the one job a what-if may run past its authored end for this person, or `null` for none —
+ * see {@link import("../person").Person.continuationJobId}.
+ *
+ * Plane-explicit in the same way creation is, and for the same reason: a person is on the plan
+ * plane or the ledger plane, and this writes a field on the person rather than on a job.
+ *
+ * The job must be one of THEIRS. A selection pointing at another member's job would either be
+ * read as `null` (silently losing the choice) or extend somebody else's employment when this
+ * person worked longer — so it is refused, naming both.
+ */
+export function setProjectionContinuationJob(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  personId: PersonId,
+  jobId: JobId | null,
+): ProjectionState {
+  if (jobId !== null) {
+    const job = householdJobs(state).find((j) => j.id === jobId);
+    if (job === undefined) {
+      throw new Error(
+        `Projection: cannot set a continuation job — no job "${jobId}" in this household`,
+      );
+    }
+    if (job.ownerId !== personId) {
+      throw new Error(
+        `Projection: cannot set job "${jobId}" as the continuation job for "${personId}" — it belongs to "${job.ownerId}"`,
+      );
+    }
+  }
+  if (personId === PRIMARY_PERSON_ID) {
+    // The primary holds no `Person` record — their standing data IS the plan — so their copy of
+    // this field lives there, exactly as their jobs do.
+    return withStatePlan(state, { ...state.scenario.plan, continuationJobId: jobId });
+  }
+  const partner = state.scenario.ledger.events.find(
+    (e): e is RelationshipEvent => e.type === "RelationshipEvent" && e.person.id === personId,
+  );
+  if (partner === undefined) {
+    throw new Error(
+      `Projection: cannot set a continuation job — no member "${personId}" in this household`,
+    );
+  }
+  const next: NewLifeEvent = {
+    ...partner,
+    person: { ...partner.person, continuationJobId: jobId },
+  };
+  return replaceEvent(state, jurisdiction, partner.id, next);
 }
 
 // Partner (ledger-plane) jobs. These exist so no caller ever has to rebuild `event.person.jobs`
@@ -365,19 +430,25 @@ export function updateProjectionPartnerJob(
   return editPartnerJob(state, jurisdiction, jobId, (j) => withJobPatch(j, patch));
 }
 
-/** Drop a partner-owned job. See {@link removeProjectionJob}: there is nothing to guard. */
+/**
+ * Drop a partner-owned job — see {@link removeProjectionJob}, including the continuation
+ * selection it takes with it when the removed job was the one named.
+ */
 export function removeProjectionPartnerJob(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
-  jobId: string,
+  jobId: JobId,
 ): ProjectionState {
   const { event } = partnerJobSite(state, jobId);
-  return withPartnerJobs(
-    state,
-    jurisdiction,
-    event,
-    event.person.jobs.filter((j) => j.id !== jobId),
-  );
+  const next: NewLifeEvent = {
+    ...event,
+    person: {
+      ...event.person,
+      jobs: event.person.jobs.filter((j) => j.id !== jobId),
+      ...clearedContinuation(event.person.continuationJobId, jobId),
+    },
+  };
+  return replaceEvent(state, jurisdiction, event.id, next);
 }
 
 // Adjustments to ONE job, addressed by its id alone — see the plane-agnostic note at the top.

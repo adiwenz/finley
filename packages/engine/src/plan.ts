@@ -90,6 +90,17 @@ export interface Plan {
    */
   readonly jobs: readonly Job[];
   /**
+   * The PRIMARY person's continuation job — see
+   * {@link import("./person").Person.continuationJobId}, which is where the field is documented
+   * and what `createProjectionBase` copies this onto.
+   *
+   * It lives on the plan rather than on a person because the primary holds no `Person` record:
+   * their standing data IS the plan, and `createProjectionBase` builds the `Person` the engine
+   * reads from it. A partner authors the same field on the `RelationshipEvent` that brought them
+   * in. Two planes, one field — the same split every one of the primary's jobs already lives on.
+   */
+  readonly continuationJobId?: string | null;
+  /**
    * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
    * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
    * household's general-expense series; contribution lines resolve via
@@ -179,14 +190,19 @@ export function ageAboveMaximum(
 export type GoalPatch = Partial<Omit<GoalPlan, "id">>;
 
 /**
- * The plan's standing **scalars** — every {@link Plan} field except the three collections.
+ * The plan's standing **scalars** — every {@link Plan} field except the three collections and
+ * the one reference into them.
  *
  * The exclusion is the point, not tidiness: each collection has operations that mint stable
  * ids and enforce rules (removing a goal is refused while an event still spends from its
  * fund account). A bare `Partial<Plan>` would let a caller drop every goal in a "scalar"
  * patch and walk straight past that guard.
+ *
+ * {@link Plan.continuationJobId} is out for the same reason from the other direction: it is not
+ * a scalar but a job id, and the write that sets it checks that the job exists and belongs to
+ * the person. A patch could otherwise point it at a partner's job, or at nothing at all.
  */
-export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines">>;
+export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines" | "continuationJobId">>;
 
 /**
  * Overwrite one goal's named fields, keeping its `id` — and thus its derived `fund-<id>`
@@ -237,7 +253,13 @@ export function withGoalReordered(
  * guard is not a guard.
  */
 export function withPlanPatch(plan: Plan, patch: PlanPatch): Plan {
-  const { goals: _g, jobs: _j, budgetLines: _b, ...scalars } = patch as Partial<Plan>;
+  const {
+    goals: _g,
+    jobs: _j,
+    budgetLines: _b,
+    continuationJobId: _c,
+    ...scalars
+  } = patch as Partial<Plan>;
   const next = { ...plan, ...scalars };
   const bad = ageAboveMaximum(next);
   if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it may not exceed ${bad.limit}`);

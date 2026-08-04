@@ -84,16 +84,16 @@ export type {
   JobPaySpan,
   JobPayPath,
   JobPayPathOptions,
+  JobId,
   PersonId,
-  RetirementStrategy,
   SalaryTrajectory,
 } from "./job";
 /**
- * What a job's {@link RetirementStrategy} is when its author did not state one — the app seeds
- * its own new-job form from this, so the default a user is shown is the default the engine
- * applies rather than a second copy of it.
+ * **Which job a person would continue if they had to work longer** — the selection rule itself,
+ * so an authoring surface offering the choice shows the same job the retirement solver would
+ * actually carry, including the one it resolves to before anybody has chosen.
  */
-export { DEFAULT_RETIREMENT_STRATEGY } from "./job";
+export { resolveContinuationJobId } from "./householdJob";
 /**
  * A job's authored pay across its whole span, read back without running a projection — what an
  * editor draws the salary it is editing from, and where the month-0 seam is a number.
@@ -148,7 +148,7 @@ export type {
 } from "./projection/resolvedFunding";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
-export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";

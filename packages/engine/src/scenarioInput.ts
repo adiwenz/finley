@@ -29,7 +29,7 @@
 
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import type { Plan, GoalPlan } from "./plan";
-import type { Job, JobDeferral, RetirementStrategy } from "./job";
+import type { Job, JobDeferral } from "./job";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import type { LiabilityKind } from "./liability";
 import type { OriginableLoanKind } from "./authoring/liabilities";
@@ -65,8 +65,12 @@ export function ref(name: string): Ref {
   return name as Ref;
 }
 
-/** Every {@link Plan} field except the three id-bearing collections, which become entries. */
-type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines">;
+/**
+ * Every {@link Plan} field except the three id-bearing collections, which become entries — and
+ * except {@link Plan.continuationJobId}, which is an id INTO one of them and so becomes
+ * {@link ScenarioInput.continuationJobRef}. A document has no ids to point with.
+ */
+type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines" | "continuationJobId">;
 
 /**
  * The `"account"` arm of a {@link import("./budgetLine").BudgetTarget}, but pointing at an
@@ -82,19 +86,11 @@ export type BudgetTargetInput =
  * job needs no ref at all; the `deferral`'s funded account is named by {@link Ref}, since a
  * deferral routes into an account the same way a contribution line does.
  */
-export interface JobEntry
-  extends Omit<Job, "id" | "ownerId" | "deferral" | "retirementStrategy"> {
+export interface JobEntry extends Omit<Job, "id" | "ownerId" | "deferral"> {
   readonly ref?: Ref;
   /** Defaults to the primary person. */
   readonly ownerRef?: Ref;
   readonly deferral?: Omit<JobDeferral, "fundAccountId"> & { readonly fundAccountRef?: Ref };
-  /**
-   * Optional, exactly as on {@link import("./authoring/jobs").JobInput} and defaulted by the
-   * same {@link import("./job").DEFAULT_RETIREMENT_STRATEGY} — this entry is that input with
-   * refs in place of ids, and seed data describing a job should no more have to answer a
-   * question about a hypothetical than an interactive author does.
-   */
-  readonly retirementStrategy?: RetirementStrategy;
 }
 
 /**
@@ -364,6 +360,17 @@ export interface ScenarioInput extends PlanScalars {
   readonly goals?: readonly GoalEntry[];
   readonly budgetLines?: readonly BudgetLineEntry[];
   readonly events?: readonly EventEntry[];
+  /**
+   * The PRIMARY person's continuation job — see
+   * {@link import("./person").Person.continuationJobId}. Names a `jobs` entry by its `ref`, so
+   * it is applied after every job is bound.
+   *
+   * Omitted is the ordinary case and means "not chosen", which the engine resolves on read;
+   * `null` states None outright. A partner's own selection is not authorable here — their jobs
+   * are minted inside the `marry` entry that creates them, so no ref exists to name one with —
+   * and is set afterwards through `Projection.setContinuationJob`.
+   */
+  readonly continuationJobRef?: Ref | null;
 }
 
 /**

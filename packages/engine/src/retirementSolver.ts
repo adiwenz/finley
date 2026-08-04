@@ -16,13 +16,14 @@ import { simulateHousehold } from "./projection/simulate";
 import { createProjectionBase } from "./projectionBase";
 import type { ProjectionContext } from "./projectionBase";
 import {
+  authoredJobEndYearExclusive,
   householdJobContexts,
   householdWageEndYearExclusive,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
 } from "./householdJob";
 import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
-import type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+import type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
 import type { Plan } from "./plan";
 import type { Household } from "./ledger/household";
@@ -262,14 +263,52 @@ export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): 
 }
 
 /**
+ * Which jobs a stop at `age` runs past their authored end — the disclosure behind an answer, and
+ * a pure read of the SAME resolution the run at that age performed.
+ *
+ * Compared against {@link authoredJobEndYearExclusive} rather than re-derived from each person's
+ * selection, so a job appears here exactly when the projection really did pay it for years the
+ * plan does not contain. A selection that changed nothing at this age — because the boundary
+ * falls inside the authored plan, so every job was merely capped — correctly reports nothing.
+ *
+ * No simulation: the household is interpreted and its jobs resolved, which is what a run does
+ * before any month is computed. Cheap enough to run once for the solved age.
+ */
+export function continuedJobsAt(
+  scenario: Scenario,
+  age: number,
+  ctx: ProjectionContext,
+): readonly ContinuedJob[] {
+  const stopWorking = stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear);
+  const base = createProjectionBase(scenario.plan, ctx, stopWorking);
+  const household = interpretLedger(scenario.ledger, base);
+  return resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
+    kind: "hypothetical",
+    stopWorking,
+  })
+    .filter((r) => r.endYearExclusive > authoredJobEndYearExclusive(r.job))
+    .map((r) => ({
+      jobId: r.job.id,
+      jobLabel: r.job.name ?? r.job.id,
+      ownerId: r.owner.id,
+      ownerName: r.owner.name,
+    }));
+}
+
+/**
  * The default retirement result off one {@link Scenario}: the retirement search
- * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop") plus the
- * planned work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on
- * its own").
+ * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop"), the planned
+ * work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its
+ * own"), and what the search had to assume to get there.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
+  const fullRetirementAge = earliestFullRetirementAge(scenario, ctx);
   return {
-    fullRetirementAge: earliestFullRetirementAge(scenario, ctx),
+    fullRetirementAge,
     plannedWorkStopAge: plannedWorkStopAge(scenario, ctx),
+    // Read at the age that was actually reported. With no feasible age there is no scenario to
+    // describe, so there is nothing to disclose either.
+    continuedJobs:
+      fullRetirementAge === null ? [] : continuedJobsAt(scenario, fullRetirementAge, ctx),
   };
 }

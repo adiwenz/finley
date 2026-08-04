@@ -22,6 +22,9 @@ import {
   householdJobs,
   jobMonthlyIncomeCentsOf,
   relationshipFor,
+  removeProjectionJob,
+  removeProjectionPartnerJob,
+  setProjectionContinuationJob,
   setProjectionJobMonthlyIncome,
 } from "./jobs";
 
@@ -124,5 +127,109 @@ describe("job authoring — the module owns which plane a job lives on", () => {
     expect(() =>
       setProjectionJobMonthlyIncome(state, nullJurisdiction, "job-99", 1),
     ).toThrow(/no job "job-99" in this household/);
+  });
+});
+
+/**
+ * The continuation selection is a field on a PERSON that names a job, which makes it the one
+ * place the two planes have to be crossed rather than kept apart: the write settles the plane
+ * from the person's id, and validates the job against the whole household.
+ */
+describe("job authoring — the continuation selection", () => {
+  it("writes the primary's to the plan and a partner's to their event", () => {
+    const { state, partnerId } = withPartner();
+    const { state: withPartnerJob, result: partnerJobId } = addProjectionPartnerJob(
+      state,
+      nullJurisdiction,
+      partnerId,
+      longRunningJob,
+    );
+    const { state: both, result: planJobId } = addProjectionJob(
+      withPartnerJob,
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+
+    const chosen = setProjectionContinuationJob(
+      setProjectionContinuationJob(both, nullJurisdiction, PRIMARY_PERSON_ID as PersonId, planJobId),
+      nullJurisdiction,
+      partnerId,
+      partnerJobId,
+    );
+
+    expect(chosen.scenario.plan.continuationJobId).toBe(planJobId);
+    expect(relationshipFor(chosen, partnerId).person.continuationJobId).toBe(partnerJobId);
+  });
+
+  it("refuses a job belonging to somebody else, naming both", () => {
+    // Left unchecked this would either lose the choice silently on read, or extend one member's
+    // employment when a different member worked longer. Neither is a thing to guess at.
+    const { state, partnerId } = withPartner();
+    const { state: withJob, result: planJobId } = addProjectionJob(
+      state,
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+
+    expect(() =>
+      setProjectionContinuationJob(withJob, nullJurisdiction, partnerId, planJobId),
+    ).toThrow(new RegExp(`${planJobId}.*${partnerId}.*${PRIMARY_PERSON_ID}`));
+    expect(() =>
+      setProjectionContinuationJob(withJob, nullJurisdiction, PRIMARY_PERSON_ID as PersonId, "job-99"),
+    ).toThrow(/no job "job-99" in this household/);
+  });
+
+  it("clears a selection when the job it named is removed, on either plane", () => {
+    // The one moment the selection changes without the user choosing. It falls to an explicit
+    // None rather than back to "never chosen", so removing a job cannot quietly nominate a
+    // different one in its place.
+    const { state, partnerId } = withPartner();
+    const { state: withPartnerJob, result: partnerJobId } = addProjectionPartnerJob(
+      state,
+      nullJurisdiction,
+      partnerId,
+      longRunningJob,
+    );
+    const { state: both, result: planJobId } = addProjectionJob(
+      withPartnerJob,
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+    let chosen = setProjectionContinuationJob(
+      both,
+      nullJurisdiction,
+      PRIMARY_PERSON_ID as PersonId,
+      planJobId,
+    );
+    chosen = setProjectionContinuationJob(chosen, nullJurisdiction, partnerId, partnerJobId);
+
+    const primaryDropped = removeProjectionJob(chosen, planJobId);
+    expect(primaryDropped.scenario.plan.continuationJobId).toBeNull();
+
+    const partnerDropped = removeProjectionPartnerJob(chosen, nullJurisdiction, partnerJobId);
+    expect(relationshipFor(partnerDropped, partnerId).person.continuationJobId).toBeNull();
+    // Removing one member's job leaves the other member's answer exactly as it was.
+    expect(partnerDropped.scenario.plan.continuationJobId).toBe(planJobId);
+  });
+
+  it("leaves a selection alone when some OTHER job is removed", () => {
+    const { state: withFirst, result: keptId } = addProjectionJob(
+      emptyState(),
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+    const { state: both, result: doomedId } = addProjectionJob(
+      withFirst,
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+    const chosen = setProjectionContinuationJob(
+      both,
+      nullJurisdiction,
+      PRIMARY_PERSON_ID as PersonId,
+      keptId,
+    );
+
+    expect(removeProjectionJob(chosen, doomedId).scenario.plan.continuationJobId).toBe(keptId);
   });
 });

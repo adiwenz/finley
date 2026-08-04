@@ -125,7 +125,6 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
           ownerId: "p2",
           startYear: 2020,
           endYear: 2090,
-          retirementStrategy: "extendable",
           salary: { startingSalaryCents: dollarsToCents(60_000), currentSalaryCents: dollarsToCents(60_000), realGrowthPct: 0 },
         },
       ],
@@ -162,7 +161,6 @@ describe("snapshotAt — active entities as of a month (end-of-month convention)
           ownerId: "p2",
           startYear: 2020,
           endYear: 2090,
-          retirementStrategy: "extendable",
           salary: { startingSalaryCents: dollarsToCents(48_000), currentSalaryCents: dollarsToCents(48_000), realGrowthPct: 0 }, // $4,000/mo
         },
       ],

@@ -12,6 +12,7 @@
  */
 
 import type {
+  ContinuedJob,
   Jurisdiction,
   Projection,
   RetirementEvaluation,
@@ -40,6 +41,15 @@ export interface RetirementView {
    * advice.
    */
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
+  /**
+   * The jobs {@link headlineAge} assumed would carry on past their authored end — empty when it
+   * assumed none, and empty when there is no headline age.
+   *
+   * Shown beside the age rather than left in the engine's answer, because it is half of what the
+   * age claims: "you could stop working at 71" means something different if it quietly took five
+   * more years of consulting, and the household may never have opened the picker that chose it.
+   */
+  readonly continuedJobs: readonly ContinuedJob[];
 }
 
 /**
@@ -62,5 +72,6 @@ export function retirementView(
     target,
     targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
     earlyRetireeHealth,
+    continuedJobs: solution.continuedJobs,
   };
 }

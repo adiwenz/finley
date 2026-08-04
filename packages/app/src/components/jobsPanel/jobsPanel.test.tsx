@@ -119,7 +119,6 @@ const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: START_YEAR - 40 + 65,
-  retirementStrategy: "extendable",
   salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
 });
 
@@ -173,10 +172,15 @@ describe("JobsPanel — listing", () => {
     expect(Number(spin(/End age/i).value)).toBe(65); // the authored end, untouched by the preview
   });
 
-  it("leaves an EARLIER job's chart alone — only the last job follows a later preview age", () => {
-    // Job 1 finishes at 48 and Job 2 runs to 70, so Job 2 is the one the household would still
-    // be holding. Previewing "retire at 76" runs Job 2 on to 76 and leaves Job 1 where it
-    // ended — a hypothesis about working longer must not restart a job already finished.
+  it("runs the CONTINUATION job on to a later preview age, and leaves the others alone", () => {
+    // Job 1 is the one being worked today and Job 2 starts at 48, so with nobody having opened
+    // the picker the initialization rule names Job 1 — "continue working" means the work they
+    // are actually doing. Previewing "retire at 76" therefore carries Job 1 to 76 and leaves
+    // Job 2 ending exactly where it was authored to.
+    //
+    // Which job that is comes from the selection and never from the dates. The rule this
+    // replaced took the LAST-ending job, so this same plan used to extend Job 2 instead — an
+    // answer that reads plausibly here and is wrong wherever the later job is a fixed term.
     render(
       <Harness
         initial={{
@@ -195,10 +199,10 @@ describe("JobsPanel — listing", () => {
       />,
     );
     expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 48,/i }),
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 48 to 76,/i }),
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 48 to 70,/i }),
     ).toBeTruthy();
   });
 
@@ -1251,71 +1255,117 @@ describe("JobsPanel — authoring a job's pay history", () => {
 });
 
 /**
- * The retirement-solver policy as an authoring control. Everything about what the policy MEANS
- * is pinned in the engine (`retirementSolver.test.ts`); these pin only that the Jobs panel can
- * author it and reads it back — that the checkbox is bound to the stored field in both
- * directions, and that flipping it changes nothing else about the job.
+ * The continuation job as an authoring control. What selecting one MEANS is pinned in the engine
+ * (`retirementSolver.test.ts`); these pin only that the Jobs panel asks the question once per
+ * earner, offers the right options, writes the answer through, and — the property the whole
+ * design turns on — leaves an answer alone when the job list changes underneath it.
  */
-describe("JobsPanel — 'Solver may extend this job if needed'", () => {
-  const CONTROL = /Solver may extend this job if needed/i;
-  /** The control's own checked state — `jest-dom` matchers are not installed here. */
-  const isChecked = () =>
-    (screen.getByRole("checkbox", { name: CONTROL }) as HTMLInputElement).checked;
-  const toggle = () => fireEvent.click(screen.getByRole("checkbox", { name: CONTROL }));
+describe("JobsPanel — 'If you needed to work longer, which job would continue?'", () => {
+  const QUESTION = /If you needed to work longer, which job would continue\?/i;
+  const picker = () => screen.getByRole("combobox", { name: QUESTION }) as HTMLSelectElement;
+  const optionLabels = () =>
+    Array.from(picker().options).map((o) => o.textContent);
+  const choose = (value: string) => fireEvent.change(picker(), { target: { value } });
 
-  it("opens checked on a job the solver may extend, and unchecked on a fixed one", () => {
-    // Read-back, both ways. A control seeded from a constant rather than from the job would
-    // pass one of these and quietly mis-report the other.
-    const fixedJob: Job = { ...PLAN_DEFAULTS.jobs[0]!, retirementStrategy: "fixed" };
-    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [fixedJob] }} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(isChecked()).toBe(false);
-    cleanup();
-
-    const extendableJob: Job = { ...PLAN_DEFAULTS.jobs[0]!, retirementStrategy: "extendable" };
-    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [extendableJob] }} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(isChecked()).toBe(true);
+  /** A second job for the primary, authored to start after the default one ends. */
+  const futureJob = (id: string): Job => ({
+    ...PLAN_DEFAULTS.jobs[0]!,
+    id,
+    name: "Consulting",
+    startYear: PLAN_DEFAULTS.jobs[0]!.endYear,
+    endYear: PLAN_DEFAULTS.jobs[0]!.endYear + 3,
   });
 
-  it("writes the policy through to the stored job, and changes nothing else", () => {
-    // The same "only what it names" guarantee the ordinary-edit block above asserts, applied to
-    // the one field that is a policy rather than a fact: unchecking it must not disturb the
-    // dates, the salary anchors, the id or the owner.
+  it("offers None plus every job, and preselects the one being worked now", () => {
+    // The default plan's single job is running today, so the initialization rule picks it —
+    // and the control shows that rather than a blank "None", because it is the assumption the
+    // household's retirement age is already being computed under.
+    render(<Harness />);
+    expect(optionLabels()).toEqual(["None (don’t assume additional work)", "Job 1"]);
+    expect(picker().value).toBe(DEFAULT_JOB_ID);
+    // Nothing has been written: showing a resolved default is not making a choice.
+    expect(authored().plan.continuationJobId).toBeUndefined();
+  });
+
+  it("offers a job that is already finished", () => {
+    // "I could go back to that" is knowledge the plan does not have, so a completed job is
+    // offered. The initialization rule still will not pick one — here it falls to None, since
+    // nothing is running and nothing is due to start.
+    const past: Job = {
+      ...PLAN_DEFAULTS.jobs[0]!,
+      name: "Bar work",
+      startYear: START_YEAR - 20,
+      endYear: START_YEAR - 10,
+    };
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [past] }} />);
+    expect(optionLabels()).toEqual(["None (don’t assume additional work)", "Bar work"]);
+    expect(picker().value).toBe("");
+  });
+
+  it("writes a choice through, including None", () => {
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!, futureJob("job-2")] }} />);
+
+    choose("job-2");
+    expect(authored().plan.continuationJobId).toBe("job-2");
+
+    choose("");
+    // `null`, not absent: "I answered none" must not decay back into "never asked", which would
+    // hand the initialization rule the question again.
+    expect(authored().plan.continuationJobId).toBeNull();
+  });
+
+  it("does NOT change the selection when a job is added", () => {
+    // The stability guarantee. A new job — including one the initialization rule would have
+    // preferred — cannot silently move which employment the retirement answer leans on.
     render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!] }} />);
-    const before = authored().plan.jobs[0];
-    expect(before.retirementStrategy).toBe("extendable");
+    choose("");
+    expect(authored().plan.continuationJobId).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    toggle();
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-
-    const after = authored().plan.jobs[0];
-    expect(after.retirementStrategy).toBe("fixed");
-    expect({ ...after, retirementStrategy: before.retirementStrategy }).toEqual(before);
-  });
-
-  it("survives a reopen — the saved answer is what the form shows next time", () => {
-    // Guards the round trip through `jobToDraftFor`: a write that landed but was not read back
-    // would show the box re-checked and invite the user to "fix" a field that was already right.
-    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!] }} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    toggle();
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(isChecked()).toBe(false);
-  });
-
-  it("defaults a newly added job to extendable", () => {
-    // The engine stamps this default too, so the two must agree: a job added here and a job
-    // added through the facade with no policy stated must come out the same.
-    render(<Harness initial={PLAN_DEFAULTS} />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
-    expect(isChecked()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
-    const added = authored().plan.jobs.at(-1)!;
-    expect(added.retirementStrategy).toBe("extendable");
+    expect(authored().plan.jobs).toHaveLength(2);
+    expect(authored().plan.continuationJobId).toBeNull();
+    expect(picker().value).toBe("");
+  });
+
+  it("clears the selection when the job it named is deleted", () => {
+    // The one moment a selection changes without the user choosing. It falls to None rather than
+    // re-running the initialization rule, so a delete cannot quietly nominate a different job.
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!, futureJob("job-2")] }} />);
+    choose("job-2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete Consulting/i }));
+
+    expect(authored().plan.continuationJobId).toBeNull();
+    expect(picker().value).toBe("");
+  });
+
+  it("asks once per earner, naming whose jobs each question is about", () => {
+    // Per person, so a two-earner household answers twice — and the labels have to say which is
+    // which, since the two pickers are otherwise identical.
+    render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
+    const questions = screen.getAllByRole("combobox", {
+      name: /needed to work longer, which job would continue\?/i,
+    });
+    expect(questions).toHaveLength(2);
+    expect(
+      screen.getByRole("combobox", { name: /If Sam needed to work longer/i }),
+    ).toBeDefined();
+  });
+
+  it("writes a partner's answer to their RelationshipEvent, not to the plan", () => {
+    // The selection is a fact about a PERSON, so it lands wherever that person's record lives —
+    // the plan for the primary, the event they joined on for a partner. One facade method
+    // settles that from the id, which is why this panel routes neither.
+    render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
+    const sam = screen.getByRole("combobox", { name: /If Sam needed to work longer/i });
+
+    fireEvent.change(sam, { target: { value: "" } });
+
+    const partner = authored().ledger.events.find((e) => e.type === "RelationshipEvent");
+    expect((partner as { person: { continuationJobId?: string | null } }).person.continuationJobId).toBeNull();
+    // The primary's own answer is untouched: two members, two independent choices.
+    expect(authored().plan.continuationJobId).toBeUndefined();
   });
 });

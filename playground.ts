@@ -34,9 +34,9 @@ const p = Projection.fromState(
 );
 
 // 2. Standing edits. Creating writes return a minted id.
-// Every job states when it ends — there is no open-ended job. `retirementStrategy` is the one
-// field a caller may leave out; omitted, it defaults to `"extendable"`, meaning the retirement
-// solver may run this job past 2056 when it tests whether this household could stop later.
+// Every job states when it ends — there is no open-ended job. Whether the retirement solver may
+// run one PAST its end is one choice per person, not per job: `p.setContinuationJob(P1, jobId)`
+// names it, and until somebody picks, the engine reads the job they are working now.
 const jobId = p.addJob(P1, {
   startYear: SAMPLE_START_YEAR,
   endYear: SAMPLE_START_YEAR + 30,
