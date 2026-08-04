@@ -3015,6 +3015,45 @@ describe("Projection root — previewing a stop-working age", () => {
     expect(p.plan.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 60);
   });
 
+  it("previews the SOLVED age self-consistently — the toggle shows what the headline means", () => {
+    // The QA path a user actually walks: read the headline age off the panel, turn the preview
+    // on, and see the charts. Those are two separate engine calls (`retirement`, then
+    // `runAtStopWorkingAge`), and nothing but this pins that they agree — a preview built on a
+    // different hypothesis from the search would draw a working life the headline never meant.
+    const tight = { ...samplePlan, openingBalanceCents: 0 };
+    const p = Projection.fromState(stateOf(tight), nullJurisdiction);
+    const headline = p.retirement(nullJurisdiction).solution.fullRetirementAge;
+    expect(headline).not.toBeNull();
+    const age = headline as number;
+
+    const preview = p.runAtStopWorkingAge(nullJurisdiction, age);
+    // Work runs right up to the headline age — including past the job's authored end at 60,
+    // which is the whole reason that age is reachable...
+    expect(wagesAt(preview, (age - 1 - tight.currentAge) * 12)).toBeGreaterThan(0);
+    // ...and stops there.
+    expect(wagesAt(preview, (age - tight.currentAge) * 12)).toBe(0);
+    // And the plan the headline promised survives really does survive in the previewed run.
+    expect(preview.series.months.every((m) => m.netWorthRealCents !== null)).toBe(true);
+  });
+
+  it("leaves the authored plan alone when the preview EXTENDED work, not just when it capped", () => {
+    // The no-mutation guarantee is easy to hold while a hypothesis only ever subtracts. It now
+    // adds employment the plan does not contain, so this walks the toggle both ways: preview a
+    // later age, then read the authored run back and find it unchanged, byte for byte.
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    const before = p.state;
+    const authoredBefore = JSON.stringify(p.run(nullJurisdiction).series.months);
+
+    const AGE_63_MONTH = (63 - samplePlan.currentAge) * 12;
+    expect(wagesAt(p.runAtStopWorkingAge(nullJurisdiction, 70), AGE_63_MONTH)).toBeGreaterThan(0);
+
+    // Toggling back off: the authored projection is identical, and no write ever happened.
+    expect(JSON.stringify(p.run(nullJurisdiction).series.months)).toBe(authoredBefore);
+    expect(wagesAt(p.run(nullJurisdiction), AGE_63_MONTH)).toBe(0);
+    expect(p.state).toBe(before);
+    expect(p.plan.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 60);
+  });
+
   it("hands back a whole read-only result, answered under the run jurisdiction", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     const preview = p.runAtStopWorkingAge(nullJurisdiction, 55);
