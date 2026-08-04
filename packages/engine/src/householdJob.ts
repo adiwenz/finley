@@ -182,8 +182,15 @@ export function authoredJobEndYearExclusive(job: Job): number {
 /**
  * The employment's exclusive end year, given what is being asked. Authored: the job's own end.
  * Hypothetical: {@link StopWorkingBoundary}'s two-direction rule.
+ *
+ * Exported because the pre-"now" covered-earnings record has to read the SAME end this does.
+ * The counterfactual is that the continued job never finished, and a person's earnings history
+ * is part of what never finishing means — so a job continued from an end date already behind us
+ * fills the years between that end and today. Deriving that separately would let the history and
+ * the forward income series disagree about when one job stopped, which is exactly the drift this
+ * module exists to prevent.
  */
-function employmentEndYearExclusive(
+export function employmentEndYearExclusive(
   job: Job,
   owner: Person,
   nowYear: number,
@@ -251,19 +258,7 @@ function authoredWorkPlanEndYearExclusive(owner: Person): number {
  * to be created (for the primary, before a single job existed).
  */
 export function continuationJobIdOf(person: Person, nowYear: number): JobId | null {
-  return resolveContinuationJobId(person.jobs, person.continuationJobId, nowYear);
-}
-
-/**
- * {@link continuationJobIdOf} over the parts rather than a whole {@link Person} — for the
- * authoring surfaces, which hold a member's job list and their stated selection but assemble no
- * `Person` of their own. One rule, so a picker cannot show a different job than the solve uses.
- */
-export function resolveContinuationJobId(
-  jobs: readonly Job[],
-  stated: JobId | null | undefined,
-  nowYear: number,
-): JobId | null {
+  const { jobs, continuationJobId: stated } = person;
   if (stated !== undefined) return jobs.some((j) => j.id === stated) ? stated : null;
   const active = jobs.filter((j) => j.startYear <= nowYear && authoredJobEndYearExclusive(j) > nowYear);
   if (active.length > 0) {

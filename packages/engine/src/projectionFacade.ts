@@ -110,6 +110,7 @@ import {
   removeProjectionJobIncomeOverride,
   removeProjectionJobPayChange,
   removeProjectionPartnerJob,
+  continuationJobOf as projectionContinuationJobOf,
   setProjectionContinuationJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
@@ -303,6 +304,24 @@ export class Projection {
     this.write((state) =>
       removeProjectionPartnerJob(state, this.validationJurisdiction, jobId),
     );
+  }
+
+  /**
+   * **Which job a what-if would actually continue for this member** — the RESOLVED answer, not
+   * the stored one.
+   *
+   * `null` means none is, so a candidate age past what they authored has no income behind it.
+   *
+   * The distinction from reading the field is the whole point: a member who has never been asked
+   * still has a continuation job, worked out from the jobs they hold (see
+   * {@link import("./householdJob").continuationJobIdOf}). A surface offering the choice has to
+   * show THAT, or it reports a blank "none" for a household whose retirement age was computed
+   * from something else entirely.
+   *
+   * Refused for a member this household does not hold, like every other read addressed by id.
+   */
+  continuationJobOf(personId: PersonId): string | null {
+    return projectionContinuationJobOf(this.current, personId);
   }
 
   /**

@@ -81,7 +81,10 @@ interface JobsPanelProps {
    */
   projection: Pick<
     Projection,
-    "jobMonthlyIncomeCents" | "jobStartingMonthlyIncomeCents" | "jobDeferralFraction"
+    | "jobMonthlyIncomeCents"
+    | "jobStartingMonthlyIncomeCents"
+    | "jobDeferralFraction"
+    | "continuationJobOf"
   >;
   /**
    * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
@@ -343,6 +346,7 @@ export function JobsPanel({
             <ContinuationPicker
               key={owner.id}
               owner={owner}
+              selected={projection.continuationJobOf(owner.id)}
               jobTitleOf={(job) => titleOf.get(job.id) ?? job.id}
               nowYear={START_YEAR}
               severalOwners={severalOwners}

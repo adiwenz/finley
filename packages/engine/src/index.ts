@@ -89,12 +89,6 @@ export type {
   SalaryTrajectory,
 } from "./job";
 /**
- * **Which job a person would continue if they had to work longer** — the selection rule itself,
- * so an authoring surface offering the choice shows the same job the retirement solver would
- * actually carry, including the one it resolves to before anybody has chosen.
- */
-export { resolveContinuationJobId } from "./householdJob";
-/**
  * A job's authored pay across its whole span, read back without running a projection — what an
  * editor draws the salary it is editing from, and where the month-0 seam is a number.
  */

@@ -14,6 +14,7 @@ import {
   evaluateFullRetirementAtAge,
   solveRetirement,
   continuedJobsAt,
+  stopWorkingBoundaryAt,
 } from "./retirementSolver";
 import { continuationJobIdOf } from "./householdJob";
 import { compilePersonPriorEarnings } from "./compilePerson";
@@ -810,16 +811,54 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(continued.overlaps).toEqual([]);
   });
 
-  it("does not backfill the covered-earnings record for years already behind us", () => {
-    // The seam worth being explicit about. Continuing a completed job says it never ended, and
-    // the FORWARD wages it now pays do accrue toward the benefit exactly as real work would —
-    // they are months the scenario actually simulates. But the pre-"now" record is read off each
-    // job's AUTHORED end and nothing else, so the five years between a bar job left at 30 and an
-    // Alex who is 40 stay a gap in the earnings history.
+  it("carries the counterfactual into the covered-earnings record, backwards as well as forwards", () => {
+    // Continuing a completed job says it never ended, and a person's earnings HISTORY is part of
+    // what never ending means: a bar job left at 30, continued for someone who is 40, means they
+    // worked those ten years, and a benefit priced off the record has to see them.
     //
-    // Deliberate, and the one place the counterfactual is not carried all the way through: a
-    // benefit is priced off what a person actually earned, and a hypothesis about the future may
-    // not rewrite that. So the record shows a gap the scenario's own story denies.
+    // The pay in the filled years is what the history does everywhere else — the last authored
+    // figure held flat, never a projection — so nothing is invented beyond the continuation the
+    // household actually asked for.
+    const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
+    const person = (continuationJobId: string | null): Person => ({
+      id: "p1",
+      name: samplePlan.name,
+      birthYear: BIRTH_YEAR,
+      benefitClaimingAge: 67,
+      jobs,
+      continuationJobId,
+    });
+    const hypothetical = {
+      kind: "hypothetical" as const,
+      stopWorking: stopWorkingBoundaryAt(samplePlan, 70, START_YEAR),
+    };
+
+    const continued = compilePersonPriorEarnings(person("bar"), START_YEAR, hypothetical);
+    // The gap between the authored end at 30 and "now" is filled — and filled at exactly what
+    // the job was already paying, which is the claim: the history is held flat, not projected.
+    const authoredYear = continued[at(29)];
+    expect(authoredYear).toBeGreaterThan(0);
+    // 30–34: the bar job alone, still paying what it was authored to pay.
+    for (const age of [30, 32, 34]) expect(continued[at(age)]).toBe(authoredYear);
+    // 35 onward the career has begun, and overlapping jobs sum — the continued job did not
+    // displace it, exactly as the forward series does not.
+    expect(continued[at(35)]).toBeGreaterThan(authoredYear);
+
+    // Selecting None leaves the record exactly as authored: the gap is real again, because
+    // nothing is being modelled as having continued.
+    // 30–34 is the window only the bar job could have covered, so it is the window that shows
+    // the difference: filled under the continuation, empty without it.
+    const none = compilePersonPriorEarnings(person(null), START_YEAR, hypothetical);
+    expect(none[at(29)]).toBe(authoredYear);
+    for (const age of [30, 32, 34]) expect(none[at(age)]).toBeUndefined();
+    // The career's own years are untouched either way — only the continued job reaches back.
+    expect(none[at(35)]).toBe(continued[at(35)]! - authoredYear);
+  });
+
+  it("leaves the AUTHORED earnings record alone — the backfill is the hypothesis's, not the plan's", () => {
+    // The same guarantee every other part of the selection carries. A plan the user is looking
+    // at reports the years they actually worked, whatever they picked in the continuation
+    // control, and only a solve or a preview sees the counterfactual history.
     const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
     const person = (continuationJobId: string | null): Person => ({
       id: "p1",
@@ -830,13 +869,9 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       continuationJobId,
     });
 
-    // A function of the authored jobs alone — no boundary reaches it, whatever was selected.
-    const chosen = compilePersonPriorEarnings(person("bar"), START_YEAR);
-    expect(compilePersonPriorEarnings(person(null), START_YEAR)).toEqual(chosen);
-    // And the gap is real: the bar job's authored years are recorded, the years after are not.
-    expect(chosen[at(29)]).toBeGreaterThan(0);
-    expect(chosen[at(30)]).toBeUndefined();
-    expect(chosen[at(34)]).toBeUndefined();
+    const authored = compilePersonPriorEarnings(person("bar"), START_YEAR);
+    expect(authored).toEqual(compilePersonPriorEarnings(person(null), START_YEAR));
+    for (const age of [30, 32, 34]) expect(authored[at(age)]).toBeUndefined();
   });
 
   it("changes NOTHING about the authored projection — the selection is about hypotheticals only", () => {

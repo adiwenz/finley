@@ -121,11 +121,7 @@ describe("Job/Person standing model — additive compilation", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
     // The pre-"now" record derives from the roster's authoring Persons, as the sim
     // boundary does via compilePerson.
-    const prior = compilePersonPriorEarnings(
-      base.initialPersons![0],
-      START_YEAR,
-      samplePlan.inflationPct / 100,
-    );
+    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR);
     // The record covers exactly the pre-"now" working years [careerStart … now).
     expect(Object.keys(prior).length).toBeGreaterThan(0);
     // Sim still starts at "now" — no pre-"now" months are simulated.
@@ -497,8 +493,8 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
     benefitClaimingAge: 67,
     jobs,
   });
-  const priorFor = (jobs: Job[], inflationRate = 0): Record<number, number> =>
-    compilePersonPriorEarnings(personWith(jobs), START_YEAR, inflationRate);
+  const priorFor = (jobs: Job[]): Record<number, number> =>
+    compilePersonPriorEarnings(personWith(jobs), START_YEAR);
 
   const flat72k: Job = salariedJob(dollarsToCents(6000)); // $6,000/mo → $72,000/yr
 
@@ -573,8 +569,8 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     ...extra,
   });
 
-  const priorFor = (job: Job, inflationRate = 0): Record<number, number> =>
-    compilePersonPriorEarnings(personWith([job]), START_YEAR, inflationRate);
+  const priorFor = (job: Job): Record<number, number> =>
+    compilePersonPriorEarnings(personWith([job]), START_YEAR);
   const forwardFor = (job: Job, inflationRate = 0) =>
     compilePersonIncomeSeries(personWith([job]), START_YEAR, inflationRate)[0]!.series;
 
@@ -693,9 +689,9 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
 
     // History holds the STARTING salary flat — nothing grows before month 0 — so every past
     // year is the $60,000 that was authored, and the $120,000 current pay is the forward
-    // series' alone. Inflation reaches the past only if the user asks for it.
-    expect(priorFor(job, 0.03)[2025]).toBe(dollarsToCents(60_000));
-    expect(priorFor(job, 0.03)[2015]).toBe(dollarsToCents(60_000));
+    // series' alone. CPI never reaches the record: it is a remembered paycheck, not a projection.
+    expect(priorFor(job)[2025]).toBe(dollarsToCents(60_000));
+    expect(priorFor(job)[2015]).toBe(dollarsToCents(60_000));
   });
 });
 
@@ -1134,7 +1130,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     // the nominal path times twelve is that year's covered wage — the two readings of the same
     // history cannot disagree, or the chart would be drawing a record the benefit never saw.
     const nominal = jobPayPath(job, span, { inflationRate: CPI });
-    const prior = compilePersonPriorEarnings(person([job]), START_YEAR, CPI);
+    const prior = compilePersonPriorEarnings(person([job]), START_YEAR);
     for (const yearsBack of [10, 5, 1]) {
       const month = -yearsBack * 12;
       expect(prior[START_YEAR - yearsBack]).toBe(nominal.monthlyCentsAt(month) * 12);

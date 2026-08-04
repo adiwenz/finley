@@ -42,7 +42,11 @@ import {
   type JobIncomeOverride,
 } from "./job";
 import type { Person } from "./person";
-import { type ResolvedHouseholdJob } from "./householdJob";
+import {
+  employmentEndYearExclusive,
+  type JobResolutionScope,
+  type ResolvedHouseholdJob,
+} from "./householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
@@ -50,13 +54,22 @@ import { type ResolvedHouseholdJob } from "./householdJob";
  * `jobs` do not cross into the sim; they drive the forward income series ({@link
  * compilePersonIncomeSeries}) and the job spans.
  */
-export function compilePerson(person: Person, nowYear: number, inflationRate: number): SimPerson {
+export function compilePerson(
+  person: Person,
+  nowYear: number,
+  /**
+   * Which working life the covered-earnings record describes. A solve or preview passes its
+   * candidate boundary, so the person whose job is continued has the history that continuation
+   * implies; every other read leaves it authored.
+   */
+  scope: JobResolutionScope = { kind: "authored" },
+): SimPerson {
   return {
     id: person.id,
     name: person.name,
     birthYear: person.birthYear,
     benefitClaimingAge: person.benefitClaimingAge,
-    priorEarningsCents: compilePersonPriorEarnings(person, nowYear, inflationRate),
+    priorEarningsCents: compilePersonPriorEarnings(person, nowYear, scope),
   };
 }
 
@@ -150,14 +163,22 @@ function applyIncomeOverrides(
 function reconstructHistoricalCompensation(
   job: Job,
   nowYear: number,
+  /**
+   * The year this employment ends under whatever is being asked — the job's own `endYear` for
+   * the authored plan, and {@link employmentEndYearExclusive} of it under a hypothesis.
+   *
+   * A parameter rather than `job.endYear` because a continued job is modelled as one that never
+   * ended, and its earnings HISTORY is part of that: continuing a job left at 30 for a person
+   * who is 40 means they worked those ten years, so the record has to hold them. A late
+   * household join still cannot edit it — membership never reaches here — but the household's
+   * own hypothesis about this person's working life does.
+   */
+  endYearExclusive: number,
 ): { series: SimCashFlowSeries; startMonth: number; endMonthExclusive: number } | null {
   const startMonth = (job.startYear - nowYear) * 12;
-  // History is months < 0: clip a still-running job at "now", and skip one that only starts at
-  // or after it (all of its earnings are the forward series' job).
-  // The job's OWN authored end, never a household one: neither a candidate solver boundary nor
-  // a late household join may edit what this person actually earned before "now". An open-ended
-  // job has no end to read here — it was still running at "now", which is where this stops.
-  const endMonthExclusive = Math.min(job.endYear === null ? 0 : (job.endYear - nowYear) * 12, 0);
+  // History is months < 0: clip a still-running (or continued) job at "now", and skip one that
+  // only starts at or after it — all of its earnings are the forward series' job.
+  const endMonthExclusive = Math.min((endYearExclusive - nowYear) * 12, 0);
   if (endMonthExclusive <= startMonth) return null;
 
   // Taken VERBATIM: `startingSalaryCents` is the paycheck of the job's own start year, in that
@@ -201,15 +222,25 @@ export function compilePersonPriorEarnings(
   person: Person,
   nowYear: number,
   /**
-   * No longer read: the pre-"now" record is authored figures held flat, and nothing about it
-   * depends on CPI. Kept so the seam's shape does not churn across every caller, and because
-   * the forward half beside it genuinely needs the rate.
+   * Which working life to record — the one they authored, or the what-if a solve is testing.
+   * Defaults to `"authored"`, so every ordinary read is unchanged and a caller has to ASK for
+   * the counterfactual.
+   *
+   * Under a hypothesis this person's continuation job is one that never ended, which reaches
+   * backwards as well as forwards: the years between its authored end and today are years they
+   * worked in that scenario, and a benefit priced off the record has to see them. Their pay in
+   * those years is what the history already does everywhere else — the last authored figure
+   * held flat, never a projection (see {@link reconstructHistoricalCompensation}).
    */
-  _inflationRate?: number,
+  scope: JobResolutionScope = { kind: "authored" },
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const history = reconstructHistoricalCompensation(job, nowYear);
+    const history = reconstructHistoricalCompensation(
+      job,
+      nowYear,
+      employmentEndYearExclusive(job, person, nowYear, scope),
+    );
     if (history === null) continue;
     for (let month = history.startMonth; month < history.endMonthExclusive; month++) {
       const cents = history.series.getMonthlyCents(month);

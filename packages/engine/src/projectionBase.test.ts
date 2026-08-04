@@ -140,7 +140,7 @@ describe("createProjectionBase — earned income before current age comes from t
   const priorYears = (startAge: number) => {
     const base = createProjectionBase(planFromStartAge(startAge), ctx());
     // Derived from the authoring Persons' jobs exactly as the sim boundary does.
-    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
+    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR);
     return Object.keys(prior)
       .map(Number)
       .sort((a, b) => a - b);

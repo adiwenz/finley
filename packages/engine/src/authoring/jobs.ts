@@ -47,6 +47,8 @@ import {
 } from "../job";
 import { MAX_LIVED_AGE } from "../plan";
 import { PRIMARY_PERSON_ID } from "../projectionBase";
+import { continuationJobIdOf } from "../householdJob";
+import type { Person } from "../person";
 import type { Jurisdiction } from "../jurisdiction";
 import type { Cents } from "../money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
@@ -317,6 +319,46 @@ function clearedContinuation(
   removedId: JobId,
 ): { continuationJobId?: null } {
   return stated === removedId ? { continuationJobId: null } : {};
+}
+
+/**
+ * **Which job a what-if would actually continue for this person** — the RESOLVED answer, which is
+ * not always the stored one.
+ *
+ * The distinction is the reason this exists rather than callers reading the field: somebody who
+ * has never been asked still has a continuation job, worked out from the jobs they hold. A
+ * surface that read the raw field would show "none" for them and misreport the assumption their
+ * own retirement age was computed under. See {@link continuationJobIdOf} for the rule.
+ *
+ * Addressed by person id across both planes, like every other read here, and refused for a member
+ * this household does not hold — a silent `null` would be indistinguishable from a real "none".
+ */
+export function continuationJobOf(state: ProjectionState, personId: PersonId): JobId | null {
+  const person = householdPerson(state, personId);
+  return continuationJobIdOf(person, state.startYear);
+}
+
+/**
+ * The {@link Person} record behind a member id, on whichever plane holds it. The primary has none
+ * — their standing data IS the plan — so one is assembled from it, exactly as
+ * `createProjectionBase` does for the projection.
+ */
+function householdPerson(state: ProjectionState, personId: PersonId): Person {
+  for (const event of state.scenario.ledger.events) {
+    if (event.type === "RelationshipEvent" && event.person.id === personId) return event.person;
+  }
+  if (personId !== PRIMARY_PERSON_ID) {
+    throw new Error(`Projection: no member "${personId}" in this household`);
+  }
+  const plan = state.scenario.plan;
+  return {
+    id: PRIMARY_PERSON_ID,
+    name: plan.name,
+    birthYear: state.startYear - plan.currentAge,
+    benefitClaimingAge: plan.benefitClaimingAge,
+    jobs: plan.jobs,
+    continuationJobId: plan.continuationJobId,
+  };
 }
 
 /**

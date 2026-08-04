@@ -8,7 +8,7 @@
  * jobs are written on.
  */
 
-import type { Household, Ledger, Job, JobId, PersonId, RelationshipEvent } from "@finley/engine";
+import type { Household, Ledger, Job, PersonId, RelationshipEvent } from "@finley/engine";
 
 /**
  * Which plane a member's jobs are authored on — the name of a plane, not a handle to one. A
@@ -23,14 +23,6 @@ export interface JobOwner {
   readonly name: string;
   readonly birthYear: number;
   readonly jobs: readonly Job[];
-  /**
-   * Which of {@link jobs} this member would continue if they had to work longer, **as stated** —
-   * `undefined` while they have never been asked. Carried unresolved on purpose: the picker has
-   * to show the job the solver would actually use, which is
-   * {@link import("@finley/engine").resolveContinuationJobId} of this, and resolving it here
-   * would leave the app unable to tell a real choice from a default it is displaying.
-   */
-  readonly continuationJobId?: JobId | null;
   /** `-Infinity` for the primary person. */
   readonly startMonth: number;
   /** The month a separation removed them; `null` while still a member. */
@@ -60,9 +52,6 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       name: m.person.name,
       birthYear: m.person.birthYear,
       jobs: m.person.jobs,
-      ...(m.person.continuationJobId !== undefined
-        ? { continuationJobId: m.person.continuationJobId }
-        : {}),
       startMonth: m.startMonth,
       endMonth: m.endMonth,
       writeTarget: joinedByEvent && event ? "event" : "plan",

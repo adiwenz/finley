@@ -3234,6 +3234,32 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
     expect(partnerEvent(p).person.continuationJobId).toBeNull();
   });
 
+  it("reads back the RESOLVED answer, not the stored field", () => {
+    // The distinction the reader exists for. A member who has never been asked still has a
+    // continuation job — the one they are working now — and a surface that read the raw field
+    // would show "none" for them while the solve leant on that very job.
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const jobId = p.addJob("p1" as PersonId, plainJob);
+
+    expect(p.plan.continuationJobId).toBeUndefined(); // nothing stored…
+    expect(p.continuationJobOf("p1" as PersonId)).toBe(jobId); // …but the solve would use this
+
+    // An explicit None is a real answer and reads as one, distinct from never having been asked.
+    p.setContinuationJob("p1" as PersonId, null);
+    expect(p.continuationJobOf("p1" as PersonId)).toBeNull();
+  });
+
+  it("reads a partner's answer through the same method, and refuses a stranger", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerJobId = p.addPartnerJob(partnerId, plainJob);
+
+    expect(p.continuationJobOf(partnerId)).toBe(partnerJobId);
+    expect(() => p.continuationJobOf("nobody" as PersonId)).toThrow(
+      /no member "nobody" in this household/,
+    );
+  });
+
   it("survives a state round-trip on both planes", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;

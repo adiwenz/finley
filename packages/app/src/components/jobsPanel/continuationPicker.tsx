@@ -12,15 +12,13 @@
  * working?", and by the preview that shows what that answer assumed.
  */
 
-import { resolveContinuationJobId, type Job, type JobId, type PersonId } from "@finley/engine";
+import type { Job, JobId, PersonId } from "@finley/engine";
 
-/** One member's jobs and their stated choice — a narrow slice of `JobOwner`. */
+/** One member and the jobs the question is about — a narrow slice of `JobOwner`. */
 export interface ContinuationOwner {
   readonly id: PersonId;
   readonly name: string;
   readonly jobs: readonly Job[];
-  /** As STATED: `undefined` until they have answered. See {@link resolveContinuationJobId}. */
-  readonly continuationJobId?: JobId | null;
 }
 
 /** The `<option>` value standing for "None" — `null` cannot ride a DOM value attribute. */
@@ -28,12 +26,22 @@ const NONE = "";
 
 export function ContinuationPicker({
   owner,
+  selected,
   jobTitleOf,
   nowYear,
   severalOwners,
   onChange,
 }: {
   owner: ContinuationOwner;
+  /**
+   * The job the SOLVER would continue — `Projection.continuationJobOf`, already resolved.
+   *
+   * Resolved by the engine rather than here, because a member who has never answered still has
+   * a continuation job and the control has to show THAT: a blank "None" would misreport the
+   * assumption their retirement age was actually computed under. Taking it as a prop keeps the
+   * one rule in one place, where the solve reads it.
+   */
+  selected: JobId | null;
   /** How this panel names a job — the same title its card carries, so the two agree. */
   jobTitleOf: (job: Job) => string;
   /** The calendar year of month 0, which is what "a job you are working now" is read against. */
@@ -42,10 +50,6 @@ export function ContinuationPicker({
   severalOwners: boolean;
   onChange: (jobId: JobId | null) => void;
 }) {
-  // The job the SOLVER would use, which is what the control must show: a household that has
-  // never answered still has a continuation job, and hiding that behind a blank "None" would
-  // misreport the assumption their retirement age was actually computed under.
-  const selected = resolveContinuationJobId(owner.jobs, owner.continuationJobId, nowYear);
   const label = severalOwners
     ? `Which of ${owner.name}\u2019s jobs should Finley model as continuing beyond its planned end?`
     : "Which job should Finley model as continuing beyond its planned end?";
@@ -65,7 +69,7 @@ export function ContinuationPicker({
         <option value={NONE}>None — do not assume additional work</option>
         {/* Every job, including ones already finished: whether that work could have carried on
             is knowledge the plan does not have, so it is offered rather than assumed. The
-            initialization rule never selects one for them — see `resolveContinuationJobId`. */}
+            engine never selects one for them, but it is theirs to pick. */}
         {owner.jobs.map((job) => (
           <option key={job.id} value={job.id}>
             {jobTitleOf(job)}
