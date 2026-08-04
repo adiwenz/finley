@@ -780,6 +780,25 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     ]);
   });
 
+  it("reports an overlap only from NOW, never from a year the projection does not pay", () => {
+    // Continuing a job that ended before "now" overlaps on paper from its authored end, but no
+    // month before 0 is ever paid — so naming that earlier year would claim years of doubled
+    // income that do not happen. The fixture's primary is 40, and the bar job ended at 30.
+    const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
+    const [continued] = continuedJobsAt(scenarioOf(planWithJobs(jobs, "bar")), 70, CTX);
+
+    expect(continued.jobId).toBe("bar");
+    expect(continued.overlaps).toEqual([
+      {
+        jobId: "current",
+        jobLabel: `${samplePlan.name}'s job 2`,
+        jobName: null,
+        fromAge: samplePlan.currentAge,
+        toAge: 65,
+      },
+    ]);
+  });
+
   it("reports no overlap where the continued job was already the last one running", () => {
     // The ordinary case. Nothing follows the career, so continuing it crosses nothing and there
     // is no surprise to disclose.

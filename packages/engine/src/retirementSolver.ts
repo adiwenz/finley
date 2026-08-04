@@ -310,7 +310,10 @@ export function continuedJobsAt(
         .filter((o) => o.owner.id === r.owner.id && o.job.id !== r.job.id)
         .map((o) => ({
           other: o,
-          from: Math.max(extensionFrom, o.job.startYear),
+          // Clipped to "now" as well: a job continued from an end date already behind us
+          // overlaps on paper from that date, but the projection pays no month before 0, so
+          // reporting the earlier year would name years of doubled income that never happen.
+          from: Math.max(extensionFrom, o.job.startYear, ctx.startYear),
           to: Math.min(r.endYearExclusive, o.endYearExclusive),
         }))
         .filter((w) => w.to > w.from)
