@@ -81,8 +81,12 @@ export function RetirementPanel({
             <span key={c.jobId}>
               {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
               <strong>{c.jobLabel}</strong>
-              {/* Whose job it is only matters once there is more than one earner to confuse. */}
-              {view.continuedJobs.length > 1 ? ` (${c.ownerName})` : ""}
+              {/* Whose job it is only matters once there is more than one to confuse — and an
+                  untitled job is already named after its owner ("Alex's job"), so saying it
+                  again would stutter. Only a job carrying its own title needs the attribution. */}
+              {view.continuedJobs.length > 1 && !c.jobLabel.includes(c.ownerName)
+                ? ` (${c.ownerName})`
+                : ""}
             </span>
           ))}{" "}
           through age {view.headlineAge}.

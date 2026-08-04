@@ -38,7 +38,11 @@ export interface RetirementEvaluation {
  */
 export interface ContinuedJob {
   readonly jobId: string;
-  /** The job's authored name, falling back to its id — what a report would call it anyway. */
+  /**
+   * What to call the job, through the same rule the income legend uses
+   * ({@link import("./compilePerson").jobDisplayNames}): its own name, or its owner's ("Alex's
+   * job") for one that has none. Never the minted id, which means nothing to a reader.
+   */
   readonly jobLabel: string;
   readonly ownerId: string;
   readonly ownerName: string;

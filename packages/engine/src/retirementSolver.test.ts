@@ -787,8 +787,15 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       CTX,
     );
     expect(solved.fullRetirementAge).toBe(74);
+    // Named the way the income legend names it — its own title if it has one, else its
+    // OWNER's, never the minted id, which would mean nothing beside a retirement age.
     expect(solved.continuedJobs).toEqual([
-      { jobId: "career", jobLabel: "career", ownerId: "p1", ownerName: baristaPlan.name },
+      {
+        jobId: "career",
+        jobLabel: `${baristaPlan.name}'s job 1`,
+        ownerId: "p1",
+        ownerName: baristaPlan.name,
+      },
     ]);
 
     // Nothing to disclose where nothing was assumed: this household can stop inside its own

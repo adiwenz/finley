@@ -14,6 +14,7 @@ import { interpretLedger } from "./ledger/interpret";
 import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
 import { simulateHousehold } from "./projection/simulate";
 import { createProjectionBase } from "./projectionBase";
+import { jobDisplayNames } from "./compilePerson";
 import type { ProjectionContext } from "./projectionBase";
 import {
   authoredJobEndYearExclusive,
@@ -289,7 +290,9 @@ export function continuedJobsAt(
     .filter((r) => r.endYearExclusive > authoredJobEndYearExclusive(r.job))
     .map((r) => ({
       jobId: r.job.id,
-      jobLabel: r.job.name ?? r.job.id,
+      // The SAME naming the income legend uses, not a second rule: an untitled job is named
+      // after its owner rather than by its minted id, which means nothing to whoever reads it.
+      jobLabel: jobDisplayNames(r.owner).get(r.job.id) ?? r.job.id,
       ownerId: r.owner.id,
       ownerName: r.owner.name,
     }));

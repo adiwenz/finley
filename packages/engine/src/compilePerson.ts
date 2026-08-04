@@ -369,13 +369,16 @@ export function compileHouseholdJobSeries(
 /**
  * What to call each of a person's jobs in a report or chart legend, by job id.
  *
+ * Exported for the retirement solver's continuation disclosure, which names a job to the user
+ * for the same reason a legend does and must not invent a second way of doing it.
+ *
  * A titled job is called that. An untitled one is named after its **owner** ("Sam's job")
  * rather than its id: ids are minted (`p-0-job-1`), meaningless to whoever reads the legend.
  * SEVERAL untitled jobs get ordinals ("Sam's job 1"), since one name for two bands
  * identifies neither; a single untitled job stays unnumbered, so its label cannot shift as
  * other jobs come and go.
  */
-function jobDisplayNames(person: Person): Map<string, string> {
+export function jobDisplayNames(person: Person): Map<string, string> {
   const titleOf = (job: Job): string | undefined => job.name?.trim() || undefined;
   const untitled = person.jobs.filter((j) => titleOf(j) === undefined).length;
   const names = new Map<string, string>();
