@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Projection, dollarsToCents } from "@finley/engine";
+import { PRIMARY_PERSON_ID, Projection, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "../../testing/projectionHarness";
 import { RetirementPanel } from "./retirementPanel";
@@ -153,12 +153,65 @@ describe("RetirementPanel — chart preview toggle", () => {
     const html = renderWithView({
       ...feasible,
       continuedJobs: [
-        { jobId: "job-1", jobLabel: "Software Engineer", ownerId: "p1", ownerName: "Alex" },
+        {
+          jobId: "job-1",
+          jobLabel: "Software Engineer",
+          jobName: "Software Engineer",
+          ownerId: PRIMARY_PERSON_ID,
+          ownerName: "Alex",
+          overlaps: [],
+        },
       ],
     });
-    expect(html).toContain("Software Engineer");
-    expect(html).toContain(`You could stop working at ${feasible.headlineAge}`);
-    expect(html).toContain(`through age ${feasible.headlineAge}`);
+    expect(html).toContain(
+      `You could stop working at ${feasible.headlineAge} if your <strong>Software Engineer</strong> job continued through age ${feasible.headlineAge}.`,
+    );
+    // Nothing about restarting, resuming or going back: the job never ended in this scenario.
+    expect(html).not.toMatch(/restart|resume|return to|go back|begin(s|ning)? again/i);
+  });
+
+  it("discloses the overlap a continued job creates, with the years it covers", () => {
+    // The consequence a reader would not predict. Continuing a job means it never ended, so it
+    // now runs THROUGH the work authored to follow it and both pay — which is intended, and
+    // exactly why it has to be said rather than left in the numbers.
+    const html = renderWithView({
+      ...feasible,
+      continuedJobs: [
+        {
+          jobId: "job-1",
+          jobLabel: "Software Engineer",
+          jobName: "Software Engineer",
+          ownerId: PRIMARY_PERSON_ID,
+          ownerName: "Alex",
+          overlaps: [
+            { jobId: "job-2", jobLabel: "Consulting", jobName: "Consulting", fromAge: 65, toAge: 70 },
+          ],
+        },
+      ],
+    });
+    expect(html).toContain(
+      "This scenario assumes your <strong>Software Engineer</strong> job continued alongside your <strong>Consulting</strong> job from age 65 to 70.",
+    );
+  });
+
+  it("names an untitled job by its owner rather than forcing it into 'your X job'", () => {
+    // A job with no name has no bare title to slot into the phrasing, so the engine's fallback
+    // label — already a whole noun phrase — stands on its own instead.
+    const html = renderWithView({
+      ...feasible,
+      continuedJobs: [
+        {
+          jobId: "job-1",
+          jobLabel: "Alex\u2019s job",
+          jobName: null,
+          ownerId: PRIMARY_PERSON_ID,
+          ownerName: "Alex",
+          overlaps: [],
+        },
+      ],
+    });
+    expect(html).toContain("if <strong>Alex\u2019s job</strong> continued through age");
+    expect(html).not.toContain("your <strong>");
   });
 
   it("says nothing about continued work when the age assumed none", () => {

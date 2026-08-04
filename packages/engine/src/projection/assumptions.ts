@@ -41,23 +41,28 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
     text:
       "Every job is authored with its own end date, and your plan's projection uses exactly " +
       "the dates you entered — no job is shortened or extended to match a retirement age. " +
-      "When the plan instead ANSWERS “when could you retire?”, or previews stopping at a " +
+      "When the plan instead ANSWERS \u201cwhen could you retire?\u201d, or previews stopping at a " +
       "particular age, it has to imagine a working life different from the one you wrote " +
       "down, and it does that in one of two ways. Asking about an age at or before you had " +
       "planned to stop simply cuts every job off there. Asking about a LATER age means your " +
-      "plan runs out of authored work before it, so one job has to carry the extra years — " +
-      "the single job each person picked under “If you needed to work longer, which job " +
-      "would continue?”, carried on to the age asked about. Every other job keeps its own " +
-      "end date. " +
-      "Which job that is comes only from that answer, never from the dates: a job ending " +
-      "later is not evidence it could have run longer, and a fixed-term role taken at the " +
-      "end of a career is exactly the one that could not. Someone who answered “None” is " +
+      "plan runs out of authored work before it, so one job has to carry the extra years \u2014 " +
+      "the single job each person picked under \u201cWhich job should Finley model as " +
+      "continuing beyond its planned end?\u201d. " +
+      "That job is modelled as if it never ended: it keeps its original start date and simply " +
+      "runs on to the age being tested. It is not stopped and started again, which is why a " +
+      "job that has already finished can be picked \u2014 choosing it asks what would have " +
+      "happened if it had carried on instead of ending. " +
+      "Every other job keeps its planned dates, so the continued job may run alongside work " +
+      "that was meant to follow it, and both are paid for those years. That overlap is " +
+      "deliberate, and whenever an answer relies on it the plan says which jobs overlapped and " +
+      "for which years. " +
+      "Which job continues comes only from your answer, never from the dates: a job ending " +
+      "later is not evidence it could have run longer, and a fixed-term role taken at the end " +
+      "of a career is exactly the one that could not. Someone who answered \u201cNone\u201d is " +
       "never given extra work, so the plan reports that the later age does not work rather " +
       "than inventing employment nobody claimed. " +
-      "Until you pick, the plan assumes the job you are working now — or, if none is running " +
-      "yet, the next one due to start. Adding, removing or reordering jobs never changes a " +
-      "choice you have made. " +
-      "Whenever an answer did rely on working past what you wrote down, the plan says which " +
-      "job it continued.",
+      "Until you pick, the plan continues the job you are working now \u2014 or, if none is " +
+      "running yet, the next one due to start. Adding, removing or reordering jobs never " +
+      "changes a choice you have made.",
   },
 ];

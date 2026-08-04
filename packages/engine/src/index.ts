@@ -148,7 +148,12 @@ export type {
 } from "./projection/resolvedFunding";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
-export type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type {
+  ContinuedJob,
+  JobOverlap,
+  RetirementEvaluation,
+  RetirementSolution,
+} from "./retirementTypes";
 export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";

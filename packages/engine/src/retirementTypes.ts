@@ -44,8 +44,47 @@ export interface ContinuedJob {
    * job") for one that has none. Never the minted id, which means nothing to a reader.
    */
   readonly jobLabel: string;
+  /**
+   * The job's own authored name, or `null` for one that has none — {@link jobLabel} before the
+   * fallback is applied.
+   *
+   * Both are here because a sentence needs them differently. "your **Software Engineer** job"
+   * needs the bare title; a job with no title has no such phrasing and falls back to the whole
+   * label ("Alex's job"), which is already a noun phrase. A caller cannot tell the two apart
+   * from {@link jobLabel} alone without inspecting the string.
+   */
+  readonly jobName: string | null;
   readonly ownerId: string;
   readonly ownerName: string;
+  /**
+   * Where this job's extension runs **alongside** another of the same person's jobs, in the
+   * primary's timeline ages.
+   *
+   * A consequence of the model, disclosed rather than hidden: continuing a job means it never
+   * ended, so a job authored to finish before a later one begins now runs through it, and both
+   * pay. That is the intended reading — "what if this had carried on?" — but it is also the one
+   * thing about a continued job a reader would not predict, and it inflates income for exactly
+   * the years it covers.
+   *
+   * Same OWNER only. A partner earning at the same time is not a consequence of this person's
+   * extension, and reporting it as one would make every two-earner household look surprising.
+   *
+   * Empty for the ordinary case, where the continued job was already the last one running.
+   */
+  readonly overlaps: readonly JobOverlap[];
+}
+
+/** One window where a continued job pays alongside another of its owner's — see {@link ContinuedJob.overlaps}. */
+export interface JobOverlap {
+  readonly jobId: string;
+  /** Named the same way {@link ContinuedJob.jobLabel} is. */
+  readonly jobLabel: string;
+  /** The job's own authored name, or `null` — see {@link ContinuedJob.jobName}. */
+  readonly jobName: string | null;
+  /** Primary-timeline age the overlap opens at. */
+  readonly fromAge: number;
+  /** Primary-timeline age it closes at, exclusive — "from 65 to 70" is five years of both. */
+  readonly toAge: number;
 }
 
 /**

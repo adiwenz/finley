@@ -59,8 +59,16 @@ export interface StopWorkingBoundary {
    *
    * Extending one job rather than all of them is what makes the answer mean something. "Could
    * you retire at 70?" has to be allowed to run employment five years longer than was written
-   * down — that is the question — but it must not resurrect a job left at 30 to do it, or
-   * restart a term contract that ended on its own terms.
+   * down — that is the question — but only for the one job the person named, and the others are
+   * left exactly as authored rather than swept along with it.
+   *
+   * The extension is a single continuous span: the named job keeps its original start and has
+   * its end moved out, which is the same job never having finished rather than a second stint
+   * bolted on. A job authored to end before the plan does therefore runs THROUGH whatever was
+   * authored to follow it, and both pay. That overlap is the model, not a leak — it is what "if
+   * this had carried on" means — and it is reported alongside the answer (see
+   * {@link import("./retirementTypes").ContinuedJob.overlaps}) because it is also the part of
+   * the scenario a reader would not predict.
    *
    * **Which** job is the user's to say, and it is not derivable from the plan. Dates carry no
    * information about whether work could continue past them, so no rule over them can pick the
@@ -227,9 +235,9 @@ function authoredWorkPlanEndYearExclusive(owner: Person): number {
  *     answer for almost every household that never opens the picker;
  *  2. failing that, their earliest job still to **start** — a plan whose work is all ahead of it
  *     continues the first thing it comes to;
- *  3. failing that, `null`. Every job is behind them, and re-entering finished employment is not
- *     something to assume on a person's behalf. Those jobs remain selectable — the user may know
- *     they could go back — they are simply never chosen for them.
+ *  3. failing that, `null`. Every job is behind them, and assuming any of that work would have
+ *     carried on is not something to decide on a person's behalf. Those jobs remain selectable —
+ *     the user may know one of them could have — they are simply never chosen for them.
  *
  * Deterministic at every step: several jobs running now resolve to the latest-ENDING one (the
  * one they would still be in after the others finish), and an exact tie to the first authored.

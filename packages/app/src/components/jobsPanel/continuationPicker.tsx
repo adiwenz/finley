@@ -1,6 +1,6 @@
 /**
- * **"If you needed to work longer, which job would continue?"** — one member's continuation job,
- * authored beside their jobs rather than inside any of them.
+ * **"Which job should Finley model as continuing beyond its planned end?"** — one member's
+ * continuation job, authored beside their jobs rather than inside any of them.
  *
  * Per PERSON, not per job, because that is the shape of the question: several jobs cannot each
  * be the one you would continue. It was per job once — a checkbox reading "solver may extend this
@@ -47,8 +47,13 @@ export function ContinuationPicker({
   // misreport the assumption their retirement age was actually computed under.
   const selected = resolveContinuationJobId(owner.jobs, owner.continuationJobId, nowYear);
   const label = severalOwners
-    ? `If ${owner.name} needed to work longer, which job would continue?`
-    : "If you needed to work longer, which job would continue?";
+    ? `Which of ${owner.name}\u2019s jobs should Finley model as continuing beyond its planned end?`
+    : "Which job should Finley model as continuing beyond its planned end?";
+  // A job whose authored end is already behind us. Selecting one is a counterfactual — it never
+  // ended — rather than a plan to take it up again, and that is worth saying outright, because
+  // it is the one selection whose meaning a reader is likely to guess wrong.
+  const selectedIsCompleted =
+    selected !== null && (owner.jobs.find((j) => j.id === selected)?.endYear ?? Infinity) <= nowYear;
 
   return (
     <label className="field">
@@ -57,16 +62,25 @@ export function ContinuationPicker({
         value={selected ?? NONE}
         onChange={(e) => onChange(e.target.value === NONE ? null : e.target.value)}
       >
-        <option value={NONE}>None (don’t assume additional work)</option>
-        {/* Every job, including ones already finished: "I could go back to that" is knowledge
-            the plan does not have, so it is offered rather than assumed. The initialization
-            rule never selects one for them — see `resolveContinuationJobId`. */}
+        <option value={NONE}>None — do not assume additional work</option>
+        {/* Every job, including ones already finished: whether that work could have carried on
+            is knowledge the plan does not have, so it is offered rather than assumed. The
+            initialization rule never selects one for them — see `resolveContinuationJobId`. */}
         {owner.jobs.map((job) => (
           <option key={job.id} value={job.id}>
             {jobTitleOf(job)}
           </option>
         ))}
       </select>
+      <p className="hint">
+        Finley will extend this job continuously through the tested stop-working date. Other jobs
+        keep their planned dates, so jobs may overlap.
+      </p>
+      {selectedIsCompleted && (
+        <p className="hint">
+          Selecting this job models what would have happened if it had continued without ending.
+        </p>
+      )}
     </label>
   );
 }

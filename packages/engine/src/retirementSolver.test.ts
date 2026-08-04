@@ -13,6 +13,7 @@ import {
   earliestFullRetirementAge,
   evaluateFullRetirementAtAge,
   solveRetirement,
+  continuedJobsAt,
 } from "./retirementSolver";
 import { continuationJobIdOf } from "./householdJob";
 import { scenarioOf, withLedger } from "./scenario";
@@ -732,19 +733,61 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(wageAt(series, "contract", monthAt(68))).toBe(0); // cut at the candidate
   });
 
-  it("lets a COMPLETED job be the selection", () => {
-    // A job already behind them is a legitimate answer — "I could go back to that" is knowledge
-    // the plan does not have — so it is honoured rather than quietly ignored. Note what carrying
-    // one means in a model where a job is one continuous span: it resumes from now, alongside
-    // whatever else is running, not only for the years past the authored plan. That is the same
-    // overlap the spec's own career-plus-contract example produces, made more visible.
+  it("models a COMPLETED selected job as one that never ended", () => {
+    // Selecting a finished job is a counterfactual, not a plan to take it up again: the ONE span
+    // it was authored with simply runs on to the boundary, keeping its original start. So it
+    // pays every month of the projection — there is no gap where it stopped and no second
+    // segment beginning later, because in this scenario it never stopped.
     const jobs = [job("past", 25, 30, 20_000), job("current", 35, 65)];
     const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "past")), 70, CTX);
 
-    expect(wageAt(series, "past", monthAt(69))).toBeGreaterThan(0);
+    // Continuous from "now" (age 40, well past its authored end at 30) to the boundary. A job
+    // restarted at some later date would leave zeros in between; this has none.
+    for (const age of [40, 50, 64, 69]) {
+      expect(wageAt(series, "past", monthAt(age))).toBeGreaterThan(0);
+    }
     expect(wageAt(series, "past", monthAt(70))).toBe(0);
     // And the unselected job still stops exactly where it was authored to.
     expect(wageAt(series, "current", monthAt(65))).toBe(0);
+  });
+
+  it("pays BOTH jobs through the overlap the extension creates — intended, not a leak", () => {
+    // The spec's own example: continuing the career means it never ended, so it runs through the
+    // contract authored to follow it and both pay from 65 to 70. Asserted as a sum, so this
+    // fails if either the extension or the untouched later job were silently dropped.
+    const jobs = [job("career", 35, 65, 90_000), job("contract", 65, 70, 30_000)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "career")), 71, CTX);
+
+    const career = wageAt(series, "career", monthAt(67));
+    const contract = wageAt(series, "contract", monthAt(67));
+    expect(career).toBeGreaterThan(0);
+    expect(contract).toBeGreaterThan(0);
+    expect(incomeAt(series, monthAt(67))).toBe(career + contract);
+    // Past the contract's own end only the continued job is left.
+    expect(wageAt(series, "contract", monthAt(70))).toBe(0);
+    expect(wageAt(series, "career", monthAt(70))).toBeGreaterThan(0);
+  });
+
+  it("reports the overlap window a continued job creates, in the primary's ages", () => {
+    // The one consequence a reader would not predict, so it is disclosed with its years rather
+    // than left to be discovered in the income chart.
+    const jobs = [job("career", 35, 65, 90_000), job("contract", 65, 70, 30_000)];
+    const [continued] = continuedJobsAt(scenarioOf(planWithJobs(jobs, "career")), 71, CTX);
+
+    expect(continued.jobId).toBe("career");
+    expect(continued.overlaps).toEqual([
+      { jobId: "contract", jobLabel: `${samplePlan.name}'s job 2`, jobName: null, fromAge: 65, toAge: 70 },
+    ]);
+  });
+
+  it("reports no overlap where the continued job was already the last one running", () => {
+    // The ordinary case. Nothing follows the career, so continuing it crosses nothing and there
+    // is no surprise to disclose.
+    const jobs = [job("career", 35, 65), job("early", 25, 30)];
+    const [continued] = continuedJobsAt(scenarioOf(planWithJobs(jobs, "career")), 71, CTX);
+
+    expect(continued.jobId).toBe("career");
+    expect(continued.overlaps).toEqual([]);
   });
 
   it("changes NOTHING about the authored projection — the selection is about hypotheticals only", () => {
@@ -793,8 +836,14 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       {
         jobId: "career",
         jobLabel: `${baristaPlan.name}'s job 1`,
+        jobName: null,
         ownerId: "p1",
         ownerName: baristaPlan.name,
+        // The token job starts exactly where the career was authored to end, so continuing the
+        // career runs straight through it.
+        overlaps: [
+          { jobId: "token", jobLabel: `${baristaPlan.name}'s job 2`, jobName: null, fromAge: 65, toAge: 70 },
+        ],
       },
     ]);
 

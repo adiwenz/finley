@@ -26,6 +26,7 @@ import {
 import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
 import type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
 import type { Scenario } from "./scenario";
+import type { Job } from "./job";
 import type { Plan } from "./plan";
 import type { Household } from "./ledger/household";
 
@@ -283,19 +284,44 @@ export function continuedJobsAt(
   const stopWorking = stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear);
   const base = createProjectionBase(scenario.plan, ctx, stopWorking);
   const household = interpretLedger(scenario.ledger, base);
-  return resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
+  const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
     kind: "hypothetical",
     stopWorking,
-  })
+  });
+  // Every age reported here is the PRIMARY's, the convention every other solver output uses.
+  const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
+
+  return resolved
     .filter((r) => r.endYearExclusive > authoredJobEndYearExclusive(r.job))
-    .map((r) => ({
-      jobId: r.job.id,
+    .map((r) => {
       // The SAME naming the income legend uses, not a second rule: an untitled job is named
       // after its owner rather than by its minted id, which means nothing to whoever reads it.
-      jobLabel: jobDisplayNames(r.owner).get(r.job.id) ?? r.job.id,
-      ownerId: r.owner.id,
-      ownerName: r.owner.name,
-    }));
+      const names = jobDisplayNames(r.owner);
+      const named = (job: Job) => ({
+        jobId: job.id,
+        jobLabel: names.get(job.id) ?? job.id,
+        jobName: job.name?.trim() || null,
+      });
+      // The years the extension ADDED — everything past this job's own authored end. Overlap is
+      // measured against that window and not the whole span, because the years the job was
+      // authored for are not a consequence of continuing it.
+      const extensionFrom = authoredJobEndYearExclusive(r.job);
+      const overlaps = resolved
+        .filter((o) => o.owner.id === r.owner.id && o.job.id !== r.job.id)
+        .map((o) => ({
+          other: o,
+          from: Math.max(extensionFrom, o.job.startYear),
+          to: Math.min(r.endYearExclusive, o.endYearExclusive),
+        }))
+        .filter((w) => w.to > w.from)
+        .map((w) => ({
+          ...named(w.other.job),
+          fromAge: w.from - primaryBirthYear,
+          toAge: w.to - primaryBirthYear,
+        }));
+
+      return { ...named(r.job), ownerId: r.owner.id, ownerName: r.owner.name, overlaps };
+    });
 }
 
 /**

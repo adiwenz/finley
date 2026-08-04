@@ -5,9 +5,34 @@
  * per-person click-through arrives with a second household member.
  */
 
-import type { Plan } from "@finley/engine";
+import { Fragment } from "react";
+import { PRIMARY_PERSON_ID, type Plan } from "@finley/engine";
 import type { RetirementView } from "../../retirementView";
 import { formatDollars } from "../../format";
+
+/**
+ * How a sentence refers to one job — "your **Software Engineer** job", or just "**Alex's job**"
+ * for one with no title of its own.
+ *
+ * Two phrasings because a job with no name has no bare title to slot into "your X job"; the
+ * engine's fallback label is already a whole noun phrase, so it stands alone. Whose it is comes
+ * from the label in that case and from `ownerName` in the other, which is what keeps a partner's
+ * continued job from reading as the reader's own.
+ */
+function JobPhrase({
+  job,
+}: {
+  job: { jobLabel: string; jobName: string | null; ownerId: string; ownerName: string };
+}) {
+  if (job.jobName === null) return <strong>{job.jobLabel}</strong>;
+  // The reader is the primary, so their own job is "your"; anyone else's is named.
+  const whose = job.ownerId === PRIMARY_PERSON_ID ? "your" : `${job.ownerName}’s`;
+  return (
+    <>
+      {whose} <strong>{job.jobName}</strong> job
+    </>
+  );
+}
 
 export function RetirementPanel({
   view,
@@ -70,27 +95,38 @@ export function RetirementPanel({
       )}
 
       {/* The premise behind the age, stated whenever there is one. An answer that only works
-          because somebody keeps working past what they wrote down is a different answer, and the
+          because a job ran on past what was written down is a different answer, and the
           household may never have opened the picker that chose which job that was — so the
           assumption is disclosed rather than left for them to find. Nothing is said when the age
           needed no extra work, because then nothing was assumed. */}
       {view.headlineAge !== null && view.continuedJobs.length > 0 && (
-        <p className="hint" role="status">
-          You could stop working at {view.headlineAge} if you continued{" "}
-          {view.continuedJobs.map((c, i) => (
-            <span key={c.jobId}>
-              {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
-              <strong>{c.jobLabel}</strong>
-              {/* Whose job it is only matters once there is more than one to confuse — and an
-                  untitled job is already named after its owner ("Alex's job"), so saying it
-                  again would stutter. Only a job carrying its own title needs the attribution. */}
-              {view.continuedJobs.length > 1 && !c.jobLabel.includes(c.ownerName)
-                ? ` (${c.ownerName})`
-                : ""}
-            </span>
-          ))}{" "}
-          through age {view.headlineAge}.
-        </p>
+        <>
+          <p className="hint" role="status">
+            You could stop working at {view.headlineAge} if{" "}
+            {view.continuedJobs.map((c, i) => (
+              // A fragment, not a span: this is one sentence, and a wrapper element around each
+              // clause would put element boundaries inside it for no reason.
+              <Fragment key={c.jobId}>
+                {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
+                <JobPhrase job={c} />
+              </Fragment>
+            ))}{" "}
+            continued through age {view.headlineAge}.
+          </p>
+          {/* The one thing about a continued job a reader would not predict: it never ended, so
+              it now runs THROUGH the jobs that were authored to follow it, and both pay. Named
+              with its years, because that is the window where the income is doubled up. */}
+          {view.continuedJobs.flatMap((c) =>
+            c.overlaps.map((o) => (
+              <p className="hint" key={`${c.jobId}-${o.jobId}`}>
+                This scenario assumes <JobPhrase job={c} /> continued alongside{" "}
+                <JobPhrase job={{ ...o, ownerId: c.ownerId, ownerName: c.ownerName }} /> from age{" "}
+                {o.fromAge} to{" "}
+                {o.toAge}.
+              </p>
+            )),
+          )}
+        </>
       )}
 
       <p className="hint">

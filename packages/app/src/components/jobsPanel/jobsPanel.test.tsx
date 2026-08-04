@@ -1260,8 +1260,8 @@ describe("JobsPanel — authoring a job's pay history", () => {
  * earner, offers the right options, writes the answer through, and — the property the whole
  * design turns on — leaves an answer alone when the job list changes underneath it.
  */
-describe("JobsPanel — 'If you needed to work longer, which job would continue?'", () => {
-  const QUESTION = /If you needed to work longer, which job would continue\?/i;
+describe("JobsPanel — 'Which job should Finley model as continuing beyond its planned end?'", () => {
+  const QUESTION = /Which job should Finley model as continuing beyond its planned end\?/i;
   const picker = () => screen.getByRole("combobox", { name: QUESTION }) as HTMLSelectElement;
   const optionLabels = () =>
     Array.from(picker().options).map((o) => o.textContent);
@@ -1281,16 +1281,16 @@ describe("JobsPanel — 'If you needed to work longer, which job would continue?
     // and the control shows that rather than a blank "None", because it is the assumption the
     // household's retirement age is already being computed under.
     render(<Harness />);
-    expect(optionLabels()).toEqual(["None (don’t assume additional work)", "Job 1"]);
+    expect(optionLabels()).toEqual(["None \u2014 do not assume additional work", "Job 1"]);
     expect(picker().value).toBe(DEFAULT_JOB_ID);
     // Nothing has been written: showing a resolved default is not making a choice.
     expect(authored().plan.continuationJobId).toBeUndefined();
   });
 
   it("offers a job that is already finished", () => {
-    // "I could go back to that" is knowledge the plan does not have, so a completed job is
-    // offered. The initialization rule still will not pick one — here it falls to None, since
-    // nothing is running and nothing is due to start.
+    // Whether that work could have carried on is knowledge the plan does not have, so a
+    // completed job is offered. The initialization rule still will not pick one — here it falls
+    // to None, since nothing is running and nothing is due to start.
     const past: Job = {
       ...PLAN_DEFAULTS.jobs[0]!,
       name: "Bar work",
@@ -1298,8 +1298,41 @@ describe("JobsPanel — 'If you needed to work longer, which job would continue?
       endYear: START_YEAR - 10,
     };
     render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [past] }} />);
-    expect(optionLabels()).toEqual(["None (don’t assume additional work)", "Bar work"]);
+    expect(optionLabels()).toEqual(["None \u2014 do not assume additional work", "Bar work"]);
     expect(picker().value).toBe("");
+  });
+
+  it("says what continuing a job will do, including that jobs may overlap", () => {
+    // The overlap is the one consequence a reader would not predict, so the control says it up
+    // front rather than leaving it to be discovered in the charts.
+    render(<Harness />);
+    expect(
+      screen.getByText(
+        /Finley will extend this job continuously through the tested stop-working date\. Other jobs keep their planned dates, so jobs may overlap\./i,
+      ),
+    ).toBeDefined();
+    // A running job is not a counterfactual, so the completed-job note stays away.
+    expect(screen.queryByText(/if it had continued without ending/i)).toBeNull();
+  });
+
+  it("explains a completed selection as a counterfactual, never as taking the job up again", () => {
+    // Selecting a finished job models it as never having ended. Copy about restarting or going
+    // back would describe a different scenario from the one the engine actually runs.
+    const past: Job = {
+      ...PLAN_DEFAULTS.jobs[0]!,
+      name: "Bar work",
+      startYear: START_YEAR - 20,
+      endYear: START_YEAR - 10,
+    };
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [past] }} />);
+    choose(past.id);
+
+    expect(
+      screen.getByText(
+        /Selecting this job models what would have happened if it had continued without ending\./i,
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/restart|resume|go back|return to/i)).toBeNull();
   });
 
   it("writes a choice through, including None", () => {
@@ -1346,11 +1379,11 @@ describe("JobsPanel — 'If you needed to work longer, which job would continue?
     // which, since the two pickers are otherwise identical.
     render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
     const questions = screen.getAllByRole("combobox", {
-      name: /needed to work longer, which job would continue\?/i,
+      name: /should Finley model as continuing beyond its planned end\?/i,
     });
     expect(questions).toHaveLength(2);
     expect(
-      screen.getByRole("combobox", { name: /If Sam needed to work longer/i }),
+      screen.getByRole("combobox", { name: /Which of Sam\u2019s jobs should Finley model/i }),
     ).toBeDefined();
   });
 
@@ -1359,7 +1392,7 @@ describe("JobsPanel — 'If you needed to work longer, which job would continue?
     // the plan for the primary, the event they joined on for a partner. One facade method
     // settles that from the id, which is why this panel routes neither.
     render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
-    const sam = screen.getByRole("combobox", { name: /If Sam needed to work longer/i });
+    const sam = screen.getByRole("combobox", { name: /Which of Sam\u2019s jobs should Finley model/i });
 
     fireEvent.change(sam, { target: { value: "" } });
 
