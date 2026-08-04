@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection } from "@finley/engine";
 import { ExistingHomeForm } from "./existingHomeForm";
 
@@ -27,10 +28,10 @@ const btn = (name: RegExp) => screen.getByRole("button", { name });
 describe("ExistingHomeForm", () => {
   it("owns a home with its mortgage's current balance and remaining term", () => {
     const { ownHome, onDone } = renderForm();
-    fireEvent.change(spin(/Current value/i), { target: { value: "500000" } });
-    fireEvent.change(spin(/Mortgage balance today/i), { target: { value: "300000" } });
-    fireEvent.change(spin(/APR/i), { target: { value: "5.5" } });
-    fireEvent.change(spin(/Term remaining/i), { target: { value: "20" } });
+    enterNumber(spin(/Current value/i), "500000");
+    enterNumber(spin(/Mortgage balance today/i), "300000");
+    enterNumber(spin(/APR/i), "5.5");
+    enterNumber(spin(/Term remaining/i), "20");
     fireEvent.click(btn(/^Add$/));
 
     expect(ownHome).toHaveBeenCalledWith(

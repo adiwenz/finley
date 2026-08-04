@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Projection } from "./index";
+import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
 import { PRIMARY_PERSON_ID, goalFundAccountId } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
@@ -59,7 +59,7 @@ describe("Projection.init — the imperative half of authoring", () => {
     const p = Projection.init(base, nullJurisdiction);
 
     const jobId = p.addJob(PRIMARY_PERSON_ID, {
-      startYear: 2026, endYear: null,
+      startYear: 2026, endYear: 2060,
       salary: { startingSalaryCents: 9_000_000, currentSalaryCents: 9_000_000, realGrowthPct: 0 },
     });
     const goalId = p.addGoal({
@@ -87,11 +87,42 @@ describe("Projection.init — the imperative half of authoring", () => {
     expect(viaInput).toEqual(viaInit);
   });
 
-  it("cannot fail, so it hands back a projection rather than a result", () => {
-    // No entries means no refs to resolve and no events to gate; there is nothing to refuse.
-    // The type says so — no `.ok` to narrow — and this pins the behaviour behind it.
+  it("hands back a projection rather than a result — no entries, so nothing to refuse", () => {
+    // No entries means no refs to resolve and no events to gate. The type says so — no `.ok` to
+    // narrow — and this pins the behaviour behind it. The one thing it still refuses is an
+    // unprojectable age, and it does that by throwing rather than by widening this return type.
     const p: Projection = Projection.init(base, nullJurisdiction);
     expect(p).toBeInstanceOf(Projection);
+  });
+
+  it("refuses an age past its maximum — the horizon is simulated month by month", () => {
+    expect(() => Projection.init({ ...base, lifeExpectancy: 950 }, nullJurisdiction)).toThrow(
+      /lifeExpectancy 950/,
+    );
+    // Every age-valued scalar is bounded, each at ITS OWN ceiling rather than one shared number.
+    expect(() => Projection.init({ ...base, retirementAge: 200 }, nullJurisdiction)).toThrow(/200/);
+    // An age already lived stops a year below the ceiling: 120 leaves no month to project.
+    expect(() => Projection.init({ ...base, currentAge: MAX_AGE }, nullJurisdiction)).toThrow(/119/);
+    // And the claiming age stops at the top of the legal window, well below either.
+    expect(() => Projection.init({ ...base, benefitClaimingAge: 71 }, nullJurisdiction)).toThrow(/70/);
+  });
+
+  it("accepts each ceiling itself — the bound refuses what is PAST it, not what reaches it", () => {
+    const p = Projection.init(
+      { ...base, currentAge: MAX_LIVED_AGE, retirementAge: MAX_AGE, lifeExpectancy: MAX_AGE,
+        benefitClaimingAge: AGE_LIMITS.benefitClaimingAge },
+      nullJurisdiction,
+    );
+    expect(p.plan.lifeExpectancy).toBe(120);
+    expect(p.plan.currentAge).toBe(119);
+    // One year of plan left — the reason a lived age stops one short of the ceiling.
+    expect(p.run(nullJurisdiction).series.months.length).toBe(12);
+  });
+
+  it("refuses an over-large age on a later edit too, leaving the projection as it was", () => {
+    const p = Projection.init(base, nullJurisdiction);
+    expect(() => p.updatePlan({ lifeExpectancy: 950 })).toThrow(/950/);
+    expect(p.plan.lifeExpectancy).toBe(90);
   });
 });
 
@@ -104,7 +135,7 @@ describe("Projection.fromInput", () => {
           ref: ref("primaryJob"),
           ownerRef: PRIMARY_PERSON_REF,
           startYear: 2026,
-          endYear: null,
+          endYear: 2060,
           salary: { startingSalaryCents: 8_000_000, currentSalaryCents: 8_000_000, realGrowthPct: 1 },
           deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF },
         },
@@ -171,7 +202,7 @@ describe("Projection.fromInput", () => {
       events: [
         { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994,
           jobs: [
-            { startYear: 2027, endYear: null,
+            { startYear: 2027, endYear: 2060,
               salary: { startingSalaryCents: 6_000_000, currentSalaryCents: 6_000_000, realGrowthPct: 1 },
               deferral: { deferralFraction: 0.05, fundAccountRef: RETIREMENT_REF } },
           ] },
@@ -231,6 +262,70 @@ describe("Projection.fromInput", () => {
     expect(result.error.ref).toBe("student");
     expect(result.error.eventIndex).toBe(0);
   });
+
+  it("refuses a document stating an age past the maximum, with a reason rather than a throw", () => {
+    // A document is data, so an unprojectable age reads back like every other thing wrong with
+    // one: `{ ok: false }` and a reason naming the field. Nothing is minted.
+    const result = Projection.fromInput({ ...base, lifeExpectancy: 950 }, nullJurisdiction);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.reason).toMatch(/lifeExpectancy 950.*120/);
+  });
+
+  it("refuses a partner older than the maximum — a partner is a person, held to the same bound", () => {
+    // Authored as a birth YEAR, so the age is read against the plan's frozen "now" (2026).
+    const result = Projection.fromInput(
+      { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1850 }] },
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.reason).toMatch(/partner/);
+    expect(result.error.eventIndex).toBe(0);
+  });
+
+  it("holds a partner's own target ages to their own ceilings", () => {
+    const marryWith = (extra: Record<string, number>) =>
+      Projection.fromInput(
+        { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, ...extra }] },
+        nullJurisdiction,
+      );
+    // Their retirement age reaches the outer ceiling; their claiming age stops at 70.
+    expect(marryWith({ retirementTargetAge: 200 }).ok).toBe(false);
+    expect(marryWith({ retirementTargetAge: MAX_AGE }).ok).toBe(true);
+    expect(marryWith({ benefitClaimingAge: 71 }).ok).toBe(false);
+    expect(marryWith({ benefitClaimingAge: AGE_LIMITS.benefitClaimingAge }).ok).toBe(true);
+  });
+
+  it("refuses a job whose start or end age outruns a life", () => {
+    // A job is authored in calendar years, so its ages are read against its OWNER's birth year —
+    // here the primary's, `startYear − currentAge` (1996).
+    const withJob = (startYear: number, endYear: number) =>
+      Projection.fromInput(
+        {
+          ...base,
+          jobs: [{
+            ownerRef: PRIMARY_PERSON_REF, startYear, endYear,
+            salary: { startingSalaryCents: 100_000, currentSalaryCents: 100_000, realGrowthPct: 0 },
+          }],
+        },
+        nullJurisdiction,
+      );
+    expect(withJob(1996 + 200, 1996 + 201).ok).toBe(false); // starts at 200
+    expect(withJob(2026, 1996 + 200).ok).toBe(false); // ends at 200
+    // The ceiling itself is fine.
+    expect(withJob(2026, 1996 + MAX_LIVED_AGE).ok).toBe(true);
+  });
+
+  it("takes a partner within the bound, ages and all", () => {
+    const p = built({
+      ...base,
+      events: [
+        { type: "marry", month: 12, name: "Sam", birthYear: 1994, retirementTargetAge: 67, benefitClaimingAge: 70 },
+      ],
+    });
+    expect(p.ledger.events).toHaveLength(1);
+  });
 });
 
 /**
@@ -258,7 +353,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
   const populated: ScenarioInput = {
     ...base,
     jobs: [
-      { ref: ref("REF-dayJob"), startYear: 2026, endYear: null,
+      { ref: ref("REF-dayJob"), startYear: 2026, endYear: 2060,
         salary: { startingSalaryCents: 9_000_000, currentSalaryCents: 9_000_000, realGrowthPct: 0 } },
     ],
     goals: [
@@ -275,7 +370,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
       { type: "takeLoan", ref: ref("REF-student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
         openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
       { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994,
-        jobs: [{ startYear: 2027, endYear: null,
+        jobs: [{ startYear: 2027, endYear: 2060,
           salary: { startingSalaryCents: 5_000_000, currentSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
       { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },
       { type: "buyHome", ref: ref("REF-house"), month: 36, ownerRef: PRIMARY_PERSON_REF,
@@ -356,7 +451,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     // these draw from where it left off rather than re-issuing a live id.
     p.addJob(PRIMARY_PERSON_ID, {
       startYear: 2030,
-      endYear: null,
+      endYear: 2060,
       salary: { startingSalaryCents: 1_000_000, currentSalaryCents: 1_000_000, realGrowthPct: 0 },
     });
     p.addGoal({ name: "Later", targetCents: 100_000, annualReturnPct: 1,

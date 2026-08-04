@@ -29,7 +29,7 @@ const baseBudget: Plan = {
       id: "job-1",
       ownerId: "p1",
       startYear: START_YEAR - 35 + 18,
-      endYear: null,
+      endYear: START_YEAR - 35 + 65,
       salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],

@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 
@@ -39,7 +40,7 @@ describe("RelationshipForm — partner jobs", () => {
   it("authors a job for the partner, handed to the facade to id and own", () => {
     const marry = renderForm();
     fireEvent.click(btn(/Add a job/i));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
+    enterNumber(spin(/Monthly salary/i), "2000");
     fireEvent.click(btn(/^Add$/)); // the JobForm's own submit
     fireEvent.click(btn(/Add event/i));
     const input = marry.mock.calls[0][0];
@@ -57,7 +58,7 @@ describe("RelationshipForm — partner jobs", () => {
     // their jobs stop and their benefit starts.
     const marry = renderForm(60); // joining in Year 5 → 2031
     expect(spin(/Their age in 2031/i)).toBeTruthy();
-    fireEvent.change(spin(/Their age/i), { target: { value: "45" } });
+    enterNumber(spin(/Their age/i), "45");
     fireEvent.click(btn(/Add event/i));
     expect(marry.mock.calls[0][0].birthYear).toBe(2031 - 45);
   });
@@ -71,11 +72,11 @@ describe("RelationshipForm — partner jobs", () => {
 
   it("resolves an authored job's ages against the partner's own birth year", () => {
     const marry = renderForm(0);
-    fireEvent.change(spin(/Their age/i), { target: { value: "30" } });
+    enterNumber(spin(/Their age/i), "30");
     fireEvent.click(btn(/Add a job/i));
     // A fresh job is seeded at the age they join.
     expect(Number(spin(/Start age/i).value)).toBe(30);
-    fireEvent.change(spin(/Start age/i), { target: { value: "22" } });
+    enterNumber(spin(/Start age/i), "22");
     fireEvent.click(btn(/^Add$/));
     fireEvent.click(btn(/Add event/i));
 
@@ -97,9 +98,9 @@ describe("RelationshipForm — partner jobs", () => {
     // Their retirement age is NOT chained to their current age (the primary earner's is):
     // a 68-year-old who stopped working at 62 is a real scenario.
     const marry = renderForm(0);
-    fireEvent.change(spin(/Their age/i), { target: { value: "68" } });
-    fireEvent.change(spin(/Their retirement age/i), { target: { value: "62" } });
-    fireEvent.change(spin(/Their Social Security claiming age/i), { target: { value: "70" } });
+    enterNumber(spin(/Their age/i), "68");
+    enterNumber(spin(/Their retirement age/i), "62");
+    enterNumber(spin(/Their Social Security claiming age/i), "70");
     fireEvent.click(btn(/Add event/i));
 
     const input = marry.mock.calls[0][0];
@@ -111,10 +112,10 @@ describe("RelationshipForm — partner jobs", () => {
   it("authors several jobs and can remove one before adding the partner", () => {
     const marry = renderForm();
     fireEvent.click(btn(/Add a job/i));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
+    enterNumber(spin(/Monthly salary/i), "2000");
     fireEvent.click(btn(/^Add$/));
     fireEvent.click(btn(/Add a job/i));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "3000" } });
+    enterNumber(spin(/Monthly salary/i), "3000");
     fireEvent.click(btn(/^Add$/));
     fireEvent.click(btn(/Remove job 1/i));
     fireEvent.click(btn(/Add event/i));

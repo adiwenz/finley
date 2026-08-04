@@ -21,7 +21,7 @@ const partnerJob: Job = {
   id: "p-1-job-1",
   ownerId: "p-1",
   startYear: START_YEAR,
-  endYear: null,
+  endYear: START_YEAR - 40 + 65,
   salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
 };
 

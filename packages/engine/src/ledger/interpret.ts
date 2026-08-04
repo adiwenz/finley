@@ -18,7 +18,7 @@ import { compileHouseholdJobSeries } from "../compilePerson";
 import {
   personJobContexts,
   resolveHouseholdJobs,
-  type StopWorkingBoundary,
+  type JobResolutionScope,
 } from "../householdJob";
 import { authoringAccounts } from "../planAccount";
 import {
@@ -134,10 +134,10 @@ function partnerJobSeries(
   membership: PersonMembership,
   nowYear: number,
   inflationRate: number,
-  stopWorking: StopWorkingBoundary | undefined,
+  scope: JobResolutionScope,
 ): HouseholdSeries[] {
   const compiled = compileHouseholdJobSeries(
-    resolveHouseholdJobs(personJobContexts(membership), nowYear, stopWorking),
+    resolveHouseholdJobs(personJobContexts(membership), nowYear, scope),
     nowYear,
     inflationRate,
   );
@@ -155,7 +155,18 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     // `base.initialIncomeSeries` — so a partner's jobs never double-count.
     ...[...state.personsById.values()]
       .filter((m) => Number.isFinite(m.startMonth))
-      .flatMap((m) => partnerJobSeries(m, nowYear, base.annualInflationRate, base.stopWorking)),
+      .flatMap((m) =>
+        partnerJobSeries(
+          m,
+          nowYear,
+          base.annualInflationRate,
+          // A partner's jobs are read the same way the primary's are: as authored, unless this
+          // whole run is a hypothesis about stopping work.
+          base.stopWorking === undefined
+            ? { kind: "authored" }
+            : { kind: "hypothetical", stopWorking: base.stopWorking },
+        ),
+      ),
     ...[...state.seriesById.values()].map((def): HouseholdSeries => {
       const common = {
         id: def.id,

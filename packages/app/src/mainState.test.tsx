@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { enterNumber } from "./testing/numberField";
 import { App } from "./main";
 import * as engine from "@finley/engine";
 import { dollarsToCents } from "@finley/engine";
@@ -121,9 +122,7 @@ describe("App — event ledger", () => {
     // offers an "Add a job" button.
     const partnerJobsField = screen.getByText("Jobs (optional)").closest(".field") as HTMLElement;
     fireEvent.click(within(partnerJobsField).getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
-      target: { value: "2000" },
-    });
+    enterNumber(screen.getByRole("spinbutton", { name: /Monthly salary/i }), "2000");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     fireEvent.click(screen.getByText("Add event"));
 
@@ -136,9 +135,7 @@ describe("App — event ledger", () => {
     // (b) The income-vs-spend surface counts it: $5,000 + $2,000 at a month before the
     // first CPI step.
     const selectBudgetMonth = (month: number) =>
-      fireEvent.change(screen.getByRole("spinbutton", { name: "Month" }), {
-        target: { value: String(month) },
-      });
+      enterNumber(screen.getByRole("spinbutton", { name: "Month" }), month);
     const incomeDollars = () =>
       Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
     selectBudgetMonth(6);
@@ -146,9 +143,7 @@ describe("App — event ledger", () => {
 
     // (c) Editing the partner's pay revises the RelationshipEvent in place.
     fireEvent.click(screen.getByRole("button", { name: /Edit Partner · Job 1/i }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
-      target: { value: "3000" },
-    });
+    enterNumber(screen.getByRole("spinbutton", { name: /Monthly salary/i }), "3000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(
@@ -273,7 +268,7 @@ describe("App — retirement chart preview", () => {
 
     // Age 70 (month 420): the authored default plan retires the primary at 65, so no wages; the
     // solved headline age (76) keeps them working, so previewing adds those wages back.
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Month" }), { target: { value: "420" } });
+    enterNumber(screen.getByRole("spinbutton", { name: "Month" }), "420");
     const authored = incomeDollars();
 
     const toggle = () => screen.getByRole("checkbox", { name: /Preview the charts/ });
@@ -348,10 +343,12 @@ describe("App — budget edits", () => {
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
-    // A budget edit produces a new state, so the read handle rebuilds.
-    fireEvent.change(screen.getByLabelText(/Savings return/), {
-      target: { value: "5" },
-    });
+    // Typing in a number field is not yet an edit — it reprojects when the field COMMITS.
+    fireEvent.change(screen.getByLabelText(/Savings return/), { target: { value: "5" } });
+    expect(spy.mock.calls.length).toBe(callsAfterMount);
+
+    // Committed, it produces a new state, so the read handle rebuilds.
+    fireEvent.blur(screen.getByLabelText(/Savings return/));
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
@@ -368,7 +365,7 @@ describe("App — budget edits", () => {
     const callsAfterMount = spy.mock.calls.length;
 
     const housing = screen.getByRole("spinbutton", { name: /Housing/ });
-    fireEvent.change(housing, { target: { value: "9000" } }); // far past the $5,000 income
+    enterNumber(housing, 9000); // far past the $5,000 income
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);

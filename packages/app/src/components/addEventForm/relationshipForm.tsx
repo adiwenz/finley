@@ -1,6 +1,7 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
+import { AGE_LIMITS, MAX_LIVED_AGE } from "@finley/engine";
 import { MonthSelect, type FormProps } from "./formControls";
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
@@ -96,7 +97,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         value={draft.age}
         onChange={(age) => patch({ age })}
         min={18}
-        max={100}
+        max={MAX_LIVED_AGE}
         step={1}
       />
 
@@ -159,7 +160,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           value={draft.retirementAge}
           onChange={(retirementAge) => patch({ retirementAge })}
           min={40}
-          max={80}
+          max={AGE_LIMITS.retirementAge}
           step={1}
         />
         {/* Their benefit rides their own covered earnings, so it begins on their clock, not
@@ -169,7 +170,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           value={draft.claimingAge}
           onChange={(claimingAge) => patch({ claimingAge })}
           min={62}
-          max={70}
+          max={AGE_LIMITS.benefitClaimingAge}
           step={1}
         />
         <p className="hint">

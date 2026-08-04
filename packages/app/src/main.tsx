@@ -13,6 +13,7 @@ import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
+import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
 import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
@@ -208,18 +209,20 @@ export function App() {
             <StartingPositionPanel onAdd={transact} />
           </div>
 
-          <div className="card inputs">
+          {/* Standing settings rather than a live readout: both start collapsed, so the
+              panels that answer "what is happening" keep the column. */}
+          <CollapsibleCard title="Budget & accounts" className="inputs">
             <BudgetEditor budget={budget} transact={transact} />
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
+          <CollapsibleCard title="Goals">
             <GoalsPanel
               budget={budget}
               result={result}
               projection={projection}
               transact={transact}
             />
-          </div>
+          </CollapsibleCard>
 
           <div className="card">
             <RetirementPanel

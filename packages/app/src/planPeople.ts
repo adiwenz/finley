@@ -1,6 +1,6 @@
 /**
  * App-side helpers over the plan's standing {@link Job} model. Earned income lives
- * entirely on the primary person's jobs — any number, several possibly open-ended, none
+ * entirely on the primary person's jobs — any number, none
  * privileged; there is no "career job". The Jobs editor is the single authoring surface
  * for income; the Budget editor and the Base + Adjustments income row only display the
  * compiled result.
@@ -40,9 +40,9 @@ export function jobStartAgeFor(birthYear: number, job: Job): number {
   return job.startYear - birthYear;
 }
 
-/** The age the owner reaches in a job's (exclusive) end year, or `null` if open-ended. */
-export function jobEndAgeFor(birthYear: number, job: Job): number | null {
-  return job.endYear === null ? null : job.endYear - birthYear;
+/** The age the owner reaches in a job's (exclusive) end year. Every job has one. */
+export function jobEndAgeFor(birthYear: number, job: Job): number {
+  return job.endYear - birthYear;
 }
 
 /** The age the owner reaches in a given simulation month. */
@@ -55,23 +55,23 @@ export function monthAtOwnerAge(birthYear: number, age: number): number {
   return (birthYear + age - START_YEAR) * 12;
 }
 
-/** Whose clock a job's span is read against: their birth year, and where an open-ended job stops. */
+/** Whose clock a job's span is read against. */
 export interface JobSpanOwner {
   readonly birthYear: number;
-  /** An open-ended job runs to THIS person's retirement age — a job alone cannot say when. */
-  readonly retirementTargetAge: number;
 }
 
 /**
- * A job's paying window in simulation months, both bounds resolved: an open-ended job stops at
- * its owner's retirement age. Negative months are the job's history — the span a job already
- * under way spends before "now".
+ * A job's paying window in simulation months, straight off its own two authored years. Negative
+ * months are the job's history — the span a job already under way spends before "now".
+ *
+ * The owner is still named because ages elsewhere on the panel read against their birth year;
+ * the SPAN no longer consults them at all. It used to: an end-less job took its end from the
+ * owner's retirement age, so a chart could contradict the job beside it.
  */
-export function jobPaySpanFor(owner: JobSpanOwner, job: Job): JobPaySpan {
-  const endYear = job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+export function jobPaySpanFor(_owner: JobSpanOwner, job: Job): JobPaySpan {
   return {
     startMonth: (job.startYear - START_YEAR) * 12,
-    endMonthExclusive: (endYear - START_YEAR) * 12,
+    endMonthExclusive: (job.endYear - START_YEAR) * 12,
   };
 }
 
@@ -100,8 +100,8 @@ export function jobPayPathFor(
 
 /**
  * A job in the terms the Jobs form speaks (ages and dollars, not calendar years and
- * cents) — the seam between the UI and the standing {@link Job}. `endAge: null` is
- * open-ended (runs to retirement).
+ * cents) — the seam between the UI and the standing {@link Job}. Every job states when it ends,
+ * so `endAge` is a number like `startAge` and there is no open-ended case to represent.
  *
  * **Ownership is not among these fields, and that is the point.** A job belongs to the member
  * it was created for, for good: every age here is that person's age, so moving a job re-reads
@@ -141,7 +141,7 @@ export interface JobEditDraft {
    */
   readonly startingMonthlyCents: number;
   readonly startAge: number;
-  readonly endAge: number | null;
+  readonly endAge: number;
   readonly realGrowthPct: number;
   /** Pre-tax 401(k) deferral as a whole-number percent (0 = none). */
   readonly deferralPct: number;
@@ -177,12 +177,18 @@ export function blankJobDraft(currentAge: number): JobEditDraft {
     monthlyCents: 3000 * 100,
     startingMonthlyCents: 3000 * 100,
     startAge: currentAge,
-    endAge: null,
+    // A new job opens ending at the conventional retirement age — a starting point the user
+    // moves, not a rule. Something has to be proposed, and this is the least surprising thing
+    // to propose; nothing in the engine reads it as a retirement age.
+    endAge: DEFAULT_JOB_END_AGE,
     realGrowthPct: 0,
     deferralPct: 0,
     employerMatchPct: 0,
   };
 }
+
+/** Where a brand-new job's end age opens. A form default, not a rule the projection reads. */
+export const DEFAULT_JOB_END_AGE = 65;
 
 /** A blank job for a form that must also settle whose it is — the Jobs panel's Add. */
 export function blankJobDraftFor(ownerId: PersonId, currentAge: number): NewJobDraft {
@@ -259,8 +265,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft):
   const { name: _priorName, deferral: prior, payChanges: _priorChanges, ...carried } = job;
 
   const startMonth = monthAtOwnerAge(birthYear, draft.startAge);
-  const endMonthExclusive =
-    draft.endAge === null ? Infinity : monthAtOwnerAge(birthYear, draft.endAge);
+  const endMonthExclusive = monthAtOwnerAge(birthYear, draft.endAge);
   const strandedPayChanges = (job.payChanges ?? []).filter((c) => c.month < startMonth);
   const kept = (job.payChanges ?? []).filter((c) => c.month >= startMonth);
 
@@ -272,7 +277,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft):
     // at the one line that could ever have written a different one.
     ownerId: job.ownerId,
     startYear: birthYear + draft.startAge,
-    endYear: draft.endAge === null ? null : birthYear + draft.endAge,
+    endYear: birthYear + draft.endAge,
     salary: {
       ...job.salary,
       startingSalaryCents: draft.startingMonthlyCents * 12,
@@ -324,11 +329,11 @@ export function jobInputFromDraft(birthYear: number, draft: JobEditDraft): JobIn
   // A job added with an end age already behind us has no month-0 pay to state, and the form
   // does not ask for one — see {@link applyJobDraft}, which pins the same dead anchor. A new
   // job carries no pay changes, so what it "last paid" is simply its start pay.
-  const alreadyOver = draft.endAge !== null && monthAtOwnerAge(birthYear, draft.endAge) <= 0;
+  const alreadyOver = monthAtOwnerAge(birthYear, draft.endAge) <= 0;
   const base: JobInput = {
     ...(name ? { name } : {}),
     startYear: birthYear + draft.startAge,
-    endYear: draft.endAge === null ? null : birthYear + draft.endAge,
+    endYear: birthYear + draft.endAge,
     salary: {
       startingSalaryCents: draft.startingMonthlyCents * 12,
       currentSalaryCents: (alreadyOver ? draft.startingMonthlyCents : draft.monthlyCents) * 12,

@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection } from "@finley/engine";
 import { ExistingLoanForm } from "./existingLoanForm";
 
@@ -27,9 +28,9 @@ const btn = (name: RegExp) => screen.getByRole("button", { name });
 describe("ExistingLoanForm", () => {
   it("carries an amortizing loan at its remaining term, converting dollars and APR", () => {
     const { carryLoan, onDone } = renderForm();
-    fireEvent.change(spin(/Balance today/i), { target: { value: "12000" } });
-    fireEvent.change(spin(/APR/i), { target: { value: "7.5" } });
-    fireEvent.change(spin(/Term remaining/i), { target: { value: "4" } });
+    enterNumber(spin(/Balance today/i), "12000");
+    enterNumber(spin(/APR/i), "7.5");
+    enterNumber(spin(/Term remaining/i), "4");
     fireEvent.click(btn(/^Add$/));
 
     expect(carryLoan).toHaveBeenCalledWith(
@@ -57,7 +58,7 @@ describe("ExistingLoanForm", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Type/i }), {
       target: { value: "creditCard" },
     });
-    fireEvent.change(spin(/Balance today/i), { target: { value: "3000" } });
+    enterNumber(spin(/Balance today/i), "3000");
     fireEvent.click(btn(/^Add$/));
 
     const input = carryLoan.mock.calls[0][0];

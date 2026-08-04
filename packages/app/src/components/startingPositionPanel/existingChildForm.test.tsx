@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection } from "@finley/engine";
 import { ExistingChildForm } from "./existingChildForm";
 
@@ -30,8 +31,8 @@ describe("ExistingChildForm", () => {
     fireEvent.change(screen.getByPlaceholderText(/Child's name/i), {
       target: { value: "Robin" },
     });
-    fireEvent.change(spin(/Age today/i), { target: { value: "7" } });
-    fireEvent.change(spin(/Annual cost/i), { target: { value: "20000" } });
+    enterNumber(spin(/Age today/i), "7");
+    enterNumber(spin(/Annual cost/i), "20000");
     fireEvent.click(btn(/^Add$/));
 
     expect(haveExistingChild).toHaveBeenCalledWith({

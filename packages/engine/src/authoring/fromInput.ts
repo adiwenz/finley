@@ -14,6 +14,7 @@
 
 import type { BudgetTarget } from "../budgetLine";
 import { goalFundAccountId } from "../projectionBase";
+import { ageAboveMaximum } from "../plan";
 import {
   PRIMARY_PERSON_REF,
   RETIREMENT_REF,
@@ -60,6 +61,13 @@ export function interpretScenarioInput(
   // makes this an authoring path: the state it starts from holds no id at all, so restoration has
   // nothing to floor past and the counter opens at 1.
   const { jobs, goals, budgetLines, events: _events, ...scalars } = input;
+  // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
+  // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
+  // checked here and reported like any other thing wrong with the input.
+  const overAge = ageAboveMaximum(scalars);
+  if (overAge) {
+    return { ok: false, error: { reason: `${overAge.field} ${overAge.age} exceeds the ${overAge.limit} maximum` } };
+  }
   const projection = open(scalars);
 
   const registry = new Map<Ref, string>();

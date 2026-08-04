@@ -162,7 +162,7 @@ describe("carryLoan — month-0 payment the household cannot fully fund", () => 
     p.addJob(PRIMARY_PERSON_ID as PersonId, {
       name: "Job",
       startYear: base.startYear,
-      endYear: null,
+      endYear: 2090,
       salary: {
         startingSalaryCents: 3_600_000,
         // Starts at "now", so there is no history for the two anchors to disagree across.

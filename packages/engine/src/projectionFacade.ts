@@ -86,7 +86,7 @@ import { runProjection } from "./projectionRun";
 import type { ProjectionResult } from "./projectionRun";
 import { buildRetirementOutlook } from "./retirementOutlook";
 import type { RetirementOutlook } from "./retirementOutlook";
-import { fullStopWorkingBoundaryAt } from "./retirementSolver";
+import { stopWorkingBoundaryAt } from "./retirementSolver";
 
 import type { ProjectionState, Written } from "./authoring/state";
 import { emptyState } from "./authoring/state";
@@ -574,7 +574,7 @@ export class Projection {
     return runProjection(
       this.current,
       jurisdiction,
-      fullStopWorkingBoundaryAt(this.plan, age, this.current.startYear),
+      stopWorkingBoundaryAt(this.plan, age, this.current.startYear),
     );
   }
 

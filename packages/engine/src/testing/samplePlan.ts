@@ -54,12 +54,14 @@ export function healthLine(monthlyCents: number): BudgetLine {
 export const SAMPLE_START_YEAR = 2026;
 
 const SAMPLE_CURRENT_AGE = 40;
+/** Where the fixture's job ends unless a test says otherwise — every job states an end. */
+const SAMPLE_RETIREMENT_AGE = 60;
 const SAMPLE_START_AGE = 18;
 
 /**
- * A single open-ended, flat-salary {@link Job}: real-flat salary (`realGrowthPct: 0` → grows
- * at CPI nominally, constant in real terms), anchored in the past so it pays from "now",
- * ending at the owner's `retirementTargetAge`. `startAge` sets the job's `startYear`, which
+ * A single flat-salary {@link Job}: real-flat salary (`realGrowthPct: 0` → grows at CPI
+ * nominally, constant in real terms), anchored in the past so it pays from "now", and ending at
+ * `endAge`. `startAge` sets the job's `startYear`, which
  * seeds the pre-"now" covered-earnings record; an optional deferral rides on the job. One job,
  * in no way privileged — a fixture can hold several (see {@link baristaPlan}).
  */
@@ -69,6 +71,8 @@ export function salariedJob(
     currentAge?: number;
     startAge?: number;
     deferralFraction?: number;
+    /** The age the job is AUTHORED to end at, exclusive. Defaults to the fixture's retirement age. */
+    endAge?: number;
   },
 ): Job {
   const currentAge = opts?.currentAge ?? SAMPLE_CURRENT_AGE;
@@ -79,7 +83,7 @@ export function salariedJob(
     id: "job-main",
     ownerId: "p1",
     startYear: birthYear + startAge,
-    endYear: null,
+    endYear: birthYear + (opts?.endAge ?? SAMPLE_RETIREMENT_AGE),
     salary: {
       startingSalaryCents: monthlyIncomeCents * 12,
       currentSalaryCents: monthlyIncomeCents * 12,
@@ -111,7 +115,7 @@ export const samplePlan = {
   ],
   inflationPct: 3,
   currentAge: SAMPLE_CURRENT_AGE,
-  retirementAge: 60,
+  retirementAge: SAMPLE_RETIREMENT_AGE,
   lifeExpectancy: 85,
   benefitClaimingAge: 67,
   jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 })],
@@ -121,17 +125,15 @@ const BARISTA_CURRENT_AGE = 45;
 const BARISTA_BIRTH_YEAR = SAMPLE_START_YEAR - BARISTA_CURRENT_AGE;
 
 /**
- * A "barista retirement" fixture: a high-earning **open-ended** job (`null` end, ending at
- * `retirementTargetAge`) plus a low-earning **fixed-term** ("barista") job that keeps paying
- * long past it. Pins the two solver outputs *distinctly*: the partial retirement age (drop the
- * open-ended job, keep barista + government benefit + assets) lands earlier than the full one
- * (cease ALL jobs, survive on government benefit + assets alone).
+ * A "barista retirement" fixture: a high-earning career job that ends at 60, plus a low-earning
+ * ("barista") job that keeps paying long past it. Both state their own end — the fixture is now
+ * about two jobs with different spans, not about two KINDS of job.
  */
 const baristaOpenEndedJob: Job = {
   id: "main",
   ownerId: "p1",
   startYear: BARISTA_BIRTH_YEAR + 25,
-  endYear: null, // open-ended — ends at retirementTargetAge, the solver varies it
+  endYear: BARISTA_BIRTH_YEAR + 60, // the career job, authored to end at 60
   salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
 };
 

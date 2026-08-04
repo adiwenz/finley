@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import {
   PRIMARY_PERSON_ID,
   Projection,
@@ -38,9 +39,7 @@ const openOneOff = () =>
 const setOneOffKind = (value: string) =>
   fireEvent.change(screen.getByLabelText("Pay change kind"), { target: { value } });
 const setOneOffAmount = (dollars: number) =>
-  fireEvent.change(screen.getByRole("spinbutton", { name: /Amount/ }), {
-    target: { value: String(dollars) },
-  });
+  enterNumber(screen.getByRole("spinbutton", { name: /Amount/ }), dollars);
 const applyOneOff = () => fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
 /**
@@ -106,7 +105,7 @@ const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
             name: "Sam's job",
             ownerId: "p-1",
             startYear: START_YEAR,
-            endYear: null,
+            endYear: START_YEAR - 40 + 65,
             salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
           },
         ],
@@ -121,11 +120,11 @@ const spin = (name: RegExp | string) =>
 
 /** The keyboard equivalent of a chart click. */
 const selectMonth = (month: number) =>
-  fireEvent.change(spin("Month"), { target: { value: String(month) } });
+  enterNumber(spin("Month"), month);
 
 /** Typing an amount stages the how-long question. */
 const editRow = (name: RegExp | string, dollars: number) =>
-  fireEvent.change(spin(name), { target: { value: String(dollars) } });
+  enterNumber(spin(name), dollars);
 
 /**
  * A budget line's band key on the per-line graph. The engine mints every line id, so a test
@@ -793,7 +792,7 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(job.name).toBe("Sam's job");
     expect(job.ownerId).toBe("p-1");
     expect(job.startYear).toBe(START_YEAR);
-    expect(job.endYear).toBeNull();
+    expect(job.endYear).toBe(START_YEAR - 40 + 65);
     expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), currentSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
     // The bonus from the first adjustment survived the second, which is a different kind.
     expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
@@ -863,9 +862,7 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
   const setType = (v: string) =>
     fireEvent.change(screen.getByLabelText("Item type"), { target: { value: v } });
   const setAmount = (dollars: number) =>
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly amount/ }), {
-      target: { value: String(dollars) },
-    });
+    enterNumber(screen.getByRole("spinbutton", { name: /Monthly amount/ }), dollars);
   const submitAdd = () => fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
   it("adds a named expense line", () => {

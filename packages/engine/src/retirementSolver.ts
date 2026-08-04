@@ -105,31 +105,22 @@ function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): 
 
 /**
  * The candidate boundary for a solve at `age`: the calendar year the primary turns `age`, applied
- * to every earner. `mode` decides whether the fixed-term jobs cap with the rest (`"full"`) or only
- * the open-ended ones move (`"partial"`). Purely a compilation input — it rewrites no job, which is
- * what makes a solve non-destructive.
+ * to every earner. Purely a compilation input — it rewrites no job, which is what makes a solve
+ * non-destructive.
+ *
+ * Also the boundary a caller outside the solver's own search uses:
+ * {@link Projection.runAtStopWorkingAge} previews a candidate age's charts through it.
+ *
+ * There used to be two of these, a "partial" one that ended only the open-ended jobs and a
+ * "full" one that ended everything. Every job now carries its own end, so there is no
+ * open-ended category to stop separately, and one boundary means one thing: everybody stops.
  */
-function stopWorkingBoundaryAt(
-  budget: Plan,
-  age: number,
-  ctx: ProjectionContext,
-  mode: StopWorkingBoundary["mode"],
-): StopWorkingBoundary {
-  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, ctx.startYear), mode };
-}
-
-/**
- * The full-retirement boundary at `age` — every earner stops — for a caller outside the solver's
- * own search: {@link Projection.runAtStopWorkingAge} previews a candidate age's charts through it.
- * Full mode is the only one exposed, because a "what if we both stopped working then" preview is
- * exactly the full-retirement question the headline age answers, never the partial one.
- */
-export function fullStopWorkingBoundaryAt(
+export function stopWorkingBoundaryAt(
   budget: Plan,
   age: number,
   startYear: number,
 ): StopWorkingBoundary {
-  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, startYear), mode: "full" };
+  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, startYear) };
 }
 
 /**
@@ -156,25 +147,6 @@ function computeOnTrackFraction(
 }
 
 /**
- * Project with retirement pinned at `age` and evaluate that run. Omits `nearestFeasibleAge`:
- * {@link earliestPartialRetirementAge} calls this for every candidate age to produce it, so
- * computing it here would recurse.
- */
-export function evaluateAtAge(
-  scenario: Scenario,
-  age: number,
-  ctx: ProjectionContext,
-): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
-  const series = projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx, "partial"));
-  const feasible = planSurvives(series);
-  return {
-    retirementAge: age,
-    feasible,
-    onTrackFraction: feasible ? 1 : computeOnTrackFraction(scenario.plan, age, series),
-  };
-}
-
-/**
  * Earliest integer age in `[currentAge, lifeExpectancy]` at which `survives(age)` holds, else
  * null. Survival is monotonic in the age (holding jobs longer never hurts), so a binary search
  * finds the threshold in ~log2(range) projections.
@@ -198,38 +170,23 @@ function earliestSurvivingAge(
 }
 
 /**
- * **Partial retirement**: the earliest age every **open-ended** (`null`-end) job can end while
- * the authored fixed-term jobs + passive income + government benefit keep running and the plan
- * still lasts to life expectancy. Pinning the age moves every open-ended job's end via a
- * partial-mode {@link StopWorkingBoundary} the compiler applies to every earner.
- *
- * Opt-in and standalone: it is NOT part of {@link solveRetirement}'s default result. A caller
- * that wants the partial-retirement milestone (e.g. a "stepped back" option in the panel) runs
- * this search itself, so the default query never pays for a second binary search the panel does
- * not show.
- */
-export function earliestPartialRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(scenario.plan, (age) => evaluateAtAge(scenario, age, ctx).feasible);
-}
-
-/**
  * Run the projection with ALL jobs ceased at `age`, leaving passive income + government
- * benefit + assets to carry the plan to life expectancy. The full-mode boundary caps every
- * earner's jobs — the primary's AND a partner's — at the calendar year the primary turns `age`,
- * without rewriting a single one. For a scalar plan (no jobs) it collapses to a partial-retirement
- * projection at `age` — nothing left to drop.
+ * benefit + assets to carry the plan to life expectancy. The boundary caps every earner's jobs
+ * — the primary's AND a partner's — at the calendar year the primary turns `age`, without
+ * rewriting a single one.
  */
 export function projectFullRetirement(
   scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
 ): ProjectionSeries {
-  return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx, "full"));
+  return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear));
 }
 
 /**
- * Full-retirement counterpart of {@link evaluateAtAge}: cease all jobs at `age`. Omits
- * `nearestFeasibleAge` for the same reason.
+ * Evaluate a run with all jobs ceased at `age`. Omits `nearestFeasibleAge`:
+ * {@link earliestFullRetirementAge} calls this for every candidate age to produce it, so
+ * computing it here would recurse.
  */
 export function evaluateFullRetirementAtAge(
   scenario: Scenario,
@@ -246,10 +203,13 @@ export function evaluateFullRetirementAtAge(
 }
 
 /**
- * **Full retirement**: the earliest age at which ALL jobs (open-ended + fixed-term) can cease
- * and the plan still survive to life expectancy on passive income + government benefit +
- * assets alone. Always ≥ {@link earliestPartialRetirementAge} — dropping the still-running
- * income can only make survival harder.
+ * The earliest age at which ALL jobs can cease and the plan still survive to life expectancy on
+ * passive income + government benefit + assets alone.
+ *
+ * The only retirement search there is. A second one used to sit beside it — "partial"
+ * retirement, ending the open-ended jobs while fixed-term ones kept paying — which depended on
+ * a job with no end date being a recognisably different KIND of job. Every job states its own
+ * end now, so there is nothing to tell apart, and "when can we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
@@ -279,7 +239,11 @@ function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number
   const household = interpretLedger(scenario.ledger, base);
   // No `stopWorking`: this reads the plan AS AUTHORED. A solver candidate is a hypothesis about
   // a plan the user has not adopted, and must never move what their own plan says.
-  const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear);
+  // `"authored"` — see above. A solver candidate is a hypothesis about a plan the user has not
+  // adopted, and must never move what their own plan says.
+  const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
+    kind: "authored",
+  });
   const paying = resolved.filter((r) => r.paysHousehold);
   if (paying.length === 0) return null;
   return Math.max(...paying.map((r) => householdWageEndYearExclusive(r, ctx.startYear)));
@@ -298,12 +262,10 @@ export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): 
 }
 
 /**
- * The default retirement result off one {@link Scenario}: the full-retirement search
- * ({@link fullRetirementAge} — solved, "can we afford to stop") plus the planned work-stop age
- * ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its own"). Partial
- * retirement is a separate, opt-in solve ({@link earliestPartialRetirementAge}) and is
- * deliberately not run here, so the default query performs a single binary search rather than
- * two.
+ * The default retirement result off one {@link Scenario}: the retirement search
+ * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop") plus the
+ * planned work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on
+ * its own").
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   return {

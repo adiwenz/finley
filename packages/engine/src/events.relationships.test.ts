@@ -44,7 +44,7 @@ describe("RelationshipEvent — partner jobs", () => {
         id: "pj1",
         ownerId: "p2",
         startYear: 2020,
-        endYear: null,
+        endYear: 2090,
         salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
       },
     ],
@@ -146,18 +146,19 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
     expect(incomeAt(67, 60)).toBe(dollarsToCents(1_000));
   });
 
-  it("stops a partner's open-ended job at THEIR retirement age", () => {
-    // Born 1958, retiring at 65 → last paid year 2022, so month 36 (2023) pays nothing
-    // while month 35 still does.
+  it("stops a partner's job where THAT JOB says it ends, not at any retirement age", () => {
+    // The job is authored to end in 2023, so month 36 (2023) pays nothing while month 35 does.
+    // `retirementTargetAge` is set to a DIFFERENT age on purpose: it is a planning target and
+    // has no say over when an authored job stops.
     const working: Person = {
       ...partnerClaimingAt(70), // claim late, so the benefit can't mask the wage stopping
-      retirementTargetAge: 65,
+      retirementTargetAge: 80,
       jobs: [
         {
           id: "pj1",
           ownerId: "p2",
           startYear: 2020,
-          endYear: null,
+          endYear: 2023,
           salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 },
         },
       ],
@@ -185,7 +186,7 @@ describe("SeparationEvent", () => {
           id: "pj1",
           ownerId: "p2",
           startYear: 2020,
-          endYear: null,
+          endYear: 2090,
           salary: { startingSalaryCents: dollarsToCents(24_000), currentSalaryCents: dollarsToCents(24_000), realGrowthPct: 0 }, // $2,000/mo
         },
       ],

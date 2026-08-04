@@ -86,10 +86,10 @@ describe("haveExistingChild — a child already born", () => {
   });
 });
 
-/** A partner carrying one open-ended $2,000/mo ($24,000/yr) job that pays from "now". */
+/** A partner carrying one long-running $2,000/mo ($24,000/yr) job that pays from "now". */
 const partnerJob = {
   startYear: base.startYear,
-  endYear: null,
+  endYear: 2090,
   // Starts at "now", so both anchors are the one stated salary — a flat history.
   salary: { startingSalaryCents: 2_400_000, currentSalaryCents: 2_400_000, realGrowthPct: 0 },
 } as const;

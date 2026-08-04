@@ -8,6 +8,7 @@ import { defaultBudgetTemplate } from "./components/baseAdjustments/budgetTempla
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
+const DEFAULT_RETIREMENT_AGE = 65;
 const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
 
 /**
@@ -42,11 +43,12 @@ const DEFAULT_BUDGET_ENTRIES: readonly BudgetLineEntry[] = defaultBudgetTemplate
  * so no hand-written `job-1`/`emergency`/`home`/`housing` string can become a second source of
  * identity beside the counter.
  *
- * The single open-ended {@link import("@finley/engine").JobEntry} is the source of truth for
+ * The single {@link import("@finley/engine").JobEntry} is the source of truth for
  * earned income. Not a privileged "career" job: just the one a fresh plan opens with, and a
  * person may hold any number, none elevated. Real-flat salary (`realGrowthPct: 0` grows at CPI,
  * holding constant in real terms), anchored at the age the person started working and open-ended
- * (`endYear: null`); its `startYear` seeds the pre-"now" covered-earnings record and a 401(k)
+ * (ending at the conventional retirement age); its `startYear` seeds the pre-"now"
+ * covered-earnings record and a 401(k)
  * deferral rides on it when the user sets one. `ownerRef` is omitted, so the job binds to the
  * primary person.
  */
@@ -56,7 +58,10 @@ export const DEFAULT_INPUT: ScenarioInput = {
   jobs: [
     {
       startYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE,
-      endYear: null,
+      // Every job states when it ends. A fresh plan proposes the conventional retirement age;
+      // it is the user's to move, and nothing in the engine reads it as anything but this job's
+      // end.
+      endYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_RETIREMENT_AGE,
       salary: {
         startingSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
         currentSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
@@ -105,7 +110,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
   currentAge: DEFAULT_CURRENT_AGE,
-  retirementAge: 65,
+  retirementAge: DEFAULT_RETIREMENT_AGE,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
   // Social Security is always priced from the plan's earnings via the AIME→PIA seam the

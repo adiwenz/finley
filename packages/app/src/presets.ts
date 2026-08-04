@@ -35,6 +35,8 @@ const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
 
 const START_JOB_YEAR = DEFAULT_INPUT.startYear - DEFAULT_CURRENT_AGE + DEFAULT_WORK_START_AGE;
+/** Every job states when it ends; a preset's earner works to the conventional retirement age. */
+const END_JOB_YEAR = DEFAULT_INPUT.startYear - DEFAULT_CURRENT_AGE + 65;
 
 /** One budget line entry / one job entry, derived structurally so neither sub-type is named. */
 type BudgetEntry = NonNullable<ScenarioInput["budgetLines"]>[number];
@@ -94,7 +96,7 @@ const COMFORTABLE_BUDGET = [
   expenseLine("Subscriptions", "wants", 400),
 ];
 
-/** A single open-ended, real-flat salaried job — the same shape a fresh plan opens with. Its
+/** A single real-flat salaried job — the same shape a fresh plan opens with. Its
  * owner is omitted, so it binds to the primary person, and its id is minted.
  *
  * Both anchors carry the stated figure: history is held flat at what was authored, so this says
@@ -103,7 +105,7 @@ const COMFORTABLE_BUDGET = [
 function salariedJob(monthlyCents: number): JobEntry {
   return {
     startYear: START_JOB_YEAR,
-    endYear: null,
+    endYear: END_JOB_YEAR,
     salary: {
       startingSalaryCents: monthlyCents * 12,
       currentSalaryCents: monthlyCents * 12,

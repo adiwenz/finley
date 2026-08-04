@@ -75,7 +75,7 @@ export function firstDeferralLimitCrossing(
 
       let annualDeferralCents = 0;
       for (const j of deferringJobs) {
-        const endYearExclusive = j.endYear ?? retirementYear;
+        const endYearExclusive = j.endYear;
         if (year < j.startYear || year >= endYearExclusive) continue; // not worked this year
         // Projected pay grows off the CURRENT-SALARY ANCHOR, never the job's starting salary:
         // this scan is forward-only, and the engine's forward series bases month 0 on the

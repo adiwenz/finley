@@ -10,9 +10,7 @@ import {
   projectScenario,
   projectFullRetirement,
   planSurvives,
-  earliestPartialRetirementAge,
   earliestFullRetirementAge,
-  evaluateAtAge,
   evaluateFullRetirementAtAge,
   solveRetirement,
 } from "./retirementSolver";
@@ -24,7 +22,7 @@ import { createProjectionBase } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import type { Plan } from "./plan";
 import type { Person } from "./person";
 import type { Job } from "./job";
@@ -34,8 +32,13 @@ import type { ProjectionSeries } from "./projection/simulate";
 const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
 
+/**
+ * Does the plan survive if the household stops working at `age`? A HYPOTHESIS, so it runs the
+ * stop-working boundary — it used to move `plan.retirementAge`, which no longer ends any job
+ * and so no longer stops anybody working.
+ */
 function survivesAt(budget: Plan, age: number): boolean {
-  return planSurvives(projectScenario(scenarioOf({ ...budget, retirementAge: age }), CTX));
+  return planSurvives(projectFullRetirement(scenarioOf(budget), age, CTX));
 }
 
 describe("retirementSolver — survival off the real projection", () => {
@@ -52,15 +55,31 @@ describe("retirementSolver — survival off the real projection", () => {
   });
 
   it("the binary search returns exactly the threshold age", () => {
-    const age = earliestPartialRetirementAge(scenarioOf(samplePlan), CTX);
+    const age = earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
     expect(age).not.toBeNull();
     expect(survivesAt(samplePlan, age as number)).toBe(true);
     expect(survivesAt(samplePlan, (age as number) - 1)).toBe(false);
   });
 
+  it("can find an age LATER than the jobs were authored to run — the 'work longer' answer", () => {
+    // The authored job ends at 60. If the plan cannot survive stopping there, the search must
+    // still be able to answer "then work until 71" — which means the hypothesis extends that
+    // job. Without it every plan whose authored ends are too early reports "no feasible age",
+    // and the panel could only ever tell the user their plan fails.
+    const tight: Plan = { ...samplePlan, openingBalanceCents: 0 };
+    const age = earliestFullRetirementAge(scenarioOf(tight), CTX);
+    expect(age).not.toBeNull();
+    expect(age as number).toBeGreaterThan(tight.retirementAge);
+    // And it is a real threshold, not an artefact: one year earlier does not survive.
+    expect(survivesAt(tight, age as number)).toBe(true);
+    expect(survivesAt(tight, (age as number) - 1)).toBe(false);
+    // The authored plan never moved.
+    expect(tight.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - tight.currentAge + 60);
+  });
+
   it("returns null when even working to life expectancy fails", () => {
     const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
-    expect(earliestPartialRetirementAge(scenarioOf(broke), CTX)).toBeNull();
+    expect(earliestFullRetirementAge(scenarioOf(broke), CTX)).toBeNull();
   });
 
   it("counts a solvent household that is merely underwater as surviving", () => {
@@ -68,9 +87,13 @@ describe("retirementSolver — survival off the real projection", () => {
     // bill is paid — the "negative but improving" case. Judging survival on the net-worth
     // SIGN failed such a plan at month 0 and reported no feasible retirement age while the
     // graph beside it sailed to life expectancy. Survival is insolvency, not the sign.
-    // Retiring at life expectancy makes the plan unambiguously funded, so the loan is the
-    // only thing under test.
-    const funded: Plan = { ...samplePlan, retirementAge: samplePlan.lifeExpectancy };
+    // Working to life expectancy makes the plan unambiguously funded, so the loan is the only
+    // thing under test. Stated as the JOB's end — a retirement age would no longer keep anyone
+    // working.
+    const funded: Plan = {
+      ...samplePlan,
+      jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge: samplePlan.lifeExpectancy })],
+    };
     const withLoan = addEvent(emptyLedger, createProjectionBase(funded, CTX), {
       id: "loan-1",
       type: "LoanEvent",
@@ -103,28 +126,29 @@ describe("retirementSolver — survival off the real projection", () => {
 });
 
 describe("retirementSolver — target mode", () => {
-  // evaluateAtAge reports only at-that-age facts (feasible + on-track); nearestFeasibleAge
-  // is composed by retirementView from the headline, covered there.
+  // evaluateFullRetirementAtAge reports only at-that-age facts (feasible + on-track);
+  // nearestFeasibleAge is composed by retirementView from the headline, covered there.
   it("is 100% and feasible at a comfortably-fundable pinned age", () => {
     // Life expectancy is the safest possible pin: feasible if any age is.
-    const evaluation = evaluateAtAge(scenarioOf(samplePlan), samplePlan.lifeExpectancy, CTX);
+    const evaluation = evaluateFullRetirementAtAge(scenarioOf(samplePlan), samplePlan.lifeExpectancy, CTX);
     expect(evaluation.feasible).toBe(true);
     expect(evaluation.onTrackFraction).toBe(1);
   });
 
   it("is a fraction in (0,1) short of a barely-infeasible pinned age", () => {
-    const floor = earliestPartialRetirementAge(scenarioOf(samplePlan), CTX) as number;
-    const evaluation = evaluateAtAge(scenarioOf(samplePlan), floor - 1, CTX);
+    const floor = earliestFullRetirementAge(scenarioOf(samplePlan), CTX) as number;
+    const evaluation = evaluateFullRetirementAtAge(scenarioOf(samplePlan), floor - 1, CTX);
     expect(evaluation.feasible).toBe(false);
     expect(evaluation.onTrackFraction).toBeGreaterThan(0);
     expect(evaluation.onTrackFraction).toBeLessThan(1);
   });
-
 });
 
-describe("retirementSolver — partial vs full retirement", () => {
-  // Partial retirement varies the open-ended (null-end) jobs' ends and keeps the authored
-  // fixed-term + passive income; full retirement ceases every job.
+describe("retirementSolver — one retirement search", () => {
+  // There is one search: cease every job at the candidate age. A second, "partial" one used to
+  // sit beside it, ending only the jobs with no authored end while the rest kept paying — a
+  // distinction that needed open-ended jobs to exist as a category. Every job states its own
+  // end now, so there is nothing to tell apart.
   it("full-retirement survival is monotonic in the cease-all-work age (later never hurts)", () => {
     let seenSurviving = false;
     for (let age = baristaPlan.currentAge; age <= baristaPlan.lifeExpectancy; age++) {
@@ -143,17 +167,16 @@ describe("retirementSolver — partial vs full retirement", () => {
     expect(evaluateFullRetirementAtAge(scenario, (age as number) - 1, CTX).feasible).toBe(false);
   });
 
-  // The acceptance heart: on a barista plan (open-ended job ends at target, fixed-term job
-  // keeps paying) the two ages solve DISTINCTLY — dropping the barista too is strictly later
-  // than keeping it. Partial is the standalone opt-in solve, not part of solveRetirement's
-  // default result, so it is asked for directly here.
-  it("a barista-retirement plan solves both ages distinctly (partial < full)", () => {
+  it("is strictly harder to stop earlier than the jobs' own ends — a later age never hurts", () => {
+    // What the two-age split used to express, as one property of the single search: a plan
+    // whose jobs run to 60 and 75 cannot be made to survive an earlier stop by dropping less,
+    // because there is no "less" any more. The threshold is the threshold.
     const scenario = scenarioOf(baristaPlan);
-    const partial = earliestPartialRetirementAge(scenario, CTX);
-    const full = earliestFullRetirementAge(scenario, CTX);
-    expect(partial).not.toBeNull();
-    expect(full).not.toBeNull();
-    expect(partial as number).toBeLessThan(full as number);
+    const age = earliestFullRetirementAge(scenario, CTX) as number;
+    expect(age).not.toBeNull();
+    for (let later = age; later <= baristaPlan.lifeExpectancy; later++) {
+      expect(evaluateFullRetirementAtAge(scenario, later, CTX).feasible).toBe(true);
+    }
   });
 
   it("reports the planned work-stop age as the age the household's own jobs stop paying", () => {
@@ -176,7 +199,7 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       id: "pj1",
       ownerId: "p2",
       startYear: START_YEAR,
-      endYear: null, // open-ended by default — natural end is retirementTargetAge
+      endYear: SAMPLE_START_YEAR + 40, // open-ended by default — natural end is retirementTargetAge
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -198,9 +221,9 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
   }
 
   const partnerWithLateJob = (): Person =>
-    // Authored to work far past any plausible full-stop age so their wage can only stop
+    // A job authored to run far past any plausible stop age, so their wage can only stop
     // because the boundary stopped it.
-    partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] });
+    partnerWith({ jobs: [partnerJob({ endYear: PRIMARY_BIRTH_YEAR + 80 })] });
 
   function twoEarnerScenario(partner: Person = partnerWithLateJob()): Scenario {
     const added = addEvent(emptyLedger, createProjectionBase(samplePlan, CTX), {
@@ -233,53 +256,61 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
     const scenario = twoEarnerScenario();
     const before = JSON.stringify(scenario);
     earliestFullRetirementAge(scenario, CTX);
-    earliestPartialRetirementAge(scenario, CTX);
     evaluateFullRetirementAtAge(scenario, 55, CTX);
-    evaluateAtAge(scenario, 55, CTX);
+    projectFullRetirement(scenario, 55, CTX);
     solveRetirement(scenario, CTX);
     expect(JSON.stringify(scenario)).toBe(before);
   });
 
-  describe("a boundary can only shorten a job, never extend it past its own natural end", () => {
-    it("an older partner's earlier retirementTargetAge caps a FULL stop, even though the primary's candidate boundary is later", () => {
-      // Partner's own natural end: birthYear + 45 → year PRIMARY_BIRTH_YEAR+45, month 60.
-      // Primary's full-stop candidate is 70 → boundary year PRIMARY_BIRTH_YEAR+70, month 360 —
-      // far later than the partner's own stated retirement. A boundary that ignores the
-      // partner's own retirementTargetAge would keep paying them all the way to month 360.
-      const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 45, jobs: [partnerJob()] }));
-      const series = projectFullRetirement(scenario, 70, CTX);
-      expect(partnerSource(series, 59)?.cashInflowCents).toBeGreaterThan(0);
-      expect(partnerSource(series, 60)).toBeUndefined();
-      expect(partnerSource(series, 300)).toBeUndefined();
-      // No wage means no payroll tax attributed to this source either.
-      expect(series.months[60]?.flows?.payrollTaxBySourceCents["job:pj1"]).toBeUndefined();
-    });
-
-    it("a partner with a lower retirementTargetAge than the primary's candidate age is capped under a PARTIAL stop too", () => {
-      // Partial mode only moves open-ended jobs to the boundary — but still must never move
-      // one PAST its owner's own natural end. Partner's natural end: month 60 (as above).
-      // Primary's partial candidate is 65 (well past both the partner's natural end and the
-      // primary's own default retirement age of 60), boundary month (65−40)×12 = 300.
-      const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 45, jobs: [partnerJob()] }));
-      const series = projectScenario(scenario, CTX, {
-        boundaryYearExclusive: PRIMARY_BIRTH_YEAR + 65,
-        mode: "partial",
-      });
-      expect(partnerSource(series, 59)?.cashInflowCents).toBeGreaterThan(0);
-      expect(partnerSource(series, 60)).toBeUndefined();
-    });
-
-    it("an explicitly-ended partner job keeps its authored end under a FULL stop, even though the candidate boundary is later", () => {
-      // Fixed-term (endYear set) — natural end is the authored endYear itself, ignoring
-      // retirementTargetAge entirely. Ends at month 36 (3 years); the full-stop candidate (70)
-      // resolves to a boundary hundreds of months later.
-      const explicitEnd = PRIMARY_BIRTH_YEAR + samplePlan.currentAge + 3;
+  describe("a boundary moves the LAST job either way, and only caps the rest", () => {
+    it("extends a partner's last job when the candidate boundary is later", () => {
+      // Their only job — so their last — is authored to end at month 60. Asking about retiring
+      // at 70 (month 360) runs it on, because that is what "work until 70" means.
       const scenario = twoEarnerScenario(
-        partnerWith({ retirementTargetAge: 80, jobs: [partnerJob({ endYear: explicitEnd })] }),
+        partnerWith({ jobs: [partnerJob({ endYear: PRIMARY_BIRTH_YEAR + 45 })] }),
       );
       const series = projectFullRetirement(scenario, 70, CTX);
-      expect(partnerSource(series, 35)?.cashInflowCents).toBeGreaterThan(0);
-      expect(partnerSource(series, 36)).toBeUndefined();
+      expect(partnerSource(series, 60)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 359)?.cashInflowCents).toBeGreaterThan(0);
+      expect(partnerSource(series, 360)).toBeUndefined();
+    });
+
+    it("leaves an EARLIER job its own end, capping it and nothing more", () => {
+      // Two jobs: one finishing at month 60, a later one running to 80. Only the later one is
+      // the job they would still be holding, so only it is extended; the first keeps its end
+      // and is not resurrected to fill the gap.
+      const scenario = twoEarnerScenario(
+        partnerWith({
+          jobs: [
+            partnerJob({ id: "pj1", endYear: PRIMARY_BIRTH_YEAR + 45 }),
+            partnerJob({ id: "pj2", endYear: PRIMARY_BIRTH_YEAR + 80 }),
+          ],
+        }),
+      );
+      const series = projectFullRetirement(scenario, 70, CTX);
+      const sourceAt = (month: number, id: string) =>
+        (series.months[month]?.flows?.incomeSources ?? []).find((s) => s.sourceId === `job:${id}`);
+      expect(sourceAt(59, "pj1")?.cashInflowCents).toBeGreaterThan(0);
+      expect(sourceAt(60, "pj1")).toBeUndefined(); // its own end, untouched
+      expect(sourceAt(300, "pj2")?.cashInflowCents).toBeGreaterThan(0); // the last job, capped at 70
+      expect(sourceAt(360, "pj2")).toBeUndefined();
+    });
+
+    it("caps an earlier job when the candidate lands inside it", () => {
+      const scenario = twoEarnerScenario(
+        partnerWith({
+          jobs: [
+            partnerJob({ id: "pj1", endYear: PRIMARY_BIRTH_YEAR + 60 }),
+            partnerJob({ id: "pj2", endYear: PRIMARY_BIRTH_YEAR + 80 }),
+          ],
+        }),
+      );
+      const series = projectFullRetirement(scenario, 50, CTX);
+      const sourceAt = (month: number, id: string) =>
+        (series.months[month]?.flows?.incomeSources ?? []).find((s) => s.sourceId === `job:${id}`);
+      expect(sourceAt(119, "pj1")?.cashInflowCents).toBeGreaterThan(0);
+      expect(sourceAt(120, "pj1")).toBeUndefined();
+      expect(sourceAt(120, "pj2")).toBeUndefined();
     });
 
     it("the boundary can still SHORTEN a partner's job whose natural end is later than the candidate", () => {
@@ -383,7 +414,7 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       id: "pj1",
       ownerId: "p2",
       startYear: START_YEAR,
-      endYear: null,
+      endYear: SAMPLE_START_YEAR + 40,
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -488,10 +519,12 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(samplePlan.retirementAge);
   });
 
-  it("an ACTIVE partner is capped by their own retirement target, never by a membership that has no end", () => {
+  it("an ACTIVE partner is capped by their JOB's end, never by a membership that has no end", () => {
     // The mirror of the two above: an unseparated membership runs forever, so it clips nothing
-    // and the partner's own authored working life is what ends the household's wages.
-    const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 72, jobs: [partnerJob()] }));
+    // and the partner's own authored job end is what ends the household's wages.
+    const scenario = twoEarnerScenario(
+      partnerWith({ jobs: [partnerJob({ endYear: PRIMARY_BIRTH_YEAR + 72 })] }),
+    );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(72);
   });
 
@@ -501,7 +534,10 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       id: "r1",
       type: "RelationshipEvent",
       month: 0,
-      person: partnerWith({ id: "p2", retirementTargetAge: 55, jobs: [partnerJob({ id: "pj1", ownerId: "p2" })] }),
+      person: partnerWith({
+        id: "p2",
+        jobs: [partnerJob({ id: "pj1", ownerId: "p2", endYear: PRIMARY_BIRTH_YEAR + 55 })],
+      }),
     });
     if (!first.ok) throw new Error(`fixture rejected: ${first.conflict}`);
     const separated = addEvent(first.ledger, base, {
@@ -518,7 +554,10 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       id: "r2",
       type: "RelationshipEvent",
       month: 24,
-      person: partnerWith({ id: "p3", retirementTargetAge: 85, jobs: [partnerJob({ id: "pj2", ownerId: "p3" })] }),
+      person: partnerWith({
+        id: "p3",
+        jobs: [partnerJob({ id: "pj2", ownerId: "p3", endYear: PRIMARY_BIRTH_YEAR + 85 })],
+      }),
     });
     if (!second.ok) throw new Error(`fixture rejected: ${second.conflict}`);
     const scenario = withLedger(scenarioOf(samplePlan), second.ledger);

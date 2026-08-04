@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection } from "@finley/engine";
 import { ExistingPartnerForm } from "./existingPartnerForm";
 
@@ -27,8 +28,8 @@ const btn = (name: RegExp) => screen.getByRole("button", { name });
 describe("ExistingPartnerForm", () => {
   it("authors a partner anchored on months together, defaulting an unnamed partner", () => {
     const { startPartnered, onDone } = renderForm();
-    fireEvent.change(spin(/Their age today/i), { target: { value: "45" } });
-    fireEvent.change(spin(/Together for/i), { target: { value: "10" } });
+    enterNumber(spin(/Their age today/i), "45");
+    enterNumber(spin(/Together for/i), "10");
     fireEvent.click(btn(/^Add$/));
 
     const currentYear = new Date().getFullYear();

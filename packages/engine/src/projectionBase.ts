@@ -262,6 +262,9 @@ export function createProjectionBase(
     inflationRate,
   );
 
+  /** Exclusive calendar year the projection ends — life expectancy, as a year. */
+  const horizonYearExclusive = startYear + Math.max(0, budget.lifeExpectancy - budget.currentAge);
+
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
   //
@@ -273,7 +276,9 @@ export function createProjectionBase(
     resolveHouseholdJobs(
       personJobContexts({ person: standingPerson, startMonth: -Infinity, endMonth: null }),
       startYear,
-      stopWorking,
+      stopWorking === undefined
+        ? { kind: "authored" }
+        : { kind: "hypothetical", stopWorking },
     ),
     startYear,
     inflationRate,
@@ -288,7 +293,7 @@ export function createProjectionBase(
       : { kind: "idle" };
 
   return {
-    horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),
+    horizonMonths: (horizonYearExclusive - startYear) * 12,
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,

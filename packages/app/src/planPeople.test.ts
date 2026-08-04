@@ -37,7 +37,7 @@ const job = (over: Partial<Job> = {}): Job => ({
   id: "job-1",
   ownerId: PRIMARY_PERSON_ID,
   startYear: BIRTH_YEAR + 22,
-  endYear: null,
+  endYear: BIRTH_YEAR + 65,
   salary: { startingSalaryCents: 60_000_00, currentSalaryCents: 60_000_00, realGrowthPct: 0 },
   ...over,
 });
@@ -209,7 +209,7 @@ describe("a job that ended before now — the anchor the engine never reads", ()
   it("leaves a still-running job's stated current pay alone", () => {
     const input = jobInputFromDraft(
       NOW_BIRTH_YEAR,
-      draft({ startAge: 22, endAge: null, startingMonthlyCents: 1_800_00, monthlyCents: 6_667_00 }),
+      draft({ startAge: 22, endAge: 65, startingMonthlyCents: 1_800_00, monthlyCents: 6_667_00 }),
     );
     expect(input.salary.currentSalaryCents).toBe(6_667_00 * 12);
   });

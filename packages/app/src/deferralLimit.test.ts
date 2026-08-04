@@ -58,7 +58,7 @@ const job = (
   id,
   ownerId,
   startYear: START_YEAR,
-  endYear: null,
+  endYear: START_YEAR - 40 + 65,
   salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
   ...(deferralPct > 0
     ? { deferral: { deferralFraction: deferralPct / 100, fundAccountId: "retirement" } }

@@ -24,13 +24,13 @@ const OWNER: JobOwner = {
   writeTarget: "plan",
 };
 
-/** An open-ended job with one dated pay change, so the timeline shows a removable row. */
+/** A job with one dated pay change, so the timeline shows a removable row. */
 const JOB: Job = {
   id: "job-1",
   name: "Engineer",
   ownerId: "primary",
   startYear: 2010,
-  endYear: null,
+  endYear: 1985 + 65,
   salary: {
     startingSalaryCents: dollarsToCents(3_000 * 12),
     currentSalaryCents: dollarsToCents(5_000 * 12),
@@ -44,7 +44,7 @@ const EDIT_DRAFT: JobEditDraft = {
   monthlyCents: dollarsToCents(5_000),
   startingMonthlyCents: dollarsToCents(3_000),
   startAge: 25,
-  endAge: null,
+  endAge: 65,
   deferralPct: 0,
   employerMatchPct: 0,
   realGrowthPct: 0,
@@ -89,7 +89,7 @@ describe("JobCard", () => {
     renderCard();
     const card = screen.getByLabelText("Engineer");
     expect(within(card).getByTitle(/Current pay/).textContent).toBe("$5,000/mo now");
-    expect(within(card).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(within(card).getByText(/age 25–65/i)).toBeTruthy();
   });
 
   it("fires onEdit and onDelete from the action buttons", () => {

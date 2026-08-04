@@ -13,6 +13,9 @@
  */
 
 import {
+  AGE_LIMITS,
+  MAX_AGE,
+  MAX_LIVED_AGE,
   dollarsToCents,
   type SharedContributionScheme,
   type SurplusCashDestination,
@@ -38,7 +41,6 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
 
   return (
     <>
-      <h2>Budget &amp; accounts</h2>
       <p className="hint">Edit ongoing numbers directly — this doesn’t add a timeline event.</p>
 
       {/* One section per household member — a single member today, but partitioned so
@@ -80,7 +82,7 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           value={budget.currentAge}
           onChange={(currentAge) => updateBudget({ currentAge })}
           min={18}
-          max={Math.min(100, budget.retirementAge)}
+          max={Math.min(MAX_LIVED_AGE, budget.retirementAge)}
           step={1}
         />
         <NumInput
@@ -88,15 +90,21 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           value={budget.retirementAge}
           onChange={(retirementAge) => updateBudget({ retirementAge })}
           min={Math.max(40, budget.currentAge)}
-          max={Math.min(80, budget.lifeExpectancy)}
+          max={Math.min(MAX_AGE, budget.lifeExpectancy)}
           step={1}
         />
+        {/* Every age here names the engine's ceiling for that field rather than restating a
+            number: a form that disagreed with `AGE_LIMITS` by a digit would author a plan the
+            engine then refuses. Life expectancy and retirement age reach the ceiling itself
+            (120); current age stops one short of it (`MAX_LIVED_AGE`, 119), since a person who
+            is already 120 has no plan left to project; the claiming age stops at 70, the top of
+            the legal window. The bounds still chain, so the plan stays ordered. */}
         <NumInput
           label="Life expectancy"
           value={budget.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
           min={Math.max(60, budget.retirementAge)}
-          max={120}
+          max={MAX_AGE}
           step={1}
         />
 
@@ -107,7 +115,7 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           value={budget.benefitClaimingAge}
           onChange={(benefitClaimingAge) => updateBudget({ benefitClaimingAge })}
           min={62}
-          max={70}
+          max={AGE_LIMITS.benefitClaimingAge}
           step={1}
         />
         <p className="hint">

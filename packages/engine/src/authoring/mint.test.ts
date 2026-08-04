@@ -24,7 +24,7 @@ function jobNamed(id: string): Job {
     id,
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
-    endYear: null,
+    endYear: 2090,
     salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   };
 }

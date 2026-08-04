@@ -1,6 +1,7 @@
 /** A partner already in the household when the plan starts — a `startPartnered` anchor. */
 
 import { useState } from "react";
+import { MAX_LIVED_AGE } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
 
@@ -35,7 +36,7 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
           placeholder="Partner's name"
         />
       </label>
-      <NumInput label="Their age today" value={age} onChange={setAge} min={18} max={100} />
+      <NumInput label="Their age today" value={age} onChange={setAge} min={18} max={MAX_LIVED_AGE} />
       <NumInput
         label="Together for"
         value={partneredForYears}

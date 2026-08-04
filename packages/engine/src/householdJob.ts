@@ -5,18 +5,20 @@
  * Three independent facts decide it, and each is authored somewhere different:
  *
  * - the **job's** own employment span (`startYear`, and an explicit `endYear`);
- * - the **owner's** own working life (`retirementTargetAge`, for an open-ended job);
+ * - nothing else about the owner: a retirement age is a target the household aims at, and never
+ *   an end date (see {@link authoredJobEndYearExclusive});
  * - the **household membership** (a partner earns for this household only between joining and
  *   separating; the primary is a member throughout).
  *
  * plus one that is not authored at all: the retirement solver's candidate
- * {@link StopWorkingBoundary}, a simulation-only cap layered on top while a solve is running.
+ * {@link StopWorkingBoundary}, a simulation-only hypothesis layered on top while a solve runs.
  *
- * Every one of those is a CAP. Resolution intersects them and never extends: no combination of
- * a boundary, a membership, and an authored end can make a job pay a month that any one of them
- * excludes. That is the whole reason this lives in one function — the four used to be applied by
- * whichever caller happened to need them, so a household-wide read (`plannedWorkStopYear`) and
- * the projection itself could quietly disagree about when a partner stops paying the household.
+ * The authored facts only ever CAP: no membership and no authored end can make a job pay a month
+ * another excludes. The hypothesis is the one thing that can also EXTEND, and only ever the last
+ * job — because "could we retire at 70?" is a question about working longer, and there is no way
+ * to ask it out of facts alone. That is the whole reason this lives in one function — these used
+ * to be applied by whichever caller happened to need them, so a household-wide read
+ * (`plannedWorkStopYear`) and the projection itself could quietly disagree.
  *
  * **Authored vs. derived stays split.** {@link Job} remains pure authoring: it never grows an
  * "effective end". The intersection exists only as {@link ResolvedHouseholdJob}, rebuilt from
@@ -36,24 +38,57 @@ import type { HouseholdMembership } from "./ledger/household";
  */
 export interface StopWorkingBoundary {
   /**
-   * Exclusive calendar year past which no job pays. A calendar year, not an age, so every earner
-   * stops at the same point in time regardless of their own birthday.
+   * Exclusive calendar year the household's working life ends under this hypothesis. A calendar
+   * year, not an age, so every earner stops at the same point in time regardless of their own
+   * birthday.
+   *
+   * It moves employment in BOTH directions, which is the whole substance of "what if we retired
+   * at X" and is why this is not simply a cap:
+   *
+   *  - each person's **latest-ending** job ends exactly here — brought forward if it was
+   *    authored to end later, and **extended** if it was authored to end sooner;
+   *  - every **other** job keeps its own authored end, capped here so nothing pays past the
+   *    boundary.
+   *
+   * Extending only the last job is what makes the answer mean something. "Could you retire at
+   * 70?" has to be allowed to run your CURRENT employment five years longer than you wrote down
+   * — that is the question — but it must not resurrect a job you left at 30 to do it, or restart
+   * a fixed-term contract that ended on its own terms. The last job is the one you would still
+   * be holding, so it is the one a later retirement extends. A job that ended in the past is
+   * extended only when it IS the latest — i.e. when the household has stopped working entirely,
+   * and the hypothesis is that they go back to it.
    */
   readonly boundaryYearExclusive: number;
-  /**
-   * `"full"` caps EVERY job at the boundary — the whole household stops. `"partial"` caps only
-   * the open-ended jobs and leaves each authored fixed-term job its own end.
-   */
-  readonly mode: "full" | "partial";
 }
+
+/**
+ * WHICH QUESTION a resolution is answering — the plan as the user wrote it down, or a
+ * hypothesis about stopping work early.
+ *
+ * Spelled as a two-case union rather than an optional `stopWorking` argument, because those are
+ * not the same thing with a detail attached. They are the two readings of a household's jobs,
+ * and the authored one used to be the reading you got by FORGETTING an argument — which is how
+ * a stop-working age ended up truncating the authored income chart in the first place. A caller
+ * now has to say which it wants, and `"hypothetical"` cannot be spelled without the hypothesis.
+ */
+export type JobResolutionScope =
+  /** The plan exactly as authored. Every job ends where its own `endYear` says and nowhere else. */
+  | { readonly kind: "authored" }
+  /**
+   * A what-if: the retirement solver testing a candidate age, or the "preview if everyone
+   * stopped working" toggle. Both are the same question — "what if the household retired
+   * then?" — so both resolve through the same {@link StopWorkingBoundary}, and the preview
+   * shows exactly what the solved headline age means.
+   */
+  | { readonly kind: "hypothetical"; readonly stopWorking: StopWorkingBoundary };
 
 /**
  * One authored job, with everything needed to say when the household is paid for it: who owns
  * it, and the membership that decides when that owner's wages belong to this household at all.
  *
  * `owner` is always `membership.person`. It is named separately because every rule below reads
- * it as *the job's owner* — whose retirement target ends an open-ended job — a different
- * question from *which member's window applies*, and worth keeping legible at each use. Build
+ * it as *the job's owner* — whose job this is — a different question from *which member's window
+ * applies*, and worth keeping legible at each use. Build
  * these only through {@link householdJobContexts} / {@link personJobContexts}, so the two can
  * never come apart.
  */
@@ -74,8 +109,8 @@ export interface ResolvedHouseholdJob {
   readonly owner: Person;
   readonly membership: HouseholdMembership;
   /**
-   * Exclusive calendar year the EMPLOYMENT ends: the job's authored `endYear`, or its owner's
-   * own `retirementTargetAge` for an open-ended one, capped by any {@link StopWorkingBoundary}.
+   * Exclusive calendar year the EMPLOYMENT ends: the job's authored `endYear`, capped by a
+   * hypothetical {@link StopWorkingBoundary} when one is in scope.
    * Membership is deliberately not folded in — this is about the job, not about who is paid for
    * it, and the salary path is compiled over the whole employment either way.
    */
@@ -102,33 +137,52 @@ export interface ResolvedHouseholdJob {
 }
 
 /**
- * A job's exclusive end calendar year with no boundary and no membership in play: its authored
- * `endYear`, or its owner's own `retirementTargetAge` for an open-ended one.
+ * A job's exclusive end calendar year **as the user authored it** — its own `endYear`, and
+ * nothing else.
  *
- * This is the job's **natural end** — the ceiling every other cap can only lower. Exported
- * because the pre-"now" covered-earnings record is deliberately built against it: a benefit is
+ * A one-line function with a name, because the rule it states used to be three rules. A job's
+ * end was its `endYear` OR its owner's retirement age OR a solver's candidate boundary,
+ * depending on which caller was asking, and a retirement age — a planning target the household
+ * is aiming at — silently became an employment boundary: a job authored to start at 70 under a
+ * stop-working age of 65 vanished from the income chart the moment it was saved. What ends an
+ * authored job is what the user said ends it.
+ *
+ * A hypothesis about stopping work is a different question and stays one — see
+ * {@link StopWorkingBoundary}, applied on top of this by {@link resolveHouseholdJob} and only
+ * ever by a caller that is asking a hypothetical.
+ *
+ * Exported because the pre-"now" covered-earnings record is built against it: a benefit is
  * priced off a person's OWN lifetime earnings, so neither joining a household late nor a
  * solver's candidate boundary may edit what they actually earned.
  */
-export function naturalJobEndYearExclusive(job: Job, owner: Person): number {
-  return job.endYear ?? owner.birthYear + owner.retirementTargetAge;
+export function authoredJobEndYearExclusive(job: Job): number {
+  return job.endYear;
 }
 
 /**
- * The employment's exclusive end year once a solver candidate is in play: never later than the
- * natural end. `Math.min` is load-bearing rather than defensive — the boundary is a single
- * household-wide scalar with no idea that an individual owner (a partner especially) may have
- * authored a shorter working life of their own, so without it a solve exploring a late candidate
- * age would resurrect wages a partner's own retirement target had already ended.
- *
- * A `"full"` stop caps EVERY job. A `"partial"` stop caps only the open-ended jobs and leaves
- * each fixed-term job its own authored end, untouched in either direction.
+ * The employment's exclusive end year, given what is being asked. Authored: the job's own end.
+ * Hypothetical: {@link StopWorkingBoundary}'s two-direction rule.
  */
-function employmentEndYearExclusive(job: Job, owner: Person, stopWorking?: StopWorkingBoundary): number {
-  const natural = naturalJobEndYearExclusive(job, owner);
-  if (stopWorking === undefined) return natural;
-  if (stopWorking.mode === "partial" && job.endYear !== null) return job.endYear;
-  return Math.min(natural, stopWorking.boundaryYearExclusive);
+function employmentEndYearExclusive(job: Job, owner: Person, scope: JobResolutionScope): number {
+  const authored = authoredJobEndYearExclusive(job);
+  if (scope.kind === "authored") return authored;
+  const boundary = scope.stopWorking.boundaryYearExclusive;
+  // The job the owner would still be holding moves to the boundary either way; everything else
+  // keeps its own end and is merely capped. See {@link StopWorkingBoundary}.
+  return isLatestJobOf(job, owner) ? boundary : Math.min(authored, boundary);
+}
+
+/**
+ * Is this the job its owner works LAST — the one a later retirement would extend?
+ *
+ * Compared by end year rather than by identity, so concurrent jobs that finish together are all
+ * "last" and a hypothesis moves them as one. Anything else would pick a winner between two jobs
+ * the person authored as ending on the same date.
+ */
+function isLatestJobOf(job: Job, owner: Person): boolean {
+  let latest = -Infinity;
+  for (const j of owner.jobs) latest = Math.max(latest, j.endYear);
+  return job.endYear >= latest;
 }
 
 /** A membership's window as months relative to "now", open-ended at either end where it is. */
@@ -148,10 +202,10 @@ function membershipWindow(membership: HouseholdMembership): {
 export function resolveHouseholdJob(
   ctx: HouseholdJobContext,
   nowYear: number,
-  stopWorking?: StopWorkingBoundary,
+  scope: JobResolutionScope,
 ): ResolvedHouseholdJob {
   const { job, owner, membership } = ctx;
-  const endYearExclusive = employmentEndYearExclusive(job, owner, stopWorking);
+  const endYearExclusive = employmentEndYearExclusive(job, owner, scope);
   const employmentEndMonthExclusive = (endYearExclusive - nowYear) * 12;
   // Clamped at 0: for a job already under way the forward series starts at the projection
   // boundary, since the authored current salary is month 0's pay verbatim.
@@ -179,9 +233,9 @@ export function resolveHouseholdJob(
 export function resolveHouseholdJobs(
   contexts: readonly HouseholdJobContext[],
   nowYear: number,
-  stopWorking?: StopWorkingBoundary,
+  scope: JobResolutionScope,
 ): ResolvedHouseholdJob[] {
-  return contexts.map((ctx) => resolveHouseholdJob(ctx, nowYear, stopWorking));
+  return contexts.map((ctx) => resolveHouseholdJob(ctx, nowYear, scope));
 }
 
 /** Every job one member owns, paired with that member's own window. */

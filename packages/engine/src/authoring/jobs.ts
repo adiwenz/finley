@@ -44,6 +44,7 @@ import {
   withoutPayChange,
   withPayChange,
 } from "../job";
+import { MAX_LIVED_AGE } from "../plan";
 import type { Jurisdiction } from "../jurisdiction";
 import type { Cents } from "../money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
@@ -161,6 +162,46 @@ function editJobAnywhere(
   throw new Error(`Projection: cannot edit a job — no job "${jobId}" in this household`);
 }
 
+/**
+ * Refuse a job whose start or end age falls past what a person can live to.
+ *
+ * A job is authored in calendar YEARS, so its ages are only meaningful against whose job it is:
+ * the owner's birth year turns `startYear`/`endYear` into "at what age". The primary's birth
+ * year is the plan's own `startYear − currentAge`; a partner carries theirs on the event they
+ * joined on.
+ *
+ * `endYear: null` is the open-ended job and has no end age to bound — it ends when something
+ * else ends it, and what that is, is not this rule's business.
+ */
+function assertJobAgesWithin(state: ProjectionState, ownerId: PersonId, job: JobInput): void {
+  const birthYear = birthYearOf(state, ownerId);
+  const ages: readonly (readonly [string, number | null])[] = [
+    ["start age", job.startYear - birthYear],
+    ["end age", job.endYear === null ? null : job.endYear - birthYear],
+  ];
+  for (const [label, age] of ages) {
+    if (age !== null && age > MAX_LIVED_AGE) {
+      throw new Error(
+        `Projection: cannot author a job with ${label} ${age} — it may not exceed ${MAX_LIVED_AGE}`,
+      );
+    }
+  }
+}
+
+/**
+ * Whose birth year to read a job's calendar years against. The primary person holds no `Person`
+ * record on the plan — their age IS the plan's `currentAge` at the frozen `startYear` — so the
+ * two planes answer this differently and this is where that difference is settled.
+ */
+function birthYearOf(state: ProjectionState, personId: PersonId): number {
+  for (const event of state.scenario.ledger.events) {
+    if (event.type === "RelationshipEvent" && event.person.id === personId) {
+      return event.person.birthYear;
+    }
+  }
+  return state.startYear - state.scenario.plan.currentAge;
+}
+
 // Standing (plan-plane) jobs.
 
 /**
@@ -174,6 +215,7 @@ export function addProjectionJob(
   personId: PersonId,
   job: JobInput,
 ): Written<string> {
+  assertJobAgesWithin(state, personId, job);
   const { id, nextSeq } = mint(state, "job");
   const newJob: Job = { ...job, id, ownerId: personId };
   const plan = state.scenario.plan;
@@ -201,7 +243,10 @@ export function replaceProjectionJob(
   id: string,
   job: JobInput,
 ): ProjectionState {
-  return editPlanJob(state, id, (prior) => ({ ...job, id: prior.id, ownerId: prior.ownerId }));
+  return editPlanJob(state, id, (prior) => {
+    assertJobAgesWithin(state, prior.ownerId, job);
+    return { ...job, id: prior.id, ownerId: prior.ownerId };
+  });
 }
 
 /**
@@ -250,6 +295,7 @@ export function addProjectionPartnerJob(
   job: JobInput,
 ): Written<string> {
   const event = relationshipFor(state, personId);
+  assertJobAgesWithin(state, personId, job);
   const { id, nextSeq } = mint(state, "job");
   const newJob: Job = { ...job, id, ownerId: personId };
   return {
@@ -269,7 +315,8 @@ export function replaceProjectionPartnerJob(
   jobId: string,
   job: JobInput,
 ): ProjectionState {
-  const { event } = partnerJobSite(state, jobId);
+  const { event, job: prior } = partnerJobSite(state, jobId);
+  assertJobAgesWithin(state, prior.ownerId, job);
   return withPartnerJobs(
     state,
     jurisdiction,

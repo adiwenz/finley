@@ -44,7 +44,8 @@ function ctx(): ProjectionContext {
 function compilePersonIncomeSeries(person: Person, nowYear: number, inflationRate: number) {
   const membership = { person, startMonth: -Infinity, endMonth: null };
   return compileHouseholdJobSeries(
-    resolveHouseholdJobs(personJobContexts(membership), nowYear),
+    // Authored: no hypothetical stop, so an open-ended job runs to the horizon.
+    resolveHouseholdJobs(personJobContexts(membership), nowYear, { kind: "authored" }),
     nowYear,
     inflationRate,
   );
@@ -56,27 +57,39 @@ function project(plan: Plan) {
 
 /** The sample plan's single open-ended job (real-flat salary, deferral on it). */
 const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
+/** Authored to run to 80 — past the sample plan's retirement age, so the two are visibly not the same thing. */
+const lateEndingJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge: 80 });
 
 describe("Job/Person standing model — additive compilation", () => {
-  it("allows any number of open-ended (null-end) jobs — no elevated career job", () => {
+  it("allows any number of jobs — no elevated career job", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
-    // Two open-ended jobs is legal: neither is elevated, and both compile to forward
-    // income ending at the owner's retirementTargetAge.
+    // Two jobs is legal: neither is elevated, and each compiles to forward income ending where
+    // it was authored to end.
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
       retirementTargetAge: samplePlan.retirementAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
-      jobs: [openEndedJob, { ...openEndedJob, id: "job-2" }],
+      // Both authored to run to 80 — well past the plan's retirement age of 60, which is the
+      // point: the end is the job's, not the household's target.
+      jobs: [lateEndingJob, { ...lateEndingJob, id: "job-2" }],
     };
     const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
     expect(series).toHaveLength(2);
-    const retireEndMonth = (samplePlan.retirementAge - samplePlan.currentAge) * 12 - 1;
-    expect(series.every((s) => s.series.endMonth === retireEndMonth)).toBe(true);
+    const authoredEndMonth = (80 - samplePlan.currentAge) * 12 - 1;
+    expect(series.every((s) => s.series.endMonth === authoredEndMonth)).toBe(true);
+    // Emphatically NOT the retirement age: that is a target the household aims at, and it is
+    // not an employment boundary.
+    expect(series[0]!.series.endMonth).toBeGreaterThan(
+      (samplePlan.retirementAge - samplePlan.currentAge) * 12,
+    );
   });
 
-  it("retirementTargetAge is the per-person input that sets an open-ended job's end", () => {
+  it("retirementTargetAge does NOT end a job — it is a target, not an end date", () => {
+    // The rule this replaces: a job with no end used to stop the month before its owner turned
+    // `retirementTargetAge`, so a job authored to start after that age was compiled away
+    // entirely and never appeared on the income the user had just authored.
     const birthYear = START_YEAR - samplePlan.currentAge;
     const base: Person = {
       id: PRIMARY_PERSON_ID,
@@ -84,7 +97,7 @@ describe("Job/Person standing model — additive compilation", () => {
       birthYear,
       retirementTargetAge: samplePlan.retirementAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
-      jobs: [openEndedJob],
+      jobs: [lateEndingJob],
     };
     const openEndedEndMonth = (age: number) =>
       compilePersonIncomeSeries(
@@ -92,11 +105,26 @@ describe("Job/Person standing model — additive compilation", () => {
         START_YEAR,
         samplePlan.inflationPct / 100,
       )[0].series.endMonth;
-    // Forward income stops the month before the owner turns `retirementTargetAge` — that
-    // input alone moves the end.
-    expect(openEndedEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
-    expect(openEndedEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
-    expect(openEndedEndMonth(65)).toBeGreaterThan(openEndedEndMonth(60) as number);
+    // Moving the target moves nothing: both end where the job says, at 80.
+    expect(openEndedEndMonth(60)).toBe((80 - samplePlan.currentAge) * 12 - 1);
+    expect(openEndedEndMonth(65)).toBe(openEndedEndMonth(60));
+  });
+
+  it("ends a job exactly where it was authored to end", () => {
+    // The other half of the same rule: what the user stated is what happens. Only an authored
+    // end ends a job, and it is unaffected by any retirement target.
+    const birthYear = START_YEAR - samplePlan.currentAge;
+    const endYear = START_YEAR + 10;
+    const person: Person = {
+      id: PRIMARY_PERSON_ID,
+      name: "P",
+      birthYear,
+      retirementTargetAge: 65,
+      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      jobs: [{ ...openEndedJob, endYear }],
+    };
+    const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
+    expect(series.series.endMonth).toBe(10 * 12 - 1);
   });
 
   it("computes pre-'now' earnings directly from the jobs", () => {
@@ -551,7 +579,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 22, // 2004
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: startingAnnualCents,
       currentSalaryCents: currentAnnualCents,
@@ -748,7 +776,7 @@ describe("stating pay and deferral, and reading them back", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: { startingSalaryCents: dollarsToCents(72_000), currentSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
   };
 
@@ -783,7 +811,7 @@ describe("the two salary anchors, stated separately", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -818,7 +846,7 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -1072,7 +1100,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -1163,7 +1191,7 @@ describe("historical pay is flat", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(96_000),
@@ -1245,7 +1273,7 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "job-p2",
     ownerId: "p2",
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(72_000),
       currentSalaryCents: dollarsToCents(72_000),
@@ -1256,7 +1284,7 @@ describe("membership clips what the household is paid, not the job's salary path
   const paid = (job: Job, month: number, span?: { startMonth: number; endMonth: number | null }) => {
     const membership = { person: partner([job]), ...(span ?? { startMonth: JOIN, endMonth: null }) };
     const compiled = compileHouseholdJobSeries(
-      resolveHouseholdJobs(personJobContexts(membership), START_YEAR),
+      resolveHouseholdJobs(personJobContexts(membership), START_YEAR, { kind: "authored" }),
       START_YEAR,
       0,
     );

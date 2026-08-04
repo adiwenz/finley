@@ -262,10 +262,16 @@ export interface Job {
   readonly ownerId: PersonId;
   readonly startYear: number;
   /**
-   * `null` = open-ended: runs until the owner's `retirementTargetAge`, which the retirement
-   * solver varies. Otherwise exclusive — worked in calendar years `[startYear, endYear)`.
+   * Exclusive — worked in calendar years `[startYear, endYear)`. **Required**: every job says
+   * when it ends.
+   *
+   * There is no open-ended job. A `null` end used to mean "runs until the owner's retirement
+   * age", which quietly made a planning target into an employment boundary: a job authored to
+   * start after that age disappeared from the projection the moment it was saved, because the
+   * thing that ended it was a number the user had entered somewhere else entirely. An end date
+   * is a fact about a job, and a job states its own.
    */
-  readonly endYear: number | null;
+  readonly endYear: number;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
   readonly incomeOverrides?: readonly JobIncomeOverride[];

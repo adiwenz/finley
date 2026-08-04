@@ -2,12 +2,13 @@
  * @vitest-environment jsdom
  *
  * Jobs panel. Pins that a person can hold any number of jobs (none privileged, several
- * possibly open-ended), that add/edit/delete are value-plane edits to `plan.jobs`, and that
+ * each with its own authored end), that add/edit/delete are value-plane edits to `plan.jobs`, and that
  * the 401(k) elective-limit nudge fires here across all jobs.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { useMemo } from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import {
   PRIMARY_PERSON_ID,
   Projection,
@@ -118,7 +119,7 @@ const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   ...(name ? { name } : {}),
   ownerId: "p-1",
   startYear: START_YEAR,
-  endYear: null,
+  endYear: START_YEAR - 40 + 65,
   salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
 });
 
@@ -145,43 +146,59 @@ const authored = (): { plan: Plan; ledger: Ledger } => ({
 });
 
 describe("JobsPanel — listing", () => {
-  it("lists the default job with its salary and open-ended span", () => {
+  it("lists the default job with its salary and its authored span", () => {
     render(<Harness />);
     expect(headline("Job 1")).toBe("$5,000/mo");
-    expect(within(screen.getByLabelText("Job 1")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–65/i)).toBeTruthy();
   });
 
-  it("charts an open-ended job to the authored retirement age when not previewing", () => {
+  it("charts a job to its own authored end when not previewing", () => {
     render(<Harness />);
     expect(
       screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 65,/i }),
     ).toBeTruthy();
   });
 
-  it("charts an open-ended job to the previewed stop-working age instead — display only", () => {
-    render(<Harness previewStopAge={76} />);
+  it("caps a job's chart at the previewed stop-working age instead — display only", () => {
+    // The preview only ever SHORTENS: a candidate below the job's authored end (65) moves the
+    // chart; one above it would leave the job alone, since a hypothesis cannot invent work.
+    render(<Harness previewStopAge={55} />);
     expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 55,/i }),
     ).toBeTruthy();
     // The span label and the edit form still read the authored plan — the preview never
     // touches what Edit/Delete/Change pay act on.
-    expect(within(screen.getByLabelText("Job 1")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–65/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(screen.queryByRole("spinbutton", { name: /End age/i })).toBeNull(); // still open-ended
+    expect(Number(spin(/End age/i).value)).toBe(65); // the authored end, untouched by the preview
   });
 
-  it("leaves a fixed-term job's chart alone when its own end already falls before the preview age", () => {
+  it("leaves an EARLIER job's chart alone — only the last job follows a later preview age", () => {
+    // Job 1 finishes at 48 and Job 2 runs to 70, so Job 2 is the one the household would still
+    // be holding. Previewing "retire at 76" runs Job 2 on to 76 and leaves Job 1 where it
+    // ended — a hypothesis about working longer must not restart a job already finished.
     render(
       <Harness
         initial={{
           ...PLAN_DEFAULTS,
-          jobs: [{ ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 13 }], // ends at age 48
+          jobs: [
+            { ...PLAN_DEFAULTS.jobs[0]!, endYear: START_YEAR + 13 }, // ends at age 48
+            {
+              ...PLAN_DEFAULTS.jobs[0]!,
+              id: `${PLAN_DEFAULTS.jobs[0]!.id}-second`,
+              startYear: START_YEAR + 13,
+              endYear: START_YEAR + 35, // to age 70
+            },
+          ],
         }}
         previewStopAge={76}
       />,
     );
     expect(
       screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 48,/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 48 to 76,/i }),
     ).toBeTruthy();
   });
 
@@ -212,14 +229,14 @@ describe("JobsPanel — listing", () => {
       // A second id beside the engine-minted one; the panel only ever addresses a job by it.
       id: `${PLAN_DEFAULTS.jobs[0]!.id}-later`,
       startYear: START_YEAR + 35, // age 70
-      endYear: null,
+      endYear: START_YEAR + 45, // to age 80
     };
     const initial = { ...PLAN_DEFAULTS, retirementAge: 75, jobs: [PLAN_DEFAULTS.jobs[0]!, laterJob] };
 
     const { rerender } = render(<Harness initial={initial} />);
     // Not previewing: the job charts its authored span, 70 to the authored stop-working age.
     expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 75,/i }),
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 80,/i }),
     ).toBeTruthy();
 
     rerender(<Harness initial={initial} previewStopAge={65} />);
@@ -231,7 +248,7 @@ describe("JobsPanel — listing", () => {
       }),
     ).toBeTruthy();
     // The row is still the authoring surface: it exists, says what it is, and edits the plan.
-    expect(within(screen.getByLabelText("Job 2")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(within(screen.getByLabelText("Job 2")).getByText(/age 70–80/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Edit Job 2/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Change pay on Job 2/i })).toBeTruthy();
     // The other job still charts — the preview caps it at 65 rather than emptying it.
@@ -242,7 +259,7 @@ describe("JobsPanel — listing", () => {
     // Toggling the preview off restores the authored path, untouched.
     rerender(<Harness initial={initial} />);
     expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 75,/i }),
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 80,/i }),
     ).toBeTruthy();
   });
 });
@@ -252,7 +269,7 @@ describe("JobsPanel — add / edit / delete", () => {
     render(<Harness />);
     expect(jobCount()).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "2000" } });
+    enterNumber(spin(/Monthly salary/i), "2000");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     expect(jobCount()).toBe(2);
     expect(headline("Job 2")).toBe("$2,000/mo");
@@ -261,7 +278,7 @@ describe("JobsPanel — add / edit / delete", () => {
   it("edits a job's salary in place", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
+    enterNumber(spin(/Monthly salary now/i), "8000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(headline("Job 1")).toBe("$8,000/mo");
   });
@@ -281,8 +298,8 @@ describe("JobsPanel — add / edit / delete", () => {
   it("sets an employer match on a deferring job — it lands on the plan and shows on the row", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
-    fireEvent.change(spin(/Employer match/i), { target: { value: "50" } });
+    enterNumber(spin(/401\(k\) contribution/i), "6");
+    enterNumber(spin(/Employer match/i), "50");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     // Deposited on top of the deferral in the engine — here we pin only that the authored
@@ -294,8 +311,8 @@ describe("JobsPanel — add / edit / delete", () => {
   it("reads a match back into the edit form so it round-trips", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
-    fireEvent.change(spin(/Employer match/i), { target: { value: "50" } });
+    enterNumber(spin(/401\(k\) contribution/i), "6");
+    enterNumber(spin(/Employer match/i), "50");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
@@ -305,7 +322,7 @@ describe("JobsPanel — add / edit / delete", () => {
   it("shows no match on the row when the deferral has none", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/401\(k\) contribution/i), { target: { value: "6" } });
+    enterNumber(spin(/401\(k\) contribution/i), "6");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const row = screen.getByLabelText("Job 1");
@@ -313,31 +330,23 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(within(row).queryByText(/match/i)).toBeNull();
   });
 
-  it("turns an open-ended job into a fixed-term one via the end-age control", () => {
+  it("moves a job's end through the end-age control", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.click(screen.getByLabelText(/Open-ended/i));
-    fireEvent.change(spin(/End age/i), { target: { value: "50" } });
+    enterNumber(spin(/End age/i), "50");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–50/)).toBeTruthy();
   });
 
-  it("remembers the entered end age across an open-ended toggle instead of resetting it", () => {
-    // Open-ended keeps the last finite value, so toggling the box on then off restores the
-    // user's number rather than the 65 default.
+  it("offers no way to author a job without an end — the field is always there", () => {
+    // There used to be an "Open-ended (runs until retirement)" checkbox that hid this field,
+    // and a job with it ticked silently ended at whatever retirement age was authored on
+    // another panel. Every job says when it ends, so the control is unconditional.
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // reveal the end-age field
-    fireEvent.change(spin(/End age/i), { target: { value: "52" } });
-
-    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // back to open-ended
-    expect(screen.queryByRole("spinbutton", { name: /End age/i })).toBeNull(); // field hidden
-
-    fireEvent.click(screen.getByLabelText(/Open-ended/i)); // fixed-term again
-    expect(Number(spin(/End age/i).value)).toBe(52); // the user's 52, not the default
-
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–52/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Open-ended/i)).toBeNull();
+    expect(spin(/End age/i)).toBeTruthy();
+    expect(Number(spin(/End age/i).value)).toBe(65);
   });
 
   it("deletes a job", () => {
@@ -400,13 +409,13 @@ describe("JobsPanel — every member's jobs", () => {
     const partnerRow = screen.getByLabelText("Sam · Job 1");
     expect(headline("Sam · Job 1")).toBe("$2,000/mo");
     // Spans read in the owner's age, not the primary person's: Sam is 40, not 35.
-    expect(within(partnerRow).getByText(/from age 40/)).toBeTruthy();
+    expect(within(partnerRow).getByText(/age 40–65/)).toBeTruthy();
   });
 
   it("edits a partner's job — the revision is written back to their RelationshipEvent", () => {
     render(<Harness events={withPartner()} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "3500" } });
+    enterNumber(spin(/Monthly salary/i), "3500");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(headline("Sam · Job 1")).toBe("$3,500/mo");
@@ -426,7 +435,7 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness events={withPartner([])} />); // partner in the household, no jobs yet
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
+    enterNumber(spin(/Monthly salary now/i), "2500");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     expect(partnerJobs()).toHaveLength(1);
@@ -440,7 +449,7 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness events={withPartner([])} />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
+    enterNumber(spin(/Monthly salary now/i), "2500");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     const { plan } = authored();
@@ -456,7 +465,7 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness events={withPartner([partnerJob(2500)])} rejectRevisions />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
     // Sam started this job at their current age, so there is no history field beside it.
-    fireEvent.change(spin(/^Monthly salary\$$/), { target: { value: "9000" } });
+    enterNumber(spin(/^Monthly salary\$$/), "9000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(partnerMonthlyDollars()).toBe(2500); // the refused salary did not stick
@@ -497,7 +506,7 @@ describe("JobsPanel — every member's jobs", () => {
     // The primary person, explicitly — not merely the default.
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "1500" } });
+    enterNumber(spin(/Monthly salary/i), "1500");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     expect(jobCount()).toBe(2);
     expect(partnerJobs()).toHaveLength(0);
@@ -507,7 +516,7 @@ describe("JobsPanel — every member's jobs", () => {
     // to state.
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "2500" } });
+    enterNumber(spin(/Monthly salary now/i), "2500");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     expect(jobCount()).toBe(2);
     expect(partnerJobs()).toHaveLength(1);
@@ -568,7 +577,7 @@ describe("JobsPanel — an ordinary edit changes only what it names", () => {
     const before = authored().plan.jobs[0];
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
+    enterNumber(spin(/Monthly salary now/i), "8000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const after = authored().plan.jobs[0];
@@ -592,7 +601,7 @@ describe("JobsPanel — an ordinary edit changes only what it names", () => {
     expect(wagesFor(seriesBefore, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(5000));
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "8000" } });
+    enterNumber(spin(/Monthly salary now/i), "8000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const { plan, ledger } = authored();
@@ -908,8 +917,8 @@ describe("JobsPanel — authoring a raise", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Pay change kind/i }), {
       target: { value: kind },
     });
-    fireEvent.change(spin(/From age/i), { target: { value: String(age) } });
-    fireEvent.change(spin(/Amount/i), { target: { value: String(dollars) } });
+    enterNumber(spin(/From age/i), age);
+    enterNumber(spin(/Amount/i), dollars);
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
   };
 
@@ -1044,8 +1053,8 @@ describe("JobsPanel — authoring a job's pay history", () => {
   it("states the two salary anchors separately, and neither rewrites the other", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Monthly salary when this job started/i), { target: { value: "3000" } });
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "6667" } });
+    enterNumber(spin(/Monthly salary when this job started/i), "3000");
+    enterNumber(spin(/Monthly salary now/i), "6667");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     const { salary } = authored().plan.jobs[0];
@@ -1059,7 +1068,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i })); // starts at 35, today
     expect(screen.queryByRole("spinbutton", { name: /Monthly salary when this job started/i })).toBeNull();
-    fireEvent.change(spin(/Monthly salary/i), { target: { value: "4000" } });
+    enterNumber(spin(/Monthly salary/i), "4000");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     // One number in, both anchors out: "it pays X" means a flat history.
     const added = authored().plan.jobs[1].salary;
@@ -1075,8 +1084,8 @@ describe("JobsPanel — authoring a job's pay history", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Pay change kind/i }), {
       target: { value: "setTo" },
     });
-    fireEvent.change(spin(/From age/i), { target: { value: "30" } });
-    fireEvent.change(spin(/Amount/i), { target: { value: "6250" } });
+    enterNumber(spin(/From age/i), "30");
+    enterNumber(spin(/Amount/i), "6250");
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
     expect(authored().plan.jobs[0].payChanges).toEqual([
@@ -1120,8 +1129,8 @@ describe("JobsPanel — authoring a job's pay history", () => {
     // 1, and the form says so before it is applied rather than after.
     render(<Harness />);
     openPayChange("Job 1");
-    fireEvent.change(spin(/From age/i), { target: { value: "35" } });
-    fireEvent.change(spin(/Amount/i), { target: { value: "6000" } });
+    enterNumber(spin(/From age/i), "35");
+    enterNumber(spin(/Amount/i), "6000");
     expect(screen.getByText(/starts next month/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
 
@@ -1157,7 +1166,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Monthly salary now/i), { target: { value: "5000" } });
+    enterNumber(spin(/Monthly salary now/i), "5000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(screen.queryByTestId("seam-note")).toBeNull();
     // Anchors agreed: no step to draw, and no annotation left on the chart either.
@@ -1209,7 +1218,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     openPayChange("Job 1");
     // The form opens on the seam (35) — outside this job — so applying it untouched must land
     // inside the span rather than submit the default it opened on.
-    fireEvent.change(spin(/Amount/i), { target: { value: "2100" } });
+    enterNumber(spin(/Amount/i), "2100");
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
     expect(authored().plan.jobs[0].payChanges).toEqual([
       { id: expect.any(String), month: (25 - 35) * 12, kind: "setTo", cents: dollarsToCents(2100) },
@@ -1224,7 +1233,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
     });
     render(<Harness initial={withRaise} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Start age/i), { target: { value: "33" } });
+    enterNumber(spin(/Start age/i), "33");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(authored().plan.jobs[0].payChanges).toBeUndefined();
@@ -1235,7 +1244,7 @@ describe("JobsPanel — authoring a job's pay history", () => {
   it("says nothing when an edit strands nothing", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    fireEvent.change(spin(/Start age/i), { target: { value: "20" } });
+    enterNumber(spin(/Start age/i), "20");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(screen.queryByText(/fell before this job starts/)).toBeNull();
   });

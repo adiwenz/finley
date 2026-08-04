@@ -5,6 +5,7 @@
  */
 
 import type { Job } from "../job";
+import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan";
 import type { PersonId } from "../job";
 import type { Jurisdiction } from "../jurisdiction";
 import type { Person } from "../person";
@@ -96,6 +97,20 @@ export function applyMarriage(
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
+  // A partner is a person, and the same age bound holds for them as for the primary — stated
+  // here in the three places a partner's age is actually authored. Their age is a birth YEAR on
+  // the way in, so it is read against the plan's frozen "now" rather than a wall clock.
+  const ages: readonly (readonly [string, number | undefined, number])[] = [
+    // An age they already ARE, so it stops one short of the ceiling like the primary's.
+    ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
+    ["retirementTargetAge", input.retirementTargetAge, AGE_LIMITS.retirementAge],
+    ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
+  ];
+  for (const [field, age, limit] of ages) {
+    if (age !== undefined && age > limit) {
+      throw new Error(`Projection: cannot author a partner with ${field} ${age} — it may not exceed ${limit}`);
+    }
+  }
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,
   // so the partner and their jobs draw distinct ids from the same monotonic run. The owner is

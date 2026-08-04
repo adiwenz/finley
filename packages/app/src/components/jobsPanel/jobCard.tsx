@@ -32,13 +32,9 @@ export type JobCardAuthoring =
   | { kind: "payChange"; seedAge?: number }
   | null;
 
-/** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
+/** "age 30–45" — a job's span in its OWNER's terms. Every job has both ends. */
 function describeSpan(owner: JobOwner, job: Job): string {
-  const start = jobStartAgeFor(owner.birthYear, job);
-  const end = jobEndAgeFor(owner.birthYear, job);
-  return end === null
-    ? `from age ${start} · open-ended (to retirement)`
-    : `age ${start}–${end}`;
+  return `age ${jobStartAgeFor(owner.birthYear, job)}–${jobEndAgeFor(owner.birthYear, job)}`;
 }
 
 export interface JobCardProps {

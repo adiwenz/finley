@@ -42,7 +42,7 @@ import {
   type JobIncomeOverride,
 } from "./job";
 import type { Person } from "./person";
-import { naturalJobEndYearExclusive, type ResolvedHouseholdJob } from "./householdJob";
+import { type ResolvedHouseholdJob } from "./householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
@@ -149,15 +149,15 @@ function applyIncomeOverrides(
  */
 function reconstructHistoricalCompensation(
   job: Job,
-  owner: Person,
   nowYear: number,
 ): { series: SimCashFlowSeries; startMonth: number; endMonthExclusive: number } | null {
   const startMonth = (job.startYear - nowYear) * 12;
   // History is months < 0: clip a still-running job at "now", and skip one that only starts at
   // or after it (all of its earnings are the forward series' job).
-  // The person's OWN natural end, never a household one: neither a candidate solver boundary
-  // nor a late household join may edit what this person actually earned before "now".
-  const endMonthExclusive = Math.min((naturalJobEndYearExclusive(job, owner) - nowYear) * 12, 0);
+  // The job's OWN authored end, never a household one: neither a candidate solver boundary nor
+  // a late household join may edit what this person actually earned before "now". An open-ended
+  // job has no end to read here — it was still running at "now", which is where this stops.
+  const endMonthExclusive = Math.min(job.endYear === null ? 0 : (job.endYear - nowYear) * 12, 0);
   if (endMonthExclusive <= startMonth) return null;
 
   // Taken VERBATIM: `startingSalaryCents` is the paycheck of the job's own start year, in that
@@ -209,7 +209,7 @@ export function compilePersonPriorEarnings(
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const history = reconstructHistoricalCompensation(job, person, nowYear);
+    const history = reconstructHistoricalCompensation(job, nowYear);
     if (history === null) continue;
     for (let month = history.startMonth; month < history.endMonthExclusive; month++) {
       const cents = history.series.getMonthlyCents(month);

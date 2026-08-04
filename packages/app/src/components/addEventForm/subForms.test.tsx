@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import type { Projection, ProjectionResult } from "@finley/engine";
 import { LoanForm } from "./loanForm";
 import { SeparationForm } from "./separationForm";
@@ -51,7 +52,7 @@ describe("LoanForm — kind gates the term", () => {
     render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
 
     // Type a term that differs from the default so a reset would be visible.
-    fireEvent.change(spin(/Term/i), { target: { value: "7" } });
+    enterNumber(spin(/Term/i), "7");
 
     // Credit cards are revolving — no term. The field disappears.
     fireEvent.change(screen.getByRole("combobox", { name: /Type/i }), {
@@ -70,8 +71,8 @@ describe("LoanForm — kind gates the term", () => {
     const { p, onAdd } = stubProjection();
     render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
-    fireEvent.change(spin(/Amount/i), { target: { value: "10000" } });
-    fireEvent.change(spin(/Term/i), { target: { value: "6" } });
+    enterNumber(spin(/Amount/i), "10000");
+    enterNumber(spin(/Term/i), "6");
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
     expect(p.takeLoan).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: "studentLoan", termMonths: 72 }),
@@ -104,8 +105,8 @@ describe("SeparationForm — alimony amount gates its duration", () => {
     // No alimony amount yet → nothing to time, so no duration field.
     expect(screen.queryByRole("spinbutton", { name: /Alimony years/i })).toBeNull();
 
-    fireEvent.change(spin(/Alimony \/ mo/i), { target: { value: "500" } });
-    fireEvent.change(spin(/Alimony years/i), { target: { value: "3" } });
+    enterNumber(spin(/Alimony \/ mo/i), "500");
+    enterNumber(spin(/Alimony years/i), "3");
 
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
     expect(p.separate).toHaveBeenCalledWith(
@@ -124,7 +125,7 @@ describe("ChildForm — single-draft consolidation preserves submit", () => {
     render(<ChildForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Child's name/i), { target: { value: "Robin" } });
-    fireEvent.change(spin(/Annual cost/i), { target: { value: "20000" } });
+    enterNumber(spin(/Annual cost/i), "20000");
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
 
     expect(p.haveChild).toHaveBeenCalledWith(

@@ -25,9 +25,9 @@ import {
   setProjectionJobMonthlyIncome,
 } from "./jobs";
 
-const openEndedJob = {
+const longRunningJob = {
   startYear: SAMPLE_START_YEAR,
-  endYear: null,
+  endYear: 2090,
   salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
@@ -51,7 +51,7 @@ function partnerJobs(state: ProjectionState, partnerId: PersonId) {
 describe("job authoring — a write derives, it does not mutate", () => {
   it("leaves the state it was handed untouched", () => {
     const before = emptyState();
-    const { state: after } = addProjectionJob(before, PRIMARY_PERSON_ID as PersonId, openEndedJob);
+    const { state: after } = addProjectionJob(before, PRIMARY_PERSON_ID as PersonId, longRunningJob);
 
     expect(before.scenario.plan.jobs).toEqual([]);
     expect(after.scenario.plan.jobs).toHaveLength(1);
@@ -64,7 +64,7 @@ describe("job authoring — a write derives, it does not mutate", () => {
     const { state, result } = addProjectionJob(
       emptyState(),
       PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
+      longRunningJob,
     );
     expect(result).toBe("job-1");
     expect(state.scenario.plan.jobs[0]?.id).toBe("job-1");
@@ -78,12 +78,12 @@ describe("job authoring — the module owns which plane a job lives on", () => {
       state,
       nullJurisdiction,
       partnerId,
-      openEndedJob,
+      longRunningJob,
     );
     const { state: final } = addProjectionJob(
       withBoth,
       PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
+      longRunningJob,
     );
 
     // Neither plane holds the other's job…
@@ -99,12 +99,12 @@ describe("job authoring — the module owns which plane a job lives on", () => {
       state,
       nullJurisdiction,
       partnerId,
-      openEndedJob,
+      longRunningJob,
     );
     const { state: both, result: planJobId } = addProjectionJob(
       withPartnerJob,
       PRIMARY_PERSON_ID as PersonId,
-      openEndedJob,
+      longRunningJob,
     );
 
     // One call shape, two storage planes — the caller never names either.
