@@ -46,7 +46,7 @@ import { type ResolvedHouseholdJob } from "./householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
- * seam keeping the authoring roster out of the pure sim core. `retirementTargetAge` and
+ * seam keeping the authoring roster out of the pure sim core. The job list and
  * `jobs` do not cross into the sim; they drive the forward income series ({@link
  * compilePersonIncomeSeries}) and the job spans.
  */

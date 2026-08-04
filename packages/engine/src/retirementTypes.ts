@@ -47,9 +47,9 @@ export interface RetirementSolution {
   /**
    * READ, not solved: the age, in the primary's own timeline, at which every authored job
    * anywhere in the household (the primary's plan jobs and every partner's) stops paying on
-   * its own — the household-wide `max` of each job's authored `endYear`, or its owner's own
-   * `retirementTargetAge` for an open-ended job. `null` when the household has no jobs. Says
-   * nothing about whether the plan survives to that point; {@link fullRetirementAge} does.
+   * its own — the household-wide `max` of each job's authored `endYear`. `null` when the
+   * household has no jobs. Says nothing about whether the plan survives to that point;
+   * {@link fullRetirementAge} does.
    */
   readonly plannedWorkStopAge: number | null;
 }

@@ -284,17 +284,16 @@ describe("Projection.fromInput", () => {
     expect(result.error.eventIndex).toBe(0);
   });
 
-  it("holds a partner's own target ages to their own ceilings", () => {
+  it("holds a partner's claiming age to its ceiling — the only target age they carry", () => {
     const marryWith = (extra: Record<string, number>) =>
       Projection.fromInput(
         { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, ...extra }] },
         nullJurisdiction,
       );
-    // Their retirement age reaches the outer ceiling; their claiming age stops at 70.
-    expect(marryWith({ retirementTargetAge: 200 }).ok).toBe(false);
-    expect(marryWith({ retirementTargetAge: MAX_AGE }).ok).toBe(true);
     expect(marryWith({ benefitClaimingAge: 71 }).ok).toBe(false);
     expect(marryWith({ benefitClaimingAge: AGE_LIMITS.benefitClaimingAge }).ok).toBe(true);
+    // A partner has no retirement age at all any more: their jobs say when they stop.
+    expect(marryWith({}).ok).toBe(true);
   });
 
   it("refuses a job whose start or end age outruns a life", () => {
@@ -321,7 +320,7 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", month: 12, name: "Sam", birthYear: 1994, retirementTargetAge: 67, benefitClaimingAge: 70 },
+        { type: "marry", month: 12, name: "Sam", birthYear: 1994, benefitClaimingAge: 70 },
       ],
     });
     expect(p.ledger.events).toHaveLength(1);

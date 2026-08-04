@@ -21,8 +21,6 @@ interface RelationshipDraft {
    * do the arithmetic.
    */
   readonly age: number;
-  /** The age their open-ended jobs stop — their own, not the household's. */
-  readonly retirementAge: number;
   /** The age their government benefit begins, 62–70. */
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
@@ -34,7 +32,6 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
     month: defaultMonth,
     name: "",
     age: PARTNER_DEFAULT_AGE,
-    retirementAge: 65,
     claimingAge: 67,
     jobs: [],
   }));
@@ -69,7 +66,6 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         month: draft.month,
         name: draft.name || "Partner",
         birthYear: partnerBirthYear,
-        retirementTargetAge: draft.retirementAge,
         benefitClaimingAge: draft.claimingAge,
         jobs: draft.jobs.map((job) => jobInputFromDraft(partnerBirthYear, job)),
       }),
@@ -152,17 +148,8 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           time, in the Budget editor. */}
       <details className="advanced">
         <summary>Advanced</summary>
-        {/* Not chained to their current age, unlike the primary earner's: an ALREADY retired
-            partner is a real thing to author, and the household's retirement age has no say
-            over it. */}
-        <NumInput
-          label="Their retirement age"
-          value={draft.retirementAge}
-          onChange={(retirementAge) => patch({ retirementAge })}
-          min={40}
-          max={AGE_LIMITS.retirementAge}
-          step={1}
-        />
+        {/* No "their retirement age" here. Each job they hold says when it ends, so a second
+            age that also ended their jobs could only ever contradict one of them. */}
         {/* Their benefit rides their own covered earnings, so it begins on their clock, not
             the household's. */}
         <NumInput

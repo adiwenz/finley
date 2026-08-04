@@ -66,9 +66,12 @@ export function firstDeferralLimitCrossing(
     if (deferringJobs.length === 0) continue;
 
     const years = membershipYears(owner);
-    const retirementYear = owner.birthYear + owner.retirementTargetAge;
+    // Their working life is their JOBS' — the latest end among the ones they defer into. There
+    // is no retirement age to read: a person stops deferring when the last plan they defer into
+    // stops paying them.
+    const lastDeferringYear = Math.max(...deferringJobs.map((j) => j.endYear));
 
-    for (let year = years.first; year < retirementYear && year < years.lastExclusive; year++) {
+    for (let year = years.first; year < lastDeferringYear && year < years.lastExclusive; year++) {
       // A crossing later than one already found can't be the first one.
       if (earliest !== null && year >= earliest.year) break;
       const age = year - owner.birthYear;

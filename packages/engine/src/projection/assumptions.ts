@@ -36,4 +36,19 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "can afford is covered only from income, cash savings, and credit, and can make the " +
       "plan unfinanceable even while investment balances remain.",
   },
+  {
+    id: "retirementAgeExtendsLastJob",
+    text:
+      "Every job is authored with its own end date, and your plan's projection uses exactly " +
+      "the dates you entered — no job is shortened or extended to match a retirement age. " +
+      "When the plan instead ANSWERS “when could you retire?”, or previews stopping at a " +
+      "particular age, it has to imagine a working life different from the one you wrote " +
+      "down, and it does that by moving the end date of the LAST job each person holds: " +
+      "forward if the age asked about is later than that job was set to end, back if it is " +
+      "earlier. Every earlier job keeps its own end date and simply stops if the age asked " +
+      "about falls inside it. So a later retirement age assumes you carry on in your final " +
+      "job — not that you take up an earlier one again, and not that a fixed-term job you " +
+      "already finished runs on. If a person's last job already ended, that job is the one " +
+      "extended, which reads as going back to it.",
+  },
 ];

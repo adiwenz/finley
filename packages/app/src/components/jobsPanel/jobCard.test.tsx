@@ -17,7 +17,6 @@ const OWNER: JobOwner = {
   id: "primary",
   name: "Alex",
   birthYear: 1985,
-  retirementTargetAge: 65,
   jobs: [],
   startMonth: -Infinity,
   endMonth: null,

@@ -148,11 +148,9 @@ describe("RelationshipEvent — partner retirement & claiming ages", () => {
 
   it("stops a partner's job where THAT JOB says it ends, not at any retirement age", () => {
     // The job is authored to end in 2023, so month 36 (2023) pays nothing while month 35 does.
-    // `retirementTargetAge` is set to a DIFFERENT age on purpose: it is a planning target and
-    // has no say over when an authored job stops.
+    // Nothing but the job's own end has any say over when it stops.
     const working: Person = {
       ...partnerClaimingAt(70), // claim late, so the benefit can't mask the wage stopping
-      retirementTargetAge: 80,
       jobs: [
         {
           id: "pj1",

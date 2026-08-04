@@ -141,7 +141,6 @@ export interface MarryEntry extends EventEntryCommon {
   readonly type: "marry";
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }
@@ -167,7 +166,6 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
   readonly partneredForMonths: number;
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }

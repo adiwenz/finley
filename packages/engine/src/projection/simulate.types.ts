@@ -307,7 +307,7 @@ export interface ProjectionSeries {
 
 /**
  * A person as the *simulator* consumes it — narrower than the authoring {@link
- * import("../person").Person} (which carries jobs + `retirementTargetAge`). {@link
+ * import("../person").Person} (which carries the jobs). {@link
  * import("../compilePerson")} does the compiling.
  */
 export interface SimPerson {

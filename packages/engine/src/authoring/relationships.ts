@@ -16,7 +16,9 @@ import type { JobInput } from "./jobs";
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
- * catch-up computable. `retirementTargetAge` defaults to 65, `benefitClaimingAge` to 67.
+ * catch-up computable. `benefitClaimingAge` defaults to 67. A partner states no retirement
+ * age of their own: every job they hold says when it ends, so there is nothing left for one
+ * to decide.
  * Covered earnings derive from `jobs`, so the empty default models no benefit basis.
  *
  * Jobs arrive as {@link JobInput}, not `Job`: the engine is the sole id authority, and for a
@@ -27,7 +29,6 @@ export interface MarryInput {
   readonly month: number;
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly JobInput[];
 }
@@ -47,7 +48,6 @@ export interface StartPartneredInput {
   readonly partneredForMonths: number;
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly JobInput[];
 }
@@ -103,7 +103,6 @@ export function applyMarriage(
   const ages: readonly (readonly [string, number | undefined, number])[] = [
     // An age they already ARE, so it stops one short of the ceiling like the primary's.
     ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
-    ["retirementTargetAge", input.retirementTargetAge, AGE_LIMITS.retirementAge],
     ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
   ];
   for (const [field, age, limit] of ages) {
@@ -126,7 +125,6 @@ export function applyMarriage(
     id,
     name: input.name,
     birthYear: input.birthYear,
-    retirementTargetAge: input.retirementTargetAge ?? 65,
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };

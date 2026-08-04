@@ -208,8 +208,9 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
 
 /**
  * Compile a {@link Plan} into the ledger base. `stopWorking` is the retirement solver's candidate
- * boundary — supplied only mid-solve and threaded to every job-compilation path so all earners
- * cease together; absent, each person's own `retirementTargetAge` ends their open-ended jobs.
+ * boundary — supplied only when the question is a hypothesis, and threaded to every
+ * job-compilation path so all earners move together; absent, every job ends where it was
+ * authored to end.
  */
 export function createProjectionBase(
   budget: Plan,
@@ -223,23 +224,16 @@ export function createProjectionBase(
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
   //
-  // `retirementTargetAge` is the primary's OWN natural-end input to `jobEndYearExclusive`
-  // (compilePerson.ts) — the same field a partner's job is capped against there, never
-  // extended past it. Mid-solve, the candidate age under test IS the primary's hypothesis for
-  // that field (the whole reason `evaluateAtAge`/`evaluateFullRetirementAtAge` can explore ages
-  // past the authored `budget.retirementAge`), so it's resolved here from the boundary rather
-  // than left at the authored figure — otherwise the shared, owner-agnostic cap in
-  // `jobEndYearExclusive` would clip the primary's own search candidate back down to
-  // `budget.retirementAge` and the solver could never test past it. A partner's own
-  // `retirementTargetAge`, authored on their RelationshipEvent, is never touched this way —
-  // only the primary's stands in for "the age this solve is testing."
-  const retirementTargetAge =
-    stopWorking === undefined ? budget.retirementAge : stopWorking.boundaryYearExclusive - birthYear;
+  // Nothing about a retirement AGE reaches this person. The primary used to carry the plan's
+  // `retirementAge` as a per-person target, which the compiler read as the end of any
+  // open-ended job — and mid-solve that field was quietly swapped for the candidate age, since
+  // it was the only way a search could explore past what the plan already said. Both are gone:
+  // a job ends where it was authored to, and a candidate age travels as a
+  // {@link StopWorkingBoundary} that says plainly it is a hypothesis.
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
-    retirementTargetAge,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
   };

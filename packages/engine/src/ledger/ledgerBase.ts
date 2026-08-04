@@ -27,7 +27,7 @@ export interface LedgerBaseConfig {
    * The retirement solver's candidate stop-working boundary, when a solve is under way. Rides on
    * the base so BOTH job-compilation paths see it — the primary's in `createProjectionBase` and a
    * partner's in `interpret` — and every earner ceases at the same point. Absent for an ordinary
-   * projection, where each person's own `retirementTargetAge` ends their open-ended jobs.
+   * projection, where every job ends where it was authored to end.
    */
   readonly stopWorking?: StopWorkingBoundary;
   /**

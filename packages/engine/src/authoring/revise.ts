@@ -40,7 +40,6 @@ export type TransactionRevision =
       readonly month?: number;
       readonly name?: string;
       readonly birthYear?: number;
-      readonly retirementTargetAge?: number;
       readonly benefitClaimingAge?: number;
     }
   | {
@@ -126,7 +125,6 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
           ...current.person,
           name: r.name ?? current.person.name,
           birthYear: r.birthYear ?? current.person.birthYear,
-          retirementTargetAge: r.retirementTargetAge ?? current.person.retirementTargetAge,
           benefitClaimingAge: r.benefitClaimingAge ?? current.person.benefitClaimingAge,
         },
       } as NewLifeEvent;

@@ -69,7 +69,6 @@ describe("Job/Person standing model — additive compilation", () => {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      retirementTargetAge: samplePlan.retirementAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
       // Both authored to run to 80 — well past the plan's retirement age of 60, which is the
       // point: the end is the job's, not the household's target.
@@ -86,28 +85,20 @@ describe("Job/Person standing model — additive compilation", () => {
     );
   });
 
-  it("retirementTargetAge does NOT end a job — it is a target, not an end date", () => {
-    // The rule this replaces: a job with no end used to stop the month before its owner turned
-    // `retirementTargetAge`, so a job authored to start after that age was compiled away
-    // entirely and never appeared on the income the user had just authored.
-    const birthYear = START_YEAR - samplePlan.currentAge;
-    const base: Person = {
+  it("carries no retirement age at all — a Person is a birth year, a claiming age and jobs", () => {
+    // `retirementTargetAge` is gone from the model, not merely ignored. While it existed it was
+    // the thing that ended an open-ended job, so a planning target authored on another panel
+    // decided when employment stopped; the field being absent is what makes that unsayable.
+    const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
-      birthYear,
-      retirementTargetAge: samplePlan.retirementAge,
+      birthYear: START_YEAR - samplePlan.currentAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
       jobs: [lateEndingJob],
     };
-    const openEndedEndMonth = (age: number) =>
-      compilePersonIncomeSeries(
-        { ...base, retirementTargetAge: age },
-        START_YEAR,
-        samplePlan.inflationPct / 100,
-      )[0].series.endMonth;
-    // Moving the target moves nothing: both end where the job says, at 80.
-    expect(openEndedEndMonth(60)).toBe((80 - samplePlan.currentAge) * 12 - 1);
-    expect(openEndedEndMonth(65)).toBe(openEndedEndMonth(60));
+    expect(Object.keys(person)).not.toContain("retirementTargetAge");
+    const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
+    expect(series.series.endMonth).toBe((80 - samplePlan.currentAge) * 12 - 1);
   });
 
   it("ends a job exactly where it was authored to end", () => {
@@ -119,7 +110,6 @@ describe("Job/Person standing model — additive compilation", () => {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      retirementTargetAge: 65,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
       jobs: [{ ...openEndedJob, endYear }],
     };
@@ -194,7 +184,6 @@ describe("Job/Person standing model — one-month income overrides", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -329,7 +318,6 @@ describe("a permanent raise and a one-month adjustment in the same month", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -435,7 +423,6 @@ describe("Job/Person standing model — permanent pay changes", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -507,7 +494,6 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
-    retirementTargetAge: 60,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -565,7 +551,6 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
-    retirementTargetAge: 60,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -719,7 +704,6 @@ describe("Job — human name drives the income band label (display only)", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs: [job],
   });
@@ -944,7 +928,6 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1090,7 +1073,6 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1183,7 +1165,6 @@ describe("historical pay is flat", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1264,7 +1245,6 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "p2",
     name: "Sam",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });

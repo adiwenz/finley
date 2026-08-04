@@ -97,7 +97,6 @@ const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
         id: "p-1",
         name: "Sam",
         birthYear: START_YEAR - 40,
-        retirementTargetAge: 65,
         benefitClaimingAge: 67,
         jobs: [
           {

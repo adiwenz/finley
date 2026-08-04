@@ -86,26 +86,30 @@ describe("RelationshipForm — partner jobs", () => {
     expect(input.jobs[0].startYear).toBe(2026 - 8);
   });
 
-  it("takes their own retirement and claiming ages, defaulting to 65 and 67", () => {
+  it("takes their own claiming age, defaulting to 67", () => {
     const marry = renderForm(0);
     fireEvent.click(btn(/Add event/i));
     const input = marry.mock.calls[0][0];
-    expect(input.retirementTargetAge).toBe(65);
     expect(input.benefitClaimingAge).toBe(67);
   });
 
+  it("offers no retirement age of their own — their jobs say when they stop", () => {
+    // There used to be a "Their retirement age" field, which ended their open-ended jobs. Every
+    // job now states its own end, so a second age here could only contradict one of them.
+    renderForm(0);
+    expect(screen.queryByRole("spinbutton", { name: /Their retirement age/i })).toBeNull();
+  });
+
   it("lets a partner who has already retired join — their own clock, not the household's", () => {
-    // Their retirement age is NOT chained to their current age (the primary earner's is):
-    // a 68-year-old who stopped working at 62 is a real scenario.
+    // A 68-year-old who stopped working at 62 is a real scenario: they join with no job, or
+    // with one whose authored end is already behind them.
     const marry = renderForm(0);
     enterNumber(spin(/Their age/i), "68");
-    enterNumber(spin(/Their retirement age/i), "62");
     enterNumber(spin(/Their Social Security claiming age/i), "70");
     fireEvent.click(btn(/Add event/i));
 
     const input = marry.mock.calls[0][0];
     expect(input.birthYear).toBe(2026 - 68);
-    expect(input.retirementTargetAge).toBe(62);
     expect(input.benefitClaimingAge).toBe(70);
   });
 

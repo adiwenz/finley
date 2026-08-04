@@ -28,7 +28,6 @@ const alice: Person = {
   id: p1,
   name: "Alice",
   birthYear: 1990,
-  retirementTargetAge: 65,
   benefitClaimingAge: 67,
   jobs: [],
 };

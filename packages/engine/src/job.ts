@@ -248,7 +248,7 @@ export interface JobDeferral {
 /**
  * An earned, covered income stream owned by exactly one person. Employment is per-person — a
  * two-earner household is two jobs, not one job with two owners — so an open-ended job
- * resolves its stop year against *the* owner's `retirementTargetAge` without ambiguity. A
+ * resolves its stop year against *the* owner's own clock without ambiguity. A
  * person may hold any number of open-ended jobs; none is elevated over the others.
  */
 export interface Job {

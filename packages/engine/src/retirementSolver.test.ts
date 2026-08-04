@@ -199,7 +199,7 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       id: "pj1",
       ownerId: "p2",
       startYear: START_YEAR,
-      endYear: SAMPLE_START_YEAR + 40, // open-ended by default — natural end is retirementTargetAge
+      endYear: SAMPLE_START_YEAR + 40, // a long-running job unless a test says otherwise
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -214,7 +214,6 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
-      retirementTargetAge: 80,
       benefitClaimingAge: 67,
       ...overrides,
     };
@@ -316,7 +315,7 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
     it("the boundary can still SHORTEN a partner's job whose natural end is later than the candidate", () => {
       // The inverse direction still works: a partner authored to work to 80 (as in
       // partnerWithLateJob) really does stop early when the candidate boundary asks for it —
-      // capping is bidirectional, not "never touch retirementTargetAge at all".
+      // the boundary moves the last job in both directions.
       const series = projectFullRetirement(twoEarnerScenario(), 50, CTX);
       expect(partnerSource(series, 119)?.cashInflowCents).toBeGreaterThan(0);
       expect(partnerSource(series, 120)).toBeUndefined();
@@ -325,11 +324,11 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
 
   describe("household membership is a cap of its own, composed with the rest", () => {
     /** The partner, deferring into the retirement account so a match rides on the same wage. */
-    const deferringPartner = (retirementTargetAge: number): Person =>
+    const deferringPartner = (endAge: number): Person =>
       partnerWith({
-        retirementTargetAge,
         jobs: [
           partnerJob({
+            endYear: PRIMARY_BIRTH_YEAR + endAge,
             deferral: {
               deferralFraction: 0.1,
               fundAccountId: RETIREMENT_ID,
@@ -400,8 +399,8 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       expect(partnerSource(late, 120)).toBeUndefined();
     });
 
-    function scenarioWithDeferringPartner(retirementTargetAge: number): Scenario {
-      return twoEarnerScenario(deferringPartner(retirementTargetAge));
+    function scenarioWithDeferringPartner(endAge: number): Scenario {
+      return twoEarnerScenario(deferringPartner(endAge));
     }
   });
 });
@@ -429,7 +428,6 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
-      retirementTargetAge: 80,
       benefitClaimingAge: 67,
       ...overrides,
     };
@@ -446,11 +444,11 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     return withLedger(scenarioOf(samplePlan), added.ledger);
   }
 
-  it("an open-ended partner job resolves via the PARTNER's own retirementTargetAge, later than every primary job", () => {
+  it("a partner job resolves via its OWN authored end, later than every primary job", () => {
     // Primary's only job is open-ended, natural end birthYear + 60 (samplePlan.retirementAge)
-    // → age 60. Partner's open-ended job, retirementTargetAge 80 (same birth year) → the
+    // → age 60. Partner's job is authored to end at 80 (same birth year) → the
     // household-wide max is the partner's, age 80 — later than any primary job alone.
-    const scenario = twoEarnerScenario(partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }));
+    const scenario = twoEarnerScenario(partnerWith({ jobs: [partnerJob()] }));
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
   });
 
@@ -461,15 +459,15 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // age at that year, and reporting that would misattribute the partner's stop as if it were
     // the primary's age).
     const scenario = twoEarnerScenario(
-      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, retirementTargetAge: 90, jobs: [partnerJob()] }),
+      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, jobs: [partnerJob()] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
   });
 
-  it("an explicitly-ended partner job is read via its authored endYear, not retirementTargetAge", () => {
-    const explicitEndYear = PRIMARY_BIRTH_YEAR + 95; // later than any retirementTargetAge here
+  it("a partner job is read via its authored endYear, and nothing else", () => {
+    const explicitEndYear = PRIMARY_BIRTH_YEAR + 95; // later than every other job here
     const scenario = twoEarnerScenario(
-      partnerWith({ retirementTargetAge: 45, jobs: [partnerJob({ endYear: explicitEndYear })] }),
+      partnerWith({ jobs: [partnerJob({ endYear: explicitEndYear })] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(95);
   });
@@ -503,7 +501,7 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // stops being paid for that job then, and the read reports 65 rather than the 80 the job
     // would reach in a household the partner is no longer in.
     const scenario = separatedScenario(
-      partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+      partnerWith({ jobs: [partnerJob()] }),
       300,
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(65);
@@ -513,7 +511,7 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // Same partner, separating at month 12 (age 41) — before even the primary's own open-ended
     // job ends at `samplePlan.retirementAge`. The household's final wage is the primary's.
     const scenario = separatedScenario(
-      partnerWith({ retirementTargetAge: 80, jobs: [partnerJob()] }),
+      partnerWith({ jobs: [partnerJob()] }),
       12,
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(samplePlan.retirementAge);

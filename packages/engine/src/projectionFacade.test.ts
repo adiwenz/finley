@@ -1462,7 +1462,6 @@ describe("Projection root — a revision cannot replace an identity", () => {
       month: 30,
       name: "Renamed",
       birthYear: 1990,
-      retirementTargetAge: 62,
       benefitClaimingAge: 70,
     });
 
@@ -1471,7 +1470,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(after.month).toBe(30);
     expect(after.person.name).toBe("Renamed");
     expect(after.person.birthYear).toBe(1990);
-    expect(after.person.retirementTargetAge).toBe(62);
+    expect(after.person.benefitClaimingAge).toBe(70);
     // …and every identity stayed, including the job list a revision never mentions.
     expect(after.id).toBe(before.id);
     expect(after.person.id).toBe(partnerId);
@@ -2041,7 +2040,6 @@ describe("Projection root — the id counter starts clear of the plan it is give
             id: "person-4",
             name: "Partner",
             birthYear: 1988,
-            retirementTargetAge: 65,
             benefitClaimingAge: 67,
             // A partner's jobs live ON their event — a floor reading only the event's own
             // fields would hand `job-9` straight back out.
