@@ -90,9 +90,9 @@ interface JobsPanelProps {
    * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
    * previewing — the same display-only swap the net-worth and income charts make. Each job's
    * pay CHART reads its span off this household via {@link resolvedJobPaySpan} rather than
-   * re-deriving the boundary (an open-ended job's owner may extend or cap depending on whether
-   * they're the primary the solve is testing; a fixed-term job only ever caps; a job the run
-   * never reaches pays nothing at all) — that resolution is the engine's, already computed once
+   * re-deriving the boundary (the one job its owner named as continuing may run PAST its
+   * authored end to reach the previewed age; every other job is only ever capped by it; a job
+   * the run never reaches pays nothing at all) — that resolution is the engine's, already computed once
    * for the preview run, and is not recomputed here. Editing (Edit, Change pay, Delete) always reads
    * and writes the authored `job` regardless: this panel is the authoring surface, so its forms
    * stay on the real plan even while its chart previews a hypothesis.

@@ -25,8 +25,12 @@ export interface RetirementEvaluation {
    * Fraction of the retirement-to-life-expectancy window the plan stays solvent; 1.0 when
    * it survives. Read from WHEN the plan first fails (insolvency / negative real net
    * worth), never from the magnitude of a net-worth dip — insolvency nulls that and
-   * phantom equity distorts it. Strictly < 1 for any infeasible plan; the reporting layer
-   * floors to 0.1%, caps at 100%.
+   * phantom equity distorts it. Strictly < 1 for any infeasible plan.
+   *
+   * Nothing in the app renders this today: it scored the plan against a pinned retirement age,
+   * and no age is pinned any more. It survives as the search's own "how close was that
+   * candidate?" signal — {@link feasible} is what the search reads — and because a caller
+   * evaluating one age of their own choosing has no other way to tell a near miss from a rout.
    */
   readonly onTrackFraction: number;
 }

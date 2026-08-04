@@ -1,13 +1,12 @@
 /**
- * Presentation logic for the retirement panel: the Mode-1 headline ("when can we retire?")
- * and the assessment against the pinned retirement age (on-track % + nearest-feasible
- * date), both read off the REAL projection. The survival math lives in the engine's
- * retirement solver, which runs the same `simulateHousehold` the net-worth graph does — so
- * panel and graph can never disagree.
+ * Presentation logic for the retirement panel: the headline answer to "when could this household
+ * stop working?", read off the REAL projection. The survival math lives in the engine's
+ * retirement solver, which runs the same `simulateHousehold` the net-worth graph does — so panel
+ * and graph can never disagree.
  *
- * The whole answer comes from one `retirement()` call. There is no pinned-age verdict any more —
- * the plan states no retirement age, so the search's answer is the only one — which leaves this
- * module a thin read: the headline, what it assumed, and the health flag beside it.
+ * The whole answer comes from one `retirement()` call, which leaves this module a thin read: the
+ * solved age, what reaching it assumed, when the authored plan stops earning on its own, and the
+ * health flag beside them.
  */
 
 import type {
@@ -19,7 +18,14 @@ import type {
 import { usJurisdiction } from "@finley/rules";
 
 export interface RetirementView {
-  /** Mode-1 headline: the earliest age everyone can retire, or null if unreachable. */
+  /**
+   * The headline: the earliest age at which every job in the household could cease and the plan
+   * still fund itself to life expectancy, in the PRIMARY's own years. `null` when no age does.
+   *
+   * Not unconditional on its own — reaching it may have assumed {@link continuedJobs}, which is
+   * why the panel states the two in one sentence rather than asserting this and qualifying it
+   * afterwards.
+   */
   readonly headlineAge: number | null;
   /**
    * The headline age in months from "now", for the chart's retirement reference line.

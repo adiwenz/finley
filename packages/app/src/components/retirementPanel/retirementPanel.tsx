@@ -1,8 +1,13 @@
 /**
- * Retirement panel — the Mode-1 headline age ("when can we retire?") and, for the pinned
- * retirement age, the target-mode on-track % plus the nearest feasible age when the pin is
- * unreachable. Single-person for now, so Mode 1 and per-person Mode 2 coincide; the
- * per-person click-through arrives with a second household member.
+ * Retirement panel — the solved answer to "when could this household stop working?", stated with
+ * whatever the answer had to assume.
+ *
+ * The plan pins no retirement age, so there is no target to score against and no verdict to
+ * report: the solver's age is the only one, and it is either feasible or there is none. What
+ * varies is how much the age is worth on its own. An age the authored jobs already pay for is a
+ * plain fact and is stated plainly; an age that only arrives because someone's job was modelled
+ * as carrying on past its authored end is a CONDITIONAL, and is written as one — see the headline
+ * below.
  */
 
 import { Fragment } from "react";
@@ -101,57 +106,59 @@ export function RetirementPanel({
           </span>
         </label>
       ) : null}
+      {/* ONE headline sentence, in whichever of three forms the answer actually takes.
+          It used to be two: the age asserted flatly, then a second sentence walking it back with
+          the jobs it had assumed. That states the conclusion before its premise and overclaims in
+          between — a reader who stops after the first line has been told they can retire at 71
+          when what was solved is that they could IF a job they may never have picked ran five
+          years past its authored end. An assumption that changes what the number means belongs
+          in the sentence that gives the number, so the conditional case is written as a
+          conditional. Only the overlap disclosure below stays separate: it qualifies the
+          assumption, not the age. */}
       {view.headlineAge === null ? (
         <p className="alert alert-red" role="status">
           On these numbers the money never lasts to age {budget.lifeExpectancy} — no
           retirement age is feasible. Structural changes are required.
         </p>
-      ) : (
+      ) : view.continuedJobs.length === 0 ? (
         <p className="hint">
           You can retire at{" "}
           <strong aria-label="Earliest feasible retirement age">{view.headlineAge}</strong> and
           have the portfolio last to age {budget.lifeExpectancy}.
         </p>
+      ) : (
+        <p className="hint" role="status">
+          You could stop working at{" "}
+          <strong aria-label="Earliest feasible retirement age">{view.headlineAge}</strong> if{" "}
+          {view.continuedJobs.map((c, i) => (
+            // A fragment, not a span: this is one sentence, and a wrapper element around each
+            // clause would put element boundaries inside it for no reason.
+            <Fragment key={c.jobId}>
+              {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
+              <JobPhrase job={c} /> continued through <Whose owner={c} /> {c.throughAge} (
+              {c.throughYear})
+            </Fragment>
+          ))}
+          {/* The survival claim rides the same sentence rather than repeating the age, so two
+              continued jobs read as one list and not as two sentences fighting over the number. */}
+          , with the portfolio lasting to age {budget.lifeExpectancy}.
+        </p>
       )}
 
-      {/* The premise behind the age, stated whenever there is one. An answer that only works
-          because a job ran on past what was written down is a different answer, and the
-          household may never have opened the picker that chose which job that was — so the
-          assumption is disclosed rather than left for them to find. Nothing is said when the age
-          needed no extra work, because then nothing was assumed. */}
-      {view.headlineAge !== null && view.continuedJobs.length > 0 && (
-        <>
-          <p className="hint" role="status">
-            You could stop working at {view.headlineAge} if{" "}
-            {view.continuedJobs.map((c, i) => (
-              // A fragment, not a span: this is one sentence, and a wrapper element around each
-              // clause would put element boundaries inside it for no reason.
-              <Fragment key={c.jobId}>
-                {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
-                <JobPhrase job={c} /> continued through{" "}
-                <Whose owner={c} /> {c.throughAge} ({c.throughYear})
-              </Fragment>
-            ))}
-            .
+      {/* The one thing about a continued job a reader would not predict: it never ended, so it
+          now runs THROUGH the jobs that were authored to follow it, and both pay. Its own
+          sentence, because it qualifies the ASSUMPTION rather than the age — folding it into the
+          headline would bury the condition it is a footnote to. Named with its years, because
+          that is the window where the income is doubled up. */}
+      {view.continuedJobs.flatMap((c) =>
+        c.overlaps.map((o) => (
+          <p className="hint" key={`${c.jobId}-${o.jobId}`}>
+            This scenario assumes <JobPhrase job={c} /> continued alongside{" "}
+            <JobPhrase job={{ ...o, ownerId: c.ownerId, ownerName: c.ownerName }} /> from{" "}
+            <Whose owner={c} /> {o.fromAge} to {o.toAge} ({o.fromYear}–{o.toYear}).
           </p>
-          {/* The one thing about a continued job a reader would not predict: it never ended, so
-              it now runs THROUGH the jobs that were authored to follow it, and both pay. Named
-              with its years, because that is the window where the income is doubled up. */}
-          {view.continuedJobs.flatMap((c) =>
-            c.overlaps.map((o) => (
-              <p className="hint" key={`${c.jobId}-${o.jobId}`}>
-                This scenario assumes <JobPhrase job={c} /> continued alongside{" "}
-                <JobPhrase job={{ ...o, ownerId: c.ownerId, ownerName: c.ownerName }} /> from{" "}
-                <Whose owner={c} /> {o.fromAge} to {o.toAge} ({o.fromYear}–{o.toYear}).
-              </p>
-            )),
-          )}
-        </>
+        )),
       )}
-
-      {/* No "your target is age N" line. The plan pins no retirement age, so there is no target
-          to score against and no on-track percentage to report — the headline above IS the
-          nearest feasible age, and saying it twice only invited the two to disagree. */}
 
       {view.earlyRetireeHealth.flagged && (
         <p className="alert alert-amber" role="status">

@@ -69,7 +69,12 @@ describe("RetirementPanel", () => {
   it("surfaces the headline retirement age", () => {
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("Retirement");
-    expect(html).toContain("retire");
+    // The default plan's answer leans on a continuation, so the headline is the conditional
+    // form. Asserted by the age itself rather than by the word "retire", which only one of the
+    // two phrasings uses.
+    const view = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    expect(view.headlineAge).not.toBeNull();
+    expect(html).toContain(`>${view.headlineAge}</strong>`);
   });
 
   it("states no target age and scores no on-track percentage", () => {
@@ -170,29 +175,94 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(renderWithView(feasible, true)).toContain("checked");
   });
 
-  it("discloses the job a headline age assumed would continue", () => {
-    // The age alone states a conclusion and hides its premise, and the household may never have
-    // opened the picker that chose the job — so the assumption is named beside the answer.
+  /** One continued job, owned by the primary — the ordinary conditional case. */
+  const oneContinuation: RetirementView["continuedJobs"] = [
+    {
+      jobId: "job-1",
+      jobLabel: "Software Engineer",
+      jobName: "Software Engineer",
+      ownerId: PRIMARY_PERSON_ID,
+      ownerName: "Alex",
+      throughAge: 76,
+      throughYear: 2067,
+      overlaps: [],
+    },
+  ];
+
+  it("states the age flatly when NOTHING was assumed to reach it", () => {
+    // The unconditional form is earned: every job in the plan already pays for this age, so
+    // there is no premise to attach and attaching one would invent a caveat.
+    const html = renderWithView({ ...feasible, continuedJobs: [] });
+    expect(html).toContain(
+      `You can retire at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> and have the portfolio last to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+    );
+    expect(html).not.toContain("could stop working");
+    // No condition hung off the age. Scoped to the headline paragraph: the preview toggle above
+    // legitimately says "as if everyone stopped working", which is a different sentence.
+    expect(html).not.toContain("</strong> if ");
+    expect(html).not.toContain("This scenario assumes");
+  });
+
+  it("makes the headline itself conditional when the age assumed a continuation", () => {
+    // The finding this pins: the panel used to assert "You can retire at 76" and only then add
+    // a second sentence naming the job that had to run past its authored end. A reader who
+    // stopped at the first line had been told a conclusion whose premise they never chose. One
+    // sentence, and the survival claim rides it rather than being asserted separately.
+    const html = renderWithView({ ...feasible, continuedJobs: oneContinuation });
+    expect(html).toContain(
+      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067), with the portfolio lasting to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+    );
+    // The unconditional phrasing must be gone, not merely followed by a correction.
+    expect(html).not.toContain("You can retire at");
+    // Nothing about restarting, resuming or going back: the job never ended in this scenario.
+    expect(html).not.toMatch(/restart|resume|return to|go back|begin(s|ning)? again/i);
+  });
+
+  it("states the age ONCE, however many jobs the answer leaned on", () => {
+    // Two clauses, one age, one survival claim: the failure mode of building a sentence from a
+    // list is repeating the number per clause, or trailing a stray comma before "with".
     const html = renderWithView({
       ...feasible,
       continuedJobs: [
+        ...oneContinuation,
         {
-          jobId: "job-1",
-          jobLabel: "Software Engineer",
-          jobName: "Software Engineer",
-          ownerId: PRIMARY_PERSON_ID,
-          ownerName: "Alex",
-          throughAge: 76,
-          throughYear: 2067,
+          jobId: "job-11",
+          jobLabel: "Nursing",
+          jobName: "Nursing",
+          ownerId: "person-10",
+          ownerName: "Sam",
+          throughAge: 71,
+          throughYear: 2057,
           overlaps: [],
         },
       ],
     });
     expect(html).toContain(
-      `You could stop working at ${feasible.headlineAge} if your <strong>Software Engineer</strong> job continued through when you are 76 (2067).`,
+      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067) and Sam’s <strong>Nursing</strong> job continued through when Sam is 71 (2057), with the portfolio lasting to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
     );
-    // Nothing about restarting, resuming or going back: the job never ended in this scenario.
-    expect(html).not.toMatch(/restart|resume|return to|go back|begin(s|ning)? again/i);
+    // Each owner keeps their own clock; neither age is restated as the household's.
+    expect(html.match(/could stop working/g)).toHaveLength(1);
+    expect(html).not.toContain(",  with");
+    expect(html).not.toContain("(2067) ,");
+  });
+
+  it("separates the third clause with a comma and the last with 'and'", () => {
+    const html = renderWithView({
+      ...feasible,
+      continuedJobs: [1, 2, 3].map((n) => ({
+        jobId: `job-${n}`,
+        jobLabel: `Job ${n}`,
+        jobName: `Job ${n}`,
+        ownerId: PRIMARY_PERSON_ID,
+        ownerName: "Alex",
+        throughAge: 70 + n,
+        throughYear: 2060 + n,
+        overlaps: [],
+      })),
+    });
+    expect(html).toContain(
+      "if your <strong>Job 1</strong> job continued through when you are 71 (2061), your <strong>Job 2</strong> job continued through when you are 72 (2062) and your <strong>Job 3</strong> job continued through when you are 73 (2063), with the portfolio",
+    );
   });
 
   it("discloses the overlap a continued job creates, with the years it covers", () => {
@@ -219,6 +289,11 @@ describe("RetirementPanel — chart preview toggle", () => {
     });
     expect(html).toContain(
       "This scenario assumes your <strong>Software Engineer</strong> job continued alongside your <strong>Consulting</strong> job from when you are 65 to 70 (2056\u20132061).",
+    );
+    // Still its OWN paragraph, after the headline rather than inside it: it qualifies the
+    // assumption, not the age, and folding it in would bury the condition it footnotes.
+    expect(html).toContain(
+      `age ${PLAN_DEFAULTS.lifeExpectancy}.</p><p class="hint">This scenario assumes`,
     );
   });
 
@@ -271,7 +346,9 @@ describe("RetirementPanel — chart preview toggle", () => {
     expect(html).toContain("from when Sam is 52 to 58 (2038–2044)");
     // The headline stays the household's, in the primary's years — the two clocks coexist, and
     // the calendar years in parentheses are what let a reader line them up.
-    expect(html).toContain(`You could stop working at ${feasible.headlineAge}`);
+    expect(html).toContain(
+      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if Sam’s <strong>Nursing</strong> job continued`,
+    );
   });
 
   it("says 'when you are' for the primary, matching how their job is already phrased", () => {

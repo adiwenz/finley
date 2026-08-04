@@ -520,8 +520,9 @@ export function withoutIncomeOverride(job: Job, overrideId: string): Job {
 // this reads them back without a simulation, so an authoring surface can show a job's pay
 // without running a projection over every keystroke.
 
-/** A job's paying window, in simulation months from "now". Both bounds are the caller's:
- * an open-ended job stops at ITS OWNER's retirement age, which a job alone cannot know. */
+/** A job's paying window, in simulation months from "now". Both bounds are the caller's: a
+ * previewed stop-working boundary and the owner's household membership can each move where this
+ * job actually pays, and neither is anything a job alone can know. */
 export interface JobPaySpan {
   /** The month the job starts — negative for a job already under way. */
   readonly startMonth: number;

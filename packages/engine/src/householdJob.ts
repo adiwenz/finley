@@ -4,9 +4,9 @@
  *
  * Three independent facts decide it, and each is authored somewhere different:
  *
- * - the **job's** own employment span (`startYear`, and an explicit `endYear`);
- * - nothing else about the owner: a retirement age is a target the household aims at, and never
- *   an end date (see {@link authoredJobEndYearExclusive});
+ * - the **job's** own employment span (`startYear`, and an explicit `endYear`) — the only thing
+ *   that ends an authored job, and nothing else about the owner does (see
+ *   {@link authoredJobEndYearExclusive});
  * - the **household membership** (a partner earns for this household only between joining and
  *   separating; the primary is a member throughout).
  *
@@ -161,11 +161,10 @@ export interface ResolvedHouseholdJob {
  * nothing else.
  *
  * A one-line function with a name, because the rule it states used to be three rules. A job's
- * end was its `endYear` OR its owner's retirement age OR a solver's candidate boundary,
- * depending on which caller was asking, and a retirement age — a planning target the household
- * is aiming at — silently became an employment boundary: a job authored to start at 70 under a
- * stop-working age of 65 vanished from the income chart the moment it was saved. What ends an
- * authored job is what the user said ends it.
+ * end was its `endYear` OR an age the plan pinned elsewhere OR a solver's candidate boundary,
+ * depending on which caller was asking — so a number the user had entered on another panel
+ * silently became an employment boundary, and a job authored to start at 70 disappeared from the
+ * income chart the moment it was saved. What ends an authored job is what the user said ends it.
  *
  * A hypothesis about stopping work is a different question and stays one — see
  * {@link StopWorkingBoundary}, applied on top of this by {@link resolveHouseholdJob} and only

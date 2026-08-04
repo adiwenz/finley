@@ -224,12 +224,12 @@ export function createProjectionBase(
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
   //
-  // Nothing about a retirement AGE reaches this person. The primary used to carry the plan's
-  // `retirementAge` as a per-person target, which the compiler read as the end of any
-  // open-ended job — and mid-solve that field was quietly swapped for the candidate age, since
-  // it was the only way a search could explore past what the plan already said. Both are gone:
-  // a job ends where it was authored to, and a candidate age travels as a
-  // {@link StopWorkingBoundary} that says plainly it is a hypothesis.
+  // Nothing about a retirement AGE reaches this person. The plan used to pin one and hand it
+  // down here as a per-person figure the compiler read as an employment end — and mid-solve that
+  // field was quietly swapped for the candidate age, since it was the only way a search could
+  // explore past what the plan already said. Both are gone: a job ends where it was authored to,
+  // and a candidate travels as a {@link StopWorkingBoundary} that says plainly it is a
+  // hypothesis.
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,

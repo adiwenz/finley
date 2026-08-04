@@ -371,8 +371,8 @@ function compileJobIncome(
  * a job wholly in the past, or one whose employment never overlaps its owner's membership,
  * drops out here (a past one still contributes to {@link compilePersonPriorEarnings}).
  *
- * Takes RESOLVED jobs, never persons and windows: every cap — the authored end, the owner's
- * retirement target, the membership, a solver's candidate boundary — is already intersected by
+ * Takes RESOLVED jobs, never persons and windows: every bound — the authored end, the
+ * membership, a solver's candidate boundary — is already intersected by
  * {@link resolveHouseholdJobs}, so wages, payroll tax, deferral and employer match all fall out
  * of exactly the window every other household calculation reads.
  */

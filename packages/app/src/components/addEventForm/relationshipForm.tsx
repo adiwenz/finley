@@ -161,9 +161,9 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           step={1}
         />
         <p className="hint">
-          Their open-ended jobs run until their retirement age, and their benefit begins at
-          their claiming age (claim earlier for a smaller monthly check, later for a larger
-          one). Estimate, not advice.
+          Each job above runs to the end date you gave it, and their benefit begins at their
+          claiming age (claim earlier for a smaller monthly check, later for a larger one).
+          Estimate, not advice.
         </p>
       </details>
 

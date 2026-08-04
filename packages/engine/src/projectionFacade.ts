@@ -602,9 +602,13 @@ export class Projection {
    * The boundary caps compiled job spans and rewrites nothing (see {@link StopWorkingBoundary}),
    * so the plan this handle holds is byte-for-byte untouched — a caller can flip between the
    * authored charts and the preview without ever committing the hypothetical. `age` is the
-   * primary's own timeline age, the convention every retirement output already uses, so the solved
-   * headline age drops straight in; a candidate BELOW the authored stop shortens working life, one
-   * ABOVE it extends the open-ended jobs, exactly as the solver's own search does.
+   * primary's own timeline age, the convention every household-level retirement output already
+   * uses, so the solved headline age drops straight in.
+   *
+   * Resolved through the SAME hypothetical the solver searched with, so the preview shows exactly
+   * what the headline age meant and cannot drift from it: a candidate at or below the authored
+   * stop merely truncates working life, and one above it carries each person's chosen
+   * continuation job — and only that job — out to the boundary.
    */
   runAtStopWorkingAge(jurisdiction: Jurisdiction, age: number): ProjectionResult {
     return runProjection(
