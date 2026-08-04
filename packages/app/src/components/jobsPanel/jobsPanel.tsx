@@ -34,9 +34,10 @@ import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
   jobPayPath,
-  resolvedJobEndMonth,
+  resolvedJobPaySpan,
   type Job,
   type JobPayChange,
+  type JobPaySpan,
   type Household,
   type Ledger,
   type Plan,
@@ -83,13 +84,13 @@ interface JobsPanelProps {
   /**
    * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
    * previewing — the same display-only swap the net-worth and income charts make. Each job's
-   * pay CHART reads its end month off this household via {@link resolvedJobEndMonth} rather
-   * than re-deriving the boundary (an open-ended job's owner may extend or cap depending on
-   * whether they're the primary the solve is testing; a fixed-term job only ever caps) — that
-   * resolution is the engine's, already computed once for the preview run, and is not
-   * recomputed here. Editing (Edit, Change pay, Delete) always reads and writes the authored
-   * `job` regardless: this panel is the authoring surface, so its forms stay on the real plan
-   * even while its chart previews a hypothesis.
+   * pay CHART reads its span off this household via {@link resolvedJobPaySpan} rather than
+   * re-deriving the boundary (an open-ended job's owner may extend or cap depending on whether
+   * they're the primary the solve is testing; a fixed-term job only ever caps; a job the run
+   * never reaches pays nothing at all) — that resolution is the engine's, already computed once
+   * for the preview run, and is not recomputed here. Editing (Edit, Change pay, Delete) always reads
+   * and writes the authored `job` regardless: this panel is the authoring surface, so its forms
+   * stay on the real plan even while its chart previews a hypothesis.
    */
   previewHousehold?: Household | null;
 }
@@ -100,6 +101,21 @@ type Authoring =
   | { kind: "payChange"; id: string; seedAge?: number }
   | { kind: "new" }
   | null;
+
+/**
+ * WHICH household a job's pay chart is drawn against — the only part of this that is the app's
+ * to decide, because it is the preview toggle's state and nothing more. With no preview running
+ * there is no other household to read and the authored span stands; with one, the span is
+ * {@link resolvedJobPaySpan}'s to answer, including the empty one it returns for a job that
+ * household never pays. The boundary math, and what an absent series means, stay in the engine.
+ */
+function chartedSpan(
+  previewHousehold: Household | null,
+  jobId: string,
+  authored: JobPaySpan,
+): JobPaySpan {
+  return previewHousehold ? resolvedJobPaySpan(previewHousehold, jobId, authored) : authored;
+}
 
 /**
  * What to say about pay changes an edit stranded — named, never merely counted, because the
@@ -257,14 +273,9 @@ export function JobsPanel({
             // capped by what) and while previewing is read from the engine's own resolved
             // household rather than re-derived here — see `previewHousehold` above.
             const authoredSpan = jobPaySpanFor(owner, job);
-            const resolvedEnd = previewHousehold
-              ? resolvedJobEndMonth(previewHousehold, job.id)
-              : null;
             const path = jobPayPath(
               job,
-              resolvedEnd !== null
-                ? { startMonth: authoredSpan.startMonth, endMonthExclusive: resolvedEnd + 1 }
-                : authoredSpan,
+              chartedSpan(previewHousehold, job.id, authoredSpan),
               {
                 inflationRate: budget.inflationPct / 100,
                 denomination: inTodaysDollars ? "todaysDollars" : "paycheck",

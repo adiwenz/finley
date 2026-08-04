@@ -202,6 +202,49 @@ describe("JobsPanel — listing", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     expect(Number(spin(/End age/i).value)).toBe(80);
   });
+
+  it("empties the chart of a job the preview never pays — one starting after the previewed stop-working age", () => {
+    // Authored: work to 75, with a second open-ended job picked up at 70. Previewed: stop at
+    // 65, which retires the household before that job ever starts — so the preview run pays it
+    // nothing and resolves no series for it at all.
+    const laterJob = {
+      ...PLAN_DEFAULTS.jobs[0]!,
+      // A second id beside the engine-minted one; the panel only ever addresses a job by it.
+      id: `${PLAN_DEFAULTS.jobs[0]!.id}-later`,
+      startYear: START_YEAR + 35, // age 70
+      endYear: null,
+    };
+    const initial = { ...PLAN_DEFAULTS, retirementAge: 75, jobs: [PLAN_DEFAULTS.jobs[0]!, laterJob] };
+
+    const { rerender } = render(<Harness initial={initial} />);
+    // Not previewing: the job charts its authored span, 70 to the authored stop-working age.
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 75,/i }),
+    ).toBeTruthy();
+
+    rerender(<Harness initial={initial} previewStopAge={65} />);
+    // Previewing: no pay path at all — an empty span, topping out at nothing. Charting the
+    // authored 70–75 here would put back on screen the very job the hypothesis retired.
+    expect(
+      screen.getByRole("img", {
+        name: /Monthly pay across Job 2, from age 70 to 70,.*topping out at \$0 a month/i,
+      }),
+    ).toBeTruthy();
+    // The row is still the authoring surface: it exists, says what it is, and edits the plan.
+    expect(within(screen.getByLabelText("Job 2")).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Edit Job 2/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Change pay on Job 2/i })).toBeTruthy();
+    // The other job still charts — the preview caps it at 65 rather than emptying it.
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 65,/i }),
+    ).toBeTruthy();
+
+    // Toggling the preview off restores the authored path, untouched.
+    rerender(<Harness initial={initial} />);
+    expect(
+      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 70 to 75,/i }),
+    ).toBeTruthy();
+  });
 });
 
 describe("JobsPanel — add / edit / delete", () => {

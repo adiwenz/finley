@@ -10,6 +10,7 @@ import {
   CURRENT_FORMAT_VERSION,
   UnsupportedVersionError,
   resolvedJobEndMonth,
+  resolvedJobPaySpan,
 } from "./index";
 import { validateLedger } from "./ledger/validateLedger";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
@@ -20,7 +21,7 @@ import { goalFundAccountId } from "./projectionBase";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
-import type { PersonId } from "./job";
+import type { Job, PersonId } from "./job";
 import type { BudgetLine } from "./budgetLine";
 import { RETIREMENT_ID } from "./ids";
 
@@ -3046,6 +3047,59 @@ describe("Projection root — previewing a stop-working age", () => {
     it("returns null for an id with no matching job series", () => {
       const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
       expect(resolvedJobEndMonth(p.run(nullJurisdiction).household, "no-such-job")).toBeNull();
+    });
+  });
+
+  describe("resolvedJobPaySpan — the same resolution as a span, empty when the run pays nothing", () => {
+    // A job the primary only picks up at 55, on top of the one they already hold. Open-ended,
+    // so the authored plan pays it from 55 to the authored stop at 60.
+    const laterJob: Job = {
+      id: "job-later",
+      ownerId: "p1",
+      startYear: SAMPLE_START_YEAR - samplePlan.currentAge + 55,
+      endYear: null,
+      salary: {
+        startingSalaryCents: dollarsToCents(36000),
+        currentSalaryCents: dollarsToCents(36000),
+        realGrowthPct: 0,
+      },
+    };
+    const withLaterJob = { ...samplePlan, jobs: [...samplePlan.jobs, laterJob] };
+    /** The job's authored start, in months from "now" — the caller's half of the span. */
+    const AUTHORED_START = (55 - samplePlan.currentAge) * 12;
+    const authoredSpan = { startMonth: AUTHORED_START, endMonthExclusive: (60 - samplePlan.currentAge) * 12 };
+
+    it("carries the caller's start and takes the end from the run", () => {
+      const p = Projection.fromState(stateOf(withLaterJob), nullJurisdiction);
+      expect(resolvedJobPaySpan(p.run(nullJurisdiction).household, "job-later", authoredSpan)).toEqual({
+        startMonth: AUTHORED_START,
+        // The authored stop at 60 — one past the last month paid.
+        endMonthExclusive: (60 - samplePlan.currentAge) * 12,
+      });
+    });
+
+    it("caps the span when the preview candidate lands inside the job", () => {
+      const p = Projection.fromState(stateOf(withLaterJob), nullJurisdiction);
+      const preview = p.runAtStopWorkingAge(nullJurisdiction, 57);
+      expect(resolvedJobPaySpan(preview.household, "job-later", authoredSpan)).toEqual({
+        startMonth: AUTHORED_START,
+        endMonthExclusive: (57 - samplePlan.currentAge) * 12,
+      });
+    });
+
+    it("empties the span for a job the run never reaches — absence of a series is zero, not a fallback", () => {
+      // Stopping at 45 retires the household ten years before this job would have started, so
+      // the run compiles no series for it. The span must collapse rather than fall back to the
+      // authored one: a caller that falls back charts income the preview explicitly removed.
+      const p = Projection.fromState(stateOf(withLaterJob), nullJurisdiction);
+      const preview = p.runAtStopWorkingAge(nullJurisdiction, 45);
+      expect(resolvedJobEndMonth(preview.household, "job-later")).toBeNull();
+      expect(resolvedJobPaySpan(preview.household, "job-later", authoredSpan)).toEqual({
+        startMonth: AUTHORED_START,
+        endMonthExclusive: AUTHORED_START, // pays no month at all
+      });
+      // The authored plan still holds the job, untouched — this resolves what a household PAYS.
+      expect(p.state.scenario.plan.jobs.map((j) => j.id)).toContain("job-later");
     });
   });
 });
