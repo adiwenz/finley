@@ -29,7 +29,7 @@
 
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import type { Plan, GoalPlan } from "./plan";
-import type { Job, JobDeferral } from "./job";
+import type { Job, JobDeferral, RetirementStrategy } from "./job";
 import type { BudgetLine, TaxTreatment } from "./budgetLine";
 import type { LiabilityKind } from "./liability";
 import type { OriginableLoanKind } from "./authoring/liabilities";
@@ -83,11 +83,18 @@ export type BudgetTargetInput =
  * deferral routes into an account the same way a contribution line does.
  */
 export interface JobEntry
-  extends Omit<Job, "id" | "ownerId" | "deferral"> {
+  extends Omit<Job, "id" | "ownerId" | "deferral" | "retirementStrategy"> {
   readonly ref?: Ref;
   /** Defaults to the primary person. */
   readonly ownerRef?: Ref;
   readonly deferral?: Omit<JobDeferral, "fundAccountId"> & { readonly fundAccountRef?: Ref };
+  /**
+   * Optional, exactly as on {@link import("./authoring/jobs").JobInput} and defaulted by the
+   * same {@link import("./job").DEFAULT_RETIREMENT_STRATEGY} — this entry is that input with
+   * refs in place of ids, and seed data describing a job should no more have to answer a
+   * question about a hypothetical than an interactive author does.
+   */
+  readonly retirementStrategy?: RetirementStrategy;
 }
 
 /**

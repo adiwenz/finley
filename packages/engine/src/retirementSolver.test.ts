@@ -22,7 +22,8 @@ import { createProjectionBase } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, salariedJob, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, salariedJob, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { Projection } from "./projectionFacade";
 import type { Plan } from "./plan";
 import type { Person } from "./person";
 import type { Job } from "./job";
@@ -200,6 +201,7 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       ownerId: "p2",
       startYear: START_YEAR,
       endYear: SAMPLE_START_YEAR + 40, // a long-running job unless a test says otherwise
+      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -414,6 +416,7 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       ownerId: "p2",
       startYear: START_YEAR,
       endYear: SAMPLE_START_YEAR + 40,
+      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(24_000),
         currentSalaryCents: dollarsToCents(24_000),
@@ -562,5 +565,194 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // The household's final wage across: primary (60), first partner (separated at month 12, so
     // 41 rather than the 55 they were authored to work to), second partner (85) → 85.
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(85);
+  });
+});
+
+/**
+ * The per-job {@link Job.retirementStrategy} policy: which job — if any — a what-if carries
+ * past the authored plan when it asks about a LATER stop-working age.
+ *
+ * The rule these pin replaced one that read the answer off the dates: the chronologically last
+ * job was extended, whatever it was. That is wrong in the one shape it most needs to be right
+ * for — a term contract taken at the end of a career — and the dates cannot tell the two apart,
+ * because every job has an end date and none of them says whether the work could continue.
+ *
+ * Asserted on the primary's plan jobs, so each case is a plan and a candidate age with nothing
+ * else moving. The mock jurisdiction pays no benefit, so every cent of income in these series
+ * is a wage and `job:<id>` names which job paid it.
+ */
+describe("retirementSolver — which job a later candidate age extends", () => {
+  const BIRTH_YEAR = PRIMARY_BIRTH_YEAR;
+  const at = (age: number) => BIRTH_YEAR + age;
+  /** Months from "now" to the primary's `age` — the fixture's current age is `samplePlan`'s. */
+  const monthAt = (age: number) => (age - samplePlan.currentAge) * 12;
+
+  function job(
+    id: string,
+    startAge: number,
+    endAge: number,
+    retirementStrategy: Job["retirementStrategy"],
+  ): Job {
+    return {
+      id,
+      ownerId: "p1",
+      startYear: at(startAge),
+      endYear: at(endAge),
+      retirementStrategy,
+      salary: {
+        startingSalaryCents: dollarsToCents(90_000),
+        currentSalaryCents: dollarsToCents(90_000),
+        realGrowthPct: 0,
+      },
+    };
+  }
+
+  const planWithJobs = (jobs: readonly Job[]): Plan => ({ ...samplePlan, jobs });
+
+  /** What `job:<id>` paid the household in `month`, or 0 when it paid nothing at all. */
+  function wageAt(series: ProjectionSeries, id: string, month: number): number {
+    const source = (series.months[month]?.flows?.incomeSources ?? []).find(
+      (s) => s.sourceId === `job:${id}`,
+    );
+    return source?.cashInflowCents ?? 0;
+  }
+
+  /** Every cent of household income in `month`, whatever paid it. */
+  const incomeAt = (series: ProjectionSeries, month: number): number =>
+    series.months[month]?.flows?.totalIncomeCents ?? 0;
+
+  it("carries an EARLIER extendable job past a later fixed one — the dates do not decide", () => {
+    // The spec case, and the whole reason the policy is authored: a career (35–65, extendable)
+    // followed by a two-year contract (65–70, fixed). Asked whether they could stop at 71, the
+    // plan must carry the CAREER on — not run the contract past a term that was never theirs
+    // to extend, and not conclude they simply keep working because something ends last.
+    const career = job("career", 35, 65, "extendable");
+    const contract = job("contract", 65, 70, "fixed");
+    const series = projectFullRetirement(scenarioOf(planWithJobs([career, contract])), 71, CTX);
+
+    // The contract stops dead on its own term, though it is the later-ending job.
+    expect(wageAt(series, "contract", monthAt(69))).toBeGreaterThan(0);
+    expect(wageAt(series, "contract", monthAt(70))).toBe(0);
+    // The career runs on through the years it never authored, up to the candidate age.
+    expect(wageAt(series, "career", monthAt(66))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(70))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(71))).toBe(0);
+  });
+
+  it("picks the LATEST extendable job when there is more than one", () => {
+    // Two continuable jobs. The one they were still in at the end of the authored plan is the
+    // one "keep working" means, so the earlier one keeps its own end and is not resurrected.
+    const early = job("early", 30, 50, "extendable");
+    const late = job("late", 50, 65, "extendable");
+    const series = projectFullRetirement(scenarioOf(planWithJobs([early, late])), 72, CTX);
+
+    expect(wageAt(series, "early", monthAt(49))).toBeGreaterThan(0);
+    expect(wageAt(series, "early", monthAt(50))).toBe(0); // its own end, not extended
+    expect(wageAt(series, "late", monthAt(71))).toBeGreaterThan(0);
+    expect(wageAt(series, "late", monthAt(72))).toBe(0);
+  });
+
+  it("invents NO income when the household marked nothing extendable", () => {
+    // Every job fixed: there is no honest way to answer "could you work to 75?", so the plan
+    // pays nothing past the work it was actually given rather than conjuring a wage. The
+    // candidate then fails on its own merits, which is the right answer and not a bug.
+    const series = projectFullRetirement(
+      scenarioOf(planWithJobs([job("only", 35, 65, "fixed")])),
+      75,
+      CTX,
+    );
+    expect(wageAt(series, "only", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(series, "only", monthAt(65))).toBe(0);
+    // Nothing else picks up the slack — no job, no phantom source, no benefit.
+    expect(incomeAt(series, monthAt(70))).toBe(0);
+  });
+
+  it("never extends a fixed job, even as the household's only one", () => {
+    // The narrowest statement of the rule, held apart from the case above: it is not that a
+    // household with no extendable job gets no answer, it is that THIS JOB is never run on.
+    const series = projectFullRetirement(
+      scenarioOf(planWithJobs([job("term", 35, 60, "fixed")])),
+      80,
+      CTX,
+    );
+    for (const age of [60, 65, 70, 79]) expect(wageAt(series, "term", monthAt(age))).toBe(0);
+  });
+
+  it("still truncates normally at a candidate age INSIDE the authored plan", () => {
+    // Below the plan's own end nothing is extended, whatever its policy — the question is only
+    // how much of the authored plan survives. In particular an extendable job that ends EARLY
+    // is not pulled forward to cover a later fixed job's years: asked about stopping at 68,
+    // the career does not come back for the three years the contract was going to fill.
+    const career = job("career", 35, 65, "extendable");
+    const contract = job("contract", 65, 70, "fixed");
+    const series = projectFullRetirement(scenarioOf(planWithJobs([career, contract])), 68, CTX);
+
+    expect(wageAt(series, "career", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(65))).toBe(0); // its own end, not stretched to 68
+    expect(wageAt(series, "contract", monthAt(67))).toBeGreaterThan(0);
+    expect(wageAt(series, "contract", monthAt(68))).toBe(0); // cut at the candidate
+  });
+
+  it("carries BOTH of two extendable jobs authored to end in the same year", () => {
+    // The documented tie rule, unchanged from the behaviour concurrent jobs already had.
+    // Ending together is the household saying they hold both; picking one would invent a
+    // preference they never stated and understate the very months the model calls "working".
+    const a = job("a", 30, 65, "extendable");
+    const b = job("b", 40, 65, "extendable");
+    const series = projectFullRetirement(scenarioOf(planWithJobs([a, b])), 70, CTX);
+
+    for (const id of ["a", "b"]) {
+      expect(wageAt(series, id, monthAt(69))).toBeGreaterThan(0);
+      expect(wageAt(series, id, monthAt(70))).toBe(0);
+    }
+  });
+
+  it("changes NOTHING about the authored projection — the policy is about hypotheticals only", () => {
+    // The load-bearing guarantee: `retirementStrategy` is read by the solver and the preview,
+    // and by nothing that draws the user's own plan. Flipping it must leave the ordinary
+    // projection byte-for-byte identical, extendable and fixed alike.
+    const asFixed = scenarioOf(planWithJobs([job("only", 35, 65, "fixed")]));
+    const asExtendable = scenarioOf(planWithJobs([job("only", 35, 65, "extendable")]));
+    const monthsOf = (s: Scenario) =>
+      JSON.stringify(projectScenario(s, CTX).months.map((m) => m.flows?.totalIncomeCents ?? 0));
+
+    expect(monthsOf(asFixed)).toBe(monthsOf(asExtendable));
+    // And the authored plan really does end where it was authored to, under either policy.
+    const series = projectScenario(asExtendable, CTX);
+    expect(wageAt(series, "only", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(series, "only", monthAt(65))).toBe(0);
+  });
+
+  it("applies the same policy to the stop-working PREVIEW, not just the search", () => {
+    // The preview exists to show what the solved age means, so it must resolve jobs the same
+    // way the solve did. Run through `Projection.runAtStopWorkingAge` — the app's own entry
+    // point — rather than the solver's internals, so the two cannot drift apart unnoticed.
+    const career = job("career", 35, 65, "extendable");
+    const contract = job("contract", 65, 70, "fixed");
+    const p = Projection.fromState(stateOf(planWithJobs([career, contract])), mockJurisdiction());
+    const previewed = p.runAtStopWorkingAge(mockJurisdiction(), 71).series;
+
+    expect(wageAt(previewed, "career", monthAt(70))).toBeGreaterThan(0);
+    expect(wageAt(previewed, "contract", monthAt(70))).toBe(0);
+  });
+
+  it("survives a state round-trip, for both values", () => {
+    // The field is authored, so it is persisted — a plan reloaded from disk must solve the way
+    // it solved before it was saved. Asserted on the restored jobs AND on the answer, since a
+    // field that round-trips into a shape nothing reads would pass the first check alone.
+    const jobs = [job("career", 35, 65, "extendable"), job("contract", 65, 70, "fixed")];
+    const original = Projection.fromState(stateOf(planWithJobs(jobs)), mockJurisdiction());
+    const restored = Projection.fromState(
+      JSON.parse(JSON.stringify(original.toState())),
+      mockJurisdiction(),
+    );
+
+    expect(restored.plan.jobs.map((j) => [j.id, j.retirementStrategy])).toEqual([
+      ["career", "extendable"],
+      ["contract", "fixed"],
+    ]);
+    const previewed = restored.runAtStopWorkingAge(mockJurisdiction(), 71).series;
+    expect(wageAt(previewed, "career", monthAt(70))).toBeGreaterThan(0);
+    expect(wageAt(previewed, "contract", monthAt(70))).toBe(0);
   });
 });

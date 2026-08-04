@@ -246,10 +246,42 @@ export interface JobDeferral {
 }
 
 /**
+ * **May a what-if run this job on past the date it was authored to end?**
+ *
+ * A policy the user states, not a shape the engine infers. It is read by the retirement solver
+ * and the stop-working preview and by nothing else: the authored projection pays every job over
+ * exactly the years it was given, whichever value this holds.
+ *
+ *  - `"extendable"` — a what-if testing a later stop-working age may carry this job past its
+ *    authored end. The ordinary case: most employment is work you could simply keep doing.
+ *  - `"fixed"` — it may not, at any age. A contract with a term, a fellowship, a role with a
+ *    mandatory retirement: continuing it is not the user's to choose, so a plan that only
+ *    survives by assuming they do is not an answer.
+ *
+ * **Never inferred from the dates.** Every job has an end year — that is what authoring one
+ * means — so an end date says nothing about whether the work could continue past it, and a job
+ * ending at 65 is neither more nor less fixed than one ending at 70. This is the *only* thing
+ * that distinguishes them, which is why it is authored rather than derived.
+ */
+export type RetirementStrategy = "fixed" | "extendable";
+
+/**
+ * What a job gets when its author does not say — see {@link RetirementStrategy}.
+ *
+ * `"extendable"` because it is the assumption that keeps a solve HONEST about what it did.
+ * Defaulting to `"fixed"` would make "when could you retire?" answer `null` for most households
+ * — nothing may run past the authored plan, so no later age can ever help — and a user who
+ * never met this field would read that as a finding about their finances rather than a
+ * consequence of a default they never chose.
+ */
+export const DEFAULT_RETIREMENT_STRATEGY: RetirementStrategy = "extendable";
+
+/**
  * An earned, covered income stream owned by exactly one person. Employment is per-person — a
- * two-earner household is two jobs, not one job with two owners — so an open-ended job
- * resolves its stop year against *the* owner's own clock without ambiguity. A
- * person may hold any number of open-ended jobs; none is elevated over the others.
+ * two-earner household is two jobs, not one job with two owners — so every date on it resolves
+ * against *the* owner's own clock without ambiguity. A person may hold any number of jobs, and
+ * none is elevated over the others: there is no "career" job here, and no rule anywhere reads
+ * one job of a person's as their real one.
  */
 export interface Job {
   readonly id: string;
@@ -272,6 +304,12 @@ export interface Job {
    * is a fact about a job, and a job states its own.
    */
   readonly endYear: number;
+  /**
+   * Whether a what-if may run this job past {@link endYear} — see {@link RetirementStrategy}.
+   * Required on the model and defaulted only at the authoring boundary, so nothing downstream
+   * has to decide what an absent policy means.
+   */
+  readonly retirementStrategy: RetirementStrategy;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
   readonly incomeOverrides?: readonly JobIncomeOverride[];

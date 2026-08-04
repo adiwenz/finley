@@ -34,9 +34,12 @@ const p = Projection.fromState(
 );
 
 // 2. Standing edits. Creating writes return a minted id.
+// Every job states when it ends — there is no open-ended job. `retirementStrategy` is the one
+// field a caller may leave out; omitted, it defaults to `"extendable"`, meaning the retirement
+// solver may run this job past 2056 when it tests whether this household could stop later.
 const jobId = p.addJob(P1, {
   startYear: SAMPLE_START_YEAR,
-  endYear: null,
+  endYear: SAMPLE_START_YEAR + 30,
   salary: { startingSalaryCents: dollarsToCents(120_000), currentSalaryCents: dollarsToCents(120_000), realGrowthPct: 1 },
 });
 

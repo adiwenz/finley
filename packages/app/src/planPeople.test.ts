@@ -38,6 +38,7 @@ const job = (over: Partial<Job> = {}): Job => ({
   ownerId: PRIMARY_PERSON_ID,
   startYear: BIRTH_YEAR + 22,
   endYear: BIRTH_YEAR + 65,
+  retirementStrategy: "extendable",
   salary: { startingSalaryCents: 60_000_00, currentSalaryCents: 60_000_00, realGrowthPct: 0 },
   ...over,
 });

@@ -43,6 +43,7 @@ const JOB_END_YEAR = SAMPLE_START_YEAR + 20;
 const plainJob = {
   startYear: SAMPLE_START_YEAR,
   endYear: JOB_END_YEAR,
+  retirementStrategy: "extendable",
   salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
@@ -712,6 +713,8 @@ describe("Projection root — editing and removing a job", () => {
       ownerId: P1,
       startYear: plainJob.startYear,
       endYear: JOB_END_YEAR,
+      // Stated by the input, so it survives the rewrite like any other field it names.
+      retirementStrategy: "extendable",
       salary: plainJob.salary,
     });
   });
@@ -812,6 +815,8 @@ describe("Projection root — jobs on a partner's plane", () => {
       ownerId: partnerId,
       startYear: plainJob.startYear,
       endYear: JOB_END_YEAR,
+      // Stated by the input, so it survives the rewrite like any other field it names.
+      retirementStrategy: "extendable",
       salary: plainJob.salary,
     });
   });
@@ -1993,6 +1998,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
     endYear: JOB_END_YEAR,
+    retirementStrategy: "extendable" as const,
     salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   });
 
@@ -2313,6 +2319,7 @@ describe("Projection root — id counter round-trips through serialization", () 
               ownerId: P1,
               startYear: SAMPLE_START_YEAR,
               endYear: JOB_END_YEAR,
+              retirementStrategy: "extendable",
               salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
             },
           ],
@@ -3107,6 +3114,7 @@ describe("Projection root — previewing a stop-working age", () => {
       ownerId: "p1",
       startYear: SAMPLE_START_YEAR - samplePlan.currentAge + 55,
       endYear: JOB_END_YEAR,
+      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(36000),
         currentSalaryCents: dollarsToCents(36000),

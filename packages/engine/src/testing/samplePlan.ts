@@ -12,7 +12,7 @@
  * path (`../testing/samplePlan`).
  */
 import type { Plan } from "../plan";
-import type { Job } from "../job";
+import { DEFAULT_RETIREMENT_STRATEGY, type Job, type RetirementStrategy } from "../job";
 import type { BudgetLine } from "../budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import { emptyLedger } from "../ledger/ledger";
@@ -73,6 +73,8 @@ export function salariedJob(
     deferralFraction?: number;
     /** The age the job is AUTHORED to end at, exclusive. Defaults to the fixture's retirement age. */
     endAge?: number;
+    /** Defaults to `"extendable"`, matching what the authoring boundary stamps. */
+    retirementStrategy?: RetirementStrategy;
   },
 ): Job {
   const currentAge = opts?.currentAge ?? SAMPLE_CURRENT_AGE;
@@ -84,6 +86,7 @@ export function salariedJob(
     ownerId: "p1",
     startYear: birthYear + startAge,
     endYear: birthYear + (opts?.endAge ?? SAMPLE_RETIREMENT_AGE),
+    retirementStrategy: opts?.retirementStrategy ?? DEFAULT_RETIREMENT_STRATEGY,
     salary: {
       startingSalaryCents: monthlyIncomeCents * 12,
       currentSalaryCents: monthlyIncomeCents * 12,
@@ -134,6 +137,7 @@ const baristaOpenEndedJob: Job = {
   ownerId: "p1",
   startYear: BARISTA_BIRTH_YEAR + 25,
   endYear: BARISTA_BIRTH_YEAR + 60, // the career job, authored to end at 60
+  retirementStrategy: "extendable",
   salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
 };
 
@@ -141,7 +145,8 @@ const baristaSupplementalJob: Job = {
   id: "barista",
   ownerId: "p1",
   startYear: SAMPLE_START_YEAR,
-  endYear: BARISTA_BIRTH_YEAR + 75, // fixed-term — keeps paying past the open-ended job's end
+  endYear: BARISTA_BIRTH_YEAR + 75, // keeps paying long past the career job's end
+  retirementStrategy: "extendable",
   salary: { startingSalaryCents: dollarsToCents(30000), currentSalaryCents: dollarsToCents(30000), realGrowthPct: 0 },
 };
 

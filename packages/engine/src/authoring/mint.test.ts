@@ -25,6 +25,7 @@ function jobNamed(id: string): Job {
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
     endYear: 2090,
+    retirementStrategy: "extendable",
     salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   };
 }

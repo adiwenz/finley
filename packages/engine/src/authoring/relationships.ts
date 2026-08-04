@@ -12,7 +12,7 @@ import type { Person } from "../person";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";
-import type { JobInput } from "./jobs";
+import { resolveJobInput, type JobInput } from "./jobs";
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
@@ -119,7 +119,7 @@ export function applyMarriage(
   const jobs: Job[] = (input.jobs ?? []).map((job) => {
     const minted = mint({ ...state, nextSeq }, "job");
     nextSeq = minted.nextSeq;
-    return { ...job, id: minted.id, ownerId: id };
+    return resolveJobInput(job, minted.id, id);
   });
   const person: Person = {
     id,

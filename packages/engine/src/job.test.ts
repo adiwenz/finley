@@ -565,6 +565,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 22, // 2004
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: startingAnnualCents,
       currentSalaryCents: currentAnnualCents,
@@ -761,6 +762,7 @@ describe("stating pay and deferral, and reading them back", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: { startingSalaryCents: dollarsToCents(72_000), currentSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
   };
 
@@ -796,6 +798,7 @@ describe("the two salary anchors, stated separately", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -831,6 +834,7 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -884,6 +888,7 @@ describe("jobPayPath — a job's authored pay across its span", () => {
       ownerId: PRIMARY_PERSON_ID,
       startYear: START_YEAR - 19,
       endYear: START_YEAR - 15,
+      retirementStrategy: "extendable",
       salary: {
         startingSalaryCents: dollarsToCents(21_600),
         currentSalaryCents: dollarsToCents(21_600),
@@ -1083,6 +1088,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -1173,6 +1179,7 @@ describe("historical pay is flat", () => {
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(96_000),
@@ -1254,6 +1261,7 @@ describe("membership clips what the household is paid, not the job's salary path
     ownerId: "p2",
     startYear: BIRTH_YEAR + 30,
     endYear: START_YEAR + 40,
+    retirementStrategy: "extendable",
     salary: {
       startingSalaryCents: dollarsToCents(72_000),
       currentSalaryCents: dollarsToCents(72_000),

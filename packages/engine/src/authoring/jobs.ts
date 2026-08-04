@@ -29,7 +29,9 @@ import type {
   JobPayChangeInput,
   PersonId,
 } from "../job";
+import type { RetirementStrategy } from "../job";
 import {
+  DEFAULT_RETIREMENT_STRATEGY,
   deferralFractionOf,
   mapJob,
   monthlyIncomeCentsOf,
@@ -56,8 +58,34 @@ import { replaceEvent } from "./eventWrite";
 /**
  * A job as a caller authors it — no `id` and no `ownerId`. The engine issues the id and the
  * plane it lands on stamps the owner.
+ *
+ * {@link Job.retirementStrategy} is the one field that may be left out, and the only field with
+ * a default anywhere in the model. It is a policy about a hypothetical, not a fact about the
+ * employment, so a caller stating what a job IS should not have to answer it — every other
+ * authored field describes the job itself and has no defensible default. {@link
+ * DEFAULT_RETIREMENT_STRATEGY} is applied here, at the boundary, so the resolved {@link Job} is
+ * total and nothing downstream ever has to decide what an absent policy meant.
  */
-export type JobInput = Omit<Job, "id" | "ownerId">;
+export type JobInput = Omit<Job, "id" | "ownerId" | "retirementStrategy"> & {
+  readonly retirementStrategy?: RetirementStrategy;
+};
+
+/**
+ * A {@link JobInput} resolved into the {@link Job} that gets stored — identity stamped, policy
+ * defaulted. The single place both happen, so the two write paths (create and replace, on both
+ * planes) cannot disagree about either.
+ *
+ * Exported for `relationships.ts`, which mints a partner's jobs inline with the person they
+ * belong to and so cannot route through the writes below.
+ */
+export function resolveJobInput(job: JobInput, id: string, ownerId: PersonId): Job {
+  return {
+    ...job,
+    id,
+    ownerId,
+    retirementStrategy: job.retirementStrategy ?? DEFAULT_RETIREMENT_STRATEGY,
+  };
+}
 
 // Finding a job: the plane lookups every write and read below is built on.
 
@@ -170,17 +198,19 @@ function editJobAnywhere(
  * year is the plan's own `startYear − currentAge`; a partner carries theirs on the event they
  * joined on.
  *
- * `endYear: null` is the open-ended job and has no end age to bound — it ends when something
- * else ends it, and what that is, is not this rule's business.
+ * Both ends are bounded, because both are authored: every job states when it ends.
+ * {@link Job.retirementStrategy} is deliberately not consulted — an extendable job may be
+ * carried past this bound by a solver candidate, but only inside a hypothesis that is never
+ * stored, and capping the authored end is about what the user may write down.
  */
 function assertJobAgesWithin(state: ProjectionState, ownerId: PersonId, job: JobInput): void {
   const birthYear = birthYearOf(state, ownerId);
-  const ages: readonly (readonly [string, number | null])[] = [
+  const ages: readonly (readonly [string, number])[] = [
     ["start age", job.startYear - birthYear],
-    ["end age", job.endYear === null ? null : job.endYear - birthYear],
+    ["end age", job.endYear - birthYear],
   ];
   for (const [label, age] of ages) {
-    if (age !== null && age > MAX_LIVED_AGE) {
+    if (age > MAX_LIVED_AGE) {
       throw new Error(
         `Projection: cannot author a job with ${label} ${age} — it may not exceed ${MAX_LIVED_AGE}`,
       );
@@ -217,7 +247,7 @@ export function addProjectionJob(
 ): Written<string> {
   assertJobAgesWithin(state, personId, job);
   const { id, nextSeq } = mint(state, "job");
-  const newJob: Job = { ...job, id, ownerId: personId };
+  const newJob = resolveJobInput(job, id, personId);
   const plan = state.scenario.plan;
   return {
     state: withStatePlan(state, { ...plan, jobs: [...(plan.jobs ?? []), newJob] }, nextSeq),
@@ -245,7 +275,7 @@ export function replaceProjectionJob(
 ): ProjectionState {
   return editPlanJob(state, id, (prior) => {
     assertJobAgesWithin(state, prior.ownerId, job);
-    return { ...job, id: prior.id, ownerId: prior.ownerId };
+    return resolveJobInput(job, prior.id, prior.ownerId);
   });
 }
 
@@ -297,7 +327,7 @@ export function addProjectionPartnerJob(
   const event = relationshipFor(state, personId);
   assertJobAgesWithin(state, personId, job);
   const { id, nextSeq } = mint(state, "job");
-  const newJob: Job = { ...job, id, ownerId: personId };
+  const newJob = resolveJobInput(job, id, personId);
   return {
     state: withPartnerJobs(state, jurisdiction, event, [...event.person.jobs, newJob], nextSeq),
     result: id,
@@ -321,9 +351,7 @@ export function replaceProjectionPartnerJob(
     state,
     jurisdiction,
     event,
-    event.person.jobs.map((j) =>
-      j.id === jobId ? ({ ...job, id: j.id, ownerId: j.ownerId } as Job) : j,
-    ),
+    event.person.jobs.map((j) => (j.id === jobId ? resolveJobInput(job, j.id, j.ownerId) : j)),
   );
 }
 

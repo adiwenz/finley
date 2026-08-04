@@ -86,6 +86,14 @@ interface JobFormDraft {
   readonly startAge: number;
   /** When the job ends. Always a number: a job that does not say when it ends cannot be authored. */
   readonly endAge: number;
+  /**
+   * The retirement-solver policy as the checkbox holds it — checked is `"extendable"`.
+   *
+   * A boolean here and a union on the model, because the two are answering different questions.
+   * The field is a permission the user grants or withholds, which is what a checkbox is; the
+   * model needs both states nameable, which is what a union is for. {@link submit} converts.
+   */
+  readonly solverMayExtend: boolean;
   readonly deferralPct: number;
   /** Employer match as a whole-number percent OF the deferral; only bites when there's one. */
   readonly employerMatchPct: number;
@@ -103,6 +111,7 @@ export function JobForm(props: JobFormProps) {
     startingMonthlyDollars: Math.round(initial.startingMonthlyCents / 100),
     startAge: initial.startAge,
     endAge: initial.endAge,
+    solverMayExtend: initial.retirementStrategy === "extendable",
     deferralPct: initial.deferralPct,
     employerMatchPct: initial.employerMatchPct,
     realGrowthPct: initial.realGrowthPct,
@@ -153,6 +162,7 @@ export function JobForm(props: JobFormProps) {
       ),
       startAge: draft.startAge,
       endAge: Math.max(draft.startAge + 1, draft.endAge),
+      retirementStrategy: draft.solverMayExtend ? "extendable" : "fixed",
       realGrowthPct: draft.realGrowthPct,
       deferralPct: draft.deferralPct,
       employerMatchPct: draft.employerMatchPct,
@@ -298,6 +308,27 @@ export function JobForm(props: JobFormProps) {
         {otherOwnerName === null
           ? "The age you began this job seeds your Social-Security-covered years. Estimate, not advice."
           : `These are ${otherOwnerName}’s ages. The age they began this job seeds their Social-Security-covered years. Estimate, not advice.`}
+      </p>
+
+      {/* Sits with the end age because it is the question the end age raises, and nowhere else:
+          this is the ONE thing that says whether the date above is a wall or a plan. It changes
+          nothing about the projection — the job is paid over exactly the years entered either
+          way — so the copy is about the "when could you stop working?" answer, which is the
+          only thing that reads it. Left checked by default; see DEFAULT_RETIREMENT_STRATEGY. */}
+      <label className="field field-check">
+        <input
+          type="checkbox"
+          checked={draft.solverMayExtend}
+          onChange={(e) => patch({ solverMayExtend: e.target.checked })}
+        />
+        <span className="field-label">Solver may extend this job if needed</span>
+      </label>
+      <p className="hint">
+        When calculating when you could stop working, Finley may continue this job beyond its
+        planned end if additional income is required.{" "}
+        {otherOwnerName === null
+          ? "Uncheck it for work that simply stops — a fixed-term contract, or a role you can’t stay in."
+          : `Uncheck it for work that simply stops — a fixed-term contract, or a role ${otherOwnerName} can’t stay in.`}
       </p>
 
       <details className="advanced">

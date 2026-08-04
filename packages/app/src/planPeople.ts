@@ -7,6 +7,7 @@
  */
 
 import {
+  DEFAULT_RETIREMENT_STRATEGY,
   PRIMARY_PERSON_ID,
   RETIREMENT_ID,
   jobPayPath,
@@ -19,6 +20,7 @@ import {
   type PersonId,
   type Plan,
   type Projection,
+  type RetirementStrategy,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
 
@@ -142,6 +144,16 @@ export interface JobEditDraft {
   readonly startingMonthlyCents: number;
   readonly startAge: number;
   readonly endAge: number;
+  /**
+   * Whether the retirement solver may run this job past {@link endAge} when it tests a later
+   * stop-working age — see {@link import("@finley/engine").RetirementStrategy}.
+   *
+   * A field of its own rather than something read off the dates, because the dates cannot say
+   * it: every job has an end age, and none of them tells you whether the work could have gone
+   * on. It changes nothing about the projection this form authors; it is only ever consulted by
+   * a what-if.
+   */
+  readonly retirementStrategy: RetirementStrategy;
   readonly realGrowthPct: number;
   /** Pre-tax 401(k) deferral as a whole-number percent (0 = none). */
   readonly deferralPct: number;
@@ -181,6 +193,10 @@ export function blankJobDraft(currentAge: number): JobEditDraft {
     // moves, not a rule. Something has to be proposed, and this is the least surprising thing
     // to propose; nothing in the engine reads it as a retirement age.
     endAge: DEFAULT_JOB_END_AGE,
+    // The engine's own default, imported rather than restated: what a job gets when nobody
+    // says otherwise is one decision, and the form must open on the answer the engine would
+    // have stamped anyway.
+    retirementStrategy: DEFAULT_RETIREMENT_STRATEGY,
     realGrowthPct: 0,
     deferralPct: 0,
     employerMatchPct: 0,
@@ -215,6 +231,9 @@ export function jobToDraftFor(
     startingMonthlyCents: projection.jobStartingMonthlyIncomeCents(job.id),
     startAge: jobStartAgeFor(birthYear, job),
     endAge: jobEndAgeFor(birthYear, job),
+    // Straight off the job, like `realGrowthPct`: it is authored, not derived, so there is no
+    // facade read to route through and nothing to recompute.
+    retirementStrategy: job.retirementStrategy,
     realGrowthPct: job.salary.realGrowthPct,
     deferralPct: Math.round(projection.jobDeferralFraction(job.id) * 100),
     // No facade for the match — it isn't overridable, so read it straight off the job, as
@@ -278,6 +297,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft):
     ownerId: job.ownerId,
     startYear: birthYear + draft.startAge,
     endYear: birthYear + draft.endAge,
+    retirementStrategy: draft.retirementStrategy,
     salary: {
       ...job.salary,
       startingSalaryCents: draft.startingMonthlyCents * 12,
@@ -334,6 +354,7 @@ export function jobInputFromDraft(birthYear: number, draft: JobEditDraft): JobIn
     ...(name ? { name } : {}),
     startYear: birthYear + draft.startAge,
     endYear: birthYear + draft.endAge,
+    retirementStrategy: draft.retirementStrategy,
     salary: {
       startingSalaryCents: draft.startingMonthlyCents * 12,
       currentSalaryCents: (alreadyOver ? draft.startingMonthlyCents : draft.monthlyCents) * 12,

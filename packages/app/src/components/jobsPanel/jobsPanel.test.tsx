@@ -119,6 +119,7 @@ const partnerJob = (monthlyDollars: number, name?: string): Job => ({
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: START_YEAR - 40 + 65,
+  retirementStrategy: "extendable",
   salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
 });
 
@@ -1246,5 +1247,75 @@ describe("JobsPanel — authoring a job's pay history", () => {
     enterNumber(spin(/Start age/i), "20");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(screen.queryByText(/fell before this job starts/)).toBeNull();
+  });
+});
+
+/**
+ * The retirement-solver policy as an authoring control. Everything about what the policy MEANS
+ * is pinned in the engine (`retirementSolver.test.ts`); these pin only that the Jobs panel can
+ * author it and reads it back — that the checkbox is bound to the stored field in both
+ * directions, and that flipping it changes nothing else about the job.
+ */
+describe("JobsPanel — 'Solver may extend this job if needed'", () => {
+  const CONTROL = /Solver may extend this job if needed/i;
+  /** The control's own checked state — `jest-dom` matchers are not installed here. */
+  const isChecked = () =>
+    (screen.getByRole("checkbox", { name: CONTROL }) as HTMLInputElement).checked;
+  const toggle = () => fireEvent.click(screen.getByRole("checkbox", { name: CONTROL }));
+
+  it("opens checked on a job the solver may extend, and unchecked on a fixed one", () => {
+    // Read-back, both ways. A control seeded from a constant rather than from the job would
+    // pass one of these and quietly mis-report the other.
+    const fixedJob: Job = { ...PLAN_DEFAULTS.jobs[0]!, retirementStrategy: "fixed" };
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [fixedJob] }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(isChecked()).toBe(false);
+    cleanup();
+
+    const extendableJob: Job = { ...PLAN_DEFAULTS.jobs[0]!, retirementStrategy: "extendable" };
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [extendableJob] }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(isChecked()).toBe(true);
+  });
+
+  it("writes the policy through to the stored job, and changes nothing else", () => {
+    // The same "only what it names" guarantee the ordinary-edit block above asserts, applied to
+    // the one field that is a policy rather than a fact: unchecking it must not disturb the
+    // dates, the salary anchors, the id or the owner.
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!] }} />);
+    const before = authored().plan.jobs[0];
+    expect(before.retirementStrategy).toBe("extendable");
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    toggle();
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    const after = authored().plan.jobs[0];
+    expect(after.retirementStrategy).toBe("fixed");
+    expect({ ...after, retirementStrategy: before.retirementStrategy }).toEqual(before);
+  });
+
+  it("survives a reopen — the saved answer is what the form shows next time", () => {
+    // Guards the round trip through `jobToDraftFor`: a write that landed but was not read back
+    // would show the box re-checked and invite the user to "fix" a field that was already right.
+    render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!] }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    toggle();
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    expect(isChecked()).toBe(false);
+  });
+
+  it("defaults a newly added job to extendable", () => {
+    // The engine stamps this default too, so the two must agree: a job added here and a job
+    // added through the facade with no policy stated must come out the same.
+    render(<Harness initial={PLAN_DEFAULTS} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    expect(isChecked()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    const added = authored().plan.jobs.at(-1)!;
+    expect(added.retirementStrategy).toBe("extendable");
   });
 });

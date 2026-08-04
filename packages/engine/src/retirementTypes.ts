@@ -33,10 +33,11 @@ export interface RetirementEvaluation {
  * graph draws. An age is `null` when even working to life expectancy cannot make that scenario
  * survive.
  *
- * **Partial** retirement — ending only the open-ended (`null`-end) jobs while authored
- * fixed-term jobs + passive income + government benefit keep paying — is deliberately NOT here.
- * It is a separate, opt-in solve (`earliestPartialRetirementAge`), so the default query runs a
- * single search rather than paying for a second one the panel does not currently show.
+ * "Working to life expectancy" is itself bounded by what the household said it could work:
+ * carrying the plan past its authored end needs a job marked
+ * {@link import("./job").RetirementStrategy} `"extendable"`, so a household that marked
+ * everything fixed can report `null` even where a later age would have paid for itself. That is
+ * the intended answer — the alternative is income nobody said they could earn.
  */
 export interface RetirementSolution {
   /**

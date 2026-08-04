@@ -30,6 +30,7 @@ const JOB: Job = {
   ownerId: "primary",
   startYear: 2010,
   endYear: 1985 + 65,
+  retirementStrategy: "extendable",
   salary: {
     startingSalaryCents: dollarsToCents(3_000 * 12),
     currentSalaryCents: dollarsToCents(5_000 * 12),
@@ -44,6 +45,7 @@ const EDIT_DRAFT: JobEditDraft = {
   startingMonthlyCents: dollarsToCents(3_000),
   startAge: 25,
   endAge: 65,
+  retirementStrategy: "extendable" as const,
   deferralPct: 0,
   employerMatchPct: 0,
   realGrowthPct: 0,

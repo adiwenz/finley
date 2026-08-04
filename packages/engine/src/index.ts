@@ -85,8 +85,15 @@ export type {
   JobPayPath,
   JobPayPathOptions,
   PersonId,
+  RetirementStrategy,
   SalaryTrajectory,
 } from "./job";
+/**
+ * What a job's {@link RetirementStrategy} is when its author did not state one — the app seeds
+ * its own new-job form from this, so the default a user is shown is the default the engine
+ * applies rather than a second copy of it.
+ */
+export { DEFAULT_RETIREMENT_STRATEGY } from "./job";
 /**
  * A job's authored pay across its whole span, read back without running a projection — what an
  * editor draws the salary it is editing from, and where the month-0 seam is a number.

@@ -141,8 +141,9 @@ export interface Household {
  * projection starts, or capped by a boundary that lands at or before its own start. Every
  * caller that needs "when does this job's employment actually end" should read it from here
  * rather than re-deriving the boundary math itself — that resolution is asymmetric (a boundary
- * moves the LAST job either way but only caps every earlier one) and is meant to live in
- * exactly one place.
+ * caps every job, and additionally EXTENDS the one job its owner marked continuable, and only
+ * when the boundary falls past the whole authored plan) and is meant to live in exactly one
+ * place.
  */
 export function resolvedJobEndMonth(household: Household, jobId: string): number | null {
   const series = household.series.find((s) => s.sourceId === `job:${jobId}`);
