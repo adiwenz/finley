@@ -86,15 +86,16 @@ describe("createProjectionBase — retirement + government benefit wired into th
     expect(retiringAt(70)).toBeGreaterThan(retiringAt(55));
   });
 
-  it("leaves a job paying past the retirement age — the plan says what it says", () => {
-    // The regression this guards: a retirement age of 55 used to delete every wage after 55,
-    // so an income chart contradicted the job the user had just authored. The job here runs to
-    // 82; the plan's target is 55; the target has no say.
-    const series = project({ ...retiringAt(82), retirementAge: 55 });
+  it("pays a job to its own authored end, and nothing else has a say", () => {
+    // The regression this guards: a plan-level retirement age of 55 used to delete every wage
+    // after 55, so an income chart contradicted the job the user had just authored. That field
+    // is gone rather than merely ignored — the job's own end is the only end there is — so this
+    // now asserts the positive: a job authored to 82 pays to 82.
+    const series = project(retiringAt(82));
     const wagesAt = (age: number) =>
       series.months[(age - samplePlan.currentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
     expect(wagesAt(50)).toBeGreaterThan(0);
-    expect(wagesAt(60)).toBeGreaterThan(0); // past the target, still working
+    expect(wagesAt(60)).toBeGreaterThan(0);
     expect(wagesAt(80)).toBeGreaterThan(0);
   });
 
@@ -104,7 +105,6 @@ describe("createProjectionBase — retirement + government benefit wired into th
     const birthYear = START_YEAR - samplePlan.currentAge;
     const series = project({
       ...samplePlan,
-      retirementAge: 65,
       jobs: [{ ...salariedJob(dollarsToCents(3000)), startYear: birthYear + 70, endYear: birthYear + 80 }],
     });
     const wagesAt = (age: number) =>
@@ -457,7 +457,6 @@ describe("createProjectionBase — health is an ordinary budget line", () => {
     const plan: Plan = {
       ...saver,
       currentAge: 55,
-      retirementAge: 90,
       lifeExpectancy: 90,
       jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
       budgetLines: [spendLine(dollarsToCents(3_000)), healthLine(dollarsToCents(1_000))],

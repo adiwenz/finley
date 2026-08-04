@@ -70,8 +70,10 @@ export interface Plan {
   readonly inflationPct: number;
   /** The base the retirement solver counts years from. */
   readonly currentAge: number;
-  /** Target mode reports on-track % against it. */
-  readonly retirementAge: number;
+  // No `retirementAge`. A plan used to pin one, and the panel scored an on-track percentage
+  // against it — but every job now states its own end, so the age earned income stops is a
+  // READ of the jobs (`plannedWorkStopAge`) rather than a second figure that could disagree
+  // with them. "When could you stop working?" is answered by the solver, not authored.
   /** Age the portfolio must last to. */
   readonly lifeExpectancy: number;
   /** An input to the check, never searched. */
@@ -82,11 +84,10 @@ export interface Plan {
    */
   readonly benefitColaRate?: number;
   /**
-   * Source of truth for earned income. `createProjectionBase` compiles these into the base
-   * income series: the primary member's open-ended jobs end at {@link retirementAge},
-   * fixed-term jobs carry their own end. Covered SS earnings, including the pre-"now"
-   * record, derive from job spans and salaries — when a person started working is the
-   * earliest job's `startYear`, not a separate field.
+   * Source of truth for earned income, and the ONLY thing that says when it stops: every job
+   * carries its own end, so nothing outside this list ends one. Covered SS earnings, including
+   * the pre-"now" record, derive from job spans and salaries — when a person started working is
+   * the earliest job's `startYear`, not a separate field.
    */
   readonly jobs: readonly Job[];
   /**
@@ -135,8 +136,8 @@ export const MAX_AGE = 120;
  * exceeds it — and these are where each particular age stops first.
  *
  * They are not all the same number, because they do not all mean the same thing. A life
- * expectancy and a retirement age are ages a person is projected TO, so they reach the ceiling
- * itself. An age a person already IS stops one year below it (119): the projection has to have
+ * expectancy is an age a person is projected TO, so it reaches the ceiling itself. An age a
+ * person already IS stops one year below it (119): the projection has to have
  * somewhere left to go, and a person who is already 120 has no month of plan left to simulate.
  * A benefit claiming age stops at 70 for neither reason — that is the top of the legal claiming
  * window, and past it the delayed-credit formula in `@finley/rules` has nothing further to
@@ -148,7 +149,6 @@ export const MAX_AGE = 120;
  */
 export const AGE_LIMITS = {
   currentAge: 119,
-  retirementAge: MAX_AGE,
   lifeExpectancy: MAX_AGE,
   benefitClaimingAge: 70,
 } as const satisfies Record<string, number>;

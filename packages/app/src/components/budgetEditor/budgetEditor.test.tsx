@@ -24,7 +24,6 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
     <>
       <BudgetEditor budget={budget} transact={transact} />
       <output data-testid="ss-claiming-age">{budget.benefitClaimingAge}</output>
-      <output data-testid="retirement-age">{budget.retirementAge}</output>
       <output data-testid="surplus-to">{budget.surplusCashTo ?? "savings"}</output>
     </>
   );
@@ -116,35 +115,21 @@ describe("BudgetEditor — surplus-cash destination lever", () => {
   });
 });
 
-describe("BudgetEditor — retirement age", () => {
-  it("shows a retirement-age control seeded from the plan", () => {
+describe("BudgetEditor — no retirement age to author", () => {
+  it("offers no retirement-age field at all", () => {
+    // Not merely unwired — absent. Each job states its own end, and when the household COULD
+    // stop working is solved and shown in the Retirement panel; a field here could only ever
+    // state a third thing that contradicted one of them.
     render(<Harness />);
-    const input = screen.getByLabelText(/Retirement age/i) as HTMLInputElement;
-    expect(input.value).toBe(String(PLAN_DEFAULTS.retirementAge));
+    expect(screen.queryByLabelText(/Retirement age/i)).toBeNull();
   });
 
-  it("edits flow back into retirementAge (retiring early at 55)", () => {
-    render(<Harness />);
-    const input = screen.getByLabelText(/Retirement age/i);
-    enterNumber(input, 55);
-    expect(screen.getByTestId("retirement-age").textContent).toBe("55");
-  });
-
-  it("clamps retirement age up to current age (can't retire in the past)", () => {
-    // Current age 50 sits above the static 40 floor, so it becomes the binding lower bound.
-    render(<Harness initial={{ ...PLAN_DEFAULTS, currentAge: 50 }} />);
-    const input = screen.getByLabelText(/Retirement age/i);
-    enterNumber(input, 45);
+  it("chains current age straight to life expectancy, with nothing between them", () => {
+    render(<Harness initial={{ ...PLAN_DEFAULTS, lifeExpectancy: 70 }} />);
+    const input = screen.getByLabelText(/Current age/i) as HTMLInputElement;
+    enterNumber(input, 80);
     fireEvent.blur(input);
-    expect(screen.getByTestId("retirement-age").textContent).toBe("50");
-  });
-
-  it("clamps current age down to retirement age (can't already be past it)", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, retirementAge: 60 }} />);
-    const input = screen.getByLabelText(/Current age/i);
-    enterNumber(input, 70);
-    fireEvent.blur(input);
-    expect((input as HTMLInputElement).value).toBe("60");
+    expect(input.value).toBe("70");
   });
 });
 
@@ -162,18 +147,17 @@ describe("BudgetEditor — no age can outrun the engine's own ceiling", () => {
     // Read off the rendered `max` attributes rather than restated here: a field whose bound
     // drifted from the engine's would be caught by this, not by a comment. A form that let
     // through what the engine refuses would throw on commit instead of clamping.
-    render(<Harness initial={{ ...PLAN_DEFAULTS, retirementAge: 80, lifeExpectancy: 100 }} />);
+    render(<Harness initial={{ ...PLAN_DEFAULTS, lifeExpectancy: 100 }} />);
     const maxOf = (name: RegExp) => Number((screen.getByLabelText(name) as HTMLInputElement).max);
-    // Current age chains to retirement age below its own 119 ceiling; retirement chains to
-    // life expectancy below 120. Both stay at or under what the engine would accept.
-    expect(maxOf(/Current age/i)).toBe(80);
-    expect(maxOf(/Retirement age/i)).toBe(100);
+    // Current age chains directly to life expectancy, below its own 119 ceiling. Both stay at
+    // or under what the engine would accept.
+    expect(maxOf(/Current age/i)).toBe(100);
     expect(maxOf(/Life expectancy/i)).toBe(MAX_AGE);
     expect(maxOf(/Social Security claiming age/i)).toBe(AGE_LIMITS.benefitClaimingAge);
   });
 
   it("stops current age one year below the ceiling — a person of 120 has no plan left", () => {
-    render(<Harness initial={{ ...PLAN_DEFAULTS, retirementAge: MAX_AGE, lifeExpectancy: MAX_AGE }} />);
+    render(<Harness initial={{ ...PLAN_DEFAULTS, lifeExpectancy: MAX_AGE }} />);
     const input = screen.getByLabelText(/Current age/i) as HTMLInputElement;
     expect(Number(input.max)).toBe(MAX_LIVED_AGE);
     enterNumber(input, 200);

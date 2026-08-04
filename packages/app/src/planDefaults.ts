@@ -8,7 +8,7 @@ import { defaultBudgetTemplate } from "./components/baseAdjustments/budgetTempla
 
 const DEFAULT_CURRENT_AGE = 35;
 const DEFAULT_WORK_START_AGE = 18;
-const DEFAULT_RETIREMENT_AGE = 65;
+const DEFAULT_JOB_END_AGE = 65;
 const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
 
 /**
@@ -61,7 +61,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
       // Every job states when it ends. A fresh plan proposes the conventional retirement age;
       // it is the user's to move, and nothing in the engine reads it as anything but this job's
       // end.
-      endYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_RETIREMENT_AGE,
+      endYear: START_YEAR - DEFAULT_CURRENT_AGE + DEFAULT_JOB_END_AGE,
       salary: {
         startingSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
         currentSalaryCents: DEFAULT_MONTHLY_PAY_CENTS * 12,
@@ -110,7 +110,6 @@ export const DEFAULT_INPUT: ScenarioInput = {
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
   currentAge: DEFAULT_CURRENT_AGE,
-  retirementAge: DEFAULT_RETIREMENT_AGE,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
   // Social Security is always priced from the plan's earnings via the AIME→PIA seam the

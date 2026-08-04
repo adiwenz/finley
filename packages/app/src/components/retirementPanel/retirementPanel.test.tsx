@@ -49,6 +49,22 @@ function withHealth(dollars: number, over: Partial<Plan> = {}): Plan {
   };
 }
 
+/**
+ * A view whose solved age lands before Medicare, with the health flag the engine would have
+ * raised for it. Hand-built because the flag is an engine answer: the panel's job is to print
+ * it against {@link RetirementView.headlineAge}, and that is what this isolates.
+ */
+function earlyRetiree(flagged: boolean): RetirementView {
+  return {
+    ...retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction)),
+    headlineAge: 58,
+    headlineMonth: (58 - PLAN_DEFAULTS.currentAge) * 12,
+    earlyRetireeHealth: flagged
+      ? { flagged: true, gapYears: 7, shortfallMonthlyCents: dollarsToCents(600) }
+      : { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
+  };
+}
+
 describe("RetirementPanel", () => {
   it("surfaces the headline retirement age", () => {
     const html = render(PLAN_DEFAULTS);
@@ -56,48 +72,55 @@ describe("RetirementPanel", () => {
     expect(html).toContain("retire");
   });
 
-  it("shows an honest sub-100% on-track line for an infeasible pin, never the contradiction", () => {
-    // The default plan pinned at 65 is infeasible (floor 78 — the home goal is a drawable
-    // `retain` reserve) yet net worth stays positive throughout: the shape that printed the
-    // self-contradicting "100% of the way there". Charging FICA on wages removes the
-    // plan's slim savings surplus, so the feasible floor moves several years out.
+  it("states no target age and scores no on-track percentage", () => {
+    // Both went with the plan's `retirementAge`. The headline above IS the nearest feasible
+    // age, so a second line naming a target could only ever repeat it or contradict it — and
+    // it did contradict it, once printing "100% of the way there" beside an age the plan
+    // could not actually reach.
     const html = render(PLAN_DEFAULTS);
+    expect(html).not.toContain("Your target is age");
+    expect(html).not.toContain("of the way there");
     expect(html).not.toContain("on track (100%)");
-    expect(html).toContain("of the way there");
-    expect(html).toContain("the nearest feasible age is 76");
-    expect(html).not.toContain("100% of the way there");
+    expect(html).not.toContain("nearest feasible age");
   });
 
-  it("shows the pre-65 health nudge when the plan retires early and under-budgets", () => {
-    const html = render(withHealth(0, { retirementAge: 55 }));
+  it("shows the pre-65 health nudge, naming the SOLVED age rather than a pinned one", () => {
+    // Rendered from a view rather than solved from a plan: WHETHER a household's earliest
+    // feasible age falls before 65 is the engine's question (`retirementOutlook`), and pinning
+    // a fixture that happens to solve early would tie this render test to the solver's current
+    // answer. What the panel owes is that it prints the flag, and prints it against
+    // `headlineAge` — the retirement whose gap they would actually live through.
+    const html = renderWithView(earlyRetiree(true));
     expect(html).toContain("Medicare");
     expect(html).toContain("self-funded");
     expect(html).toContain("not advice");
+    expect(html).toContain("Retiring at 58");
   });
 
-  it("does NOT show the health nudge when retiring at the Medicare age", () => {
-    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65 });
-    expect(html).not.toContain("self-funded");
+  it("does NOT show the health nudge when the engine did not flag one", () => {
+    expect(renderWithView(earlyRetiree(false))).not.toContain("self-funded");
   });
 
-  it("does NOT show the health nudge when the plan already budgets the benchmark", () => {
-    const html = render(withHealth(5_000, { retirementAge: 55 }));
-    expect(html).not.toContain("self-funded");
+  it("shows no nudge on the default plan, whose solved age clears Medicare", () => {
+    expect(render(PLAN_DEFAULTS)).not.toContain("self-funded");
   });
 
   it("says nothing about a step at 65 — the plan no longer steps health there", () => {
     // The residual readout went with the plan fields that drove it. The panel's only health
     // copy left is the pre-65 gap nudge, which reads the authored budget line.
-    const html = render({ ...PLAN_DEFAULTS, retirementAge: 65 });
+    const html = render(PLAN_DEFAULTS);
     expect(html).not.toContain("From 65");
     expect(html).not.toContain("doesn’t enrol in Medicare");
   });
 
   it("reads the nudge off the budget's health line, the only place health is stated", () => {
-    // Same retirement age, same everything but the health line: raising it clears the flag,
-    // proving the panel follows the budget rather than a plan scalar.
-    expect(render(withHealth(0, { retirementAge: 55 }))).toContain("self-funded");
-    expect(render(withHealth(5_000, { retirementAge: 55 }))).not.toContain("self-funded");
+    // End-to-end through the engine, so this is what would catch the flag drifting back onto a
+    // plan scalar: same everything but the health line, and raising it clears the flag.
+    const flagOf = (dollars: number) =>
+      retirementView(Projection.fromState(stateOf(withHealth(dollars)), usJurisdiction))
+        .earlyRetireeHealth;
+    expect(flagOf(5_000).shortfallMonthlyCents).toBe(0);
+    expect(flagOf(0).shortfallMonthlyCents).toBeGreaterThan(0);
   });
 });
 
@@ -159,12 +182,14 @@ describe("RetirementPanel — chart preview toggle", () => {
           jobName: "Software Engineer",
           ownerId: PRIMARY_PERSON_ID,
           ownerName: "Alex",
+          throughAge: 76,
+          throughYear: 2067,
           overlaps: [],
         },
       ],
     });
     expect(html).toContain(
-      `You could stop working at ${feasible.headlineAge} if your <strong>Software Engineer</strong> job continued through age ${feasible.headlineAge}.`,
+      `You could stop working at ${feasible.headlineAge} if your <strong>Software Engineer</strong> job continued through when you are 76 (2067).`,
     );
     // Nothing about restarting, resuming or going back: the job never ended in this scenario.
     expect(html).not.toMatch(/restart|resume|return to|go back|begin(s|ning)? again/i);
@@ -183,14 +208,17 @@ describe("RetirementPanel — chart preview toggle", () => {
           jobName: "Software Engineer",
           ownerId: PRIMARY_PERSON_ID,
           ownerName: "Alex",
+          throughAge: 76,
+          throughYear: 2067,
           overlaps: [
-            { jobId: "job-2", jobLabel: "Consulting", jobName: "Consulting", fromAge: 65, toAge: 70 },
+            { jobId: "job-2", jobLabel: "Consulting", jobName: "Consulting",
+              fromAge: 65, toAge: 70, fromYear: 2056, toYear: 2061 },
           ],
         },
       ],
     });
     expect(html).toContain(
-      "This scenario assumes your <strong>Software Engineer</strong> job continued alongside your <strong>Consulting</strong> job from age 65 to 70.",
+      "This scenario assumes your <strong>Software Engineer</strong> job continued alongside your <strong>Consulting</strong> job from when you are 65 to 70 (2056\u20132061).",
     );
   });
 
@@ -206,12 +234,73 @@ describe("RetirementPanel — chart preview toggle", () => {
           jobName: null,
           ownerId: PRIMARY_PERSON_ID,
           ownerName: "Alex",
+          throughAge: 76,
+          throughYear: 2067,
           overlaps: [],
         },
       ],
     });
-    expect(html).toContain("if <strong>Alex\u2019s job</strong> continued through age");
+    expect(html).toContain("if <strong>Alex\u2019s job</strong> continued through when you are 76");
     expect(html).not.toContain("your <strong>");
+  });
+
+  it("counts a PARTNER's continuation in the partner's own years, and says whose they are", () => {
+    // The bug this pins: every age on a continued job was converted through the PRIMARY's birth
+    // year, so a partner five years older had their job's terminus and overlap reported in
+    // Alex's years — a number from one person's life attached to a sentence about another's.
+    // Sam holds Nursing to 71 and Consulting at 52–58; none of those are Alex's ages.
+    const html = renderWithView({
+      ...feasible,
+      continuedJobs: [
+        {
+          jobId: "job-11",
+          jobLabel: "Nursing",
+          jobName: "Nursing",
+          ownerId: "person-10",
+          ownerName: "Sam",
+          throughAge: 71,
+          throughYear: 2057,
+          overlaps: [
+            { jobId: "job-12", jobLabel: "Consulting", jobName: "Consulting",
+              fromAge: 52, toAge: 58, fromYear: 2038, toYear: 2044 },
+          ],
+        },
+      ],
+    });
+    expect(html).toContain("Sam’s <strong>Nursing</strong> job continued through when Sam is 71 (2057)");
+    expect(html).toContain("from when Sam is 52 to 58 (2038–2044)");
+    // The headline stays the household's, in the primary's years — the two clocks coexist, and
+    // the calendar years in parentheses are what let a reader line them up.
+    expect(html).toContain(`You could stop working at ${feasible.headlineAge}`);
+  });
+
+  it("says 'when you are' for the primary, matching how their job is already phrased", () => {
+    // The panel calls the primary's work "your X job", so naming them in the same sentence
+    // would switch person mid-clause. It also gives an unnamed plan something to say.
+    const html = renderToStaticMarkup(
+      <RetirementPanel
+        view={{
+          ...feasible,
+          continuedJobs: [
+            {
+              jobId: "job-1",
+              jobLabel: "job",
+              jobName: null,
+              ownerId: PRIMARY_PERSON_ID,
+              ownerName: "",
+              throughAge: 76,
+              throughYear: 2067,
+              overlaps: [],
+            },
+          ],
+        }}
+        budget={{ ...PLAN_DEFAULTS, name: "" }}
+        previewing={false}
+        onTogglePreview={noop}
+      />,
+    );
+    expect(html).toContain("continued through when you are 76 (2067)");
+    expect(html).not.toContain("when  is");
   });
 
   it("says nothing about continued work when the age assumed none", () => {

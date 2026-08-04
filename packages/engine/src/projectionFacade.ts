@@ -476,10 +476,9 @@ export class Projection {
     this.write((state) => updateProjectionPlan(state, patch));
   }
 
-  /** The named shorthand for the scalar the retirement solver reports against. */
-  setRetirementTarget(age: number): void {
-    this.updatePlan({ retirementAge: age });
-  }
+  // No `setRetirementTarget`. There is no retirement age to set: a plan says when each JOB
+  // ends, and when the household could stop working is read back off `retirement()`, never
+  // written. Moving that answer means moving a job's end, or naming a continuation job.
 
   // Ledger transactions
 

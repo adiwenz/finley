@@ -68,6 +68,7 @@ function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan
         household={household}
         ledger={ledger}
         projection={projection}
+        plannedWorkStopAge={65}
       />
       <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -1013,6 +1014,7 @@ describe("BaseAdjustmentsPanel — renders every obligation the month incurs", (
         household={household}
         ledger={NO_EVENTS}
         projection={projection}
+        plannedWorkStopAge={65}
       />,
     );
     // Month 1 is the first serviced month (origination at month 0 charges nothing).
@@ -1123,6 +1125,7 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
         household={household}
         ledger={NO_EVENTS}
         projection={projection}
+        plannedWorkStopAge={65}
       />,
     );
 

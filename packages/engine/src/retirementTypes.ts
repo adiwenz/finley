@@ -11,8 +11,13 @@ export type RetirementSearch =
   | { readonly mode: "group" }
   | { readonly mode: "person"; readonly personId: string };
 
+/**
+ * One candidate age, judged. There is no `nearestFeasibleAge` here any more: it existed to give
+ * the plan's pinned age a fallback, and nothing pins an age now — the search's own answer
+ * ({@link RetirementSolution.fullRetirementAge}) IS the nearest feasible age.
+ */
 export interface RetirementEvaluation {
-  /** The age evaluated — a search candidate, or the user's pin. */
+  /** The age evaluated — a candidate the search is trying. */
   readonly retirementAge: number;
   /** Does the plan's real net worth survive to life expectancy at this age? */
   readonly feasible: boolean;
@@ -24,8 +29,6 @@ export interface RetirementEvaluation {
    * floors to 0.1%, caps at 100%.
    */
   readonly onTrackFraction: number;
-  /** Null when no age is feasible; equals `retirementAge` when this age is. */
-  readonly nearestFeasibleAge: number | null;
 }
 
 /**
@@ -57,8 +60,21 @@ export interface ContinuedJob {
   readonly ownerId: string;
   readonly ownerName: string;
   /**
+   * How old **the owner** is when the continuation stops — always their own age, never the
+   * primary's.
+   *
+   * The distinction is the whole point of the field. `fullRetirementAge` and
+   * `plannedWorkStopAge` are stated in the PRIMARY's years, because they are facts about the
+   * household reaching one calendar boundary together. This is a fact about one person's job,
+   * and the sentence that carries it names that person — so a partner five years older than
+   * the primary reports 71 here where the headline says 66, and both are true.
+   */
+  readonly throughAge: number;
+  /** The calendar year {@link throughAge} falls in, exclusive — what reconciles the two clocks. */
+  readonly throughYear: number;
+  /**
    * Where this job's extension runs **alongside** another of the same person's jobs, in the
-   * primary's timeline ages.
+   * OWNER's ages — see {@link throughAge}.
    *
    * A consequence of the model, disclosed rather than hidden: continuing a job means it never
    * ended, so a job authored to finish before a later one begins now runs through it, and both
@@ -81,10 +97,14 @@ export interface JobOverlap {
   readonly jobLabel: string;
   /** The job's own authored name, or `null` — see {@link ContinuedJob.jobName}. */
   readonly jobName: string | null;
-  /** Primary-timeline age the overlap opens at. */
+  /** The OWNER's age when the overlap opens — see {@link ContinuedJob.throughAge}. */
   readonly fromAge: number;
-  /** Primary-timeline age it closes at, exclusive — "from 65 to 70" is five years of both. */
+  /** The owner's age when it closes, exclusive — "from 65 to 70" is five years of both. */
   readonly toAge: number;
+  /** Calendar year the overlap opens at. */
+  readonly fromYear: number;
+  /** Calendar year it closes at, exclusive. */
+  readonly toYear: number;
 }
 
 /**

@@ -259,6 +259,7 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
+          plannedWorkStopAge={retirement.plannedWorkStopAge}
         />
       </div>
 

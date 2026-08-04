@@ -26,7 +26,7 @@ import { createProjectionBase } from "./projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import type { ProjectionContext } from "./projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
-import { samplePlan, baristaPlan, salariedJob, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
+import { samplePlan, baristaPlan, salariedJob, stateOf, SAMPLE_START_YEAR, SAMPLE_JOB_END_AGE } from "./testing/samplePlan";
 import { Projection } from "./projectionFacade";
 import type { Plan } from "./plan";
 import type { Person } from "./person";
@@ -74,7 +74,7 @@ describe("retirementSolver — survival off the real projection", () => {
     const tight: Plan = { ...samplePlan, openingBalanceCents: 0 };
     const age = earliestFullRetirementAge(scenarioOf(tight), CTX);
     expect(age).not.toBeNull();
-    expect(age as number).toBeGreaterThan(tight.retirementAge);
+    expect(age as number).toBeGreaterThan(SAMPLE_JOB_END_AGE);
     // And it is a real threshold, not an artefact: one year earlier does not survive.
     expect(survivesAt(tight, age as number)).toBe(true);
     expect(survivesAt(tight, (age as number) - 1)).toBe(false);
@@ -450,7 +450,7 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
   }
 
   it("a partner job resolves via its OWN authored end, later than every primary job", () => {
-    // Primary's only job is open-ended, natural end birthYear + 60 (samplePlan.retirementAge)
+    // Primary's only job is open-ended, natural end birthYear + 60 (SAMPLE_JOB_END_AGE)
     // → age 60. Partner's job is authored to end at 80 (same birth year) → the
     // household-wide max is the partner's, age 80 — later than any primary job alone.
     const scenario = twoEarnerScenario(partnerWith({ jobs: [partnerJob()] }));
@@ -514,12 +514,12 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
 
   it("falls back to the primary's own job once an early separation ends the partner's wages", () => {
     // Same partner, separating at month 12 (age 41) — before even the primary's own open-ended
-    // job ends at `samplePlan.retirementAge`. The household's final wage is the primary's.
+    // job ends at `SAMPLE_JOB_END_AGE`. The household's final wage is the primary's.
     const scenario = separatedScenario(
       partnerWith({ jobs: [partnerJob()] }),
       12,
     );
-    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(samplePlan.retirementAge);
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(SAMPLE_JOB_END_AGE);
   });
 
   it("an ACTIVE partner is capped by their JOB's end, never by a membership that has no end", () => {
@@ -770,7 +770,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(wageAt(series, "career", monthAt(70))).toBeGreaterThan(0);
   });
 
-  it("reports the overlap window a continued job creates, in the primary's ages", () => {
+  it("reports the overlap window a continued job creates, in its OWNER's ages", () => {
     // The one consequence a reader would not predict, so it is disclosed with its years rather
     // than left to be discovered in the income chart.
     const jobs = [job("career", 35, 65, 90_000), job("contract", 65, 70, 30_000)];
@@ -778,8 +778,20 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     expect(continued.jobId).toBe("career");
     expect(continued.overlaps).toEqual([
-      { jobId: "contract", jobLabel: `${samplePlan.name}'s job 2`, jobName: null, fromAge: 65, toAge: 70 },
+      {
+        jobId: "contract",
+        jobLabel: `${samplePlan.name}'s job 2`,
+        jobName: null,
+        fromAge: 65,
+        toAge: 70,
+        fromYear: SAMPLE_START_YEAR - samplePlan.currentAge + 65,
+        toYear: SAMPLE_START_YEAR - samplePlan.currentAge + 70,
+      },
     ]);
+    // The continuation's own terminus, likewise the owner's — here the primary, so it matches
+    // the boundary age the search was asked about.
+    expect(continued.throughAge).toBe(71);
+    expect(continued.throughYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 71);
   });
 
   it("reports an overlap only from NOW, never from a year the projection does not pay", () => {
@@ -797,6 +809,69 @@ describe("retirementSolver — which job a later candidate age continues", () =>
         jobName: null,
         fromAge: samplePlan.currentAge,
         toAge: 65,
+        fromYear: SAMPLE_START_YEAR,
+        toYear: SAMPLE_START_YEAR - samplePlan.currentAge + 65,
+      },
+    ]);
+  });
+
+  it("counts a PARTNER's continuation in the partner's OWN years, not the primary's", () => {
+    // The bug this pins: every age here was converted through the primary's birth year, so a
+    // partner born in a different year had their job's terminus and overlap windows reported in
+    // the primary's ages — numbers from one person's life stated as facts about another's. The
+    // partner is five years OLDER, which is what makes the two clocks visibly disagree; the
+    // calendar years are identical either way, and are what let a reader reconcile them.
+    const partnerBirthYear = PRIMARY_BIRTH_YEAR - 5;
+    const partnerJobAt = (id: string, startAge: number, endAge: number, annual: number): Job => ({
+      id,
+      ownerId: "p2",
+      startYear: partnerBirthYear + startAge,
+      endYear: partnerBirthYear + endAge,
+      salary: {
+        startingSalaryCents: dollarsToCents(annual),
+        currentSalaryCents: dollarsToCents(annual),
+        realGrowthPct: 0,
+      },
+    });
+    const partner: Person = {
+      id: "p2",
+      name: "Partner",
+      birthYear: partnerBirthYear,
+      benefitClaimingAge: 67,
+      continuationJobId: "nursing",
+      jobs: [
+        partnerJobAt("nursing", 22, 50, 48_000),
+        partnerJobAt("consulting", 52, 58, 12_000),
+      ],
+    };
+    const added = addEvent(emptyLedger, createProjectionBase(samplePlan, CTX), {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partner,
+    });
+    if (!added.ok) throw new Error(`fixture rejected: ${added.conflict}`);
+    // The primary names no continuation, so only the partner's job is extended and the answer
+    // is unambiguously about them.
+    const scenario = withLedger(scenarioOf(planWithJobs(samplePlan.jobs, null)), added.ledger);
+
+    // A boundary at the primary's 71 is the calendar year the PARTNER turns 76.
+    const [continued] = continuedJobsAt(scenario, 71, CTX);
+    expect(continued.ownerName).toBe("Partner");
+    expect(continued.jobId).toBe("nursing");
+    expect(continued.throughAge).toBe(76);
+    expect(continued.throughYear).toBe(PRIMARY_BIRTH_YEAR + 71);
+
+    // And the overlap with their own later job, in their years: 52–58, never the primary's 47–53.
+    expect(continued.overlaps).toEqual([
+      {
+        jobId: "consulting",
+        jobLabel: "Partner's job 2",
+        jobName: null,
+        fromAge: 52,
+        toAge: 58,
+        fromYear: partnerBirthYear + 52,
+        toYear: partnerBirthYear + 58,
       },
     ]);
   });
@@ -923,10 +998,22 @@ describe("retirementSolver — which job a later candidate age continues", () =>
         jobName: null,
         ownerId: "p1",
         ownerName: baristaPlan.name,
+        // The owner here IS the primary, so their age and the solved age coincide — the case
+        // that hid the partner bug for as long as it did.
+        throughAge: 74,
+        throughYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 74,
         // The token job starts exactly where the career was authored to end, so continuing the
         // career runs straight through it.
         overlaps: [
-          { jobId: "token", jobLabel: `${baristaPlan.name}'s job 2`, jobName: null, fromAge: 65, toAge: 70 },
+          {
+            jobId: "token",
+            jobLabel: `${baristaPlan.name}'s job 2`,
+            jobName: null,
+            fromAge: 65,
+            toAge: 70,
+            fromYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 65,
+            toYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 70,
+          },
         ],
       },
     ]);

@@ -52,7 +52,6 @@ const baseBudget: Plan = {
   // draws from, and health is a separate additive expense.
   inflationPct: 3,
   currentAge: 35,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };

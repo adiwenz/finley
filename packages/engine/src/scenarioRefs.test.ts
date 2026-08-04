@@ -21,7 +21,6 @@ const base: ScenarioInput = {
   sharedScheme: "proportional",
   inflationPct: 2,
   currentAge: 30,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };

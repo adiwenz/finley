@@ -221,14 +221,14 @@ describe("Projection root — one root for standing + ledger writes", () => {
     // must never see it change underfoot.
     const p = freshProjection();
     const before = p.state;
-    const baseRetirement = before.scenario.plan.retirementAge;
+    const baseLifeExpectancy = before.scenario.plan.lifeExpectancy;
 
-    p.setRetirementTarget(55);
+    p.updatePlan({ lifeExpectancy: 95 });
     p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
 
-    expect(p.state.scenario.plan.retirementAge).toBe(55);
+    expect(p.state.scenario.plan.lifeExpectancy).toBe(95);
     expect(p.state.scenario.ledger.events).toHaveLength(1);
-    expect(before.scenario.plan.retirementAge).toBe(baseRetirement);
+    expect(before.scenario.plan.lifeExpectancy).toBe(baseLifeExpectancy);
     expect(before.scenario.ledger.events).toHaveLength(0);
     expect(p.state).not.toBe(before);
   });
@@ -238,16 +238,16 @@ describe("Projection root — one root for standing + ledger writes", () => {
     // (withPlan), a transaction the standing numbers (withLedger), so no spread drops half.
     const p = freshProjection();
     p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
-    p.setRetirementTarget(55); // a standing edit AFTER a transaction
+    p.updatePlan({ lifeExpectancy: 95 }); // a standing edit AFTER a transaction
 
     expect(p.state.scenario.ledger.events).toHaveLength(1);
-    expect(p.state.scenario.plan.retirementAge).toBe(55);
+    expect(p.state.scenario.plan.lifeExpectancy).toBe(95);
 
     p.addJob(P1, plainJob); // another standing edit
     expect(p.state.scenario.ledger.events).toHaveLength(1);
 
     p.marry({ month: 24, name: "Partner", birthYear: 1988 }); // a transaction AFTER standing edits
-    expect(p.state.scenario.plan.retirementAge).toBe(55);
+    expect(p.state.scenario.plan.lifeExpectancy).toBe(95);
     expect(p.state.scenario.plan.jobs).toHaveLength(1);
   });
 
@@ -1220,7 +1220,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       surplusCashTo: "brokerage",
       sharedScheme: "even",
       // Unnamed scalars keep their authored values.
-      retirementAge: samplePlan.retirementAge,
       brokerageReturnPct: samplePlan.brokerageReturnPct,
     });
   });
@@ -1250,12 +1249,12 @@ describe("Projection root — patching the plan's standing scalars", () => {
     expect(p.plan.inflationPct).toBe(4);
   });
 
-  it("setRetirementTarget writes the same scalar and carries the ledger through", () => {
-    const p = freshProjection();
-    p.takeLoan({ month: 3, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(10000), apr: 4, termMonths: 48 });
-    p.setRetirementTarget(58);
-    expect(p.plan.retirementAge).toBe(58);
-    expect(p.ledger.events).toHaveLength(1);
+  it("offers no setRetirementTarget — there is no retirement age to write", () => {
+    // The named shorthand went with the scalar it wrote. Asserted as absent rather than left
+    // untested: it was the one door through which a retirement age could still be authored, and
+    // a plan that can state one is a plan whose jobs can be contradicted by it.
+    const p = freshProjection() as unknown as Record<string, unknown>;
+    expect(p.setRetirementTarget).toBeUndefined();
   });
 });
 
@@ -2838,22 +2837,13 @@ describe("Projection.retirement — the whole question, one search", () => {
   const outlookOf = (plan: typeof samplePlan, jurisdiction = nullJurisdiction) =>
     Projection.fromState(stateOf(plan), nullJurisdiction).retirement(jurisdiction);
 
-  it("evaluates the plan's OWN target age, not one it was told", () => {
-    expect(outlookOf({ ...samplePlan, retirementAge: 62 }).target.retirementAge).toBe(62);
-  });
-
-  it("falls back to the earliest feasible age when the pinned age cannot be reached", () => {
-    // Pinned absurdly early: the target fails, so its nearest-feasible age is the age the
-    // SAME search found — the one rule that keeps headline and target describing one household.
-    const outlook = outlookOf({ ...samplePlan, retirementAge: 40 });
-    expect(outlook.target.feasible).toBe(false);
-    expect(outlook.target.nearestFeasibleAge).toBe(outlook.solution.fullRetirementAge);
-  });
-
-  it("keeps a reachable pinned age as its own nearest-feasible age", () => {
-    const outlook = outlookOf({ ...samplePlan, retirementAge: 80 });
-    expect(outlook.target.feasible).toBe(true);
-    expect(outlook.target.nearestFeasibleAge).toBe(80);
+  it("reports the solved age and the authored stop, and pins no target between them", () => {
+    // `target` went with `Plan.retirementAge`. What is left is the pair that cannot disagree
+    // with the jobs: the earliest age the search reached, and the age the plan already stops.
+    const outlook = outlookOf(samplePlan) as unknown as Record<string, unknown>;
+    expect(outlook.target).toBeUndefined();
+    expect(outlookOf(samplePlan).solution.fullRetirementAge).toBe(60);
+    expect(outlookOf(samplePlan).solution.plannedWorkStopAge).toBe(60);
   });
 
   it("dates the full-retirement age in months from now, for a chart's reference line", () => {
@@ -2863,17 +2853,31 @@ describe("Projection.retirement — the whole question, one search", () => {
     expect(outlook.fullRetirementMonth).toBe((age! - samplePlan.currentAge) * 12);
   });
 
-  it("flags a health gap only when retirement lands before the coverage age", () => {
-    // Retiring at 60 with $600/mo authored against a $1,000/mo benchmark: a 5-year gap.
+  it("flags a health gap only when the SOLVED age lands before the coverage age", () => {
+    // The sample plan solves to 60. With $600/mo authored against a $1,000/mo benchmark that
+    // is a 5-year gap — measured off the search's answer, not off any figure the plan states.
     const flag = outlookOf(samplePlan, covered).earlyRetireeHealth;
     expect(flag.gapYears).toBe(5);
     expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
 
-    // Retiring at the coverage age closes the window, whatever the authored line says.
-    expect(outlookOf({ ...samplePlan, retirementAge: 65 }, covered).earlyRetireeHealth.gapYears)
-      .toBe(0);
+    // A coverage age the household already clears closes the window, whatever the line says.
+    const coversEarly = mockJurisdiction({
+      publicHealthCoverageAge: 55,
+      healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
+    });
+    expect(outlookOf(samplePlan, coversEarly).earlyRetireeHealth.gapYears).toBe(0);
     // A jurisdiction naming no coverage age has no window to be early for.
     expect(outlookOf(samplePlan).earlyRetireeHealth.gapYears).toBe(0);
+  });
+
+  it("raises no health gap for a household that can never retire", () => {
+    // No solved age is not an early one. Flagging here would warn about a retirement the plan
+    // cannot take, which is exactly what measuring against a pinned age used to do.
+    const broke = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const outlook = outlookOf(broke, covered);
+    expect(outlook.solution.fullRetirementAge).toBeNull();
+    expect(outlook.earlyRetireeHealth.flagged).toBe(false);
+    expect(outlook.earlyRetireeHealth.gapYears).toBe(0);
   });
 
   it("leaves run() alone — a simulation is not a search", () => {

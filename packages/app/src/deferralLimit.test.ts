@@ -106,7 +106,7 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
       budget({
         monthlyIncome: 4000,
         deferralPct: 50,
-        overrides: { inflationPct: 3, currentAge: 35, retirementAge: 65 },
+        overrides: { inflationPct: 3, currentAge: 35 },
       }),
     );
     expect(crossing).not.toBeNull();
@@ -121,7 +121,7 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
         budget({
           monthlyIncome: 4000,
           deferralPct: 10,
-          overrides: { inflationPct: 3, currentAge: 35, retirementAge: 65 },
+          overrides: { inflationPct: 3, currentAge: 35 },
         }),
       ),
     ).toBeNull();
@@ -133,7 +133,7 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
       budget({
         monthlyIncome: 1500,
         deferralPct: 50,
-        overrides: { currentAge: 64, retirementAge: 65 },
+        overrides: { currentAge: 64 },
       }),
     );
     // $18k/yr at 50% = $9k, under the age-64 limit ($24,500 + $8,000 catch-up) → null.

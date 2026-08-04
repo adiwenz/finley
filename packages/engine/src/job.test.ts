@@ -8,7 +8,7 @@ import { emptyLedger } from "./ledger/ledger";
 import { replayLedger } from "./projection/buildHouseholdInput";
 import { nullJurisdiction } from "./jurisdiction";
 import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
-import { samplePlan, salariedJob } from "./testing/samplePlan";
+import { samplePlan, salariedJob, SAMPLE_JOB_END_AGE } from "./testing/samplePlan";
 import {
   deferralFractionOf,
   deriveRealGrowthPct,
@@ -70,18 +70,17 @@ describe("Job/Person standing model — additive compilation", () => {
       name: "P",
       birthYear,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
-      // Both authored to run to 80 — well past the plan's retirement age of 60, which is the
-      // point: the end is the job's, not the household's target.
+      // Both authored to run to 80 — well past where the fixture's own job stops at 60, which
+      // is the point: the end is each job's, and holding two does not make either the one that
+      // ends employment.
       jobs: [lateEndingJob, { ...lateEndingJob, id: "job-2" }],
     };
     const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
     expect(series).toHaveLength(2);
     const authoredEndMonth = (80 - samplePlan.currentAge) * 12 - 1;
     expect(series.every((s) => s.series.endMonth === authoredEndMonth)).toBe(true);
-    // Emphatically NOT the retirement age: that is a target the household aims at, and it is
-    // not an employment boundary.
     expect(series[0]!.series.endMonth).toBeGreaterThan(
-      (samplePlan.retirementAge - samplePlan.currentAge) * 12,
+      (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
     );
   });
 
@@ -935,7 +934,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   const authored = (job: Job, month: number): number =>
     jobPayPath(job, {
       startMonth: 0,
-      endMonthExclusive: (samplePlan.retirementAge - samplePlan.currentAge) * 12,
+      endMonthExclusive: (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
     }).monthlyCentsAt(month);
 
   /** $60k/yr = a round $5,000/mo, real-flat. */

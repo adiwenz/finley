@@ -103,6 +103,15 @@ export interface BaseAdjustmentsPanelProps {
     Projection,
     "expenseRowsAt" | "householdMonthlyIncomeCents" | "accountDescriptors"
   >;
+  /**
+   * The age the authored plan stops earning, which is where the quickstart's savings line stops
+   * — saving out of a paycheck the plan does not have is not a budget. `null` for a household
+   * with no jobs, which leaves the line unbounded rather than zero-length.
+   *
+   * Passed in rather than read here: it comes off the retirement solve `App` already holds, and
+   * a second solve on this panel could only ever agree with it or be a bug.
+   */
+  readonly plannedWorkStopAge: number | null;
 }
 
 export function BaseAdjustmentsPanel({
@@ -113,6 +122,7 @@ export function BaseAdjustmentsPanel({
   household,
   ledger,
   projection,
+  plannedWorkStopAge,
 }: BaseAdjustmentsPanelProps) {
   const lines = plan.budgetLines;
   const [selectedMonth, setSelectedMonth] = useState(0);
@@ -268,8 +278,11 @@ export function BaseAdjustmentsPanel({
     setPending(null);
   }
 
-  /** Where the quickstart's savings line stops. */
-  const retirementMonth = Math.max(0, (plan.retirementAge - plan.currentAge) * 12);
+  /** Where the quickstart's savings line stops — `undefined` leaves it unbounded. */
+  const retirementMonth =
+    plannedWorkStopAge === null
+      ? undefined
+      : Math.max(0, (plannedWorkStopAge - plan.currentAge) * 12);
 
   const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the

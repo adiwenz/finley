@@ -31,7 +31,6 @@ const base = {
   sharedScheme: "proportional" as const,
   inflationPct: 0,
   currentAge: 30,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };

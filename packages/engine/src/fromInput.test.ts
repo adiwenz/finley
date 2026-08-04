@@ -24,7 +24,6 @@ const base: ScenarioInput = {
   sharedScheme: "proportional",
   inflationPct: 2,
   currentAge: 30,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };
@@ -48,8 +47,8 @@ describe("Projection.init — the imperative half of authoring", () => {
   });
 
   it("keeps the scalars it was given, and projects", () => {
-    const p = Projection.init({ ...base, retirementAge: 62, lifeExpectancy: 85 }, nullJurisdiction);
-    expect(p.plan.retirementAge).toBe(62);
+    const p = Projection.init({ ...base, currentAge: 41, lifeExpectancy: 85 }, nullJurisdiction);
+    expect(p.plan.currentAge).toBe(41);
     expect(p.plan.lifeExpectancy).toBe(85);
     // A plan with no jobs and no budget still runs — it is a scenario, just an empty one.
     expect(p.run(nullJurisdiction).series.months.length).toBeGreaterThan(0);
@@ -100,7 +99,6 @@ describe("Projection.init — the imperative half of authoring", () => {
       /lifeExpectancy 950/,
     );
     // Every age-valued scalar is bounded, each at ITS OWN ceiling rather than one shared number.
-    expect(() => Projection.init({ ...base, retirementAge: 200 }, nullJurisdiction)).toThrow(/200/);
     // An age already lived stops a year below the ceiling: 120 leaves no month to project.
     expect(() => Projection.init({ ...base, currentAge: MAX_AGE }, nullJurisdiction)).toThrow(/119/);
     // And the claiming age stops at the top of the legal window, well below either.
@@ -109,7 +107,7 @@ describe("Projection.init — the imperative half of authoring", () => {
 
   it("accepts each ceiling itself — the bound refuses what is PAST it, not what reaches it", () => {
     const p = Projection.init(
-      { ...base, currentAge: MAX_LIVED_AGE, retirementAge: MAX_AGE, lifeExpectancy: MAX_AGE,
+      { ...base, currentAge: MAX_LIVED_AGE, lifeExpectancy: MAX_AGE,
         benefitClaimingAge: AGE_LIMITS.benefitClaimingAge },
       nullJurisdiction,
     );

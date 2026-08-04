@@ -186,16 +186,12 @@ export function projectFullRetirement(
   return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear));
 }
 
-/**
- * Evaluate a run with all jobs ceased at `age`. Omits `nearestFeasibleAge`:
- * {@link earliestFullRetirementAge} calls this for every candidate age to produce it, so
- * computing it here would recurse.
- */
+/** Evaluate a run with all jobs ceased at `age`. */
 export function evaluateFullRetirementAtAge(
   scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
-): Omit<RetirementEvaluation, "nearestFeasibleAge"> {
+): RetirementEvaluation {
   const series = projectFullRetirement(scenario, age, ctx);
   const feasible = planSurvives(series);
   return {
@@ -229,8 +225,8 @@ export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionCon
  * stops counting at the separation rather than running on to a retirement target they will
  * reach outside this household. A job that never pays the household at all does not count.
  *
- * `null` when no job in the household ever pays it (a scalar plan stops earned income at
- * `retirementAge`, already reported by the partial retirement age).
+ * `null` when no job in the household ever pays it — a household with no jobs has no planned
+ * stop, which is a different answer from stopping today.
  *
  * Distinct from {@link fullRetirementAge}, which is a SOLVED value: the earliest age the
  * household can stop working and still remain solvent. This is the opposite direction — it
@@ -288,12 +284,16 @@ export function continuedJobsAt(
     kind: "hypothetical",
     stopWorking,
   });
-  // Every age reported here is the PRIMARY's, the convention every other solver output uses.
-  const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
-
   return resolved
     .filter((r) => r.endYearExclusive > authoredJobEndYearExclusive(r.job))
     .map((r) => {
+      // Every age on THIS value is its owner's own, unlike `fullRetirementAge` and
+      // `plannedWorkStopAge`, which are the primary's by convention. A continued job belongs to
+      // one person and the sentence names them, so "Sam's Nursing job continued through when
+      // Sam is 71" is the only reading that can be right — reporting the primary's 66 there
+      // attached a number from Alex's life to a fact about Sam's. The calendar years travel
+      // alongside so a reader can reconcile the two clocks without knowing either birth year.
+      const ownerBirthYear = r.owner.birthYear;
       // The SAME naming the income legend uses, not a second rule: an untitled job is named
       // after its owner rather than by its minted id, which means nothing to whoever reads it.
       const names = jobDisplayNames(r.owner);
@@ -319,11 +319,20 @@ export function continuedJobsAt(
         .filter((w) => w.to > w.from)
         .map((w) => ({
           ...named(w.other.job),
-          fromAge: w.from - primaryBirthYear,
-          toAge: w.to - primaryBirthYear,
+          fromAge: w.from - ownerBirthYear,
+          toAge: w.to - ownerBirthYear,
+          fromYear: w.from,
+          toYear: w.to,
         }));
 
-      return { ...named(r.job), ownerId: r.owner.id, ownerName: r.owner.name, overlaps };
+      return {
+        ...named(r.job),
+        ownerId: r.owner.id,
+        ownerName: r.owner.name,
+        throughAge: r.endYearExclusive - ownerBirthYear,
+        throughYear: r.endYearExclusive,
+        overlaps,
+      };
     });
 }
 

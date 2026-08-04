@@ -5,17 +5,15 @@
  * retirement solver, which runs the same `simulateHousehold` the net-worth graph does — so
  * panel and graph can never disagree.
  *
- * The whole answer comes from one `retirement()` call, so the headline and the pinned-age
- * verdict are always two readings of the same search. What is left in this module is
- * presentation: the on-track rounding rule, and the two authored health figures the panel
- * shows beside the flag.
+ * The whole answer comes from one `retirement()` call. There is no pinned-age verdict any more —
+ * the plan states no retirement age, so the search's answer is the only one — which leaves this
+ * module a thin read: the headline, what it assumed, and the health flag beside it.
  */
 
 import type {
   ContinuedJob,
   Jurisdiction,
   Projection,
-  RetirementEvaluation,
   EarlyRetireeHealthFlag,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -27,18 +25,19 @@ export interface RetirementView {
    * The headline age in months from "now", for the chart's retirement reference line.
    */
   readonly headlineMonth: number | null;
-  /** The plan's evaluation at the pinned retirement age. */
-  readonly target: RetirementEvaluation;
   /**
-   * On-track % against the pinned age, rounded DOWN to a tenth of a percent and clamped to
-   * [0, 100]. Down, not to-nearest: a plan 99.97% of the way must not round up to a "100%"
-   * it hasn't earned, and an infeasible plan's fraction is strictly < 1.
+   * The age the plan AS AUTHORED stops earning — the last year any job pays this household,
+   * read off the jobs rather than solved, and `null` for a household holding none.
+   *
+   * The counterpart to {@link headlineAge}, and not a second opinion about it: this is when the
+   * money stops if nothing changes, where the headline is the earliest it COULD stop. The plan
+   * used to state this as `retirementAge`; it is a read now, so it cannot drift from the jobs.
    */
-  readonly targetOnTrackPct: number;
+  readonly plannedWorkStopAge: number | null;
   /**
-   * Fires when the plan retires before the Medicare-eligibility age with an authored health
+   * Fires when the SOLVED age lands before the Medicare-eligibility age with an authored health
    * line below the pre-65 self-funded benchmark. Surfaced as a nudge — an estimate, not
-   * advice.
+   * advice. Quiet when no age is feasible: there is no retirement to open a gap.
    */
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
   /**
@@ -64,13 +63,11 @@ export function retirementView(
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
   // net-worth graph does, because it asks the same handle.
-  const { solution, fullRetirementMonth, target, earlyRetireeHealth } =
-    projection.retirement(jurisdiction);
+  const { solution, fullRetirementMonth, earlyRetireeHealth } = projection.retirement(jurisdiction);
   return {
     headlineAge: solution.fullRetirementAge,
     headlineMonth: fullRetirementMonth,
-    target,
-    targetOnTrackPct: Math.min(100, Math.max(0, Math.floor(target.onTrackFraction * 1000) / 10)),
+    plannedWorkStopAge: solution.plannedWorkStopAge,
     earlyRetireeHealth,
     continuedJobs: solution.continuedJobs,
   };

@@ -50,7 +50,7 @@ const rentId = p.addBudgetLine({
   category: "needs",
 });
 
-p.setRetirementTarget(62); // an edit, not a creating write — mints no id
+p.updatePlan({ lifeExpectancy: 92 }); // an edit, not a creating write — mints no id
 
 // 3. Ledger transactions — same object as the standing edits above.
 const loanId = p.takeLoan({

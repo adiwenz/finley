@@ -324,9 +324,11 @@ describe("the panel and the graph agree", () => {
       const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
-      // draws surviving.
-      const pinnedWorks = projection.retirement(usJurisdiction).target.feasible;
-      if (graphSurvives) expect(pinnedWorks).toBe(true);
+      // draws surviving. Read off the solved age now that no age is pinned — a household whose
+      // authored plan survives to life expectancy can, at worst, stop when that plan already
+      // stops, so SOME age has to be reachable.
+      const solvedAge = projection.retirement(usJurisdiction).solution.fullRetirementAge;
+      if (graphSurvives) expect(solvedAge).not.toBeNull();
     },
   );
 

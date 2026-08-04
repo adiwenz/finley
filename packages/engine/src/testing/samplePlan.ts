@@ -55,7 +55,8 @@ export const SAMPLE_START_YEAR = 2026;
 
 const SAMPLE_CURRENT_AGE = 40;
 /** Where the fixture's job ends unless a test says otherwise — every job states an end. */
-const SAMPLE_RETIREMENT_AGE = 60;
+/** The age the fixture job ends, exported so a test can name the job's own end. */
+export const SAMPLE_JOB_END_AGE = 60;
 const SAMPLE_START_AGE = 18;
 
 /**
@@ -83,7 +84,7 @@ export function salariedJob(
     id: "job-main",
     ownerId: "p1",
     startYear: birthYear + startAge,
-    endYear: birthYear + (opts?.endAge ?? SAMPLE_RETIREMENT_AGE),
+    endYear: birthYear + (opts?.endAge ?? SAMPLE_JOB_END_AGE),
     salary: {
       startingSalaryCents: monthlyIncomeCents * 12,
       currentSalaryCents: monthlyIncomeCents * 12,
@@ -115,7 +116,6 @@ export const samplePlan = {
   ],
   inflationPct: 3,
   currentAge: SAMPLE_CURRENT_AGE,
-  retirementAge: SAMPLE_RETIREMENT_AGE,
   lifeExpectancy: 85,
   benefitClaimingAge: 67,
   jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 })],
@@ -156,7 +156,6 @@ export const baristaPlan = {
   goals: [],
   inflationPct: 3,
   currentAge: BARISTA_CURRENT_AGE,
-  retirementAge: 60,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
   jobs: [baristaOpenEndedJob, baristaSupplementalJob],

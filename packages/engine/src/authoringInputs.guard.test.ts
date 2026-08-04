@@ -107,7 +107,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, retirementAge: 65,
+      inflationPct: 2, currentAge: 30, 
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 
@@ -150,7 +150,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, retirementAge: 65,
+      inflationPct: 2, currentAge: 30, 
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 

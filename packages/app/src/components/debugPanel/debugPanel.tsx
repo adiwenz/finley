@@ -111,7 +111,6 @@ function Configuration({
         rows={[
           ["Name", budget.name || "You"],
           ["Current age", budget.currentAge],
-          ["Retirement age", budget.retirementAge],
           ["Life expectancy", budget.lifeExpectancy],
           ["Jurisdiction", jurisdictionId],
           ["Horizon", `${inputs.horizonYears} yr (${inputs.horizonMonths} mo)`],

@@ -58,21 +58,17 @@ describe("retirementView — one query behind every figure", () => {
     const outlook = reader.retirement(usJurisdiction);
     expect(view.headlineAge).toBe(outlook.solution.fullRetirementAge);
     expect(view.headlineMonth).toBe(outlook.fullRetirementMonth);
-    expect(view.target).toEqual(outlook.target);
+    expect(view.plannedWorkStopAge).toBe(outlook.solution.plannedWorkStopAge);
     expect(view.earlyRetireeHealth).toEqual(outlook.earlyRetireeHealth);
   });
 
-  it("keeps the on-track rounding on this side of the boundary — floored, clamped", () => {
-    // The engine reports a fraction; rounding DOWN to a tenth is the app's rule, so a plan
-    // 99.97% of the way cannot show a "100%" it has not earned.
-    const view = viewOf(PLAN_DEFAULTS);
-    expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
-    expect(view.targetOnTrackPct).toBeGreaterThanOrEqual(0);
-    expect(view.targetOnTrackPct).toBe(
-      Math.floor(view.target.onTrackFraction * 1000) / 10 > 100
-        ? 100
-        : Math.floor(view.target.onTrackFraction * 1000) / 10,
-    );
+  it("carries no pinned-target figures — there is no age to score against", () => {
+    // `target` and `targetOnTrackPct` went with `Plan.retirementAge`. Asserted as absent rather
+    // than merely unused: the view is what the panel renders, and a stale field here is how a
+    // removed concept comes back as a line of copy nobody meant to keep.
+    const view = viewOf(PLAN_DEFAULTS) as unknown as Record<string, unknown>;
+    expect(view.target).toBeUndefined();
+    expect(view.targetOnTrackPct).toBeUndefined();
   });
 });
 
@@ -102,75 +98,38 @@ describe("retirementView — headline age driven off the real projection", () =>
   });
 });
 
-describe("retirementView — target mode against the pinned age", () => {
-  it("reports the pinned age on track (100%) when the plan survives there", () => {
-    // Real single-filer federal tax, a cash-realistic 1% emergency-fund return, and employee
-    // FICA charged on wages lift the default plan's feasible floor to 78.
-    const pinnedAtFloor: Plan = { ...PLAN_DEFAULTS, retirementAge: 78 };
-    const view = viewOf(pinnedAtFloor);
-    expect(view.target.feasible).toBe(true);
-    expect(view.target.nearestFeasibleAge).toBe(pinnedAtFloor.retirementAge);
-    expect(view.targetOnTrackPct).toBe(100);
+describe("retirementView — early-retiree health flag, measured at the SOLVED age", () => {
+  /** Enough opening balance to solve well before Medicare; nothing budgeted for health. */
+  const retiresEarly = withHealth(0, { openingBalanceCents: dollarsToCents(500_000) });
+
+  it("flags a household whose earliest feasible age falls before Medicare", () => {
+    const view = viewOf(retiresEarly);
+    expect(view.headlineAge).toBe(58);
+    expect(view.earlyRetireeHealth.flagged).toBe(true);
+    // Seven self-funded years — 65 minus the SOLVED 58, not a figure the plan states.
+    expect(view.earlyRetireeHealth.gapYears).toBe(7);
   });
 
-  it("falls short of 100% and points to the nearest feasible age when the pin can't survive", () => {
-    // Below the feasible floor. The nearest feasible age is the solver's full-retirement
-    // headline — the pin is graded by the same rule.
-    const pinnedTooEarly: Plan = { ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge };
-    const view = viewOf(pinnedTooEarly);
-    expect(view.target.feasible).toBe(false);
-    expect(view.targetOnTrackPct).toBeLessThan(100);
-    expect(view.target.nearestFeasibleAge).toBe(view.headlineAge);
-  });
-
-  it("keeps the on-track % within [0, 100]", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, retirementAge: PLAN_DEFAULTS.currentAge });
-    expect(view.targetOnTrackPct).toBeGreaterThanOrEqual(0);
-    expect(view.targetOnTrackPct).toBeLessThanOrEqual(100);
-  });
-
-  // The default plan pinned at 65 is infeasible (the floor is above 65) yet holds a `retain`
-  // home reserve keeping net worth positive throughout — the shape that once pinned the
-  // metric to a contradictory "100% of the way there".
-  it("never reads 100% for an infeasible plan and rounds the % DOWN to 0.1%", () => {
+  it("does NOT flag the default plan, which cannot stop working until after 65", () => {
     const view = viewOf(PLAN_DEFAULTS);
-    expect(view.target.feasible).toBe(false);
-    expect(view.targetOnTrackPct).toBeLessThan(100);
-    expect(view.targetOnTrackPct).toBe(Math.floor(view.target.onTrackFraction * 1000) / 10);
-    expect(view.targetOnTrackPct).toBeLessThanOrEqual(view.target.onTrackFraction * 100);
-  });
-});
-
-describe("retirementView — early-retiree health-cost honesty flag (Medicare)", () => {
-  it("does NOT flag a plan that retires at the Medicare age (no self-funded gap)", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, retirementAge: 65 });
+    expect(view.headlineAge).toBeGreaterThan(65);
     expect(view.earlyRetireeHealth.flagged).toBe(false);
     expect(view.earlyRetireeHealth.gapYears).toBe(0);
   });
 
-  it("flags an early retirement whose authored health cost is below the pre-65 benchmark", () => {
-    const view = viewOf(withHealth(0, { retirementAge: 55 }));
-    expect(view.earlyRetireeHealth.flagged).toBe(true);
-    // Ten self-funded years (55 → 65) before Medicare.
-    expect(view.earlyRetireeHealth.gapYears).toBe(10);
-    // Nothing budgeted, so the shortfall is the whole (indexed) pre-65 benchmark.
-    expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBeGreaterThan(0);
-  });
-
-  it("does NOT flag an early retiree who already budgets at least the benchmark", () => {
-    const view = viewOf(withHealth(5_000, { retirementAge: 55 }));
+  it("does NOT flag a household that can never retire — no retirement, no gap", () => {
+    const view = viewOf({ ...PLAN_DEFAULTS, openingBalanceCents: 0, jobs: [] });
+    expect(view.headlineAge).toBeNull();
     expect(view.earlyRetireeHealth.flagged).toBe(false);
-    expect(view.earlyRetireeHealth.shortfallMonthlyCents).toBe(0);
+    expect(view.earlyRetireeHealth.gapYears).toBe(0);
   });
 
-  it("prices the benchmark in today's dollars — independent of how far off retirement is", () => {
-    const near = viewOf(withHealth(0, { currentAge: 60, retirementAge: 62 }));
-    const far = viewOf(withHealth(0, { currentAge: 35, retirementAge: 62 }));
-    expect(far.earlyRetireeHealth.shortfallMonthlyCents).toBe(
-      near.earlyRetireeHealth.shortfallMonthlyCents,
+  it("prices the benchmark in today's dollars, not indexed out to the retirement year", () => {
+    // The solved age is 58 against a current age of 35 — 23 years out. An indexed benchmark
+    // would be far above the base figure, so the exact base number is the assertion.
+    expect(viewOf(retiresEarly).earlyRetireeHealth.shortfallMonthlyCents).toBe(
+      dollarsToCents(1_200),
     );
-    // The base-year benchmark, not an inflated one: $1,200 − $0 budgeted.
-    expect(far.earlyRetireeHealth.shortfallMonthlyCents).toBe(dollarsToCents(1_200));
   });
 });
 

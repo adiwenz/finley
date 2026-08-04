@@ -34,6 +34,26 @@ function JobPhrase({
   );
 }
 
+/**
+ * "when Sam is" / "when you are" — whose clock an age is on, said outright.
+ *
+ * Every age on a {@link import("@finley/engine").ContinuedJob} is its OWNER's, while the headline
+ * beside it is the primary's, and the two differ by however many years apart the two people were
+ * born. A bare "through age 71" in a sentence about Sam therefore reads as the household's clock
+ * and is wrong by exactly that gap, so whose it is gets said rather than implied.
+ *
+ * The primary is "you", not their name, to match {@link JobPhrase}: that already calls their work
+ * "your Software Engineer job", and "your job continued through when Alex is 66" switches person
+ * mid-sentence about one person. Everyone else is named, which is the whole point.
+ */
+function Whose({ owner }: { owner: { ownerId: string; ownerName: string } }) {
+  return owner.ownerId === PRIMARY_PERSON_ID ? (
+    <>when you are</>
+  ) : (
+    <>when {owner.ownerName} is</>
+  );
+}
+
 export function RetirementPanel({
   view,
   budget,
@@ -108,10 +128,11 @@ export function RetirementPanel({
               // clause would put element boundaries inside it for no reason.
               <Fragment key={c.jobId}>
                 {i > 0 && (i === view.continuedJobs.length - 1 ? " and " : ", ")}
-                <JobPhrase job={c} />
+                <JobPhrase job={c} /> continued through{" "}
+                <Whose owner={c} /> {c.throughAge} ({c.throughYear})
               </Fragment>
-            ))}{" "}
-            continued through age {view.headlineAge}.
+            ))}
+            .
           </p>
           {/* The one thing about a continued job a reader would not predict: it never ended, so
               it now runs THROUGH the jobs that were authored to follow it, and both pay. Named
@@ -120,32 +141,21 @@ export function RetirementPanel({
             c.overlaps.map((o) => (
               <p className="hint" key={`${c.jobId}-${o.jobId}`}>
                 This scenario assumes <JobPhrase job={c} /> continued alongside{" "}
-                <JobPhrase job={{ ...o, ownerId: c.ownerId, ownerName: c.ownerName }} /> from age{" "}
-                {o.fromAge} to{" "}
-                {o.toAge}.
+                <JobPhrase job={{ ...o, ownerId: c.ownerId, ownerName: c.ownerName }} /> from{" "}
+                <Whose owner={c} /> {o.fromAge} to {o.toAge} ({o.fromYear}–{o.toYear}).
               </p>
             )),
           )}
         </>
       )}
 
-      <p className="hint">
-        Your target is age {budget.retirementAge}:{" "}
-        {view.target.feasible ? (
-          <strong>on track (100%)</strong>
-        ) : (
-          <>
-            <strong>{view.targetOnTrackPct}% of the way there</strong>
-            {view.target.nearestFeasibleAge !== null && (
-              <> — the nearest feasible age is {view.target.nearestFeasibleAge}.</>
-            )}
-          </>
-        )}
-      </p>
+      {/* No "your target is age N" line. The plan pins no retirement age, so there is no target
+          to score against and no on-track percentage to report — the headline above IS the
+          nearest feasible age, and saying it twice only invited the two to disagree. */}
 
       {view.earlyRetireeHealth.flagged && (
         <p className="alert alert-amber" role="status">
-          Retiring at {budget.retirementAge} means{" "}
+          Retiring at {view.headlineAge} means{" "}
           <strong>{view.earlyRetireeHealth.gapYears} years</strong> of self-funded
           health coverage before Medicare at 65. Your health budget looks about{" "}
           <strong>{formatDollars(view.earlyRetireeHealth.shortfallMonthlyCents)}/mo</strong>{" "}

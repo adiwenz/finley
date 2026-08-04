@@ -235,7 +235,7 @@ describe("JobsPanel — listing", () => {
       startYear: START_YEAR + 35, // age 70
       endYear: START_YEAR + 45, // to age 80
     };
-    const initial = { ...PLAN_DEFAULTS, retirementAge: 75, jobs: [PLAN_DEFAULTS.jobs[0]!, laterJob] };
+    const initial = { ...PLAN_DEFAULTS, jobs: [PLAN_DEFAULTS.jobs[0]!, laterJob] };
 
     const { rerender } = render(<Harness initial={initial} />);
     // Not previewing: the job charts its authored span, 70 to the authored stop-working age.
@@ -601,7 +601,8 @@ describe("JobsPanel — an ordinary edit changes only what it names", () => {
     render(<Harness initial={planWithRichJob} />);
     const seriesBefore = Projection.fromState(stateOf(authored().plan, authored().ledger), usJurisdiction)
       .run(usJurisdiction).series;
-    const lastPaidBefore = (PLAN_DEFAULTS.retirementAge - PLAN_DEFAULTS.currentAge) * 12 - 1;
+    // Off the JOB's own end — the only thing that says when it stops paying.
+    const lastPaidBefore = (PLAN_DEFAULTS.jobs[0]!.endYear! - START_YEAR) * 12 - 1;
     expect(wagesFor(seriesBefore, PRIMARY_PERSON_ID, 0)).toBe(dollarsToCents(5000));
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Software Engineer/i }));
