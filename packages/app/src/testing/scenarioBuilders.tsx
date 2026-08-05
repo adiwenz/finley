@@ -1,19 +1,36 @@
 /**
  * The end-to-end scenario vocabulary, shared across scenario files. Each builder authors a
  * household through the public `Projection` API exactly as a user would through the UI, and each
- * reader pulls the SENTENCES the retirement panel puts on screen — solved against the real US
- * jurisdiction, rendered through the real component. A scenario file imports these and is a few
- * assertions; without them a second file would re-implement the whole harness.
+ * reader pulls the SENTENCE or FIGURE a panel puts on screen — the retirement answer, a goal's
+ * on-track status, the net-worth headline, the month's income — solved against the real US
+ * jurisdiction and rendered through the real component. A scenario file imports these and is a
+ * few assertions; without them a second file would re-implement the whole harness.
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { Projection, PRIMARY_PERSON_ID, dollarsToCents, type JobInput } from "@finley/engine";
+import {
+  Projection,
+  PRIMARY_PERSON_ID,
+  SYNTHETIC_CARD_ID,
+  dollarsToCents,
+  liabilityKindLabel,
+  planHorizonMonths,
+  type JobInput,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./projectionHarness";
 import { retirementView } from "../retirementView";
 import { RetirementPanel } from "../components/retirementPanel/retirementPanel";
+import { GoalsPanel } from "../components/goalsPanel/goalsPanel";
+import { NetWorthBreakdownChart } from "../components/netWorthChart/netWorthBreakdownChart";
+import { buildNetWorthBreakdown } from "../components/netWorthChart/netWorthBreakdown";
+import { BaseAdjustmentsPanel } from "../components/baseAdjustments/baseAdjustmentsPanel";
 import { PLAN_DEFAULTS } from "../planDefaults";
 import { START_YEAR } from "../config";
+import type { Transact } from "../hooks/useProjection";
+
+/** These panels take a write callback they never fire under a static render; a typed no-op. */
+const NO_WRITES: Transact = () => undefined;
 
 const ALEX_AGE = PLAN_DEFAULTS.currentAge;
 const ALEX_BIRTH = START_YEAR - ALEX_AGE;
@@ -48,6 +65,23 @@ export function jobAt(
 export const alexAlone = (): Projection => Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
 
 /**
+ * One rendered HTML fragment as the plain text a reader sees: tags dropped, the entities
+ * `renderToStaticMarkup` emits decoded back to the glyphs the panels author (`&#x27;`→`'`,
+ * `&#x2019;`→`’`, `&#x2013;`→`–`, `&amp;`→`&`), whitespace collapsed. Every panel reader below
+ * strips markup through here so an assertion is against the sentence, never the tags around it.
+ */
+function plainText(fragment: string): string {
+  return fragment
+    .replace(/<[^>]+>/g, "")
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&#x2019;/g, "’")
+    .replace(/&#x2013;/g, "–")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * The panel's own paragraphs, as the plain text a reader sees. Rendered through the real
  * component and the real view, so nothing between the solve and the screen is stubbed.
  */
@@ -60,16 +94,84 @@ export function paragraphs(p: Projection): string[] {
       onTogglePreview={() => {}}
     />,
   );
-  return [...html.matchAll(/<p[^>]*>(.*?)<\/p>/gs)].map((m) =>
-    m[1]!
-      .replace(/<[^>]+>/g, "")
-      .replace(/&#x27;|&#39;/g, "'")
-      .replace(/&#x2019;/g, "’")
-      .replace(/&#x2013;/g, "–")
-      .replace(/&amp;/g, "&")
-      .replace(/\s+/g, " ")
-      .trim(),
+  return [...html.matchAll(/<p[^>]*>(.*?)<\/p>/gs)].map((m) => plainText(m[1]!));
+}
+
+/**
+ * One goal's claim to the household, in the order the panel stacks it: the projection-scored
+ * status ("Funded", or "N% on track"), the pacing line when still in progress, the target and
+ * date, and the at-target disposition. Rendered through the real `GoalsPanel` against the plan's
+ * own run, so the on-track percentage is the engine's `goalProgress` math joined to the panel's
+ * words — the seam a household actually reads, not the `GoalRow` fields underneath it.
+ */
+export function goalClaim(p: Projection, goalName: string): string[] {
+  const html = renderToStaticMarkup(
+    <GoalsPanel
+      budget={p.plan}
+      result={p.run(usJurisdiction)}
+      projection={p}
+      transact={NO_WRITES}
+    />,
   );
+  const row = html.match(new RegExp(`<li class="goal-row" aria-label="${goalName}">(.*?)</li>`, "s"));
+  if (row === null) throw new Error(`no goal row "${goalName}" in:\n${html}`);
+  return [
+    ...row[1]!.matchAll(
+      /<(?:span|div) class="goal-(?:track|status[^"]*|meta|disposition)"[^>]*>(.*?)<\/(?:span|div)>/gs,
+    ),
+  ].map((m) => plainText(m[1]!));
+}
+
+/**
+ * The one sentence the net-worth breakdown chart states above its bands — the peak figure and
+ * the composition ("across N accounts", property, debt). Built exactly as `main.tsx` builds it
+ * (real account descriptors, the synthetic last-resort card labelled as a credit card), so the
+ * dollars are the ones a user reads, formatted, not the cents the series carries.
+ */
+export function netWorthSummary(p: Projection): string {
+  const result = p.run(usJurisdiction);
+  const liabilityLabels: Record<string, string> = {
+    [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
+  };
+  for (const liability of result.household.liabilities) {
+    liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
+  }
+  const data = buildNetWorthBreakdown(
+    result.series,
+    { accounts: p.accountDescriptors(), liabilityLabels },
+    planHorizonMonths(p.plan),
+  );
+  const html = renderToStaticMarkup(<NetWorthBreakdownChart data={data} />);
+  const summary = html.match(/data-testid="breakdown-summary"[^>]*>(.*?)<\/p>/s);
+  if (summary === null) throw new Error(`no breakdown summary in:\n${html}`);
+  return plainText(summary[1]!);
+}
+
+/**
+ * The Base + Adjustments panel's income read-out at month 0: the total, formatted string a user
+ * sees for "what your jobs pay at the selected month". Rendered through the real panel off the
+ * plan's own run, so it is the engine's household wage total joined to the panel — a two-earner
+ * household reads a figure a one-earner household does not.
+ */
+export function budgetIncome(p: Projection): string {
+  const result = p.run(usJurisdiction);
+  const personNames = new Map<string, string>([[PRIMARY_PERSON_ID, p.plan.name]]);
+  for (const member of result.membersAt(0)) personNames.set(member.id, member.name);
+  const html = renderToStaticMarkup(
+    <BaseAdjustmentsPanel
+      plan={p.plan}
+      transact={NO_WRITES}
+      series={result.series}
+      personNames={personNames}
+      household={result.household}
+      ledger={p.ledger}
+      projection={p}
+      plannedWorkStopAge={retirementView(p, usJurisdiction).plannedWorkStopAge}
+    />,
+  );
+  const income = html.match(/data-testid="income-readonly"[^>]*>(.*?)<\/span>/s);
+  if (income === null) throw new Error(`no income read-out in:\n${html}`);
+  return plainText(income[1]!);
 }
 
 /**
