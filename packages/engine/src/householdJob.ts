@@ -27,7 +27,7 @@
  * touching a byte of the scenario.
  */
 
-import type { Job, JobId } from "./job";
+import type { Job, JobId, JobPaySpan } from "./job";
 import type { Person } from "./person";
 import type { HouseholdMembership } from "./ledger/household";
 
@@ -332,6 +332,120 @@ export function resolveHouseholdJob(
     // membership never overlap.
     paysHousehold: employmentEndMonthExclusive > 0 && paidEndMonthExclusive > paidStartMonth,
   };
+}
+
+/**
+ * Why a stretch of a job's employment brings this household nothing — one of exactly two
+ * answers, because a membership has exactly two edges.
+ *
+ * Codes rather than sentences: the engine knows which side of the membership a month falls on
+ * and has no business knowing what a surface calls the person, so the wording stays where the
+ * name is.
+ */
+export type UncountedPayReason = "before-household-membership" | "after-household-membership";
+
+/** One stretch of employment the household is not paid for, and which edge put it there. */
+export interface UncountedPaySpan extends JobPaySpan {
+  readonly reason: UncountedPayReason;
+}
+
+/**
+ * **A job's employment, the part of it this household is paid for, and the parts it is not** —
+ * the whole answer a surface needs to draw one job honestly, in one value.
+ *
+ * The three are separate because they are three different facts, and a chart that conflates any
+ * two of them tells a lie a reader cannot see. Shortening the employment to the paid window says
+ * the person stopped working when they only stopped being in this household. Drawing the
+ * employment alone says the household collected every month of it. Only the pair, with the gaps
+ * named, says what actually happened.
+ *
+ * There can be two gaps, not one. A partner who joins at 45 and separates at 55, holding a job
+ * from 35 to 65, brings this household ten years out of thirty — and the surface that only ever
+ * looked for a suffix reported the last ten and silently kept the first ten on the books.
+ *
+ * **Months, and the whole employment including its history.** {@link employmentSpan} starts where
+ * the job was authored to start, which may be before "now" — a chart draws that past, and the
+ * projection pays none of it. That is the one place this deliberately differs from the window
+ * the simulator uses ({@link ResolvedHouseholdJob.paidStartMonth}, clamped to 0): the gaps here
+ * are the MEMBERSHIP's and nothing else, so a household's own long-held job never reports its
+ * history as somebody else's.
+ */
+export interface ResolvedJobPayDisplay {
+  /**
+   * The employment as resolved under the scope asked for — authored ends under `"authored"`, and
+   * a candidate boundary's cap or extension under `"hypothetical"`. An employment that resolves
+   * to nothing at all (a job a candidate boundary falls before) collapses onto its own start
+   * rather than running backwards, so a caller can draw it without a special case.
+   */
+  readonly employmentSpan: JobPaySpan;
+  /** Employment ∩ membership — `null` when the two never meet, which is an answer and not a gap. */
+  readonly paidSpan: JobPaySpan | null;
+  /** Zero, one or two gaps, in time order. Never zero-length. */
+  readonly uncountedSpans: readonly UncountedPaySpan[];
+}
+
+/**
+ * {@link ResolvedJobPayDisplay} for one job — the membership math, in the one place that already
+ * owns it.
+ *
+ * Built on {@link resolveHouseholdJob}, so the employment end it draws is the same one the
+ * projection compiles, and on {@link membershipWindow}, so the edges are the same ones a wage and
+ * a benefit are already clipped by. Nothing here is a second reading of a separation.
+ */
+export function resolveJobPayDisplay(
+  ctx: HouseholdJobContext,
+  nowYear: number,
+  scope: JobResolutionScope,
+): ResolvedJobPayDisplay {
+  const resolved = resolveHouseholdJob(ctx, nowYear, scope);
+  // The AUTHORED start, unclamped — see the note on `employmentSpan`. `resolveHouseholdJob`'s
+  // own start is the growth anchor and is clamped to 0, which is right for compiling pay and
+  // wrong for drawing a job somebody has already been doing for ten years.
+  const startMonth = (ctx.job.startYear - nowYear) * 12;
+  const endMonthExclusive = Math.max(startMonth, resolved.employmentEndMonthExclusive);
+  const employmentSpan: JobPaySpan = { startMonth, endMonthExclusive };
+  const member = membershipWindow(ctx.membership);
+
+  const paidStartMonth = Math.max(startMonth, member.startMonth);
+  const paidEndMonthExclusive = Math.min(endMonthExclusive, member.endMonthExclusive);
+  const paidSpan: JobPaySpan | null =
+    paidEndMonthExclusive > paidStartMonth
+      ? { startMonth: paidStartMonth, endMonthExclusive: paidEndMonthExclusive }
+      : null;
+
+  const uncountedSpans: UncountedPaySpan[] = [];
+  if (paidSpan === null) {
+    // No employment at all is no claim to make: a job a candidate boundary falls before did not
+    // happen, and saying the household was not paid for it would put a job on screen the
+    // hypothesis removed.
+    if (endMonthExclusive > startMonth) {
+      uncountedSpans.push({
+        ...employmentSpan,
+        // Which edge missed it. A membership beginning at or after the employment ends means
+        // they joined too late; anything else means they had already left.
+        reason:
+          member.startMonth >= endMonthExclusive
+            ? "before-household-membership"
+            : "after-household-membership",
+      });
+    }
+    return { employmentSpan, paidSpan, uncountedSpans };
+  }
+  if (paidSpan.startMonth > startMonth) {
+    uncountedSpans.push({
+      startMonth,
+      endMonthExclusive: paidSpan.startMonth,
+      reason: "before-household-membership",
+    });
+  }
+  if (paidSpan.endMonthExclusive < endMonthExclusive) {
+    uncountedSpans.push({
+      startMonth: paidSpan.endMonthExclusive,
+      endMonthExclusive,
+      reason: "after-household-membership",
+    });
+  }
+  return { employmentSpan, paidSpan, uncountedSpans };
 }
 
 /** {@link resolveHouseholdJob} over a whole list — the shape every household calculation takes. */

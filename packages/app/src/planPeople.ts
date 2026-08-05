@@ -8,14 +8,12 @@
 
 import {
   PRIMARY_PERSON_ID,
-  RETIREMENT_ID,
   jobPayPath,
+  RETIREMENT_ID,
   type Job,
   type JobIncomeOverride,
   type JobInput,
   type JobPayChange,
-  type JobPayPath,
-  type JobPaySpan,
   type PersonId,
   type Plan,
   type Projection,
@@ -55,46 +53,10 @@ export function monthAtOwnerAge(birthYear: number, age: number): number {
   return (birthYear + age - START_YEAR) * 12;
 }
 
-/** Whose clock a job's span is read against. */
-export interface JobSpanOwner {
-  readonly birthYear: number;
-}
-
-/**
- * A job's paying window in simulation months, straight off its own two authored years. Negative
- * months are the job's history — the span a job already under way spends before "now".
- *
- * The owner is still named because ages elsewhere on the panel read against their birth year;
- * the SPAN no longer consults them at all. It used to: an end-less job took its end from the
- * owner's retirement age, so a chart could contradict the job beside it.
- */
-export function jobPaySpanFor(_owner: JobSpanOwner, job: Job): JobPaySpan {
-  return {
-    startMonth: (job.startYear - START_YEAR) * 12,
-    endMonthExclusive: (job.endYear - START_YEAR) * 12,
-  };
-}
-
-/**
- * A job's pay across its whole span — the reading the Jobs panel charts and lists, including
- * the size of the month-0 seam.
- *
- * The plan's CPI is always passed, because it is what a past paycheck grew by whichever
- * denomination is being read; `inTodaysDollars` is the one that picks the reading. See
- * {@link jobPayPath}.
- */
-export function jobPayPathFor(
-  owner: JobSpanOwner,
-  job: Job,
-  inflationRate = 0,
-  inTodaysDollars = false,
-): JobPayPath {
-  return jobPayPath(job, jobPaySpanFor(owner, job), {
-    inflationRate,
-    denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
-  });
-}
-
+// A job's paying window used to be derived here, from its two authored years. It is the
+// engine's now — `ProjectionResult.jobPayDisplay`, which answers the employment AND which of it
+// is this household's income, under whichever scope the run was made in. Deriving it here could
+// only ever be a second opinion about a separation.
 
 // ── Authoring: add / edit / remove a job from a form draft ──
 

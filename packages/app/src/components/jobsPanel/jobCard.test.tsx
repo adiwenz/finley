@@ -7,8 +7,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { dollarsToCents, type Job } from "@finley/engine";
-import { jobPayPathFor } from "../../planPeople";
+import { dollarsToCents, jobPayPath, type Job } from "@finley/engine";
+
+import { START_YEAR } from "../../config";
 import type { JobOwner } from "../../jobOwners";
 import type { JobEditDraft } from "../../planPeople";
 import { JobCard } from "./jobCard";
@@ -19,7 +20,6 @@ const OWNER: JobOwner = {
   birthYear: 1985,
   jobs: [],
   startMonth: -Infinity,
-  endMonth: null,
   writeTarget: "plan",
 };
 
@@ -67,9 +67,9 @@ function renderCard(overrides: Partial<Parameters<typeof JobCard>[0]> = {}) {
       job={JOB}
       label="Engineer"
       monthlyCents={dollarsToCents(5_000)}
-      uncounted={null}
+      uncounted={[]}
       initialEditDraft={EDIT_DRAFT}
-      path={jobPayPathFor(OWNER, JOB, 0.03, false)}
+      path={jobPayPath(JOB, { startMonth: (JOB.startYear - START_YEAR) * 12, endMonthExclusive: (JOB.endYear - START_YEAR) * 12 }, { inflationRate: 0.03 })}
       lifeExpectancy={90}
       inTodaysDollars={false}
       severalOwners={false}

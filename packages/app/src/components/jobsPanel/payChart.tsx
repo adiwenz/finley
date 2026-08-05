@@ -67,6 +67,7 @@ import {
   type JobIncomeOverride,
   type JobPayChange,
   type JobPayPath,
+  type UncountedPaySpan,
 } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
@@ -93,18 +94,27 @@ function ageLabel(birthYear: number, month: number): string {
   return into === 0 ? `Age ${age}` : `Age ${age} + ${into} mo`;
 }
 
+/** One uncounted interval as the chart takes it: the engine's span, worded by the panel. */
+export interface UncountedPaySpanNote extends UncountedPaySpan {
+  /** The sentence for {@link UncountedPaySpan.reason}, with the owner named. */
+  readonly note: string;
+}
+
 interface PayChartProps {
   readonly path: JobPayPath;
   /**
-   * Where along the drawn span this job's pay stops being household income, and the note saying
-   * why — `null` for every job the household is paid for throughout.
+   * The stretches of the drawn span that are not this household's income, each with its own
+   * sentence — empty for the ordinary job.
    *
    * Drawn as a hatch OVER the pay rather than by shortening the line, because the two facts are
    * different and the reader needs both: the person goes on holding the job (their schedule is
    * unchanged, and truncating it would say they stopped working) while the household stops
    * receiving it. A gap where the line simply ends cannot say the first of those.
+   *
+   * A LIST, and each interval carries its own end: a partner who joined at 45 and separated at
+   * 55 leaves two gaps in one job, and neither of them runs to the edge of the chart.
    */
-  readonly uncounted: { readonly fromMonth: number; readonly note: string } | null;
+  readonly uncounted: readonly UncountedPaySpanNote[];
   /** Only to pin each change's own month as a sample — the VALUES all come from `path`. */
   readonly payChanges: readonly JobPayChange[];
   /**
@@ -260,11 +270,14 @@ export function PayChart({
           ? `. At ${currentAge} it ${step > 0 ? "steps up" : "steps down"} ${formatDollars(Math.abs(step))} a month.`
           : ".") +
         // The hatch is the only cue for this on the chart itself, and a hatch is invisible to a
-        // screen reader — so the fact travels in the description too, in ages like everything
-        // else here.
-        (uncounted
-          ? ` From age ${ownerAgeAtMonth(birthYear, uncounted.fromMonth)} the pay is no longer household income.`
-          : "")
+        // screen reader — so every interval travels in the description too, in ages like
+        // everything else here.
+        uncounted
+          .map(
+            (u) =>
+              ` From age ${ownerAgeAtMonth(birthYear, u.startMonth)} to ${ownerAgeAtMonth(birthYear, u.endMonthExclusive)} the pay is not household income.`,
+          )
+          .join("")
       }
     >
       {/* Data mirror: Recharts draws nothing in jsdom, so the seam — the one fact this chart
@@ -277,10 +290,11 @@ export function PayChart({
       <output data-testid="pay-chart-one-offs" hidden>
         {JSON.stringify(rows.filter((r) => r.adjusted).map((r) => [r.month, r.pay]))}
       </output>
-      {/* And the same for the hatch: a `<pattern>` fill inside Recharts is nothing jsdom can be
-          asked about, so the month it starts at is stated where a test can read it. */}
-      <output data-testid="pay-chart-uncounted-from" hidden>
-        {uncounted === null ? "" : uncounted.fromMonth}
+      {/* And the same for the hatches: a `<pattern>` fill inside Recharts is nothing jsdom can
+          be asked about, so each interval — with the engine's own reason code — is stated where
+          a test can read it. */}
+      <output data-testid="pay-chart-uncounted" hidden>
+        {JSON.stringify(uncounted.map((u) => [u.startMonth, u.endMonthExclusive, u.reason]))}
       </output>
 
       <ResponsiveContainer width="100%" height={140}>
@@ -363,15 +377,16 @@ export function PayChart({
               underneath it — the pay is still drawn, and still the owner's, and this says what
               the household does with it. The full height on purpose: the claim is about the
               whole stretch of time, not about the dollars in it. */}
-          {uncounted !== null && (
+          {uncounted.map((u) => (
             <ReferenceArea
-              x1={uncounted.fromMonth}
-              x2={lastMonth}
+              key={`${u.startMonth}-${u.endMonthExclusive}`}
+              x1={u.startMonth}
+              x2={u.endMonthExclusive}
               fill={`url(#${patternId})`}
               fillOpacity={1}
               stroke="none"
             />
-          )}
+          ))}
 
           <ReferenceLine
             x={0}
@@ -410,15 +425,15 @@ export function PayChart({
           this pattern has to convey (that the pay is real and is not the household's) is exactly
           what a reader cannot infer from a texture. Outside Recharts, so it renders wherever the
           chart does not: jsdom, and any width too narrow for the plot. */}
-      {uncounted !== null && (
-        <p className={styles.chartKey}>
+      {uncounted.map((u) => (
+        <p className={styles.chartKey} key={`${u.startMonth}-${u.endMonthExclusive}`}>
           <svg width={16} height={11} aria-hidden="true" focusable="false">
             <defs>{hatch(keyPatternId)}</defs>
             <rect width={16} height={11} fill={`url(#${keyPatternId})`} stroke={GRID} />
           </svg>
-          {uncounted.note}
+          {u.note}
         </p>
-      )}
+      ))}
     </div>
   );
 }

@@ -242,7 +242,7 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          previewHousehold={previewing ? previewResult?.household ?? null : null}
+          payDisplay={(previewResult ?? result).jobPayDisplay}
         />
       </div>
 

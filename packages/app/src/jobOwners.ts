@@ -23,10 +23,15 @@ export interface JobOwner {
   readonly name: string;
   readonly birthYear: number;
   readonly jobs: readonly Job[];
-  /** `-Infinity` for the primary person. */
+  /**
+   * `-Infinity` for the primary person — the one thing this list reads it for is which plane a
+   * member's jobs are authored on.
+   *
+   * There is deliberately no `endMonth` beside it. A separation's effect on what a household is
+   * paid is the engine's to state (`ProjectionResult.jobPayDisplay`), and carrying the month
+   * here is how the app came to answer that question twice.
+   */
   readonly startMonth: number;
-  /** The month a separation removed them; `null` while still a member. */
-  readonly endMonth: number | null;
   readonly writeTarget: JobWriteTarget;
 }
 
@@ -53,7 +58,6 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       birthYear: m.person.birthYear,
       jobs: m.person.jobs,
       startMonth: m.startMonth,
-      endMonth: m.endMonth,
       writeTarget: joinedByEvent && event ? "event" : "plan",
     });
   }

@@ -34,11 +34,11 @@ import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
   jobPayPath,
-  resolvedJobPaySpan,
   type Job,
   type JobPayChange,
-  type JobPaySpan,
   type Household,
+  type ResolvedJobPayDisplay,
+  type UncountedPayReason,
   type Ledger,
   type Plan,
   type Projection,
@@ -46,7 +46,6 @@ import {
 import {
   blankJobDraftFor,
   jobToDraftFor,
-  jobPaySpanFor,
   ownerAgeAtMonth,
   type JobEditDraft,
   type NewJobDraft,
@@ -88,17 +87,21 @@ interface JobsPanelProps {
     | "deferralLimitCrossing"
   >;
   /**
-   * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
-   * previewing — the same display-only swap the net-worth and income charts make. Each job's
-   * pay CHART reads its span off this household via {@link resolvedJobPaySpan} rather than
-   * re-deriving the boundary (the one job its owner named as continuing may run PAST its
-   * authored end to reach the previewed age; every other job is only ever capped by it; a job
-   * the run never reaches pays nothing at all) — that resolution is the engine's, already computed once
-   * for the preview run, and is not recomputed here. Editing (Edit, Change pay, Delete) always reads
-   * and writes the authored `job` regardless: this panel is the authoring surface, so its forms
-   * stay on the real plan even while its chart previews a hypothesis.
+   * How to draw one job: its employment, and which stretches of it are not this household's
+   * income — {@link ResolvedJobPayDisplay}, read off whichever run the charts are showing.
+   *
+   * A function rather than a household, because the resolution is the ENGINE's and the choice of
+   * which run to read is the caller's. While the Retirement panel previews a stop-working age,
+   * the caller passes the preview run's, and every job here is drawn as that hypothesis resolved
+   * it — the one job its owner named as continuing may run PAST its authored end to reach the
+   * previewed age, every other job is only ever capped by it, and a job the run never reaches
+   * draws nothing at all. Nothing about that boundary is re-derived on this side.
+   *
+   * Editing (Edit, Change pay, Delete) always reads and writes the authored `job` regardless:
+   * this panel is the authoring surface, so its forms stay on the real plan even while its
+   * charts show a hypothesis.
    */
-  previewHousehold?: Household | null;
+  payDisplay: (jobId: string) => ResolvedJobPayDisplay | null;
 }
 
 type Authoring =
@@ -109,42 +112,31 @@ type Authoring =
   | null;
 
 /**
- * WHICH household a job's pay chart is drawn against — the only part of this that is the app's
- * to decide, because it is the preview toggle's state and nothing more. With no preview running
- * there is no other household to read and the authored span stands; with one, the span is
- * {@link resolvedJobPaySpan}'s to answer, including the empty one it returns for a job that
- * household never pays. The boundary math, and what an absent series means, stay in the engine.
+ * The answer for a job no run resolved — nothing employed, nothing paid, nothing to disclaim.
+ * Unreachable for a job read off this household's roster; it exists so the row can render at all
+ * rather than making every field below optional for a case that never happens.
  */
-function chartedSpan(
-  previewHousehold: Household | null,
-  jobId: string,
-  authored: JobPaySpan,
-): JobPaySpan {
-  return previewHousehold ? resolvedJobPaySpan(previewHousehold, jobId, authored) : authored;
-}
+const EMPTY_DISPLAY: ResolvedJobPayDisplay = {
+  employmentSpan: { startMonth: 0, endMonthExclusive: 0 },
+  paidSpan: null,
+  uncountedSpans: [],
+};
 
 /**
- * The stretch of a job's authored employment that this household is **not paid for** — `null`
- * for the ordinary job, which is paid for all of it.
+ * What a job's chart says about one uncounted stretch — the engine's reason code, in words, with
+ * the person named.
  *
- * Only a membership can open this gap: a job's own end already ends the authored span, so a
- * resolved end earlier than the authored one means the owner left the household while the job
- * ran on. Read off the engine's resolution rather than compared against the separation month
- * here, so this cannot come to a different answer from the projection about when the wages
- * stopped.
+ * The mapping is the app's because the sentence is: the engine knows which side of a membership
+ * a month falls on and has no business knowing what this surface calls anybody. Exhaustive on
+ * the union, so a third edge could not be added to the engine and silently render as nothing.
  */
-function uncountedFrom(
-  household: Household,
-  jobId: string,
-  authored: JobPaySpan,
-  ownerName: string,
-): { fromMonth: number; note: string } | null {
-  const paid = resolvedJobPaySpan(household, jobId, authored);
-  if (paid.endMonthExclusive >= authored.endMonthExclusive) return null;
-  return {
-    fromMonth: paid.endMonthExclusive,
-    note: `Hatched: ${ownerName} is no longer part of this household, so this pay is not household income.`,
-  };
+function uncountedNote(reason: UncountedPayReason, ownerName: string): string {
+  switch (reason) {
+    case "before-household-membership":
+      return `Hatched: this pay is not household income because ${ownerName} was not yet part of the household.`;
+    case "after-household-membership":
+      return `Hatched: this pay is not household income because ${ownerName} was no longer part of the household.`;
+  }
 }
 
 /**
@@ -166,7 +158,7 @@ export function JobsPanel({
   household,
   ledger,
   projection,
-  previewHousehold = null,
+  payDisplay,
 }: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household in join order, primary person first. Every row carries its
@@ -307,31 +299,24 @@ export function JobsPanel({
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
             //
-            // The START stays app-side: a plain calendar-year-to-month conversion of an
-            // authored field, the same unit conversion `ownerAgeAtMonth` does everywhere else
-            // in this panel — not a business rule. The END is a business rule (whose it is,
-            // capped by what) and while previewing is read from the engine's own resolved
-            // household rather than re-derived here — see `previewHousehold` above.
-            const authoredSpan = jobPaySpanFor(owner, job);
-            const path = jobPayPath(
-              job,
-              chartedSpan(previewHousehold, job.id, authoredSpan),
-              {
-                inflationRate: budget.inflationPct / 100,
-                denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
-              },
-            );
-            // Where the household stops being paid for a job it goes on holding — a partner who
-            // separates keeps their employment and stops contributing to this household, and the
-            // authored span above knows nothing about that. The chart keeps drawing the whole
-            // schedule (it is the owner's job, and shortening it would say they stopped working)
-            // and marks the stretch that is no longer household income. Never while previewing:
-            // there the span is already the previewed one, and hatching a job the preview
-            // removed would claim it happens and does not count, rather than not happening.
-            const uncounted =
-              previewHousehold === null
-                ? uncountedFrom(household, job.id, authoredSpan, owner.name)
-                : null;
+            // WHAT to draw and WHICH OF IT COUNTS are both the engine's, resolved under this
+            // run's own scope — so a preview and an authored pass answer the same question the
+            // same way and this panel never has to know which it is looking at. Every job the
+            // household holds has one; the fallback is for an id nothing resolved, which cannot
+            // happen for a job read off this household's own roster.
+            const display = payDisplay(job.id) ?? EMPTY_DISPLAY;
+            const path = jobPayPath(job, display.employmentSpan, {
+              inflationRate: budget.inflationPct / 100,
+              denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
+            });
+            // The whole employment is drawn, including the stretches this household is not paid
+            // for: a partner who joins at 45 and separates at 55 still WORKED 35 to 65, and
+            // shortening the line to the paid middle would say they did not. Each gap is
+            // hatched and named instead. There may be two of them, one at either end.
+            const uncounted = display.uncountedSpans.map((span) => ({
+              ...span,
+              note: uncountedNote(span.reason, owner.name),
+            }));
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.
             const cardAuthoring: JobCardAuthoring =

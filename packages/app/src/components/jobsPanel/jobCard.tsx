@@ -21,7 +21,7 @@ import type { JobOwner } from "../../jobOwners";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
 import { PayChangeForm, type PayChangeDraft } from "./payChangeForm";
-import { PayChart } from "./payChart";
+import { PayChart, type UncountedPaySpanNote } from "./payChart";
 import { PayTimeline } from "./payTimeline";
 import styles from "./jobsPanel.module.css";
 
@@ -49,11 +49,12 @@ export interface JobCardProps {
   /** The job's pay across its whole employment, in the panel's chosen denomination. */
   readonly path: JobPayPath;
   /**
-   * Where this job's pay stops being household income before the employment ends, and why —
-   * `null` for every job the household is paid for throughout. Derived in the panel off the
-   * engine's resolved household; the card only carries it to the chart.
+   * The stretches of this job's employment that are not household income, each with the
+   * sentence saying why — empty for every job the household is paid for throughout, and up to
+   * two for a partner who both joined and left while holding it. Resolved by the engine; the
+   * panel words them; the card only carries them to the chart.
    */
-  readonly uncounted: { readonly fromMonth: number; readonly note: string } | null;
+  readonly uncounted: readonly UncountedPaySpanNote[];
   readonly lifeExpectancy: number;
   readonly inTodaysDollars: boolean;
   /** The household holds more than one earner, so the edit form shows whose job this is. */

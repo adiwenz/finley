@@ -37,7 +37,6 @@ const richJob: Job = {
 
 const owner = (over: Partial<JobOwner> & Pick<JobOwner, "id" | "name" | "birthYear" | "jobs">): JobOwner => ({
   startMonth: -Infinity,
-  endMonth: null,
   writeTarget: "plan",
   ...over,
 });

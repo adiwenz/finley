@@ -65,11 +65,13 @@ function Harness({
   const household = useMemo(() => projection.run(usJurisdiction).household, [projection]);
   // A real preview run — the resolved household a stop-working candidate produces — rather
   // than a hand-built stand-in, so these tests exercise the same engine path the app does.
-  const previewHousehold = useMemo(
+  // The run the charts read: the preview when the toggle is on, the authored pass otherwise —
+  // the same swap `main.tsx` makes, so these exercise the engine path the app does.
+  const chartRun = useMemo(
     () =>
       previewStopAge === null
-        ? null
-        : projection.runAtStopWorkingAge(usJurisdiction, previewStopAge).household,
+        ? projection.run(usJurisdiction)
+        : projection.runAtStopWorkingAge(usJurisdiction, previewStopAge),
     [projection, previewStopAge],
   );
 
@@ -81,7 +83,7 @@ function Harness({
         household={household}
         ledger={ledger}
         projection={projection}
-        previewHousehold={previewHousehold}
+        payDisplay={chartRun.jobPayDisplay}
       />
       <output data-testid="job-count">{primaryJobs(budget).length}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -99,10 +101,10 @@ function partnerJobsOf(ledger: Ledger): readonly Job[] {
   return [];
 }
 
-const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
+const partnerJoining = (jobs: readonly Job[], month = 0): NewLifeEvent => ({
   id: "r1",
   type: "RelationshipEvent",
-  month: 0,
+  month,
   person: {
     id: "p-1",
     name: "Sam",
@@ -113,13 +115,14 @@ const partnerJoining = (jobs: readonly Job[]): NewLifeEvent => ({
 });
 
 /** Open-ended, started at the partner's age 40 ("now"). */
-const partnerJob = (monthlyDollars: number, name?: string): Job => ({
+const partnerJob = (monthlyDollars: number, name?: string, over: Partial<Job> = {}): Job => ({
   id: "p-1-job-1",
   ...(name ? { name } : {}),
   ownerId: "p-1",
   startYear: START_YEAR,
   endYear: START_YEAR - 40 + 65,
   salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
+  ...over,
 });
 
 const spin = (name: RegExp | string) => screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -1415,14 +1418,19 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
 });
 
 /**
- * **A separated partner keeps their job; the household stops being paid for it.**
+ * **A membership has two edges, and a job can cross both of them.**
  *
- * Two facts, and the card has to carry both. Shortening the line would say Sam stopped working,
- * which is not what a separation is; drawing it plain would say the household still collects it,
- * which is what the projection stopped doing. So the whole schedule stays and the stretch that
- * is no longer household income is hatched and named.
+ * Sam holds a job from 40 to 65 whatever this household does. Which of those months are its
+ * income is a separate fact with its own two boundaries — the join and the separation — so a job
+ * can be uncounted at the front, at the back, at both ends, or not at all. The card draws the
+ * whole employment (shortening it would say Sam stopped working, which a separation is not) and
+ * hatches each gap with the sentence for the engine's own reason code.
+ *
+ * The intervals are the ENGINE's: `ProjectionResult.jobPayDisplay`, resolved against whichever
+ * run the charts are showing. Nothing below is computed on this side, which is why previewing
+ * needs no rule of its own.
  */
-describe("JobsPanel — a job that outlasts its owner's membership", () => {
+describe("JobsPanel — the months of a job that are not household income", () => {
   const separatingAt = (month: number): NewLifeEvent => ({
     id: "s1",
     type: "SeparationEvent",
@@ -1433,42 +1441,90 @@ describe("JobsPanel — a job that outlasts its owner's membership", () => {
     childSupportMonthlyCents: 0,
   });
 
-  /** Where each card's chart says its pay stops counting — "" for a card with no hatch. */
-  const uncountedFroms = (): string[] =>
-    screen.getAllByTestId("pay-chart-uncounted-from").map((el) => el.textContent ?? "");
+  /**
+   * Every card's uncounted intervals, in row order — `[startMonth, endMonthExclusive, reason]`.
+   * Alex's job comes first and is always fully counted, so Sam's is the second entry.
+   */
+  const uncountedByCard = (): unknown[][][] =>
+    screen
+      .getAllByTestId("pay-chart-uncounted")
+      .map((el) => JSON.parse(el.textContent || "[]") as unknown[][]);
+  const samsUncounted = () => uncountedByCard()[1]!;
+  /** Sam's job, running the partner's 40 to 65 — months 0 to 300 from "now". */
+  const samsJob = () => partnerJob(5000);
 
-  it("marks the months after a separation without shortening the job", () => {
-    // Sam's job runs to their 65 (month 300) and they leave at month 120. Sam is still employed
-    // for all 300 of those months — the card draws them — and the household is paid for 120.
-    render(
-      <Harness events={[partnerJoining([partnerJob(5000)]), separatingAt(120)]} />,
-    );
+  it("hatches the months before the owner joined, and only those", () => {
+    // Sam joins at month 60 holding a job already five years old. The first five years are
+    // employment this household never collected, and nothing about the job's end is unusual.
+    render(<Harness events={[partnerJoining([samsJob()], 60)]} />);
 
-    // Exactly one card is marked, and it is marked at the separation, not at the job's end.
-    expect(uncountedFroms().filter((v) => v !== "")).toEqual(["120"]);
-    // Named, not merely textured: a hatch nobody explains is decoration.
+    expect(samsUncounted()).toEqual([[0, 60, "before-household-membership"]]);
+    expect(uncountedByCard()[0]).toEqual([]); // Alex's own job, counted throughout
     expect(
-      screen.getByText(/Sam is no longer part of this household, so this pay is not household income/),
+      screen.getByText(/not household income because Sam was not yet part of the household/),
+    ).toBeTruthy();
+  });
+
+  it("hatches the months after the owner left, and only those", () => {
+    render(<Harness events={[partnerJoining([samsJob()]), separatingAt(120)]} />);
+
+    expect(samsUncounted()).toEqual([[120, 300, "after-household-membership"]]);
+    expect(
+      screen.getByText(/not household income because Sam was no longer part of the household/),
     ).toBeTruthy();
     // The job itself is untouched — this is a reading of the plan, never an edit to it.
     expect(partnerJobs()[0]!.endYear).toBe(START_YEAR - 40 + 65);
   });
 
-  it("marks nothing while the household is whole", () => {
-    render(<Harness events={[partnerJoining([partnerJob(5000)])]} />);
-    expect(uncountedFroms().every((v) => v === "")).toBe(true);
-    expect(screen.queryByText(/no longer part of this household/)).toBeNull();
+  it("hatches BOTH ends for a job that outlasts a join and a separation", () => {
+    // The case a single trailing suffix could not express: joined at 60, gone at 180, holding
+    // the job from 0 to 300. Ten of those twenty-five years are this household's; the panel
+    // used to keep the first five on the books silently.
+    render(<Harness events={[partnerJoining([samsJob()], 60), separatingAt(180)]} />);
+
+    expect(samsUncounted()).toEqual([
+      [0, 60, "before-household-membership"],
+      [180, 300, "after-household-membership"],
+    ]);
+    // Two hatches, two sentences — one per reason, neither standing for the other.
+    expect(screen.getByText(/was not yet part of the household/)).toBeTruthy();
+    expect(screen.getByText(/was no longer part of the household/)).toBeTruthy();
   });
 
-  it("marks nothing while previewing, where a shortened span means something else", () => {
-    // The preview already draws each job as the previewed run resolved it. Hatching there would
-    // say the pay happens and does not count, when the preview's claim is that it never happens.
+  it("hatches the whole span of a job the household is never paid for", () => {
+    // Sam leaves at month 12 and the job does not start until month 60. Every month of it is
+    // employment, and none of it is ever this household's.
     render(
       <Harness
-        events={[partnerJoining([partnerJob(5000)]), separatingAt(120)]}
+        events={[
+          partnerJoining([partnerJob(5000, undefined, { startYear: START_YEAR + 5 })]),
+          separatingAt(12),
+        ]}
+      />,
+    );
+
+    expect(samsUncounted()).toEqual([[60, 300, "after-household-membership"]]);
+  });
+
+  it("hatches nothing while the household is whole", () => {
+    render(<Harness events={[partnerJoining([samsJob()])]} />);
+
+    expect(uncountedByCard().every((spans) => spans.length === 0)).toBe(true);
+    expect(screen.queryByText(/part of this household/)).toBeNull();
+  });
+
+  it("previews through the engine's resolution rather than a rule of its own", () => {
+    // Previewing "everyone stops at Alex's 50" caps Sam's employment at month 180 — and Sam
+    // separated at 120, so the uncounted stretch runs 120 to 180 and stops there. Both facts
+    // come from one resolution, so the hatch cannot outlast the span it marks, and it never
+    // simply runs to the edge of the chart.
+    render(
+      <Harness
+        events={[partnerJoining([samsJob()]), separatingAt(120)]}
         previewStopAge={50}
       />,
     );
-    expect(uncountedFroms().every((v) => v === "")).toBe(true);
+
+    expect(samsUncounted()).toEqual([[120, 180, "after-household-membership"]]);
   });
 });

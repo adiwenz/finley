@@ -15,7 +15,12 @@
 import type { Jurisdiction } from "./jurisdiction";
 import type { ProjectionState } from "./authoring/state";
 import type { ProjectionSeries } from "./projection/simulate";
-import type { StopWorkingBoundary } from "./householdJob";
+import {
+  householdJobContexts,
+  resolveJobPayDisplay,
+  type ResolvedJobPayDisplay,
+  type StopWorkingBoundary,
+} from "./householdJob";
 import { projectScenarioParts } from "./retirementSolver";
 import { summarizeSimulation } from "./projection/report";
 import type { SimulationReport } from "./projection/report";
@@ -61,6 +66,16 @@ export interface ProjectionResult {
   readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
   /** The soft debt-to-income read on a purchase that has not been authored yet. */
   readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
+  /**
+   * One job's employment, the part of it this household is paid for, and the stretches it is
+   * not — everything a surface needs to draw that job, resolved under THIS run's scope. `null`
+   * for an id the household does not hold.
+   *
+   * Off the run, so a preview and an authored pass answer the same question the same way and a
+   * chart never has to know which one it is looking at: `runAtStopWorkingAge` resolves these
+   * against its own boundary, exactly as it resolves the series.
+   */
+  readonly jobPayDisplay: (jobId: string) => ResolvedJobPayDisplay | null;
 }
 
 /**
@@ -97,6 +112,24 @@ export function runProjection(
     { plan, jurisdictionId: jurisdiction.id },
     jurisdiction,
   );
+  // Resolved on first ask and kept: a panel asks once per job per render, and the alternative
+  // is re-resolving the household's whole job list for each of them.
+  let payDisplays: Map<string, ResolvedJobPayDisplay> | null = null;
+  const payDisplaysOf = (): Map<string, ResolvedJobPayDisplay> => {
+    if (payDisplays === null) {
+      const scope = stopWorking === undefined
+        ? ({ kind: "authored" } as const)
+        : ({ kind: "hypothetical", stopWorking } as const);
+      payDisplays = new Map(
+        householdJobContexts(household.memberships).map((ctx) => [
+          ctx.job.id,
+          resolveJobPayDisplay(ctx, state.startYear, scope),
+        ]),
+      );
+    }
+    return payDisplays;
+  };
+
   return Object.freeze({
     jurisdictionId: jurisdiction.id,
     series,
@@ -114,5 +147,6 @@ export function runProjection(
     },
     assessHomePurchase: (input: HomePurchaseInput) =>
       assessHomePurchase(household, series, input),
+    jobPayDisplay: (jobId: string) => payDisplaysOf().get(jobId) ?? null,
   });
 }

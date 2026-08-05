@@ -64,7 +64,7 @@ describe("jobOwnersOf", () => {
     expect(partner.writeTarget).toBe("event");
   });
 
-  it("keeps a separated partner listed, with the month they left", () => {
+  it("keeps a separated partner listed — their jobs are still theirs to edit", () => {
     const owners = ownersOf(
       ledgerOf(joining(12, [partnerJob]), {
         id: "sep1",
@@ -77,8 +77,12 @@ describe("jobOwnersOf", () => {
         childSupportMonthlyCents: 0,
       }),
     );
+    // Listed, and still writable: leaving the household ends the wages this household
+    // collects, not the person's authorship of their own jobs. What the separation does to the
+    // money is the engine's answer and is deliberately not restated on this list.
     expect(owners).toHaveLength(2);
-    expect(owners[1].endMonth).toBe(120);
+    expect(owners[1].name).toBe("Sam");
+    expect(owners[1].writeTarget).toBe("event");
   });
 
   it("omits a member with no event to write back to, rather than listing them unwritably", () => {
