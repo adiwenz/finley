@@ -21,12 +21,12 @@
  * jurisdiction); there is no default.
  */
 
-import { interpretLedger } from "./ledger/interpret";
-import { buildHouseholdSimInput } from "./projection/buildHouseholdInput";
-import { simulateHousehold } from "./projection/simulate";
-import { createProjectionBase } from "./projectionBase";
-import { jobDisplayNames } from "./compilePerson";
-import type { ProjectionContext } from "./projectionBase";
+import { interpretLedger } from "../ledger/interpret";
+import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
+import { simulateHousehold } from "../projection/simulate";
+import { createProjectionBase } from "../projectionBase";
+import { jobDisplayNames } from "../compilePerson";
+import type { ProjectionContext } from "../projectionBase";
 import {
   addedHouseholdPaidMonths,
   householdJobContexts,
@@ -36,13 +36,13 @@ import {
   intersectHouseholdPaidMonths,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
-} from "./householdJob";
-import type { ProjectionSeries, HouseholdSimInput } from "./projection/simulate";
+} from "../householdJob";
+import type { ProjectionSeries, HouseholdSimInput } from "../projection/simulate";
 import type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
-import type { Scenario } from "./scenario";
-import type { Job } from "./job";
-import type { Plan } from "./plan";
-import type { Household } from "./ledger/household";
+import type { Scenario } from "../scenario";
+import type { Job } from "../job";
+import type { Plan } from "../plan";
+import type { Household } from "../ledger/household";
 
 /**
  * Every intermediate one pipeline pass produces, kept rather than discarded. The `run()`

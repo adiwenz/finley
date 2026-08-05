@@ -34,8 +34,8 @@
 // the function that builds it, since a result type and its constructor are one thing.
 export { Projection } from "./projectionFacade";
 export type { ProjectionResult } from "./projectionRun";
-export type { RetirementOutlook } from "./retirementOutlook";
-export type { DeferralLimitCrossing } from "./deferralLimit";
+export type { RetirementOutlook } from "./retirement/retirementOutlook";
+export type { DeferralLimitCrossing } from "./retirement/deferralLimit";
 export type { ResolvedJobPayDisplay } from "./householdJob";
 
 // The authoring state a caller holds, its self-describing format version, and the error that
@@ -149,8 +149,8 @@ export type {
   JobOverlap,
   RetirementEvaluation,
   RetirementSolution,
-} from "./retirementTypes";
-export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
+} from "./retirement/retirementTypes";
+export type { EarlyRetireeHealthFlag } from "./retirement/earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";
 export type { Cents } from "./money";

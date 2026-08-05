@@ -11,7 +11,7 @@
  * line — the plan holds no health figure of its own. This synthesises no cost, only a flag.
  */
 
-import type { Cents } from "./money";
+import type { Cents } from "../money";
 
 export interface EarlyRetireeHealthCheck {
   /** Age employment — and with it employer coverage — stops. */

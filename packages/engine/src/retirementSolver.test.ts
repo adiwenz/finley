@@ -15,7 +15,7 @@ import {
   solveRetirement,
   continuedJobsAt,
   stopWorkingBoundaryAt,
-} from "./retirementSolver";
+} from "./retirement/retirementSolver";
 import { continuationJobIdOf } from "./householdJob";
 import { compilePersonPriorEarnings } from "./compilePerson";
 import { scenarioOf, withLedger } from "./scenario";

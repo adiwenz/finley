@@ -76,7 +76,7 @@ export interface StopWorkingBoundary {
    * bolted on. A job authored to end before the plan does therefore runs THROUGH whatever was
    * authored to follow it, and both pay. That overlap is the model, not a leak — it is what "if
    * this had carried on" means — and it is reported alongside the answer (see
-   * {@link import("./retirementTypes").ContinuedJob.overlaps}) because it is also the part of
+   * {@link import("./retirement/retirementTypes").ContinuedJob.overlaps}) because it is also the part of
    * the scenario a reader would not predict.
    *
    * **Which** job is the user's to say, and it is not derivable from the plan. Dates carry no

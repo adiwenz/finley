@@ -23,9 +23,9 @@
  * {@link jobPayPath}, which mirrors the simulator's own series to the cent.
  */
 
-import { interpretLedger } from "./ledger/interpret";
-import { createProjectionBase } from "./projectionBase";
-import { jobPayPath } from "./job";
+import { interpretLedger } from "../ledger/interpret";
+import { createProjectionBase } from "../projectionBase";
+import { jobPayPath } from "../job";
 import {
   householdPaidMonths,
   householdPaidYears,
@@ -33,11 +33,11 @@ import {
   resolveHouseholdJobs,
   type HouseholdPaidMonths,
   type ResolvedHouseholdJob,
-} from "./householdJob";
-import type { ProjectionContext } from "./projectionBase";
-import type { Scenario } from "./scenario";
-import type { PersonId } from "./job";
-import type { Cents } from "./money";
+} from "../householdJob";
+import type { ProjectionContext } from "../projectionBase";
+import type { Scenario } from "../scenario";
+import type { PersonId } from "../job";
+import type { Cents } from "../money";
 
 export interface DeferralLimitCrossing {
   /** Whose limit it is — the elective limit is individual. */

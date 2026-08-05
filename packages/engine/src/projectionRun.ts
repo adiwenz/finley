@@ -21,7 +21,7 @@ import {
   type ResolvedJobPayDisplay,
   type StopWorkingBoundary,
 } from "./householdJob";
-import { projectScenarioParts } from "./retirementSolver";
+import { projectScenarioParts } from "./retirement/retirementSolver";
 import { summarizeSimulation } from "./projection/report";
 import type { SimulationReport } from "./projection/report";
 import { buildSnapshot, membersAt } from "./projection/snapshot";

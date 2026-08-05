@@ -253,7 +253,7 @@ export interface Jurisdiction {
    * and out-of-pocket remain).
    *
    * NOT a silent auto-step: the app pre-fills an authored, disclaimed budget item from it,
-   * and {@link import("./earlyRetireeHealthCheck").assessEarlyRetireeHealthCost} measures an
+   * and {@link import("./retirement/earlyRetireeHealthCheck").assessEarlyRetireeHealthCost} measures an
    * authored expense against it. Absent → no benchmark (0).
    */
   healthCostBenchmarkMonthlyCents?(ctx: HealthCostContext): Cents;

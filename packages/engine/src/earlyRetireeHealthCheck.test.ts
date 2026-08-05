@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
+import { assessEarlyRetireeHealthCost } from "./retirement/earlyRetireeHealthCheck";
 
 /** A check with sensible defaults (US Medicare age 65, $1,200 benchmark), overridable. */
 function check(overrides: Partial<Parameters<typeof assessEarlyRetireeHealthCost>[0]> = {}) {

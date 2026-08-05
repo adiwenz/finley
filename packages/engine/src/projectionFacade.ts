@@ -84,11 +84,11 @@ import type { Jurisdiction } from "./jurisdiction";
 // answers with — so neither the simulation pipeline nor the retirement search is named here.
 import { runProjection } from "./projectionRun";
 import type { ProjectionResult } from "./projectionRun";
-import { buildRetirementOutlook } from "./retirementOutlook";
-import { firstDeferralLimitCrossing } from "./deferralLimit";
-import type { DeferralLimitCrossing } from "./deferralLimit";
-import type { RetirementOutlook } from "./retirementOutlook";
-import { stopWorkingBoundaryAt } from "./retirementSolver";
+import { buildRetirementOutlook } from "./retirement/retirementOutlook";
+import { firstDeferralLimitCrossing } from "./retirement/deferralLimit";
+import type { DeferralLimitCrossing } from "./retirement/deferralLimit";
+import type { RetirementOutlook } from "./retirement/retirementOutlook";
+import { stopWorkingBoundaryAt } from "./retirement/retirementSolver";
 
 import type { ProjectionState, Written } from "./authoring/state";
 import { emptyState } from "./authoring/state";

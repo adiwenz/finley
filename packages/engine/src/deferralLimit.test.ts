@@ -10,7 +10,7 @@
  * `Math.pow` for the pay — which no pay change ever reached.
  */
 import { describe, it, expect } from "vitest";
-import { firstDeferralLimitCrossing } from "./deferralLimit";
+import { firstDeferralLimitCrossing } from "./retirement/deferralLimit";
 import { scenarioOf, withLedger } from "./scenario";
 import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
