@@ -520,4 +520,31 @@ describe("a benefit is as membership-bound as a wage", () => {
     const series = simulateHousehold(baseInput(claimingNow(), { horizonMonths: 12 }), flatBenefit);
     expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
   });
+
+  it("stops paying a member at their own life expectancy, even while still a member", () => {
+    // Death is not separation: the member never leaves, but their benefit ends at their expectancy
+    // the same way — a dead member draws nothing. `lifeEndMonthExclusive` is the exclusive month
+    // of death; here 6, so months 0–5 pay and 6 onward do not, with nothing clawed back.
+    const series = simulateHousehold(
+      baseInput({ ...claimingNow(), lifeEndMonthExclusive: 6 }, { horizonMonths: 12 }),
+      flatBenefit,
+    );
+    expect(paidIn(series, 5)).toBe(dollarsToCents(1_000));
+    for (const m of [6, 7, 11]) expect(paidIn(series, m)).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 6);
+  });
+
+  it("bounds by whichever ends first — separation before expectancy, or the reverse", () => {
+    // A member who leaves at 4 and would die at 8 stops at 4; the min of the two windows governs.
+    const series = simulateHousehold(
+      baseInput(
+        { ...claimingNow({ startMonth: 0, endMonthExclusive: 4 }), lifeEndMonthExclusive: 8 },
+        { horizonMonths: 12 },
+      ),
+      flatBenefit,
+    );
+    expect(paidIn(series, 3)).toBe(dollarsToCents(1_000));
+    for (const m of [4, 5, 8, 11]) expect(paidIn(series, m)).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 4);
+  });
 });

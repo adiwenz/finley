@@ -302,6 +302,29 @@ export function membershipWindow(membership: HouseholdMembership): {
   };
 }
 
+/**
+ * The exclusive month a member's own life ends — the first month they no longer draw income or
+ * a government benefit, and the reach their expectancy contributes to the projection horizon.
+ * Derived from their birth year and expectancy age against the plan's frozen "now"; `fallbackAge`
+ * (the household's {@link import("../plan/plan").Plan.lifeExpectancy}) stands in when the member
+ * states none of their own.
+ *
+ * `Infinity` when neither the member nor the household names an expectancy — the legacy unbounded
+ * membership a hand-built base with no expectancy still gets, so a fixture that never set one is
+ * unchanged.
+ */
+export function lifeExpectancyEndMonthExclusive(
+  person: Pick<Person, "birthYear" | "lifeExpectancy">,
+  nowYear: number,
+  fallbackAge?: number,
+): number {
+  const age = person.lifeExpectancy ?? fallbackAge;
+  if (age === undefined) return Number.POSITIVE_INFINITY;
+  // Clamped at 0: a member already past their expectancy at "now" contributes no forward months
+  // rather than a negative horizon.
+  return Math.max(0, (person.birthYear + age - nowYear) * 12);
+}
+
 /** Resolve one context: intersect employment, membership, and any candidate boundary. */
 export function resolveHouseholdJob(
   ctx: HouseholdJobContext,

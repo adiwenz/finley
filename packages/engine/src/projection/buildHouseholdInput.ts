@@ -22,7 +22,11 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compile/compilePerson";
-import { membershipWindow, type JobResolutionScope } from "../job/householdJob";
+import {
+  lifeExpectancyEndMonthExclusive,
+  membershipWindow,
+  type JobResolutionScope,
+} from "../job/householdJob";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -123,12 +127,32 @@ export function buildHouseholdSimInput(
   // The membership window rides along: the income series were clipped to it up here, but a
   // government benefit is derived inside the sim and would otherwise be paid to a household the
   // person has left.
-  const persons: SimPerson[] = household.memberships.map((m) =>
-    compilePerson(m.person, nowYear, scope, membershipWindow(m)),
+  // Each member resolved once: their household window (start..separation) and the month their own
+  // life ends (their expectancy, or the household's when they state none). The life-end bounds the
+  // government benefit inside the sim; it never touches a wage, which ends where the job was
+  // authored to.
+  const resolvedMembers = household.memberships.map((m) => ({
+    memberWindow: membershipWindow(m),
+    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, nowYear, base.householdLifeExpectancyAge),
+    person: m.person,
+  }));
+
+  const persons: SimPerson[] = resolvedMembers.map((r) =>
+    compilePerson(r.person, nowYear, scope, r.memberWindow, r.lifeEnd),
   );
 
+  // The horizon is the longest-lived member's reach, not the primary's. A member is present until
+  // they die (expectancy) or separate, whichever is sooner — so a staying younger partner extends
+  // the run to cover their tail, while a partner who leaves before their own expectancy never
+  // drags it out. `base.horizonMonths` (the primary's) is the floor; a member who states no
+  // expectancy stays unbounded and does not shorten it.
+  const horizonMonths = resolvedMembers.reduce((reach, r) => {
+    const presenceEnd = Math.min(r.memberWindow.endMonthExclusive, r.lifeEnd);
+    return Number.isFinite(presenceEnd) ? Math.max(reach, presenceEnd) : reach;
+  }, base.horizonMonths);
+
   return {
-    horizonMonths: base.horizonMonths,
+    horizonMonths,
     annualInflationRate: base.annualInflationRate,
     benefitColaRate: base.benefitColaRate,
     startYear: base.startYear,

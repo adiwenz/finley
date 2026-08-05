@@ -69,6 +69,11 @@ export function compilePerson(
    * not silently stop paying someone.
    */
   membership?: SimPerson["membership"],
+  /**
+   * The exclusive month this member's life ends, already resolved against the household's
+   * fallback expectancy. Omitted (or non-finite) leaves the benefit unbounded — the legacy shape.
+   */
+  lifeEndMonthExclusive?: number,
 ): SimPerson {
   return {
     id: person.id,
@@ -77,6 +82,9 @@ export function compilePerson(
     benefitClaimingAge: person.benefitClaimingAge,
     priorEarningsCents: compilePersonPriorEarnings(person, nowYear, scope),
     ...(membership !== undefined ? { membership } : {}),
+    ...(lifeEndMonthExclusive !== undefined && Number.isFinite(lifeEndMonthExclusive)
+      ? { lifeEndMonthExclusive }
+      : {}),
   };
 }
 

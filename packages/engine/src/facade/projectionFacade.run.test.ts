@@ -69,6 +69,41 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
   });
 });
 
+describe("Projection root — horizon spans to the LONGEST-LIVED member, not the primary's", () => {
+  // Sample plan: primary age 40, life expectancy 85, start 2026 → the primary reaches 85 at
+  // month (85 - 40) * 12 = 540, which is where the run used to always stop.
+  const PRIMARY_HORIZON = (85 - 40) * 12;
+  const monthsOf = (p: Projection) => p.run(nullJurisdiction).series.months.length;
+
+  it("runs only to the primary's expectancy when nobody outlives them", () => {
+    expect(monthsOf(freshProjection())).toBe(PRIMARY_HORIZON);
+  });
+
+  it("extends to a younger partner's expectancy — their later years are now inside the run", () => {
+    // Sam is born 1996 (age 30 at 2026) and inherits the household's expectancy age of 85, so
+    // Sam reaches 85 in 2081 — eleven years past the primary's 2071. The run must cover them:
+    // month (1996 + 85 - 2026) * 12 = 660, not the primary's 540.
+    const p = freshProjection();
+    p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    expect(monthsOf(p)).toBe((1996 + 85 - 2026) * 12);
+    expect(monthsOf(p)).toBeGreaterThan(PRIMARY_HORIZON);
+  });
+
+  it("honours a partner's OWN stated expectancy over the household default", () => {
+    const p = freshProjection();
+    p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    expect(monthsOf(p)).toBe((1996 + 95 - 2026) * 12);
+  });
+
+  it("does not shrink below the primary when the partner dies first", () => {
+    // An older partner (born 1976, age 50) at the same expectancy age reaches 85 in 2061 —
+    // before the primary — so the primary still sets the horizon.
+    const p = freshProjection();
+    p.marry({ month: 12, name: "Sam", birthYear: 1976 });
+    expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
+  });
+});
+
 describe("Projection root — authoring validates against the construction-time jurisdiction", () => {
   /**
    * Taxes `capitalGains` at `rate`, returning basis pro-rata — the same monotone shape the

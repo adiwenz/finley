@@ -409,6 +409,14 @@ export interface SimPerson {
     readonly startMonth: number;
     readonly endMonthExclusive: number;
   };
+  /**
+   * The exclusive month this member's own life ends — their government benefit stops here, the
+   * way {@link membership} stops it at a separation. Bounds ONLY the derived benefit, never a
+   * wage: a job ends where it was authored to, whatever this holds (a job authored past its
+   * owner's expectancy is a degenerate case the plan, not death, decides). Absent means no
+   * expectancy was stated household-wide — the legacy unbounded case.
+   */
+  readonly lifeEndMonthExclusive?: number;
 }
 
 /**

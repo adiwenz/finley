@@ -234,6 +234,9 @@ export function createProjectionBase(
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
+    // The primary states their expectancy on the plan; copied onto the Person so every member
+    // carries theirs in one place and the horizon can take the max across them all.
+    lifeExpectancy: budget.lifeExpectancy,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
     // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
@@ -298,6 +301,9 @@ export function createProjectionBase(
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,
+    // The fallback expectancy a partner who states none inherits, and the primary's own — the
+    // horizon takes the max of every member's expectancy month against it.
+    householdLifeExpectancyAge: budget.lifeExpectancy,
     // Authoring Persons only; SimPerson is derived at the sim boundary, never here.
     initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),

@@ -1,56 +1,62 @@
 # Handoff — issue 267
 
-Whole-issue mode (issue declares no tasks). The issue has two separable parts; I split it so
-each lands green.
+Whole-issue mode (issue declares no tasks). Split into three parts; each lands green.
 
 **My breakdown:**
 
-- **Part 1 — Disclose the horizon (retirement panel copy). DONE (this commit).** Every
-  life-expectancy mention in the retirement panel was a bare "age 90" with no possessive, reading
-  as a household guarantee. Now a module-level `LifeExpectancy` helper renders "your life
-  expectancy (age 90)" at all five sites (authored-survival both ways, the two headline survival
-  clauses, the infeasible line). See `packages/app/src/components/retirementPanel/retirementPanel.tsx`.
-- **Part 2 — Give `Person` a `lifeExpectancy`; horizon = max across members. REMAINING.** The real
-  fix. Not started.
+- **Part 1 — Disclose the horizon (retirement panel copy). DONE.** See first commit. `LifeExpectancy`
+  helper renders "your life expectancy (age 90)" at the panel's five life-expectancy sites.
+- **Part 2 (engine) — `Person.lifeExpectancy` + horizon = max across members + benefit window. DONE
+  (this commit).** See below.
+- **Part 3 — Panel copy names WHICH member's expectancy drives the horizon. REMAINING.** The last
+  piece; see "Remaining" below.
 
-## Live constraints
+## Live constraints (Part 2 engine, as built)
 
-- **The design decision that unblocks Part 2 is in the issue comments** (`gh issue view 267
-  --comments`): horizon becomes the **max across all members' life expectancies**; a member's own
-  expectancy bounds only **their** income/benefit window; **household spending (`budgetLines`) does
-  NOT step down** when a member's expectancy passes — it runs unchanged to the extended horizon.
-  Budget attribution (per-member spending) stays out of scope. Follow this decision exactly.
-- **Horizon is computed in the wrong layer for Part 2.** `createProjectionBase`
-  (`packages/engine/src/compile/projectionBase.ts:267`) sets `horizonMonths = planHorizonMonths(budget)`
-  from the PRIMARY only (`budget.currentAge`/`budget.lifeExpectancy`). It takes only `plan` + `ctx`,
-  never the ledger — but partners join via `RelationshipEvent` in `scenario.ledger`
-  (`packages/engine/src/ledger/eventTypes.ts:47`, which carries a full `Person`). To make the
-  horizon max-across-members, the max must be computed where BOTH the plan and the ledger are in
-  scope: `projectScenarioParts` in `packages/engine/src/retirement/retirementSolver.ts:71`. Also
-  audit the other `createProjectionBase` callers (deferralLimit.ts, retirementSolver.ts:291/342,
-  eventWrite.ts) and `planHorizonMonths` consumers — `computeOnTrackFraction`
-  (retirementSolver.ts:180) recomputes the horizon from the primary and must stay consistent.
-- **`Person` is the seam for the new field.** Add `readonly lifeExpectancy` to `Person`
-  (`packages/engine/src/plan/person.ts`). The primary holds no `Person` record — its standing data
-  IS the `Plan`, and `createProjectionBase` builds the primary `Person` from `budget` (see
-  projectionBase.ts:233). So the primary's expectancy is still `plan.lifeExpectancy`; only partners
-  need it on their `Person`. `AGE_LIMITS.lifeExpectancy` (plan.ts) already bounds the scalar; a
-  per-person one may need the same guard in event validation.
-- **Government benefit window** — the member-expectancy bound is "the same window #266's
-  separated-partner window" uses. Look at `packages/engine/src/projection/governmentBenefit.ts` and
-  how a member's presence window is derived; a member's benefit must stop at their expectancy.
-- **Solver / `plannedWorkStopAge` report in the PRIMARY's years throughout** (retirementView.ts,
-  retirementSolver.ts). Keep that; don't accidentally reframe the headline onto a partner's clock.
-- **Part 1's panel copy will need revisiting in Part 2.** `LifeExpectancy` currently says "your"
-  (the primary's). Once the horizon can be driven by a partner's (older) expectancy, the copy must
-  name **whichever member drives the horizon**, not always "you". The panel today receives only
-  `view` + `budget` and has no member roster — Part 2 must thread whose-expectancy through.
+- **`Person.lifeExpectancy?` is OPTIONAL** (`packages/engine/src/plan/person.ts`). `undefined` =
+  inherit the household's (`Plan.lifeExpectancy`), resolved on read — the same shape
+  `continuationJobId` uses. This kept the change off ~35 test fixtures. The primary Person always
+  carries a concrete value (`createProjectionBase` sets it = `budget.lifeExpectancy`); a partner
+  stores one only when `marry({..., lifeExpectancy})` states it, else inherits live.
+- **The fallback age rides on the base.** `LedgerBaseConfig.householdLifeExpectancyAge` (=
+  `budget.lifeExpectancy`) is set by `createProjectionBase` and is the fallback every read uses.
+- **`lifeExpectancyEndMonthExclusive(person, nowYear, fallbackAge?)`** in
+  `packages/engine/src/job/householdJob.ts` is THE one statement of a member's death month. Returns
+  `Infinity` when neither the member nor the household names an expectancy (legacy unbounded).
+- **Death bounds ONLY the government benefit and the horizon — never a wage.** This is deliberate
+  and the design decision demands it ("jobs end at their stated age regardless"). Two solver tests
+  (`retirementSolver.test.ts`, `plannedWorkStopAge is household-wide`) pin that a partner job
+  authored PAST their expectancy still reports its authored end. My first attempt folded death into
+  the shared `HouseholdMembership.endMonth`, which clipped those jobs and broke them — reverted.
+  The bound now lives on `SimPerson.lifeEndMonthExclusive` (`simulate.types.ts`), set by
+  `compilePerson`, and is read ONLY at `governmentBenefit.ts` (the gate right after the membership
+  check). Do NOT move it back onto the membership window.
+- **Horizon** is computed in `buildHouseholdInput.ts` = `max(base.horizonMonths, per-member
+  min(separation, death))`. `base.horizonMonths` stays the primary's floor.
+- **Purity trap:** never name a variable/property `window` in engine src — the purity guard reads
+  it as the browser global (see `simulate.types.ts` note). Cost me 3 false violations.
 
 ## Dead ends
 
-- None yet.
+- Folding the death month into `HouseholdMembership.endMonth` at `interpret` — clean and unified,
+  but it clips a partner's JOBS at death (via the shared `membershipWindow`), which the decision
+  forbids. Use the separate `SimPerson.lifeEndMonthExclusive` benefit gate instead.
 
-## Deferred
+## Remaining — Part 3 (panel copy)
 
-- Per-member budget attribution / spending step-down at a member's death — explicitly out of scope
-  by the issue's design decision. A follow-up, not this issue.
+- The panel's `LifeExpectancy` helper (`packages/app/src/components/retirementPanel/retirementPanel.tsx`)
+  still says "your life expectancy (age {budget.lifeExpectancy})" — the PRIMARY's. Now that the
+  horizon can be a partner's (a younger partner extends it), the copy should name whichever member's
+  expectancy the portfolio must actually last to. The panel today receives only `view` + `budget`
+  and has no member roster / horizon-driver. Thread the horizon-driving member (name + age) through
+  `RetirementView` (`packages/app/src/retirementView.ts`) from the run, and have the copy name them
+  when it is not the primary. Keep the solved headline age in the PRIMARY's years (unchanged).
+- Then write `.sandcastle/summary-267.md` and DELETE this handoff in the finishing commit.
+
+## Deferred (out of scope by the issue's design decision)
+
+- Per-member budget attribution / spending step-down at a member's death — household spending runs
+  unchanged to the horizon, funding the survivor at full cost (conservative). A follow-up.
+- `membersAt`/snapshot roster still lists a member after their expectancy (it reads
+  `HouseholdMembership.endMonth`, which can't carry death without clipping jobs — see Dead ends).
+  Benefit and horizon are correct; only the display roster overstates presence in survivor years.

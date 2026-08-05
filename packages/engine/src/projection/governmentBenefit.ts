@@ -100,6 +100,10 @@ export function buildGovernmentBenefitSources(
     // separated partner used to keep contributing their whole benefit for the rest of the
     // projection, since this loop was the one income path that never asked.
     if (!isHouseholdMemberAt(person, month)) continue;
+    // And the benefit stops at the member's own expectancy — a dead member draws nothing, even
+    // as household spending runs on to fund the survivor. A wage is not gated here: it ends where
+    // its job was authored to, whatever the expectancy. Absent bound leaves it unbounded (legacy).
+    if (person.lifeEndMonthExclusive !== undefined && month >= person.lifeEndMonthExclusive) continue;
     // The person's own pin, else the jurisdiction's default (full retirement age) — never a
     // hardcoded engine age. With neither, the benefit isn't timed at all.
     const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;

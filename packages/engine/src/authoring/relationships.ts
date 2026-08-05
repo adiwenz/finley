@@ -30,6 +30,13 @@ export interface MarryInput {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /**
+   * The age the partner is projected to live to. Defaults to the household's own
+   * ({@link import("../plan/plan").Plan.lifeExpectancy}); a partner younger than the primary
+   * reaches that same age in a later calendar year, which is what extends the projection horizon
+   * to cover their tail.
+   */
+  readonly lifeExpectancy?: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -49,6 +56,8 @@ export interface StartPartneredInput {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /** See {@link MarryInput.lifeExpectancy}; defaults to the household's. */
+  readonly lifeExpectancy?: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -104,6 +113,9 @@ export function applyMarriage(
     // An age they already ARE, so it stops one short of the ceiling like the primary's.
     ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
     ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
+    // An age they are projected TO, so it reaches the ceiling itself, like the plan's. Only
+    // checked when stated — an omitted expectancy inherits the household's, already bounded.
+    ["lifeExpectancy", input.lifeExpectancy, AGE_LIMITS.lifeExpectancy],
   ];
   for (const [field, age, limit] of ages) {
     if (age !== undefined && age > limit) {
@@ -125,6 +137,9 @@ export function applyMarriage(
     id,
     name: input.name,
     birthYear: input.birthYear,
+    // Stored only when stated; omitted, it inherits the household's expectancy on read, so a
+    // later change to the plan's carries to the partner rather than freezing at marriage.
+    ...(input.lifeExpectancy !== undefined ? { lifeExpectancy: input.lifeExpectancy } : {}),
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };

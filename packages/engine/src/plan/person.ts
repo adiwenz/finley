@@ -13,6 +13,23 @@ export interface Person {
   readonly id: PersonId;
   readonly name: string;
   readonly birthYear: number;
+  /**
+   * The age this member is projected to live to — an input, never solved for. Bounds only THIS
+   * member's own income and government benefit: both stop at their expectancy the same way a
+   * separation window stops them (see {@link import("../job/householdJob").membershipWindow}).
+   * Household spending never steps down when a member's expectancy passes — it runs unchanged to
+   * the horizon, funding the survivor at full cost, which is conservative rather than dangerous.
+   *
+   * The projection horizon is the MAX of every member's expectancy month, so a partner younger
+   * than the primary but with the same expectancy *age* reaches it in a later calendar year and
+   * extends the run to cover their tail — the gap this field exists to close.
+   *
+   * `undefined` means **inherit the household's expectancy** ({@link Plan.lifeExpectancy}),
+   * resolved on read at the sim boundary rather than frozen here — the same "not stated, so use
+   * the household default" shape {@link continuationJobId} uses. The primary always states theirs
+   * on the plan; a partner may state their own or leave it to the household's.
+   */
+  readonly lifeExpectancy?: number;
   /** An input, never solved for. */
   readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
