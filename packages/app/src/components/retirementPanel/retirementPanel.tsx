@@ -1,13 +1,20 @@
 /**
- * Retirement panel — the solved answer to "when could this household stop working?", stated with
- * whatever the answer had to assume.
+ * Retirement panel — **two** answers, kept visibly apart: does the plan the household actually
+ * wrote down work, and what is the earliest they could stop all work instead?
+ *
+ * They are separate because neither implies the other. The solved age is reached under a
+ * continuation hypothesis — someone's job modelled as never having ended — so it is not a verdict
+ * on the authored plan, and the authored plan's own survival is not something the search ever
+ * evaluates (see `RetirementSolution.authoredPlanSurvives`). Printing only the age invited the
+ * reading that a feasible age means "your plan is fine", which it does not, and a `null` age the
+ * reading that the plan fails, which it also does not.
  *
  * The plan pins no retirement age, so there is no target to score against and no verdict to
- * report: the solver's age is the only one, and it is either feasible or there is none. What
- * varies is how much the age is worth on its own. An age the authored jobs already pay for is a
- * plain fact and is stated plainly; an age that only arrives because someone's job was modelled
- * as carrying on past its authored end is a CONDITIONAL, and is written as one — see the headline
- * below.
+ * report on the search either: the solver's age is the only one, and it is either feasible or
+ * there is none. What varies is how much the age is worth on its own. An age the authored jobs
+ * already pay for is a plain fact and is stated plainly; an age that only arrives because
+ * someone's job was modelled as carrying on past its authored end is a CONDITIONAL, and is
+ * written as one — see the headline below.
  */
 
 import { Fragment } from "react";
@@ -75,6 +82,30 @@ export function RetirementPanel({
   return (
     <>
       <h2>Retirement</h2>
+
+      {/* The plan as WRITTEN, answered on its own terms and first, because it is the one the
+          household is actually living. Nothing here is solved: the stop age is a read of the
+          authored job ends, and the survival line is one run of the plan with no boundary
+          applied at all. The solved age below is a different question and gets its own heading
+          rather than being appended to this one as a qualification. */}
+      <h3>Current plan</h3>
+      <p className="hint">
+        {view.plannedWorkStopAge === null ? (
+          <>Your plan holds no jobs, so it earns nothing from work.</>
+        ) : (
+          <>
+            Every job in your plan is scheduled to end by the time you turn{" "}
+            <strong>{view.plannedWorkStopAge}</strong>.
+          </>
+        )}{" "}
+        {view.authoredPlanSurvives ? (
+          <>This plan succeeds through age {budget.lifeExpectancy}.</>
+        ) : (
+          <>This plan runs out of money before age {budget.lifeExpectancy}.</>
+        )}
+      </p>
+
+      <h3>Earliest you could stop all work</h3>
 
       {/* Offered only when a feasible headline age exists: with none, capping work any earlier is
           strictly worse, so there is no hypothetical worth drawing. Toggles the CHARTS, not the

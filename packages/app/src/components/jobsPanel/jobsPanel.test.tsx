@@ -1261,8 +1261,8 @@ describe("JobsPanel — authoring a job's pay history", () => {
  * earner, offers the right options, writes the answer through, and — the property the whole
  * design turns on — leaves an answer alone when the job list changes underneath it.
  */
-describe("JobsPanel — 'Which job should Finley model as continuing beyond its planned end?'", () => {
-  const QUESTION = /Which job should Finley model as continuing beyond its planned end\?/i;
+describe("JobsPanel — 'If your plan required working longer than expected…'", () => {
+  const QUESTION = /If your plan required working longer than expected, which job would you continue\?/i;
   const picker = () => screen.getByRole("combobox", { name: QUESTION }) as HTMLSelectElement;
   const optionLabels = () =>
     Array.from(picker().options).map((o) => o.textContent);
@@ -1282,7 +1282,9 @@ describe("JobsPanel — 'Which job should Finley model as continuing beyond its 
     // and the control shows that rather than a blank "None", because it is the assumption the
     // household's retirement age is already being computed under.
     render(<Harness />);
-    expect(optionLabels()).toEqual(["None \u2014 do not assume additional work", "Job 1"]);
+    // Options read as the ACTION each one takes, and the jobs come first: "do not assume" is a
+    // decision of the same kind as the others, not an empty value to be got past.
+    expect(optionLabels()).toEqual(["Keep my Job 1 job longer", "Do not assume I would work longer"]);
     expect(picker().value).toBe(DEFAULT_JOB_ID);
     // Nothing has been written: showing a resolved default is not making a choice.
     expect(authored().plan.continuationJobId).toBeUndefined();
@@ -1299,7 +1301,10 @@ describe("JobsPanel — 'Which job should Finley model as continuing beyond its 
       endYear: START_YEAR - 10,
     };
     render(<Harness initial={{ ...PLAN_DEFAULTS, jobs: [past] }} />);
-    expect(optionLabels()).toEqual(["None \u2014 do not assume additional work", "Bar work"]);
+    expect(optionLabels()).toEqual([
+      "Keep my Bar work job longer",
+      "Do not assume I would work longer",
+    ]);
     expect(picker().value).toBe("");
   });
 
@@ -1309,7 +1314,7 @@ describe("JobsPanel — 'Which job should Finley model as continuing beyond its 
     render(<Harness />);
     expect(
       screen.getByText(
-        /Finley will extend this job continuously through the tested stop-working date\. Other jobs keep their planned dates, so jobs may overlap\./i,
+        /Finley uses this choice when estimating the earliest age you could stop all work\. Other jobs keep their planned dates and may overlap\./i,
       ),
     ).toBeDefined();
     // A running job is not a counterfactual, so the completed-job note stays away.
@@ -1380,12 +1385,17 @@ describe("JobsPanel — 'Which job should Finley model as continuing beyond its 
     // which, since the two pickers are otherwise identical.
     render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
     const questions = screen.getAllByRole("combobox", {
-      name: /should Finley model as continuing beyond its planned end\?/i,
+      name: /required working longer than expected, which job would/i,
     });
     expect(questions).toHaveLength(2);
+    // Whose it is comes from the OWNER, not from "are there several": the primary keeps the
+    // second person even in a two-earner household, and only a partner is named.
     expect(
-      screen.getByRole("combobox", { name: /Which of Sam\u2019s jobs should Finley model/i }),
+      screen.getByRole("combobox", {
+        name: /If Sam\u2019s plan required working longer than expected, which job would Sam continue\?/i,
+      }),
     ).toBeDefined();
+    expect(screen.getByRole("combobox", { name: QUESTION })).toBeDefined();
   });
 
   it("writes a partner's answer to their RelationshipEvent, not to the plan", () => {
@@ -1393,7 +1403,7 @@ describe("JobsPanel — 'Which job should Finley model as continuing beyond its 
     // the plan for the primary, the event they joined on for a partner. One facade method
     // settles that from the id, which is why this panel routes neither.
     render(<Harness initial={PLAN_DEFAULTS} events={[partnerJoining([partnerJob(4000)])]} />);
-    const sam = screen.getByRole("combobox", { name: /Which of Sam\u2019s jobs should Finley model/i });
+    const sam = screen.getByRole("combobox", { name: /which job would Sam continue\?/i });
 
     fireEvent.change(sam, { target: { value: "" } });
 

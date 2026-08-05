@@ -17,7 +17,7 @@ export interface Person {
   readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
   /**
-   * **Which job should a what-if model as continuing beyond its planned end?**
+   * **If this person's plan required working longer than expected, which job would continue?**
    *
    * The single job a what-if may run past its authored end — read by the retirement solver and
    * the stop-working preview, and by nothing else. The authored projection pays every job over
@@ -30,9 +30,10 @@ export interface Person {
    *    ONE authored span keeps its start and runs to the candidate boundary. Never a second
    *    stint starting later, which is why a job that finished years ago can be named — the
    *    scenario is that it did not finish.
-   *  - `null` — **None.** They have said there is no work to continue, so a candidate age past
-   *    their authored plan simply has no income behind it. The solver reports that age as
-   *    unreachable rather than inventing employment nobody claimed.
+   *  - `null` — **"do not assume I would work longer".** They have said there is no work to
+   *    continue, so no candidate boundary ever pays them past the dates they authored. The
+   *    solver reports such an age as unreachable rather than inventing employment nobody
+   *    claimed.
    *  - `undefined` — **not chosen yet**, the state every person starts in and stays in until
    *    someone picks. Resolved on read by the initialization rule in `continuationJobIdOf`,
    *    never by writing a value here. Kept distinct from `null` because "I have not been asked"

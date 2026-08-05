@@ -5,8 +5,11 @@
  * and graph can never disagree.
  *
  * The whole answer comes from one `retirement()` call, which leaves this module a thin read: the
- * solved age, what reaching it assumed, when the authored plan stops earning on its own, and the
- * health flag beside them.
+ * solved age, what reaching it assumed, when the authored plan stops earning on its own AND
+ * whether that plan survives, and the health flag beside them.
+ *
+ * The authored plan and the solved age are two results, not one number and a caveat — see
+ * {@link RetirementView.authoredPlanSurvives}.
  */
 
 import type {
@@ -41,6 +44,17 @@ export interface RetirementView {
    */
   readonly plannedWorkStopAge: number | null;
   /**
+   * Does the plan as authored — every job running exactly the years it was given — fund itself to
+   * life expectancy?
+   *
+   * Rendered beside {@link plannedWorkStopAge} as the "current plan" half of the panel, and it is
+   * the half {@link headlineAge} cannot supply: the solved age is reached under a continuation
+   * hypothesis, so a household whose authored plan already works can still see a headline age
+   * that assumed something, and one with no feasible headline age at all may have an authored
+   * plan that survives perfectly well. Two questions, two answers, shown as two.
+   */
+  readonly authoredPlanSurvives: boolean;
+  /**
    * Fires when the SOLVED age lands before the Medicare-eligibility age with an authored health
    * line below the pre-65 self-funded benchmark. Surfaced as a nudge — an estimate, not
    * advice. Quiet when no age is feasible: there is no retirement to open a gap.
@@ -74,6 +88,7 @@ export function retirementView(
     headlineAge: solution.fullRetirementAge,
     headlineMonth: fullRetirementMonth,
     plannedWorkStopAge: solution.plannedWorkStopAge,
+    authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,
     continuedJobs: solution.continuedJobs,
   };

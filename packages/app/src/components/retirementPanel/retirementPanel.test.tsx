@@ -77,6 +77,47 @@ describe("RetirementPanel", () => {
     expect(html).toContain(`>${view.headlineAge}</strong>`);
   });
 
+  it("shows the authored plan and the solved age as TWO results", () => {
+    // The finding this pins: the panel printed only the solved age, which invited reading it as
+    // a verdict on the plan. It is not one — the age is reached under a continuation hypothesis
+    // the plan itself does not contain — so the plan gets its own heading and its own survival
+    // sentence, above the age rather than folded into it.
+    const html = render(PLAN_DEFAULTS);
+    expect(html).toContain("<h3>Current plan</h3>");
+    expect(html).toContain("<h3>Earliest you could stop all work</h3>");
+    expect(html.indexOf("Current plan")).toBeLessThan(html.indexOf("Earliest you could stop"));
+
+    const view = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    expect(view.plannedWorkStopAge).not.toBeNull();
+    expect(html).toContain(
+      `Every job in your plan is scheduled to end by the time you turn <strong>${view.plannedWorkStopAge}</strong>.`,
+    );
+  });
+
+  it("states the authored plan's survival on its own terms, either way", () => {
+    // Rendered from hand-built views: WHETHER a given plan survives is the engine's question,
+    // and what the panel owes is that it prints both answers rather than only the happy one.
+    const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    const succeeds = renderWithView({ ...base, authoredPlanSurvives: true });
+    expect(succeeds).toContain(`This plan succeeds through age ${PLAN_DEFAULTS.lifeExpectancy}.`);
+    expect(succeeds).not.toContain("runs out of money");
+
+    const fails = renderWithView({ ...base, authoredPlanSurvives: false });
+    expect(fails).toContain(
+      `This plan runs out of money before age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+    );
+    // And a failing plan does not suppress the solved age: the two results are independent, and
+    // "your plan fails but you could stop at 76" is an ordinary, useful pair of answers.
+    expect(fails).toContain(`>${base.headlineAge}</strong>`);
+  });
+
+  it("says the plan holds no jobs rather than naming a stop age it does not have", () => {
+    const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    const html = renderWithView({ ...base, plannedWorkStopAge: null });
+    expect(html).toContain("Your plan holds no jobs, so it earns nothing from work.");
+    expect(html).not.toContain("scheduled to end by the time you turn");
+  });
+
   it("states no target age and scores no on-track percentage", () => {
     // Both went with the plan's `retirementAge`. The headline above IS the nearest feasible
     // age, so a second line naming a target could only ever repeat it or contradict it — and

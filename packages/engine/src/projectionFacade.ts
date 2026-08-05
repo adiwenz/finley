@@ -310,7 +310,7 @@ export class Projection {
    * **Which job a what-if would actually continue for this member** — the RESOLVED answer, not
    * the stored one.
    *
-   * `null` means none is, so a candidate age past what they authored has no income behind it.
+   * `null` means none is, so no candidate age ever pays them past the dates they authored.
    *
    * The distinction from reading the field is the whole point: a member who has never been asked
    * still has a continuation job, worked out from the jobs they hold (see
@@ -332,8 +332,8 @@ export class Projection {
    * PERSON: whichever plane their record lives on is settled from their id, exactly as it is for
    * every other fact about them. The job must be one of theirs.
    *
-   * Changes no projection. It is read only when the retirement solver tests an age past what the
-   * household authored, and by the stop-working preview that shows the same hypothesis.
+   * Changes no projection. It is read only when the retirement solver tests an age past the
+   * named job's own end, and by the stop-working preview that shows the same hypothesis.
    */
   setContinuationJob(personId: PersonId, jobId: string | null): void {
     this.write((state) =>

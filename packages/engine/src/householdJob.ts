@@ -44,23 +44,32 @@ export interface StopWorkingBoundary {
    * birthday.
    *
    * It moves employment in BOTH directions, which is the whole substance of "what if we retired
-   * at X" and is why this is not simply a cap. Which direction applies is decided once, per
-   * person, by where the boundary falls against their authored work plan — see
+   * at X" and is why this is not simply a cap. Which direction applies is decided **per job**, by
+   * where the boundary falls against THAT JOB's own authored end — see
    * {@link employmentEndYearExclusive}:
    *
-   *  - **At or before** the last year they were authored to work: a pure cap. Every job keeps
-   *    its own end and is truncated here. Nothing is extended, because nothing needs to be —
-   *    the question is only how much of the authored plan survives.
-  *  - **After** it: the plan runs out of authored work before the boundary, so something has
-   *    to carry the extra years or the answer is "you cannot". Exactly one job is carried —
-   *    the person's {@link import("./person").Person.continuationJobId} — extended to end here.
-   *    Every other job keeps its own authored end, and a person who has none is simply given no
-   *    income they did not author.
+   *  - the person's {@link import("./person").Person.continuationJobId}, at a boundary **after**
+   *    its own authored end: extended to end here. It is the one job the counterfactual runs on,
+   *    and it runs on from the moment the boundary passes it.
+   *  - **everything else** — every unselected job, and the selected one at a boundary inside its
+   *    own authored span: capped here and never extended. A person who named no job is simply
+   *    given no income they did not author.
+   *
+   * Per JOB rather than per person, and that is load-bearing. The pivot used to be the person's
+   * whole authored work plan: nothing was extended until the boundary cleared the LAST job they
+   * held. A career ending at 65 followed by consulting to 70 therefore ran as authored at every
+   * boundary up to 70 and then jumped — at 71 the career suddenly reappeared for the six years
+   * 65–71 it had been denied at 70. One extra year of retirement age bought six extra years of
+   * salary, so the answer was discontinuous in the thing being solved for and two adjacent
+   * candidates modelled incompatible lives. The selected job now means one thing at every
+   * candidate: it never ended.
    *
    * Extending one job rather than all of them is what makes the answer mean something. "Could
    * you retire at 70?" has to be allowed to run employment five years longer than was written
    * down — that is the question — but only for the one job the person named, and the others are
-   * left exactly as authored rather than swept along with it.
+   * left exactly as authored (capped here) rather than swept along with it. A job authored to
+   * START after the boundary never happens at all: the cap lands before it begins, which is the
+   * same rule and needs no case of its own.
    *
    * The extension is a single continuous span: the named job keeps its original start and has
    * its end moved out, which is the same job never having finished rather than a second stint
@@ -198,34 +207,23 @@ export function employmentEndYearExclusive(
   const authored = authoredJobEndYearExclusive(job);
   if (scope.kind === "authored") return authored;
   const boundary = scope.stopWorking.boundaryYearExclusive;
-  // Retiring no later than the plan already had them working is a pure truncation: there is
-  // nothing to make up, so no job is carried past what it says. Checked before the extension so
-  // the continuation job — which may well end EARLY — is never pulled forward to cover a later
-  // job's years: "could you stop at 68?" must not answer by assuming you take your old job back
-  // for three years you had already planned to spend in a different one.
-  if (boundary <= authoredWorkPlanEndYearExclusive(owner)) return Math.min(authored, boundary);
-  return job.id === continuationJobIdOf(owner, nowYear) ? boundary : authored;
-}
-
-/**
- * The exclusive year this person's authored working life ends — the last year any job of theirs
- * pays, and the pivot between capping and extending.
- *
- * `-Infinity` for someone with no jobs, which puts every boundary in the "after" branch, where
- * they have no continuation job either and so are simply never given income they did not author.
- */
-function authoredWorkPlanEndYearExclusive(owner: Person): number {
-  let latest = -Infinity;
-  for (const j of owner.jobs) latest = Math.max(latest, authoredJobEndYearExclusive(j));
-  return latest;
+  // The selected job, past its OWN end: it never finished, so it runs to the boundary. Gated on
+  // this job's authored end and nothing wider, so the same selection means the same thing at
+  // every candidate the search tries — see {@link StopWorkingBoundary} for what a per-person
+  // pivot did to the answer instead.
+  if (boundary > authored && job.id === continuationJobIdOf(owner, nowYear)) return boundary;
+  // Everything else is capped and never extended: unselected jobs keep their authored end, and
+  // so does the selected one at a boundary that falls inside its own span — there is nothing to
+  // carry when the job was still running anyway.
+  return Math.min(authored, boundary);
 }
 
 /**
  * **Which of this person's jobs a what-if may run past its authored end — the whole selection
  * rule, and the only reader of {@link Person.continuationJobId}.**
  *
- * `null` means no job is carried, and a candidate age past their authored plan therefore has no
- * income behind it. That is an answer, not a gap: the alternative is paying a household for
+ * `null` means no job is carried, so no candidate boundary can ever pay this person past the
+ * dates they authored. That is an answer, not a gap: the alternative is paying a household for
  * employment nobody said they could keep.
  *
  * A stated selection wins outright, including a stated `null`. It is checked against the jobs

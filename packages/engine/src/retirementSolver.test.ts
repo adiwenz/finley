@@ -721,18 +721,63 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     for (const age of [60, 65, 70, 79]) expect(wageAt(series, "term", monthAt(age))).toBe(0);
   });
 
-  it("still truncates normally at a candidate age INSIDE the authored plan", () => {
-    // Below the plan's own end nothing is extended, whoever was selected — the question is only
-    // how much of the authored plan survives. In particular the selected job, which here ends
-    // EARLY, is not pulled forward to cover the later job's years: asked about stopping at 68,
-    // the career does not come back for the three years the contract was going to fill.
+  it("extends the selected job as soon as the candidate passes ITS OWN end, not the plan's last", () => {
+    // The rule, at the age that used to get it wrong. Career 35–65, contract 65–70, career
+    // selected, candidate 68. The pivot was the person's WHOLE authored plan, so nothing was
+    // extended until the candidate cleared 70 and the career stopped dead at 65 here — the
+    // selection silently meant nothing at this age. It is past the career's own end, so the
+    // career runs on; the contract keeps its authored dates and is capped at the candidate.
     const jobs = [job("career", 35, 65), job("contract", 65, 70)];
     const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "career")), 68, CTX);
 
     expect(wageAt(series, "career", monthAt(64))).toBeGreaterThan(0);
-    expect(wageAt(series, "career", monthAt(65))).toBe(0); // its own end, not stretched to 68
+    expect(wageAt(series, "career", monthAt(67))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(68))).toBe(0); // stopped by the candidate, not by 65
     expect(wageAt(series, "contract", monthAt(67))).toBeGreaterThan(0);
-    expect(wageAt(series, "contract", monthAt(68))).toBe(0); // cut at the candidate
+    expect(wageAt(series, "contract", monthAt(68))).toBe(0); // its own 70, cut at the candidate
+  });
+
+  it("caps the selected job like any other at a candidate INSIDE its own span", () => {
+    // The other half of the same gate: extension is not "the selected job ignores the boundary".
+    // At 60 the career is still running anyway, so there is nothing to carry — it is truncated
+    // exactly as an unselected job would be, and the contract never starts.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, "career")), 60, CTX);
+
+    expect(wageAt(series, "career", monthAt(59))).toBeGreaterThan(0);
+    expect(wageAt(series, "career", monthAt(60))).toBe(0);
+    for (const age of [65, 67, 69]) expect(wageAt(series, "contract", monthAt(age))).toBe(0);
+  });
+
+  it("is continuous across the household's last authored work end", () => {
+    // The discontinuity this rule exists to remove, asserted as the property rather than at one
+    // age. Under the per-person pivot the career was denied at 70 and granted at 71, so one
+    // extra year of retirement age bought SIX extra years of salary and two adjacent candidates
+    // modelled incompatible lives. Total income at a given month may only ever rise with the
+    // candidate — and never by a step the extra year cannot account for.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const scenario = scenarioOf(planWithJobs(jobs, "career"));
+    // Income in the household's 66th year — one month past the career's own end, and inside
+    // every candidate below, so the only thing that varies is whether the career is running.
+    const atAge = (age: number) => incomeAt(projectFullRetirement(scenario, age, CTX), monthAt(65));
+
+    // 66 through 72 — straddling the plan's own last year, 70. The career is running in every
+    // one of them, because 66 is already past its own end. Under the old pivot this month was
+    // career-less at 70 and career-paying at 71: the step this asserts away.
+    const income = [66, 67, 68, 69, 70, 71, 72].map(atAge);
+    for (const cents of income) expect(cents).toBe(income[0]);
+    expect(income[0]).toBeGreaterThan(0);
+  });
+
+  it("never starts a job the candidate boundary falls before", () => {
+    // A job authored to begin after the household stopped working does not happen — including
+    // one that was selected, which is the case the extension rule could most easily get wrong by
+    // reading "continue this job" as "run this job regardless".
+    const jobs = [job("career", 35, 65), job("later", 72, 80)];
+    for (const chosen of ["career", "later"]) {
+      const series = projectFullRetirement(scenarioOf(planWithJobs(jobs, chosen)), 68, CTX);
+      for (const age of [72, 75, 79]) expect(wageAt(series, "later", monthAt(age))).toBe(0);
+    }
   });
 
   it("models a COMPLETED selected job as one that never ended", () => {
@@ -977,6 +1022,16 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     expect(wageAt(previewed, "career", monthAt(70))).toBeGreaterThan(0);
     expect(wageAt(previewed, "contract", monthAt(70))).toBe(0);
+
+    // And at a preview age INSIDE the plan's last authored year, where the two used to diverge:
+    // the search extended the career from 66 while the preview's own rule did not, so the chart
+    // showed a different life from the one the headline age was solved under. Both read the same
+    // resolution now, so both have the career running at 67 and the contract capped at 68.
+    const inside = p.runAtStopWorkingAge(mockJurisdiction(), 68).series;
+    expect(wageAt(inside, "career", monthAt(67))).toBeGreaterThan(0);
+    expect(wageAt(inside, "career", monthAt(68))).toBe(0);
+    expect(wageAt(inside, "contract", monthAt(67))).toBeGreaterThan(0);
+    expect(wageAt(inside, "contract", monthAt(68))).toBe(0);
   });
 
   it("discloses the job a solved age assumed would continue", () => {
@@ -1023,6 +1078,50 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     const unaided = solveRetirement(scenarioOf(planWithJobs([job("career", 35, 65)])), CTX);
     expect(unaided.fullRetirementAge).not.toBeNull();
     expect(unaided.continuedJobs).toEqual([]);
+  });
+
+  it("reports the AUTHORED plan's survival as a result of its own", () => {
+    // The second first-class answer. It is a run of the plan exactly as written — no boundary,
+    // no continuation — so it is untouched by the selection, and it answers a question the
+    // search structurally cannot: "does what I actually wrote down work?"
+    const comfortable = solveRetirement(scenarioOf(planWithJobs([job("career", 35, 65)])), CTX);
+    expect(comfortable.authoredPlanSurvives).toBe(true);
+
+    // Same plan, three selections, one authored answer: the choice is about hypotheticals.
+    for (const chosen of ["career", null, undefined] as const) {
+      const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+      const solved = solveRetirement(scenarioOf(planWithJobs(jobs, chosen)), CTX);
+      expect(solved.authoredPlanSurvives).toBe(true);
+    }
+
+    // And it really does read the plan rather than always agreeing: the tight fixture's authored
+    // jobs do not carry it to life expectancy.
+    const tight = solveRetirement(
+      scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: "career" }),
+      CTX,
+    );
+    expect(tight.authoredPlanSurvives).toBe(false);
+    // Two results, not one: this household HAS a feasible stop-all-work age even though the plan
+    // it wrote down fails — the age assumes the career ran on, which the authored plan does not.
+    expect(tight.fullRetirementAge).toBe(74);
+  });
+
+  it("does not reproduce the authored staggering as a solver candidate", () => {
+    // Why the authored run has to exist separately. At a candidate of 70 — the plan's own last
+    // year — the career is modelled as having run to 70 too, because the selection means the
+    // same thing at every candidate. So the scenario the user actually wrote (career to 65, then
+    // contract 65–70) appears nowhere in the candidate space, and nothing in the search speaks
+    // for it.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const scenario = scenarioOf(planWithJobs(jobs, "career"));
+
+    const candidate = projectFullRetirement(scenario, 70, CTX);
+    expect(wageAt(candidate, "career", monthAt(67))).toBeGreaterThan(0);
+
+    // The authored run — the one `authoredPlanSurvives` judges — is the one that has it stopped.
+    const authored = projectScenario(scenario, CTX);
+    expect(wageAt(authored, "career", monthAt(67))).toBe(0);
+    expect(wageAt(authored, "contract", monthAt(67))).toBeGreaterThan(0);
   });
 
   it("survives a state round-trip, for a named job and for None alike", () => {

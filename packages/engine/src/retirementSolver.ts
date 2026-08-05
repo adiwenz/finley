@@ -2,16 +2,20 @@
  * The retirement solver, run off the REAL projection: it uses the same `simulateHousehold` the
  * net-worth graph does, so panel and graph can never disagree.
  *
- * One question, one search. Candidate ages are binary-searched for the earliest at which the
- * household can stop working and still fund itself to life expectancy, each candidate judged by
- * one survival signal read off the real net-worth curve. Nothing here is pinned by the user:
- * their authored job dates say when work stops as PLANNED ({@link plannedWorkStopAge}, a read),
- * and this says the earliest it COULD ({@link earliestFullRetirementAge}, a solve).
+ * **Two results, not one.** The plan as authored is run once and asked whether it survives
+ * ({@link authoredPlanSurvives}); separately, candidate ages are binary-searched for the earliest
+ * at which the household could stop ALL work and still fund itself to life expectancy
+ * ({@link earliestFullRetirementAge}). They are kept apart because the search cannot answer the
+ * first question — every candidate resolves the household under the continuation hypothesis, so
+ * the authored staggering of jobs is not among the scenarios it tries. Beside them sits
+ * {@link plannedWorkStopAge}, a plain READ of when the authored jobs stop paying. Nothing here is
+ * pinned by the user.
  *
  * A candidate never edits the scenario. It travels as a {@link StopWorkingBoundary} — a
- * compilation input — which caps every job at the candidate year, and may run PAST an authored
- * end for exactly one job per person: the one they named as the job they would continue. What
- * that assumed is reported back beside the answer ({@link continuedJobsAt}).
+ * compilation input — which caps every job at the candidate year, and runs PAST an authored end
+ * for exactly one job per person: the one they named as the job they would continue, from the
+ * moment the candidate passes that job's own end. What that assumed is reported back beside the
+ * answer ({@link continuedJobsAt}).
  *
  * Pure and jurisdiction-agnostic: always handed a {@link ProjectionContext} (frozen "now" plus
  * jurisdiction); there is no default.
@@ -271,7 +275,8 @@ export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): 
  * Compared against {@link authoredJobEndYearExclusive} rather than re-derived from each person's
  * selection, so a job appears here exactly when the projection really did pay it for years the
  * plan does not contain. A selection that changed nothing at this age — because the boundary
- * falls inside the authored plan, so every job was merely capped — correctly reports nothing.
+ * falls inside the selected job's own span, so every job was merely capped — correctly reports
+ * nothing.
  *
  * No simulation: the household is interpreted and its jobs resolved, which is what a run does
  * before any month is computed. Cheap enough to run once for the solved age.
@@ -341,16 +346,32 @@ export function continuedJobsAt(
 }
 
 /**
+ * Does the plan **as authored** survive to life expectancy? One run with no
+ * {@link StopWorkingBoundary} at all, so every job pays exactly the years it was given.
+ *
+ * Its own run rather than a candidate of the search, because the search cannot produce this
+ * scenario: a candidate resolves the household under the continuation hypothesis, so a boundary
+ * at the plan's own final year still models the selected job as having run to it. The authored
+ * staggering — this job to 65, that one 65 to 70 — exists nowhere in the candidate space. See
+ * {@link RetirementSolution.authoredPlanSurvives}.
+ */
+export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext): boolean {
+  return planSurvives(projectScenario(scenario, ctx));
+}
+
+/**
  * The default retirement result off one {@link Scenario}: the retirement search
  * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop"), the planned
  * work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its
- * own"), and what the search had to assume to get there.
+ * own"), whether the authored plan survives at all ({@link authoredPlanSurvives} — a run of the
+ * plan itself), and what the search had to assume to get there.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   const fullRetirementAge = earliestFullRetirementAge(scenario, ctx);
   return {
     fullRetirementAge,
     plannedWorkStopAge: plannedWorkStopAge(scenario, ctx),
+    authoredPlanSurvives: authoredPlanSurvives(scenario, ctx),
     // Read at the age that was actually reported. With no feasible age there is no scenario to
     // describe, so there is nothing to disclose either.
     continuedJobs:

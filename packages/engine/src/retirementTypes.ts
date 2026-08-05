@@ -137,6 +137,22 @@ export interface RetirementSolution {
    */
   readonly plannedWorkStopAge: number | null;
   /**
+   * Does the plan **exactly as authored** — every job running the years it was given, nothing
+   * extended and nothing cut short — fund itself to life expectancy?
+   *
+   * A separate result from {@link fullRetirementAge} rather than a corollary of it, because the
+   * search can no longer answer it. A candidate boundary resolves the household through one
+   * continuation hypothesis, so the staggered plan the user actually wrote — a career to 65, then
+   * consulting to 70 — is not among the candidates: at a boundary of 70 the selected career is
+   * modelled as having run to 70 as well. That is the right thing for a "could we stop at 70?"
+   * question and the wrong thing for "does my plan work", so the plan gets its own run.
+   *
+   * The two answer different questions and either can be true without the other.
+   * {@link fullRetirementAge} being `null` while this is `true` is an ordinary result: the plan
+   * works, and there is simply no EARLIER age it also works at.
+   */
+  readonly authoredPlanSurvives: boolean;
+  /**
    * The jobs {@link fullRetirementAge} assumed would carry on past their authored end — empty
    * when the answer needed none, and empty when there is no answer.
    *

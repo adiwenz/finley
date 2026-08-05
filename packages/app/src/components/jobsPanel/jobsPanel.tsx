@@ -349,7 +349,6 @@ export function JobsPanel({
               selected={projection.continuationJobOf(owner.id)}
               jobTitleOf={(job) => titleOf.get(job.id) ?? job.id}
               nowYear={START_YEAR}
-              severalOwners={severalOwners}
               onChange={(jobId) => transact((p) => p.setContinuationJob(owner.id, jobId))}
             />
           ))}
