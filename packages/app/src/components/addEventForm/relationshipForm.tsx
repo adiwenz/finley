@@ -1,9 +1,16 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
-import { AGE_LIMITS, MAX_LIVED_AGE, type RelationshipEvent } from "@finley/engine";
-import { MonthSelect, type EditProps, type FormProps } from "./formControls";
+import { AGE_LIMITS, isPreExisting, MAX_LIVED_AGE, type RelationshipEvent } from "@finley/engine";
+import {
+  elapsedYears,
+  monthOfElapsedYears,
+  MonthSelect,
+  type EditProps,
+  type FormProps,
+} from "./formControls";
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
+import { START_YEAR } from "../../config";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
@@ -16,9 +23,9 @@ interface RelationshipDraft {
   readonly month: number;
   readonly name: string;
   /**
-   * The partner's age **in the year they join** — the moment this form describes, so the
-   * age the user has in mind ("they'll be 45 when we marry"). A birth year would make them
-   * do the arithmetic.
+   * The partner's age in the {@link ageYearOf} reference year — the moment this form describes,
+   * so the age the user has in mind ("they'll be 45 when we marry"; for a partner already here,
+   * how old they are today). A birth year would make them do the arithmetic.
    */
   readonly age: number;
   /** The age their government benefit begins, 62–70. */
@@ -28,17 +35,27 @@ interface RelationshipDraft {
 }
 
 /**
- * Seed an edit from the partner already on the timeline. Their birth year becomes the age at
- * the join year — the term this form collects — so a correction is made in the same vocabulary
- * the partner was authored in. Jobs are not carried: a `marry` revision cannot touch them (they
- * are edited in the Jobs panel), so the draft starts them empty and the form hides the section.
+ * The year the age field speaks in. A partner still to come is described by the moment they
+ * arrive, so it is the join year. One already in the household (an ANCHOR, dated at the true
+ * past month they got together) is described as they are NOW — "their age today", the term the
+ * Starting position form collected — so their age must not restate itself when the anniversary
+ * moves, which is what reading it against the join year would do.
+ */
+const ageYearOf = (month: number): number => (isPreExisting(month) ? START_YEAR : yearOfMonth(month));
+
+/**
+ * Seed an edit from the partner already on the timeline. Their birth year becomes the age in
+ * {@link ageYearOf}'s year — the term this form collects — so a correction is made in the same
+ * vocabulary the partner was authored in. Jobs are not carried: a `marry` revision cannot touch
+ * them (they are edited in the Jobs panel), so the draft starts them empty and the form hides
+ * the section.
  */
 function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
   const { month, person } = event;
   return {
     month,
     name: person.name,
-    age: yearOfMonth(month) - person.birthYear,
+    age: ageYearOf(month) - person.birthYear,
     claimingAge: person.benefitClaimingAge,
     jobs: [],
   };
@@ -66,12 +83,22 @@ export function RelationshipForm({
 
   const joinYear = yearOfMonth(draft.month);
   /**
-   * Their birth year — what the engine reasons in. Derived from the age at the join year,
-   * so moving the wedding later keeps them the age entered and shifts the birth year, which
-   * is what "they'll be 45 when we marry" means. Drives their whole arc: when open-ended
-   * jobs stop, when Social Security starts, RMDs, and the ages their jobs resolve against.
+   * An anchor: the partner is already in the household, so this form dates them the way the
+   * Starting position form did — by how long you have been together — instead of by a year on
+   * the plan's timeline, which cannot reach the past. Fixed for the life of the form; the fields
+   * below never move an event across the boundary.
    */
-  const partnerBirthYear = joinYear - draft.age;
+  const anchored = edit !== undefined && isPreExisting(edit.event.month);
+  /**
+   * Their birth year — what the engine reasons in. Derived from the age in the year that age was
+   * given in, so moving a future wedding later keeps them the age entered and shifts the birth
+   * year ("they'll be 45 when we marry"), while correcting how long an existing couple has been
+   * together leaves their age today — and so their birth year — alone. Drives their whole arc:
+   * when open-ended jobs stop, when Social Security starts, RMDs, and the ages their jobs
+   * resolve against.
+   */
+  const ageYear = anchored ? START_YEAR : joinYear;
+  const partnerBirthYear = ageYear - draft.age;
 
   function addJob(job: JobEditDraft) {
     setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }));
@@ -115,7 +142,22 @@ export function RelationshipForm({
 
   return (
     <>
-      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      {/* The same question the Starting position form asked, so a correction is made in the
+          vocabulary the partnering was authored in — and the true past month it sits on stays
+          reachable, which a picker spanning only the plan's own years never made it. Kept
+          positive: a partnering already behind us is what this branch is for. */}
+      {anchored ? (
+        <NumInput
+          label="Together for"
+          value={elapsedYears(draft.month)}
+          onChange={(years) => patch({ month: monthOfElapsedYears(years) })}
+          suffix="yr"
+          min={1}
+          max={70}
+        />
+      ) : (
+        <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      )}
       <label className="field">
         <span className="field-label">Name</span>
         <input
@@ -127,10 +169,11 @@ export function RelationshipForm({
         />
       </label>
 
-      {/* Anchored to the join year so there is nothing to infer: at month 0 that year IS
-          now. */}
+      {/* Read against the join year so there is nothing to infer: at month 0 that year IS now.
+          A partner already in the household is instead read against today — they are here, so
+          "their age today" is the fact the user holds. */}
       <NumInput
-        label={`Their age in ${joinYear}`}
+        label={anchored ? "Their age today" : `Their age in ${joinYear}`}
         value={draft.age}
         onChange={(age) => patch({ age })}
         min={18}

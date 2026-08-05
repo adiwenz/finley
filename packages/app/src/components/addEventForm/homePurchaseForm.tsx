@@ -5,6 +5,7 @@ import {
   dollarsToCents,
   DTI_FRONT_END_THRESHOLD,
   DTI_BACK_END_THRESHOLD,
+  isPreExisting,
   PRIMARY_PERSON_ID,
   type FundingLookup,
   type HomePurchaseAssessment,
@@ -12,7 +13,7 @@ import {
 } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
-import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
+import { HoldingWhen, MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
 /** Opening values — a plausible starter purchase to edit, not a recommendation. */
@@ -83,6 +84,14 @@ export function HomePurchaseForm({
   const patch = (fields: Partial<HomePurchaseDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   /**
+   * A holding — a home the household already owns. It opened at the now marker with no draw and
+   * no §4.5 gate, and its price field IS today's value, so the date is stated rather than picked
+   * and there is no down payment to fund: the fields below are exactly what the Starting position
+   * form asked for. Its mortgage, as for any home, is revised through that loan's own marker.
+   */
+  const holding = edit !== undefined && isPreExisting(edit.event.month);
+
+  /**
    * Moving the purchase re-prices every account, so one picked while it held money may hold
    * nothing at the new month. Drop it, and put nothing in its place — quietly substituting
    * an account would spend money the user did not choose to spend.
@@ -151,9 +160,21 @@ export function HomePurchaseForm({
 
   return (
     <>
-      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={setMonth} />
-      <NumInput label="Price" value={draft.price} onChange={(price) => patch({ price })} prefix="$" step={10000} />
-      <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
+      {holding ? (
+        <HoldingWhen />
+      ) : (
+        <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={setMonth} />
+      )}
+      <NumInput
+        label={holding ? "Current value" : "Price"}
+        value={draft.price}
+        onChange={(price) => patch({ price })}
+        prefix="$"
+        step={10000}
+      />
+      {!holding && (
+        <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
+      )}
       {/* The mortgage's rate and term are the financing loan's, not the property's — an edit
           leaves them to that loan's own marker and shows neither here. */}
       {!edit && (
@@ -162,14 +183,17 @@ export function HomePurchaseForm({
           <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
         </>
       )}
-      <FundingSourcePicker
-        pool={pool}
-        selected={sourceIds}
-        amountCents={dollarsToCents(draft.down)}
-        availability={availability}
-        onChange={(sourceIds) => patch({ sourceIds })}
-        label="Down payment paid from"
-      />
+      {/* A holding drew nothing when it opened, so there is no drain order to edit. */}
+      {!holding && (
+        <FundingSourcePicker
+          pool={pool}
+          selected={sourceIds}
+          amountCents={dollarsToCents(draft.down)}
+          availability={availability}
+          onChange={(sourceIds) => patch({ sourceIds })}
+          label="Down payment paid from"
+        />
+      )}
       <button className="btn primary" onClick={submit}>
         {edit ? "Save changes" : "Add event"}
       </button>
@@ -177,8 +201,9 @@ export function HomePurchaseForm({
           cannot change the financing that drives it. */}
       {!edit && dti.exceeded && <DtiWarning dti={dti} />}
       <p className="hint">
-        Accounts are drained in the order you pick them, and only cash and
-        investment accounts can pay — retirement savings and credit can’t.
+        {holding
+          ? "Opens at today's value — no down payment, no affordability gate."
+          : "Accounts are drained in the order you pick them, and only cash and investment accounts can pay — retirement savings and credit can’t."}
       </p>
     </>
   );

@@ -3,13 +3,14 @@
 import { useRef, useState } from "react";
 import {
   dollarsToCents,
+  isPreExisting,
   liabilityKindLabel,
   PRIMARY_PERSON_ID,
   type LiabilityKind,
   type OriginableLoanKind,
 } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
+import { HoldingWhen, MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 
 const DEFAULT_TERM_YEARS = 5;
 
@@ -56,6 +57,14 @@ export function LoanForm({
 
   // Shared fields live on every arm, so a spread patch preserves whichever arm is active.
   const patch = (fields: Partial<LoanCommon>) => setDraft((d) => ({ ...d, ...fields }));
+
+  /**
+   * A holding — a debt already carried when the plan starts, or the mortgage under a home that
+   * was. Its month is the now marker and nothing else is legal, so the date is stated rather
+   * than picked, and its figures are today's: the balance and the term still to run, which is
+   * how the Starting position form asked for them.
+   */
+  const holding = edit !== undefined && isPreExisting(edit.event.month);
 
   // Switching kind rebuilds the arm with a valid value for its own field, preserving the
   // shared amount/apr/month.
@@ -110,7 +119,11 @@ export function LoanForm({
 
   return (
     <>
-      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      {holding ? (
+        <HoldingWhen />
+      ) : (
+        <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      )}
       {/* Kind is fixed on a revision — a card and a term loan are different instruments — so an
           edit names it read-only rather than offering the picker. */}
       {edit ? (
@@ -127,10 +140,24 @@ export function LoanForm({
           </select>
         </label>
       )}
-      <NumInput label="Amount" value={draft.amount} onChange={(amount) => patch({ amount })} prefix="$" step={1000} />
+      {/* A holding opens at what it is worth NOW, so its two figures are named as today's —
+          the same words the Starting position form used to collect them. */}
+      <NumInput
+        label={holding ? "Balance today" : "Amount"}
+        value={draft.amount}
+        onChange={(amount) => patch({ amount })}
+        prefix="$"
+        step={1000}
+      />
       <NumInput label="APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
       {draft.kind !== "creditCard" && (
-        <NumInput label="Term" value={draft.termYears} onChange={setTermYears} suffix="yr" min={1} />
+        <NumInput
+          label={holding ? "Term remaining" : "Term"}
+          value={draft.termYears}
+          onChange={setTermYears}
+          suffix="yr"
+          min={1}
+        />
       )}
       <button className="btn primary" onClick={submit}>
         {edit ? "Save changes" : "Add event"}

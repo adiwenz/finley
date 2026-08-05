@@ -198,3 +198,40 @@ describe("RelationshipForm — editing an existing partner", () => {
     expect(screen.queryByRole("button", { name: /Add a job/i })).toBeNull();
   });
 });
+
+/**
+ * A partnering already behind us is an ANCHOR: dated at its true past month, which the plan's
+ * year picker cannot reach. Editing one has to speak the terms it was authored in — how long you
+ * have been together, and how old they are today — or the past becomes uneditable and the date
+ * silently reads as Year 0.
+ */
+describe("RelationshipForm — editing a partner already in the household", () => {
+  /** Together five years (month -60), 40 today. The Starting position form's own vocabulary. */
+  const ANCHORED: RelationshipEvent = {
+    ...EXISTING,
+    month: -60,
+    person: { ...EXISTING.person, birthYear: 2026 - 40 },
+  };
+
+  it("asks how long you have been together, not for a year on the timeline", () => {
+    renderEdit(ANCHORED);
+    expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();
+    expect(Number(spin(/Together for/i).value)).toBe(5);
+    // Their age is read against today, because they are already here.
+    expect(Number(spin(/Their age today/i).value)).toBe(40);
+  });
+
+  it("moves the anniversary further into the past, leaving their age today alone", () => {
+    const revise = renderEdit(ANCHORED);
+    enterNumber(spin(/Together for/i), "8");
+    fireEvent.click(btn(/Save changes/i));
+    expect(revise.mock.calls[0][1]).toMatchObject({ type: "marry", month: -96, birthYear: 2026 - 40 });
+  });
+
+  it("re-derives the birth year from their age today, not from the year they got together", () => {
+    const revise = renderEdit(ANCHORED);
+    enterNumber(spin(/Their age today/i), "44");
+    fireEvent.click(btn(/Save changes/i));
+    expect(revise.mock.calls[0][1]).toMatchObject({ month: -60, birthYear: 2026 - 44 });
+  });
+});

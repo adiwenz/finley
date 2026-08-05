@@ -317,3 +317,124 @@ describe("sub-forms — editing an existing event", () => {
     });
   });
 });
+
+/**
+ * Editing something that predates the plan. Two shapes, and the difference is whose date it is:
+ * an ANCHOR (a birth already behind us) sits at its true past month, authored in elapsed terms;
+ * a HOLDING (a debt carried, a home owned) is pinned to the now marker and has no date to author
+ * at all. Neither can be described by the plan's year picker, so neither is offered one — and
+ * each names its figures the way the Starting position form that created it did.
+ */
+describe("sub-forms — editing something already true on day one", () => {
+  /** Born three years ago: the anchor `haveExistingChild` lays down at month -36. */
+  const EXISTING_CHILD: EventOf<"ChildEvent"> = {
+    type: "ChildEvent",
+    id: "child-2",
+    sequenceNumber: 2,
+    month: -36,
+    childId: "c2",
+    childName: "Ari",
+    birthMonth: -36,
+    annualCostCents: 15_000_00,
+  };
+
+  /** A car loan already being paid off — a holding, at the now marker. */
+  const CARRIED_LOAN: EventOf<"LoanEvent"> = {
+    type: "LoanEvent",
+    id: "loan-2",
+    sequenceNumber: 1,
+    month: -1,
+    kind: "auto",
+    liabilityId: "l2",
+    ownerId: "p1",
+    openingBalanceCents: 15_000_00,
+    apr: 0.06,
+    termMonths: 36,
+  };
+
+  /** A home already owned: opened at its current value, with no draw and no sources. */
+  const OWNED_HOME: EventOf<"HomePurchaseEvent"> = {
+    type: "HomePurchaseEvent",
+    id: "home-1",
+    sequenceNumber: 2,
+    month: -1,
+    propertyId: "home-1",
+    ownerId: "p1",
+    purchasePriceCents: 400_000_00,
+    downPaymentCents: 0,
+    downPaymentSourceIds: [],
+    securedByLiabilityId: "home-1-mortgage",
+  };
+
+  it("ChildForm dates an existing child by their age today, and keeps birth = that month", () => {
+    const { p, onRevise } = stubProjection();
+    render(
+      <ChildForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: EXISTING_CHILD, onRevise }} />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();
+    expect(Number(spin(/Age today/i).value)).toBe(3);
+
+    // Correcting their age moves the birth, and the cost stream with it.
+    enterNumber(spin(/Age today/i), "5");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    expect(p.reviseTransaction).toHaveBeenCalledWith("child-2", {
+      type: "haveChild",
+      month: -60,
+      name: "Ari",
+      birthMonth: -60,
+      annualCostCents: 15_000_00,
+    });
+  });
+
+  it("LoanForm states a carried loan's date and names its figures as today's", () => {
+    const { p, onRevise } = stubProjection();
+    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: CARRIED_LOAN, onRevise }} />);
+
+    // The now marker is the only month a holding may open at, so there is nothing to pick.
+    expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();
+    expect(Number(spin(/Balance today/i).value)).toBe(15_000);
+    expect(Number(spin(/Term remaining/i).value)).toBe(3);
+
+    enterNumber(spin(/Balance today/i), "12000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    // Still at the now marker: the edit changed the balance, not where the loan opens.
+    expect(p.reviseTransaction).toHaveBeenCalledWith("loan-2", {
+      type: "takeLoan",
+      month: -1,
+      openingBalanceCents: 12_000_00,
+      apr: 0.06,
+      termMonths: 36,
+    });
+  });
+
+  it("HomePurchaseForm edits an owned home's value alone — no date, no down payment to fund", () => {
+    const { p, onRevise } = stubProjection();
+    render(
+      <HomePurchaseForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={vi.fn()}
+        result={runOf(PLAN_DEFAULTS)}
+        funding={readerOf(PLAN_DEFAULTS).funding()}
+        edit={{ event: OWNED_HOME, onRevise }}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();
+    expect(Number(spin(/Current value/i).value)).toBe(400_000);
+    // A holding drew nothing when it opened, so neither the amount nor the drain order is asked.
+    expect(screen.queryByRole("spinbutton", { name: /Down payment/i })).toBeNull();
+    expect(screen.queryByText(/Down payment paid from/i)).toBeNull();
+
+    enterNumber(spin(/Current value/i), "425000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    expect(p.reviseTransaction).toHaveBeenCalledWith("home-1", {
+      type: "buyHome",
+      month: -1,
+      purchasePriceCents: 425_000_00,
+      downPaymentCents: 0,
+      downPaymentSourceIds: [],
+    });
+  });
+});

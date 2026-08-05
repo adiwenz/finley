@@ -1,9 +1,16 @@
 /** A child is recorded — a ChildEvent, with its recurring cost. */
 
 import { useState } from "react";
-import { dollarsToCents } from "@finley/engine";
+import { dollarsToCents, isPreExisting } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
+import {
+  elapsedYears,
+  monthOfElapsedYears,
+  MonthSelect,
+  type EditProps,
+  type EventOf,
+  type FormProps,
+} from "./formControls";
 
 // Illustrative default annual cost of raising a child (today's dollars).
 const DEFAULT_ANNUAL_COST = 15_000;
@@ -27,6 +34,13 @@ export function ChildForm({
       : { month: defaultMonth, name: "", annualCost: DEFAULT_ANNUAL_COST },
   );
   const patch = (fields: Partial<ChildDraft>) => setDraft((d) => ({ ...d, ...fields }));
+
+  /**
+   * An anchor: the child is already born, so the form dates the birth by their age today — the
+   * term the Starting position form collected — rather than by a year on the plan's timeline,
+   * which cannot reach a birth in the past. Fixed for the life of the form.
+   */
+  const anchored = edit !== undefined && isPreExisting(edit.event.month);
 
   function submit() {
     // `birthMonth` defaults to `month` in the facade, so recording a birth as it happens needs
@@ -56,7 +70,18 @@ export function ChildForm({
 
   return (
     <>
-      <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      {anchored ? (
+        <NumInput
+          label="Age today"
+          value={elapsedYears(draft.month)}
+          onChange={(years) => patch({ month: monthOfElapsedYears(years) })}
+          suffix="yr"
+          min={1}
+          max={17}
+        />
+      ) : (
+        <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      )}
       <label className="field">
         <span className="field-label">Name</span>
         <input
@@ -76,7 +101,11 @@ export function ChildForm({
         min={0}
         step={1_000}
       />
-      <p className="hint">Adds a child-cost expense for 18 years from birth.</p>
+      <p className="hint">
+        {anchored
+          ? "Adds a child-cost expense for the years of childhood that remain."
+          : "Adds a child-cost expense for 18 years from birth."}
+      </p>
       <button className="btn primary" onClick={submit}>
         {edit ? "Save changes" : "Add event"}
       </button>
