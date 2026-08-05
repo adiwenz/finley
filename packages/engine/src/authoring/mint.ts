@@ -104,13 +104,9 @@ function eventIds(event: LifeEvent): readonly (string | undefined)[] {
     case "SeparationEvent":
       return [...common, event.partnerPersonId];
     case "HomePurchaseEvent":
-      return [
-        ...common,
-        event.propertyId,
-        event.ownerId,
-        ...(event.securedByLiabilityId !== undefined ? [event.securedByLiabilityId] : []),
-        ...event.downPaymentSourceIds,
-      ];
+      // The mortgage id is DERIVED (`<propertyId>-mortgage`), not authored, so only the property
+      // and owner ids are the counter's to floor — the mortgage rides on the property's slot.
+      return [...common, event.propertyId, event.ownerId, ...event.downPaymentSourceIds];
     case "LoanEvent":
       return [...common, event.liabilityId, event.ownerId];
     case "DebtPayoffEvent":

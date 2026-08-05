@@ -260,7 +260,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(event?.type === "LoanEvent" && event.kind).toBe("studentLoan");
   });
 
-  it("keeps the property and its securing-mortgage link across a buyHome revision", () => {
+  it("re-derives the mortgage balance and terms through one buyHome revision", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
     const homeId = p.buyHome({
       month: 12, ownerId: P1,
@@ -270,22 +270,28 @@ describe("Projection root — a revision cannot replace an identity", () => {
       mortgageApr: 6, mortgageTermMonths: 360,
     });
     const before = p.ledger.events.find((e) => e.id === homeId);
-    const mortgageId = before?.type === "HomePurchaseEvent" ? before.securedByLiabilityId : "";
-    expect(mortgageId).toBe(`${homeId}-mortgage`);
+    expect(before?.type === "HomePurchaseEvent" && before.mortgage?.openingBalanceCents).toBe(
+      dollarsToCents(160_000), // $200k − $40k
+    );
 
-    // The property's own fields revise through `buyHome`; the mortgage is a separate `LoanEvent`,
-    // revised through `takeLoan` on the derived id. Neither re-mints the other's identity.
-    p.reviseTransaction(homeId, { type: "buyHome", downPaymentCents: dollarsToCents(50_000) });
-    p.reviseTransaction(`${homeId}-mortgage`, { type: "takeLoan", apr: 5, termMonths: 240 });
+    // The mortgage now rides inside the purchase, so ONE `buyHome` revision moves price, down, and
+    // the mortgage terms together. The financed balance is DERIVED, so raising the down payment
+    // shrinks it automatically — the desync the old two-event model allowed cannot happen.
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      downPaymentCents: dollarsToCents(50_000),
+      mortgageApr: 5,
+      mortgageTermMonths: 240,
+    });
 
     const after = p.ledger.events.find((e) => e.id === homeId);
     expect(after?.type === "HomePurchaseEvent" && after.downPaymentCents).toBe(dollarsToCents(50_000));
     expect(after?.type === "HomePurchaseEvent" && after.propertyId).toBe(homeId);
-    expect(after?.type === "HomePurchaseEvent" && after.securedByLiabilityId).toBe(mortgageId);
-
-    const mortgage = p.ledger.events.find((e) => e.id === `${homeId}-mortgage`);
-    expect(mortgage?.type === "LoanEvent" && mortgage.apr).toBe(5);
-    expect(mortgage?.type === "LoanEvent" && mortgage.kind === "mortgage" && mortgage.termMonths).toBe(240);
+    if (after?.type === "HomePurchaseEvent") {
+      expect(after.mortgage?.openingBalanceCents).toBe(dollarsToCents(150_000)); // $200k − $50k
+      expect(after.mortgage?.apr).toBe(5);
+      expect(after.mortgage?.termMonths).toBe(240);
+    }
   });
 
   it("offers no way to name an identity, at the type level", () => {

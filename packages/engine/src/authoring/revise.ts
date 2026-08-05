@@ -71,15 +71,19 @@ export type TransactionRevision =
     }
   | {
       /**
-       * Only the property's own fields: the financing mortgage is a separate `LoanEvent` now, so
-       * its rate and term are revised through the `takeLoan` verb on the `<propertyId>-mortgage`
-       * id, not here.
+       * The mortgage rides inside the purchase now, so its terms are revised here, not through a
+       * separate `takeLoan`. `openingBalanceCents` is NOT author-settable — it is recomputed from
+       * the revised `purchasePriceCents − downPaymentCents`, which is what keeps price and financed
+       * amount from drifting. `mortgageApr`/`mortgageTermMonths` revise a financed purchase's terms;
+       * they are ignored when the purchase carries no mortgage (a cash buy stays cash).
        */
       readonly type: "buyHome";
       readonly month?: number;
       readonly purchasePriceCents?: Cents;
       readonly downPaymentCents?: Cents;
       readonly downPaymentSourceIds?: readonly string[];
+      readonly mortgageApr?: number;
+      readonly mortgageTermMonths?: number;
       readonly appreciationMode?: GrowthMode;
     }
   | {
@@ -103,8 +107,8 @@ const REVISED_EVENT_TYPE: Record<TransactionRevision["type"], LifeEvent["type"]>
  * Rebuild an event with a revision's named fields applied.
  *
  * Every arm spreads `current` first, so identity — the event's own id, `childId`,
- * `partnerPersonId`, `liabilityId`, `ownerId`, `propertyId`, `securedByLiabilityId`, the person
- * and their jobs — is carried rather than re-listed. Only `sequenceNumber` is dropped, because
+ * `partnerPersonId`, `liabilityId`, `ownerId`, `propertyId`, the person and their jobs — is
+ * carried rather than re-listed. Only `sequenceNumber` is dropped, because
  * the ledger reassigns it. The revision's variant is known to match `current.type`:
  * {@link reviseProjectionTransaction} refuses the pairing before calling here, which is what
  * makes each cast below sound.
@@ -174,12 +178,26 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
     case "HomePurchaseEvent": {
       const r = at("buyHome");
       const appreciationMode = r.appreciationMode ?? current.appreciationMode;
+      const purchasePriceCents = r.purchasePriceCents ?? current.purchasePriceCents;
+      const downPaymentCents = r.downPaymentCents ?? current.downPaymentCents;
+      // Rebuild the embedded mortgage from the revised numbers: its balance is DERIVED
+      // (`price − down`), never carried, so changing either re-finances the purchase and the two
+      // can never drift. A cash purchase (no mortgage) has nothing to re-derive and stays cash.
+      const mortgage =
+        current.mortgage !== undefined
+          ? {
+              openingBalanceCents: purchasePriceCents - downPaymentCents,
+              apr: r.mortgageApr ?? current.mortgage.apr,
+              termMonths: r.mortgageTermMonths ?? current.mortgage.termMonths,
+            }
+          : undefined;
       return {
         ...kept,
         month: r.month ?? current.month,
-        purchasePriceCents: r.purchasePriceCents ?? current.purchasePriceCents,
-        downPaymentCents: r.downPaymentCents ?? current.downPaymentCents,
+        purchasePriceCents,
+        downPaymentCents,
         downPaymentSourceIds: r.downPaymentSourceIds ?? current.downPaymentSourceIds,
+        ...(mortgage !== undefined ? { mortgage } : {}),
         ...(appreciationMode !== undefined ? { appreciationMode } : {}),
       } as NewLifeEvent;
     }

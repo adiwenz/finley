@@ -285,7 +285,7 @@ describe("sub-forms — editing an existing event", () => {
       downPaymentCents: 60_000_00,
       // Empty so the funding filter is not in play — the picker's plumbing is its own test.
       downPaymentSourceIds: [],
-      securedByLiabilityId: "prop-1-mortgage",
+      mortgage: { openingBalanceCents: 240_000_00, apr: 0.06, termMonths: 360 },
     };
     const { p, onRevise } = stubProjection();
     render(
@@ -363,7 +363,7 @@ describe("sub-forms — editing something already true on day one", () => {
     purchasePriceCents: 400_000_00,
     downPaymentCents: 0,
     downPaymentSourceIds: [],
-    securedByLiabilityId: "home-1-mortgage",
+    mortgage: { openingBalanceCents: 240_000_00, apr: 0.06, termMonths: 360 },
   };
 
   it("ChildForm dates an existing child by their age today, and keeps birth = that month", () => {
