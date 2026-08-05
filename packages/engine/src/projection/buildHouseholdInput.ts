@@ -141,14 +141,17 @@ export function buildHouseholdSimInput(
     compilePerson(r.person, nowYear, scope, r.memberWindow, r.lifeEnd),
   );
 
-  // The horizon is the longest-lived member's reach, not the primary's. A member is present until
-  // they die (expectancy) or separate, whichever is sooner — so a staying younger partner extends
-  // the run to cover their tail, while a partner who leaves before their own expectancy never
-  // drags it out. `base.horizonMonths` (the primary's) is the floor; a member who states no
+  // The horizon is the longest-lived member's reach, not the primary's. Only a member who STAYS to
+  // their death extends it: they contribute their expectancy month, covering their tail. A member
+  // who separates leaves before that — their income and benefit already stopped at separation — so
+  // they never drag the run out, even if the separation itself is dated past the primary's horizon
+  // (which would otherwise pad the run with empty months). This matches `horizonAnchorOf`, which
+  // the panel reads. `base.horizonMonths` (the primary's) is the floor; a member who states no
   // expectancy stays unbounded and does not shorten it.
   const horizonMonths = resolvedMembers.reduce((reach, r) => {
-    const presenceEnd = Math.min(r.memberWindow.endMonthExclusive, r.lifeEnd);
-    return Number.isFinite(presenceEnd) ? Math.max(reach, presenceEnd) : reach;
+    // A finite membership end is a separation; such a member does not extend the horizon.
+    if (Number.isFinite(r.memberWindow.endMonthExclusive)) return reach;
+    return Number.isFinite(r.lifeEnd) ? Math.max(reach, r.lifeEnd) : reach;
   }, base.horizonMonths);
 
   return {

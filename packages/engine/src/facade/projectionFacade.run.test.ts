@@ -102,6 +102,16 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     p.marry({ month: 12, name: "Sam", birthYear: 1976 });
     expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
   });
+
+  it("does not let a partner who SEPARATES extend the horizon, even past the primary's", () => {
+    // A younger partner who would otherwise reach 660, but separates at month 600 — past the
+    // primary's own 540. Their income and benefit stopped at separation, so their tail is gone
+    // and must not pad the run: the horizon stays the primary's 540, matching horizonAnchorOf.
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    p.separate({ month: 600, partnerPersonId: partnerId });
+    expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
+  });
 });
 
 describe("Projection root — authoring validates against the construction-time jurisdiction", () => {

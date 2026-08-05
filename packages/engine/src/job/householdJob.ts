@@ -303,8 +303,9 @@ export function membershipWindow(membership: HouseholdMembership): {
 }
 
 /**
- * The exclusive month a member's own life ends — the first month they no longer draw income or
- * a government benefit, and the reach their expectancy contributes to the projection horizon.
+ * The exclusive month a member's own life ends — the first month they no longer draw a government
+ * benefit (a wage is untouched; it ends where its job was authored to), and the reach their
+ * expectancy contributes to the projection horizon.
  * Derived from their birth year and expectancy age against the plan's frozen "now"; `fallbackAge`
  * (the household's {@link import("../plan/plan").Plan.lifeExpectancy}) stands in when the member
  * states none of their own.

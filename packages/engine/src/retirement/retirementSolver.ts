@@ -428,13 +428,6 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 }
 
 /**
- * The default retirement result off one {@link Scenario}: the retirement search
- * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop"), the planned
- * work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its
- * own"), whether the authored plan survives at all ({@link authoredPlanSurvives} — a run of the
- * plan itself), and what the search had to assume to get there.
- */
-/**
  * Whose expectancy the horizon rests on — the member present to the end (never separated) who
  * reaches their expectancy in the latest calendar year, and the age they reach. This mirrors the
  * horizon the sim runs (`buildHouseholdInput` takes the max member reach): a younger partner who
@@ -465,6 +458,13 @@ export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): Hor
   return { age: best.age, memberName: best.isPrimary ? null : best.name };
 }
 
+/**
+ * The default retirement result off one {@link Scenario}: the retirement search
+ * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop"), the planned
+ * work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its
+ * own"), whether the authored plan survives at all ({@link authoredPlanSurvives} — a run of the
+ * plan itself), and what the search had to assume to get there.
+ */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   const fullRetirementAge = earliestFullRetirementAge(scenario, ctx);
   // Blocked and "no age works" both surface as a null age, so tell them apart. Only worth a probe

@@ -15,10 +15,11 @@ export interface Person {
   readonly birthYear: number;
   /**
    * The age this member is projected to live to — an input, never solved for. Bounds only THIS
-   * member's own income and government benefit: both stop at their expectancy the same way a
-   * separation window stops them (see {@link import("../job/householdJob").membershipWindow}).
-   * Household spending never steps down when a member's expectancy passes — it runs unchanged to
-   * the horizon, funding the survivor at full cost, which is conservative rather than dangerous.
+   * member's own government benefit: it stops at their expectancy the same way a separation window
+   * stops it (see {@link import("../job/householdJob").membershipWindow}). A wage is NOT bounded —
+   * a job ends where it was authored to, whatever the expectancy. Household spending never steps
+   * down when a member's expectancy passes either — it runs unchanged to the horizon, funding the
+   * survivor at full cost, which is conservative rather than dangerous.
    *
    * The projection horizon is the MAX of every member's expectancy month, so a partner younger
    * than the primary but with the same expectancy *age* reaches it in a later calendar year and
