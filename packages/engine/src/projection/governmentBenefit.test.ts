@@ -463,3 +463,61 @@ describe("government-benefit accumulation + benefit seam", () => {
     expect(paidInMonth(40)).toBe(paidInMonth(1));
   });
 });
+
+describe("a benefit is as membership-bound as a wage", () => {
+  const flatBenefit: Jurisdiction = {
+    id: "stub",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+  };
+
+  /** Claiming from month 0, so every simulated month is a month they COULD be paid. */
+  const claimingNow = (membership?: SimPerson["membership"]): SimPerson => ({
+    id: "p1",
+    name: "You",
+    birthYear: 1959,
+    benefitClaimingAge: 67,
+    ...(membership !== undefined ? { membership } : {}),
+  });
+
+  /** What this month deposited — the benefit is the only inflow, so it is the whole delta. */
+  const paidIn = (series: ReturnType<typeof simulateHousehold>, m: number) =>
+    series.months[m].netWorthNominalCents! - series.months[m - 1].netWorthNominalCents!;
+
+  it("stops paying a member who has left, without erasing that they were ever here", () => {
+    // The separation case. The roster is everyone who EVER joined and is never pruned — the
+    // earnings a departed partner banked are still theirs — so this loop is the only thing
+    // standing between a person's benefit and a household they no longer belong to. It used to
+    // pay them for the rest of the projection: separate at 50 and their whole Social Security
+    // still arrived from 67 onward, inflating net worth and pulling the solved age earlier.
+    const series = simulateHousehold(
+      baseInput(claimingNow({ startMonth: 0, endMonthExclusive: 6 }), { horizonMonths: 12 }),
+      flatBenefit,
+    );
+    expect(paidIn(series, 5)).toBe(dollarsToCents(1_000));
+    for (const m of [6, 7, 11]) expect(paidIn(series, m)).toBe(0);
+    // And nothing is clawed back: the months they were a member keep their deposits.
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 6);
+  });
+
+  it("pays nothing before they joined, however old they already are", () => {
+    // The other end of the same window, and not a hypothetical: a partner joining at 70 has
+    // been claiming for years, and those years are not this household's money.
+    const series = simulateHousehold(
+      baseInput(claimingNow({ startMonth: 6, endMonthExclusive: Number.POSITIVE_INFINITY }), {
+        horizonMonths: 12,
+      }),
+      flatBenefit,
+    );
+    for (const m of [1, 5] as const) expect(paidIn(series, m)).toBe(0);
+    for (const m of [6, 11] as const) expect(paidIn(series, m)).toBe(dollarsToCents(1_000));
+  });
+
+  it("pays throughout for a person with no membership window at all", () => {
+    // Absent means unbounded, and that default is load-bearing: every single-earner plan states
+    // no membership, so a window read as "not a member" would silence the primary's own benefit.
+    const series = simulateHousehold(baseInput(claimingNow(), { horizonMonths: 12 }), flatBenefit);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
+  });
+});

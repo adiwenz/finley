@@ -270,8 +270,16 @@ export function continuationJobIdOf(person: Person, nowYear: number): JobId | nu
   return null;
 }
 
-/** A membership's window as months relative to "now", open-ended at either end where it is. */
-function membershipWindow(membership: HouseholdMembership): {
+/**
+ * A membership's window as months relative to "now", open-ended at either end where it is.
+ *
+ * Exported because it is the ONE statement of when a person's money belongs to this household,
+ * and more than the job resolution below needs it: a benefit is as membership-bound as a wage,
+ * and a second reading of `endMonth` elsewhere is a second thing to get wrong. See
+ * {@link import("./projection/simulate.types").SimPerson.membership}, which carries it across
+ * the sim boundary for exactly that reason.
+ */
+export function membershipWindow(membership: HouseholdMembership): {
   startMonth: number;
   endMonthExclusive: number;
 } {

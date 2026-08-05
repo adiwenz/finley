@@ -212,6 +212,55 @@ describe("SeparationEvent", () => {
     expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(12_000));
   });
 
+  it("ends a separated partner's BENEFIT too, not only their wages", () => {
+    // The wage half above was right all along; the benefit half was not. A benefit is derived
+    // inside the sim from the earnings record, so it arrived with no membership attached and
+    // was paid to the household forever — a partner who separated at 50 still contributed their
+    // whole Social Security from 67 onward, inflating net worth and pulling the solved
+    // retirement age earlier on every plan that had ever separated.
+    const cfg: LedgerBaseConfig = {
+      horizonMonths: 120,
+      annualInflationRate: 0,
+      startYear: 2020,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [makeLiquidAccount()],
+    };
+    const flatBenefit: Jurisdiction = {
+      ...nullJurisdiction,
+      governmentBenefitBaseMonthlyCents: () => dollarsToCents(1_000),
+    };
+    // Born 1958, claiming at 65 → their benefit begins in 2023, at month 36.
+    const partner: Person = { ...personLit("p2", "Bob"), birthYear: 1958, benefitClaimingAge: 65 };
+    const withSeparationAt = (month: number) => {
+      let ledger = add(emptyLedger, { id: "r1", type: "RelationshipEvent", month: 0, person: partner });
+      ledger = add(ledger, {
+        id: "sep1",
+        type: "SeparationEvent",
+        month,
+        partnerPersonId: "p2",
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      });
+      return replayLedger(ledger, cfg, flatBenefit);
+    };
+    const incomeAt = (series: ReturnType<typeof replayLedger>, m: number) =>
+      series.months[m]?.flows?.totalIncomeCents ?? 0;
+
+    // Separated at month 24, a YEAR BEFORE they would have claimed: the benefit never begins at
+    // all. The bug's worst shape — income appearing out of a household the person had left.
+    const before = withSeparationAt(24);
+    for (const m of [36, 60, 119]) expect(incomeAt(before, m)).toBe(0);
+
+    // Separated at month 48, a year AFTER claiming: paid while they were here, and not after.
+    const after = withSeparationAt(48);
+    expect(incomeAt(after, 36)).toBe(dollarsToCents(1_000));
+    expect(incomeAt(after, 47)).toBe(dollarsToCents(1_000));
+    for (const m of [48, 60, 119]) expect(incomeAt(after, m)).toBe(0);
+    // Twelve paid months, and nothing clawed back from the ones they were a member for.
+    expect(after.months[119].netWorthNominalCents).toBe(dollarsToCents(12_000));
+  });
+
   it("creates alimony expense stream after separation", () => {
     const cfg: LedgerBaseConfig = {
       ...baseConfig,

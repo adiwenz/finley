@@ -22,7 +22,7 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compilePerson";
-import type { JobResolutionScope } from "../householdJob";
+import { membershipWindow, type JobResolutionScope } from "../householdJob";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -116,8 +116,11 @@ export function buildHouseholdSimInput(
     base.stopWorking === undefined
       ? { kind: "authored" }
       : { kind: "hypothetical", stopWorking: base.stopWorking };
+  // The membership window rides along: the income series were clipped to it up here, but a
+  // government benefit is derived inside the sim and would otherwise be paid to a household the
+  // person has left.
   const persons: SimPerson[] = household.memberships.map((m) =>
-    compilePerson(m.person, nowYear, scope),
+    compilePerson(m.person, nowYear, scope, membershipWindow(m)),
   );
 
   return {

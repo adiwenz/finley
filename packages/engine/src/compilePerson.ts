@@ -63,6 +63,12 @@ export function compilePerson(
    * implies; every other read leaves it authored.
    */
   scope: JobResolutionScope = { kind: "authored" },
+  /**
+   * When this person's money is the household's. Omitted leaves it unbounded — the shape every
+   * single-earner plan and most fixtures have, and the only safe default: a missing window must
+   * not silently stop paying someone.
+   */
+  membership?: SimPerson["membership"],
 ): SimPerson {
   return {
     id: person.id,
@@ -70,6 +76,7 @@ export function compilePerson(
     birthYear: person.birthYear,
     benefitClaimingAge: person.benefitClaimingAge,
     priorEarningsCents: compilePersonPriorEarnings(person, nowYear, scope),
+    ...(membership !== undefined ? { membership } : {}),
   };
 }
 
