@@ -159,6 +159,22 @@ export const AGE_LIMITS = {
  */
 export const MAX_LIVED_AGE = AGE_LIMITS.currentAge;
 
+/**
+ * How many months this plan spans: "now" to life expectancy. The projection simulates exactly
+ * this many months, so it is also how long every surface drawing the plan reaches — the net-worth
+ * charts' x-axis, the timeline, the event year picker.
+ *
+ * Lives here rather than in each caller because it is a fact ABOUT THE PLAN, not a presentation
+ * choice, and a second definition of it can disagree with the one the simulator ran. That matters
+ * most where the two are read together: a chart axis derived from its own arithmetic and a series
+ * truncated by the engine would drift silently, and the chart would be the last place anyone
+ * looked. Clamped at 0 for a life expectancy at or below the current age — a plan with no months
+ * left to simulate, which the engine refuses upstream but which no arithmetic here should invent.
+ */
+export function planHorizonMonths(plan: Pick<Plan, "currentAge" | "lifeExpectancy">): number {
+  return Math.max(0, plan.lifeExpectancy - plan.currentAge) * 12;
+}
+
 /** The plan's age-valued scalars, named for the refusal message. */
 const AGE_FIELDS = Object.keys(AGE_LIMITS) as readonly (keyof typeof AGE_LIMITS)[];
 

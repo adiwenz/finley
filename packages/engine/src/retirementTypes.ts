@@ -19,8 +19,19 @@ export type RetirementSearch =
 export interface RetirementEvaluation {
   /** The age evaluated — a candidate the search is trying. */
   readonly retirementAge: number;
-  /** Does the plan's real net worth survive to life expectancy at this age? */
+  /**
+   * Does the plan's real net worth survive to life expectancy at this age? Always `false` when
+   * {@link blocked} — a truncated projection is not evidence the remaining months survive.
+   */
   readonly feasible: boolean;
+  /**
+   * The projection at this age STOPPED before life expectancy because an obligation could not be
+   * funded, so survival is unknowable rather than false. Distinct from an infeasible plan: this
+   * says "fund the purchase differently", not "retire later".
+   */
+  readonly blocked: boolean;
+  /** The month the projection blocked; present iff {@link blocked}. */
+  readonly blockedAtMonth?: number;
   /**
    * Fraction of the retirement-to-life-expectancy window the plan stays solvent; 1.0 when
    * it survives. Read from WHEN the plan first fails (insolvency / negative real net
@@ -131,9 +142,19 @@ export interface JobOverlap {
 export interface RetirementSolution {
   /**
    * SOLVED: earliest age ALL jobs (the primary's and every partner's) can cease, surviving on
-   * passive + government benefit + assets — "can this household afford to stop working."
+   * passive + government benefit + assets — "can this household afford to stop working." `null`
+   * when even working to life expectancy fails, AND when {@link blocked} — the two differ in
+   * WHY, which is exactly what a consumer must not collapse.
    */
   readonly fullRetirementAge: number | null;
+  /**
+   * The projection became blocked, so no retirement age can be computed at all — a strictly
+   * different situation from `fullRetirementAge === null` ("no age works, retire later"). A
+   * blocked plan says "your projection stopped; fund the blocking obligation differently."
+   */
+  readonly blocked: boolean;
+  /** The month the projection blocked; present iff {@link blocked}. */
+  readonly blockedAtMonth?: number;
   /**
    * READ, not solved: the age, in the primary's own timeline, at which every authored job
    * anywhere in the household (the primary's plan jobs and every partner's) stops paying on

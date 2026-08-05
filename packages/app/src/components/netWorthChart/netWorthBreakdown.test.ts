@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 import { buildNetWorthBreakdown, type BreakdownMeta } from "./netWorthBreakdown";
+import { toAxisX } from "../monthAxis";
 
 /**
  * A hand-built projection: one month per spec, only the balance maps moving, so these pin
@@ -31,9 +32,12 @@ function mkMonth(m: MonthSpec, month: number) {
 }
 
 function series(months: readonly MonthSpec[]): ProjectionSeries {
+  const built = months.map(mkMonth);
   return {
     opening: mkMonth({}, 0),
-    months: months.map(mkMonth),
+    months: built,
+    status: "ran-to-horizon",
+    simulatedThroughMonth: built.length - 1,
   };
 }
 
@@ -203,6 +207,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 1000 } }, 0),
         months: [mkMonth({ accounts: { savings: 1050 } }, 0)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 0,
       },
       META,
     );
@@ -217,6 +223,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 5000, brokerage: 0 } }, 0),
         months: [mkMonth({ accounts: { savings: 0, brokerage: 0 } }, 0)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 0,
       },
       META,
     );
@@ -228,6 +236,8 @@ describe("buildNetWorthBreakdown", () => {
       {
         opening: mkMonth({ accounts: { savings: 9000 } }, 0),
         months: [mkMonth({ accounts: { savings: 8000 } }, 0), mkMonth({ accounts: { savings: 7000 } }, 1)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 1,
       },
       META,
     );
@@ -239,5 +249,52 @@ describe("buildNetWorthBreakdown", () => {
     expect(data.bands).toEqual([]);
     expect(data.terminalNetWorthCents).toBeNull();
     expect(data.peakNetWorthCents).toBeNull();
+  });
+
+  // The axis is the plan's, not the rows' — the same rule and the same helper the total chart
+  // above uses, so a reader comparing the two is not comparing different spans.
+  describe("the axis spans the whole plan", () => {
+    const HORIZON_MONTHS = 55 * 12;
+    const BLOCK_MONTH = 2;
+
+    /** A blocked series: truncated at the block, exactly as the engine emits it. */
+    function blocked(): ProjectionSeries {
+      const months = [0, 1, 2].map((m) => mkMonth({ accounts: { savings: 1000 } }, m));
+      return {
+        opening: mkMonth({ accounts: { savings: 1000 } }, 0),
+        months,
+        status: "blocked",
+        simulatedThroughMonth: BLOCK_MONTH,
+        blockedAtMonth: BLOCK_MONTH,
+      };
+    }
+
+    it("runs to life expectancy even though a blocked series stops at the block", () => {
+      const data = buildNetWorthBreakdown(blocked(), META, HORIZON_MONTHS);
+      expect(data.xMax).toBe(toAxisX(HORIZON_MONTHS - 1));
+      // ...with no row invented past the block.
+      expect(data.rows[data.rows.length - 1]?.month).toBe(BLOCK_MONTH);
+    });
+
+    it("shades everything the projection never simulated", () => {
+      const data = buildNetWorthBreakdown(blocked(), META, HORIZON_MONTHS);
+      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH), toX: data.xMax });
+    });
+
+    it("shades nothing for a plan that ran to the horizon", () => {
+      const data = buildNetWorthBreakdown(
+        series([{ accounts: { savings: 1000 } }]),
+        META,
+        HORIZON_MONTHS,
+      );
+      expect(data.xMax).toBe(toAxisX(HORIZON_MONTHS - 1));
+      expect(data.stopped).toBeNull();
+    });
+
+    it("falls back to the rows' own span when no horizon is stated", () => {
+      const data = buildNetWorthBreakdown(blocked(), META);
+      expect(data.xMax).toBe(toAxisX(BLOCK_MONTH));
+      expect(data.stopped).toBeNull();
+    });
   });
 });

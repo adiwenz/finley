@@ -2853,6 +2853,36 @@ describe("Projection.retirement — the whole question, one search", () => {
     expect(outlook.fullRetirementMonth).toBe((age! - samplePlan.currentAge) * 12);
   });
 
+  it("dates a BLOCK as an age, the mirror of dating the solved age as a month", () => {
+    // Months and ages are one clock read two ways, and it is this package's clock: a caller that
+    // converted the blocked month itself would be re-deriving where "now" sits on a plan it can
+    // only see the outside of. Authored affordable, then stranded by lowering the opening balance
+    // — the §4.5 gate refuses an unaffordable purchase up front, so a block has to be made this way.
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    p.updatePlan({ openingBalanceCents: dollarsToCents(500000) });
+    p.buyHome({
+      month: 24,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(600000),
+      downPaymentCents: dollarsToCents(400000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(1000) });
+
+    const series = p.run(nullJurisdiction).series;
+    expect(series.status).toBe("blocked");
+    const outlook = p.retirement(nullJurisdiction);
+    expect(outlook.solution.blocked).toBe(true);
+    // Two years out on a plan aged 40 → 42, floored to whole years like every reported age.
+    expect(outlook.blockedAtAge).toBe(samplePlan.currentAge + 2);
+  });
+
+  it("states no blocked age for a projection that was never blocked", () => {
+    expect(outlookOf(samplePlan).blockedAtAge).toBeNull();
+  });
+
   it("flags a health gap only when the SOLVED age lands before the coverage age", () => {
     // The sample plan solves to 60. With $600/mo authored against a $1,000/mo benchmark that
     // is a 5-year gap — measured off the search's answer, not off any figure the plan states.

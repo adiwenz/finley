@@ -35,9 +35,12 @@ function mkMonth(m: MonthSpec, month: number) {
 }
 
 function series(months: readonly MonthSpec[]): ProjectionSeries {
+  const built = months.map(mkMonth);
   return {
     opening: mkMonth({}, 0),
-    months: months.map(mkMonth),
+    months: built,
+    status: "ran-to-horizon",
+    simulatedThroughMonth: built.length - 1,
   };
 }
 

@@ -30,6 +30,16 @@ export interface RetirementOutlook {
    * a chart draws its retirement reference line at.
    */
   readonly fullRetirementMonth: number | null;
+  /**
+   * {@link RetirementSolution.blockedAtMonth} as the primary's age, or `null` when the projection
+   * was not blocked — the mirror of {@link fullRetirementMonth}, which converts the other way.
+   *
+   * Here rather than at the caller because the primary's clock is the engine's: months and ages
+   * are the same axis read two ways, and a surface that converts between them is re-deriving where
+   * "now" sits on a plan it can only see the outside of. Floored to whole years, like every age
+   * the engine reports.
+   */
+  readonly blockedAtAge: number | null;
   /** Whether retiring on this plan opens a pre-coverage health gap, and how large. */
   readonly earlyRetireeHealth: EarlyRetireeHealthFlag;
 }
@@ -101,6 +111,13 @@ export function buildRetirementOutlook(
       solution.fullRetirementAge === null
         ? null
         : Math.max(0, (solution.fullRetirementAge - plan.currentAge) * 12),
+    // The block's month back on the primary's clock, for a panel that reports an age rather than
+    // a month offset. `blocked` without a month cannot happen, but is read as "no age to state"
+    // rather than as age `currentAge`.
+    blockedAtAge:
+      solution.blocked && solution.blockedAtMonth !== undefined
+        ? plan.currentAge + Math.floor(solution.blockedAtMonth / 12)
+        : null,
     earlyRetireeHealth: earlyRetireeHealth(state, jurisdiction, solution.fullRetirementAge),
   });
 }

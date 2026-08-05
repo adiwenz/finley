@@ -315,6 +315,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       assetAcquisitionObligation({
         id: `downpayment:${event.id}`,
         sourceId: "downpayment",
+        // The purchase event, so a block suppresses the property and mortgage it originates below.
+        sourceEventId: event.id,
         month: event.month,
         amountCents: event.downPaymentCents,
         orderedAccountIds: event.downPaymentSourceIds,

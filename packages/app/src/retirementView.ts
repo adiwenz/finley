@@ -35,6 +35,14 @@ export interface RetirementView {
    */
   readonly headlineMonth: number | null;
   /**
+   * The projection could not be simulated to the horizon — an obligation blocked it — so no
+   * retirement age is computable. Distinct from `headlineAge === null` ("no age works, retire
+   * later"): a block needs the plan changed to fund the obligation, not a later age.
+   */
+  readonly blocked: boolean;
+  /** The primary's age when the projection blocked; present (non-null) iff {@link blocked}. */
+  readonly blockedAtAge: number | null;
+  /**
    * The age the plan AS AUTHORED stops earning — the last year any job pays this household,
    * read off the jobs rather than solved, and `null` for a household holding none.
    *
@@ -73,9 +81,12 @@ export interface RetirementView {
 
 /**
  * What this view reads, and nothing else. Narrow on purpose: it says the view cannot author,
- * and a test standing in for it states two members rather than a whole projection.
+ * and a test standing in for it states one member rather than a whole projection.
+ *
+ * One member, since the outlook began reporting the blocked age itself: reading the plan was
+ * only ever to convert that month onto the primary's clock, which is the engine's to do.
  */
-type RetirementSource = Pick<Projection, "plan" | "retirement">;
+type RetirementSource = Pick<Projection, "retirement">;
 
 export function retirementView(
   projection: RetirementSource,
@@ -83,10 +94,14 @@ export function retirementView(
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
   // net-worth graph does, because it asks the same handle.
-  const { solution, fullRetirementMonth, earlyRetireeHealth } = projection.retirement(jurisdiction);
+  const { solution, fullRetirementMonth, blockedAtAge, earlyRetireeHealth } =
+    projection.retirement(jurisdiction);
   return {
     headlineAge: solution.fullRetirementAge,
     headlineMonth: fullRetirementMonth,
+    blocked: solution.blocked,
+    // Read, not converted: months and ages are the engine's one clock, and it reports both.
+    blockedAtAge,
     plannedWorkStopAge: solution.plannedWorkStopAge,
     authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,

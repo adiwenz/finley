@@ -30,9 +30,12 @@ function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSer
   });
   // Opening is inert here — goal progress reads only the processed months — so mirror the
   // first balance rather than modelling a distinct pre-flow value.
+  const built = balancesCents.map(mkMonth);
   return {
     opening: mkMonth(balancesCents[0] ?? 0, 0),
-    months: balancesCents.map(mkMonth),
+    months: built,
+    status: "ran-to-horizon",
+    simulatedThroughMonth: built.length - 1,
   };
 }
 

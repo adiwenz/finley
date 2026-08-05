@@ -20,7 +20,7 @@ import type { SimGoal, GoalDisposal } from "./goal";
 import type { LedgerBaseConfig } from "./ledger/ledgerBase";
 import type { SurplusDestination } from "./projection/waterfall";
 import type { Jurisdiction } from "./jurisdiction";
-import type { Plan, GoalPlan, GoalAccountType } from "./plan";
+import { planHorizonMonths, type Plan, type GoalPlan, type GoalAccountType } from "./plan";
 import { type Person } from "./person";
 import { compileHouseholdJobSeries } from "./compilePerson";
 import {
@@ -260,8 +260,11 @@ export function createProjectionBase(
     inflationRate,
   );
 
-  /** Exclusive calendar year the projection ends — life expectancy, as a year. */
-  const horizonYearExclusive = startYear + Math.max(0, budget.lifeExpectancy - budget.currentAge);
+  /**
+   * The plan's own span, "now" to life expectancy — the one definition, shared with every surface
+   * that draws the plan, so a chart axis and the months the simulator emitted cannot disagree.
+   */
+  const horizonMonths = planHorizonMonths(budget);
 
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
@@ -291,7 +294,7 @@ export function createProjectionBase(
       : { kind: "idle" };
 
   return {
-    horizonMonths: (horizonYearExclusive - startYear) * 12,
+    horizonMonths,
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,

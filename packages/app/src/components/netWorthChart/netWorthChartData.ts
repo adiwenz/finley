@@ -24,10 +24,42 @@
  * The endpoint is counterfactual. It is never mixed into the solid series, never reported as a
  * balance, and no LATER counterfactual point is drawn — the engine emits the report for one
  * month only, and the chart draws one endpoint, then stops.
+ *
+ * **The axis spans the whole plan, not the data.** Where the curve ends is a finding; where the
+ * axis ends must not be, or a plan that failed in year 3 and a plan that ran 55 years draw the
+ * same width and the reader has to check the tick labels to tell them apart. So the x-axis runs to
+ * life expectancy in every case (`horizonMonths`), and what a failure costs is shown as the
+ * remaining span going unanswered: the curve stopping short, and — for a blocked projection, whose
+ * series is genuinely truncated — the {@link StoppedSpan} shaded behind the rest of the axis.
  */
 
 import type { InsolvencyReport, ProjectionSeries } from "@finley/engine";
 import { TODAY_X, toAxisX, yearTickXs } from "../monthAxis";
+import { chartXMax, stoppedSpan, type StoppedSpan } from "./chartSpan";
+
+export type { StoppedSpan };
+
+/**
+ * The terminal marker for a BLOCKED projection: the attempted obligation that could not be funded,
+ * and the gap that stopped it. Presentation-only — never a simulated month, never compounded,
+ * never fed back to the engine. Every figure is READ off {@link ProjectionSeries.blockingObligation}
+ * (the y off the engine's already-adjusted `markerNetWorthCents`), so this module does no arithmetic
+ * on cents.
+ */
+export interface BlockedMarker {
+  /** Axis position of the blocked month — where the marker sits. */
+  readonly x: number;
+  /**
+   * The marker's y: the blocked month's genuine net worth dropped by the shortfall, straight off
+   * the engine. NOT a net worth the household holds — a visualization of the missing capital.
+   */
+  readonly netWorthCents: number;
+  /** The blocking obligation's human name. */
+  readonly label: string;
+  readonly requiredCents: number;
+  readonly availableCents: number;
+  readonly shortfallCents: number;
+}
 
 export interface NetWorthChartPoint {
   /** Axis position, not a model month — see {@link import("../monthAxis")}. */
@@ -65,21 +97,31 @@ export interface NetWorthChartData {
   /** That point's nominal net worth — the last honest figure the plan produced. */
   readonly lastFundedNominalCents: number | null;
   readonly runsOut: RunsOutMarker | null;
+  /** The terminal blocked marker, or null for a projection that ran to the horizon. */
+  readonly blocked: BlockedMarker | null;
+  /** The unsimulated tail of a blocked plan; null when the projection ran to the horizon. */
+  readonly stopped: StoppedSpan | null;
   readonly xMax: number;
   readonly yearTicks: readonly number[];
 }
 
 /**
- * `xMax` zooms just past where the story ends, so an early failure is legible instead of a
- * spike against decades of empty chart. The 2-year floor keeps a very early failure roomy, and
- * the span always reaches the runs-out marker — a marker off the right edge is worse than a
- * slightly wider chart.
+ * Plot data for the chart.
+ *
+ * `horizonMonths` is the plan's OWN span — "now" to life expectancy, the same figure the timeline
+ * and the event year picker use. Pass it so the axis spans the whole plan whatever the projection
+ * did: a blocked series is truncated at the blocked month, so deriving the axis from the data
+ * alone ends the chart exactly where the failure is, which reads as a plan that simply finishes
+ * early. Held to the full span instead, the block lands mid-axis with the {@link StoppedSpan}
+ * shaded behind it, and the reader can see how much of the plan went unanswered.
+ *
+ * Omitted, the axis falls back to the last point in the data — which for an untruncated run is the
+ * same full span.
  */
-function computeXMax(horizonX: number, lastDrawnX: number): number {
-  return Math.min(horizonX, Math.max(24, Math.ceil((lastDrawnX + 6) / 12) * 12));
-}
-
-export function buildNetWorthChartData(series: ProjectionSeries): NetWorthChartData {
+export function buildNetWorthChartData(
+  series: ProjectionSeries,
+  horizonMonths?: number,
+): NetWorthChartData {
   const base = [
     {
       x: TODAY_X,
@@ -131,14 +173,37 @@ export function buildNetWorthChartData(series: ProjectionSeries): NetWorthChartD
             : null,
   }));
 
-  const horizonX = base[base.length - 1]?.x ?? TODAY_X;
-  const xMax = computeXMax(horizonX, Math.max(lastFundedX, runsOut?.x ?? lastFundedX));
+  // The terminal blocked marker. Only the y is financial, and it is READ from the engine's
+  // already-adjusted figure — no cents arithmetic happens here, exactly as the runs-out endpoint
+  // is read, not computed. Absent unless the projection blocked and the engine anchored a marker.
+  const blocking = series.blockingObligation;
+  const blocked: BlockedMarker | null =
+    series.status === "blocked" &&
+    blocking !== undefined &&
+    blocking.markerNetWorthCents !== null &&
+    series.blockedAtMonth !== undefined
+      ? {
+          x: toAxisX(series.blockedAtMonth),
+          netWorthCents: blocking.markerNetWorthCents,
+          label: blocking.label,
+          requiredCents: blocking.requiredCents,
+          availableCents: blocking.availableCents,
+          shortfallCents: blocking.shortfallCents,
+        }
+      : null;
+
+  // Axis and shaded tail both from `./chartSpan`, the one definition the breakdown chart below
+  // shares — the pair is read as one picture, so they must end at the same year.
+  const lastPointX = base[base.length - 1]?.x ?? TODAY_X;
+  const xMax = chartXMax(lastPointX, horizonMonths, runsOut?.x, blocked?.x);
 
   return {
     points,
     lastFundedX,
     lastFundedNominalCents,
     runsOut,
+    blocked,
+    stopped: stoppedSpan(series, xMax),
     xMax,
     yearTicks: yearTickXs(xMax),
   };

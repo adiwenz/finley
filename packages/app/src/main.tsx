@@ -1,12 +1,11 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, SYNTHETIC_CARD_ID } from "@finley/engine";
+import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers } from "./ledgerView";
-import { planHorizonMonths } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
@@ -128,7 +127,7 @@ export function App() {
   const chartSeries = previewResult ? previewResult.series : series;
 
   // Chart, timeline, and event picker all span "now" → life expectancy.
-  const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
+  const horizonMonths = planHorizonMonths(budget);
 
   // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
   // — account descriptors and the household's liabilities, labelled by kind — never the
@@ -143,11 +142,13 @@ export function App() {
     for (const liability of household.liabilities) {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
-    return buildNetWorthBreakdown(chartSeries, {
-      accounts: projection.accountDescriptors(),
-      liabilityLabels,
-    });
-  }, [chartSeries, projection, household]);
+    return buildNetWorthBreakdown(
+      chartSeries,
+      { accounts: projection.accountDescriptors(), liabilityLabels },
+      // The plan's own span, so this chart ends at the same year as the total above it.
+      horizonMonths,
+    );
+  }, [chartSeries, projection, household, horizonMonths]);
 
   return (
     <>
@@ -175,7 +176,13 @@ export function App() {
       <div className="layout">
         <div className="main-col">
           <div className="card">
-            <NetWorthChart series={chartSeries} retirementMonth={retirement.headlineMonth} />
+            {/* The plan's own span, so the axis reaches life expectancy even when the projection
+                stopped early — a blocked series is truncated at the block. */}
+            <NetWorthChart
+              series={chartSeries}
+              retirementMonth={retirement.headlineMonth}
+              horizonMonths={horizonMonths}
+            />
 
             {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
                 an event-spawned expense or a loan payment (see Base + Adjustments). */}

@@ -106,9 +106,29 @@ function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
   return m.netWorthRealCents !== null && !m.isInsolvent;
 }
 
-/** Does the plan fund itself through life expectancy? The signal every mode reads. */
+/**
+ * The three answers a projection can give about survival. `"blocked"` is NOT a survival verdict:
+ * the projection stopped before life expectancy, so whether the remaining months would have
+ * survived is unknowable — and must never be read as "survives".
+ */
+export type SurvivalOutcome = "survives" | "fails" | "blocked";
+
+/**
+ * Survival read off the projection, block-aware. A blocked series is `"blocked"` BEFORE the
+ * per-month test, because `Array.every` over a truncated series is vacuously `true` — a blocked
+ * plan would otherwise report as surviving, promising a retirement age beside a graph that stops.
+ */
+export function planOutcome(series: ProjectionSeries): SurvivalOutcome {
+  if (series.status === "blocked") return "blocked";
+  return series.months.every(monthSurvives) ? "survives" : "fails";
+}
+
+/**
+ * Does the plan fund itself through life expectancy? The signal every mode reads. A truncated
+ * (blocked) projection is never a success — {@link planOutcome} guards the vacuous `every`.
+ */
 export function planSurvives(series: ProjectionSeries): boolean {
-  return series.months.every(monthSurvives);
+  return planOutcome(series) === "survives";
 }
 
 function retirementMonth(budget: Plan, age: number): number {
@@ -153,7 +173,11 @@ function computeOnTrackFraction(
   age: number,
   series: ProjectionSeries,
 ): number {
-  const horizon = series.months.length - 1;
+  // Horizon is derived from the plan (months to life expectancy), NOT `series.months.length - 1`:
+  // once a projection can truncate, the series length collapses to the blocked month and would
+  // make the retirement window meaningless. This matches `createProjectionBase`'s `horizonMonths`
+  // for an untruncated run, so the fraction is unchanged wherever it already worked.
+  const horizon = Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12) - 1;
   const boundary = Math.min(retirementMonth(budget, age), horizon);
   // Inclusive, so ≥ 1 after the clamp: a safe denominator.
   const retirementWindow = horizon - boundary + 1;
@@ -162,6 +186,28 @@ function computeOnTrackFraction(
   if (firstFailureMonth < 0) return 1;
   const solventInRetirement = Math.max(0, firstFailureMonth - boundary);
   return Math.min(1, solventInRetirement / retirementWindow);
+}
+
+/**
+ * Fold a projection at `age` into the evaluation fields both modes share. A blocked projection is
+ * neither feasible nor on-track — its survival is unknowable — so it carries `blocked` and the
+ * month it stopped rather than a fraction read off a truncated curve.
+ */
+function evaluateSeries(
+  budget: Plan,
+  age: number,
+  series: ProjectionSeries,
+): RetirementEvaluation {
+  const outcome = planOutcome(series);
+  const feasible = outcome === "survives";
+  const blocked = outcome === "blocked";
+  return {
+    retirementAge: age,
+    feasible,
+    blocked,
+    ...(blocked ? { blockedAtMonth: series.blockedAtMonth } : {}),
+    onTrackFraction: feasible ? 1 : blocked ? 0 : computeOnTrackFraction(budget, age, series),
+  };
 }
 
 /**
@@ -208,12 +254,7 @@ export function evaluateFullRetirementAtAge(
   ctx: ProjectionContext,
 ): RetirementEvaluation {
   const series = projectFullRetirement(scenario, age, ctx);
-  const feasible = planSurvives(series);
-  return {
-    retirementAge: age,
-    feasible,
-    onTrackFraction: feasible ? 1 : computeOnTrackFraction(scenario.plan, age, series),
-  };
+  return evaluateSeries(scenario.plan, age, series);
 }
 
 /**
@@ -390,9 +431,20 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
   const fullRetirementAge = earliestFullRetirementAge(scenario, ctx);
+  // Blocked and "no age works" both surface as a null age, so tell them apart. Only worth a probe
+  // when the search found nothing: a plan that survives at some age is, by definition, not blocked.
+  // Life expectancy is the best-funded case — jobs run longest — so if even it blocks, no earlier
+  // age un-blocks the stranded obligation.
+  const blockProbe =
+    fullRetirementAge === null
+      ? projectFullRetirement(scenario, scenario.plan.lifeExpectancy, ctx)
+      : undefined;
+  const blocked = blockProbe?.status === "blocked";
   return {
     fullRetirementAge,
     plannedWorkStopAge: plannedWorkStopAge(scenario, ctx),
+    blocked,
+    ...(blocked ? { blockedAtMonth: blockProbe?.blockedAtMonth } : {}),
     authoredPlanSurvives: authoredPlanSurvives(scenario, ctx),
     // Read at the age that was actually reported. With no feasible age there is no scenario to
     // describe, so there is nothing to disclose either.
