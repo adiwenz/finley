@@ -7,7 +7,8 @@
  * throwing.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
+import { enterNumber } from "../../testing/numberField";
 import {
   dollarsToCents,
   type BudgetLine,
@@ -164,7 +165,7 @@ describe("SpendingEditor — the row", () => {
 
   it("stages an edit against its own line", () => {
     const { edit } = renderEditor();
-    fireEvent.change(housingInput(), { target: { value: "1800" } });
+    enterNumber(housingInput(), 1800);
     expect(edit.onStage).toHaveBeenCalledWith(
       { kind: "line", lineId: "housing" },
       "Housing",
@@ -234,7 +235,7 @@ describe("SpendingEditor — health is an ordinary editable line", () => {
 
   it("stages an edit against the health line like any other", () => {
     const { edit } = renderWithHealth();
-    fireEvent.change(healthInput(), { target: { value: "650" } });
+    enterNumber(healthInput(), 650);
     expect(edit.onStage).toHaveBeenCalledWith(
       { kind: "line", lineId: "health" },
       "Healthcare",

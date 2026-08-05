@@ -80,6 +80,42 @@ p.sub {
   padding: var(--space-5);
 }
 
+/* A card that opens and closes (§10.4's disclosure, at section scale rather than field
+   scale). The summary IS the card's header, so it carries the heading and the affordance;
+   the default triangle marker is replaced with one that sits at the end of the row. */
+.collapsible > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible > summary::after {
+  content: "▸";
+  color: var(--color-text-muted);
+  font-size: 11px;
+  transition: transform 120ms ease;
+}
+
+.collapsible[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.collapsible > summary > h2 {
+  margin: 0;
+}
+
+/* Only when open, so a closed card is a single header row. */
+.collapsible[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
 /* Incidental text */
 .disclaimer {
   margin-top: var(--space-4);
@@ -107,6 +143,21 @@ p.sub {
 .field-label {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+/* Retirement chart preview toggle: a checkbox and its label on one row, aligned to the top so a
+   wrapped label keeps the box beside its first line rather than centred against the block. */
+.preview-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  margin: 4px 0 8px;
+  cursor: pointer;
+}
+
+.preview-toggle input {
+  margin-top: 2px;
 }
 
 /* The starter-scenario picker (issue #119): a bounded control, not a full-width row. */

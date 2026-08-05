@@ -13,6 +13,7 @@ import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
+import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
 import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
@@ -35,16 +36,21 @@ const INITIAL_STATE = presetState(PRESETS[0]);
 export function App() {
   const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
+  // Whether the charts show the "if everyone stopped working at the solved age" preview rather
+  // than the authored plan. A pure view flag — it never touches the state the app authors.
+  const [previewRetirement, setPreviewRetirement] = useState(false);
   const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
   // Load a starter simulation wholesale: plan AND seed timeline together, floored on the way
-  // in by the facade. The scrub cursor snaps back to "now".
+  // in by the facade. The scrub cursor snaps back to "now", and the preview drops back to the
+  // authored view — a fresh scenario is shown as authored, not through the last one's hypothesis.
   function loadPreset(preset: Preset) {
     setPresetId(preset.id);
     loadState(presetState(preset));
     setScrubMonth(DEFAULT_SCRUB_MONTH);
+    setPreviewRetirement(false);
   }
 
   // One handle over the current state answers every read: the graph, snapshot roster, and debug
@@ -71,6 +77,28 @@ export function App() {
     () => retirementView(projection, usJurisdiction),
     [projection],
   );
+
+  // The "what if everyone stopped working at the solved age" run — the same non-mutating
+  // stop-working boundary the solver searched with, surfaced instead of discarded. Computed
+  // only when the toggle is actually on AND a feasible headline age exists — an ordinary plan
+  // edit re-renders this memo on every keystroke, and the preview toggle is off far more often
+  // than it's on, so gating on `previewRetirement` keeps an unused extra projection from
+  // running on every edit. Turning the toggle ON is what should pay for the simulation.
+  const previewResult = useMemo(
+    () =>
+      previewRetirement && retirement.headlineAge !== null
+        ? projection.runAtStopWorkingAge(usJurisdiction, retirement.headlineAge)
+        : null,
+    [projection, previewRetirement, retirement.headlineAge],
+  );
+  // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
+  // simple null check — a stale toggle with no feasible age still reports itself off.
+  const previewing = previewResult !== null;
+  // The series the charts draw — the preview when previewing, the authored run otherwise. The
+  // guard narrows `previewResult` here; only the CHARTS swap, every authoring/editing surface
+  // below stays on the authored `result`.
+  const chartSeries = previewResult ? previewResult.series : series;
+
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
 
@@ -87,11 +115,11 @@ export function App() {
     for (const liability of household.liabilities) {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
-    return buildNetWorthBreakdown(series, {
+    return buildNetWorthBreakdown(chartSeries, {
       accounts: projection.accountDescriptors(),
       liabilityLabels,
     });
-  }, [series, projection, household]);
+  }, [chartSeries, projection, household]);
 
   return (
     <>
@@ -119,7 +147,7 @@ export function App() {
       <div className="layout">
         <div className="main-col">
           <div className="card">
-            <NetWorthChart series={series} retirementMonth={retirement.headlineMonth} />
+            <NetWorthChart series={chartSeries} retirementMonth={retirement.headlineMonth} />
 
             {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
                 an event-spawned expense or a loan payment (see Base + Adjustments). */}
@@ -181,21 +209,28 @@ export function App() {
             <StartingPositionPanel onAdd={transact} />
           </div>
 
-          <div className="card inputs">
+          {/* Standing settings rather than a live readout: both start collapsed, so the
+              panels that answer "what is happening" keep the column. */}
+          <CollapsibleCard title="Budget & accounts" className="inputs">
             <BudgetEditor budget={budget} transact={transact} />
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
+          <CollapsibleCard title="Goals">
             <GoalsPanel
               budget={budget}
               result={result}
               projection={projection}
               transact={transact}
             />
-          </div>
+          </CollapsibleCard>
 
           <div className="card">
-            <RetirementPanel view={retirement} budget={budget} />
+            <RetirementPanel
+              view={retirement}
+              budget={budget}
+              previewing={previewing}
+              onTogglePreview={setPreviewRetirement}
+            />
           </div>
         </div>
       </div>
@@ -207,6 +242,7 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
+          payDisplay={(previewResult ?? result).jobPayDisplay}
         />
       </div>
 
@@ -218,11 +254,12 @@ export function App() {
         <BaseAdjustmentsPanel
           plan={budget}
           transact={transact}
-          series={series}
+          series={chartSeries}
           personNames={personNames}
           household={household}
           ledger={ledger}
           projection={projection}
+          plannedWorkStopAge={retirement.plannedWorkStopAge}
         />
       </div>
 

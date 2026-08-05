@@ -22,6 +22,7 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compilePerson";
+import { membershipWindow, type JobResolutionScope } from "../householdJob";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -107,8 +108,19 @@ export function buildHouseholdSimInput(
   // baked into the roster. `startYear` is the frozen "now" the base was built against; the
   // default keeps a startYear-less test base from throwing.
   const nowYear = base.startYear ?? 0;
+  // The same question the income series was compiled under, asked once more. A solve carries a
+  // candidate boundary, and the person whose job it continues worked the years that continuation
+  // implies — including any before "now", which is where the covered-earnings record lives. Left
+  // authored when there is no hypothesis, which is every ordinary run.
+  const scope: JobResolutionScope =
+    base.stopWorking === undefined
+      ? { kind: "authored" }
+      : { kind: "hypothetical", stopWorking: base.stopWorking };
+  // The membership window rides along: the income series were clipped to it up here, but a
+  // government benefit is derived inside the sim and would otherwise be paid to a household the
+  // person has left.
   const persons: SimPerson[] = household.memberships.map((m) =>
-    compilePerson(m.person, nowYear, base.annualInflationRate),
+    compilePerson(m.person, nowYear, scope, membershipWindow(m)),
   );
 
   return {

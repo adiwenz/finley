@@ -22,17 +22,16 @@ export interface JobOwner {
   readonly id: PersonId;
   readonly name: string;
   readonly birthYear: number;
-  /**
-   * The age *their* open-ended jobs stop at, not the household's. It bounds their 401(k)
-   * deferral years, and the elective limit is per person, so the deferral scan needs each
-   * earner's own working span.
-   */
-  readonly retirementTargetAge: number;
   readonly jobs: readonly Job[];
-  /** `-Infinity` for the primary person. */
+  /**
+   * `-Infinity` for the primary person — the one thing this list reads it for is which plane a
+   * member's jobs are authored on.
+   *
+   * There is deliberately no `endMonth` beside it. A separation's effect on what a household is
+   * paid is the engine's to state (`ProjectionResult.jobPayDisplay`), and carrying the month
+   * here is how the app came to answer that question twice.
+   */
   readonly startMonth: number;
-  /** The month a separation removed them; `null` while still a member. */
-  readonly endMonth: number | null;
   readonly writeTarget: JobWriteTarget;
 }
 
@@ -57,10 +56,8 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       id: m.person.id,
       name: m.person.name,
       birthYear: m.person.birthYear,
-      retirementTargetAge: m.person.retirementTargetAge,
       jobs: m.person.jobs,
       startMonth: m.startMonth,
-      endMonth: m.endMonth,
       writeTarget: joinedByEvent && event ? "event" : "plan",
     });
   }

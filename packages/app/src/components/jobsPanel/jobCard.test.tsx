@@ -7,8 +7,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { dollarsToCents, type Job } from "@finley/engine";
-import { jobPayPathFor } from "../../planPeople";
+import { dollarsToCents, jobPayPath, type Job } from "@finley/engine";
+
+import { START_YEAR } from "../../config";
 import type { JobOwner } from "../../jobOwners";
 import type { JobEditDraft } from "../../planPeople";
 import { JobCard } from "./jobCard";
@@ -17,20 +18,18 @@ const OWNER: JobOwner = {
   id: "primary",
   name: "Alex",
   birthYear: 1985,
-  retirementTargetAge: 65,
   jobs: [],
   startMonth: -Infinity,
-  endMonth: null,
   writeTarget: "plan",
 };
 
-/** An open-ended job with one dated pay change, so the timeline shows a removable row. */
+/** A job with one dated pay change, so the timeline shows a removable row. */
 const JOB: Job = {
   id: "job-1",
   name: "Engineer",
   ownerId: "primary",
   startYear: 2010,
-  endYear: null,
+  endYear: 1985 + 65,
   salary: {
     startingSalaryCents: dollarsToCents(3_000 * 12),
     currentSalaryCents: dollarsToCents(5_000 * 12),
@@ -44,7 +43,7 @@ const EDIT_DRAFT: JobEditDraft = {
   monthlyCents: dollarsToCents(5_000),
   startingMonthlyCents: dollarsToCents(3_000),
   startAge: 25,
-  endAge: null,
+  endAge: 65,
   deferralPct: 0,
   employerMatchPct: 0,
   realGrowthPct: 0,
@@ -68,8 +67,9 @@ function renderCard(overrides: Partial<Parameters<typeof JobCard>[0]> = {}) {
       job={JOB}
       label="Engineer"
       monthlyCents={dollarsToCents(5_000)}
+      uncounted={[]}
       initialEditDraft={EDIT_DRAFT}
-      path={jobPayPathFor(OWNER, JOB, 0.03, false)}
+      path={jobPayPath(JOB, { startMonth: (JOB.startYear - START_YEAR) * 12, endMonthExclusive: (JOB.endYear - START_YEAR) * 12 }, { inflationRate: 0.03 })}
       lifeExpectancy={90}
       inTodaysDollars={false}
       severalOwners={false}
@@ -89,7 +89,7 @@ describe("JobCard", () => {
     renderCard();
     const card = screen.getByLabelText("Engineer");
     expect(within(card).getByTitle(/Current pay/).textContent).toBe("$5,000/mo now");
-    expect(within(card).getByText(/open-ended \(to retirement\)/i)).toBeTruthy();
+    expect(within(card).getByText(/age 25–65/i)).toBeTruthy();
   });
 
   it("fires onEdit and onDelete from the action buttons", () => {

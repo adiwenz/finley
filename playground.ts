@@ -34,9 +34,12 @@ const p = Projection.fromState(
 );
 
 // 2. Standing edits. Creating writes return a minted id.
+// Every job states when it ends — there is no open-ended job. Whether the retirement solver may
+// run one PAST its end is one choice per person, not per job: `p.setContinuationJob(P1, jobId)`
+// names it, and until somebody picks, the engine reads the job they are working now.
 const jobId = p.addJob(P1, {
   startYear: SAMPLE_START_YEAR,
-  endYear: null,
+  endYear: SAMPLE_START_YEAR + 30,
   salary: { startingSalaryCents: dollarsToCents(120_000), currentSalaryCents: dollarsToCents(120_000), realGrowthPct: 1 },
 });
 
@@ -47,7 +50,7 @@ const rentId = p.addBudgetLine({
   category: "needs",
 });
 
-p.setRetirementTarget(62); // an edit, not a creating write — mints no id
+p.updatePlan({ lifeExpectancy: 92 }); // an edit, not a creating write — mints no id
 
 // 3. Ledger transactions — same object as the standing edits above.
 const loanId = p.takeLoan({

@@ -111,7 +111,6 @@ export function GoalsPanel({ budget, result, projection, transact }: GoalsPanelP
 
   return (
     <>
-      <h2>Goals</h2>
       {rows.length === 0 ? (
         <p className="hint">No goals yet — add one below.</p>
       ) : (

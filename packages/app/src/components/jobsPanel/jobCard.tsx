@@ -21,7 +21,7 @@ import type { JobOwner } from "../../jobOwners";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
 import { PayChangeForm, type PayChangeDraft } from "./payChangeForm";
-import { PayChart } from "./payChart";
+import { PayChart, type UncountedPaySpanNote } from "./payChart";
 import { PayTimeline } from "./payTimeline";
 import styles from "./jobsPanel.module.css";
 
@@ -32,13 +32,9 @@ export type JobCardAuthoring =
   | { kind: "payChange"; seedAge?: number }
   | null;
 
-/** "from age 18 · open-ended (to retirement)" / "age 30–45" — a job's span in its OWNER's terms. */
+/** "age 30–45" — a job's span in its OWNER's terms. Every job has both ends. */
 function describeSpan(owner: JobOwner, job: Job): string {
-  const start = jobStartAgeFor(owner.birthYear, job);
-  const end = jobEndAgeFor(owner.birthYear, job);
-  return end === null
-    ? `from age ${start} · open-ended (to retirement)`
-    : `age ${start}–${end}`;
+  return `age ${jobStartAgeFor(owner.birthYear, job)}–${jobEndAgeFor(owner.birthYear, job)}`;
 }
 
 export interface JobCardProps {
@@ -52,6 +48,13 @@ export interface JobCardProps {
   readonly initialEditDraft: JobEditDraft;
   /** The job's pay across its whole employment, in the panel's chosen denomination. */
   readonly path: JobPayPath;
+  /**
+   * The stretches of this job's employment that are not household income, each with the
+   * sentence saying why — empty for every job the household is paid for throughout, and up to
+   * two for a partner who both joined and left while holding it. Resolved by the engine; the
+   * panel words them; the card only carries them to the chart.
+   */
+  readonly uncounted: readonly UncountedPaySpanNote[];
   readonly lifeExpectancy: number;
   readonly inTodaysDollars: boolean;
   /** The household holds more than one earner, so the edit form shows whose job this is. */
@@ -78,6 +81,7 @@ export function JobCard({
   monthlyCents,
   initialEditDraft,
   path,
+  uncounted,
   lifeExpectancy,
   inTodaysDollars,
   severalOwners,
@@ -137,6 +141,7 @@ export function JobCard({
           there — the chart is an input, not a picture. */}
       <PayChart
         path={path}
+        uncounted={uncounted}
         payChanges={payChanges}
         incomeOverrides={job.incomeOverrides ?? []}
         birthYear={owner.birthYear}

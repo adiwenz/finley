@@ -12,7 +12,8 @@
  * owner even by a caller that means to.
  */
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { MAX_LIVED_AGE } from "@finley/engine";
 import type { PersonId } from "@finley/engine";
 import type { JobEditDraft, NewJobDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
@@ -73,10 +74,8 @@ interface FixedOwnerProps extends JobFormCommon {
 type JobFormProps = ChooseOwnerProps | FixedOwnerProps;
 
 /**
- * The form's live state in the fields' own terms — one object, not a hook per field.
- * `endAge: null` IS "open-ended"; the checkbox derives from it rather than being tracked
- * separately, so the two cannot disagree. Salary is held in whole dollars (the unit the
- * input edits) and converted to cents on submit.
+ * The form's live state in the fields' own terms — one object, not a hook per field. Salary is
+ * held in whole dollars (the unit the input edits) and converted to cents on submit.
  */
 interface JobFormDraft {
   readonly name: string;
@@ -85,16 +84,13 @@ interface JobFormDraft {
   /** Pay a month in the job's own start year — what the historical reconstruction starts from. */
   readonly startingMonthlyDollars: number;
   readonly startAge: number;
-  /** `null` = open-ended (runs to retirement); a number = a fixed end age. */
-  readonly endAge: number | null;
+  /** When the job ends. Always a number: a job that does not say when it ends cannot be authored. */
+  readonly endAge: number;
   readonly deferralPct: number;
   /** Employer match as a whole-number percent OF the deferral; only bites when there's one. */
   readonly employerMatchPct: number;
   readonly realGrowthPct: number;
 }
-
-/** A sensible finite end age to fall back to when none was ever entered. */
-const defaultEndAge = (startAge: number): number => Math.max(startAge + 1, 65);
 
 /** Hoisted so the no-picker case reuses one array instead of minting one per render. */
 const NO_OWNERS: readonly JobFormOwner[] = [];
@@ -112,11 +108,6 @@ export function JobForm(props: JobFormProps) {
     realGrowthPct: initial.realGrowthPct,
   }));
 
-  // Last finite end age, remembered across "open-ended" toggles: ticking the box nulls
-  // `endAge` (field disappears), unticking restores THIS rather than a default. Kept out
-  // of the draft — UX memory, not domain state — so `endAge` stays the single truth.
-  const lastFiniteEndAge = useRef(initial.endAge ?? defaultEndAge(initial.startAge));
-
   // Whose job this WILL be, while that is still open. Held apart from the field draft because
   // it is not a field: the "fixed" form has no such state, and its submission has no such key.
   const [ownerId, setOwnerId] = useState<PersonId | null>(
@@ -125,7 +116,6 @@ export function JobForm(props: JobFormProps) {
 
   const patch = (fields: Partial<JobFormDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
-  const openEnded = draft.endAge === null;
 
   const pickableOwners = props.ownership === "choose" ? props.owners : NO_OWNERS;
   const picked = pickableOwners.find((o) => o.id === ownerId);
@@ -149,7 +139,7 @@ export function JobForm(props: JobFormProps) {
    * job before the current-salary anchor is ever read — so the form does not ask for one, and
    * {@link jobInputFromDraft} / {@link applyJobDraft} pin the dead anchor to what it last paid.
    */
-  const endedBeforeNow = draft.endAge !== null && draft.endAge <= ownerAge;
+  const endedBeforeNow = draft.endAge <= ownerAge;
 
   function submit() {
     const fields: JobEditDraft = {
@@ -162,7 +152,7 @@ export function JobForm(props: JobFormProps) {
         (hasHistory ? draft.startingMonthlyDollars : draft.monthlyDollars) * 100,
       ),
       startAge: draft.startAge,
-      endAge: draft.endAge === null ? null : Math.max(draft.startAge + 1, draft.endAge),
+      endAge: Math.max(draft.startAge + 1, draft.endAge),
       realGrowthPct: draft.realGrowthPct,
       deferralPct: draft.deferralPct,
       employerMatchPct: draft.employerMatchPct,
@@ -290,34 +280,24 @@ export function JobForm(props: JobFormProps) {
         value={draft.startAge}
         onChange={(v) => patch({ startAge: v })}
         min={14}
-        max={100}
+        max={MAX_LIVED_AGE}
         step={1}
       />
-      <label className="field field-check">
-        <input
-          type="checkbox"
-          checked={openEnded}
-          onChange={(e) => patch({ endAge: e.target.checked ? null : lastFiniteEndAge.current })}
-        />
-        <span className="field-label">Open-ended (runs until retirement)</span>
-      </label>
-      {draft.endAge !== null && (
-        <NumInput
-          label="End age"
-          value={draft.endAge}
-          onChange={(v) => {
-            lastFiniteEndAge.current = v;
-            patch({ endAge: v });
-          }}
-          min={draft.startAge + 1}
-          max={100}
-          step={1}
-        />
-      )}
+      {/* Required, like the start age. A job used to be allowed to leave this blank and be
+          "open-ended", which meant it silently ended at whatever retirement age was authored
+          elsewhere — a date the user never typed, on a form that showed no end at all. */}
+      <NumInput
+        label="End age"
+        value={draft.endAge}
+        onChange={(v) => patch({ endAge: v })}
+        min={draft.startAge + 1}
+        max={MAX_LIVED_AGE}
+        step={1}
+      />
       <p className="hint">
         {otherOwnerName === null
-          ? "The age you began this job seeds your Social-Security-covered years; an open-ended job runs until your retirement age. Estimate, not advice."
-          : `These are ${otherOwnerName}’s ages. The age they began this job seeds their Social-Security-covered years; an open-ended job runs until their retirement age. Estimate, not advice.`}
+          ? "The age you began this job seeds your Social-Security-covered years. Estimate, not advice."
+          : `These are ${otherOwnerName}’s ages. The age they began this job seeds their Social-Security-covered years. Estimate, not advice.`}
       </p>
 
       <details className="advanced">

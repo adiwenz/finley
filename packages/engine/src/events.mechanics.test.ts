@@ -29,7 +29,7 @@ describe("updateEvent", () => {
         id: "pj1",
         ownerId: "p2",
         startYear: 2020,
-        endYear: null,
+        endYear: 2090,
         salary: { startingSalaryCents: dollarsToCents(monthlyDollars * 12), currentSalaryCents: dollarsToCents(monthlyDollars * 12), realGrowthPct: 0 },
       },
     ],

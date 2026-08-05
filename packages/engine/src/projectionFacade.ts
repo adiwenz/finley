@@ -85,7 +85,10 @@ import type { Jurisdiction } from "./jurisdiction";
 import { runProjection } from "./projectionRun";
 import type { ProjectionResult } from "./projectionRun";
 import { buildRetirementOutlook } from "./retirementOutlook";
+import { firstDeferralLimitCrossing } from "./deferralLimit";
+import type { DeferralLimitCrossing } from "./deferralLimit";
 import type { RetirementOutlook } from "./retirementOutlook";
+import { stopWorkingBoundaryAt } from "./retirementSolver";
 
 import type { ProjectionState, Written } from "./authoring/state";
 import { emptyState } from "./authoring/state";
@@ -109,6 +112,8 @@ import {
   removeProjectionJobIncomeOverride,
   removeProjectionJobPayChange,
   removeProjectionPartnerJob,
+  continuationJobOf as projectionContinuationJobOf,
+  setProjectionContinuationJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
   setProjectionJobCurrentMonthlyIncome,
@@ -296,10 +301,45 @@ export class Projection {
     );
   }
 
-  /** Drop a partner-owned job. See {@link removeJob}: there is nothing to guard. */
+  /** Drop a partner-owned job. See {@link removeJob}. */
   removePartnerJob(jobId: string): void {
     this.write((state) =>
       removeProjectionPartnerJob(state, this.validationJurisdiction, jobId),
+    );
+  }
+
+  /**
+   * **Which job a what-if would actually continue for this member** — the RESOLVED answer, not
+   * the stored one.
+   *
+   * `null` means none is, so no candidate age ever pays them past the dates they authored.
+   *
+   * The distinction from reading the field is the whole point: a member who has never been asked
+   * still has a continuation job, worked out from the jobs they hold (see
+   * {@link import("./householdJob").continuationJobIdOf}). A surface offering the choice has to
+   * show THAT, or it reports a blank "none" for a household whose retirement age was computed
+   * from something else entirely.
+   *
+   * Refused for a member this household does not hold, like every other read addressed by id.
+   */
+  continuationJobOf(personId: PersonId): string | null {
+    return projectionContinuationJobOf(this.current, personId);
+  }
+
+  /**
+   * **Name the one job a what-if may run past its authored end for this member**, or `null` for
+   * none — see {@link import("./person").Person.continuationJobId}.
+   *
+   * One method for both planes, unlike the job writes either side of it, because this names a
+   * PERSON: whichever plane their record lives on is settled from their id, exactly as it is for
+   * every other fact about them. The job must be one of theirs.
+   *
+   * Changes no projection. It is read only when the retirement solver tests an age past the
+   * named job's own end, and by the stop-working preview that shows the same hypothesis.
+   */
+  setContinuationJob(personId: PersonId, jobId: string | null): void {
+    this.write((state) =>
+      setProjectionContinuationJob(state, this.validationJurisdiction, personId, jobId),
     );
   }
 
@@ -438,10 +478,9 @@ export class Projection {
     this.write((state) => updateProjectionPlan(state, patch));
   }
 
-  /** The named shorthand for the scalar the retirement solver reports against. */
-  setRetirementTarget(age: number): void {
-    this.updatePlan({ retirementAge: age });
-  }
+  // No `setRetirementTarget`. There is no retirement age to set: a plan says when each JOB
+  // ends, and when the household could stop working is read back off `retirement()`, never
+  // written. Moving that answer means moving a job's end, or naming a continuation job.
 
   // Ledger transactions
 
@@ -558,6 +597,30 @@ export class Projection {
   }
 
   /**
+   * {@link run}, but with every earner's job ceased at `age` — a non-destructive preview of "what
+   * if the whole household stopped working then." The full {@link ProjectionResult} comes back so
+   * the net-worth and income charts read one preview pass exactly as they read the authored one.
+   *
+   * The boundary caps compiled job spans and rewrites nothing (see {@link StopWorkingBoundary}),
+   * so the plan this handle holds is byte-for-byte untouched — a caller can flip between the
+   * authored charts and the preview without ever committing the hypothetical. `age` is the
+   * primary's own timeline age, the convention every household-level retirement output already
+   * uses, so the solved headline age drops straight in.
+   *
+   * Resolved through the SAME hypothetical the solver searched with, so the preview shows exactly
+   * what the headline age meant and cannot drift from it: a candidate at or below the authored
+   * stop merely truncates working life, and one above it carries each person's chosen
+   * continuation job — and only that job — out to the boundary.
+   */
+  runAtStopWorkingAge(jurisdiction: Jurisdiction, age: number): ProjectionResult {
+    return runProjection(
+      this.current,
+      jurisdiction,
+      stopWorkingBoundaryAt(this.plan, age, this.current.startYear),
+    );
+  }
+
+  /**
    * The accounts this plan implies, named and typed — the three standing ones plus a fund
    * account per goal. Derived from the plan, so a goal added a moment ago already has one.
    */
@@ -574,6 +637,23 @@ export class Projection {
    */
   retirement(jurisdiction: Jurisdiction): RetirementOutlook {
     return buildRetirementOutlook(this.current, jurisdiction);
+  }
+
+  /**
+   * **The first year a member would defer more than their own elective limit**, or `null` for a
+   * household that never does — see {@link firstDeferralLimitCrossing}.
+   *
+   * A read of the authored plan, not a search: no candidate ages, one walk of the working years.
+   * It is here rather than in whichever surface shows the warning because deciding which years
+   * are worked, which of them belong to the household, and what the pay is in each are the same
+   * three questions the projection answers, and a second reading of any of them is a second
+   * thing to get wrong.
+   */
+  deferralLimitCrossing(jurisdiction: Jurisdiction): DeferralLimitCrossing | null {
+    return firstDeferralLimitCrossing(this.current.scenario, {
+      jurisdiction,
+      startYear: this.current.startYear,
+    });
   }
 
   // Reads over authored state. Each delegates to the module that owns the thing being read, so

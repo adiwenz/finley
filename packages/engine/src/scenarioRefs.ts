@@ -195,6 +195,15 @@ export function resolveRefs(input: ScenarioInput): ResolveRefsResult {
   input.jobs?.forEach((job, i) =>
     collectJob(job, PLAN_ORDER, { describe: `job entry ${i}` }, decls, usages),
   );
+  // Plan-plane like the entries around it, so it may name a job declared anywhere in `jobs`
+  // rather than only one already applied — it is written after the whole collection is bound.
+  if (input.continuationJobRef != null) {
+    usages.push({
+      ref: input.continuationJobRef,
+      order: PLAN_ORDER,
+      loc: { describe: "continuationJobRef" },
+    });
+  }
   input.goals?.forEach((goal, i) => {
     if (goal.ref !== undefined)
       decls.push({ ref: goal.ref, order: PLAN_ORDER, loc: { describe: `goal entry ${i}` } });

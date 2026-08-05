@@ -29,7 +29,7 @@ const baseBudget: Plan = {
       id: "job-1",
       ownerId: "p1",
       startYear: START_YEAR - 35 + 18,
-      endYear: null,
+      endYear: START_YEAR - 35 + 65,
       salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
     },
   ],
@@ -52,7 +52,6 @@ const baseBudget: Plan = {
   // draws from, and health is a separate additive expense.
   inflationPct: 3,
   currentAge: 35,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };

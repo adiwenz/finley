@@ -208,8 +208,9 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
 
 /**
  * Compile a {@link Plan} into the ledger base. `stopWorking` is the retirement solver's candidate
- * boundary — supplied only mid-solve and threaded to every job-compilation path so all earners
- * cease together; absent, each person's own `retirementTargetAge` ends their open-ended jobs.
+ * boundary — supplied only when the question is a hypothesis, and threaded to every
+ * job-compilation path so all earners move together; absent, every job ends where it was
+ * authored to end.
  */
 export function createProjectionBase(
   budget: Plan,
@@ -223,25 +224,22 @@ export function createProjectionBase(
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
   //
-  // `retirementTargetAge` is the primary's OWN natural-end input to `jobEndYearExclusive`
-  // (compilePerson.ts) — the same field a partner's job is capped against there, never
-  // extended past it. Mid-solve, the candidate age under test IS the primary's hypothesis for
-  // that field (the whole reason `evaluateAtAge`/`evaluateFullRetirementAtAge` can explore ages
-  // past the authored `budget.retirementAge`), so it's resolved here from the boundary rather
-  // than left at the authored figure — otherwise the shared, owner-agnostic cap in
-  // `jobEndYearExclusive` would clip the primary's own search candidate back down to
-  // `budget.retirementAge` and the solver could never test past it. A partner's own
-  // `retirementTargetAge`, authored on their RelationshipEvent, is never touched this way —
-  // only the primary's stands in for "the age this solve is testing."
-  const retirementTargetAge =
-    stopWorking === undefined ? budget.retirementAge : stopWorking.boundaryYearExclusive - birthYear;
+  // Nothing about a retirement AGE reaches this person. The plan used to pin one and hand it
+  // down here as a per-person figure the compiler read as an employment end — and mid-solve that
+  // field was quietly swapped for the candidate age, since it was the only way a search could
+  // explore past what the plan already said. Both are gone: a job ends where it was authored to,
+  // and a candidate travels as a {@link StopWorkingBoundary} that says plainly it is a
+  // hypothesis.
   const standingPerson: Person = {
     id: PRIMARY_PERSON_ID,
     name: budget.name,
     birthYear,
-    retirementTargetAge,
     benefitClaimingAge: budget.benefitClaimingAge,
     jobs: budget.jobs,
+    // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
+    // `undefined` included: "not chosen yet" is a state `continuationJobIdOf` resolves on read,
+    // so defaulting it here would freeze an answer the plan never gave.
+    continuationJobId: budget.continuationJobId,
   };
 
   // Expenses are authored solely as budget lines — there is no separate general-expense
@@ -262,6 +260,9 @@ export function createProjectionBase(
     inflationRate,
   );
 
+  /** Exclusive calendar year the projection ends — life expectancy, as a year. */
+  const horizonYearExclusive = startYear + Math.max(0, budget.lifeExpectancy - budget.currentAge);
+
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
   //
@@ -273,7 +274,9 @@ export function createProjectionBase(
     resolveHouseholdJobs(
       personJobContexts({ person: standingPerson, startMonth: -Infinity, endMonth: null }),
       startYear,
-      stopWorking,
+      stopWorking === undefined
+        ? { kind: "authored" }
+        : { kind: "hypothetical", stopWorking },
     ),
     startYear,
     inflationRate,
@@ -288,7 +291,7 @@ export function createProjectionBase(
       : { kind: "idle" };
 
   return {
-    horizonMonths: Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12),
+    horizonMonths: (horizonYearExclusive - startYear) * 12,
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,

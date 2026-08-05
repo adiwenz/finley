@@ -78,10 +78,40 @@ describe("createProjectionBase — retirement + government benefit wired into th
     expect(p.benefitClaimingAge).toBe(68);
   });
 
-  it("stops employment income at the retirement age — working longer ends richer", () => {
-    const early = endingNetWorthCents({ ...samplePlan, retirementAge: 55 });
-    const late = endingNetWorthCents({ ...samplePlan, retirementAge: 70 });
-    expect(late).toBeGreaterThan(early);
+  it("stops employment income where the JOB ends — working longer ends richer", () => {
+    // Authored ends, not the plan's retirement age: that age is a target the household aims at
+    // and no longer truncates anybody's employment. Working longer is a longer JOB.
+    const retiringAt = (endAge: number) =>
+      endingNetWorthCents({ ...samplePlan, jobs: [salariedJob(dollarsToCents(8000), { endAge })] });
+    expect(retiringAt(70)).toBeGreaterThan(retiringAt(55));
+  });
+
+  it("pays a job to its own authored end, and nothing else has a say", () => {
+    // The regression this guards: a plan-level retirement age of 55 used to delete every wage
+    // after 55, so an income chart contradicted the job the user had just authored. That field
+    // is gone rather than merely ignored — the job's own end is the only end there is — so this
+    // now asserts the positive: a job authored to 82 pays to 82.
+    const series = project(retiringAt(82));
+    const wagesAt = (age: number) =>
+      series.months[(age - samplePlan.currentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
+    expect(wagesAt(50)).toBeGreaterThan(0);
+    expect(wagesAt(60)).toBeGreaterThan(0);
+    expect(wagesAt(80)).toBeGreaterThan(0);
+  });
+
+  it("charts a job that only STARTS after the retirement age — the reported bug", () => {
+    // Stop-working age 65, a job picked up at 70. It used to be compiled away the instant it
+    // was saved; it now pays from 70 exactly as authored.
+    const birthYear = START_YEAR - samplePlan.currentAge;
+    const series = project({
+      ...samplePlan,
+      jobs: [{ ...salariedJob(dollarsToCents(3000)), startYear: birthYear + 70, endYear: birthYear + 80 }],
+    });
+    const wagesAt = (age: number) =>
+      series.months[(age - samplePlan.currentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
+    expect(wagesAt(68)).toBe(0);
+    expect(wagesAt(70)).toBeGreaterThan(0);
+    expect(wagesAt(79)).toBeGreaterThan(0);
   });
 
   it("pays a government retirement benefit from the claiming age — it appears in the series", () => {
@@ -110,7 +140,7 @@ describe("createProjectionBase — earned income before current age comes from t
   const priorYears = (startAge: number) => {
     const base = createProjectionBase(planFromStartAge(startAge), ctx());
     // Derived from the authoring Persons' jobs exactly as the sim boundary does.
-    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR, samplePlan.inflationPct / 100);
+    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR);
     return Object.keys(prior)
       .map(Number)
       .sort((a, b) => a - b);
@@ -221,11 +251,21 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
   });
 });
 
+/**
+ * `samplePlan` with its job authored to END at the plan's retirement age — the plan that used to
+ * be implied by that age alone. An open-ended job now runs to the horizon, so a test about what
+ * happens AFTER work has to say when work stops.
+ */
+const retiringAt = (endAge: number): Plan => ({
+  ...samplePlan,
+  jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge })],
+});
+
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {
   it("funds the retiree from investments — the synthetic card never carries a balance", () => {
     // Retirement spending exceeds income; once the liquid buffer is spent the shortfall
     // is met by SELLING assets (re-entering as capitalGains), not by borrowing.
-    const series = project({ ...samplePlan, retirementAge: 63 }, mockJurisdiction());
+    const series = project(retiringAt(63), mockJurisdiction());
     for (const m of series.months) {
       expect(m.liabilityBalancesCents[SYNTHETIC_CARD_ID] ?? 0).toBe(0);
     }
@@ -249,9 +289,9 @@ describe("createProjectionBase — income reported by source + savings drawdown"
   });
 
   it("shows a retirement-gap month funded by savings as a drawdown source, not zero income", () => {
-    // Retires at 60, no benefit modelled → months 240..323 earn nothing, yet savings pay
-    // every bill.
-    const series = project(samplePlan, mockJurisdiction());
+    // The job ends at 60 and no benefit is modelled → months 240..323 earn nothing, yet
+    // savings pay every bill.
+    const series = project(retiringAt(60), mockJurisdiction());
     const gap = series.months.slice((60 - 40) * 12, (67 - 40) * 12);
     const drawdownMonth = gap.find((m) =>
       (m.flows?.incomeSources ?? []).some((s) => s.category === "savingsDrawdown"),
@@ -265,8 +305,8 @@ describe("createProjectionBase — income reported by source + savings drawdown"
 
   it("names a goal-fund decumulation draw by the goal, not an anonymous capitalGains bucket", () => {
     // Once savings are spent, the retained 'Emergency fund' goal is the capital-gains
-    // asset the retiree liquidates.
-    const series = project(samplePlan, mockJurisdiction());
+    // asset the retiree liquidates — after the job they authored an end for.
+    const series = project(retiringAt(60), mockJurisdiction());
     const named = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some((s) => s.label === "Emergency fund"),
     );
@@ -340,7 +380,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
 
   it("does not report a cash goal's drawdown as capital-gains investment income", () => {
     const plan: Plan = {
-      ...samplePlan,
+      ...retiringAt(60),
       goals: [
         {
           id: "emergency",
@@ -417,7 +457,6 @@ describe("createProjectionBase — health is an ordinary budget line", () => {
     const plan: Plan = {
       ...saver,
       currentAge: 55,
-      retirementAge: 90,
       lifeExpectancy: 90,
       jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
       budgetLines: [spendLine(dollarsToCents(3_000)), healthLine(dollarsToCents(1_000))],

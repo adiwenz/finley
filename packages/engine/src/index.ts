@@ -35,6 +35,8 @@
 export { Projection } from "./projectionFacade";
 export type { ProjectionResult } from "./projectionRun";
 export type { RetirementOutlook } from "./retirementOutlook";
+export type { DeferralLimitCrossing } from "./deferralLimit";
+export type { ResolvedJobPayDisplay } from "./householdJob";
 
 // The authoring state a caller holds, its self-describing format version, and the error that
 // refuses a version this build cannot read.
@@ -65,6 +67,11 @@ export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.
 export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan";
+/**
+ * The age ceilings every authoring surface shares: {@link MAX_AGE} is the outer bound,
+ * {@link AGE_LIMITS} the per-field one, {@link MAX_LIVED_AGE} the oldest a person can already be.
+ */
+export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS } from "./plan";
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
 export type { ScenarioInput, FromInputResult } from "./scenarioInput";
@@ -79,6 +86,7 @@ export type {
   JobPaySpan,
   JobPayPath,
   JobPayPathOptions,
+  JobId,
   PersonId,
   SalaryTrajectory,
 } from "./job";
@@ -117,6 +125,7 @@ export type { Scenario } from "./scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
+export { resolvedJobPaySpan } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";
@@ -135,7 +144,12 @@ export type {
 } from "./projection/resolvedFunding";
 export type { SimulationReport } from "./projection/report";
 export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
-export type { RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+export type {
+  ContinuedJob,
+  JobOverlap,
+  RetirementEvaluation,
+  RetirementSolution,
+} from "./retirementTypes";
 export type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 export type { DtiAssessment } from "./affordability";
 export type { LiabilityKind } from "./liability";

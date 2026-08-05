@@ -324,11 +324,50 @@ describe("the panel and the graph agree", () => {
       const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
       // Underwater is not out of money: the student-loan scenario opens negative yet pays
       // every bill, so the panel must not call retirement infeasible for a plan the graph
-      // draws surviving.
-      const pinnedWorks = projection.retirement(usJurisdiction).target.feasible;
-      if (graphSurvives) expect(pinnedWorks).toBe(true);
+      // draws surviving. Read off the solved age now that no age is pinned — a household whose
+      // authored plan survives to life expectancy can, at worst, stop when that plan already
+      // stops, so SOME age has to be reachable.
+      const solvedAge = projection.retirement(usJurisdiction).solution.fullRetirementAge;
+      if (graphSurvives) expect(solvedAge).not.toBeNull();
     },
   );
+
+  it.each(PRESETS.map((p) => p.id))(
+    "%s: the Current-plan verdict is the graph's own solvency, not a second opinion",
+    (id) => {
+      // `authoredPlanSurvives` is the panel's "Current plan" line, and it runs the scenario
+      // exactly as authored — so it must agree with the net-worth graph month for month. Read
+      // against `firstInsolventMonth` rather than restated as a constant, because the point is
+      // that the two never diverge, whatever the numbers drift to.
+      const projection = projectionOf(presetById(id));
+      const graphSurvives = projection.run(usJurisdiction).firstInsolventMonth === null;
+      expect(projection.retirement(usJurisdiction).solution.authoredPlanSurvives).toBe(
+        graphSurvives,
+      );
+    },
+  );
+
+  it("says which presets' authored plans fund themselves, and which do not", () => {
+    // The teaching shapes, pinned. A preset's solved age and its authored plan's survival are
+    // separate answers and the panel shows both, so a drift that flipped either one would
+    // change what these scenarios teach: `default` is the case that matters most, a plan with a
+    // perfectly feasible age (76) whose OWN dates still run the household out of money, which
+    // is exactly the pairing a single headline number used to hide.
+    const survives = Object.fromEntries(
+      PRESETS.map((p) => [p.id, projectionOf(p).retirement(usJurisdiction).solution.authoredPlanSurvives]),
+    );
+    expect(survives).toEqual({
+      default: false,
+      "paycheck-to-paycheck": false,
+      "living-on-credit": false,
+      "student-loan": true,
+      "taxed-in-retirement": false,
+    });
+    // And the one that survives is not the one that retires latest — the two results do not rank
+    // the presets the same way, which is the whole reason the panel states them separately.
+    expect(projectionOf(presetById("default")).retirement(usJurisdiction).solution.fullRetirementAge).toBe(76);
+    expect(projectionOf(presetById("student-loan")).retirement(usJurisdiction).solution.fullRetirementAge).toBe(62);
+  });
 
   it("student-loan: an underwater opening still has a feasible retirement age", () => {
     const projection = projectionOf(presetById("student-loan"));

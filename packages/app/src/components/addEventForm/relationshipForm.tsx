@@ -1,6 +1,7 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
+import { AGE_LIMITS, MAX_LIVED_AGE } from "@finley/engine";
 import { MonthSelect, type FormProps } from "./formControls";
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { NumInput } from "../numInput/numInput";
@@ -20,8 +21,6 @@ interface RelationshipDraft {
    * do the arithmetic.
    */
   readonly age: number;
-  /** The age their open-ended jobs stop — their own, not the household's. */
-  readonly retirementAge: number;
   /** The age their government benefit begins, 62–70. */
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
@@ -33,7 +32,6 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
     month: defaultMonth,
     name: "",
     age: PARTNER_DEFAULT_AGE,
-    retirementAge: 65,
     claimingAge: 67,
     jobs: [],
   }));
@@ -68,7 +66,6 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         month: draft.month,
         name: draft.name || "Partner",
         birthYear: partnerBirthYear,
-        retirementTargetAge: draft.retirementAge,
         benefitClaimingAge: draft.claimingAge,
         jobs: draft.jobs.map((job) => jobInputFromDraft(partnerBirthYear, job)),
       }),
@@ -96,7 +93,7 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
         value={draft.age}
         onChange={(age) => patch({ age })}
         min={18}
-        max={100}
+        max={MAX_LIVED_AGE}
         step={1}
       />
 
@@ -151,17 +148,8 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           time, in the Budget editor. */}
       <details className="advanced">
         <summary>Advanced</summary>
-        {/* Not chained to their current age, unlike the primary earner's: an ALREADY retired
-            partner is a real thing to author, and the household's retirement age has no say
-            over it. */}
-        <NumInput
-          label="Their retirement age"
-          value={draft.retirementAge}
-          onChange={(retirementAge) => patch({ retirementAge })}
-          min={40}
-          max={80}
-          step={1}
-        />
+        {/* No "their retirement age" here. Each job they hold says when it ends, so a second
+            age that also ended their jobs could only ever contradict one of them. */}
         {/* Their benefit rides their own covered earnings, so it begins on their clock, not
             the household's. */}
         <NumInput
@@ -169,13 +157,13 @@ export function RelationshipForm({ defaultMonth, horizonMonths, onAdd }: FormPro
           value={draft.claimingAge}
           onChange={(claimingAge) => patch({ claimingAge })}
           min={62}
-          max={70}
+          max={AGE_LIMITS.benefitClaimingAge}
           step={1}
         />
         <p className="hint">
-          Their open-ended jobs run until their retirement age, and their benefit begins at
-          their claiming age (claim earlier for a smaller monthly check, later for a larger
-          one). Estimate, not advice.
+          Each job above runs to the end date you gave it, and their benefit begins at their
+          claiming age (claim earlier for a smaller monthly check, later for a larger one).
+          Estimate, not advice.
         </p>
       </details>
 

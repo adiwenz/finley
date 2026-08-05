@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { enterNumber } from "./testing/numberField";
 import { App } from "./main";
 import * as engine from "@finley/engine";
 import { dollarsToCents } from "@finley/engine";
@@ -121,9 +122,7 @@ describe("App — event ledger", () => {
     // offers an "Add a job" button.
     const partnerJobsField = screen.getByText("Jobs (optional)").closest(".field") as HTMLElement;
     fireEvent.click(within(partnerJobsField).getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
-      target: { value: "2000" },
-    });
+    enterNumber(screen.getByRole("spinbutton", { name: /Monthly salary/i }), "2000");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     fireEvent.click(screen.getByText("Add event"));
 
@@ -136,9 +135,7 @@ describe("App — event ledger", () => {
     // (b) The income-vs-spend surface counts it: $5,000 + $2,000 at a month before the
     // first CPI step.
     const selectBudgetMonth = (month: number) =>
-      fireEvent.change(screen.getByRole("spinbutton", { name: "Month" }), {
-        target: { value: String(month) },
-      });
+      enterNumber(screen.getByRole("spinbutton", { name: "Month" }), month);
     const incomeDollars = () =>
       Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
     selectBudgetMonth(6);
@@ -146,9 +143,7 @@ describe("App — event ledger", () => {
 
     // (c) Editing the partner's pay revises the RelationshipEvent in place.
     fireEvent.click(screen.getByRole("button", { name: /Edit Partner · Job 1/i }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly salary/i }), {
-      target: { value: "3000" },
-    });
+    enterNumber(screen.getByRole("spinbutton", { name: /Monthly salary/i }), "3000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(
@@ -264,6 +259,75 @@ describe("App — starter simulations", () => {
   });
 });
 
+describe("App — retirement chart preview", () => {
+  const incomeDollars = () =>
+    Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
+
+  it("swaps the income chart to the stop-working preview, and back", () => {
+    render(<App />);
+
+    // Age 70 (month 420): the authored default plan retires the primary at 65, so no wages; the
+    // solved headline age (76) keeps them working, so previewing adds those wages back.
+    enterNumber(screen.getByRole("spinbutton", { name: "Month" }), "420");
+    const authored = incomeDollars();
+
+    const toggle = () => screen.getByRole("checkbox", { name: /Preview the charts/ });
+    fireEvent.click(toggle());
+    expect(incomeDollars()).toBeGreaterThan(authored);
+
+    // Turning the preview off restores the authored figure — the toggle changed no plan data.
+    fireEvent.click(toggle());
+    expect(incomeDollars()).toBe(authored);
+  });
+
+  it("does not run the stop-working preview projection until the toggle is on", () => {
+    // The preview is a second full projection — ordinary plan edits (and the initial render)
+    // must not pay for it while nobody has asked to see it. Only flipping the toggle should.
+    const spy = vi.spyOn(engine.Projection.prototype, "runAtStopWorkingAge");
+    render(<App />);
+    expect(spy).not.toHaveBeenCalled();
+
+    // A plan edit reprojects the authored run and re-renders the preview memo's dependencies,
+    // but must not trigger the extra simulation while the toggle is still off.
+    fireEvent.change(screen.getByLabelText(/Savings return/), { target: { value: "5" } });
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // Toggling off and back on is a legitimate reason to run it again — nothing here asserts
+    // it's called only once ever, only that it's never called for free.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Preview the charts/ }));
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the primary, not a shared simultaneous age for everyone, once a differently-aged partner joins", () => {
+    // `runAtStopWorkingAge` reads the headline age as the PRIMARY's own age and applies the
+    // resulting calendar boundary household-wide — a partner authored at a different age
+    // reaches that same month at a different personal age, and their own job could already
+    // have ended before it (the boundary only caps a partner's job, never extends it out to
+    // meet the primary's). A partner joining at 25, sixty years apart from the solved headline
+    // age, would make "everyone stopped working at/when <headlineAge>" a specific, checkable
+    // lie about the partner if the copy still claimed a shared moment.
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText(/Their age in/), { target: { value: "25" } });
+    fireEvent.click(screen.getByText("Add event"));
+
+    // Still feasible with the partner added — the toggle is there to read.
+    const toggleText = screen.getByRole("checkbox", { name: /Preview the charts/ }).closest("label")
+      ?.textContent;
+    // "by the time Alex turns <age>" — a cap everyone is guaranteed to be under, never a claim
+    // that the whole household (partner included) reaches that age together.
+    expect(toggleText).toMatch(/by the time Alex turns \d+/);
+    expect(toggleText).not.toMatch(/everyone stopped working (at|when)\s*\d/i);
+  });
+});
+
 describe("App — budget edits", () => {
   it("reprojects on a budget edit but not on scrub", () => {
     // The read handle is memoized on the state object, so scrubbing (which touches only the
@@ -279,10 +343,12 @@ describe("App — budget edits", () => {
     });
     expect(spy.mock.calls.length).toBe(callsAfterMount);
 
-    // A budget edit produces a new state, so the read handle rebuilds.
-    fireEvent.change(screen.getByLabelText(/Savings return/), {
-      target: { value: "5" },
-    });
+    // Typing in a number field is not yet an edit — it reprojects when the field COMMITS.
+    fireEvent.change(screen.getByLabelText(/Savings return/), { target: { value: "5" } });
+    expect(spy.mock.calls.length).toBe(callsAfterMount);
+
+    // Committed, it produces a new state, so the read handle rebuilds.
+    fireEvent.blur(screen.getByLabelText(/Savings return/));
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
@@ -299,7 +365,7 @@ describe("App — budget edits", () => {
     const callsAfterMount = spy.mock.calls.length;
 
     const housing = screen.getByRole("spinbutton", { name: /Housing/ });
-    fireEvent.change(housing, { target: { value: "9000" } }); // far past the $5,000 income
+    enterNumber(housing, 9000); // far past the $5,000 income
     fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
 
     expect(spy.mock.calls.length).toBeGreaterThan(callsAfterMount);

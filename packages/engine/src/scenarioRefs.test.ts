@@ -21,7 +21,6 @@ const base: ScenarioInput = {
   sharedScheme: "proportional",
   inflationPct: 2,
   currentAge: 30,
-  retirementAge: 65,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };
@@ -45,7 +44,7 @@ describe("resolveRefs", () => {
     const result = resolveRefs({
       ...base,
       jobs: [
-        { ownerRef: PRIMARY_PERSON_REF, startYear: 2026, endYear: null,
+        { ownerRef: PRIMARY_PERSON_REF, startYear: 2026, endYear: 2090,
           salary: { startingSalaryCents: 8_000_000, currentSalaryCents: 8_000_000, realGrowthPct: 1 },
           deferral: { deferralFraction: 0.1, fundAccountRef: RETIREMENT_REF } },
       ],

@@ -73,7 +73,7 @@ function Harness({ onReady }: { onReady: (hook: UseProjection) => void }) {
     <>
       <output data-testid="goal-ids">{plan.goals.map((g) => g.id).join(",")}</output>
       <output data-testid="line-count">{plan.budgetLines.length}</output>
-      <output data-testid="retirement-age">{plan.retirementAge}</output>
+      <output data-testid="life-expectancy">{plan.lifeExpectancy}</output>
       <output data-testid="conflict">{hook.conflict ?? ""}</output>
     </>
   );
@@ -135,12 +135,12 @@ describe("useProjection — several writes in ONE tick", () => {
           category: "wants",
         }),
       );
-      hook().transact((p) => p.updatePlan({ retirementAge: 62 }));
+      hook().transact((p) => p.updatePlan({ lifeExpectancy: 92 }));
     });
 
     expect(goalIds().split(",").filter(Boolean)).toHaveLength(goalsBefore + 1);
     expect(lineCount()).toBe(linesBefore + 1);
-    expect(screen.getByTestId("retirement-age").textContent).toBe("62");
+    expect(screen.getByTestId("life-expectancy").textContent).toBe("92");
   });
 
   it("returns each write's own result, so a caller can use the id it just minted", () => {
@@ -197,7 +197,7 @@ describe("useProjection — a refused write", () => {
 
     act(() => {
       hook().transact((p) => {
-        p.updatePlan({ retirementAge: 61 });
+        p.updatePlan({ lifeExpectancy: 91 });
         p.addBudgetLine({
           label: "Gym",
           target: { kind: "expense" },
@@ -209,7 +209,7 @@ describe("useProjection — a refused write", () => {
     });
 
     expect(lineCount()).toBe(linesBefore);
-    expect(screen.getByTestId("retirement-age").textContent).toBe(String(PLAN_DEFAULTS.retirementAge));
+    expect(screen.getByTestId("life-expectancy").textContent).toBe(String(PLAN_DEFAULTS.lifeExpectancy));
   });
 
   it("clears on the next write that succeeds, and not before", () => {
@@ -227,7 +227,7 @@ describe("useProjection — a refused write", () => {
     expect(conflict()).not.toBe("");
 
     act(() => {
-      hook().transact((p) => p.updatePlan({ retirementAge: 63 }));
+      hook().transact((p) => p.updatePlan({ lifeExpectancy: 93 }));
     });
     expect(conflict()).toBe("");
   });

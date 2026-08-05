@@ -13,6 +13,9 @@
  */
 
 import {
+  AGE_LIMITS,
+  MAX_AGE,
+  MAX_LIVED_AGE,
   dollarsToCents,
   type SharedContributionScheme,
   type SurplusCashDestination,
@@ -38,7 +41,6 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
 
   return (
     <>
-      <h2>Budget &amp; accounts</h2>
       <p className="hint">Edit ongoing numbers directly — this doesn’t add a timeline event.</p>
 
       {/* One section per household member — a single member today, but partitioned so
@@ -71,32 +73,32 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           used to show today’s-dollars (real) figures. Estimate, not advice.
         </p>
 
-        {/* Life-stage ages the retirement solver counts from: current age is "now",
-            retirement age the pinned target the panel scores on-track %, life expectancy
-            how long the money must last. The bounds chain them so the plan stays ordered
-            (current ≤ retirement ≤ life expectancy); fields clamp on blur. */}
+        {/* The two life-stage ages the retirement solver counts between: current age is "now",
+            life expectancy how long the money must last. No retirement age sits between them any
+            more — each job states its own end, and when the household COULD stop working is
+            solved and reported in the Retirement panel rather than authored here. A field that
+            also ended jobs could only ever contradict one of them.
+
+            Every age names the engine's ceiling for that field rather than restating a number: a
+            form that disagreed with `AGE_LIMITS` by a digit would author a plan the engine then
+            refuses. Life expectancy reaches the ceiling itself (120); current age stops one short
+            of it (`MAX_LIVED_AGE`, 119), since a person who is already 120 has no plan left to
+            project; the claiming age stops at 70, the top of the legal window. The bounds chain
+            directly now, across the one pair that is left; fields clamp on blur. */}
         <NumInput
           label="Current age"
           value={budget.currentAge}
           onChange={(currentAge) => updateBudget({ currentAge })}
           min={18}
-          max={Math.min(100, budget.retirementAge)}
-          step={1}
-        />
-        <NumInput
-          label="Retirement age"
-          value={budget.retirementAge}
-          onChange={(retirementAge) => updateBudget({ retirementAge })}
-          min={Math.max(40, budget.currentAge)}
-          max={Math.min(80, budget.lifeExpectancy)}
+          max={Math.min(MAX_LIVED_AGE, budget.lifeExpectancy)}
           step={1}
         />
         <NumInput
           label="Life expectancy"
           value={budget.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
-          min={Math.max(60, budget.retirementAge)}
-          max={120}
+          min={Math.max(60, budget.currentAge)}
+          max={MAX_AGE}
           step={1}
         />
 
@@ -107,7 +109,7 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           value={budget.benefitClaimingAge}
           onChange={(benefitClaimingAge) => updateBudget({ benefitClaimingAge })}
           min={62}
-          max={70}
+          max={AGE_LIMITS.benefitClaimingAge}
           step={1}
         />
         <p className="hint">

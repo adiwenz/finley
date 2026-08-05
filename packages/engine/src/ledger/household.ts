@@ -9,6 +9,7 @@ import type { GrowthMode } from "../cashFlowSeries";
 import type { SimCashFlowSeries } from "../cashFlowSeries";
 import type { LiabilityKind } from "../liability";
 import type { FinancialObligation, ObligationSource } from "../projection/financialObligation";
+import type { JobPaySpan } from "../job";
 import type { Person } from "../person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
@@ -128,4 +129,55 @@ export interface Household {
    * against source balances at the sim boundary, not here, since the split is balance-dependent.
    */
   readonly fundingDraws: readonly FinancialObligation[];
+}
+
+/**
+ * One job's resolved employment window, already intersecting everything that can end it —
+ * the job's own authored end and (mid-solve, or under a
+ * preview run) any {@link import("../householdJob").StopWorkingBoundary} — read straight off
+ * the income series {@link import("../compilePerson").compileJobIncome} built for it.
+ *
+ * `null` means the job pays the household no month at or after "now": already over before the
+ * projection starts, or capped by a boundary that lands at or before its own start. Every
+ * caller that needs "when does this job's employment actually end" should read it from here
+ * rather than re-deriving the boundary math itself — that resolution is asymmetric (a boundary
+ * caps every job, and additionally EXTENDS the one job its owner named as their continuation
+ * job, from wherever that job's OWN authored end falls) and is meant to live in exactly one
+ * place.
+ */
+export function resolvedJobEndMonth(household: Household, jobId: string): number | null {
+  const series = household.series.find((s) => s.sourceId === `job:${jobId}`);
+  return series?.endMonth ?? null;
+}
+
+/**
+ * The window this household actually pays a job over — {@link resolvedJobEndMonth} turned into
+ * the {@link import("../job").JobPaySpan} a caller can draw or total, given the job's authored
+ * start. The start is the caller's because it is not a business rule: a job begins when it was
+ * authored to begin, in this household or any other.
+ *
+ * The end is the rule, and it has three outcomes, not two. A resolved end month is the boundary
+ * this household settled on — extended or capped, per the asymmetry {@link resolvedJobEndMonth}
+ * describes. A `null` end is the third: it says this household pays the job NOTHING, and the
+ * span it yields is EMPTY. That distinction is the whole point of this function existing.
+ * "No resolved series" reads far too easily as "no opinion, fall back to what was authored",
+ * and a caller that falls back puts the job's income back on screen in the very household that
+ * retired it — a stop-working preview that removes a job the person only picks up at 70 would
+ * still show them working at 70. Absence of a series is an answer: zero.
+ *
+ * The authored job is untouched either way. This resolves what a household PAYS, never what a
+ * person authored, and no caller should read it as licence to edit or drop the job itself.
+ */
+export function resolvedJobPaySpan(
+  household: Household,
+  jobId: string,
+  authored: JobPaySpan,
+): JobPaySpan {
+  const endMonth = resolvedJobEndMonth(household, jobId);
+  return {
+    startMonth: authored.startMonth,
+    // An end month is the last month PAID; the span's end is one past it. `null` collapses the
+    // span onto its own start, which pays no month at all.
+    endMonthExclusive: endMonth === null ? authored.startMonth : endMonth + 1,
+  };
 }

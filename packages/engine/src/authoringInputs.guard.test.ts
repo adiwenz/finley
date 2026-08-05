@@ -25,9 +25,9 @@ import type { JobEntry, ScenarioInput } from "./scenarioInput";
 
 const P1 = "p1" as PersonId;
 
-const openEndedJob = {
+const longRunningJob = {
   startYear: SAMPLE_START_YEAR,
-  endYear: null,
+  endYear: 2090,
   salary: { startingSalaryCents: 100_000_00, currentSalaryCents: 100_000_00, realGrowthPct: 0 },
 } as const;
 
@@ -55,17 +55,17 @@ const carGoal = {
 function shapesTheCompilerMustReject(p: Projection): void {
   // Standing edits.
   // @ts-expect-error — a job's id is the engine's; a caller cannot name one into existence
-  p.addJob(P1, { ...openEndedJob, id: "stolen" });
+  p.addJob(P1, { ...longRunningJob, id: "stolen" });
   // @ts-expect-error — a budget line's id is the engine's
   p.addBudgetLine({ ...expenseLine, id: "stolen" });
   // @ts-expect-error — a goal's id is the engine's
   p.addGoal({ ...carGoal, id: "stolen" });
   // @ts-expect-error — replacing a job keeps the id it already has
-  p.replaceJob("job-1", { ...openEndedJob, id: "stolen" });
+  p.replaceJob("job-1", { ...longRunningJob, id: "stolen" });
   // @ts-expect-error — a job cannot change owner; an edit patch names no `ownerId`
   p.updateJob("job-1", { ownerId: P1 });
   // @ts-expect-error — a partner's job is minted like any other
-  p.addPartnerJob(P1, { ...openEndedJob, id: "stolen" });
+  p.addPartnerJob(P1, { ...longRunningJob, id: "stolen" });
 
   // Transactions.
   // @ts-expect-error — the person a marriage creates is named by the engine
@@ -107,14 +107,14 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, retirementAge: 65,
+      inflationPct: 2, currentAge: 30, 
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 
     const withJobId: ScenarioInput = {
       ...base,
       // @ts-expect-error — a job entry names no id
-      jobs: [{ ...openEndedJob, id: "stolen" }],
+      jobs: [{ ...longRunningJob, id: "stolen" }],
     };
     const withLineId: ScenarioInput = {
       ...base,
@@ -138,7 +138,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     // A `ref` is the supported way to name something, and it never lands in state.
     const withRef: ScenarioInput = {
       ...base,
-      jobs: [{ ...openEndedJob, ref: ref("dayJob") }],
+      jobs: [{ ...longRunningJob, ref: ref("dayJob") }],
     };
 
     for (const input of [withJobId, withLineId, withGoalId, withEventId, withRef]) {
@@ -150,7 +150,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, retirementAge: 65,
+      inflationPct: 2, currentAge: 30, 
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 
@@ -164,7 +164,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
         {
           type: "marry", month: 12, name: "Sam", birthYear: 1994,
           // @ts-expect-error — a partner's job cannot name an owner
-          jobs: [{ ...openEndedJob, ownerRef: PRIMARY_PERSON_REF }],
+          jobs: [{ ...longRunningJob, ownerRef: PRIMARY_PERSON_REF }],
         },
       ],
     };
@@ -172,7 +172,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     // The same, arriving through a VARIABLE rather than a fresh literal. Excess-property
     // checking does not apply to these, so a bare `Omit<JobEntry, "ownerRef">` would let this
     // assign structurally and drop the owner in silence. `ownerRef?: never` is what refuses it.
-    const authoredElsewhere: JobEntry = { ...openEndedJob, ownerRef: PRIMARY_PERSON_REF };
+    const authoredElsewhere: JobEntry = { ...longRunningJob, ownerRef: PRIMARY_PERSON_REF };
     const nestedOwnerViaVariable: ScenarioInput = {
       ...base,
       events: [
@@ -188,7 +188,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     // too — the tightening is confined to the nested position.
     const planOwner: ScenarioInput = {
       ...base,
-      jobs: [{ ...openEndedJob, ownerRef: PRIMARY_PERSON_REF }],
+      jobs: [{ ...longRunningJob, ownerRef: PRIMARY_PERSON_REF }],
     };
     const planOwnerViaVariable: ScenarioInput = { ...base, jobs: [authoredElsewhere] };
 
@@ -198,7 +198,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       events: [
         {
           type: "marry", month: 12, name: "Sam", birthYear: 1994,
-          jobs: [{ ...openEndedJob, ref: ref("samJob"), deferral: { deferralFraction: 0.05 } }],
+          jobs: [{ ...longRunningJob, ref: ref("samJob"), deferral: { deferralFraction: 0.05 } }],
         },
       ],
     };

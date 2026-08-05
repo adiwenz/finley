@@ -307,7 +307,7 @@ export interface ProjectionSeries {
 
 /**
  * A person as the *simulator* consumes it — narrower than the authoring {@link
- * import("../person").Person} (which carries jobs + `retirementTargetAge`). {@link
+ * import("../person").Person} (which carries the jobs). {@link
  * import("../compilePerson")} does the compiling.
  */
 export interface SimPerson {
@@ -330,6 +330,34 @@ export interface SimPerson {
    * a mid-career person has a benefit basis before the projection accrues its own.
    */
   readonly priorEarningsCents?: Readonly<Record<number, Cents>>;
+  /**
+   * The months this person's money belongs to THIS household — `startMonth` inclusive,
+   * `endMonthExclusive` the separation month (or `Infinity` while they are still a member).
+   * Absent means unbounded, which is what a person with no membership record (every
+   * single-earner plan) gets.
+   *
+   * Carried across the sim boundary because a wage is not the only thing membership governs.
+   * The income series were already clipped to this window upstream, so the simulator never had
+   * to ask — but a government benefit is derived INSIDE the sim from the earnings record, and
+   * so arrives with no window attached. Without this it was paid to the household forever: a
+   * partner who separated at 50 still contributed their Social Security from 67 to the end of
+   * the projection, inflating net worth and pulling the solved retirement age earlier.
+   */
+  readonly membership?: {
+    readonly startMonth: number;
+    readonly endMonthExclusive: number;
+  };
+}
+
+/**
+ * Is this person's money the household's in `month`? Absent membership is unbounded — the
+ * single-earner case, and every fixture that states a roster without a timeline.
+ */
+export function isHouseholdMemberAt(person: SimPerson, month: number): boolean {
+  // Not named `window` — the purity guard reads that as the browser global, and it is right to.
+  const bounds = person.membership;
+  if (bounds === undefined) return true;
+  return month >= bounds.startMonth && month < bounds.endMonthExclusive;
 }
 
 export interface SimOwnedSeries {

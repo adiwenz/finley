@@ -5,7 +5,7 @@ import { priceGovernmentBenefitBaseMonthlyCents } from "../governmentBenefit";
 import type { TaxCategory } from "../cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimOwnedSeries } from "./simulate";
-import type { SimPerson } from "./simulate.types";
+import { isHouseholdMemberAt, type SimPerson } from "./simulate.types";
 
 /**
  * The slice of `SimState` the government-benefit bookkeeping reads. A structural view, not
@@ -94,6 +94,12 @@ export function buildGovernmentBenefitSources(
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
   for (const person of state.personsById.values()) {
+    // Membership first: a benefit belongs to the household on exactly the terms a wage does, and
+    // the roster is everyone who was EVER a member — it is never pruned, because the earnings a
+    // departed partner banked while they were here still happened. What stops is the paying. A
+    // separated partner used to keep contributing their whole benefit for the rest of the
+    // projection, since this loop was the one income path that never asked.
+    if (!isHouseholdMemberAt(person, month)) continue;
     // The person's own pin, else the jurisdiction's default (full retirement age) — never a
     // hardcoded engine age. With neither, the benefit isn't timed at all.
     const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;

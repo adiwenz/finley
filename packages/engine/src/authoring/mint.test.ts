@@ -24,7 +24,7 @@ function jobNamed(id: string): Job {
     id,
     ownerId: P1,
     startYear: SAMPLE_START_YEAR,
-    endYear: null,
+    endYear: 2090,
     salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
   };
 }
@@ -113,7 +113,6 @@ describe("the floor reads adjustment ids too", () => {
                 id: "person-3" as PersonId,
                 name: "Sam",
                 birthYear: 1980,
-                retirementTargetAge: 65,
                 benefitClaimingAge: 67,
                 jobs: [jobWithAdjustments("job-4", "adjustment-21")],
               },

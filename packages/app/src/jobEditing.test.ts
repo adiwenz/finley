@@ -28,7 +28,7 @@ const richJob: Job = {
   name: "Software Engineer",
   ownerId: PRIMARY_PERSON_ID,
   startYear: 2021,
-  endYear: null,
+  endYear: ALEX_BIRTH_YEAR + 65,
   salary: { startingSalaryCents: 60_000_00, currentSalaryCents: 60_000_00, realGrowthPct: 1 },
   deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
   incomeOverrides: [{ id: "adjustment-1", month: 6, kind: "addBonus", cents: 5_000_00 }],
@@ -36,9 +36,7 @@ const richJob: Job = {
 };
 
 const owner = (over: Partial<JobOwner> & Pick<JobOwner, "id" | "name" | "birthYear" | "jobs">): JobOwner => ({
-  retirementTargetAge: 65,
   startMonth: -Infinity,
-  endMonth: null,
   writeTarget: "plan",
   ...over,
 });

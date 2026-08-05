@@ -48,6 +48,7 @@
  *    height there is a single payment; "/mo" would state it as a new salary.
  */
 
+import { useId } from "react";
 import {
   Area,
   CartesianGrid,
@@ -66,6 +67,7 @@ import {
   type JobIncomeOverride,
   type JobPayChange,
   type JobPayPath,
+  type JobPaySpan,
 } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
@@ -92,8 +94,27 @@ function ageLabel(birthYear: number, month: number): string {
   return into === 0 ? `Age ${age}` : `Age ${age} + ${into} mo`;
 }
 
+/** One uncounted interval as the chart takes it: the engine's span, worded by the panel. */
+export interface UncountedPaySpanNote extends JobPaySpan {
+  /** What this gap says, with the owner named — the panel's reading of where it sits. */
+  readonly note: string;
+}
+
 interface PayChartProps {
   readonly path: JobPayPath;
+  /**
+   * The stretches of the drawn span that are not this household's income, each with its own
+   * sentence — empty for the ordinary job.
+   *
+   * Drawn as a hatch OVER the pay rather than by shortening the line, because the two facts are
+   * different and the reader needs both: the person goes on holding the job (their schedule is
+   * unchanged, and truncating it would say they stopped working) while the household stops
+   * receiving it. A gap where the line simply ends cannot say the first of those.
+   *
+   * A LIST, and each interval carries its own end: a partner who joined at 45 and separated at
+   * 55 leaves two gaps in one job, and neither of them runs to the edge of the chart.
+   */
+  readonly uncounted: readonly UncountedPaySpanNote[];
   /** Only to pin each change's own month as a sample — the VALUES all come from `path`. */
   readonly payChanges: readonly JobPayChange[];
   /**
@@ -114,6 +135,7 @@ interface PayChartProps {
 
 export function PayChart({
   path,
+  uncounted,
   payChanges,
   incomeOverrides,
   birthYear,
@@ -220,6 +242,19 @@ export function PayChart({
   const step = path.monthZeroStepCents;
   const hasSeam = step !== 0 && reach !== null;
 
+  // Every job card on the panel draws its own hatch, and an SVG pattern is addressed by a
+  // DOCUMENT-wide id — so two cards sharing one would have the second silently redefine the
+  // first. `useId` is the only source of uniqueness that survives however many cards render;
+  // the colons it produces are legal in an id but not in a `url(#…)` reference, so they go.
+  const patternId = `pay-uncounted-${useId().replace(/:/g, "")}`;
+  const keyPatternId = `${patternId}-key`;
+  /** The hatch itself, defined once per svg that draws it — the chart and its legend swatch. */
+  const hatch = (id: string) => (
+    <pattern id={id} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1={0} y1={0} x2={0} y2={6} stroke={PAY} strokeWidth={1.5} strokeOpacity={0.5} />
+    </pattern>
+  );
+
   return (
     <div
       className={styles.chart}
@@ -233,7 +268,16 @@ export function PayChart({
           : "") +
         (hasSeam
           ? `. At ${currentAge} it ${step > 0 ? "steps up" : "steps down"} ${formatDollars(Math.abs(step))} a month.`
-          : ".")
+          : ".") +
+        // The hatch is the only cue for this on the chart itself, and a hatch is invisible to a
+        // screen reader — so every interval travels in the description too, in ages like
+        // everything else here.
+        uncounted
+          .map(
+            (u) =>
+              ` From age ${ownerAgeAtMonth(birthYear, u.startMonth)} to ${ownerAgeAtMonth(birthYear, u.endMonthExclusive)} the pay is not household income.`,
+          )
+          .join("")
       }
     >
       {/* Data mirror: Recharts draws nothing in jsdom, so the seam — the one fact this chart
@@ -245,6 +289,12 @@ export function PayChart({
           the totals rather than the SVG that jsdom never produces. */}
       <output data-testid="pay-chart-one-offs" hidden>
         {JSON.stringify(rows.filter((r) => r.adjusted).map((r) => [r.month, r.pay]))}
+      </output>
+      {/* And the same for the hatches: a `<pattern>` fill inside Recharts is nothing jsdom can
+          be asked about, so each interval is stated where a test can read it. The months only —
+          what each one MEANS is the key's sentence below, and readable as text. */}
+      <output data-testid="pay-chart-uncounted" hidden>
+        {JSON.stringify(uncounted.map((u) => [u.startMonth, u.endMonthExclusive]))}
       </output>
 
       <ResponsiveContainer width="100%" height={140}>
@@ -259,6 +309,7 @@ export function PayChart({
             if (Number.isFinite(month)) onPickAge(ownerAgeAtMonth(birthYear, month));
           }}
         >
+          <defs>{hatch(patternId)}</defs>
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="month"
@@ -322,6 +373,21 @@ export function PayChart({
             isAnimationActive={false}
           />
 
+          {/* After the pay area, so it reads as something laid OVER the pay rather than
+              underneath it — the pay is still drawn, and still the owner's, and this says what
+              the household does with it. The full height on purpose: the claim is about the
+              whole stretch of time, not about the dollars in it. */}
+          {uncounted.map((u) => (
+            <ReferenceArea
+              key={`${u.startMonth}-${u.endMonthExclusive}`}
+              x1={u.startMonth}
+              x2={u.endMonthExclusive}
+              fill={`url(#${patternId})`}
+              fillOpacity={1}
+              stroke="none"
+            />
+          ))}
+
           <ReferenceLine
             x={0}
             stroke={NOW}
@@ -354,6 +420,20 @@ export function PayChart({
           )}
         </ComposedChart>
       </ResponsiveContainer>
+
+      {/* The key. A hatch that nothing names is a texture, not a statement — and the one thing
+          this pattern has to convey (that the pay is real and is not the household's) is exactly
+          what a reader cannot infer from a texture. Outside Recharts, so it renders wherever the
+          chart does not: jsdom, and any width too narrow for the plot. */}
+      {uncounted.map((u) => (
+        <p className={styles.chartKey} key={`${u.startMonth}-${u.endMonthExclusive}`}>
+          <svg width={16} height={11} aria-hidden="true" focusable="false">
+            <defs>{hatch(keyPatternId)}</defs>
+            <rect width={16} height={11} fill={`url(#${keyPatternId})`} stroke={GRID} />
+          </svg>
+          {u.note}
+        </p>
+      ))}
     </div>
   );
 }

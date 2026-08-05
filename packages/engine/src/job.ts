@@ -13,6 +13,16 @@ import { RETIREMENT_ID } from "./ids";
 export type PersonId = string;
 
 /**
+ * Stable id of one {@link Job}, minted by the engine and unique across the whole household —
+ * one counter issues them on both authoring planes, so an id names one job or nothing at all.
+ *
+ * Named as a type rather than left as a bare `string` because jobs are now *referred to* from
+ * outside themselves: {@link import("./person").Person.continuationJobId} holds one, and a field
+ * whose type is `string` says nothing about what it may hold.
+ */
+export type JobId = string;
+
+/**
  * A job's salary path across the month-0 boundary: **two independently authored anchors** and
  * a *real* (above-CPI) growth rate. The engine layers CPI on top — indexing backward for the
  * covered-wage record, nominal growth forward for the projected income series.
@@ -247,12 +257,13 @@ export interface JobDeferral {
 
 /**
  * An earned, covered income stream owned by exactly one person. Employment is per-person — a
- * two-earner household is two jobs, not one job with two owners — so an open-ended job
- * resolves its stop year against *the* owner's `retirementTargetAge` without ambiguity. A
- * person may hold any number of open-ended jobs; none is elevated over the others.
+ * two-earner household is two jobs, not one job with two owners — so every date on it resolves
+ * against *the* owner's own clock without ambiguity. A person may hold any number of jobs, and
+ * none is elevated over the others: there is no "career" job here, and no rule anywhere reads
+ * one job of a person's as their real one.
  */
 export interface Job {
-  readonly id: string;
+  readonly id: JobId;
   /**
    * Display-only: reports and the income graph show it in place of the `id` when set. Never
    * an identity — the `id` keys the job and its income band's `sourceId`, so two jobs may
@@ -262,10 +273,16 @@ export interface Job {
   readonly ownerId: PersonId;
   readonly startYear: number;
   /**
-   * `null` = open-ended: runs until the owner's `retirementTargetAge`, which the retirement
-   * solver varies. Otherwise exclusive — worked in calendar years `[startYear, endYear)`.
+   * Exclusive — worked in calendar years `[startYear, endYear)`. **Required**: every job says
+   * when it ends.
+   *
+   * There is no open-ended job. A `null` end used to mean "runs until the owner's retirement
+   * age", which quietly made a planning target into an employment boundary: a job authored to
+   * start after that age disappeared from the projection the moment it was saved, because the
+   * thing that ended it was a number the user had entered somewhere else entirely. An end date
+   * is a fact about a job, and a job states its own.
    */
-  readonly endYear: number | null;
+  readonly endYear: number;
   readonly salary: SalaryTrajectory;
   readonly deferral?: JobDeferral;
   readonly incomeOverrides?: readonly JobIncomeOverride[];
@@ -503,8 +520,9 @@ export function withoutIncomeOverride(job: Job, overrideId: string): Job {
 // this reads them back without a simulation, so an authoring surface can show a job's pay
 // without running a projection over every keystroke.
 
-/** A job's paying window, in simulation months from "now". Both bounds are the caller's:
- * an open-ended job stops at ITS OWNER's retirement age, which a job alone cannot know. */
+/** A job's paying window, in simulation months from "now". Both bounds are the caller's: a
+ * previewed stop-working boundary and the owner's household membership can each move where this
+ * job actually pays, and neither is anything a job alone can know. */
 export interface JobPaySpan {
   /** The month the job starts — negative for a job already under way. */
   readonly startMonth: number;

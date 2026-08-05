@@ -33,9 +33,12 @@ import { useMemo, useState } from "react";
 import {
   PRIMARY_PERSON_ID,
   dollarsToCents,
+  jobPayPath,
   type Job,
   type JobPayChange,
   type Household,
+  type JobPaySpan,
+  type ResolvedJobPayDisplay,
   type Ledger,
   type Plan,
   type Projection,
@@ -43,19 +46,20 @@ import {
 import {
   blankJobDraftFor,
   jobToDraftFor,
-  jobPayPathFor,
   ownerAgeAtMonth,
   type JobEditDraft,
   type NewJobDraft,
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
 import { addJob, editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
+import { usJurisdiction } from "@finley/rules";
+import { START_YEAR } from "../../config";
 import { commitJobWrites } from "../../jobWrites";
 import type { Transact } from "../../hooks/useProjection";
-import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
 import { JobCard, type JobCardAuthoring } from "./jobCard";
+import { ContinuationPicker } from "./continuationPicker";
 import { type PayChangeDraft } from "./payChangeForm";
 import styles from "./jobsPanel.module.css";
 
@@ -76,8 +80,28 @@ interface JobsPanelProps {
    */
   projection: Pick<
     Projection,
-    "jobMonthlyIncomeCents" | "jobStartingMonthlyIncomeCents" | "jobDeferralFraction"
+    | "jobMonthlyIncomeCents"
+    | "jobStartingMonthlyIncomeCents"
+    | "jobDeferralFraction"
+    | "continuationJobOf"
+    | "deferralLimitCrossing"
   >;
+  /**
+   * How to draw one job: its employment, and which stretches of it are not this household's
+   * income — {@link ResolvedJobPayDisplay}, read off whichever run the charts are showing.
+   *
+   * A function rather than a household, because the resolution is the ENGINE's and the choice of
+   * which run to read is the caller's. While the Retirement panel previews a stop-working age,
+   * the caller passes the preview run's, and every job here is drawn as that hypothesis resolved
+   * it — the one job its owner named as continuing may run PAST its authored end to reach the
+   * previewed age, every other job is only ever capped by it, and a job the run never reaches
+   * draws nothing at all. Nothing about that boundary is re-derived on this side.
+   *
+   * Editing (Edit, Change pay, Delete) always reads and writes the authored `job` regardless:
+   * this panel is the authoring surface, so its forms stay on the real plan even while its
+   * charts show a hypothesis.
+   */
+  payDisplay: (jobId: string) => ResolvedJobPayDisplay | null;
 }
 
 type Authoring =
@@ -86,6 +110,42 @@ type Authoring =
   | { kind: "payChange"; id: string; seedAge?: number }
   | { kind: "new" }
   | null;
+
+/**
+ * The answer for a job no run resolved — nothing employed, nothing paid, nothing to disclaim.
+ * Unreachable for a job read off this household's roster; it exists so the row can render at all
+ * rather than making every field below optional for a case that never happens.
+ */
+const EMPTY_DISPLAY: ResolvedJobPayDisplay = {
+  employmentSpan: { startMonth: 0, endMonthExclusive: 0 },
+  paidSpan: null,
+  uncountedSpans: [],
+};
+
+/**
+ * What a job's chart says about one uncounted stretch — read off where the gap sits relative to
+ * the paid window, with the person named.
+ *
+ * Geometry rather than a code carried alongside it: a gap that ends where the paid months begin
+ * is one the household was not yet there for, and a gap that starts where they end is one it had
+ * left before. The engine states the spans; only the app knows what this surface calls anybody,
+ * and a reason string travelling beside the spans would be a second copy of a fact they already
+ * carry, free to drift from them.
+ *
+ * With no paid window at all there is no before and no after — the job simply never was this
+ * household's — so the sentence says that and nothing it cannot support.
+ */
+function uncountedNote(
+  span: JobPaySpan,
+  paidSpan: JobPaySpan | null,
+  ownerName: string,
+): string {
+  if (paidSpan === null) return "Hatched: this pay is not household income during this period.";
+  if (span.endMonthExclusive <= paidSpan.startMonth) {
+    return `Hatched: this pay is not household income because ${ownerName} was not yet part of the household.`;
+  }
+  return `Hatched: this pay is not household income because ${ownerName} was no longer part of the household.`;
+}
 
 /**
  * What to say about pay changes an edit stranded — named, never merely counted, because the
@@ -100,12 +160,27 @@ function strandedNotice(owner: JobOwner, dropped: readonly JobPayChange[]): stri
   return `${dropped.length === 1 ? "One pay change" : `${dropped.length} pay changes`} now fell before this job starts, so ${dropped.length === 1 ? "it was" : "they were"} dropped: ${ages}.`;
 }
 
-export function JobsPanel({ budget, transact, household, ledger, projection }: JobsPanelProps) {
+export function JobsPanel({
+  budget,
+  transact,
+  household,
+  ledger,
+  projection,
+  payDisplay,
+}: JobsPanelProps) {
   const owners = useMemo(() => jobOwnersOf(household, ledger), [household, ledger]);
   // One list across the household in join order, primary person first. Every row carries its
   // owner — whose birth year every age on it reads against — and the label the app names that
   // job by (owner-qualified once a second earner exists).
   const rows = useMemo(() => ownedJobsOf(owners), [owners]);
+  /**
+   * What this panel calls each job, keyed by id — so the continuation picker offers the same
+   * names the cards above it carry. Owner-unqualified: the question already names whose it is.
+   */
+  const titleOf = useMemo(
+    () => new Map(rows.map((r) => [r.job.id, r.title])),
+    [rows],
+  );
   const [authoring, setAuthoring] = useState<Authoring>(null);
   /**
    * What the last edit dropped on its way through, in the user's words. An edit that moves a
@@ -126,10 +201,12 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
    * cannot be compared, and comparing them is most of why they are stacked on one axis.
    */
   const [inTodaysDollars, setInTodaysDollars] = useState(false);
-  // Per PERSON, not per household: the elective limit belongs to the earner.
+  // Per PERSON, not per household: the elective limit belongs to the earner. The whole scan is
+  // the engine's — which years are worked, which of them belong to the household, and what the
+  // pay is in each are the projection's own three answers, and this panel only shows the result.
   const deferralCrossing = useMemo(
-    () => firstDeferralLimitCrossing(owners, budget.inflationPct),
-    [owners, budget.inflationPct],
+    () => projection.deferralLimitCrossing(usJurisdiction),
+    [projection],
   );
   const severalOwners = owners.length > 1;
   /** The picker's options — the form needs who they are, not where their jobs live. */
@@ -229,7 +306,25 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
             // timeline lists, read straight off the two authored anchors. Chart and timeline
             // share ONE path, so the two can never quote different denominations of the same
             // job while the toggle sits above them both.
-            const path = jobPayPathFor(owner, job, budget.inflationPct / 100, inTodaysDollars);
+            //
+            // WHAT to draw and WHICH OF IT COUNTS are both the engine's, resolved under this
+            // run's own scope — so a preview and an authored pass answer the same question the
+            // same way and this panel never has to know which it is looking at. Every job the
+            // household holds has one; the fallback is for an id nothing resolved, which cannot
+            // happen for a job read off this household's own roster.
+            const display = payDisplay(job.id) ?? EMPTY_DISPLAY;
+            const path = jobPayPath(job, display.employmentSpan, {
+              inflationRate: budget.inflationPct / 100,
+              denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
+            });
+            // The whole employment is drawn, including the stretches this household is not paid
+            // for: a partner who joins at 45 and separates at 55 still WORKED 35 to 65, and
+            // shortening the line to the paid middle would say they did not. Each gap is
+            // hatched and named instead. There may be two of them, one at either end.
+            const uncounted = display.uncountedSpans.map((span) => ({
+              ...span,
+              note: uncountedNote(span, display.paidSpan, owner.name),
+            }));
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.
             const cardAuthoring: JobCardAuthoring =
@@ -247,6 +342,7 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
                 monthlyCents={projection.jobMonthlyIncomeCents(job.id)}
                 initialEditDraft={jobToDraftFor(projection, owner.birthYear, job)}
                 path={path}
+                uncounted={uncounted}
                 lifeExpectancy={budget.lifeExpectancy}
                 inTodaysDollars={inTodaysDollars}
                 severalOwners={severalOwners}
@@ -273,6 +369,21 @@ export function JobsPanel({ budget, transact, household, ledger, projection }: J
             );
           })}
         </ul>
+        {/* One question per earner, under the jobs it is asked about. Only for a member who has
+            any: there is nothing to continue otherwise, and an empty picker would ask a question
+            with one possible answer. */}
+        {owners
+          .filter((o) => o.jobs.length > 0)
+          .map((owner) => (
+            <ContinuationPicker
+              key={owner.id}
+              owner={owner}
+              selected={projection.continuationJobOf(owner.id)}
+              jobTitleOf={(job) => titleOf.get(job.id) ?? job.id}
+              nowYear={START_YEAR}
+              onChange={(jobId) => transact((p) => p.setContinuationJob(owner.id, jobId))}
+            />
+          ))}
         </>
       )}
 

@@ -5,17 +5,20 @@
  */
 
 import type { Job } from "../job";
+import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan";
 import type { PersonId } from "../job";
 import type { Jurisdiction } from "../jurisdiction";
 import type { Person } from "../person";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";
-import type { JobInput } from "./jobs";
+import { resolveJobInput, type JobInput } from "./jobs";
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
- * catch-up computable. `retirementTargetAge` defaults to 65, `benefitClaimingAge` to 67.
+ * catch-up computable. `benefitClaimingAge` defaults to 67. A partner states no retirement
+ * age of their own: every job they hold says when it ends, so there is nothing left for one
+ * to decide.
  * Covered earnings derive from `jobs`, so the empty default models no benefit basis.
  *
  * Jobs arrive as {@link JobInput}, not `Job`: the engine is the sole id authority, and for a
@@ -26,7 +29,6 @@ export interface MarryInput {
   readonly month: number;
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly JobInput[];
 }
@@ -46,7 +48,6 @@ export interface StartPartneredInput {
   readonly partneredForMonths: number;
   readonly name: string;
   readonly birthYear: number;
-  readonly retirementTargetAge?: number;
   readonly benefitClaimingAge?: number;
   readonly jobs?: readonly JobInput[];
 }
@@ -96,6 +97,19 @@ export function applyMarriage(
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
+  // A partner is a person, and the same age bound holds for them as for the primary — stated
+  // here in the three places a partner's age is actually authored. Their age is a birth YEAR on
+  // the way in, so it is read against the plan's frozen "now" rather than a wall clock.
+  const ages: readonly (readonly [string, number | undefined, number])[] = [
+    // An age they already ARE, so it stops one short of the ceiling like the primary's.
+    ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
+    ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
+  ];
+  for (const [field, age, limit] of ages) {
+    if (age !== undefined && age > limit) {
+      throw new Error(`Projection: cannot author a partner with ${field} ${age} — it may not exceed ${limit}`);
+    }
+  }
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,
   // so the partner and their jobs draw distinct ids from the same monotonic run. The owner is
@@ -105,13 +119,12 @@ export function applyMarriage(
   const jobs: Job[] = (input.jobs ?? []).map((job) => {
     const minted = mint({ ...state, nextSeq }, "job");
     nextSeq = minted.nextSeq;
-    return { ...job, id: minted.id, ownerId: id };
+    return resolveJobInput(job, minted.id, id);
   });
   const person: Person = {
     id,
     name: input.name,
     birthYear: input.birthYear,
-    retirementTargetAge: input.retirementTargetAge ?? 65,
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };

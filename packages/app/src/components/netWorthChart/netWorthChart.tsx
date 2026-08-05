@@ -107,7 +107,7 @@ function Row({
   );
 }
 
-/** `retirementMonth`: the solved Mode-1 retirement age as a month offset. */
+/** `retirementMonth`: the solved stop-working age as a month offset from "now". */
 export function NetWorthChart({
   series,
   retirementMonth,

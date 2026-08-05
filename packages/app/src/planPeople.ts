@@ -1,6 +1,6 @@
 /**
  * App-side helpers over the plan's standing {@link Job} model. Earned income lives
- * entirely on the primary person's jobs — any number, several possibly open-ended, none
+ * entirely on the primary person's jobs — any number, none
  * privileged; there is no "career job". The Jobs editor is the single authoring surface
  * for income; the Budget editor and the Base + Adjustments income row only display the
  * compiled result.
@@ -8,14 +8,12 @@
 
 import {
   PRIMARY_PERSON_ID,
-  RETIREMENT_ID,
   jobPayPath,
+  RETIREMENT_ID,
   type Job,
   type JobIncomeOverride,
   type JobInput,
   type JobPayChange,
-  type JobPayPath,
-  type JobPaySpan,
   type PersonId,
   type Plan,
   type Projection,
@@ -40,9 +38,9 @@ export function jobStartAgeFor(birthYear: number, job: Job): number {
   return job.startYear - birthYear;
 }
 
-/** The age the owner reaches in a job's (exclusive) end year, or `null` if open-ended. */
-export function jobEndAgeFor(birthYear: number, job: Job): number | null {
-  return job.endYear === null ? null : job.endYear - birthYear;
+/** The age the owner reaches in a job's (exclusive) end year. Every job has one. */
+export function jobEndAgeFor(birthYear: number, job: Job): number {
+  return job.endYear - birthYear;
 }
 
 /** The age the owner reaches in a given simulation month. */
@@ -55,53 +53,17 @@ export function monthAtOwnerAge(birthYear: number, age: number): number {
   return (birthYear + age - START_YEAR) * 12;
 }
 
-/** Whose clock a job's span is read against: their birth year, and where an open-ended job stops. */
-export interface JobSpanOwner {
-  readonly birthYear: number;
-  /** An open-ended job runs to THIS person's retirement age — a job alone cannot say when. */
-  readonly retirementTargetAge: number;
-}
-
-/**
- * A job's paying window in simulation months, both bounds resolved: an open-ended job stops at
- * its owner's retirement age. Negative months are the job's history — the span a job already
- * under way spends before "now".
- */
-export function jobPaySpanFor(owner: JobSpanOwner, job: Job): JobPaySpan {
-  const endYear = job.endYear ?? owner.birthYear + owner.retirementTargetAge;
-  return {
-    startMonth: (job.startYear - START_YEAR) * 12,
-    endMonthExclusive: (endYear - START_YEAR) * 12,
-  };
-}
-
-/**
- * A job's pay across its whole span — the reading the Jobs panel charts and lists, including
- * the size of the month-0 seam.
- *
- * The plan's CPI is always passed, because it is what a past paycheck grew by whichever
- * denomination is being read; `inTodaysDollars` is the one that picks the reading. See
- * {@link jobPayPath}.
- */
-export function jobPayPathFor(
-  owner: JobSpanOwner,
-  job: Job,
-  inflationRate = 0,
-  inTodaysDollars = false,
-): JobPayPath {
-  return jobPayPath(job, jobPaySpanFor(owner, job), {
-    inflationRate,
-    denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
-  });
-}
-
+// A job's paying window used to be derived here, from its two authored years. It is the
+// engine's now — `ProjectionResult.jobPayDisplay`, which answers the employment AND which of it
+// is this household's income, under whichever scope the run was made in. Deriving it here could
+// only ever be a second opinion about a separation.
 
 // ── Authoring: add / edit / remove a job from a form draft ──
 
 /**
  * A job in the terms the Jobs form speaks (ages and dollars, not calendar years and
- * cents) — the seam between the UI and the standing {@link Job}. `endAge: null` is
- * open-ended (runs to retirement).
+ * cents) — the seam between the UI and the standing {@link Job}. Every job states when it ends,
+ * so `endAge` is a number like `startAge` and there is no open-ended case to represent.
  *
  * **Ownership is not among these fields, and that is the point.** A job belongs to the member
  * it was created for, for good: every age here is that person's age, so moving a job re-reads
@@ -114,6 +76,11 @@ export function jobPayPathFor(
  *
  * So ownership rides {@link NewJobDraft} only, where it is chosen once. An edit submission
  * *cannot express* a different owner, which is why {@link applyJobDraft} needs no check.
+ *
+ * Which job the retirement solver may run past its end is likewise absent, and for a related
+ * reason: it is one choice per PERSON, not a field of any job, so it is authored beside the
+ * member's job list rather than inside each job's form. See
+ * {@link import("@finley/engine").Person.continuationJobId}.
  */
 export interface JobEditDraft {
   /** Blank leaves the job unnamed; reports fall back to its id. */
@@ -141,7 +108,7 @@ export interface JobEditDraft {
    */
   readonly startingMonthlyCents: number;
   readonly startAge: number;
-  readonly endAge: number | null;
+  readonly endAge: number;
   readonly realGrowthPct: number;
   /** Pre-tax 401(k) deferral as a whole-number percent (0 = none). */
   readonly deferralPct: number;
@@ -177,12 +144,18 @@ export function blankJobDraft(currentAge: number): JobEditDraft {
     monthlyCents: 3000 * 100,
     startingMonthlyCents: 3000 * 100,
     startAge: currentAge,
-    endAge: null,
+    // A new job opens ending at the conventional retirement age — a starting point the user
+    // moves, not a rule. Something has to be proposed, and this is the least surprising thing
+    // to propose; nothing in the engine reads it as a retirement age.
+    endAge: DEFAULT_JOB_END_AGE,
     realGrowthPct: 0,
     deferralPct: 0,
     employerMatchPct: 0,
   };
 }
+
+/** Where a brand-new job's end age opens. A form default, not a rule the projection reads. */
+export const DEFAULT_JOB_END_AGE = 65;
 
 /** A blank job for a form that must also settle whose it is — the Jobs panel's Add. */
 export function blankJobDraftFor(ownerId: PersonId, currentAge: number): NewJobDraft {
@@ -259,8 +232,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft):
   const { name: _priorName, deferral: prior, payChanges: _priorChanges, ...carried } = job;
 
   const startMonth = monthAtOwnerAge(birthYear, draft.startAge);
-  const endMonthExclusive =
-    draft.endAge === null ? Infinity : monthAtOwnerAge(birthYear, draft.endAge);
+  const endMonthExclusive = monthAtOwnerAge(birthYear, draft.endAge);
   const strandedPayChanges = (job.payChanges ?? []).filter((c) => c.month < startMonth);
   const kept = (job.payChanges ?? []).filter((c) => c.month >= startMonth);
 
@@ -272,7 +244,7 @@ export function applyJobDraft(job: Job, birthYear: number, draft: JobEditDraft):
     // at the one line that could ever have written a different one.
     ownerId: job.ownerId,
     startYear: birthYear + draft.startAge,
-    endYear: draft.endAge === null ? null : birthYear + draft.endAge,
+    endYear: birthYear + draft.endAge,
     salary: {
       ...job.salary,
       startingSalaryCents: draft.startingMonthlyCents * 12,
@@ -324,11 +296,11 @@ export function jobInputFromDraft(birthYear: number, draft: JobEditDraft): JobIn
   // A job added with an end age already behind us has no month-0 pay to state, and the form
   // does not ask for one — see {@link applyJobDraft}, which pins the same dead anchor. A new
   // job carries no pay changes, so what it "last paid" is simply its start pay.
-  const alreadyOver = draft.endAge !== null && monthAtOwnerAge(birthYear, draft.endAge) <= 0;
+  const alreadyOver = monthAtOwnerAge(birthYear, draft.endAge) <= 0;
   const base: JobInput = {
     ...(name ? { name } : {}),
     startYear: birthYear + draft.startAge,
-    endYear: draft.endAge === null ? null : birthYear + draft.endAge,
+    endYear: birthYear + draft.endAge,
     salary: {
       startingSalaryCents: draft.startingMonthlyCents * 12,
       currentSalaryCents: (alreadyOver ? draft.startingMonthlyCents : draft.monthlyCents) * 12,

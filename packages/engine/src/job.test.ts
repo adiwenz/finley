@@ -8,7 +8,7 @@ import { emptyLedger } from "./ledger/ledger";
 import { replayLedger } from "./projection/buildHouseholdInput";
 import { nullJurisdiction } from "./jurisdiction";
 import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
-import { samplePlan, salariedJob } from "./testing/samplePlan";
+import { samplePlan, salariedJob, SAMPLE_JOB_END_AGE } from "./testing/samplePlan";
 import {
   deferralFractionOf,
   deriveRealGrowthPct,
@@ -44,7 +44,8 @@ function ctx(): ProjectionContext {
 function compilePersonIncomeSeries(person: Person, nowYear: number, inflationRate: number) {
   const membership = { person, startMonth: -Infinity, endMonth: null };
   return compileHouseholdJobSeries(
-    resolveHouseholdJobs(personJobContexts(membership), nowYear),
+    // Authored: no hypothetical stop, so an open-ended job runs to the horizon.
+    resolveHouseholdJobs(personJobContexts(membership), nowYear, { kind: "authored" }),
     nowYear,
     inflationRate,
   );
@@ -56,58 +57,70 @@ function project(plan: Plan) {
 
 /** The sample plan's single open-ended job (real-flat salary, deferral on it). */
 const openEndedJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 });
+/** Authored to run to 80 — past the sample plan's retirement age, so the two are visibly not the same thing. */
+const lateEndingJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge: 80 });
 
 describe("Job/Person standing model — additive compilation", () => {
-  it("allows any number of open-ended (null-end) jobs — no elevated career job", () => {
+  it("allows any number of jobs — no elevated career job", () => {
     const birthYear = START_YEAR - samplePlan.currentAge;
-    // Two open-ended jobs is legal: neither is elevated, and both compile to forward
-    // income ending at the owner's retirementTargetAge.
+    // Two jobs is legal: neither is elevated, and each compiles to forward income ending where
+    // it was authored to end.
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      retirementTargetAge: samplePlan.retirementAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
-      jobs: [openEndedJob, { ...openEndedJob, id: "job-2" }],
+      // Both authored to run to 80 — well past where the fixture's own job stops at 60, which
+      // is the point: the end is each job's, and holding two does not make either the one that
+      // ends employment.
+      jobs: [lateEndingJob, { ...lateEndingJob, id: "job-2" }],
     };
     const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
     expect(series).toHaveLength(2);
-    const retireEndMonth = (samplePlan.retirementAge - samplePlan.currentAge) * 12 - 1;
-    expect(series.every((s) => s.series.endMonth === retireEndMonth)).toBe(true);
+    const authoredEndMonth = (80 - samplePlan.currentAge) * 12 - 1;
+    expect(series.every((s) => s.series.endMonth === authoredEndMonth)).toBe(true);
+    expect(series[0]!.series.endMonth).toBeGreaterThan(
+      (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
+    );
   });
 
-  it("retirementTargetAge is the per-person input that sets an open-ended job's end", () => {
+  it("carries no retirement age at all — a Person is a birth year, a claiming age and jobs", () => {
+    // `retirementTargetAge` is gone from the model, not merely ignored. While it existed it was
+    // the thing that ended an open-ended job, so a planning target authored on another panel
+    // decided when employment stopped; the field being absent is what makes that unsayable.
+    const person: Person = {
+      id: PRIMARY_PERSON_ID,
+      name: "P",
+      birthYear: START_YEAR - samplePlan.currentAge,
+      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      jobs: [lateEndingJob],
+    };
+    expect(Object.keys(person)).not.toContain("retirementTargetAge");
+    const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
+    expect(series.series.endMonth).toBe((80 - samplePlan.currentAge) * 12 - 1);
+  });
+
+  it("ends a job exactly where it was authored to end", () => {
+    // The other half of the same rule: what the user stated is what happens. Only an authored
+    // end ends a job, and it is unaffected by any retirement target.
     const birthYear = START_YEAR - samplePlan.currentAge;
-    const base: Person = {
+    const endYear = START_YEAR + 10;
+    const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      retirementTargetAge: samplePlan.retirementAge,
       benefitClaimingAge: samplePlan.benefitClaimingAge,
-      jobs: [openEndedJob],
+      jobs: [{ ...openEndedJob, endYear }],
     };
-    const openEndedEndMonth = (age: number) =>
-      compilePersonIncomeSeries(
-        { ...base, retirementTargetAge: age },
-        START_YEAR,
-        samplePlan.inflationPct / 100,
-      )[0].series.endMonth;
-    // Forward income stops the month before the owner turns `retirementTargetAge` — that
-    // input alone moves the end.
-    expect(openEndedEndMonth(60)).toBe((60 - samplePlan.currentAge) * 12 - 1);
-    expect(openEndedEndMonth(65)).toBe((65 - samplePlan.currentAge) * 12 - 1);
-    expect(openEndedEndMonth(65)).toBeGreaterThan(openEndedEndMonth(60) as number);
+    const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
+    expect(series.series.endMonth).toBe(10 * 12 - 1);
   });
 
   it("computes pre-'now' earnings directly from the jobs", () => {
     const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
     // The pre-"now" record derives from the roster's authoring Persons, as the sim
     // boundary does via compilePerson.
-    const prior = compilePersonPriorEarnings(
-      base.initialPersons![0],
-      START_YEAR,
-      samplePlan.inflationPct / 100,
-    );
+    const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR);
     // The record covers exactly the pre-"now" working years [careerStart … now).
     expect(Object.keys(prior).length).toBeGreaterThan(0);
     // Sim still starts at "now" — no pre-"now" months are simulated.
@@ -166,7 +179,6 @@ describe("Job/Person standing model — one-month income overrides", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -301,7 +313,6 @@ describe("a permanent raise and a one-month adjustment in the same month", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -407,7 +418,6 @@ describe("Job/Person standing model — permanent pay changes", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -479,12 +489,11 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
-    retirementTargetAge: 60,
     benefitClaimingAge: 67,
     jobs,
   });
-  const priorFor = (jobs: Job[], inflationRate = 0): Record<number, number> =>
-    compilePersonPriorEarnings(personWith(jobs), START_YEAR, inflationRate);
+  const priorFor = (jobs: Job[]): Record<number, number> =>
+    compilePersonPriorEarnings(personWith(jobs), START_YEAR);
 
   const flat72k: Job = salariedJob(dollarsToCents(6000)); // $6,000/mo → $72,000/yr
 
@@ -537,7 +546,6 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
-    retirementTargetAge: 60,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -551,7 +559,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 22, // 2004
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: startingAnnualCents,
       currentSalaryCents: currentAnnualCents,
@@ -560,8 +568,8 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     ...extra,
   });
 
-  const priorFor = (job: Job, inflationRate = 0): Record<number, number> =>
-    compilePersonPriorEarnings(personWith([job]), START_YEAR, inflationRate);
+  const priorFor = (job: Job): Record<number, number> =>
+    compilePersonPriorEarnings(personWith([job]), START_YEAR);
   const forwardFor = (job: Job, inflationRate = 0) =>
     compilePersonIncomeSeries(personWith([job]), START_YEAR, inflationRate)[0]!.series;
 
@@ -680,9 +688,9 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
 
     // History holds the STARTING salary flat — nothing grows before month 0 — so every past
     // year is the $60,000 that was authored, and the $120,000 current pay is the forward
-    // series' alone. Inflation reaches the past only if the user asks for it.
-    expect(priorFor(job, 0.03)[2025]).toBe(dollarsToCents(60_000));
-    expect(priorFor(job, 0.03)[2015]).toBe(dollarsToCents(60_000));
+    // series' alone. CPI never reaches the record: it is a remembered paycheck, not a projection.
+    expect(priorFor(job)[2025]).toBe(dollarsToCents(60_000));
+    expect(priorFor(job)[2015]).toBe(dollarsToCents(60_000));
   });
 });
 
@@ -691,7 +699,6 @@ describe("Job — human name drives the income band label (display only)", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs: [job],
   });
@@ -748,7 +755,7 @@ describe("stating pay and deferral, and reading them back", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: { startingSalaryCents: dollarsToCents(72_000), currentSalaryCents: dollarsToCents(72_000), realGrowthPct: 2 },
   };
 
@@ -783,7 +790,7 @@ describe("the two salary anchors, stated separately", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -818,7 +825,7 @@ describe("jobPayPath — a job's authored pay across its span", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: START_YEAR - 11,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -916,7 +923,6 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - samplePlan.currentAge,
-    retirementTargetAge: samplePlan.retirementAge,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -928,7 +934,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   const authored = (job: Job, month: number): number =>
     jobPayPath(job, {
       startMonth: 0,
-      endMonthExclusive: (samplePlan.retirementAge - samplePlan.currentAge) * 12,
+      endMonthExclusive: (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
     }).monthlyCentsAt(month);
 
   /** $60k/yr = a round $5,000/mo, real-flat. */
@@ -1062,7 +1068,6 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1072,7 +1077,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(80_000),
@@ -1124,7 +1129,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     // the nominal path times twelve is that year's covered wage — the two readings of the same
     // history cannot disagree, or the chart would be drawing a record the benefit never saw.
     const nominal = jobPayPath(job, span, { inflationRate: CPI });
-    const prior = compilePersonPriorEarnings(person([job]), START_YEAR, CPI);
+    const prior = compilePersonPriorEarnings(person([job]), START_YEAR);
     for (const yearsBack of [10, 5, 1]) {
       const month = -yearsBack * 12;
       expect(prior[START_YEAR - yearsBack]).toBe(nominal.monthlyCentsAt(month) * 12);
@@ -1155,7 +1160,6 @@ describe("historical pay is flat", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1163,7 +1167,7 @@ describe("historical pay is flat", () => {
     id: "job-1",
     ownerId: PRIMARY_PERSON_ID,
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(60_000),
       currentSalaryCents: dollarsToCents(96_000),
@@ -1236,7 +1240,6 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "p2",
     name: "Sam",
     birthYear: BIRTH_YEAR,
-    retirementTargetAge: 65,
     benefitClaimingAge: samplePlan.benefitClaimingAge,
     jobs,
   });
@@ -1245,7 +1248,7 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "job-p2",
     ownerId: "p2",
     startYear: BIRTH_YEAR + 30,
-    endYear: null,
+    endYear: START_YEAR + 40,
     salary: {
       startingSalaryCents: dollarsToCents(72_000),
       currentSalaryCents: dollarsToCents(72_000),
@@ -1256,7 +1259,7 @@ describe("membership clips what the household is paid, not the job's salary path
   const paid = (job: Job, month: number, span?: { startMonth: number; endMonth: number | null }) => {
     const membership = { person: partner([job]), ...(span ?? { startMonth: JOIN, endMonth: null }) };
     const compiled = compileHouseholdJobSeries(
-      resolveHouseholdJobs(personJobContexts(membership), START_YEAR),
+      resolveHouseholdJobs(personJobContexts(membership), START_YEAR, { kind: "authored" }),
       START_YEAR,
       0,
     );

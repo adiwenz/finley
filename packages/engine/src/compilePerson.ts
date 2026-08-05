@@ -42,21 +42,41 @@ import {
   type JobIncomeOverride,
 } from "./job";
 import type { Person } from "./person";
-import { naturalJobEndYearExclusive, type ResolvedHouseholdJob } from "./householdJob";
+import {
+  employmentEndYearExclusive,
+  type JobResolutionScope,
+  type ResolvedHouseholdJob,
+} from "./householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
- * seam keeping the authoring roster out of the pure sim core. `retirementTargetAge` and
+ * seam keeping the authoring roster out of the pure sim core. The job list and
  * `jobs` do not cross into the sim; they drive the forward income series ({@link
  * compilePersonIncomeSeries}) and the job spans.
  */
-export function compilePerson(person: Person, nowYear: number, inflationRate: number): SimPerson {
+export function compilePerson(
+  person: Person,
+  nowYear: number,
+  /**
+   * Which working life the covered-earnings record describes. A solve or preview passes its
+   * candidate boundary, so the person whose job is continued has the history that continuation
+   * implies; every other read leaves it authored.
+   */
+  scope: JobResolutionScope = { kind: "authored" },
+  /**
+   * When this person's money is the household's. Omitted leaves it unbounded — the shape every
+   * single-earner plan and most fixtures have, and the only safe default: a missing window must
+   * not silently stop paying someone.
+   */
+  membership?: SimPerson["membership"],
+): SimPerson {
   return {
     id: person.id,
     name: person.name,
     birthYear: person.birthYear,
     benefitClaimingAge: person.benefitClaimingAge,
-    priorEarningsCents: compilePersonPriorEarnings(person, nowYear, inflationRate),
+    priorEarningsCents: compilePersonPriorEarnings(person, nowYear, scope),
+    ...(membership !== undefined ? { membership } : {}),
   };
 }
 
@@ -149,15 +169,23 @@ function applyIncomeOverrides(
  */
 function reconstructHistoricalCompensation(
   job: Job,
-  owner: Person,
   nowYear: number,
+  /**
+   * The year this employment ends under whatever is being asked — the job's own `endYear` for
+   * the authored plan, and {@link employmentEndYearExclusive} of it under a hypothesis.
+   *
+   * A parameter rather than `job.endYear` because a continued job is modelled as one that never
+   * ended, and its earnings HISTORY is part of that: continuing a job left at 30 for a person
+   * who is 40 means they worked those ten years, so the record has to hold them. A late
+   * household join still cannot edit it — membership never reaches here — but the household's
+   * own hypothesis about this person's working life does.
+   */
+  endYearExclusive: number,
 ): { series: SimCashFlowSeries; startMonth: number; endMonthExclusive: number } | null {
   const startMonth = (job.startYear - nowYear) * 12;
-  // History is months < 0: clip a still-running job at "now", and skip one that only starts at
-  // or after it (all of its earnings are the forward series' job).
-  // The person's OWN natural end, never a household one: neither a candidate solver boundary
-  // nor a late household join may edit what this person actually earned before "now".
-  const endMonthExclusive = Math.min((naturalJobEndYearExclusive(job, owner) - nowYear) * 12, 0);
+  // History is months < 0: clip a still-running (or continued) job at "now", and skip one that
+  // only starts at or after it — all of its earnings are the forward series' job.
+  const endMonthExclusive = Math.min((endYearExclusive - nowYear) * 12, 0);
   if (endMonthExclusive <= startMonth) return null;
 
   // Taken VERBATIM: `startingSalaryCents` is the paycheck of the job's own start year, in that
@@ -201,15 +229,25 @@ export function compilePersonPriorEarnings(
   person: Person,
   nowYear: number,
   /**
-   * No longer read: the pre-"now" record is authored figures held flat, and nothing about it
-   * depends on CPI. Kept so the seam's shape does not churn across every caller, and because
-   * the forward half beside it genuinely needs the rate.
+   * Which working life to record — the one they authored, or the what-if a solve is testing.
+   * Defaults to `"authored"`, so every ordinary read is unchanged and a caller has to ASK for
+   * the counterfactual.
+   *
+   * Under a hypothesis this person's continuation job is one that never ended, which reaches
+   * backwards as well as forwards: the years between its authored end and today are years they
+   * worked in that scenario, and a benefit priced off the record has to see them. Their pay in
+   * those years is what the history already does everywhere else — the last authored figure
+   * held flat, never a projection (see {@link reconstructHistoricalCompensation}).
    */
-  _inflationRate?: number,
+  scope: JobResolutionScope = { kind: "authored" },
 ): Record<number, Cents> {
   const earnings: Record<number, Cents> = {};
   for (const job of person.jobs) {
-    const history = reconstructHistoricalCompensation(job, person, nowYear);
+    const history = reconstructHistoricalCompensation(
+      job,
+      nowYear,
+      employmentEndYearExclusive(job, person, nowYear, scope),
+    );
     if (history === null) continue;
     for (let month = history.startMonth; month < history.endMonthExclusive; month++) {
       const cents = history.series.getMonthlyCents(month);
@@ -340,8 +378,8 @@ function compileJobIncome(
  * a job wholly in the past, or one whose employment never overlaps its owner's membership,
  * drops out here (a past one still contributes to {@link compilePersonPriorEarnings}).
  *
- * Takes RESOLVED jobs, never persons and windows: every cap — the authored end, the owner's
- * retirement target, the membership, a solver's candidate boundary — is already intersected by
+ * Takes RESOLVED jobs, never persons and windows: every bound — the authored end, the
+ * membership, a solver's candidate boundary — is already intersected by
  * {@link resolveHouseholdJobs}, so wages, payroll tax, deferral and employer match all fall out
  * of exactly the window every other household calculation reads.
  */
@@ -369,13 +407,16 @@ export function compileHouseholdJobSeries(
 /**
  * What to call each of a person's jobs in a report or chart legend, by job id.
  *
+ * Exported for the retirement solver's continuation disclosure, which names a job to the user
+ * for the same reason a legend does and must not invent a second way of doing it.
+ *
  * A titled job is called that. An untitled one is named after its **owner** ("Sam's job")
  * rather than its id: ids are minted (`p-0-job-1`), meaningless to whoever reads the legend.
  * SEVERAL untitled jobs get ordinals ("Sam's job 1"), since one name for two bands
  * identifies neither; a single untitled job stays unnumbered, so its label cannot shift as
  * other jobs come and go.
  */
-function jobDisplayNames(person: Person): Map<string, string> {
+export function jobDisplayNames(person: Person): Map<string, string> {
   const titleOf = (job: Job): string | undefined => job.name?.trim() || undefined;
   const untitled = person.jobs.filter((j) => titleOf(j) === undefined).length;
   const names = new Map<string, string>();
