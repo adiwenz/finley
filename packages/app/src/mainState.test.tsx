@@ -196,6 +196,39 @@ describe("App — event ledger", () => {
     expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
   });
 
+  /**
+   * Two events of the same type render the SAME form element in the same position, so switching
+   * between their markers is the one path where a stale draft can be saved onto the wrong event:
+   * a form seeds its draft on mount, and nothing about the second loan would remount it.
+   */
+  it("switches straight from one loan's Edit to another's, showing and saving the second", () => {
+    render(<App />);
+
+    // Two student loans: the $2,000 default, then a $7,000 one.
+    fireEvent.click(screen.getByText("Add event"));
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "7000");
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+    expect(screen.getByText("student loan, $7,000")).toBeTruthy();
+
+    const editButtons = () => screen.getAllByRole("button", { name: /^Edit$/ });
+    fireEvent.click(editButtons()[0]);
+    expect(Number((screen.getByRole("spinbutton", { name: /Amount/i }) as HTMLInputElement).value)).toBe(2000);
+
+    // Straight to the other marker, with no Cancel in between — the open form must become the
+    // second loan's, not stay the first's.
+    fireEvent.click(editButtons()[1]);
+    expect(Number((screen.getByRole("spinbutton", { name: /Amount/i }) as HTMLInputElement).value)).toBe(7000);
+
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "9000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    // Only the second loan moved; the first still reads what it always did.
+    expect(screen.getByText("student loan, $9,000")).toBeTruthy();
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+    expect(screen.queryByText("student loan, $7,000")).toBeNull();
+  });
+
   it("closes the edit surface on Cancel without revising", () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText("What happened?"), {

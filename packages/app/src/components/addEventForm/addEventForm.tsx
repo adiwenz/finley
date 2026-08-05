@@ -81,6 +81,14 @@ export function AddEventForm({
   if (editing) {
     return (
       <EditEventForm
+        // Keyed by the event, because every form seeds its draft ONCE, from the event it was
+        // mounted with. Switching straight from one loan's marker to another's renders the same
+        // element type in the same position, so React would keep the mounted form — still
+        // holding the first loan's figures, ready to save them onto the second. The key is the
+        // identity that makes those two different forms. It sits here, at the dispatch
+        // boundary, so one rule covers every event type rather than each form re-deriving its
+        // own draft from a changed prop; the surrounding add-form card keeps its own state.
+        key={editing.event.id}
         editing={editing}
         result={result}
         funding={funding}
