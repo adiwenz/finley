@@ -6,10 +6,17 @@ all pinned by `comments.guard.test.ts`), Task 4 (`planFixtures.ts` over `replace
 through `replaceJob`), Task 7 (deleted the six facade members), Task 8 (deleted the six
 authoring-layer delegates), Task 9 (deleted the orphaned `job.ts` transforms and took `JobPatch`
 off the published surface), Task 10 (the facade reachability guard — new file
-`packages/engine/src/projectionFacade.guard.test.ts`). Tasks 11–20 remain — see the issue body.
-**11–15 move files into `retirement/`, `compile/`, `input/`; 16–20 reorganize and grow the tests.**
+`packages/engine/src/projectionFacade.guard.test.ts`), Task 11 (hardened the purity script's
+app/rules import regex to match any depth of `../`). Tasks 12–20 remain — see the issue body.
+**12–15 move files into `retirement/`, `compile/`, `input/`; 16–20 reorganize and grow the tests.**
 
 ## Live constraints
+- **The purity guard now catches nested leaks (task 11).** `scripts/check-engine-purity.mjs`'s
+  app/rules rule matches `(?:\.\.\/)+(?:rules|app)`, so an engine file living one-or-more folders
+  deep can no longer reach `../../rules`/`../../app` unnoticed. This is the guard the tasks-12–15
+  folder moves rely on; it is already in place, nothing further to do here. The directory walk
+  (`tsFiles`) recurses via `readdirSync`, so it picks up new `retirement/`/`compile/`/`input/`
+  folders on its own — no wiring needed when you add them.
 - **The facade reachability guard (task 10) hardcodes one path.** It parses `Projection`'s public
   members out of `projectionFacade.ts` as TEXT and asserts each is named (`.member`) by some
   non-test file under `packages/app/src` or `packages/engine/src`. It excludes exactly one file
