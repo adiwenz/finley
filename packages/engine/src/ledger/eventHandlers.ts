@@ -215,30 +215,22 @@ const loan: EventHandler<LoanEvent> = {
   },
   apply(event, state) {
     const id = asLiabilityId(event.liabilityId);
+    // The fields every kind shares; the kind-owned tail (`creditLimitCents` vs. `termMonths`)
+    // rides on top. A revolving card is built inline — it carries a limit, not a term, so it is
+    // the one liability `amortizingLiability` does NOT construct.
+    const common = {
+      id,
+      causedByEventId: event.id,
+      ownerId: asPersonId(event.ownerId),
+      startMonth: event.month,
+      openingBalanceCents: event.openingBalanceCents,
+      apr: event.apr,
+    };
     state.liabilitiesById.set(
       id,
       event.kind === "creditCard"
-        ? {
-            id,
-            causedByEventId: event.id,
-            ownerId: asPersonId(event.ownerId),
-            startMonth: event.month,
-            openingBalanceCents: event.openingBalanceCents,
-            apr: event.apr,
-            transfers: [],
-            kind: event.kind,
-            creditLimitCents: event.creditLimitCents,
-          }
-        : amortizingLiability({
-            id,
-            causedByEventId: event.id,
-            ownerId: asPersonId(event.ownerId),
-            startMonth: event.month,
-            openingBalanceCents: event.openingBalanceCents,
-            apr: event.apr,
-            termMonths: event.termMonths,
-            kind: event.kind,
-          }),
+        ? { ...common, transfers: [], kind: event.kind, creditLimitCents: event.creditLimitCents }
+        : amortizingLiability({ ...common, termMonths: event.termMonths, kind: event.kind }),
     );
   },
 };
