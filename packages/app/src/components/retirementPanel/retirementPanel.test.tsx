@@ -145,6 +145,23 @@ describe("RetirementPanel", () => {
     );
   });
 
+  it("names the partner when the horizon rests on THEIR expectancy, not the primary's", () => {
+    // A younger partner outlives the primary, so the portfolio must last to the partner's
+    // expectancy — the panel says whose it is rather than printing a bare age that reads as the
+    // household's. The engine hands the view the anchor (name + age); the panel renders it.
+    const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    const partnerAnchored = { ...base, horizonAge: 88, horizonMemberName: "Sam" };
+
+    expect(renderWithView({ ...partnerAnchored, authoredPlanSurvives: true })).toContain(
+      "This plan succeeds through Sam’s life expectancy (age 88).",
+    );
+    expect(renderWithView({ ...partnerAnchored, continuedJobs: [] })).toContain(
+      "have the portfolio last to Sam’s life expectancy (age 88).",
+    );
+    // And it is not the primary's own figure being reprinted under a partner's name.
+    expect(renderWithView(partnerAnchored)).not.toContain("your life expectancy");
+  });
+
   it("says the plan holds no jobs rather than naming a stop age it does not have", () => {
     const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
     const html = renderWithView({ ...base, plannedWorkStopAge: null });
@@ -483,6 +500,8 @@ describe("RetirementPanel — chart preview toggle", () => {
       authoredPlanSurvives: false,
       earlyRetireeHealth: { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
       continuedJobs: [],
+      horizonAge: PLAN_DEFAULTS.lifeExpectancy,
+      horizonMemberName: null,
     };
     const html = renderToStaticMarkup(
       <RetirementPanel view={blockedView} budget={PLAN_DEFAULTS} previewing={false} onTogglePreview={noop} />,

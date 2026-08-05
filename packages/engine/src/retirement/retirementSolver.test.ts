@@ -1809,3 +1809,77 @@ describe("continuationJobIdOf — what a household that never chose gets", () =>
     expect(continuationJobIdOf(person([job("current", 1995, 2020)], "deleted"), NOW)).toBeNull();
   });
 });
+
+describe("solveRetirement — horizonAnchor names the longest-lived member", () => {
+  // samplePlan: primary age 40, expectancy 85. The anchor is whose expectancy the run ends at.
+  const anchorOf = (scenario: Scenario) => solveRetirement(scenario, CTX).horizonAnchor;
+
+  const samPartner = (over: Partial<Person>): Person => ({
+    id: "p2",
+    name: "Sam",
+    birthYear: PRIMARY_BIRTH_YEAR,
+    benefitClaimingAge: 67,
+    jobs: [],
+    ...over,
+  });
+
+  function withPartner(partner: Person, separateAtMonth?: number): Scenario {
+    const base = createProjectionBase(samplePlan, CTX);
+    const married = addEvent(emptyLedger, base, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partner,
+    });
+    if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+    let ledger = married.ledger;
+    if (separateAtMonth !== undefined) {
+      const separated = addEvent(ledger, base, {
+        id: "s1",
+        type: "SeparationEvent",
+        month: separateAtMonth,
+        partnerPersonId: partner.id,
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      });
+      if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+      ledger = separated.ledger;
+    }
+    return withLedger(scenarioOf(samplePlan), ledger);
+  }
+
+  it("names the primary (null) when nobody outlives them", () => {
+    expect(anchorOf(scenarioOf(samplePlan))).toEqual({ age: 85, memberName: null });
+  });
+
+  it("names a younger partner who outlives the primary, at their inherited expectancy", () => {
+    // Born 10 years after the primary, same expectancy age 85 → reaches it in a later calendar
+    // year, so the run ends at Sam's 85, not the primary's.
+    expect(anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 })))).toEqual({
+      age: 85,
+      memberName: "Sam",
+    });
+  });
+
+  it("honours a partner's own stated expectancy over the household default", () => {
+    expect(
+      anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10, lifeExpectancy: 95 }))),
+    ).toEqual({ age: 95, memberName: "Sam" });
+  });
+
+  it("falls back to the primary when the partner would die first", () => {
+    expect(anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR - 10 })))).toEqual({
+      age: 85,
+      memberName: null,
+    });
+  });
+
+  it("ignores a separated partner — they leave before their own expectancy", () => {
+    // A younger partner who would otherwise set the horizon, but separates at month 12: gone
+    // before their expectancy, so they never anchor it and the primary does.
+    expect(
+      anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 }), 12)),
+    ).toEqual({ age: 85, memberName: null });
+  });
+});

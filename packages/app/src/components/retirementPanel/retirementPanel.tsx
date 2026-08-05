@@ -67,15 +67,19 @@ function Whose({ owner }: { owner: { ownerId: string; ownerName: string } }) {
 }
 
 /**
- * The horizon age, said as whose it is: the projection runs to the PRIMARY's life expectancy,
- * not the household's. A bare "age 90" in a two-earner household reads as a guarantee that
- * covers a younger partner's last years too — it does not; the run ends at the primary's 90
- * whoever else is present. "your" ties it to the reader (the primary), the voice the rest of the
- * panel already speaks in ("your plan", "you turn"), which is what marks it as one person's
- * horizon rather than the household's.
+ * The horizon age, said as whose it is. The projection runs to the LONGEST-LIVED member's life
+ * expectancy, not the household's — a bare "age 90" reads as a guarantee covering everyone when it
+ * is one person's own. The primary is "you" (the reader, the voice the panel already speaks in);
+ * a partner who outlives them is named, so "the portfolio lasting to Sam's life expectancy" says
+ * plainly that the money has to reach the survivor's years, not just the primary's.
  */
-function LifeExpectancy({ age }: { age: number }) {
-  return <>your life expectancy (age {age})</>;
+function LifeExpectancy({ age, memberName }: { age: number; memberName: string | null }) {
+  const whose = memberName === null ? "your" : `${memberName}’s`;
+  return (
+    <>
+      {whose} life expectancy (age {age})
+    </>
+  );
 }
 
 export function RetirementPanel({
@@ -128,11 +132,11 @@ export function RetirementPanel({
         )}{" "}
         {view.authoredPlanSurvives ? (
           <>
-            This plan succeeds through <LifeExpectancy age={budget.lifeExpectancy} />.
+            This plan succeeds through <LifeExpectancy age={view.horizonAge} memberName={view.horizonMemberName} />.
           </>
         ) : (
           <>
-            This plan runs out of money before <LifeExpectancy age={budget.lifeExpectancy} />.
+            This plan runs out of money before <LifeExpectancy age={view.horizonAge} memberName={view.horizonMemberName} />.
           </>
         )}
       </p>
@@ -181,14 +185,14 @@ export function RetirementPanel({
       {view.headlineAge === null ? (
         <p className="alert alert-red" role="status">
           On these numbers the money never lasts to{" "}
-          <LifeExpectancy age={budget.lifeExpectancy} /> — no retirement age is feasible.
+          <LifeExpectancy age={view.horizonAge} memberName={view.horizonMemberName} /> — no retirement age is feasible.
           Structural changes are required.
         </p>
       ) : view.continuedJobs.length === 0 ? (
         <p className="hint">
           You can retire at{" "}
           <strong aria-label="Earliest feasible retirement age">{view.headlineAge}</strong> and
-          have the portfolio last to <LifeExpectancy age={budget.lifeExpectancy} />.
+          have the portfolio last to <LifeExpectancy age={view.horizonAge} memberName={view.horizonMemberName} />.
         </p>
       ) : (
         <p className="hint" role="status">
@@ -205,7 +209,7 @@ export function RetirementPanel({
           ))}
           {/* The survival claim rides the same sentence rather than repeating the age, so two
               continued jobs read as one list and not as two sentences fighting over the number. */}
-          , with the portfolio lasting to <LifeExpectancy age={budget.lifeExpectancy} />.
+          , with the portfolio lasting to <LifeExpectancy age={view.horizonAge} memberName={view.horizonMemberName} />.
         </p>
       )}
 

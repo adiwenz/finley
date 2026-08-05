@@ -31,6 +31,7 @@ import {
   paragraphs,
   assumptions,
   LIFE_EXPECTANCY,
+  ALEX_BIRTH,
 } from "./testing/scenarioBuilders";
 
 describe("scenarios — what the household is actually told", () => {
@@ -213,5 +214,29 @@ describe("scenarios — more households the same panel has to answer", () => {
     expect(headline(p)).toBe(
       `You could stop working at 78 if Alex's job continued through when you are 78 (2069), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
+  });
+});
+
+describe("scenarios — the horizon covers the longest-lived member, and the panel says whose", () => {
+  it("names a younger partner's expectancy as what the money must last to", () => {
+    // The issue's core case: a partner younger than the primary outlives them, so the run no
+    // longer ends at the primary's expectancy — it reaches the partner's, and the panel names
+    // whose it is rather than printing a bare age that reads as the household's guarantee. Sam is
+    // twelve years younger and inherits the household expectancy age, so the portfolio must last
+    // to SAM's life expectancy.
+    const p = alexAlone();
+    p.marry({ month: 0, name: "Sam", birthYear: ALEX_BIRTH + 12 });
+    const lifeExpectancySentence = paragraphs(p).find((t) => t.includes("life expectancy"));
+    expect(lifeExpectancySentence).toContain(`Sam’s life expectancy (age ${LIFE_EXPECTANCY})`);
+    expect(lifeExpectancySentence).not.toContain("your life expectancy");
+  });
+
+  it("still says 'your' when the primary is the longest-lived", () => {
+    // A same-age partner reaches their expectancy the same year the primary does, so the tie
+    // falls to the primary and the reader is still addressed as "you".
+    const { projection } = alexAndSam();
+    const lifeExpectancySentence = paragraphs(projection).find((t) => t.includes("life expectancy"));
+    expect(lifeExpectancySentence).toContain("your life expectancy");
+    expect(lifeExpectancySentence).not.toContain("Sam’s life expectancy");
   });
 });
