@@ -1,24 +1,32 @@
 /**
- * The 401(k) elective-limit disclosure. The limit belongs to the **person**, not the
- * household: each person's jobs sum against their own age-indexed limit, and two earners
- * are never pooled. Driven through the real household roster (`jobOwnersOf`) that the Jobs
- * panel reads, so a partner's jobs reach the scan exactly as they do in the app.
+ * The 401(k) elective-limit disclosure, against the REAL US limits — the reason this suite is
+ * here and not in the engine, which knows no jurisdiction and so has no $24,500 to cross.
+ *
+ * The scan itself moved into the engine (`Projection.deferralLimitCrossing`). It used to live
+ * beside this file and re-derive three things the engine already owned: which years a job is
+ * worked, which of those years belong to the household, and what the pay is in each. These
+ * cases are unchanged — same plans, same partners, same expectations — because the move was
+ * meant to change where the rules live, not what they say.
+ *
+ * The limit belongs to the **person**, not the household: each person's jobs sum against their
+ * own age-indexed limit, and two earners are never pooled.
  */
 import { describe, expect, it } from "vitest";
 import {
   PRIMARY_PERSON_ID,
+  Projection,
   dollarsToCents,
+  type DeferralLimitCrossing,
   type Job,
   type Ledger,
   type LifeEvent,
   type Plan,
 } from "@finley/engine";
-import { firstDeferralLimitCrossing } from "./deferralLimit";
-import { jobOwnersOf } from "./jobOwners";
+import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { setJobDeferralFraction, setJobMonthlyIncome } from "./testing/planFixtures";
-import { runOf } from "./testing/projectionHarness";
+import { stateOf } from "./testing/projectionHarness";
 
 /** The event-free ledger as a public {@link Ledger} literal (the engine's `emptyLedger` is internal). */
 const noEvents: Ledger = { events: [], nextSequenceNumber: 0 };
@@ -38,13 +46,10 @@ function budget(opts: {
   return plan;
 }
 
-function crossingFor(plan: Plan, ledger: Ledger = noEvents) {
-  // The interpreted roster comes from a full run (`runOf(...).household`) — the public read
-  // that replaces `interpretLedger` + `createProjectionBase`. The deferral scan reads only the
-  // roster and the `rules` limit seam, so the run's jurisdiction is immaterial to the crossing.
-  return firstDeferralLimitCrossing(
-    jobOwnersOf(runOf(plan, ledger).household, ledger),
-    plan.inflationPct,
+/** The disclosure as the panel asks for it: one facade read over the authored scenario. */
+function crossingFor(plan: Plan, ledger: Ledger = noEvents): DeferralLimitCrossing | null {
+  return Projection.fromState(stateOf(plan, ledger), usJurisdiction).deferralLimitCrossing(
+    usJurisdiction,
   );
 }
 
@@ -86,7 +91,7 @@ const partnerWith = (jobs: readonly Job[]): Ledger => ({
   nextSequenceNumber: 1,
 });
 
-describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () => {
+describe("deferralLimitCrossing — one earner", () => {
   it("returns null when nothing is deferred", () => {
     expect(crossingFor(budget({ deferralPct: 0 }))).toBeNull();
   });
@@ -127,7 +132,7 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
     ).toBeNull();
   });
 
-  it("stops scanning at retirement — a post-retirement crossing never counts", () => {
+  it("stops scanning when the job does — a crossing after the last paid month never counts", () => {
     // Retiring next year: even a high rate has only one working year to cross in.
     const crossing = crossingFor(
       budget({
@@ -141,7 +146,7 @@ describe("firstDeferralLimitCrossing — one earner (unchanged behaviour)", () =
   });
 });
 
-describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
+describe("deferralLimitCrossing — a person's own jobs, summed", () => {
   it("aggregates one person's jobs before comparing with the limit", () => {
     // Two jobs at $30k/yr, each deferring 50% = $30k total, over the $24,500 limit.
     // Neither job crosses alone.
@@ -175,7 +180,7 @@ describe("firstDeferralLimitCrossing — a person's own jobs, summed", () => {
   });
 });
 
-describe("firstDeferralLimitCrossing — every earner, each against their own limit", () => {
+describe("deferralLimitCrossing — every earner, each against their own limit", () => {
   it("flags a partner who tops the limit on a job of their own", () => {
     // The primary defers nothing; Sam defers $30k on a $60k job — invisible to a scan that
     // reads only `Plan.jobs`, the primary's.
@@ -224,9 +229,9 @@ describe("firstDeferralLimitCrossing — every earner, each against their own li
     expect(crossing!.year).toBe(START_YEAR);
   });
 
-  it("scans a partner against THEIR retirement age, not the household's", () => {
-    // Sam is 40 and retires at 41: one working year, and their $12k deferral is under the
-    // limit in it — even though the primary person keeps working for decades.
+  it("scans a partner against THEIR own job's end, not the household's", () => {
+    // Sam is 40 and their job ends at 41: one working year, and their $12k deferral is under
+    // the limit in it — even though the primary person keeps working for decades.
     const retiringSoon: Ledger = {
       events: [
         {

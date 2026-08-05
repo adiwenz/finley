@@ -150,6 +150,17 @@ export interface ResolvedHouseholdJob {
    * see {@link paidStartMonth}.
    */
   readonly employmentStartMonth: number;
+  /**
+   * {@link endYearExclusive} as a month, so the pair {@link employmentStartMonth} …
+   * {@link employmentEndMonthExclusive} is the {@link import("./job").JobPaySpan} a salary path
+   * compiles over. Negative for a job wholly behind us.
+   *
+   * Carried rather than left to each caller to multiply out: a reader that wants the pay a job
+   * WOULD produce needs the employment span, a reader that wants what the household receives
+   * needs the paid one, and having only the year here made the first of those look like
+   * arithmetic when it is the same distinction the rest of this interface is about.
+   */
+  readonly employmentEndMonthExclusive: number;
   /** First month the HOUSEHOLD is paid: the employment start, or the join, whichever is later. */
   readonly paidStartMonth: number;
   /**
@@ -314,6 +325,7 @@ export function resolveHouseholdJob(
     membership,
     endYearExclusive,
     employmentStartMonth,
+    employmentEndMonthExclusive,
     paidStartMonth,
     paidEndMonthExclusive,
     // The first test excludes a job wholly in the past; the second, one whose employment and

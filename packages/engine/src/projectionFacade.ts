@@ -85,6 +85,8 @@ import type { Jurisdiction } from "./jurisdiction";
 import { runProjection } from "./projectionRun";
 import type { ProjectionResult } from "./projectionRun";
 import { buildRetirementOutlook } from "./retirementOutlook";
+import { firstDeferralLimitCrossing } from "./deferralLimit";
+import type { DeferralLimitCrossing } from "./deferralLimit";
 import type { RetirementOutlook } from "./retirementOutlook";
 import { stopWorkingBoundaryAt } from "./retirementSolver";
 
@@ -635,6 +637,23 @@ export class Projection {
    */
   retirement(jurisdiction: Jurisdiction): RetirementOutlook {
     return buildRetirementOutlook(this.current, jurisdiction);
+  }
+
+  /**
+   * **The first year a member would defer more than their own elective limit**, or `null` for a
+   * household that never does — see {@link firstDeferralLimitCrossing}.
+   *
+   * A read of the authored plan, not a search: no candidate ages, one walk of the working years.
+   * It is here rather than in whichever surface shows the warning because deciding which years
+   * are worked, which of them belong to the household, and what the pay is in each are the same
+   * three questions the projection answers, and a second reading of any of them is a second
+   * thing to get wrong.
+   */
+  deferralLimitCrossing(jurisdiction: Jurisdiction): DeferralLimitCrossing | null {
+    return firstDeferralLimitCrossing(this.current.scenario, {
+      jurisdiction,
+      startYear: this.current.startYear,
+    });
   }
 
   // Reads over authored state. Each delegates to the module that owns the thing being read, so

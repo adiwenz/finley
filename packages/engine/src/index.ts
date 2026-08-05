@@ -35,6 +35,7 @@
 export { Projection } from "./projectionFacade";
 export type { ProjectionResult } from "./projectionRun";
 export type { RetirementOutlook } from "./retirementOutlook";
+export type { DeferralLimitCrossing } from "./deferralLimit";
 
 // The authoring state a caller holds, its self-describing format version, and the error that
 // refuses a version this build cannot read.
@@ -123,7 +124,7 @@ export type { Scenario } from "./scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
-export { resolvedJobEndMonth, resolvedJobPaySpan } from "./ledger/household";
+export { resolvedJobPaySpan } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
 export type { FundingAvailability, FundingSourceBalance } from "./ledger/interpretState";
 export type { HouseholdSnapshot, SnapshotSeries } from "./projection/snapshot";

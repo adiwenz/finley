@@ -9,9 +9,9 @@ import {
   type ProjectionState,
   CURRENT_FORMAT_VERSION,
   UnsupportedVersionError,
-  resolvedJobEndMonth,
   resolvedJobPaySpan,
 } from "./index";
+import { resolvedJobEndMonth } from "./ledger/household";
 import { validateLedger } from "./ledger/validateLedger";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "./testing/samplePlan";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
