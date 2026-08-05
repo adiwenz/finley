@@ -176,8 +176,10 @@ const CATEGORY_DEFAULT_PRIORITY: Record<BudgetCategory, number> = {
 };
 
 /**
- * The single source of truth for ordering: both {@link orderBudgetLines} and the
- * `allocations()` view read it, so the two cannot drift.
+ * The single source of truth for ordering: both {@link orderBudgetLines} and the obligation
+ * compiler ({@link import("./compile/compileBudget").compileExpenseBudgetLines}, which stamps
+ * each obligation's `priority`) read it, so the ordered view and the funded waterfall cannot
+ * drift.
  */
 export function budgetLinePriority(line: BudgetLine): number {
   return line.priority ?? CATEGORY_DEFAULT_PRIORITY[line.category];

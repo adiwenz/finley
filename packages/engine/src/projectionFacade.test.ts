@@ -18,6 +18,7 @@ import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
 import { goalFundAccountId } from "./compile/projectionBase";
+import { obligationBudgetLineId } from "./projection/financialObligation";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
@@ -2501,12 +2502,12 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
 
 describe("Projection root — per-line monthly resolution in the result", () => {
   /**
-   * `allocations()` keys each line `line:<id>`, and the engine mints that id — so a test adds
-   * the line, keeps what `addBudgetLine` returned, and builds the key from it.
+   * `obligationBudgetLineId` keys each line `line:<id>`, and the engine mints that id — so a test
+   * adds the line, keeps what `addBudgetLine` returned, and builds the key through the same helper.
    */
-  const keyOf = (id: string) => `line:${id}`;
+  const keyOf = (id: string) => obligationBudgetLineId(id);
 
-  it("funds every budget line to its intent in a solvent month, keyed by allocations() id", () => {
+  it("funds every budget line to its intent in a solvent month, keyed by its obligation id", () => {
     // 8k/mo take-home (nullJurisdiction = no tax) easily covers a $2,500 budget.
     const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
     const rent = p.addBudgetLine({
@@ -2523,7 +2524,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     });
 
     const flows = p.run(nullJurisdiction).series.months[1]?.flows;
-    // Keyed by the allocations() id (`line:<id>`).
+    // Keyed by the obligation id (`line:<id>`).
     expect(flows?.lineMonthlyCents[keyOf(rent)]).toBe(dollarsToCents(2_000));
     expect(flows?.lineMonthlyCents[keyOf(fun)]).toBe(dollarsToCents(500));
   });

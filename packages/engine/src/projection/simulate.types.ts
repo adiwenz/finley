@@ -218,7 +218,8 @@ export interface ProjectionMonthFlows {
   /** Mortgages, loans, card minimums. */
   readonly liabilityPaymentsCents: Cents;
   /**
-   * Keyed by the line's `allocations()` id (`line:<id>`) and reported as authored: span
+   * Keyed by the line's obligation id (`line:<id>`, minted by {@link
+   * import("./financialObligation").obligationBudgetLineId}) and reported as authored: span
    * and dated overrides applied, price growth accrued.
    *
    * NOT rationed by the waterfall in a tight month — the simulator never skips spending,

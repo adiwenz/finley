@@ -242,6 +242,16 @@ export function obligationLiabilityId(liabilityId: string): string {
 }
 
 /**
+ * Obligation id for a budget line's funding band: `line:<id>`. This is the canonical owner of the
+ * convention — {@link buildObligations} mints production keys through it, and every chart, dated
+ * override and downstream reader keys on whatever it issues, so there is exactly one place to
+ * change the namespace.
+ */
+export function obligationBudgetLineId(lineId: string): string {
+  return `line:${lineId}`;
+}
+
+/**
  * An explicitly-funded `asset-acquisition` obligation: a fixed amount drained from an ordered
  * source list (the Home Purchase down payment today), buying an asset rather than spending — so
  * it is not an expense and does not reduce net worth beyond any tax on liquidating its sources —
@@ -308,7 +318,7 @@ export function buildObligations(
   const obligations: FinancialObligation[] = expenseSeries.map((s): FinancialObligation => {
     const source = s.obligationSource ?? UNTRACKED;
     return {
-      id: source.kind === "budgetLine" ? `line:${source.id}` : source.id,
+      id: source.kind === "budgetLine" ? obligationBudgetLineId(source.id) : source.id,
       sourceId: source.id,
       month,
       amountCents: s.series.getMonthlyCents(month),

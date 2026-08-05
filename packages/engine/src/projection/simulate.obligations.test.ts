@@ -13,9 +13,12 @@ import { addEvent } from "../ledger/addEvent";
 import { emptyLedger } from "../ledger/ledger";
 import { buildHouseholdSimInput } from "./buildHouseholdInput";
 import { simulateHousehold } from "./simulate";
-import { automaticFundingTotal, expenseReportingTotal } from "./financialObligation";
+import {
+  automaticFundingTotal,
+  expenseReportingTotal,
+  obligationBudgetLineId,
+} from "./financialObligation";
 import { dollarsToCents } from "../cashFlowSeries";
-import { budgetLineAllocationId } from "../allocations";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
 import { samplePlan, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import type { ProjectionContext } from "../compile/projectionBase";
@@ -144,10 +147,10 @@ describe("obligations — the flow-record invariant", () => {
         .map((o) => [o.id, o.amountCents]),
     );
     expect(flows.lineMonthlyCents).toEqual(fromObligations);
-    expect(flows.lineMonthlyCents[budgetLineAllocationId("housing")]).toBeGreaterThan(0);
+    expect(flows.lineMonthlyCents[obligationBudgetLineId("housing")]).toBeGreaterThan(0);
     // Health IS a budget line and belongs in the map; the debt payment is not and must never
     // leak into it. Three lines authored, three keys.
-    expect(flows.lineMonthlyCents[budgetLineAllocationId("health")]).toBeGreaterThan(0);
+    expect(flows.lineMonthlyCents[obligationBudgetLineId("health")]).toBeGreaterThan(0);
     expect(Object.keys(flows.lineMonthlyCents)).toHaveLength(3);
   });
 
