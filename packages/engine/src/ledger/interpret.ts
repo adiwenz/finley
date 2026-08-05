@@ -14,7 +14,7 @@ import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
 import { SimCashFlowSeries } from "../cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
 import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
-import { compileHouseholdJobSeries } from "../compilePerson";
+import { compileHouseholdJobSeries } from "../compile/compilePerson";
 import {
   personJobContexts,
   resolveHouseholdJobs,

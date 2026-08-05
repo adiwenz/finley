@@ -21,7 +21,7 @@ export interface HouseholdMembership {
   /**
    * The member as **authoring** {@link Person} data. The narrower
    * {@link import("../projection/simulate").SimPerson} the sim consumes is derived from it
-   * at the sim boundary via {@link import("../compilePerson").compilePerson}.
+   * at the sim boundary via {@link import("../compile/compilePerson").compilePerson}.
    */
   readonly person: Person;
   readonly startMonth: number;
@@ -135,7 +135,7 @@ export interface Household {
  * One job's resolved employment window, already intersecting everything that can end it —
  * the job's own authored end and (mid-solve, or under a
  * preview run) any {@link import("../householdJob").StopWorkingBoundary} — read straight off
- * the income series {@link import("../compilePerson").compileJobIncome} built for it.
+ * the income series {@link import("../compile/compilePerson").compileJobIncome} built for it.
  *
  * `null` means the job pays the household no month at or after "now": already over before the
  * projection starts, or capped by a boundary that lands at or before its own start. Every

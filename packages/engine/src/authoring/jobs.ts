@@ -40,7 +40,7 @@ import {
   withPayChange,
 } from "../job";
 import { MAX_LIVED_AGE } from "../plan";
-import { PRIMARY_PERSON_ID } from "../projectionBase";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import { continuationJobIdOf } from "../householdJob";
 import type { Person } from "../person";
 import type { Jurisdiction } from "../jurisdiction";

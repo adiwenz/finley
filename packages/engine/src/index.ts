@@ -143,7 +143,7 @@ export type {
   FundingSourceKind,
 } from "./projection/resolvedFunding";
 export type { SimulationReport } from "./projection/report";
-export type { PlanAccountDescriptor, ProjectionContext } from "./projectionBase";
+export type { PlanAccountDescriptor, ProjectionContext } from "./compile/projectionBase";
 export type {
   ContinuedJob,
   JobOverlap,
@@ -200,7 +200,7 @@ export { isPreExisting } from "./projection/nowMarker";
 // Ids and thresholds the engine owns and an app has to quote back: the primary person, the
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
 export { RETIREMENT_ID } from "./ids";
-export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./projectionBase";
+export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./compile/projectionBase";
 export { SYNTHETIC_CARD_ID, SYNTHETIC_CARD_CREDIT_LIMIT_CENTS } from "./liability";
 export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability";
 

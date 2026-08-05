@@ -17,15 +17,15 @@ import {
   stopWorkingBoundaryAt,
 } from "./retirement/retirementSolver";
 import { continuationJobIdOf } from "./householdJob";
-import { compilePersonPriorEarnings } from "./compilePerson";
+import { compilePersonPriorEarnings } from "./compile/compilePerson";
 import { scenarioOf, withLedger } from "./scenario";
 import { addEvent } from "./ledger/addEvent";
 import { emptyLedger } from "./ledger/ledger";
 import { dollarsToCents } from "./cashFlowSeries";
-import { createProjectionBase, SAVINGS_ID } from "./projectionBase";
+import { createProjectionBase, SAVINGS_ID } from "./compile/projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import type { ProjectionMonth } from "./projection/simulate";
-import type { ProjectionContext } from "./projectionBase";
+import type { ProjectionContext } from "./compile/projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import {
   samplePlan,

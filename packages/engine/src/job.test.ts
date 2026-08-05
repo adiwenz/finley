@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { emptyLedger } from "./ledger/ledger";
 import { replayLedger } from "./projection/buildHouseholdInput";
 import { nullJurisdiction } from "./jurisdiction";
-import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./projectionBase";
+import { createProjectionBase, PRIMARY_PERSON_ID, type ProjectionContext } from "./compile/projectionBase";
 import { samplePlan, salariedJob, SAMPLE_JOB_END_AGE } from "./testing/samplePlan";
 import {
   deferralFractionOf,
@@ -23,7 +23,7 @@ import {
 } from "./job";
 import { RETIREMENT_ID } from "./ids";
 import type { Person } from "./person";
-import { compileHouseholdJobSeries, compilePersonPriorEarnings } from "./compilePerson";
+import { compileHouseholdJobSeries, compilePersonPriorEarnings } from "./compile/compilePerson";
 import { personJobContexts, resolveHouseholdJobs } from "./householdJob";
 import type { Plan } from "./plan";
 import { dollarsToCents } from "./cashFlowSeries";

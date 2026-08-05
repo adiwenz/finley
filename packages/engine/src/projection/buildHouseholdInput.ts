@@ -21,7 +21,7 @@ import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
-import { compilePerson } from "../compilePerson";
+import { compilePerson } from "../compile/compilePerson";
 import { membershipWindow, type JobResolutionScope } from "../householdJob";
 
 export function buildHouseholdSimInput(

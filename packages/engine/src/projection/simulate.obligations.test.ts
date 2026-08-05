@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createProjectionBase } from "../projectionBase";
+import { createProjectionBase } from "../compile/projectionBase";
 import { interpretLedger } from "../ledger/interpret";
 import { addEvent } from "../ledger/addEvent";
 import { emptyLedger } from "../ledger/ledger";
@@ -18,7 +18,7 @@ import { dollarsToCents } from "../cashFlowSeries";
 import { budgetLineAllocationId } from "../allocations";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
 import { samplePlan, SAMPLE_START_YEAR } from "../testing/samplePlan";
-import type { ProjectionContext } from "../projectionBase";
+import type { ProjectionContext } from "../compile/projectionBase";
 import type { BudgetCategory, BudgetLine } from "../budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import type { Plan } from "../plan";

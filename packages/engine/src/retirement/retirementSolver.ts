@@ -24,9 +24,9 @@
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
 import { simulateHousehold } from "../projection/simulate";
-import { createProjectionBase } from "../projectionBase";
-import { jobDisplayNames } from "../compilePerson";
-import type { ProjectionContext } from "../projectionBase";
+import { createProjectionBase } from "../compile/projectionBase";
+import { jobDisplayNames } from "../compile/compilePerson";
+import type { ProjectionContext } from "../compile/projectionBase";
 import {
   addedHouseholdPaidMonths,
   householdJobContexts,

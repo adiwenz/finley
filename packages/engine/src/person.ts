@@ -3,7 +3,7 @@
  *
  * Distinct from the compiled {@link import("./projection/simulate").SimPerson} the simulator
  * consumes (no jobs; just pre-computed `priorEarningsCents` plus
- * claiming inputs). {@link import("./compilePerson")} is the seam, which keeps the authoring
+ * claiming inputs). {@link import("./compile/compilePerson")} is the seam, which keeps the authoring
  * surface out of the sim core.
  */
 

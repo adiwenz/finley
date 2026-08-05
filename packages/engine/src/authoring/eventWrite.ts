@@ -20,7 +20,7 @@ import type { FundingLookup } from "../ledger/addEvent";
 import { removeEvent } from "../ledger/removeEvent";
 import { updateEvent } from "../ledger/updateEvent";
 import { validateLedger } from "../ledger/validateLedger";
-import { createProjectionBase } from "../projectionBase";
+import { createProjectionBase } from "../compile/projectionBase";
 import type { ProjectionState } from "./state";
 import { withStateLedger } from "./state";
 

@@ -3,7 +3,7 @@
  * and dollar contributions to named accounts.
  *
  * Imports nothing from `projection/*`; that dependency lives in
- * {@link import("./compileBudget")}.
+ * {@link import("./compile/compileBudget")}.
  *
  * Two jurisdiction facts ride on the target *account*, never per line: the pre/post-tax
  * {@link TaxTreatment}, and the annual limit a `fill-to-limit` line tracks ({@link

@@ -8,19 +8,24 @@ authoring-layer delegates), Task 9 (deleted the orphaned `job.ts` transforms and
 off the published surface), Task 10 (the facade reachability guard — new file
 `packages/engine/src/projectionFacade.guard.test.ts`), Task 11 (hardened the purity script's
 app/rules import regex to match any depth of `../`), Task 12 (moved the retirement cluster into
-`packages/engine/src/retirement/`). Tasks 13–20 remain — see the issue body.
-**13 moves the compile cluster into `compile/`, 14–15 move the input cluster into `input/`; 16–20
-reorganize and grow the tests.**
+`packages/engine/src/retirement/`), Task 13 (moved the compile cluster into
+`packages/engine/src/compile/`). Tasks 14–20 remain — see the issue body.
+**14–15 move the input cluster into `input/`; 16–20 reorganize and grow the tests.**
 
 ## Live constraints
-- **The retirement cluster now lives in `packages/engine/src/retirement/` (task 12).** The five
-  source files (`retirementSolver.ts`, `retirementTypes.ts`, `retirementOutlook.ts`,
-  `deferralLimit.ts`, `earlyRetireeHealthCheck.ts`) moved; intra-cluster imports stay `./`, imports
-  of `src/` siblings became `../`. **Their three test files stayed in `src/`** and now import
-  `./retirement/…` — tasks 16–20 own where the tests ultimately land, so they were left in place.
-  `index.ts` re-exports and `projectionFacade.ts`/`projectionRun.ts` imports point at
-  `./retirement/…`. Two `{@link}` doc refs (`householdJob.ts`, `jurisdiction.ts`) were repointed in
-  the same commit. The compile/input moves (tasks 13–15) follow the same recipe.
+- **The compile cluster now lives in `packages/engine/src/compile/` (task 13).** The three source
+  files (`compilePerson.ts`, `compileBudget.ts`, `projectionBase.ts`) moved; intra-cluster imports
+  stay `./` (`projectionBase.ts` → `./compilePerson`, `./compileBudget`), imports of `src/` siblings
+  became `../`. **Their test files stayed in `src/`** (`compileBudget.test.ts`,
+  `projectionBase.test.ts`; `compilePerson` is covered by `job.test.ts`) and now import
+  `./compile/…` — tasks 16–20 own where the tests ultimately land. Root-`src/` consumers rewrote
+  `./X`→`./compile/X`; subfolder consumers (`authoring/`, `ledger/`, `retirement/`, `projection/`)
+  rewrote `../X`→`../compile/X`. Seven `{@link import("…")}` doc refs in non-moved files were
+  repointed in the same commit (`job.ts`, `person.ts`, `budgetLine.ts`, `retirement/retirementTypes.ts`,
+  `ledger/household.ts` ×2, `projection/simulate.types.ts`). The input move (tasks 14–15) follows the
+  same recipe.
+- **The retirement cluster lives in `packages/engine/src/retirement/` (task 12).** Same recipe as
+  above; its three test files also stayed in `src/`.
 - **The purity guard catches nested leaks (task 11).** `scripts/check-engine-purity.mjs`'s
   app/rules rule matches `(?:\.\.\/)+(?:rules|app)`, so an engine file living one-or-more folders
   deep can no longer reach `../../rules`/`../../app` unnoticed. Its directory walk recurses via
@@ -29,11 +34,12 @@ reorganize and grow the tests.**
   members out of `projectionFacade.ts` as TEXT and asserts each is named (`.member`) by some
   non-test file under `packages/app/src` or `packages/engine/src`. It excludes exactly one file —
   the declarative compiler `packages/engine/src/authoring/fromInput.ts`, held in
-  `declarativeCompilerPath`. **If tasks 13–15 relocate `fromInput.ts` (e.g. into `compile/` or
-  `input/`), update `declarativeCompilerPath` in the guard in the same commit** — otherwise
-  `fromInput.ts` re-enters the corpus, `payOffDebt` reads reachable, and the guard's "carries no
-  allowlist entry that a caller has since started naming" `it` fails. The allowlist is
-  `{toJSON, payOffDebt}`, each with a comment stating why; keep the comments if you touch it.
+  `declarativeCompilerPath`. **Task 13 did NOT move `fromInput.ts` — it stays in `authoring/`, so
+  the path is still current.** If tasks 14–15 relocate `fromInput.ts` (e.g. into `input/`), update
+  `declarativeCompilerPath` in the guard in the same commit — otherwise `fromInput.ts` re-enters the
+  corpus, `payOffDebt` reads reachable, and the guard's "carries no allowlist entry that a caller has
+  since started naming" `it` fails. The allowlist is `{toJSON, payOffDebt}`, each with a comment
+  stating why; keep the comments if you touch it.
 - **The guard is not a capability test — leave it out of the task-16 split.** `projectionFacade.test.ts`
   is what tasks 16–20 split by capability; `projectionFacade.guard.test.ts` is a standing guard and
   stays whole.
@@ -67,18 +73,20 @@ reorganize and grow the tests.**
   excess property. Keep the directive's literal intact.
 
 ## Traps
-- **Test-count baseline: 1813 passing | 45 todo** (unchanged by task 12 — a pure move). The *only*
+- **Test-count baseline: 1813 passing | 45 todo** (unchanged by tasks 12–13 — pure moves). The *only*
   remaining intended drop across the whole issue is `allocations.test.ts` (task 15). Any other
   count change is a regression.
-- **Folder-move recipe (tasks 13–15).** `git mv` the source files, then in the moved files: keep
+- **Folder-move recipe (tasks 14–15).** `git mv` the source files, then in the moved files: keep
   intra-cluster `./` imports, rewrite every `./`-to-a-`src/`-sibling import (and every
   `{@link import("./…")}` / backtick path ref) to `../`; in the outside consumers rewrite `./X` to
-  `./<folder>/X`. `index.guard.test.ts` needs no update — it only checks each specifier starts with
-  `./` and resolves to a real file, which a folder path satisfies. Verify with
-  `git diff --stat` (only import specifiers + renames) and confirm insertions == deletions.
+  `./<folder>/X` (root `src/`) or `../X` to `../<folder>/X` (subfolders). Don't forget the
+  `{@link import("…")}` doc refs in *non-moved* files that name a moved file — sweep them too.
+  `index.guard.test.ts` needs no update — it only checks each specifier starts with `./` and resolves
+  to a real file, which a folder path satisfies. Verify with `git diff --stat` (only import specifiers
+  + renames) and confirm insertions == deletions.
 - **Dangling `{@link}` sweep on any move/deletion.** When a file moves or a member is deleted,
   sweep every `{@link import("./…")}` and backtick path that named it — broken links are not a
-  compile error but are reviewer noise.
+  compile error but are reviewer noise. Grep `import("` across `packages` after any move.
 
 ## Dead ends
 - (none)

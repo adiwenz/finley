@@ -14,10 +14,10 @@
  *
  * - **A baseline.** History reconstructs from `startingSalaryCents`; the projection rebases on
  *   the authored `currentSalaryCents`. A step between them at the boundary is expected and never
- *   reconciled — see {@link import("./job").SalaryTrajectory}.
+ *   reconciled — see {@link import("../job").SalaryTrajectory}.
  * - **Growth.** Only the forward half grows. `salaryGrowthMode` applies to months from 0 onward;
  *   the past is held flat at what was authored, because it is remembered rather than projected.
- *   Reconstructing an unstated year is a dated {@link import("./job").JobPayChange} the user
+ *   Reconstructing an unstated year is a dated {@link import("../job").JobPayChange} the user
  *   authors, never a compiler default.
  *
  * Household membership narrows only where a series PAYS. The salary path is compiled over the
@@ -29,10 +29,10 @@
  * `projection/*` import, so the standing model and the sim core cannot form an import cycle.
  */
 
-import type { Cents } from "./money";
-import { SimCashFlowSeries, type GrowthMode } from "./cashFlowSeries";
-import type { SimOwnedSeries } from "./projection/simulate";
-import type { SimPerson } from "./projection/simulate.types";
+import type { Cents } from "../money";
+import { SimCashFlowSeries, type GrowthMode } from "../cashFlowSeries";
+import type { SimOwnedSeries } from "../projection/simulate";
+import type { SimPerson } from "../projection/simulate.types";
 import {
   applyJobIncomeOverride,
   effectivePayChanges,
@@ -40,13 +40,13 @@ import {
   type Job,
   type JobPayChange,
   type JobIncomeOverride,
-} from "./job";
-import type { Person } from "./person";
+} from "../job";
+import type { Person } from "../person";
 import {
   employmentEndYearExclusive,
   type JobResolutionScope,
   type ResolvedHouseholdJob,
-} from "./householdJob";
+} from "../householdJob";
 
 /**
  * Compile a standing authoring {@link Person} into the simulator's {@link SimPerson} — the
@@ -160,7 +160,7 @@ function applyIncomeOverrides(
  * that is the whole rule: the past is not projected, it is remembered. Inventing raises nobody
  * mentioned would put fabricated wages into the covered-earnings record that prices a benefit. A
  * user who worked an unstated year at a different wage records it as a dated
- * {@link import("./job").JobPayChange}, which the reconstruction reads. Growth belongs to the
+ * {@link import("../job").JobPayChange}, which the reconstruction reads. Growth belongs to the
  * forward half, where a projection is the point.
  *
  * Deliberately stops at month −1 and is never continued across the boundary: month 0 belongs

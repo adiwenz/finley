@@ -28,7 +28,7 @@ import { buildSnapshot, membersAt } from "./projection/snapshot";
 import type { HouseholdSnapshot } from "./projection/snapshot";
 import type { Household } from "./ledger/household";
 import type { Person } from "./person";
-import { buildPlanAccounts, buildPlanGoals, firstInsolventMonth } from "./projectionBase";
+import { buildPlanAccounts, buildPlanGoals, firstInsolventMonth } from "./compile/projectionBase";
 import { computeGoalProgress } from "./goal";
 import type { GoalProgress, SimGoal } from "./goal";
 import { assessHomePurchase } from "./authoring/housing";

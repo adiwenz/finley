@@ -12,25 +12,25 @@ import {
   CASH_INTEREST_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
   type SimAccountTaxProfile,
-} from "./simAccount";
-import { planAccount, type PlanAccount } from "./planAccount";
-import type { PersonId } from "./job";
-import type { SimOwnedSeries, ProjectionSeries } from "./projection/simulate";
-import type { SimGoal, GoalDisposal } from "./goal";
-import type { LedgerBaseConfig } from "./ledger/ledgerBase";
-import type { SurplusDestination } from "./projection/waterfall";
-import type { Jurisdiction } from "./jurisdiction";
-import { planHorizonMonths, type Plan, type GoalPlan, type GoalAccountType } from "./plan";
-import { type Person } from "./person";
+} from "../simAccount";
+import { planAccount, type PlanAccount } from "../planAccount";
+import type { PersonId } from "../job";
+import type { SimOwnedSeries, ProjectionSeries } from "../projection/simulate";
+import type { SimGoal, GoalDisposal } from "../goal";
+import type { LedgerBaseConfig } from "../ledger/ledgerBase";
+import type { SurplusDestination } from "../projection/waterfall";
+import type { Jurisdiction } from "../jurisdiction";
+import { planHorizonMonths, type Plan, type GoalPlan, type GoalAccountType } from "../plan";
+import { type Person } from "../person";
 import { compileHouseholdJobSeries } from "./compilePerson";
 import {
   personJobContexts,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
-} from "./householdJob";
+} from "../householdJob";
 import { compileExpenseBudgetLines } from "./compileBudget";
-import type { BudgetLine, TaxTreatment } from "./budgetLine";
-import { RETIREMENT_ID } from "./ids";
+import type { BudgetLine, TaxTreatment } from "../budgetLine";
+import { RETIREMENT_ID } from "../ids";
 
 export interface ProjectionContext {
   readonly jurisdiction: Jurisdiction;

@@ -1,7 +1,7 @@
 /**
  * The `Job` standing authoring model — the sole source of truth for earned income. A job is
  * held by a {@link import("./person").Person} and compiles into the simulator via
- * {@link import("./compilePerson")}.
+ * {@link import("./compile/compilePerson")}.
  *
  * Must not import from `projection/*`; that dependency lives in `compilePerson`.
  */

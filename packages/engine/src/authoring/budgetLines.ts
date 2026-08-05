@@ -12,7 +12,7 @@ import type {
   BudgetLinePatch,
 } from "../budgetLine";
 import { withLineOverride, withLinePatch, withoutLine } from "../budgetLine";
-import { compileExpenseBudgetLines } from "../compileBudget";
+import { compileExpenseBudgetLines } from "../compile/compileBudget";
 import type { Cents } from "../money";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";

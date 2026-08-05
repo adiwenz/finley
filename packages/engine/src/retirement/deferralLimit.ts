@@ -24,7 +24,7 @@
  */
 
 import { interpretLedger } from "../ledger/interpret";
-import { createProjectionBase } from "../projectionBase";
+import { createProjectionBase } from "../compile/projectionBase";
 import { jobPayPath } from "../job";
 import {
   householdPaidMonths,
@@ -34,7 +34,7 @@ import {
   type HouseholdPaidMonths,
   type ResolvedHouseholdJob,
 } from "../householdJob";
-import type { ProjectionContext } from "../projectionBase";
+import type { ProjectionContext } from "../compile/projectionBase";
 import type { Scenario } from "../scenario";
 import type { PersonId } from "../job";
 import type { Cents } from "../money";

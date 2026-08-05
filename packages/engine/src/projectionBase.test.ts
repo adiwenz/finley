@@ -22,10 +22,10 @@ import {
   planAccountDescriptors,
   goalFundAccountId,
   type ProjectionContext,
-} from "./projectionBase";
+} from "./compile/projectionBase";
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, salariedJob, spendLine, healthLine } from "./testing/samplePlan";
-import { compilePersonPriorEarnings } from "./compilePerson";
+import { compilePersonPriorEarnings } from "./compile/compilePerson";
 import { planHorizonMonths, type Plan, type GoalPlan } from "./plan";
 
 const START_YEAR = 2026;

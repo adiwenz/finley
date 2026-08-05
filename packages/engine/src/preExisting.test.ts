@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
-import { PRIMARY_PERSON_ID } from "./projectionBase";
+import { PRIMARY_PERSON_ID } from "./compile/projectionBase";
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
 import { ref } from "./scenarioInput";
 import type { ScenarioInput } from "./scenarioInput";

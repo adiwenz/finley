@@ -17,7 +17,7 @@ import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "./jurisdiction";
 import { dollarsToCents } from "./cashFlowSeries";
-import { goalFundAccountId } from "./projectionBase";
+import { goalFundAccountId } from "./compile/projectionBase";
 import { withLedger } from "./scenario";
 import { emptyLedger, type Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";

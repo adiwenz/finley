@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { emptyLedger } from "./ledger/ledger";
 import { replayLedger } from "./projection/buildHouseholdInput";
 import { nullJurisdiction } from "./jurisdiction";
-import { createProjectionBase, type ProjectionContext } from "./projectionBase";
+import { createProjectionBase, type ProjectionContext } from "./compile/projectionBase";
 import { samplePlan } from "./testing/samplePlan";
 import { dollarsToCents } from "./cashFlowSeries";
 import type { BudgetLine } from "./budgetLine";

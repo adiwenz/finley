@@ -6,7 +6,7 @@ import {
   BROKERAGE_REF,
   RETIREMENT_REF,
 } from "./scenarioRefs";
-import { SAVINGS_ID } from "./projectionBase";
+import { SAVINGS_ID } from "./compile/projectionBase";
 import { ref } from "./scenarioInput";
 import type { ScenarioInput } from "./scenarioInput";
 

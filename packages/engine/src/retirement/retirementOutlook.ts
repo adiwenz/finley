@@ -14,7 +14,7 @@
 
 import type { Jurisdiction } from "../jurisdiction";
 import type { ProjectionState } from "../authoring/state";
-import type { ProjectionContext } from "../projectionBase";
+import type { ProjectionContext } from "../compile/projectionBase";
 import { solveRetirement } from "./retirementSolver";
 import type { RetirementSolution } from "./retirementTypes";
 import { healthcareMonthlyCents } from "../budgetLine";

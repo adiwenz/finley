@@ -12,7 +12,7 @@
 import type { GoalPlan } from "./plan";
 import type { Ledger, ValidationResult } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";
-import { goalFundAccountId } from "./projectionBase";
+import { goalFundAccountId } from "./compile/projectionBase";
 
 /**
  * The account ids an event spends from, in drain order.

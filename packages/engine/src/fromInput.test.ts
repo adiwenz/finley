@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
-import { PRIMARY_PERSON_ID, goalFundAccountId } from "./projectionBase";
+import { PRIMARY_PERSON_ID, goalFundAccountId } from "./compile/projectionBase";
 import { RETIREMENT_ID } from "./ids";
 import { ref } from "./scenarioInput";
 import {

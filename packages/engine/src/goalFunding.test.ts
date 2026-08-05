@@ -9,7 +9,7 @@ import {
   eventsFundedByGoal,
   validateGoalRemoval,
 } from "./goalFunding";
-import { goalFundAccountId } from "./projectionBase";
+import { goalFundAccountId } from "./compile/projectionBase";
 import type { GoalPlan } from "./plan";
 import type { Ledger } from "./ledger/ledger";
 import type { LifeEvent } from "./ledger/eventTypes";

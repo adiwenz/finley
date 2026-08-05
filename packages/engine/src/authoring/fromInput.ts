@@ -13,7 +13,7 @@
  */
 
 import type { BudgetTarget } from "../budgetLine";
-import { goalFundAccountId } from "../projectionBase";
+import { goalFundAccountId } from "../compile/projectionBase";
 import { ageAboveMaximum } from "../plan";
 import {
   PRIMARY_PERSON_REF,

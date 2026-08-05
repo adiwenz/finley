@@ -25,7 +25,7 @@
 import { describe, expect, it } from "vitest";
 import { Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
-import { PRIMARY_PERSON_ID } from "./projectionBase";
+import { PRIMARY_PERSON_ID } from "./compile/projectionBase";
 import { SYNTHETIC_CARD_CREDIT_LIMIT_CENTS, SYNTHETIC_CARD_ID } from "./liability";
 import { obligationLiabilityId } from "./projection/financialObligation";
 import type { PersonId } from "./job";

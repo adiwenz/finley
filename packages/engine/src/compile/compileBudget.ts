@@ -4,18 +4,18 @@
  * months, dated overrides → its override edits), driving the *existing* waterfall unchanged.
  *
  * The one budget-model module depending on the simulator (`SimOwnedSeries`) and the
- * jurisdiction seam; isolating it keeps {@link import("./budgetLine")}'s pure types free of
+ * jurisdiction seam; isolating it keeps {@link import("../budgetLine")}'s pure types free of
  * any `projection/*` import. Inflation arrives from the caller, the legislated fill-to-limit
  * cap through the jurisdiction interface — never imported.
  *
  * The sole source of the household's general-expense series in `initialExpenseSeries`.
  */
 
-import type { Cents } from "./money";
-import { SimCashFlowSeries } from "./cashFlowSeries";
-import type { SimOwnedSeries } from "./projection/simulate";
-import type { Jurisdiction, DeferralLimitContext } from "./jurisdiction";
-import { budgetLinePriority, type BudgetLine } from "./budgetLine";
+import type { Cents } from "../money";
+import { SimCashFlowSeries } from "../cashFlowSeries";
+import type { SimOwnedSeries } from "../projection/simulate";
+import type { Jurisdiction, DeferralLimitContext } from "../jurisdiction";
+import { budgetLinePriority, type BudgetLine } from "../budgetLine";
 
 /**
  * Where a `fill-to-limit` line reads its legislated annual cap: the jurisdiction's {@link
