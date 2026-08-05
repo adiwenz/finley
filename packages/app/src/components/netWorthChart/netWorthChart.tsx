@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -123,18 +124,27 @@ function Row({
   );
 }
 
-/** `retirementMonth`: the solved stop-working age as a month offset from "now". */
+/**
+ * `retirementMonth`: the solved stop-working age as a month offset from "now".
+ * `horizonMonths`: the plan's own span to life expectancy, so the axis covers the whole plan even
+ * when the projection stopped early — see {@link buildNetWorthChartData}.
+ */
 export function NetWorthChart({
   series,
   retirementMonth,
+  horizonMonths,
 }: {
   series: ProjectionSeries;
   retirementMonth?: number | null;
+  horizonMonths?: number;
 }) {
   // Every decision about where the curve ends, where the marker goes and what the dashed drop
   // represents lives in `buildNetWorthChartData`, which is unit-tested; this component only
   // draws what it is handed. See {@link import("../monthAxis")} for the shared x-axis.
-  const { points, runsOut, blocked, xMax, yearTicks } = buildNetWorthChartData(series);
+  const { points, runsOut, blocked, stopped, xMax, yearTicks } = buildNetWorthChartData(
+    series,
+    horizonMonths,
+  );
 
   return (
     <div
@@ -164,6 +174,20 @@ export function NetWorthChart({
             stroke={GRID}
           />
           <ReferenceLine y={0} stroke="#c9bfa5" />
+          {/* The stretch the projection never simulated. Declared after the axes it is measured
+              against and before every series, so the curve and the markers paint on top of it, and
+              kept deliberately faint: it carries no figure and makes no claim about what would
+              have happened — only that the plan was not answered past here. */}
+          {stopped !== null && (
+            <ReferenceArea
+              x1={stopped.fromX}
+              x2={stopped.toX}
+              fill={RED}
+              fillOpacity={0.05}
+              stroke="none"
+              label={{ value: "not simulated", position: "insideTop", fill: AXIS, fontSize: 11 }}
+            />
+          )}
           {retirementMonth != null && (
             <ReferenceLine
               x={toAxisX(retirementMonth)}

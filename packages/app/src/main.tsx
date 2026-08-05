@@ -175,7 +175,13 @@ export function App() {
       <div className="layout">
         <div className="main-col">
           <div className="card">
-            <NetWorthChart series={chartSeries} retirementMonth={retirement.headlineMonth} />
+            {/* The plan's own span, so the axis reaches life expectancy even when the projection
+                stopped early — a blocked series is truncated at the block. */}
+            <NetWorthChart
+              series={chartSeries}
+              retirementMonth={retirement.headlineMonth}
+              horizonMonths={horizonMonths}
+            />
 
             {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
                 an event-spawned expense or a loan payment (see Base + Adjustments). */}

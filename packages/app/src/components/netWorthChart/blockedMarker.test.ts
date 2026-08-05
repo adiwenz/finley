@@ -89,4 +89,48 @@ describe("net-worth chart — the terminal blocked marker", () => {
     };
     expect(buildNetWorthChartData(ranToHorizon).blocked).toBeNull();
   });
+
+  // A blocked series is truncated at the block, so an axis derived from the data alone ends there
+  // — and a plan stopped in year 1 then draws exactly as wide as one that reached life expectancy.
+  // The whole plan is on the axis instead, and the unanswered remainder is shaded.
+  describe("the axis spans the whole plan, not the truncated data", () => {
+    const HORIZON_MONTHS = 55 * 12;
+
+    it("runs to life expectancy even though the series stops at the block", () => {
+      const data = buildNetWorthChartData(blockedSeries(), HORIZON_MONTHS);
+      expect(data.xMax).toBe(toAxisX(HORIZON_MONTHS - 1));
+      // ...without inventing a single point past the block.
+      for (const p of data.points) expect(p.x).toBeLessThanOrEqual(toAxisX(BLOCK_MONTH));
+      // The marker still lands where it always did — early on a now-long axis, which is the point.
+      expect(data.blocked?.x).toBe(toAxisX(BLOCK_MONTH));
+    });
+
+    it("shades everything from the block to the end of the axis", () => {
+      const data = buildNetWorthChartData(blockedSeries(), HORIZON_MONTHS);
+      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH), toX: data.xMax });
+    });
+
+    it("shades nothing for a plan that ran to the horizon", () => {
+      const ranToHorizon: ProjectionSeries = {
+        opening: month(0, 5_000_000),
+        months: [month(0, 5_000_000), month(1, 5_100_000)],
+        status: "ran-to-horizon",
+        simulatedThroughMonth: 1,
+      };
+      expect(buildNetWorthChartData(ranToHorizon, HORIZON_MONTHS).stopped).toBeNull();
+    });
+
+    it("shades nothing when the block lands at the very end of the axis", () => {
+      // Nothing went unsimulated that a reader could be shown, so there is no band to draw.
+      const data = buildNetWorthChartData(blockedSeries(), BLOCK_MONTH + 1);
+      expect(data.stopped).toBeNull();
+      expect(data.blocked?.x).toBe(toAxisX(BLOCK_MONTH));
+    });
+
+    it("falls back to the data's own span when no horizon is stated", () => {
+      const data = buildNetWorthChartData(blockedSeries());
+      expect(data.xMax).toBe(toAxisX(BLOCK_MONTH));
+      expect(data.stopped).toBeNull();
+    });
+  });
 });
