@@ -21,23 +21,23 @@
  * ref, and reads the minted id back off the built `Plan`/`Ledger`.
  *
  * This is an AUTHORING api, not an import one. Restoring persisted state — ids already issued,
- * counter already advanced — is {@link import("./projectionFacade").Projection.fromState}'s job
+ * counter already advanced — is {@link import("../projectionFacade").Projection.fromState}'s job
  * (fed by `toJSON`); it takes a whole `ProjectionState` and floors the counter past everything it
  * holds. Reach for that when the ids matter, and for this when the scenario is being described
  * for the first time.
  */
 
-import { PRE_NOW_MONTH } from "./projection/nowMarker";
-import type { Plan, GoalPlan } from "./plan";
-import type { Job, JobDeferral } from "./job";
-import type { BudgetLine, TaxTreatment } from "./budgetLine";
-import type { LiabilityKind } from "./liability";
-import type { OriginableLoanKind } from "./authoring/liabilities";
-import type { GrowthMode } from "./cashFlowSeries";
+import { PRE_NOW_MONTH } from "../projection/nowMarker";
+import type { Plan, GoalPlan } from "../plan";
+import type { Job, JobDeferral } from "../job";
+import type { BudgetLine, TaxTreatment } from "../budgetLine";
+import type { LiabilityKind } from "../liability";
+import type { OriginableLoanKind } from "../authoring/liabilities";
+import type { GrowthMode } from "../cashFlowSeries";
 // Type-only, and cyclic: `Projection` imports these authoring types, so a value import back
 // would close the loop. `FromInputResult` names the class only in a field, which a type import
 // resolves without a runtime edge.
-import type { Projection } from "./projectionFacade";
+import type { Projection } from "../projectionFacade";
 
 declare const REF_BRAND: unique symbol;
 
@@ -73,7 +73,7 @@ export function ref(name: string): Ref {
 type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines" | "continuationJobId">;
 
 /**
- * The `"account"` arm of a {@link import("./budgetLine").BudgetTarget}, but pointing at an
+ * The `"account"` arm of a {@link import("../budgetLine").BudgetTarget}, but pointing at an
  * account by {@link Ref} rather than id — a contribution line names the standing account it
  * funds ("retirement"), which the build resolves to a real account id.
  */
@@ -139,7 +139,7 @@ export type PartnerJobEntry = Omit<JobEntry, "ownerRef"> & {
   readonly ownerRef?: never;
 };
 
-/** The incoming partner and their ref-authored jobs — see {@link import("./authoring/relationships").MarryInput}. */
+/** The incoming partner and their ref-authored jobs — see {@link import("../authoring/relationships").MarryInput}. */
 export interface MarryEntry extends EventEntryCommon {
   readonly type: "marry";
   readonly name: string;
@@ -148,7 +148,7 @@ export interface MarryEntry extends EventEntryCommon {
   readonly jobs?: readonly PartnerJobEntry[];
 }
 
-/** A child joining the household — see {@link import("./authoring/relationships").HaveChildInput}. */
+/** A child joining the household — see {@link import("../authoring/relationships").HaveChildInput}. */
 export interface HaveChildEntry extends EventEntryCommon {
   readonly type: "haveChild";
   readonly name: string;
@@ -158,7 +158,7 @@ export interface HaveChildEntry extends EventEntryCommon {
 
 /**
  * A partner already present at start — an anchor keyed on how long the household has been
- * together, see {@link import("./authoring/relationships").StartPartneredInput}. It carries no
+ * together, see {@link import("../authoring/relationships").StartPartneredInput}. It carries no
  * `month`: {@link EventEntryCommon} supplies one, but the entry's own `partneredForMonths` is what
  * dates the anchor, so any `month` an author wrote would be ignored. Omitting it (`?: never`)
  * makes that a type error rather than a silent drop.
@@ -175,7 +175,7 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
 
 /**
  * A child already born — an anchor keyed on the child's age, see
- * {@link import("./authoring/relationships").HaveExistingChildInput}. Like {@link StartPartneredEntry}
+ * {@link import("../authoring/relationships").HaveExistingChildInput}. Like {@link StartPartneredEntry}
  * its month is computed from `ageMonths`, so it declares no `month`.
  */
 export interface HaveExistingChildEntry extends Omit<EventEntryCommon, "month"> {
@@ -188,7 +188,7 @@ export interface HaveExistingChildEntry extends Omit<EventEntryCommon, "month"> 
 
 /**
  * A loan already on the books — a holding opened at the now marker with current terms, see
- * {@link import("./authoring/liabilities").CarryLoanInput}. Its month is the now marker, not an
+ * {@link import("../authoring/liabilities").CarryLoanInput}. Its month is the now marker, not an
  * author choice, so like the anchors above it declares no `month`.
  */
 export type CarryLoanEntry = Omit<EventEntryCommon, "month"> & {
@@ -223,7 +223,7 @@ export type TakeLoanEntry = EventEntryCommon & {
 /**
  * A home already owned at start — a holding opened at the now marker with its current value and,
  * when mortgaged, the mortgage's current balance and remaining term, see
- * {@link import("./authoring/housing").OwnHomeInput}. Like the anchors and {@link CarryLoanEntry}
+ * {@link import("../authoring/housing").OwnHomeInput}. Like the anchors and {@link CarryLoanEntry}
  * its month is the now marker, not an author choice, so it declares no `month`. Owned outright
  * omits `mortgage`.
  */
@@ -243,7 +243,7 @@ export type OwnHomeEntry = Omit<EventEntryCommon, "month"> & {
   readonly appreciationMode?: GrowthMode;
 };
 
-/** A home purchase — see {@link import("./authoring/housing").BuyHomeInput}. */
+/** A home purchase — see {@link import("../authoring/housing").BuyHomeInput}. */
 export interface BuyHomeEntry extends EventEntryCommon {
   readonly type: "buyHome";
   readonly ownerRef: Ref;
@@ -257,7 +257,7 @@ export interface BuyHomeEntry extends EventEntryCommon {
 }
 
 /**
- * A partner leaving — see {@link import("./authoring/relationships").SeparateInput}. Mints only an
+ * A partner leaving — see {@link import("../authoring/relationships").SeparateInput}. Mints only an
  * event id and creates no entity, so its `ref` matters only if something later addresses the
  * event itself.
  */
@@ -270,7 +270,7 @@ export interface SeparateEntry extends EventEntryCommon {
 }
 
 /**
- * A lump-sum paydown — see {@link import("./authoring/liabilities").PayOffDebtInput}. Like
+ * A lump-sum paydown — see {@link import("../authoring/liabilities").PayOffDebtInput}. Like
  * {@link SeparateEntry} it creates no entity, only an event.
  */
 export interface PayOffDebtEntry extends EventEntryCommon {
@@ -283,7 +283,7 @@ export interface PayOffDebtEntry extends EventEntryCommon {
 /**
  * The timeline plane: one entry per `Projection` authoring method, discriminated on `type` with an
  * exhaustiveness check ({@link eventEntryType}) — the set is complete and closed. Several methods
- * share a {@link import("./ledger/eventTypes").LifeEvent} type (`marry`/`startPartnered` both emit
+ * share a {@link import("../ledger/eventTypes").LifeEvent} type (`marry`/`startPartnered` both emit
  * a `RelationshipEvent`; `takeLoan`/`carryLoan` both a `LoanEvent`), so the entry count exceeds the
  * event-variant count: the pre-existing doorway is a distinct method, not a flag on the plain one.
  */
@@ -301,7 +301,7 @@ export type EventEntry =
 
 /**
  * Exhaustiveness guard over {@link EventEntry}'s discriminant, the same contract
- * {@link import("./projectionFacade").Projection} gives {@link import("./ledger/eventTypes").LifeEvent}:
+ * {@link import("../projectionFacade").Projection} gives {@link import("../ledger/eventTypes").LifeEvent}:
  * the switch names every event kind and the `never` default makes a seventh a COMPILE error
  * here, so the union cannot grow a variant without this being updated. Returns the discriminant
  * unchanged; callers needing only the closure guarantee ignore the result.
@@ -362,7 +362,7 @@ export interface ScenarioInput extends PlanScalars {
   readonly events?: readonly EventEntry[];
   /**
    * The PRIMARY person's continuation job — see
-   * {@link import("./person").Person.continuationJobId}. Names a `jobs` entry by its `ref`, so
+   * {@link import("../person").Person.continuationJobId}. Names a `jobs` entry by its `ref`, so
    * it is applied after every job is bound.
    *
    * Omitted is the ordinary case and means "not chosen", which the engine resolves on read;
@@ -380,7 +380,7 @@ export interface ScenarioInput extends PlanScalars {
  * These are the fields that have no sensible engine-wide default: a retirement age, a life
  * expectancy, an inflation rate and a set of return assumptions are product decisions, and an
  * engine that guessed them would quietly answer a question nobody asked. So they are required,
- * and {@link import("./projectionFacade").Projection.init} takes exactly them — everything else
+ * and {@link import("../projectionFacade").Projection.init} takes exactly them — everything else
  * about a scenario can be added afterwards.
  */
 export type ScenarioScalars = Omit<

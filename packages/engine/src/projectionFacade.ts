@@ -75,7 +75,7 @@ import type { Ledger } from "./ledger/ledger";
 import type { FundingLookup } from "./ledger/addEvent";
 import { planAccountDescriptors } from "./compile/projectionBase";
 import type { PlanAccountDescriptor } from "./compile/projectionBase";
-import type { ScenarioInput, ScenarioScalars, FromInputResult } from "./scenarioInput";
+import type { ScenarioInput, ScenarioScalars, FromInputResult } from "./input/scenarioInput";
 import type { Cents } from "./money";
 // Type-only: with the validation jurisdiction required, this module no longer names a fallback.
 import type { Jurisdiction } from "./jurisdiction";

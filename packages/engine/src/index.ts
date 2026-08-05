@@ -74,7 +74,7 @@ export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCash
 export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS, planHorizonMonths } from "./plan";
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
-export type { ScenarioInput, FromInputResult } from "./scenarioInput";
+export type { ScenarioInput, FromInputResult } from "./input/scenarioInput";
 export type {
   Job,
   JobDeferral,
@@ -209,12 +209,12 @@ export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./affordability
 // and the pre-branded refs for what the engine provides rather than the document declaring it.
 // Naming these is not reaching past the facade — `fromInput` is a facade method, and an input
 // carries no ids, so nothing here lets a caller author identity.
-export type { BudgetLineEntry, JobEntry, GoalEntry, EventEntry } from "./scenarioInput";
-export { ref } from "./scenarioInput";
+export type { BudgetLineEntry, JobEntry, GoalEntry, EventEntry } from "./input/scenarioInput";
+export { ref } from "./input/scenarioInput";
 export {
   PRIMARY_PERSON_REF,
   SAVINGS_REF,
   RETIREMENT_REF,
   BROKERAGE_REF,
   SYNTHETIC_CARD_REF,
-} from "./scenarioRefs";
+} from "./input/scenarioRefs";

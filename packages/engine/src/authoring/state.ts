@@ -13,7 +13,7 @@ import { ageAboveMaximum } from "../plan";
 import type { Scenario } from "../scenario";
 import { scenarioOf, withLedger, withPlan } from "../scenario";
 import type { Ledger } from "../ledger/ledger";
-import type { ScenarioScalars } from "../scenarioInput";
+import type { ScenarioScalars } from "../input/scenarioInput";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {

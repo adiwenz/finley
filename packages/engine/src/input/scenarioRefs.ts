@@ -21,9 +21,9 @@
  * applier can mint in order and trust every lookup will hit.
  */
 
-import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID } from "./compile/projectionBase";
-import { RETIREMENT_ID } from "./ids";
-import { SYNTHETIC_CARD_ID } from "./liability";
+import { PRIMARY_PERSON_ID, SAVINGS_ID, BROKERAGE_ID } from "../compile/projectionBase";
+import { RETIREMENT_ID } from "../ids";
+import { SYNTHETIC_CARD_ID } from "../liability";
 import { entryMonth, ref } from "./scenarioInput";
 import type {
   ScenarioInput,

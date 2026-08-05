@@ -20,15 +20,15 @@ import {
   RETIREMENT_REF,
   WELL_KNOWN_REF_IDS,
   resolveRefs,
-} from "../scenarioRefs";
-import { ref } from "../scenarioInput";
+} from "../input/scenarioRefs";
+import { ref } from "../input/scenarioInput";
 import type {
   FromInputResult,
   JobEntry,
   Ref,
   ScenarioInput,
   ScenarioScalars,
-} from "../scenarioInput";
+} from "../input/scenarioInput";
 import type { Projection } from "../projectionFacade";
 import type { JobInput } from "./jobs";
 

@@ -18,7 +18,7 @@ import { dropEvent, replaceEvent } from "./eventWrite";
  * What may be changed about a transaction already in the log — its DATA, never its identity.
  *
  * One variant per authoring verb, discriminated on the same `type` names
- * {@link import("../scenarioInput").EventEntry} uses, so a revision states which kind of event it
+ * {@link import("../input/scenarioInput").EventEntry} uses, so a revision states which kind of event it
  * expects and revising a loan as though it were a home is a refusal rather than nonsense. Every
  * field is optional: an absent one keeps what the event already says.
  *

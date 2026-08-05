@@ -14,9 +14,9 @@ import { Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
 import { PRIMARY_PERSON_ID } from "./compile/projectionBase";
 import { PRE_NOW_MONTH } from "./projection/nowMarker";
-import { ref } from "./scenarioInput";
-import type { ScenarioInput } from "./scenarioInput";
-import { PRIMARY_PERSON_REF } from "./scenarioRefs";
+import { ref } from "./input/scenarioInput";
+import type { ScenarioInput } from "./input/scenarioInput";
+import { PRIMARY_PERSON_REF } from "./input/scenarioRefs";
 import type { PersonId } from "./job";
 
 /** A quiet, fully-deterministic scenario: no returns, no inflation, no income — so a holding's

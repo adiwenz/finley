@@ -5,10 +5,10 @@ import {
   SAVINGS_REF,
   BROKERAGE_REF,
   RETIREMENT_REF,
-} from "./scenarioRefs";
+} from "./input/scenarioRefs";
 import { SAVINGS_ID } from "./compile/projectionBase";
-import { ref } from "./scenarioInput";
-import type { ScenarioInput } from "./scenarioInput";
+import { ref } from "./input/scenarioInput";
+import type { ScenarioInput } from "./input/scenarioInput";
 
 /** A minimal, ref-free scenario; each test layers only the entries it exercises on top. */
 const base: ScenarioInput = {

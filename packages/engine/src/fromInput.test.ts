@@ -3,15 +3,15 @@ import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, Projection } from "./index";
 import { nullJurisdiction } from "./jurisdiction";
 import { PRIMARY_PERSON_ID, goalFundAccountId } from "./compile/projectionBase";
 import { RETIREMENT_ID } from "./ids";
-import { ref } from "./scenarioInput";
+import { ref } from "./input/scenarioInput";
 import {
   PRIMARY_PERSON_REF,
   SAVINGS_REF,
   BROKERAGE_REF,
   RETIREMENT_REF,
   WELL_KNOWN_REF_IDS,
-} from "./scenarioRefs";
-import type { ScenarioInput } from "./scenarioInput";
+} from "./input/scenarioRefs";
+import type { ScenarioInput } from "./input/scenarioInput";
 
 /** A minimal, ref-free scenario; each test layers only the entries it exercises on top. */
 const base: ScenarioInput = {

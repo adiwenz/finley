@@ -18,10 +18,10 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Projection } from "./index";
 import { SAMPLE_START_YEAR } from "./testing/samplePlan";
-import { ref } from "./scenarioInput";
-import { PRIMARY_PERSON_REF } from "./scenarioRefs";
+import { ref } from "./input/scenarioInput";
+import { PRIMARY_PERSON_REF } from "./input/scenarioRefs";
 import type { PersonId } from "./job";
-import type { JobEntry, ScenarioInput } from "./scenarioInput";
+import type { JobEntry, ScenarioInput } from "./input/scenarioInput";
 
 const P1 = "p1" as PersonId;
 
@@ -223,7 +223,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
  *
  * "Authoring type" is decided by two readings, unioned, because either alone leaks:
  *
- *  - **Declared in the authoring vocabulary** — under `authoring/`, or in `scenarioInput.ts`.
+ *  - **Declared in the authoring vocabulary** — under `authoring/`, or in `input/scenarioInput.ts`.
  *    This is what catches an entry `index.ts` does not publish by name: `PartnerJobEntry` and
  *    the per-verb `*Entry` shapes reach a caller only through the `EventEntry` union, so a
  *    surface-only reading would scan the union and miss the members.
@@ -256,7 +256,7 @@ describe("the authoring API accepts no caller-supplied id — source scan", () =
 
   /** Modules whose job IS to declare authoring vocabulary — scanned whole. */
   const AUTHORING_MODULES = (path: string) =>
-    path.startsWith("authoring/") || path === "scenarioInput.ts";
+    path.startsWith("authoring/") || path === "input/scenarioInput.ts";
 
   /** Every name the export map republishes — the package's whole public surface. */
   function publishedNames(): Set<string> {

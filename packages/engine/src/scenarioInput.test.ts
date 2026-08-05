@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { eventEntryType, ref } from "./scenarioInput";
-import type { EventEntry, ScenarioInput } from "./scenarioInput";
+import { eventEntryType, ref } from "./input/scenarioInput";
+import type { EventEntry, ScenarioInput } from "./input/scenarioInput";
 
 // Types are erased at runtime, so a compiling literal IS the assertion: this document names no
 // id anywhere, uses `ref`/`ownerRef`/`accountRef` in every pointer position, and discriminates
