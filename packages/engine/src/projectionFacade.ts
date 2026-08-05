@@ -33,7 +33,7 @@
  *
  * Nothing else adopts caller-named data. No authoring method takes an `id`; no method takes an
  * id-bearing `Plan`, `Ledger` or `LifeEvent`. An editing method may take an existing id as the
- * TARGET it addresses — `updateJob(jobId, …)`, `reviseTransaction(eventId, …)` — but what it is
+ * TARGET it addresses — `replaceJob(jobId, …)`, `reviseTransaction(eventId, …)` — but what it is
  * handed can never replace that id or any identity nested beneath it. The one operation that
  * genuinely needs to name an existing identity says so in its signature rather than accepting it
  * in a payload: {@link Projection.reviseTransaction} changes an event's data while rebuilding it
@@ -68,7 +68,7 @@
  */
 
 import type { Plan, PlanPatch, GoalPatch } from "./plan";
-import type { JobIncomeOverrideInput, JobPatch, JobPayChangeInput, PersonId } from "./job";
+import type { JobIncomeOverrideInput, JobPayChangeInput, PersonId } from "./job";
 import type { BudgetLineOverride, BudgetLinePatch } from "./budgetLine";
 import type { LifeEvent } from "./ledger/eventTypes";
 import type { Ledger } from "./ledger/ledger";
@@ -116,12 +116,6 @@ import {
   setProjectionContinuationJob,
   replaceProjectionJob,
   replaceProjectionPartnerJob,
-  setProjectionJobCurrentMonthlyIncome,
-  setProjectionJobDeferralFraction,
-  setProjectionJobMonthlyIncome,
-  setProjectionJobStartingMonthlyIncome,
-  updateProjectionJob,
-  updateProjectionPartnerJob,
 } from "./authoring/jobs";
 import type { BudgetLineInput, ResolvedExpenseRow } from "./authoring/budgetLines";
 import {
@@ -255,20 +249,11 @@ export class Projection {
   }
 
   /**
-   * Rewrite one job wholesale, keeping its `id` and its list position — the counterpart to
-   * {@link updateJob}'s field-wise patch. An absent field CLEARS rather than carries through.
-   * Refused for an id the plan does not hold.
+   * Rewrite one job wholesale, keeping its `id` and its list position. An absent field CLEARS
+   * rather than carries through. Refused for an id the plan does not hold.
    */
   replaceJob(id: string, job: JobInput): void {
     this.write((state) => replaceProjectionJob(state, id, job));
-  }
-
-  /**
-   * Rewrite one job's fields in place, keeping its `id`. Refused for an id the plan does not
-   * hold.
-   */
-  updateJob(id: string, patch: JobPatch): void {
-    this.write((state) => updateProjectionJob(state, id, patch));
   }
 
   /** Drop a job. Refused for an id the plan does not hold. */
@@ -291,13 +276,6 @@ export class Projection {
   replacePartnerJob(jobId: string, job: JobInput): void {
     this.write((state) =>
       replaceProjectionPartnerJob(state, this.validationJurisdiction, jobId, job),
-    );
-  }
-
-  /** See {@link updateJob} — the field-wise patch, on a partner's plane. */
-  updatePartnerJob(jobId: string, patch: JobPatch): void {
-    this.write((state) =>
-      updateProjectionPartnerJob(state, this.validationJurisdiction, jobId, patch),
     );
   }
 
@@ -345,39 +323,6 @@ export class Projection {
 
   // Adjustments to ONE job, addressed by its id alone — either plane, since one counter issues
   // job ids across both and an id therefore names one job in the household or nothing at all.
-
-  /** Monthly cents in, annualized salary stored — on BOTH anchors, for a job stated in one
-   * number. A surface showing the two separately uses the two setters below. */
-  setJobMonthlyIncome(id: string, monthlyCents: number): void {
-    this.write((state) =>
-      setProjectionJobMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
-    );
-  }
-
-  /** The start anchor alone — what the job paid in its own start year. Current pay untouched. */
-  setJobStartingMonthlyIncome(id: string, monthlyCents: number): void {
-    this.write((state) =>
-      setProjectionJobStartingMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
-    );
-  }
-
-  /** The month-0 anchor alone — the figure the projection starts from. Start pay untouched. */
-  setJobCurrentMonthlyIncome(id: string, monthlyCents: number): void {
-    this.write((state) =>
-      setProjectionJobCurrentMonthlyIncome(state, this.validationJurisdiction, id, monthlyCents),
-    );
-  }
-
-  /**
-   * Beside {@link updateJob} because 0 *removes* the deferral and a positive fraction preserves
-   * the funded account and employer match — an asymmetry a `deferral` patch, which replaces the
-   * whole object, cannot express.
-   */
-  setJobDeferralFraction(id: string, fraction: number): void {
-    this.write((state) =>
-      setProjectionJobDeferralFraction(state, this.validationJurisdiction, id, fraction),
-    );
-  }
 
   /**
    * A permanent raise or cut, at most one per (job, month). Returns the minted adjustment id —
