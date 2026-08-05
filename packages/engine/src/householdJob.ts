@@ -335,21 +335,6 @@ export function resolveHouseholdJob(
 }
 
 /**
- * Why a stretch of a job's employment brings this household nothing — one of exactly two
- * answers, because a membership has exactly two edges.
- *
- * Codes rather than sentences: the engine knows which side of the membership a month falls on
- * and has no business knowing what a surface calls the person, so the wording stays where the
- * name is.
- */
-export type UncountedPayReason = "before-household-membership" | "after-household-membership";
-
-/** One stretch of employment the household is not paid for, and which edge put it there. */
-export interface UncountedPaySpan extends JobPaySpan {
-  readonly reason: UncountedPayReason;
-}
-
-/**
  * **A job's employment, the part of it this household is paid for, and the parts it is not** —
  * the whole answer a surface needs to draw one job honestly, in one value.
  *
@@ -357,7 +342,7 @@ export interface UncountedPaySpan extends JobPaySpan {
  * two of them tells a lie a reader cannot see. Shortening the employment to the paid window says
  * the person stopped working when they only stopped being in this household. Drawing the
  * employment alone says the household collected every month of it. Only the pair, with the gaps
- * named, says what actually happened.
+ * marked out, says what actually happened.
  *
  * There can be two gaps, not one. A partner who joins at 45 and separates at 55, holding a job
  * from 35 to 65, brings this household ten years out of thirty — and the surface that only ever
@@ -380,8 +365,15 @@ export interface ResolvedJobPayDisplay {
   readonly employmentSpan: JobPaySpan;
   /** Employment ∩ membership — `null` when the two never meet, which is an answer and not a gap. */
   readonly paidSpan: JobPaySpan | null;
-  /** Zero, one or two gaps, in time order. Never zero-length. */
-  readonly uncountedSpans: readonly UncountedPaySpan[];
+  /**
+   * Every stretch of {@link employmentSpan} that is not {@link paidSpan}: zero, one or two, in
+   * time order, never zero-length.
+   *
+   * Spans and nothing else. Which membership edge put a gap where it is can be read off the
+   * geometry — it falls before {@link paidSpan} or after it — so naming the edge here would be a
+   * second copy of a fact these three fields already carry, free to disagree with them.
+   */
+  readonly uncountedSpans: readonly JobPaySpan[];
 }
 
 /**
@@ -413,37 +405,20 @@ export function resolveJobPayDisplay(
       ? { startMonth: paidStartMonth, endMonthExclusive: paidEndMonthExclusive }
       : null;
 
-  const uncountedSpans: UncountedPaySpan[] = [];
+  const uncountedSpans: JobPaySpan[] = [];
   if (paidSpan === null) {
-    // No employment at all is no claim to make: a job a candidate boundary falls before did not
-    // happen, and saying the household was not paid for it would put a job on screen the
-    // hypothesis removed.
-    if (endMonthExclusive > startMonth) {
-      uncountedSpans.push({
-        ...employmentSpan,
-        // Which edge missed it. A membership beginning at or after the employment ends means
-        // they joined too late; anything else means they had already left.
-        reason:
-          member.startMonth >= endMonthExclusive
-            ? "before-household-membership"
-            : "after-household-membership",
-      });
-    }
+    // The whole employment, whichever edge missed it — with no paid window to sit beside, there
+    // is no before and no after to tell apart. No employment at all is no claim to make either:
+    // a job a candidate boundary falls before did not happen, and saying the household was not
+    // paid for it would put a job on screen the hypothesis removed.
+    if (endMonthExclusive > startMonth) uncountedSpans.push(employmentSpan);
     return { employmentSpan, paidSpan, uncountedSpans };
   }
   if (paidSpan.startMonth > startMonth) {
-    uncountedSpans.push({
-      startMonth,
-      endMonthExclusive: paidSpan.startMonth,
-      reason: "before-household-membership",
-    });
+    uncountedSpans.push({ startMonth, endMonthExclusive: paidSpan.startMonth });
   }
   if (paidSpan.endMonthExclusive < endMonthExclusive) {
-    uncountedSpans.push({
-      startMonth: paidSpan.endMonthExclusive,
-      endMonthExclusive,
-      reason: "after-household-membership",
-    });
+    uncountedSpans.push({ startMonth: paidSpan.endMonthExclusive, endMonthExclusive });
   }
   return { employmentSpan, paidSpan, uncountedSpans };
 }

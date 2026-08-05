@@ -37,8 +37,8 @@ import {
   type Job,
   type JobPayChange,
   type Household,
+  type JobPaySpan,
   type ResolvedJobPayDisplay,
-  type UncountedPayReason,
   type Ledger,
   type Plan,
   type Projection,
@@ -123,20 +123,28 @@ const EMPTY_DISPLAY: ResolvedJobPayDisplay = {
 };
 
 /**
- * What a job's chart says about one uncounted stretch — the engine's reason code, in words, with
- * the person named.
+ * What a job's chart says about one uncounted stretch — read off where the gap sits relative to
+ * the paid window, with the person named.
  *
- * The mapping is the app's because the sentence is: the engine knows which side of a membership
- * a month falls on and has no business knowing what this surface calls anybody. Exhaustive on
- * the union, so a third edge could not be added to the engine and silently render as nothing.
+ * Geometry rather than a code carried alongside it: a gap that ends where the paid months begin
+ * is one the household was not yet there for, and a gap that starts where they end is one it had
+ * left before. The engine states the spans; only the app knows what this surface calls anybody,
+ * and a reason string travelling beside the spans would be a second copy of a fact they already
+ * carry, free to drift from them.
+ *
+ * With no paid window at all there is no before and no after — the job simply never was this
+ * household's — so the sentence says that and nothing it cannot support.
  */
-function uncountedNote(reason: UncountedPayReason, ownerName: string): string {
-  switch (reason) {
-    case "before-household-membership":
-      return `Hatched: this pay is not household income because ${ownerName} was not yet part of the household.`;
-    case "after-household-membership":
-      return `Hatched: this pay is not household income because ${ownerName} was no longer part of the household.`;
+function uncountedNote(
+  span: JobPaySpan,
+  paidSpan: JobPaySpan | null,
+  ownerName: string,
+): string {
+  if (paidSpan === null) return "Hatched: this pay is not household income during this period.";
+  if (span.endMonthExclusive <= paidSpan.startMonth) {
+    return `Hatched: this pay is not household income because ${ownerName} was not yet part of the household.`;
   }
+  return `Hatched: this pay is not household income because ${ownerName} was no longer part of the household.`;
 }
 
 /**
@@ -315,7 +323,7 @@ export function JobsPanel({
             // hatched and named instead. There may be two of them, one at either end.
             const uncounted = display.uncountedSpans.map((span) => ({
               ...span,
-              note: uncountedNote(span.reason, owner.name),
+              note: uncountedNote(span, display.paidSpan, owner.name),
             }));
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.

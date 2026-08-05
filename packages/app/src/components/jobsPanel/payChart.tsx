@@ -67,7 +67,7 @@ import {
   type JobIncomeOverride,
   type JobPayChange,
   type JobPayPath,
-  type UncountedPaySpan,
+  type JobPaySpan,
 } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
@@ -95,8 +95,8 @@ function ageLabel(birthYear: number, month: number): string {
 }
 
 /** One uncounted interval as the chart takes it: the engine's span, worded by the panel. */
-export interface UncountedPaySpanNote extends UncountedPaySpan {
-  /** The sentence for {@link UncountedPaySpan.reason}, with the owner named. */
+export interface UncountedPaySpanNote extends JobPaySpan {
+  /** What this gap says, with the owner named — the panel's reading of where it sits. */
   readonly note: string;
 }
 
@@ -291,10 +291,10 @@ export function PayChart({
         {JSON.stringify(rows.filter((r) => r.adjusted).map((r) => [r.month, r.pay]))}
       </output>
       {/* And the same for the hatches: a `<pattern>` fill inside Recharts is nothing jsdom can
-          be asked about, so each interval — with the engine's own reason code — is stated where
-          a test can read it. */}
+          be asked about, so each interval is stated where a test can read it. The months only —
+          what each one MEANS is the key's sentence below, and readable as text. */}
       <output data-testid="pay-chart-uncounted" hidden>
-        {JSON.stringify(uncounted.map((u) => [u.startMonth, u.endMonthExclusive, u.reason]))}
+        {JSON.stringify(uncounted.map((u) => [u.startMonth, u.endMonthExclusive]))}
       </output>
 
       <ResponsiveContainer width="100%" height={140}>

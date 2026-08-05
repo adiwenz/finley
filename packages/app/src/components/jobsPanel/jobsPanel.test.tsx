@@ -1424,7 +1424,7 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
  * income is a separate fact with its own two boundaries — the join and the separation — so a job
  * can be uncounted at the front, at the back, at both ends, or not at all. The card draws the
  * whole employment (shortening it would say Sam stopped working, which a separation is not) and
- * hatches each gap with the sentence for the engine's own reason code.
+ * hatches each gap, wording it from where the gap sits beside the paid months.
  *
  * The intervals are the ENGINE's: `ProjectionResult.jobPayDisplay`, resolved against whichever
  * run the charts are showing. Nothing below is computed on this side, which is why previewing
@@ -1442,7 +1442,8 @@ describe("JobsPanel — the months of a job that are not household income", () =
   });
 
   /**
-   * Every card's uncounted intervals, in row order — `[startMonth, endMonthExclusive, reason]`.
+   * Every card's uncounted intervals, in row order — `[startMonth, endMonthExclusive]`. What
+   * each one MEANS is a sentence, asserted as the text a reader would actually meet.
    * Alex's job comes first and is always fully counted, so Sam's is the second entry.
    */
   const uncountedByCard = (): unknown[][][] =>
@@ -1458,7 +1459,7 @@ describe("JobsPanel — the months of a job that are not household income", () =
     // employment this household never collected, and nothing about the job's end is unusual.
     render(<Harness events={[partnerJoining([samsJob()], 60)]} />);
 
-    expect(samsUncounted()).toEqual([[0, 60, "before-household-membership"]]);
+    expect(samsUncounted()).toEqual([[0, 60]]);
     expect(uncountedByCard()[0]).toEqual([]); // Alex's own job, counted throughout
     expect(
       screen.getByText(/not household income because Sam was not yet part of the household/),
@@ -1468,7 +1469,7 @@ describe("JobsPanel — the months of a job that are not household income", () =
   it("hatches the months after the owner left, and only those", () => {
     render(<Harness events={[partnerJoining([samsJob()]), separatingAt(120)]} />);
 
-    expect(samsUncounted()).toEqual([[120, 300, "after-household-membership"]]);
+    expect(samsUncounted()).toEqual([[120, 300]]);
     expect(
       screen.getByText(/not household income because Sam was no longer part of the household/),
     ).toBeTruthy();
@@ -1483,10 +1484,10 @@ describe("JobsPanel — the months of a job that are not household income", () =
     render(<Harness events={[partnerJoining([samsJob()], 60), separatingAt(180)]} />);
 
     expect(samsUncounted()).toEqual([
-      [0, 60, "before-household-membership"],
-      [180, 300, "after-household-membership"],
+      [0, 60],
+      [180, 300],
     ]);
-    // Two hatches, two sentences — one per reason, neither standing for the other.
+    // Two hatches, two sentences — one per end, neither standing for the other.
     expect(screen.getByText(/was not yet part of the household/)).toBeTruthy();
     expect(screen.getByText(/was no longer part of the household/)).toBeTruthy();
   });
@@ -1503,7 +1504,11 @@ describe("JobsPanel — the months of a job that are not household income", () =
       />,
     );
 
-    expect(samsUncounted()).toEqual([[60, 300, "after-household-membership"]]);
+    expect(samsUncounted()).toEqual([[60, 300]]);
+    // With no paid months at all there is nothing for the gap to sit before or after, so the
+    // sentence claims neither — it says only what is true of every month of the job.
+    expect(screen.getByText(/not household income during this period/)).toBeTruthy();
+    expect(screen.queryByText(/part of the household/)).toBeNull();
   });
 
   it("hatches nothing while the household is whole", () => {
@@ -1525,6 +1530,6 @@ describe("JobsPanel — the months of a job that are not household income", () =
       />,
     );
 
-    expect(samsUncounted()).toEqual([[120, 180, "after-household-membership"]]);
+    expect(samsUncounted()).toEqual([[120, 180]]);
   });
 });

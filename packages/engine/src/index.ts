@@ -36,11 +36,7 @@ export { Projection } from "./projectionFacade";
 export type { ProjectionResult } from "./projectionRun";
 export type { RetirementOutlook } from "./retirementOutlook";
 export type { DeferralLimitCrossing } from "./deferralLimit";
-export type {
-  ResolvedJobPayDisplay,
-  UncountedPaySpan,
-  UncountedPayReason,
-} from "./householdJob";
+export type { ResolvedJobPayDisplay } from "./householdJob";
 
 // The authoring state a caller holds, its self-describing format version, and the error that
 // refuses a version this build cannot read.

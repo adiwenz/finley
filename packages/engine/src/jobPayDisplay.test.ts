@@ -6,6 +6,9 @@
  * one or two gaps. The app used to look only for a trailing one, which silently kept a partner's
  * pre-join years on the books; these pin all four shapes and the two degenerate ones beside them.
  *
+ * Spans and nothing else: which edge of the membership opened a gap is legible from where the gap
+ * sits relative to the paid window, so the engine states the geometry and a surface reads it.
+ *
  * Months from "now" throughout, and the employment span reaches BACK before 0 where the job
  * does — a chart draws that history and the projection pays none of it. The gaps here are the
  * membership's alone, which is why a household's own long-held job reports none.
@@ -75,7 +78,7 @@ describe("resolveJobPayDisplay", () => {
 
     expect(display.paidSpan).toEqual({ startMonth: at(45), endMonthExclusive: at(65) });
     expect(display.uncountedSpans).toEqual([
-      { startMonth: at(35), endMonthExclusive: at(45), reason: "before-household-membership" },
+      { startMonth: at(35), endMonthExclusive: at(45) },
     ]);
   });
 
@@ -84,7 +87,7 @@ describe("resolveJobPayDisplay", () => {
 
     expect(display.paidSpan).toEqual({ startMonth: at(35), endMonthExclusive: at(55) });
     expect(display.uncountedSpans).toEqual([
-      { startMonth: at(55), endMonthExclusive: at(65), reason: "after-household-membership" },
+      { startMonth: at(55), endMonthExclusive: at(65) },
     ]);
   });
 
@@ -96,19 +99,20 @@ describe("resolveJobPayDisplay", () => {
 
     expect(display.paidSpan).toEqual({ startMonth: at(45), endMonthExclusive: at(55) });
     expect(display.uncountedSpans).toEqual([
-      { startMonth: at(35), endMonthExclusive: at(45), reason: "before-household-membership" },
-      { startMonth: at(55), endMonthExclusive: at(65), reason: "after-household-membership" },
+      { startMonth: at(35), endMonthExclusive: at(45) },
+      { startMonth: at(55), endMonthExclusive: at(65) },
     ]);
   });
 
   it("reports the whole span for a job finished before its owner joined", () => {
-    // No paid window at all — an answer, not a gap. The reason names the edge that missed it:
-    // they were not here yet, which is a different sentence from having left.
+    // No paid window at all — an answer, not a gap. The whole employment comes back uncounted,
+    // and with no paid span beside it there is no before or after to distinguish; a surface that
+    // wants to say something about this case has only the one thing to say.
     const display = displayOf(context(job(20, 30), at(45), null));
 
     expect(display.paidSpan).toBeNull();
     expect(display.uncountedSpans).toEqual([
-      { startMonth: at(20), endMonthExclusive: at(30), reason: "before-household-membership" },
+      { startMonth: at(20), endMonthExclusive: at(30) },
     ]);
   });
 
@@ -117,7 +121,7 @@ describe("resolveJobPayDisplay", () => {
 
     expect(display.paidSpan).toBeNull();
     expect(display.uncountedSpans).toEqual([
-      { startMonth: at(50), endMonthExclusive: at(60), reason: "after-household-membership" },
+      { startMonth: at(50), endMonthExclusive: at(60) },
     ]);
   });
 
@@ -153,7 +157,7 @@ describe("resolveJobPayDisplay", () => {
     const capped = hypothetical(60);
     expect(capped.employmentSpan).toEqual({ startMonth: at(35), endMonthExclusive: at(60) });
     expect(capped.uncountedSpans).toEqual([
-      { startMonth: at(55), endMonthExclusive: at(60), reason: "after-household-membership" },
+      { startMonth: at(55), endMonthExclusive: at(60) },
     ]);
 
     // Capped INSIDE the membership: nothing is uncounted at all, because the employment now
