@@ -18,14 +18,13 @@ import type { PersonId } from "../job";
 import { PRIMARY_PERSON_ID } from "../projectionBase";
 import {
   addProjectionJob,
+  addProjectionJobPayChange,
   addProjectionPartnerJob,
   householdJobs,
-  jobMonthlyIncomeCentsOf,
   relationshipFor,
   removeProjectionJob,
   removeProjectionPartnerJob,
   setProjectionContinuationJob,
-  setProjectionJobMonthlyIncome,
 } from "./jobs";
 
 const longRunningJob = {
@@ -110,22 +109,32 @@ describe("job authoring — the module owns which plane a job lives on", () => {
       longRunningJob,
     );
 
-    // One call shape, two storage planes — the caller never names either.
-    const raised = setProjectionJobMonthlyIncome(
-      setProjectionJobMonthlyIncome(both, nullJurisdiction, planJobId, dollarsToCents(9000)),
-      nullJurisdiction,
-      partnerJobId,
-      dollarsToCents(7000),
-    );
+    // One call shape, two storage planes — the caller never names either. A pay change is one of
+    // several writes routed through the plane-agnostic finder, so it stands in for that path here.
+    const withPlanChange = addProjectionJobPayChange(both, nullJurisdiction, planJobId, {
+      month: 12,
+      kind: "setTo",
+      cents: dollarsToCents(9000),
+    }).state;
+    const raised = addProjectionJobPayChange(withPlanChange, nullJurisdiction, partnerJobId, {
+      month: 12,
+      kind: "setTo",
+      cents: dollarsToCents(7000),
+    }).state;
 
-    expect(jobMonthlyIncomeCentsOf(raised, planJobId)).toBe(dollarsToCents(9000));
-    expect(jobMonthlyIncomeCentsOf(raised, partnerJobId)).toBe(dollarsToCents(7000));
+    const jobById = (id: string) => householdJobs(raised).find((j) => j.id === id);
+    expect(jobById(planJobId)?.payChanges).toHaveLength(1);
+    expect(jobById(partnerJobId)?.payChanges).toHaveLength(1);
   });
 
   it("refuses an id neither plane holds, naming it", () => {
     const state = emptyState();
     expect(() =>
-      setProjectionJobMonthlyIncome(state, nullJurisdiction, "job-99", 1),
+      addProjectionJobPayChange(state, nullJurisdiction, "job-99", {
+        month: 12,
+        kind: "setTo",
+        cents: 1,
+      }),
     ).toThrow(/no job "job-99" in this household/);
   });
 });

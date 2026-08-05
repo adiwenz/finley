@@ -5,31 +5,37 @@ place to explore), Task 3 (mirror the exploration rule into the implement prompt
 Task 4 (reimplement `planFixtures.ts` over `replaceJob` / `replacePartnerJob`), Task 5 (move
 `projectionFacade.test.ts` off the six doomed facade members), Task 6 (re-express the ownerId
 guard in `authoringInputs.guard.test.ts` through `replaceJob`), Task 7 (delete the six facade
-members from `projectionFacade.ts`).
-Tasks 8–20 remain — see the issue body.
+members from `projectionFacade.ts`), Task 8 (delete the six authoring-layer delegates from
+`authoring/jobs.ts` + re-express `jobs.test.ts` off them).
+Tasks 9–20 remain — see the issue body.
 
-**Scope correction (was wrong in the prior handoff):** the issue body separates three deletions
-into three distinct sections — "Delete the six facade members" (`projectionFacade.ts`, task 7,
-now done), "Delete the six authoring-layer delegates" (`authoring/jobs.ts`, a *later* task), and
-delete the `with*` transforms (`job.ts`, a later task still). Task 7 was facade-only; it did **not**
-touch `authoring/jobs.ts`. Do not fold the delegate deletion back into task 7.
+**Scope note:** the issue separates three deletions into three sections — "Delete the six facade
+members" (`projectionFacade.ts`, task 7, done), "Delete the six authoring-layer delegates"
+(`authoring/jobs.ts`, task 8, done), and delete the `with*` transforms (`job.ts`, a later task,
+NOT yet done).
 
 ## Live constraints
-- **Task 7 left `authoring/jobs.ts` delegates orphaned-from-the-facade but still live.**
-  `updateProjectionJob`, `updateProjectionPartnerJob`, `setProjectionJobMonthlyIncome`,
-  `setProjectionJobStartingMonthlyIncome`, `setProjectionJobCurrentMonthlyIncome`,
-  `setProjectionJobDeferralFraction` are no longer imported by the facade, but remain **exported**
-  and are still exercised by `authoring/jobs.test.ts`. The task that deletes them owns that test
-  suite in the same commit (issue §"Delete the six authoring-layer delegates"). Keep the readers
-  (`jobMonthlyIncomeCentsOf`, `jobStartingMonthlyIncomeCentsOf`, `jobDeferralFractionOf`, and the
-  person/household aggregates) — the facade still imports and re-exposes all of them.
-- **`with*` transforms in `job.ts` still exist** (`withMonthlyIncome`, `withStartingMonthlyIncome`,
-  `withCurrentMonthlyIncome`, `withDeferralFraction`) — deletable only after the `authoring/jobs.ts`
-  delegates that call them are gone. `planFixtures.ts` deliberately *inlines* their logic (see
-  below) so they end up orphaned; do not re-import them there. Keep the readers `monthlyIncomeCentsOf`
-  / `startingMonthlyIncomeCentsOf` (the latter live at `packages/app/src/planPeople.ts`).
+- **`with*` transforms in `job.ts` are now fully orphaned and deletable.**
+  `withMonthlyIncome`, `withStartingMonthlyIncome`, `withCurrentMonthlyIncome`,
+  `withDeferralFraction` and `withJobPatch` no longer have any *production* caller — task 8 deleted
+  the `authoring/jobs.ts` delegates that used them and dropped those imports. They remain referenced
+  only by `job.test.ts` and by a `{@link import("../job").withDeferralFraction}` doc in
+  `authoring/jobs.ts` (the `jobDeferralFractionOf` read). The task that deletes them owns
+  `job.test.ts` in the same commit, and must sweep that `{@link}`. Keep the readers
+  `monthlyIncomeCentsOf` / `startingMonthlyIncomeCentsOf` (the latter lives at
+  `packages/app/src/planPeople.ts`), `deferralFractionOf`, and `mapJob` — all still used.
+- **`authoring/jobs.ts` kept all three plane helpers** (`editPlanJob`, `editPartnerJob`,
+  `editJobAnywhere`). They survived the delegate deletion: `editPlanJob` still backs
+  `replaceProjectionJob`, `editPartnerJob` still backs `editJobAnywhere`, and `editJobAnywhere`
+  still backs the pay-change and income-override writes. Do not delete them.
+- **`jobs.test.ts` now proves the plane-agnostic finder through `addProjectionJobPayChange`**
+  (task 8). The two tests under "the module owns which plane a job lives on" that used to call
+  `setProjectionJobMonthlyIncome` now route an edit through `addProjectionJobPayChange` — a
+  surviving `editJobAnywhere` caller — and assert the pay change landed on the right job / the
+  refusal names the id. If a later task deletes the pay-change writes, re-express these two tests
+  through another surviving `editJobAnywhere` caller (income override) rather than dropping them.
 - Issue §2 also asks for a **guard test** so a future unreachable facade member is caught the day it
-  dies. That is a remaining task — not done yet.
+  dies. Still a remaining task — not done yet.
 - **Exploration rule** lives in two docs and is pinned by
   `packages/engine/src/comments.guard.test.ts`:
   - `AGENTS.md`, `## Testing & exploration` section.
@@ -46,7 +52,8 @@ touch `authoring/jobs.ts`. Do not fold the delegate deletion back into task 7.
 - **`planFixtures.ts` names none of the six doomed facade members** (task 4). Its salary/deferral
   builders route through `replaceJob` / `replacePartnerJob` via a private `replacingJob(id, edit)`
   helper and deliberately **inline** the `with*` transforms (the `deferral <= 0 → drop the key`
-  asymmetry and the `RETIREMENT_ID` default). Do not "simplify" by re-importing the transforms.
+  asymmetry and the `RETIREMENT_ID` default). Do not "simplify" by re-importing the transforms —
+  that would resurrect the very callers the `job.ts` deletion task needs gone.
 - **`projectionFacade.test.ts` names none of the six doomed members** (task 5): every job edit reads
   the job back through `p.plan` (or `partnerEvent(p).person.jobs`) and spreads it into
   `replaceJob` / `replacePartnerJob`. Spreading `...job` is safe — `replaceProjectionJob` re-stamps
@@ -57,20 +64,20 @@ touch `authoring/jobs.ts`. Do not fold the delegate deletion back into task 7.
   `ownerId` from that literal leaves the directive unused and `tsc` errors — keep it intact.
 
 ## Traps
-- **Test-count baseline:** task 5 was the intended drop (the two `setJobDeferralFraction`-asymmetry
-  `it`s; suite 176 → 174, full suite 1810 → 1808 passing). Per the issue this and `allocations.test.ts`
-  are the *only* intended total-count drops across the whole issue. Task 6 and task 7 did **not**
-  change the count — still **1808 passing | 45 todo** (task 7 was a pure deletion; the tests were
-  already moved off the members). If a later suite count falls unexpectedly, treat it as a
-  regression, not a cleanup.
-- Task 7 also fixed two now-dangling `{@link updateJob}` doc references in `projectionFacade.ts`:
-  the class-level "editing method addresses a target by id" example now names `replaceJob(jobId, …)`,
-  and `replaceJob`'s own doc no longer contrasts against `updateJob`. When you delete the
-  `authoring/jobs.ts` delegates, sweep their doc-comments the same way — a dangling `{@link}` is not
-  a compile error but is noise the reviewer will flag.
+- **Test-count baseline:** task 5 was the only intended suite drop so far (the two
+  `setJobDeferralFraction`-asymmetry `it`s; full suite 1810 → 1808 passing). Per the issue this and
+  `allocations.test.ts` are the *only* intended total-count drops across the whole issue. Tasks 6, 7
+  and 8 did **not** change the count — still **1808 passing | 45 todo** (task 8 re-expressed rather
+  than deleted its two tests, so `jobs.test.ts` stays at 9). If a later suite count falls
+  unexpectedly, treat it as a regression, not a cleanup.
+- **Dangling `{@link}` sweep on deletion.** When you delete a member, sweep every `{@link}` that
+  named it — not a compile error, but noise a reviewer flags. Task 8 reworded `replaceProjectionJob`'s
+  doc (no longer contrasts against the deleted `updateProjectionJob`) and repointed the
+  `jobDeferralFractionOf` read doc at `withDeferralFraction`. The `job.ts` transform-deletion task
+  inherits the same sweep for `job.ts`'s own cross-links.
 
 ## Dead ends
 - (none)
 
 ## Deferred
-- (none — everything from the delegate deletion on is owned by its declared task)
+- (none — everything remaining is owned by its declared task)
