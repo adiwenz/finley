@@ -53,10 +53,10 @@ import {
 } from "../../planPeople";
 import { jobOwnersOf, type JobOwner } from "../../jobOwners";
 import { addJob, editJob, ownedJobsOf, type JobWrite } from "../../jobEditing";
+import { usJurisdiction } from "@finley/rules";
 import { START_YEAR } from "../../config";
 import { commitJobWrites } from "../../jobWrites";
 import type { Transact } from "../../hooks/useProjection";
-import { firstDeferralLimitCrossing } from "../../deferralLimit";
 import { formatDollars } from "../../format";
 import { JobForm } from "./jobForm";
 import { JobCard, type JobCardAuthoring } from "./jobCard";
@@ -85,6 +85,7 @@ interface JobsPanelProps {
     | "jobStartingMonthlyIncomeCents"
     | "jobDeferralFraction"
     | "continuationJobOf"
+    | "deferralLimitCrossing"
   >;
   /**
    * The `household` a stop-working preview resolved, or `null` when the Retirement panel isn't
@@ -120,6 +121,30 @@ function chartedSpan(
   authored: JobPaySpan,
 ): JobPaySpan {
   return previewHousehold ? resolvedJobPaySpan(previewHousehold, jobId, authored) : authored;
+}
+
+/**
+ * The stretch of a job's authored employment that this household is **not paid for** — `null`
+ * for the ordinary job, which is paid for all of it.
+ *
+ * Only a membership can open this gap: a job's own end already ends the authored span, so a
+ * resolved end earlier than the authored one means the owner left the household while the job
+ * ran on. Read off the engine's resolution rather than compared against the separation month
+ * here, so this cannot come to a different answer from the projection about when the wages
+ * stopped.
+ */
+function uncountedFrom(
+  household: Household,
+  jobId: string,
+  authored: JobPaySpan,
+  ownerName: string,
+): { fromMonth: number; note: string } | null {
+  const paid = resolvedJobPaySpan(household, jobId, authored);
+  if (paid.endMonthExclusive >= authored.endMonthExclusive) return null;
+  return {
+    fromMonth: paid.endMonthExclusive,
+    note: `Hatched: ${ownerName} is no longer part of this household, so this pay is not household income.`,
+  };
 }
 
 /**
@@ -176,10 +201,12 @@ export function JobsPanel({
    * cannot be compared, and comparing them is most of why they are stacked on one axis.
    */
   const [inTodaysDollars, setInTodaysDollars] = useState(false);
-  // Per PERSON, not per household: the elective limit belongs to the earner.
+  // Per PERSON, not per household: the elective limit belongs to the earner. The whole scan is
+  // the engine's — which years are worked, which of them belong to the household, and what the
+  // pay is in each are the projection's own three answers, and this panel only shows the result.
   const deferralCrossing = useMemo(
-    () => firstDeferralLimitCrossing(owners, budget.inflationPct),
-    [owners, budget.inflationPct],
+    () => projection.deferralLimitCrossing(usJurisdiction),
+    [projection],
   );
   const severalOwners = owners.length > 1;
   /** The picker's options — the form needs who they are, not where their jobs live. */
@@ -294,6 +321,17 @@ export function JobsPanel({
                 denomination: inTodaysDollars ? "todaysDollars" : "paycheck",
               },
             );
+            // Where the household stops being paid for a job it goes on holding — a partner who
+            // separates keeps their employment and stops contributing to this household, and the
+            // authored span above knows nothing about that. The chart keeps drawing the whole
+            // schedule (it is the owner's job, and shortening it would say they stopped working)
+            // and marks the stretch that is no longer household income. Never while previewing:
+            // there the span is already the previewed one, and hatching a job the preview
+            // removed would claim it happens and does not count, rather than not happening.
+            const uncounted =
+              previewHousehold === null
+                ? uncountedFrom(household, job.id, authoredSpan, owner.name)
+                : null;
             // Narrow the panel's authoring state to this one card, so nothing but its own open
             // panel reaches it.
             const cardAuthoring: JobCardAuthoring =
@@ -311,6 +349,7 @@ export function JobsPanel({
                 monthlyCents={projection.jobMonthlyIncomeCents(job.id)}
                 initialEditDraft={jobToDraftFor(projection, owner.birthYear, job)}
                 path={path}
+                uncounted={uncounted}
                 lifeExpectancy={budget.lifeExpectancy}
                 inTodaysDollars={inTodaysDollars}
                 severalOwners={severalOwners}

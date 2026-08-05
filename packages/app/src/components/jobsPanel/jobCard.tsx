@@ -48,6 +48,12 @@ export interface JobCardProps {
   readonly initialEditDraft: JobEditDraft;
   /** The job's pay across its whole employment, in the panel's chosen denomination. */
   readonly path: JobPayPath;
+  /**
+   * Where this job's pay stops being household income before the employment ends, and why —
+   * `null` for every job the household is paid for throughout. Derived in the panel off the
+   * engine's resolved household; the card only carries it to the chart.
+   */
+  readonly uncounted: { readonly fromMonth: number; readonly note: string } | null;
   readonly lifeExpectancy: number;
   readonly inTodaysDollars: boolean;
   /** The household holds more than one earner, so the edit form shows whose job this is. */
@@ -74,6 +80,7 @@ export function JobCard({
   monthlyCents,
   initialEditDraft,
   path,
+  uncounted,
   lifeExpectancy,
   inTodaysDollars,
   severalOwners,
@@ -133,6 +140,7 @@ export function JobCard({
           there — the chart is an input, not a picture. */}
       <PayChart
         path={path}
+        uncounted={uncounted}
         payChanges={payChanges}
         incomeOverrides={job.incomeOverrides ?? []}
         birthYear={owner.birthYear}

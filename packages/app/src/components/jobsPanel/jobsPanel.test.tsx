@@ -1413,3 +1413,62 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
     expect(authored().plan.continuationJobId).toBeUndefined();
   });
 });
+
+/**
+ * **A separated partner keeps their job; the household stops being paid for it.**
+ *
+ * Two facts, and the card has to carry both. Shortening the line would say Sam stopped working,
+ * which is not what a separation is; drawing it plain would say the household still collects it,
+ * which is what the projection stopped doing. So the whole schedule stays and the stretch that
+ * is no longer household income is hatched and named.
+ */
+describe("JobsPanel — a job that outlasts its owner's membership", () => {
+  const separatingAt = (month: number): NewLifeEvent => ({
+    id: "s1",
+    type: "SeparationEvent",
+    month,
+    partnerPersonId: "p-1",
+    alimonyMonthlyCents: 0,
+    alimonyDurationMonths: 0,
+    childSupportMonthlyCents: 0,
+  });
+
+  /** Where each card's chart says its pay stops counting — "" for a card with no hatch. */
+  const uncountedFroms = (): string[] =>
+    screen.getAllByTestId("pay-chart-uncounted-from").map((el) => el.textContent ?? "");
+
+  it("marks the months after a separation without shortening the job", () => {
+    // Sam's job runs to their 65 (month 300) and they leave at month 120. Sam is still employed
+    // for all 300 of those months — the card draws them — and the household is paid for 120.
+    render(
+      <Harness events={[partnerJoining([partnerJob(5000)]), separatingAt(120)]} />,
+    );
+
+    // Exactly one card is marked, and it is marked at the separation, not at the job's end.
+    expect(uncountedFroms().filter((v) => v !== "")).toEqual(["120"]);
+    // Named, not merely textured: a hatch nobody explains is decoration.
+    expect(
+      screen.getByText(/Sam is no longer part of this household, so this pay is not household income/),
+    ).toBeTruthy();
+    // The job itself is untouched — this is a reading of the plan, never an edit to it.
+    expect(partnerJobs()[0]!.endYear).toBe(START_YEAR - 40 + 65);
+  });
+
+  it("marks nothing while the household is whole", () => {
+    render(<Harness events={[partnerJoining([partnerJob(5000)])]} />);
+    expect(uncountedFroms().every((v) => v === "")).toBe(true);
+    expect(screen.queryByText(/no longer part of this household/)).toBeNull();
+  });
+
+  it("marks nothing while previewing, where a shortened span means something else", () => {
+    // The preview already draws each job as the previewed run resolved it. Hatching there would
+    // say the pay happens and does not count, when the preview's claim is that it never happens.
+    render(
+      <Harness
+        events={[partnerJoining([partnerJob(5000)]), separatingAt(120)]}
+        previewStopAge={50}
+      />,
+    );
+    expect(uncountedFroms().every((v) => v === "")).toBe(true);
+  });
+});

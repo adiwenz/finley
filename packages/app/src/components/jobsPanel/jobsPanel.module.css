@@ -52,6 +52,17 @@
   margin: 4px 0 2px;
 }
 
+/* The hatch's key. Swatch and sentence on one baseline, at the hint size — this qualifies the
+   chart above it and must not compete with the job's own figures for attention. */
+.chartKey {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--color-muted, #6b6552);
+}
+
 /* Governs every chart and timeline below it, so it sits above the list rather than in a row. */
 .denomination {
   display: inline-flex;

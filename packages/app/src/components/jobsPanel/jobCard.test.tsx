@@ -67,6 +67,7 @@ function renderCard(overrides: Partial<Parameters<typeof JobCard>[0]> = {}) {
       job={JOB}
       label="Engineer"
       monthlyCents={dollarsToCents(5_000)}
+      uncounted={null}
       initialEditDraft={EDIT_DRAFT}
       path={jobPayPathFor(OWNER, JOB, 0.03, false)}
       lifeExpectancy={90}
