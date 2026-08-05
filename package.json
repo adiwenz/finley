@@ -11,6 +11,8 @@
   "scripts": {
     "sandcastle": "npx tsx .sandcastle/new_flow/main.ts",
     "claude": "npx tsx .sandcastle/new_flow/claude-interactive.ts",
+    "repl": "npx tsx repl.ts",
+    "playground": "npx tsx playground.ts",
     "dev": "npm run dev -w @finley/app",
     "build": "npm run build -w @finley/app",
     "test": "vitest run",
