@@ -19,7 +19,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { PRIMARY_PERSON_ID } from "@finley/engine";
+import { PRIMARY_PERSON_ID, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { retirementView } from "./retirementView";
 import {
@@ -28,6 +28,7 @@ import {
   alexAlone,
   alexAndSam,
   headline,
+  paragraphs,
   assumptions,
   LIFE_EXPECTANCY,
 } from "./testing/scenarioBuilders";
@@ -132,5 +133,85 @@ describe("scenarios — what the household is actually told", () => {
       `On these numbers the money never lasts to age ${LIFE_EXPECTANCY} — no retirement age is feasible. Structural changes are required.`,
     );
     expect(assumptions(p)).toEqual([]);
+  });
+});
+
+describe("scenarios — more households the same panel has to answer", () => {
+  it("tells a lone earner whose pay never covers the plan that no age is feasible", () => {
+    // A single earner on a wage the household outspends: continuing that job to any age still
+    // never funds life expectancy, so the honest answer is structural rather than a later age.
+    // Distinct from the None scenario above, which reached this same sentence by REMOVING the
+    // continuation — here the continuation is intact and simply cannot carry the numbers.
+    const p = alexAlone();
+    p.replaceJob(p.plan.jobs[0]!.id, jobAt(18, 65, 12_000));
+
+    expect(headline(p)).toBe(
+      `On these numbers the money never lasts to age ${LIFE_EXPECTANCY} — no retirement age is feasible. Structural changes are required.`,
+    );
+    expect(assumptions(p)).toEqual([]);
+  });
+
+  it("lets a household a partner out-earns retire outright, naming no job at all", () => {
+    // Sam earns $200k to Alex's $60k, so the AUTHORED plan funds itself well before either job
+    // ends — the search needs no continuation hypothesis, and the sentence names no job. Alex
+    // alone reaches only a conditional 76 (the opening scenario); the partner's earnings pull the
+    // earliest stop forward to 45 and drop the "if … continued" clause entirely.
+    const { projection } = alexAndSam({ jobs: [jobAt(35, 50, 200_000)] });
+
+    expect(headline(projection)).toBe(
+      `You can retire at 45 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+    );
+    expect(retirementView(projection, usJurisdiction).continuedJobs).toEqual([]);
+  });
+
+  it("pushes the earliest stop out when a mid-career separation loses the higher earner", () => {
+    // Together, Sam's $120k pulls the earliest stop to 48. Separating at Alex's 48 ends Sam's
+    // contribution there, and the household — on Alex's $60k plus what was saved while together —
+    // cannot stop until 55. The separation is the only difference between the two, so it is what
+    // moved the age.
+    const jobs = [jobAt(35, 55, 120_000)];
+
+    expect(headline(alexAndSam({ jobs }).projection)).toBe(
+      `You can retire at 48 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+    );
+    expect(headline(alexAndSam({ jobs, separateAt: monthAt(48) }).projection)).toBe(
+      `You can retire at 55 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+    );
+  });
+
+  it("tells a household a stranded purchase blocked the projection, and shows nothing else", () => {
+    // A home authored when the account could fund it, then stranded by a later opening-balance
+    // edit: the down payment no longer resolves, so the projection BLOCKS rather than reaching an
+    // age. The panel then drops every other line and states only that — its third state, "fund the
+    // obligation differently", not "retire later". The block's mechanics are pinned in
+    // scenarios.blockedPurchase.test.ts; this pins the one SENTENCE the household is shown.
+    const p = alexAlone();
+    p.updatePlan({ openingBalanceCents: dollarsToCents(400_000) });
+    p.buyHome({
+      month: 12,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(500_000),
+      downPaymentCents: dollarsToCents(200_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
+
+    expect(paragraphs(p)).toEqual([
+      "Can’t compute a retirement age — your projection is blocked at age 36. Fund the blocking obligation differently to see how far your plan reaches.",
+    ]);
+  });
+
+  it("gives a late-start earner a feasible age, just a later one", () => {
+    // Alex's career begins at 35 rather than the usual 18 — the same $60k job, two decades of
+    // saving forgone. The plan still resolves, but only on the continuation, and the earliest stop
+    // lands at 78: past the 76 the from-18 default reaches on the identical wage.
+    const p = alexAlone();
+    p.replaceJob(p.plan.jobs[0]!.id, jobAt(35, 65, 60_000));
+
+    expect(headline(p)).toBe(
+      `You could stop working at 78 if Alex's job continued through when you are 78 (2069), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+    );
   });
 });
