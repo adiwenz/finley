@@ -11,10 +11,10 @@ import { describe, expect, it } from "vitest";
 import { seqFloor, withNormalizedCounters } from "./mint";
 import { samplePlan, stateOf } from "../testing/samplePlan";
 import type { ProjectionState } from "./state";
-import type { Job } from "../job";
-import type { PersonId } from "../job";
+import type { Job } from "../job/job";
+import type { PersonId } from "../job/job";
 import { SAMPLE_START_YEAR } from "../testing/samplePlan";
-import { dollarsToCents } from "../cashFlowSeries";
+import { dollarsToCents } from "../money/cashFlowSeries";
 
 const P1 = "p1" as PersonId;
 

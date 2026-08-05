@@ -12,9 +12,9 @@
  * cycle between them.
  */
 
-import type { BudgetTarget } from "../budgetLine";
+import type { BudgetTarget } from "../budget/budgetLine";
 import { goalFundAccountId } from "../compile/projectionBase";
-import { ageAboveMaximum } from "../plan";
+import { ageAboveMaximum } from "../plan/plan";
 import {
   PRIMARY_PERSON_REF,
   RETIREMENT_REF,
@@ -29,7 +29,7 @@ import type {
   ScenarioInput,
   ScenarioScalars,
 } from "../input/scenarioInput";
-import type { Projection } from "../projectionFacade";
+import type { Projection } from "../facade/projectionFacade";
 import type { JobInput } from "./jobs";
 
 /**

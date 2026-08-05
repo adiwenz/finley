@@ -4,11 +4,11 @@
  * gated ledger path.
  */
 
-import type { Job } from "../job";
-import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan";
-import type { PersonId } from "../job";
-import type { Jurisdiction } from "../jurisdiction";
-import type { Person } from "../person";
+import type { Job } from "../job/job";
+import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan/plan";
+import type { PersonId } from "../job/job";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { Person } from "../plan/person";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";

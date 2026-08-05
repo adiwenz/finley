@@ -1,8 +1,8 @@
-import type { Cents } from "../money";
-import type { Jurisdiction, GovernmentBenefitClaim, GovernmentBenefitContext } from "../jurisdiction";
-import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../earningsRecord";
-import { priceGovernmentBenefitBaseMonthlyCents } from "../governmentBenefit";
-import type { TaxCategory } from "../cashFlowSeries";
+import type { Cents } from "../money/money";
+import type { Jurisdiction, GovernmentBenefitClaim, GovernmentBenefitContext } from "../jurisdiction/jurisdiction";
+import { addEarnings, toEarningsRecord, type EarningsAccumulator } from "../job/earningsRecord";
+import { priceGovernmentBenefitBaseMonthlyCents } from "../jurisdiction/governmentBenefit";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimOwnedSeries } from "./simulate";
 import { isHouseholdMemberAt, type SimPerson } from "./simulate.types";

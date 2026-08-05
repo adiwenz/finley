@@ -5,15 +5,15 @@
  * the waterfall.
  */
 import { describe, it, expect } from "vitest";
-import { emptyLedger } from "../ledger/ledger";
+import { emptyLedger } from "./ledger";
 import { replayLedger } from "../projection/buildHouseholdInput";
-import type { LedgerBaseConfig } from "../ledger/ledgerBase";
-import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
-import { nullJurisdiction } from "../jurisdiction";
-import type { Person } from "../person";
-import { planAccount, type PlanAccount } from "../planAccount";
-import type { PersonId } from "../job";
+import type { LedgerBaseConfig } from "./ledgerBase";
+import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
+import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import type { Person } from "../plan/person";
+import { planAccount, type PlanAccount } from "../plan/planAccount";
+import type { PersonId } from "../job/job";
 
 const person: Person = {
   id: "p1",

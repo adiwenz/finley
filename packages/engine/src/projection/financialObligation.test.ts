@@ -18,8 +18,8 @@ import {
   type FinancialObligation,
   type ObligationSource,
 } from "./financialObligation";
-import { dollarsToCents, SimCashFlowSeries } from "../cashFlowSeries";
-import { AmortizingLoan, RevolvingCard, type LiabilityKind } from "../liability";
+import { dollarsToCents, SimCashFlowSeries } from "../money/cashFlowSeries";
+import { AmortizingLoan, RevolvingCard, type LiabilityKind } from "../liability/liability";
 import { buildLiabilityPaymentRecords } from "./liabilitySteps";
 import type { SimOwnedSeries } from "./simulate.types";
 

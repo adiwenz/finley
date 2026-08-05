@@ -15,7 +15,7 @@
  * the month reports as insolvency.
  */
 
-import type { Cents } from "../money";
+import type { Cents } from "../money/money";
 import type { FinancialObligation } from "./financialObligation";
 import { orderObligationsByPriority } from "./financialObligation";
 

@@ -8,7 +8,7 @@
  * past what the scenario actually holds, and the ledger is proved to replay.
  */
 
-import type { Jurisdiction } from "../jurisdiction";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { ProjectionState } from "./state";
 import { CURRENT_FORMAT_VERSION } from "./state";
 import { withNormalizedCounters } from "./mint";

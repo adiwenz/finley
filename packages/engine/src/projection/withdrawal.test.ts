@@ -6,16 +6,16 @@ import {
   CASH_INTEREST_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
-} from "../simAccount";
-import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
+} from "../plan/simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import {
   nullJurisdiction,
   type Jurisdiction,
   type WithdrawalTaxBasis,
-} from "../jurisdiction";
-import type { Cents } from "../money";
-import type { SimGoal, GoalDisposal } from "../goal";
-import { AmortizingLoan, SYNTHETIC_CARD_ID } from "../liability";
+} from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
+import type { SimGoal, GoalDisposal } from "../goal/goal";
+import { AmortizingLoan, SYNTHETIC_CARD_ID } from "../liability/liability";
 import {
   simulateHousehold,
   type HouseholdSimInput,

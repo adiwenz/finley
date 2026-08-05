@@ -1,4 +1,4 @@
-import type { Cents } from "../money";
+import type { Cents } from "../money/money";
 import type { SimState } from "./runState";
 import type {
   InsolvencyReport,

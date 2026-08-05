@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { emptyLedger, type Ledger } from "../ledger/ledger";
-import { validateLedger, type ValidateLedgerResult } from "../ledger/validateLedger";
-import type { LedgerBaseConfig } from "../ledger/ledgerBase";
-import type { LifeEvent } from "../ledger/eventTypes";
-import { dollarsToCents } from "../cashFlowSeries";
-import { baseConfig, add } from "../events.testSupport";
+import { emptyLedger, type Ledger } from "./ledger";
+import { validateLedger, type ValidateLedgerResult } from "./validateLedger";
+import type { LedgerBaseConfig } from "./ledgerBase";
+import type { LifeEvent } from "./eventTypes";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { baseConfig, add } from "./events.testSupport";
 
 // validateLedger — the replay-validation fold shared by removeEvent / updateEvent: seed base
 // state, then checkEvent + applyEvent each sorted event, bailing on the first conflict.

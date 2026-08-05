@@ -25,7 +25,7 @@
 
 import { interpretLedger } from "../ledger/interpret";
 import { createProjectionBase } from "../compile/projectionBase";
-import { jobPayPath } from "../job";
+import { jobPayPath } from "../job/job";
 import {
   householdPaidMonths,
   householdPaidYears,
@@ -33,11 +33,11 @@ import {
   resolveHouseholdJobs,
   type HouseholdPaidMonths,
   type ResolvedHouseholdJob,
-} from "../householdJob";
+} from "../job/householdJob";
 import type { ProjectionContext } from "../compile/projectionBase";
-import type { Scenario } from "../scenario";
-import type { PersonId } from "../job";
-import type { Cents } from "../money";
+import type { Scenario } from "../plan/scenario";
+import type { PersonId } from "../job/job";
+import type { Cents } from "../money/money";
 
 export interface DeferralLimitCrossing {
   /** Whose limit it is — the elective limit is individual. */

@@ -2,7 +2,7 @@
  * The retirement question answered whole: when can this household stop working?
  *
  * A plain function of authored state for the same reason a run is — nothing here derives a state
- * back — and separate from `../projectionRun` because it is a *search* over many simulations, each
+ * back — and separate from `../facade/projectionRun` because it is a *search* over many simulations, each
  * at a candidate retirement age, rather than one pass. A caller that only wants the graph never
  * pays for it.
  *
@@ -12,12 +12,12 @@
  * answer, and the health flag below reads that answer rather than a figure beside it.
  */
 
-import type { Jurisdiction } from "../jurisdiction";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { ProjectionState } from "../authoring/state";
 import type { ProjectionContext } from "../compile/projectionBase";
 import { solveRetirement } from "./retirementSolver";
 import type { RetirementSolution } from "./retirementTypes";
-import { healthcareMonthlyCents } from "../budgetLine";
+import { healthcareMonthlyCents } from "../budget/budgetLine";
 import { assessEarlyRetireeHealthCost } from "./earlyRetireeHealthCheck";
 import type { EarlyRetireeHealthFlag } from "./earlyRetireeHealthCheck";
 

@@ -4,16 +4,16 @@
  * {@link InterpretState} accumulator, so the two can never interpret the ledger differently.
  */
 
-import type { Cents } from "../money";
-import type { GrowthMode } from "../cashFlowSeries";
-import type { SimCashFlowSeries } from "../cashFlowSeries";
-import type { LiabilityKind } from "../liability";
+import type { Cents } from "../money/money";
+import type { GrowthMode } from "../money/cashFlowSeries";
+import type { SimCashFlowSeries } from "../money/cashFlowSeries";
+import type { LiabilityKind } from "../liability/liability";
 import type { FinancialObligation, ObligationSource } from "../projection/financialObligation";
-import type { JobPaySpan } from "../job";
-import type { Person } from "../person";
+import type { JobPaySpan } from "../job/job";
+import type { Person } from "../plan/person";
 import type { PlanDescriptor } from "../projection/waterfall";
-import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
-import type { Account } from "../account";
+import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../plan/ids";
+import type { Account } from "../plan/account";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
@@ -117,9 +117,9 @@ export interface Household {
   readonly properties: readonly HouseholdProperty[];
   /**
    * The household's accounts — the authoring side of the very
-   * {@link import("../planAccount").PlanAccount}s the simulation runs, so net worth here and
+   * {@link import("../plan/planAccount").PlanAccount}s the simulation runs, so net worth here and
    * the simulated balances cannot describe different holdings. Owners resolve against
-   * {@link memberships} through {@link import("../account").accountsOf} et al., an invariant
+   * {@link memberships} through {@link import("../plan/account").accountsOf} et al., an invariant
    * interpretation enforces.
    */
   readonly accounts: readonly Account[];
@@ -134,7 +134,7 @@ export interface Household {
 /**
  * One job's resolved employment window, already intersecting everything that can end it —
  * the job's own authored end and (mid-solve, or under a
- * preview run) any {@link import("../householdJob").StopWorkingBoundary} — read straight off
+ * preview run) any {@link import("../job/householdJob").StopWorkingBoundary} — read straight off
  * the income series {@link import("../compile/compilePerson").compileJobIncome} built for it.
  *
  * `null` means the job pays the household no month at or after "now": already over before the
@@ -152,7 +152,7 @@ export function resolvedJobEndMonth(household: Household, jobId: string): number
 
 /**
  * The window this household actually pays a job over — {@link resolvedJobEndMonth} turned into
- * the {@link import("../job").JobPaySpan} a caller can draw or total, given the job's authored
+ * the {@link import("../job/job").JobPaySpan} a caller can draw or total, given the job's authored
  * start. The start is the caller's because it is not a business rule: a job begins when it was
  * authored to begin, in this household or any other.
  *

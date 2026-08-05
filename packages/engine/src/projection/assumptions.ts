@@ -4,7 +4,7 @@
  * `waterfall.ts`).
  *
  * NEUTRAL simplifications only — a jurisdiction's own caveats ride its
- * {@link import("../jurisdiction").Jurisdiction.modelAssumptions} and the report
+ * {@link import("../jurisdiction/jurisdiction").Jurisdiction.modelAssumptions} and the report
  * concatenates the two, so no US fact leaks into the neutral engine. Not exhaustive:
  * year-boundary timing and RMD forward-projection stay as code comments.
  */

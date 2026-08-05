@@ -1,5 +1,5 @@
-import type { Cents } from "../money";
-import { derivePaymentStatus, deriveLoanStatus } from "../liability";
+import type { Cents } from "../money/money";
+import { derivePaymentStatus, deriveLoanStatus } from "../liability/liability";
 import type { SimState } from "./runState";
 import type { LiabilityPaymentRecord } from "./simulate.types";
 

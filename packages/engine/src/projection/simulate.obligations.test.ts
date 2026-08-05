@@ -18,13 +18,13 @@ import {
   expenseReportingTotal,
   obligationBudgetLineId,
 } from "./financialObligation";
-import { dollarsToCents } from "../cashFlowSeries";
+import { dollarsToCents } from "../money/cashFlowSeries";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
 import { samplePlan, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import type { ProjectionContext } from "../compile/projectionBase";
-import type { BudgetCategory, BudgetLine } from "../budgetLine";
+import type { BudgetCategory, BudgetLine } from "../budget/budgetLine";
 import type { Ledger } from "../ledger/ledger";
-import type { Plan } from "../plan";
+import type { Plan } from "../plan/plan";
 import type { NewLifeEvent } from "../ledger/eventTypes";
 
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: SAMPLE_START_YEAR };

@@ -10,8 +10,8 @@
 import type { Ledger } from "./ledger";
 import type { LifeEvent, SeriesRole } from "./eventTypes";
 import { applyEvent } from "./eventHandlers";
-import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../ids";
-import { SimCashFlowSeries } from "../cashFlowSeries";
+import { asPersonId, asSeriesId, type AccountId, type SeriesId } from "../plan/ids";
+import { SimCashFlowSeries } from "../money/cashFlowSeries";
 import type { SimOwnedSeries } from "../projection/simulate";
 import { OBLIGATION_PRIORITY } from "../projection/financialObligation";
 import { compileHouseholdJobSeries } from "../compile/compilePerson";
@@ -19,8 +19,8 @@ import {
   personJobContexts,
   resolveHouseholdJobs,
   type JobResolutionScope,
-} from "../householdJob";
-import { authoringAccounts } from "../planAccount";
+} from "../job/householdJob";
+import { authoringAccounts } from "../plan/planAccount";
 import {
   freshState,
   type InterpretContext,
@@ -252,7 +252,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
  * household rosters. Interpretation is where the two halves meet — accounts arrive on the
  * base, the roster is built from events — so an owner who is not a member can only be a
  * mis-built base, and silently answering ownership queries against it would understate
- * {@link import("../account").personalAccounts} rather than fail.
+ * {@link import("../plan/account").personalAccounts} rather than fail.
  */
 function assertAccountOwnersRostered(household: Household): Household {
   const rostered = new Set(household.memberships.map((m) => m.person.id));

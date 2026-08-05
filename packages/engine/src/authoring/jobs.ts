@@ -28,7 +28,7 @@ import type {
   JobIncomeOverrideInput,
   JobPayChangeInput,
   PersonId,
-} from "../job";
+} from "../job/job";
 import {
   deferralFractionOf,
   mapJob,
@@ -38,13 +38,13 @@ import {
   withoutIncomeOverride,
   withoutPayChange,
   withPayChange,
-} from "../job";
-import { MAX_LIVED_AGE } from "../plan";
+} from "../job/job";
+import { MAX_LIVED_AGE } from "../plan/plan";
 import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
-import { continuationJobIdOf } from "../householdJob";
-import type { Person } from "../person";
-import type { Jurisdiction } from "../jurisdiction";
-import type { Cents } from "../money";
+import { continuationJobIdOf } from "../job/householdJob";
+import type { Person } from "../plan/person";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";
@@ -338,7 +338,7 @@ function householdPerson(state: ProjectionState, personId: PersonId): Person {
 
 /**
  * Name the one job a what-if may run past its authored end for this person, or `null` for none —
- * see {@link import("../person").Person.continuationJobId}.
+ * see {@link import("../plan/person").Person.continuationJobId}.
  *
  * Plane-explicit in the same way creation is, and for the same reason: a person is on the plan
  * plane or the ledger plane, and this writes a field on the person rather than on a job.
@@ -577,7 +577,7 @@ export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: s
 /**
  * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a caller
  * never has to distinguish "no deferral" from "deferring nothing" — the projection-state view
- * of {@link import("../job").deferralFractionOf}.
+ * of {@link import("../job/job").deferralFractionOf}.
  */
 export function jobDeferralFractionOf(state: ProjectionState, jobId: string): number {
   return deferralFractionOf(jobOrThrow(state, jobId));

@@ -1,8 +1,8 @@
-import type { Cents } from "../money";
-import type { TaxCategory } from "../cashFlowSeries";
+import type { Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import type { TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
-import type { SimGoal } from "../goal";
+import type { SimGoal } from "../goal/goal";
 
 /** The employer-sponsored savings plan a job carries — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
@@ -121,7 +121,7 @@ export interface WaterfallInput {
   /**
    * Employee payroll tax (US: FICA) charged on a person's CUMULATIVE year-to-date earned
    * income by category — the person's reconciled ANNUAL LIABILITY, not per-employer
-   * withholding (see {@link import("../jurisdiction").Jurisdiction.computePayrollTaxCents}).
+   * withholding (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computePayrollTaxCents}).
    * Charged as the DIFFERENCE between the seam on the year-to-date total after this month's
    * earnings and before them, so a capped component (OASDI's wage base) binds on cumulative
    * earnings rather than annualized monthly slices — exact for a lumpy earner, unchanged for

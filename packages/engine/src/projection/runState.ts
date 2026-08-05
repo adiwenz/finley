@@ -1,17 +1,17 @@
-import type { Cents } from "../money";
-import type { SimAccount } from "../simAccount";
-import { seedEarnings, type EarningsAccumulator } from "../earningsRecord";
+import type { Cents } from "../money/money";
+import type { SimAccount } from "../plan/simAccount";
+import { seedEarnings, type EarningsAccumulator } from "../job/earningsRecord";
 import {
   RevolvingCard,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CREDIT_CARD_APR,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
   type SimLiability,
-} from "../liability";
-import type { TaxCategory } from "../cashFlowSeries";
+} from "../liability/liability";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import type { TaxableByCategory } from "./taxAttribution";
-import type { BudgetLine } from "../budgetLine";
-import type { SimGoal } from "../goal";
+import type { BudgetLine } from "../budget/budgetLine";
+import type { SimGoal } from "../goal/goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
 import { PRE_NOW_MONTH, isPreExisting } from "./nowMarker";

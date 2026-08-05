@@ -1,7 +1,7 @@
-import type { Cents } from "../money";
-import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import type { TaxCategory } from "../cashFlowSeries";
-import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budgetLine";
+import type { Cents } from "../money/money";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
+import type { TaxCategory } from "../money/cashFlowSeries";
+import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";

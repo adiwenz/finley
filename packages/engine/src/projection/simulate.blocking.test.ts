@@ -13,10 +13,10 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson, SimProperty } from "./simulate.types";
 import { assetAcquisitionObligation } from "./financialObligation";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
-import { AmortizingLoan, RevolvingCard } from "../liability";
-import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
+import { AmortizingLoan, RevolvingCard } from "../liability/liability";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { monthlyExpense } from "./simulate.testSupport";
 
 const PERSON: SimPerson = { id: "p1", name: "Alice" };

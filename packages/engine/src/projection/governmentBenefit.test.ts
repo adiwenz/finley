@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
-import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { simulateHousehold, type HouseholdSimInput } from "./simulate";
 import type { SimPerson } from "./simulate.types";
 

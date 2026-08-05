@@ -1,6 +1,6 @@
-import type { Cents } from "../money";
-import type { SimAccount } from "../simAccount";
-import type { Jurisdiction } from "../jurisdiction";
+import type { Cents } from "../money/money";
+import type { SimAccount } from "../plan/simAccount";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimPerson } from "./simulate.types";
 

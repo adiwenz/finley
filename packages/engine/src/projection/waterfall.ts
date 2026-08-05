@@ -14,16 +14,16 @@
  * The simulator applies the deposits and routes the shortfall through the cascade.
  */
 
-import { splitEven, type Cents } from "../money";
-import type { TaxCategory } from "../cashFlowSeries";
+import { splitEven, type Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import {
   addCategory,
   attributeTaxToSources,
   type SourceTaxable,
   type TaxableByCategory,
 } from "./taxAttribution";
-import type { SimGoal } from "../goal";
-import { requiredContributionCents } from "../requiredContribution";
+import type { SimGoal } from "../goal/goal";
+import { requiredContributionCents } from "../goal/requiredContribution";
 import type { WaterfallInput, WaterfallResult } from "./waterfall.types";
 import {
   assertPersonTaxBreakdownReconciles,

@@ -36,12 +36,12 @@ import {
   intersectHouseholdPaidMonths,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
-} from "../householdJob";
+} from "../job/householdJob";
 import type { ProjectionSeries, HouseholdSimInput } from "../projection/simulate";
 import type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
-import type { Scenario } from "../scenario";
-import type { Job } from "../job";
-import type { Plan } from "../plan";
+import type { Scenario } from "../plan/scenario";
+import type { Job } from "../job/job";
+import type { Plan } from "../plan/plan";
 import type { Household } from "../ledger/household";
 
 /**

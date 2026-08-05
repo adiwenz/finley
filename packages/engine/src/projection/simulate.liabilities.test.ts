@@ -5,9 +5,9 @@ import {
   RevolvingCard,
   SYNTHETIC_CARD_ID,
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
-} from "../liability";
-import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+} from "../liability/liability";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import {
   makePerson,
   makeInvestmentAccount,

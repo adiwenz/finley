@@ -4,8 +4,8 @@ import {
   assertTaxAttributionReconciles,
   assertPersonTaxBreakdownReconciles,
 } from "./waterfallInvariants";
-import type { SimGoal } from "../goal";
-import { dollarsToCents } from "../cashFlowSeries";
+import type { SimGoal } from "../goal/goal";
+import { dollarsToCents } from "../money/cashFlowSeries";
 
 function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
   return {

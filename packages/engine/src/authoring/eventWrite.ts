@@ -12,7 +12,7 @@
  * caller's state is untouched.
  */
 
-import type { Jurisdiction } from "../jurisdiction";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { NewLifeEvent } from "../ledger/eventTypes";
 import { addEvent, fundingLookup } from "../ledger/addEvent";

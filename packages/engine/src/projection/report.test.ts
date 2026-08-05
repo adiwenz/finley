@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { buildSimulationReport, summarizeSimulation } from "./report";
 import { simulateHousehold, type HouseholdSimInput } from "./simulate";
 import type { SimPerson } from "./simulate.types";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
-import { SimCashFlowSeries, dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
+import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 
 function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
   const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1991 };

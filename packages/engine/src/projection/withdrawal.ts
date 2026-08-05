@@ -1,7 +1,7 @@
-import type { Cents } from "../money";
-import type { SimAccount } from "../simAccount";
-import type { TaxCategory } from "../cashFlowSeries";
-import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
+import type { Cents } from "../money/money";
+import type { SimAccount } from "../plan/simAccount";
+import type { TaxCategory } from "../money/cashFlowSeries";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 
 type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
@@ -25,7 +25,7 @@ export interface WithdrawalState {
 
 /**
  * Default liquidation order, keyed by an account's {@link
- * import("../simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
+ * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
  * first. `capitalGains` leads (least tax friction under a preferential-rate regime),
  * `taxExempt` last to preserve tax-free growth. Every category is grossed up to net its
  * need, so the order ranks them by gross-up cost, not by which are taxed at all.

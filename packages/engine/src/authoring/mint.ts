@@ -6,8 +6,8 @@
  * back is exactly how a counter walks onto a live id.
  */
 
-import type { Job } from "../job";
-import type { Scenario } from "../scenario";
+import type { Job } from "../job/job";
+import type { Scenario } from "../plan/scenario";
 import type { LifeEvent } from "../ledger/eventTypes";
 import { causedByEventId } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";

@@ -3,12 +3,12 @@
  * private to `./simulate`, which re-exports this file.
  */
 
-import type { Cents } from "../money";
-import type { SimAccount } from "../simAccount";
-import type { SimLiability, PaymentStatus, LoanStatus } from "../liability";
-import type { SimCashFlowSeries, TaxCategory } from "../cashFlowSeries";
-import type { SimGoal } from "../goal";
-import type { BudgetLine } from "../budgetLine";
+import type { Cents } from "../money/money";
+import type { SimAccount } from "../plan/simAccount";
+import type { SimLiability, PaymentStatus, LoanStatus } from "../liability/liability";
+import type { SimCashFlowSeries, TaxCategory } from "../money/cashFlowSeries";
+import type { SimGoal } from "../goal/goal";
+import type { BudgetLine } from "../budget/budgetLine";
 import type { FinancialObligation, ObligationSource } from "./financialObligation";
 import type { ResolvedFunding } from "./resolvedFunding";
 import type {
@@ -369,7 +369,7 @@ export interface ProjectionSeries {
 
 /**
  * A person as the *simulator* consumes it — narrower than the authoring {@link
- * import("../person").Person} (which carries the jobs). {@link
+ * import("../plan/person").Person} (which carries the jobs). {@link
  * import("../compile/compilePerson")} does the compiling.
  */
 export interface SimPerson {
@@ -440,7 +440,7 @@ export interface SimOwnedSeries {
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
-   * The authoring id of the {@link import("../budgetLine").BudgetLine} an EXPENSE series
+   * The authoring id of the {@link import("../budget/budgetLine").BudgetLine} an EXPENSE series
    * was compiled from; a health or event series carries none. Keys {@link
    * ProjectionMonthFlows.lineMonthlyCents} and nothing else. Carries no priority: a tight
    * month is absorbed by savings and credit, not by starving low-priority lines.

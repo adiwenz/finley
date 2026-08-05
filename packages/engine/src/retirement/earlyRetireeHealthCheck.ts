@@ -4,14 +4,14 @@
  *
  * One check, not "the health module": the dollar figures and eligibility age live in `rules`
  * (`healthCosts.ts`, behind the `healthCostBenchmarkMonthlyCents` seam), and the authored cost
- * comes off the budget (`budgetLine.ts` `healthcareMonthlyCents`). Pure and
+ * comes off the budget (`budget/budgetLine.ts` `healthcareMonthlyCents`). Pure and
  * jurisdiction-agnostic — the caller supplies every resolved figure.
  *
  * Medicare is not a silent auto-step in the sim, and health is an ordinary authored budget
  * line — the plan holds no health figure of its own. This synthesises no cost, only a flag.
  */
 
-import type { Cents } from "../money";
+import type { Cents } from "../money/money";
 
 export interface EarlyRetireeHealthCheck {
   /** Age employment — and with it employer coverage — stops. */

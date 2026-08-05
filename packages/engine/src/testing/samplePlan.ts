@@ -11,14 +11,14 @@
  * Pure (satisfies `check-engine-purity`) and NOT barrel-exported — tests import it by relative
  * path (`../testing/samplePlan`).
  */
-import type { Plan } from "../plan";
-import type { Job } from "../job";
-import type { BudgetLine } from "../budgetLine";
+import type { Plan } from "../plan/plan";
+import type { Job } from "../job/job";
+import type { BudgetLine } from "../budget/budgetLine";
 import type { Ledger } from "../ledger/ledger";
 import { emptyLedger } from "../ledger/ledger";
 import { CURRENT_FORMAT_VERSION, type ProjectionState } from "../index";
-import { dollarsToCents } from "../cashFlowSeries";
-import { RETIREMENT_ID } from "../ids";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { RETIREMENT_ID } from "../plan/ids";
 
 /**
  * One literal expense line carrying the whole monthly spend. Budget lines are the only expense

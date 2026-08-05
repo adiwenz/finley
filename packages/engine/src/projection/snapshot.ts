@@ -6,16 +6,16 @@
  * once to the projection horizon, and that clamped month drives every field.
  */
 
-import type { Cents } from "../money";
-import type { TaxCategory } from "../cashFlowSeries";
-import type { LiabilityKind } from "../liability";
-import type { ChildId, LiabilityId, PersonId, PropertyId, SeriesId } from "../ids";
+import type { Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
+import type { LiabilityKind } from "../liability/liability";
+import type { ChildId, LiabilityId, PersonId, PropertyId, SeriesId } from "../plan/ids";
 import type { Child, SeriesRole } from "../ledger/eventTypes";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
-import type { Person } from "../person";
+import type { Person } from "../plan/person";
 import type { ProjectionSeries } from "./simulate";
 
 export interface SnapshotChild extends Child {

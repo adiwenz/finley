@@ -1,5 +1,5 @@
-import { apportionByWeight, type Cents } from "../money";
-import type { TaxCategory } from "../cashFlowSeries";
+import { apportionByWeight, type Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 
 /** A per-person map of taxable amount by {@link TaxCategory}. */
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;

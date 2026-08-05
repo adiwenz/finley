@@ -5,9 +5,9 @@
  */
 import { Projection } from "../index";
 import { samplePlan, stateOf, SAMPLE_START_YEAR } from "./samplePlan";
-import { nullJurisdiction } from "../jurisdiction";
-import { dollarsToCents } from "../cashFlowSeries";
-import type { PersonId } from "../job";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import type { PersonId } from "../job/job";
 
 export const P1 = "p1" as PersonId;
 

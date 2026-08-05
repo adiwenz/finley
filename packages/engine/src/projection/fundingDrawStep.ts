@@ -11,9 +11,9 @@
  * a cash source (basis == balance) conserves it.
  */
 
-import type { Cents } from "../money";
-import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import type { TaxCategory } from "../cashFlowSeries";
+import type { Cents } from "../money/money";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";

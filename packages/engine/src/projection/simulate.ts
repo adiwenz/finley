@@ -1,5 +1,5 @@
-import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import type { Cents } from "../money";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";

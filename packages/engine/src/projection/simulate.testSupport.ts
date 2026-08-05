@@ -1,6 +1,6 @@
 import type { SimPerson } from "./simulate.types";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../simAccount";
-import { SimCashFlowSeries } from "../cashFlowSeries";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
+import { SimCashFlowSeries } from "../money/cashFlowSeries";
 
 // Shared builders for the simulate.* test files, co-located with them, mirroring
 // engine/src/testing/. Behaviour-identical to the originals from the top of

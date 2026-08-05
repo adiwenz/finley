@@ -4,9 +4,9 @@ import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
   CASH_INTEREST_TAX_PROFILE,
-} from "../simAccount";
-import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate, type TaxCategory } from "../cashFlowSeries";
-import type { Jurisdiction } from "../jurisdiction";
+} from "../plan/simAccount";
+import { SimCashFlowSeries, dollarsToCents, preciseMonthlyRate, type TaxCategory } from "../money/cashFlowSeries";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import { makePerson, monthlyIncome } from "./simulate.testSupport";
 
 describe("Savings interest is taxed as ordinary income at accrual", () => {

@@ -9,12 +9,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { Projection } from "../projectionFacade";
+import { Projection } from "../facade/projectionFacade";
 import type { ProjectionState } from "./state";
-import { nullJurisdiction } from "../jurisdiction";
-import { dollarsToCents } from "../cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import { dollarsToCents } from "../money/cashFlowSeries";
 import { samplePlan, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
-import type { PersonId } from "../job";
+import type { PersonId } from "../job/job";
 import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import {
   addProjectionJob,

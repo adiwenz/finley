@@ -11,9 +11,9 @@
  * "owed" is what keeps them dumb and summable.
  */
 
-import type { Cents } from "../money";
-import type { BudgetCategory } from "../budgetLine";
-import type { LiabilityKind, SimLiability } from "../liability";
+import type { Cents } from "../money/money";
+import type { BudgetCategory } from "../budget/budgetLine";
+import type { LiabilityKind, SimLiability } from "../liability/liability";
 import type { SimOwnedSeries } from "./simulate.types";
 
 /**

@@ -5,11 +5,11 @@
  * All plain data (no class instances, no functions), so `JSON.stringify` round-trips losslessly.
  */
 
-import type { Cents } from "../money";
-import type { GrowthSegmentView, SimCashFlowSeries } from "../cashFlowSeries";
-import type { Jurisdiction } from "../jurisdiction";
-import type { SimGoal } from "../goal";
-import { AmortizingLoan, RevolvingCard } from "../liability";
+import type { Cents } from "../money/money";
+import type { GrowthSegmentView, SimCashFlowSeries } from "../money/cashFlowSeries";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { SimGoal } from "../goal/goal";
+import { AmortizingLoan, RevolvingCard } from "../liability/liability";
 import { simulateHousehold } from "./simulate";
 import { MODEL_ASSUMPTIONS, type ModelAssumption } from "./assumptions";
 import type {

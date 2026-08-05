@@ -6,8 +6,8 @@
  * so both depend on this module rather than on each other.
  */
 
-import type { Cents } from "../money";
-import type { AccountId } from "../ids";
+import type { Cents } from "../money/money";
+import type { AccountId } from "../plan/ids";
 
 /** A one-time principal adjustment against a liability (paydown), with its funding account. */
 export interface LiabilityTransfer {

@@ -6,8 +6,8 @@
  * Pure (satisfies `check-engine-purity`) and deliberately NOT barrel-exported — test
  * scaffolding, not public API. Tests import it by relative path.
  */
-import type { Jurisdiction } from "../jurisdiction";
-import { nullJurisdiction } from "../jurisdiction";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 
 export function mockJurisdiction(
   overrides: Partial<Jurisdiction> = {},

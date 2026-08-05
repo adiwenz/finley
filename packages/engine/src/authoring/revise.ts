@@ -7,9 +7,9 @@
  * edit that would strand a later event is refused naming it.
  */
 
-import type { GrowthMode } from "../cashFlowSeries";
-import type { Jurisdiction } from "../jurisdiction";
-import type { Cents } from "../money";
+import type { GrowthMode } from "../money/cashFlowSeries";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
 import type { LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";

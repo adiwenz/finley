@@ -21,23 +21,23 @@
  * ref, and reads the minted id back off the built `Plan`/`Ledger`.
  *
  * This is an AUTHORING api, not an import one. Restoring persisted state — ids already issued,
- * counter already advanced — is {@link import("../projectionFacade").Projection.fromState}'s job
+ * counter already advanced — is {@link import("../facade/projectionFacade").Projection.fromState}'s job
  * (fed by `toJSON`); it takes a whole `ProjectionState` and floors the counter past everything it
  * holds. Reach for that when the ids matter, and for this when the scenario is being described
  * for the first time.
  */
 
 import { PRE_NOW_MONTH } from "../projection/nowMarker";
-import type { Plan, GoalPlan } from "../plan";
-import type { Job, JobDeferral } from "../job";
-import type { BudgetLine, TaxTreatment } from "../budgetLine";
-import type { LiabilityKind } from "../liability";
+import type { Plan, GoalPlan } from "../plan/plan";
+import type { Job, JobDeferral } from "../job/job";
+import type { BudgetLine, TaxTreatment } from "../budget/budgetLine";
+import type { LiabilityKind } from "../liability/liability";
 import type { OriginableLoanKind } from "../authoring/liabilities";
-import type { GrowthMode } from "../cashFlowSeries";
+import type { GrowthMode } from "../money/cashFlowSeries";
 // Type-only, and cyclic: `Projection` imports these authoring types, so a value import back
 // would close the loop. `FromInputResult` names the class only in a field, which a type import
 // resolves without a runtime edge.
-import type { Projection } from "../projectionFacade";
+import type { Projection } from "../facade/projectionFacade";
 
 declare const REF_BRAND: unique symbol;
 
@@ -73,7 +73,7 @@ export function ref(name: string): Ref {
 type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines" | "continuationJobId">;
 
 /**
- * The `"account"` arm of a {@link import("../budgetLine").BudgetTarget}, but pointing at an
+ * The `"account"` arm of a {@link import("../budget/budgetLine").BudgetTarget}, but pointing at an
  * account by {@link Ref} rather than id — a contribution line names the standing account it
  * funds ("retirement"), which the build resolves to a real account id.
  */
@@ -301,7 +301,7 @@ export type EventEntry =
 
 /**
  * Exhaustiveness guard over {@link EventEntry}'s discriminant, the same contract
- * {@link import("../projectionFacade").Projection} gives {@link import("../ledger/eventTypes").LifeEvent}:
+ * {@link import("../facade/projectionFacade").Projection} gives {@link import("../ledger/eventTypes").LifeEvent}:
  * the switch names every event kind and the `never` default makes a seventh a COMPILE error
  * here, so the union cannot grow a variant without this being updated. Returns the discriminant
  * unchanged; callers needing only the closure guarantee ignore the result.
@@ -362,7 +362,7 @@ export interface ScenarioInput extends PlanScalars {
   readonly events?: readonly EventEntry[];
   /**
    * The PRIMARY person's continuation job — see
-   * {@link import("../person").Person.continuationJobId}. Names a `jobs` entry by its `ref`, so
+   * {@link import("../plan/person").Person.continuationJobId}. Names a `jobs` entry by its `ref`, so
    * it is applied after every job is bound.
    *
    * Omitted is the ordinary case and means "not chosen", which the engine resolves on read;
@@ -380,7 +380,7 @@ export interface ScenarioInput extends PlanScalars {
  * These are the fields that have no sensible engine-wide default: a retirement age, a life
  * expectancy, an inflation rate and a set of return assumptions are product decisions, and an
  * engine that guessed them would quietly answer a question nobody asked. So they are required,
- * and {@link import("../projectionFacade").Projection.init} takes exactly them — everything else
+ * and {@link import("../facade/projectionFacade").Projection.init} takes exactly them — everything else
  * about a scenario can be added afterwards.
  */
 export type ScenarioScalars = Omit<

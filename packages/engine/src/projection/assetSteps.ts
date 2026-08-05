@@ -1,5 +1,5 @@
-import type { Jurisdiction, JurisdictionContext } from "../jurisdiction";
-import { preciseMonthlyRate } from "../cashFlowSeries";
+import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
+import { preciseMonthlyRate } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 
 /** Step 8: one-time transfers to asset accounts. Fixed + proportional; neither grows. */
