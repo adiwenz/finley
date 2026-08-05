@@ -576,8 +576,8 @@ export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: s
 
 /**
  * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a caller
- * never has to distinguish "no deferral" from "deferring nothing" — the read counterpart of
- * {@link import("../job").withDeferralFraction}, which erases a 0 rather than recording it.
+ * never has to distinguish "no deferral" from "deferring nothing" — the projection-state view
+ * of {@link import("../job").deferralFractionOf}.
  */
 export function jobDeferralFractionOf(state: ProjectionState, jobId: string): number {
   return deferralFractionOf(jobOrThrow(state, jobId));

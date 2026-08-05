@@ -7,7 +7,6 @@
  */
 
 import type { Cents } from "./money";
-import { RETIREMENT_ID } from "./ids";
 
 /** Stable id of a household member. */
 export type PersonId = string;
@@ -313,15 +312,9 @@ export function deriveRealGrowthPct(
 //
 // Pure, id-free, one job in and one job out. They live here, beside the type they edit,
 // because BOTH write paths over a `Job` — the `Projection` API and the app's Jobs and
-// Base + Adjustments panels — must apply the SAME rule. Two implementations of "0 removes
-// the deferral" is a rule that can drift; keeping the rule in one place and duplicating
-// only the wiring is what makes the two surfaces safe to keep.
-
-/** Every editable {@link Job} field. The stable `id` and the `ownerId` are both out: a job
- * cannot change owner — re-reading its dates against another birthday would rewrite the
- * employment the person stated — so moving a job between members is delete-and-re-add, never a
- * patch. */
-export type JobPatch = Partial<Omit<Job, "id" | "ownerId">>;
+// Base + Adjustments panels — must apply the SAME rule. Two implementations of one edit is a
+// rule that can drift; keeping it in one place and duplicating only the wiring is what makes
+// the two surfaces safe to keep.
 
 /** Apply `f` to the job with `id`, leaving the rest of the list alone. */
 export function mapJob(
@@ -333,69 +326,9 @@ export function mapJob(
 }
 
 /**
- * Overwrite the named fields, carrying everything else through — the other salary fields,
- * the deferral's funded account and employer match, accumulated adjustments, and any field
- * added to {@link Job} later. Neither `id` nor `ownerId` is in {@link JobPatch}, so an edit can
- * re-point a job to neither a new identity nor a new owner.
- */
-export function withJobPatch(job: Job, patch: JobPatch): Job {
-  return { ...job, ...patch };
-}
-
-/**
- * Set pay in **monthly** cents, the denomination a person states income in; {@link Job}
- * stores the annualized figure. Leaves the growth rate alone.
- *
- * Sets BOTH salary anchors to the stated figure: "this job pays X" means a flat history, and
- * the deviations from it are exactly what a {@link JobPayChange} is for. That is the right rule
- * for a job stated in ONE number — a job being authored for the first time, or a surface that
- * shows one salary field.
- *
- * Flat in **paycheck** terms, note, not in real terms: the start anchor is the money of the
- * job's own year (see {@link SalaryTrajectory}), so a long-running job stated in one number
- * says "the payslip read X then and reads X now" — a real-terms decline. Correcting for that
- * would mean deriving one anchor from the other through CPI, which is exactly what the two
- * independent anchors exist to avoid; a user who means something else states the two.
- *
- * A surface that shows the two anchors separately writes them with
- * {@link withStartingMonthlyIncome} / {@link withCurrentMonthlyIncome} instead, so that editing
- * one authored fact cannot silently overwrite the other.
- */
-export function withMonthlyIncome(job: Job, monthlyCents: Cents): Job {
-  return {
-    ...job,
-    salary: {
-      ...job.salary,
-      startingSalaryCents: monthlyCents * 12,
-      currentSalaryCents: monthlyCents * 12,
-    },
-  };
-}
-
-/**
- * Set the **start** anchor alone, in monthly cents — what the job paid in its own `startYear`,
- * which drives the historical reconstruction and nothing else. The current-salary anchor is
- * left exactly as authored: the two are independent facts, and re-deriving one from the other
- * is the thing {@link SalaryTrajectory} exists to refuse.
- */
-export function withStartingMonthlyIncome(job: Job, monthlyCents: Cents): Job {
-  return { ...job, salary: { ...job.salary, startingSalaryCents: monthlyCents * 12 } };
-}
-
-/**
- * Set the **month-0** anchor alone, in monthly cents — the figure the projection starts from.
- * Leaves the start anchor standing, for the same reason as {@link withStartingMonthlyIncome}:
- * a raise since the job began is not evidence about what it paid on day one.
- */
-export function withCurrentMonthlyIncome(job: Job, monthlyCents: Cents): Job {
-  return { ...job, salary: { ...job.salary, currentSalaryCents: monthlyCents * 12 } };
-}
-
-/**
- * Read pay back in **monthly** cents — the inverse of {@link withMonthlyIncome}, and the
- * reason it exists: a job stores an annual figure and every surface states a monthly one, so
- * the two halves of that conversion have to round the same way or a number typed into a form
- * comes back a cent different from what was typed.
+ * Read pay back in **monthly** cents — a job stores an annual figure and every surface states a
+ * monthly one, so this conversion has to round the way the authoring surface's does or a number
+ * typed into a form comes back a cent different from what was typed.
  *
  * The CURRENT salary — the month-0 anchor, before future growth and before any future
  * {@link JobPayChange}. That is what a headline quotes and what an edit form seeds from: it is
@@ -407,44 +340,19 @@ export function monthlyIncomeCentsOf(job: Job): Cents {
 }
 
 /**
- * Read the **start** anchor back in monthly cents — the counterpart of
- * {@link withStartingMonthlyIncome}, rounding the same way {@link monthlyIncomeCentsOf} does so
- * a figure typed into a form comes back as it was typed.
+ * Read the **start** anchor back in monthly cents, rounding the same way
+ * {@link monthlyIncomeCentsOf} does so a figure typed into a form comes back as it was typed.
  */
 export function startingMonthlyIncomeCentsOf(job: Job): Cents {
   return Math.round(job.salary.startingSalaryCents / 12);
 }
 
 /**
- * The elected pre-tax 401(k) fraction (0..1), 0 when there is no deferral — the inverse of
- * {@link withDeferralFraction}, which removes the deferral outright at 0. The absent case is
- * that rule read back: no deferral and a 0% deferral are the same elected rate.
+ * The elected pre-tax 401(k) fraction (0..1), 0 when there is no deferral. No deferral and a
+ * 0% deferral are the same elected rate, so a caller never has to distinguish them.
  */
 export function deferralFractionOf(job: Job): number {
   return job.deferral?.deferralFraction ?? 0;
-}
-
-/**
- * Set the pre-tax 401(k) deferral as a fraction of THIS job's gross (0..1). A fraction of 0
- * *removes* the deferral rather than recording a 0% one, and any positive fraction preserves
- * the funded account and employer match — both properties of the employment, not of the
- * elected rate.
- */
-export function withDeferralFraction(job: Job, fraction: number): Job {
-  if (fraction <= 0) {
-    const { deferral: _drop, ...rest } = job;
-    return rest;
-  }
-  return {
-    ...job,
-    deferral: {
-      deferralFraction: fraction,
-      fundAccountId: job.deferral?.fundAccountId ?? RETIREMENT_ID,
-      ...(job.deferral?.employerMatchFraction !== undefined
-        ? { employerMatchFraction: job.deferral.employerMatchFraction }
-        : {}),
-    },
-  };
 }
 
 /**

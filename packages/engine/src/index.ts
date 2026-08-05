@@ -77,7 +77,6 @@ export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS, planHorizonMonths } from "./plan";
 export type { ScenarioInput, FromInputResult } from "./scenarioInput";
 export type {
   Job,
-  JobPatch,
   JobDeferral,
   JobIncomeOverride,
   JobIncomeOverrideInput,

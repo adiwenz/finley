@@ -18,13 +18,10 @@ import {
   monthlyIncomeCentsOf,
   orderedIncomeOverrides,
   startingMonthlyIncomeCentsOf,
-  withCurrentMonthlyIncome,
-  withDeferralFraction,
-  withMonthlyIncome,
-  withStartingMonthlyIncome,
   type Job,
   type JobIncomeOverride,
 } from "./job";
+import { RETIREMENT_ID } from "./ids";
 import type { Person } from "./person";
 import { compileHouseholdJobSeries, compilePersonPriorEarnings } from "./compilePerson";
 import { personJobContexts, resolveHouseholdJobs } from "./householdJob";
@@ -761,9 +758,11 @@ describe("stating pay and deferral, and reading them back", () => {
 
   it("round-trips a monthly figure through the annual one it is stored as", () => {
     // The form states monthly, the job stores annual, and a number typed in has to come back
-    // out as the number typed — the two halves round together or it does not.
+    // out as the number typed — the reader's rounding has to invert the ×12 the anchor is
+    // authored with.
     for (const monthly of [dollarsToCents(5_000), dollarsToCents(4_333.33), 1, 0]) {
-      expect(monthlyIncomeCentsOf(withMonthlyIncome(job, monthly))).toBe(monthly);
+      const stored: Job = { ...job, salary: { ...job.salary, currentSalaryCents: monthly * 12 } };
+      expect(monthlyIncomeCentsOf(stored)).toBe(monthly);
     }
   });
 
@@ -776,12 +775,15 @@ describe("stating pay and deferral, and reading them back", () => {
   });
 
   it("reads an absent deferral as the 0% it is elected at", () => {
-    // The pair of `withDeferralFraction(0)`, which REMOVES the deferral rather than storing a
-    // zero: no deferral and a 0% deferral have to read the same or the form shows a rate the
-    // person never elected.
+    // No deferral and a 0% deferral read the same, so the form never shows a rate the person
+    // never elected. The absent case is the `deferral` key omitted outright — where authoring
+    // puts a dropped deferral — and a present one reads its stored fraction straight back.
+    const deferring: Job = {
+      ...job,
+      deferral: { deferralFraction: 0.1, fundAccountId: RETIREMENT_ID },
+    };
     expect(deferralFractionOf(job)).toBe(0);
-    expect(deferralFractionOf(withDeferralFraction(job, 0))).toBe(0);
-    expect(deferralFractionOf(withDeferralFraction(job, 0.1))).toBe(0.1);
+    expect(deferralFractionOf(deferring)).toBe(0.1);
   });
 });
 
@@ -798,23 +800,35 @@ describe("the two salary anchors, stated separately", () => {
     },
   };
 
-  it("writes each anchor without disturbing the other", () => {
-    // The pair the one-field `withMonthlyIncome` cannot express. Neither anchor derives from
-    // the other, so a surface showing both must be able to edit one at a time — de-growing
-    // today's pay to guess the start pay would reapply the raises today's pay already includes.
-    const raised = withCurrentMonthlyIncome(job, dollarsToCents(7_500));
+  it("reads each anchor without the other bleeding in", () => {
+    // Neither anchor derives from the other, so a surface showing both reads them one at a
+    // time — de-growing today's pay to guess the start pay would reapply the raises today's
+    // pay already includes.
+    const raised: Job = {
+      ...job,
+      salary: { ...job.salary, currentSalaryCents: dollarsToCents(7_500) * 12 },
+    };
     expect(monthlyIncomeCentsOf(raised)).toBe(dollarsToCents(7_500));
     expect(startingMonthlyIncomeCentsOf(raised)).toBe(dollarsToCents(5_000));
 
-    const restated = withStartingMonthlyIncome(job, dollarsToCents(4_000));
+    const restated: Job = {
+      ...job,
+      salary: { ...job.salary, startingSalaryCents: dollarsToCents(4_000) * 12 },
+    };
     expect(startingMonthlyIncomeCentsOf(restated)).toBe(dollarsToCents(4_000));
     expect(monthlyIncomeCentsOf(restated)).toBe(dollarsToCents(80_000 / 12));
   });
 
-  it("still sets both from one figure, for a job stated in one number", () => {
-    const flat = withMonthlyIncome(job, dollarsToCents(6_000));
-    expect(monthlyIncomeCentsOf(flat)).toBe(dollarsToCents(6_000));
-    expect(startingMonthlyIncomeCentsOf(flat)).toBe(dollarsToCents(6_000));
+  it("reads both anchors alike for a job stated in one number", () => {
+    // A job authored from a single salary field sets both anchors to it, so the two readers
+    // agree — the flat history a one-number job stands for.
+    const monthly = dollarsToCents(6_000);
+    const flat: Job = {
+      ...job,
+      salary: { ...job.salary, startingSalaryCents: monthly * 12, currentSalaryCents: monthly * 12 },
+    };
+    expect(monthlyIncomeCentsOf(flat)).toBe(monthly);
+    expect(startingMonthlyIncomeCentsOf(flat)).toBe(monthly);
   });
 });
 
@@ -861,7 +875,14 @@ describe("jobPayPath — a job's authored pay across its span", () => {
   });
 
   it("reports no step when the history lands exactly on today's pay", () => {
-    const flat = jobPayPath(withMonthlyIncome(historic, dollarsToCents(6_250)), span);
+    const monthly = dollarsToCents(6_250);
+    const flat = jobPayPath(
+      {
+        ...historic,
+        salary: { ...historic.salary, startingSalaryCents: monthly * 12, currentSalaryCents: monthly * 12 },
+      },
+      span,
+    );
     expect(flat.monthZeroStepCents).toBe(0);
   });
 
