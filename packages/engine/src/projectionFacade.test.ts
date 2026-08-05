@@ -577,7 +577,7 @@ describe("Projection root — editing and removing a job", () => {
     deferral: { deferralFraction: 0.1, fundAccountId: "retirement", employerMatchFraction: 0.5 },
   } as const;
 
-  it("patches only the named fields, carrying the rest of the job through", () => {
+  it("restates only the named fields, carrying the rest of the job through", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, matchedJob);
     const raise = p.addJobPayChange(jobId, {
@@ -586,30 +586,35 @@ describe("Projection root — editing and removing a job", () => {
       cents: dollarsToCents(500),
     });
 
-    p.updateJob(jobId, { name: "Night job", endYear: SAMPLE_START_YEAR + 10 });
+    // Spread the job read back and restate two fields: replaceJob rewrites wholesale, so the
+    // spread is what carries the unnamed fields — including the pay change — through.
+    const job = p.plan.jobs[0]!;
+    p.replaceJob(jobId, { ...job, name: "Night job", endYear: SAMPLE_START_YEAR + 10 });
 
     expect(p.plan.jobs[0]).toMatchObject({
       id: jobId,
       name: "Night job",
       endYear: SAMPLE_START_YEAR + 10,
-      // Everything the patch did not name survives — including what only the adjustment
-      // methods author.
+      // Everything the spread carried survives — including what only the adjustment methods
+      // author.
       ownerId: P1,
       salary: matchedJob.salary,
       deferral: matchedJob.deferral,
-      // The adjustment keeps the id it was minted with; a patch of other fields cannot
+      // The adjustment keeps the id it was minted with; restating other fields cannot
       // re-identify what was already authored.
       payChanges: [{ id: raise, month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
   });
 
   it("keeps a job's owner through an edit — a job cannot change owner", () => {
-    // The one way to move a job between members is delete-and-re-add. An ordinary edit carries no
-    // `ownerId` (the patch type omits it), so the owner it was created with is preserved.
+    // The one way to move a job between members is delete-and-re-add. `JobInput` omits `ownerId`
+    // (`Omit<Job, "id" | "ownerId">`), so even a wholesale replace cannot restate it — the engine
+    // re-stamps the owner off the prior record — and the owner it was created with is preserved.
     const p = freshProjection();
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     const jobId = p.addJob(P1, plainJob);
-    p.updateJob(jobId, { name: "Renamed", endYear: SAMPLE_START_YEAR + 10 });
+    const job = p.plan.jobs[0]!;
+    p.replaceJob(jobId, { ...job, name: "Renamed", endYear: SAMPLE_START_YEAR + 10 });
     expect(p.plan.jobs[0]?.ownerId).toBe(P1);
   });
 
@@ -625,10 +630,8 @@ describe("Projection root — editing and removing a job", () => {
     const jobId = p.addJob(P1, plainJob);
     const before = p.state;
 
-    expect(() => p.updateJob("no-such-job", { name: "x" })).toThrow(/no job "no-such-job"/);
+    expect(() => p.replaceJob("no-such-job", plainJob)).toThrow(/no job "no-such-job"/);
     expect(() => p.removeJob("no-such-job")).toThrow(/no job "no-such-job"/);
-    expect(() => p.setJobMonthlyIncome("no-such-job", 1)).toThrow(/no job "no-such-job"/);
-    expect(() => p.setJobDeferralFraction("no-such-job", 0.5)).toThrow(/no job "no-such-job"/);
 
     // Same state object throughout: a refusal commits nothing.
     expect(p.state).toBe(before);
@@ -643,41 +646,32 @@ describe("Projection root — editing and removing a job", () => {
     const planJob = p.addJob(P1, plainJob);
     const partnerJob = p.addPartnerJob(partnerId, plainJob);
 
-    expect(() => p.updateJob(partnerJob, { name: "x" })).toThrow(/no job/);
-    expect(() => p.updatePartnerJob(planJob, { name: "x" })).toThrow(/no partner holds a job/);
+    expect(() => p.replaceJob(partnerJob, plainJob)).toThrow(/no job/);
+    expect(() => p.replacePartnerJob(planJob, plainJob)).toThrow(/no partner holds a job/);
   });
 
-  it("setJobMonthlyIncome takes monthly cents and stores the annualized salary", () => {
+  it("a job stated in one monthly figure stores that annualized on both salary anchors", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, plainJob);
-    p.setJobMonthlyIncome(jobId, dollarsToCents(9000));
+    const monthlyCents = dollarsToCents(9000);
+    // Stating one salary means a flat history: both anchors take the same annualized figure, so
+    // the historical reconstruction and the current-salary anchor agree until a pay change parts
+    // them. The unnamed `realGrowthPct` rides the salary spread through.
+    const job = p.plan.jobs[0]!;
+    p.replaceJob(jobId, {
+      ...job,
+      salary: {
+        ...job.salary,
+        startingSalaryCents: monthlyCents * 12,
+        currentSalaryCents: monthlyCents * 12,
+      },
+    });
     expect(p.plan.jobs[0]?.salary).toEqual({
-      // Both anchors: stating one salary means a flat history, so the historical
-      // reconstruction and the current-salary anchor agree until a pay change parts them.
       startingSalaryCents: dollarsToCents(9000) * 12,
       currentSalaryCents: dollarsToCents(9000) * 12,
       // The growth rate is not part of "what it pays now".
       realGrowthPct: 0,
     });
-  });
-
-  it("setJobDeferralFraction keeps the funded account and employer match", () => {
-    const p = freshProjection();
-    const jobId = p.addJob(P1, matchedJob);
-    p.setJobDeferralFraction(jobId, 0.15);
-    expect(p.plan.jobs[0]?.deferral).toEqual({
-      deferralFraction: 0.15,
-      // Both belong to the employment, not to the elected rate.
-      fundAccountId: "retirement",
-      employerMatchFraction: 0.5,
-    });
-  });
-
-  it("setJobDeferralFraction(0) removes the deferral rather than recording a 0% one", () => {
-    const p = freshProjection();
-    const jobId = p.addJob(P1, matchedJob);
-    p.setJobDeferralFraction(jobId, 0);
-    expect(p.plan.jobs[0]).not.toHaveProperty("deferral");
   });
 
   it("carries every input field onto an added job, not just the ones a new job is authored from", () => {
@@ -702,8 +696,8 @@ describe("Projection root — editing and removing a job", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, matchedJob);
 
-    // The same form re-submitted with the name blanked and the 401(k) rate zeroed. A patch
-    // could not say this: naming no `deferral` means "unchanged" to updateJob.
+    // The same form re-submitted with the name blanked and the 401(k) rate zeroed. A field-wise
+    // patch could not say this: omitting `deferral` would mean "leave it as it was".
     p.replaceJob(jobId, plainJob);
 
     expect(p.plan.jobs[0]).toEqual({
@@ -796,11 +790,14 @@ describe("Projection root — jobs on a partner's plane", () => {
     });
   });
 
-  it("patches a partner's job field-wise, and replaces it wholesale", () => {
+  it("restates a partner's job field-wise, and replaces it wholesale", () => {
     const { p, partnerId } = withPartner();
     const jobId = p.addPartnerJob(partnerId, matchedJob);
 
-    p.updatePartnerJob(jobId, { name: "Night job" });
+    // Spread the job read off the partner's event and restate one field; the deferral it does
+    // not name rides the spread through.
+    const job = partnerJobs(p)[0]!;
+    p.replacePartnerJob(jobId, { ...job, name: "Night job" });
     expect(partnerJobs(p)[0]).toMatchObject({
       name: "Night job",
       deferral: matchedJob.deferral, // unnamed, so carried through
@@ -822,7 +819,8 @@ describe("Projection root — jobs on a partner's plane", () => {
     const { p, partnerId } = withPartner();
     const first = p.addPartnerJob(partnerId, plainJob);
     const second = p.addPartnerJob(partnerId, plainJob);
-    p.updatePartnerJob(first, { name: "Renamed" });
+    const job = partnerJobs(p).find((j) => j.id === first)!;
+    p.replacePartnerJob(first, { ...job, name: "Renamed" });
     expect(partnerJobs(p).map((j) => j.id)).toEqual([first, second]);
     expect(partnerJobs(p).map((j) => j.name)).toEqual(["Renamed", undefined]);
   });
@@ -840,7 +838,6 @@ describe("Projection root — jobs on a partner's plane", () => {
   it("refuses a partner or a job it cannot find, rather than writing nothing quietly", () => {
     const { p } = withPartner();
     expect(() => p.addPartnerJob("nobody" as PersonId, plainJob)).toThrow(/no partner/);
-    expect(() => p.updatePartnerJob("job-99", { name: "x" })).toThrow(/no partner holds a job/);
     expect(() => p.replacePartnerJob("job-99", plainJob)).toThrow(/no partner holds a job/);
     expect(() => p.removePartnerJob("job-99")).toThrow(/no partner holds a job/);
   });
@@ -1074,8 +1071,15 @@ describe("Projection root — pay changes and one-month income overrides", () =>
     const raise = p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9000) });
     const bonus = p.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 });
 
-    p.updateJob(jobId, { name: "Renamed" });
-    p.setJobCurrentMonthlyIncome(jobId, dollarsToCents(8000));
+    // Two unrelated edits, each a spread-and-replace: the pay change and override ride the spread
+    // through, keeping the ids they were minted with.
+    const renamed = p.plan.jobs[0]!;
+    p.replaceJob(jobId, { ...renamed, name: "Renamed" });
+    const nowPaid = p.plan.jobs[0]!;
+    p.replaceJob(jobId, {
+      ...nowPaid,
+      salary: { ...nowPaid.salary, currentSalaryCents: dollarsToCents(8000) * 12 },
+    });
 
     expect(p.plan.jobs[0]?.payChanges?.map((c) => c.id)).toEqual([raise]);
     expect(p.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([bonus]);
@@ -2115,7 +2119,8 @@ describe("Projection root — the id counter starts clear of the plan it is give
     const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-1")] })), nullJurisdiction);
     const added = p.addJob(P1, plainJob);
 
-    p.updateJob(added, { name: "Second job" });
+    const job = p.plan.jobs.find((j) => j.id === added)!;
+    p.replaceJob(added, { ...job, name: "Second job" });
     expect(p.plan.jobs.find((j) => j.id === "job-1")).not.toHaveProperty("name");
     expect(p.plan.jobs.find((j) => j.id === added)).toMatchObject({ name: "Second job" });
 
@@ -2246,9 +2251,17 @@ describe("Projection root — transact wraps one write over plain state", () => 
     const seeded = Projection.transact(freshProjection().state, nullJurisdiction, (p) =>
       p.addJob(P1, plainJob),
     );
-    const { state, result } = Projection.transact(seeded.state, nullJurisdiction, (p) =>
-      p.setJobMonthlyIncome("job-1", dollarsToCents(9000)),
-    );
+    const { state, result } = Projection.transact(seeded.state, nullJurisdiction, (p) => {
+      const job = p.plan.jobs[0]!;
+      p.replaceJob("job-1", {
+        ...job,
+        salary: {
+          ...job.salary,
+          startingSalaryCents: dollarsToCents(9000) * 12,
+          currentSalaryCents: dollarsToCents(9000) * 12,
+        },
+      });
+    });
 
     expect(result).toBeUndefined();
     expect(state.scenario.plan.jobs[0]?.salary.startingSalaryCents).toBe(dollarsToCents(108000));
