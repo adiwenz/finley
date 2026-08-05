@@ -769,6 +769,41 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(income[0]).toBeGreaterThan(0);
   });
 
+  it("answers inside the years the plan's last job used to swallow, and keeps paying for savings", () => {
+    // The continuity above, in the only terms a household reads: the SOLVED AGE. The test
+    // before it fixes the candidate and varies the money's arrival; this fixes the jobs and
+    // varies the money, because a discontinuity in the projection shows up here as a solver
+    // that stops responding — the ages it cannot reach are ages no amount of saving buys.
+    //
+    // Career 35–65, token job 65–70, career selected, on the barista budget. Under the
+    // per-person pivot nothing was extended until the candidate cleared 70, so every one of
+    // these balances answered 71: $200k of extra savings bought nothing at all, and 66–70 were
+    // unreachable answers however the plan was funded. They are the years the household is
+    // most likely to be asking about.
+    const solveAt = (openingDollars: number) =>
+      earliestFullRetirementAge(
+        scenarioOf({
+          ...baristaPlan,
+          jobs: baristaJobs,
+          continuationJobId: "career",
+          openingBalanceCents: dollarsToCents(openingDollars),
+        }),
+        CTX,
+      );
+
+    // Was [71, 71, 71].
+    const ages = [400_000, 450_000, 600_000].map(solveAt);
+    expect(ages).toEqual([70, 69, 67]);
+    // Each lands strictly inside the dead band — past the career's own end, at or before the
+    // token job's — which is what makes them answers the old rule could not produce at all.
+    for (const age of ages) {
+      expect(age).toBeGreaterThan(65);
+      expect(age).toBeLessThanOrEqual(70);
+    }
+    // And the response is monotone: more savings never costs a household a later stop age.
+    for (let i = 1; i < ages.length; i++) expect(ages[i]!).toBeLessThan(ages[i - 1]!);
+  });
+
   it("never starts a job the candidate boundary falls before", () => {
     // A job authored to begin after the household stopped working does not happen — including
     // one that was selected, which is the case the extension rule could most easily get wrong by

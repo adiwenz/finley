@@ -59,7 +59,9 @@ describe("retirementView — one query behind every figure", () => {
     expect(view.headlineAge).toBe(outlook.solution.fullRetirementAge);
     expect(view.headlineMonth).toBe(outlook.fullRetirementMonth);
     expect(view.plannedWorkStopAge).toBe(outlook.solution.plannedWorkStopAge);
+    expect(view.authoredPlanSurvives).toBe(outlook.solution.authoredPlanSurvives);
     expect(view.earlyRetireeHealth).toEqual(outlook.earlyRetireeHealth);
+    expect(view.continuedJobs).toEqual(outlook.solution.continuedJobs);
   });
 
   it("carries no pinned-target figures — there is no age to score against", () => {
