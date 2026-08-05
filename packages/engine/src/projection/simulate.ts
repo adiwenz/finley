@@ -89,6 +89,9 @@ export function simulateHousehold(
   // A block is terminal for the whole simulation: the blocked month is emitted and completed, then
   // the loop stops. Set once, in the first month a funding draw falls short.
   let blockingObligation: ProjectionSeries["blockingObligation"];
+  // Every event whose draw the block omitted — the blocker and the same-month draws after it,
+  // whose artifacts were suppressed alongside its own. Captured with `blockingObligation`.
+  let omittedSourceEventIds: ProjectionSeries["omittedSourceEventIds"];
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
   // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
@@ -147,21 +150,24 @@ export function simulateHousehold(
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
-    // A blocked draw suppresses the property and mortgage its authoring event would originate this
+    // An omitted draw suppresses the property and mortgage its authoring event would originate this
     // month — otherwise `advanceProperties`/`advanceLiabilities` would mint a house and a loan with
-    // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off the
-    // event id the draw carries; the block is terminal, so only this month needs suppressing.
-    const blockedEventId = fundingDraw.block?.obligation.sourceEventId;
-    const suppressedProperties = state.properties.filter((p) => p.causedByEventId === blockedEventId);
-    const suppressedPropertyIds = new Set(
-      blockedEventId !== undefined ? suppressedProperties.map((p) => p.id) : [],
+    // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off EVERY
+    // omitted event, not just the blocking one: a block stops resolution, so a later same-month
+    // purchase's down payment is never withdrawn either, and suppressing only the blocker would let
+    // that purchase's house and mortgage through unfunded. The block is terminal, so only this
+    // month needs suppressing.
+    const omittedEventIds = fundingDraw.omittedSourceEventIds;
+    const suppressedProperties = state.properties.filter(
+      (p) => p.causedByEventId !== undefined && omittedEventIds.has(p.causedByEventId),
     );
+    const suppressedPropertyIds = new Set(suppressedProperties.map((p) => p.id));
+    // The mortgage is reached through the property, not through its own `causedByEventId`: that id
+    // is the synthesized `LoanEvent`'s (`<propertyId>-mortgage`), never the purchase event's.
     const suppressedLiabilityIds = new Set(
-      blockedEventId !== undefined
-        ? suppressedProperties.flatMap((p) =>
-            p.mortgageLiabilityId != null ? [p.mortgageLiabilityId] : [],
-          )
-        : [],
+      suppressedProperties.flatMap((p) =>
+        p.mortgageLiabilityId != null ? [p.mortgageLiabilityId] : [],
+      ),
     );
 
     // Snapshot balances/basis at THIS seam — after the explicit draws sold their sources, before
@@ -380,6 +386,8 @@ export function simulateHousehold(
         shortfallCents,
         markerNetWorthCents: blockedNetWorth === null ? null : blockedNetWorth - shortfallCents,
       };
+      // Insertion order from `resolveFundingDraws` is resolution order, so the blocking event leads.
+      omittedSourceEventIds = [...omittedEventIds];
       break;
     }
   }
@@ -394,5 +402,6 @@ export function simulateHousehold(
     simulatedThroughMonth: months.length - 1,
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
+    ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),
   };
 }

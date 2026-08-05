@@ -1098,4 +1098,71 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
     // Net worth is exactly the genuine $100k: $30k cash + $70k cash home, no minted equity.
     expect(blocked.netWorthNominalCents).toBe(10_000_000);
   });
+
+  // A block stops funding resolution for the WHOLE month, so a second purchase sharing that month
+  // never draws its down payment either. Its home and mortgage are created by a step separate from
+  // that draw, so suppressing only the blocking event let the second purchase through unfunded —
+  // exactly the fabrication blocking exists to stop, just one event further along.
+  it("originates nothing for a LATER same-month purchase whose draw the block skipped", () => {
+    const base = baseWith(10_000_000); // $100k liquid savings
+
+    // Two financed homes at month 3, each with a $60k down payment. Both are affordable when
+    // authored: the first leaves $40k, and the second is gated against that remainder... so author
+    // the second cheaply enough to pass, at a $30k down payment.
+    const withFirst = addFinanced(emptyLedger, base);
+    const withSecondMortgage = addWithBase(
+      withFirst,
+      base,
+      mortgage({ id: "mtg2", liabilityId: "mtg2", month: 3, openingBalanceCents: 27_000_000 }),
+    );
+    const withSecond = addWithBase(
+      withSecondMortgage,
+      base,
+      purchase({
+        id: "buy2",
+        propertyId: "house2",
+        month: 3,
+        purchasePriceCents: 30_000_000,
+        downPaymentCents: 3_000_000,
+        securedByLiabilityId: "mtg2",
+      }),
+    );
+    // Then a $70k cash home at month 1 drains savings to $30k, stranding the month-3 pair. Authored
+    // last and dated earlier, so it re-litigates neither.
+    const ledger = addWithBase(
+      withSecond,
+      base,
+      purchase({
+        id: "buy0",
+        propertyId: "house0",
+        month: 1,
+        purchasePriceCents: 7_000_000,
+        downPaymentCents: 7_000_000,
+        downPaymentSourceIds: ["savings"],
+      }),
+    );
+
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+
+    expect(series.status).toBe("blocked");
+    expect(series.blockedAtMonth).toBe(3);
+    // Reporting still names the FIRST purchase and its own gap — the second was never priced.
+    expect(series.blockingObligation?.sourceEventId).toBe("buy1");
+    expect(series.blockingObligation?.shortfallCents).toBe(3_000_000);
+    // Both events are reported omitted, so both had their artifacts suppressed.
+    expect(series.omittedSourceEventIds).toEqual(["buy1", "buy2"]);
+
+    const blocked = series.months[3];
+    // NEITHER down payment was withdrawn: savings holds the whole $30k the cash home left.
+    expect(blocked.accountBalancesCents.savings).toBe(3_000_000);
+    // NEITHER property was created.
+    expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
+    expect(blocked.propertyValuesCents.house2 ?? 0).toBe(0);
+    // NEITHER mortgage was originated.
+    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents.mtg2 ?? 0).toBe(0);
+    // The month-1 cash home still stands, and net worth is the genuine $100k.
+    expect(blocked.propertyValuesCents.house0).toBe(7_000_000);
+    expect(blocked.netWorthNominalCents).toBe(10_000_000);
+  });
 });

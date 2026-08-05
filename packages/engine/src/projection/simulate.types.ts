@@ -352,6 +352,18 @@ export interface ProjectionSeries {
   readonly blockedAtMonth?: number;
   /** Present iff `status === "blocked"`: the obligation that stopped the projection. */
   readonly blockingObligation?: BlockedObligation;
+  /**
+   * Present iff `status === "blocked"`: every authoring event whose funding draw was omitted at the
+   * blocked month — {@link blockingObligation}'s `sourceEventId` FIRST, then each later same-month
+   * event whose draw was skipped because resolution stopped. Each one's artifacts (a property, its
+   * mortgage) were suppressed, since none of their money moved.
+   *
+   * Distinct from {@link blockingObligation}, which names the single obligation that fell short and
+   * states its gap. A skipped event was never priced against its sources, so nothing here claims it
+   * was unaffordable — only that it did not happen. An array, not a `Set`, to stay serializable
+   * across the engine's output seam like every other field here.
+   */
+  readonly omittedSourceEventIds?: readonly string[];
 }
 
 /**

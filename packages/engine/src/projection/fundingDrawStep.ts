@@ -179,7 +179,10 @@ export function resolveOrderedFundingDraw(
  *   authoring gate (via `flows`) so a second money-out event in the same month is priced
  *   over its sibling's realized gain;
  * - `resolvedFunding` — one per-line attribution record per explicit draw, every source an
- *   account, so the flow view carries explicit and automatic obligations through one shape.
+ *   account, so the flow view carries explicit and automatic obligations through one shape;
+ * - `omittedSourceEventIds` — the complete set of source event IDs whose draws were not
+ *   executed, including the blocking event and any later events skipped. Used to suppress all
+ *   artifacts (properties, liabilities) originating from these events.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
@@ -193,6 +196,12 @@ export interface FundingDrawReport {
    * booked, no attribution recorded. Draws before it resolved and applied normally.
    */
   readonly block?: FundingBlock;
+  /**
+   * All source event IDs whose draws were omitted: the blocking event and every later event
+   * skipped because processing stopped. A separate set from the block details, which report
+   * only the first shortfall for display; this set is complete for suppressing all artifacts.
+   */
+  readonly omittedSourceEventIds: ReadonlySet<string>;
 }
 
 /** A draw that fell short of its named sources — the projection's terminal event. */
@@ -213,6 +222,13 @@ export interface FundingBlock {
  * mutation that depends on execution order. Draws before it resolve and apply exactly as they
  * always did, so the next draw prices over the balances they left behind.
  *
+ * Every omitted draw's event is reported in `omittedSourceEventIds` — the blocking event AND every
+ * later same-month event whose draw was skipped. An event's artifacts (a property, its mortgage)
+ * are originated by a step separate from its draw, so suppressing only the blocking event would
+ * still mint the skipped events' houses and loans with no cash ever leaving. Suppression is keyed
+ * on this complete set; only the FIRST shortfall is reported as the {@link FundingBlock}, since a
+ * later draw was never priced and so has no shortfall to state.
+ *
  * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so
  * an accepted purchase never lands short here, and a stranded one blocks identically.
  *
@@ -232,19 +248,26 @@ export function resolveFundingDraws(
   const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
   let block: FundingBlock | undefined;
+  const omittedSourceEventIds = new Set<string>();
 
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
-  for (const obligation of state.fundingDraws) {
-    if (obligation.month !== month) continue;
-    // A funding draw is an explicitly-funded asset acquisition: `explicit` names the accounts to
-    // drain (an automatic obligation has none — the waterfall funds it), and `asset-acquisition`
-    // is what makes it a draw that books a gain band plus a net-neutral tax band. Both fields
-    // gate resolution here; the `sourceId` below is the bands' namespace.
-    if (obligation.funding.kind !== "explicit" || obligation.treatment !== "asset-acquisition") {
-      continue;
-    }
+  // This month's draws, in resolution order, materialized BEFORE any is priced: a block has to name
+  // not just the draw that fell short but every draw after it that consequently never ran, and that
+  // tail is only knowable from the whole list. A funding draw is an explicitly-funded asset
+  // acquisition: `explicit` names the accounts to drain (an automatic obligation has none — the
+  // waterfall funds it), and `asset-acquisition` is what makes it a draw that books a gain band plus
+  // a net-neutral tax band. Both fields gate resolution; the `sourceId` below is the bands'
+  // namespace. Anything filtered out here is not a draw at all, so a block never omits it.
+  const draws = state.fundingDraws.filter(
+    (o) =>
+      o.month === month && o.funding.kind === "explicit" && o.treatment === "asset-acquisition",
+  );
+
+  for (const [index, obligation] of draws.entries()) {
+    // Narrowing only: the filter above already established this.
+    if (obligation.funding.kind !== "explicit") continue;
     const orderedAccountIds = obligation.funding.orderedAccountIds;
     const sources: FundingSourceState[] = [];
     for (const sourceId of orderedAccountIds) {
@@ -278,6 +301,14 @@ export function resolveFundingDraws(
         availableCents: obligation.amountCents - shortfallCents,
         shortfallCents,
       };
+      // Every draw from here on is omitted, not just this one: none of their money moves, so none
+      // of their events may originate an artifact. Reported as a set separate from `block`, which
+      // stays the single first shortfall — the later draws were never priced, so they have no
+      // shortfall of their own to state, and calling them independently unfundable would be a
+      // claim this function did not test.
+      for (const omitted of draws.slice(index)) {
+        if (omitted.sourceEventId !== undefined) omittedSourceEventIds.add(omitted.sourceEventId);
+      }
       break;
     }
     // Fundable: commit the probe's taxable base, then apply the balance moves.
@@ -350,5 +381,6 @@ export function resolveFundingDraws(
     taxableByOwnerAfter: working,
     resolvedFunding,
     ...(block !== undefined ? { block } : {}),
+    omittedSourceEventIds,
   };
 }

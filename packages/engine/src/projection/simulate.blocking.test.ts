@@ -200,6 +200,124 @@ describe("projection blocking — an unfundable purchase", () => {
     expect(insolventMonth?.netWorthNominalCents).toBeNull();
   });
 
+  it("suppresses a LATER same-month purchase too, whose draw the block skipped", () => {
+    // Two purchases in the same month. The first ($80k down on $50k savings) blocks, which stops
+    // funding resolution — so the second's $30k down payment is never withdrawn either, even though
+    // it would have been affordable on its own. Its house and mortgage must not originate: their
+    // funding did not happen. Suppressing only the BLOCKING event left this pair minting a $500k
+    // property and a $470k loan against cash that never moved.
+    const secondHouse: SimProperty = {
+      id: "house2",
+      ownerId: "p1",
+      startMonth: BLOCK_MONTH,
+      endMonth: null,
+      openingValueCents: 50_000_000,
+      appreciationAnnualRate: 0,
+      causedByEventId: "buy2",
+      mortgageLiabilityId: "mtg2",
+    };
+    const secondMortgage = new AmortizingLoan({
+      id: "mtg2",
+      ownerId: "p1",
+      kind: "mortgage",
+      openingBalanceCents: 47_000_000,
+      startMonth: BLOCK_MONTH,
+      apr: 0,
+      termMonths: 360,
+    });
+    const secondDownPayment = assetAcquisitionObligation({
+      id: "downpayment:buy2",
+      sourceId: "downpayment2",
+      sourceEventId: "buy2",
+      month: BLOCK_MONTH,
+      amountCents: 3_000_000,
+      orderedAccountIds: ["savings"],
+    });
+
+    const series = run({
+      accounts: [savings(5_000_000)],
+      properties: [house, secondHouse],
+      liabilities: [mortgage(), secondMortgage],
+      fundingDraws: [downPayment(DOWN), secondDownPayment],
+    });
+
+    expect(series.status).toBe("blocked");
+    const blocked = series.months[BLOCK_MONTH];
+    // Neither down payment was withdrawn: every cent is retained.
+    expect(blocked.accountBalancesCents.savings).toBe(5_000_000);
+    // Neither property was created.
+    expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
+    expect(blocked.propertyValuesCents.house2 ?? 0).toBe(0);
+    // Neither mortgage was originated.
+    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents.mtg2 ?? 0).toBe(0);
+    // No fictional equity from either purchase — just the retained cash.
+    expect(blocked.netWorthNominalCents).toBe(5_000_000);
+    // Reporting is unchanged: the block is the FIRST purchase and its shortfall, not the second's.
+    expect(series.blockingObligation?.sourceEventId).toBe("buy1");
+    expect(series.blockingObligation?.requiredCents).toBe(DOWN);
+    expect(series.blockingObligation?.shortfallCents).toBe(DOWN - 5_000_000);
+    // Both events are reported omitted — the blocker first, then the draw it skipped.
+    expect(series.omittedSourceEventIds).toEqual(["buy1", "buy2"]);
+  });
+
+  it("keeps an EARLIER same-month purchase, whose draw resolved before the block", () => {
+    // Order matters the other way too: a draw that resolved BEFORE the block really did spend its
+    // money, so its house and mortgage stand. $50k savings funds buy2's $10k down payment, then
+    // buy1's $80k blocks — suppression must not over-reach onto the purchase that completed.
+    const firstHouse: SimProperty = {
+      id: "house2",
+      ownerId: "p1",
+      startMonth: BLOCK_MONTH,
+      endMonth: null,
+      openingValueCents: 5_000_000,
+      appreciationAnnualRate: 0,
+      causedByEventId: "buy2",
+      mortgageLiabilityId: "mtg2",
+    };
+    const firstMortgage = new AmortizingLoan({
+      id: "mtg2",
+      ownerId: "p1",
+      kind: "mortgage",
+      openingBalanceCents: 4_000_000,
+      startMonth: BLOCK_MONTH,
+      apr: 0,
+      termMonths: 360,
+    });
+    const firstDownPayment = assetAcquisitionObligation({
+      id: "downpayment:buy2",
+      sourceId: "downpayment2",
+      sourceEventId: "buy2",
+      month: BLOCK_MONTH,
+      amountCents: 1_000_000,
+      orderedAccountIds: ["savings"],
+    });
+
+    const series = run({
+      accounts: [savings(5_000_000)],
+      properties: [firstHouse, house],
+      liabilities: [firstMortgage, mortgage()],
+      // buy2 resolves first, buy1 second.
+      fundingDraws: [firstDownPayment, downPayment(DOWN)],
+    });
+
+    expect(series.status).toBe("blocked");
+    const blocked = series.months[BLOCK_MONTH];
+    // buy2's draw applied: $50k − $10k.
+    expect(blocked.accountBalancesCents.savings).toBe(4_000_000);
+    // ...and its artifacts stand.
+    expect(blocked.propertyValuesCents.house2).toBe(5_000_000);
+    expect(blocked.liabilityBalancesCents.mtg2).toBe(4_000_000);
+    // buy1's do not.
+    expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
+    // Only the blocking event is omitted; the completed purchase is not.
+    expect(series.omittedSourceEventIds).toEqual(["buy1"]);
+    expect(series.blockingObligation?.sourceEventId).toBe("buy1");
+    // The block prices against the balance buy2's draw left behind: $80k − $40k.
+    expect(series.blockingObligation?.availableCents).toBe(4_000_000);
+  });
+
   it("does not throw and runs to the horizon when the purchase is funded", () => {
     // $100k savings covers the $80k down payment: the purchase executes and the plan runs on.
     const series = run({
