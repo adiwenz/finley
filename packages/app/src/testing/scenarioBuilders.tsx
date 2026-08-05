@@ -33,7 +33,8 @@ import type { Transact } from "../hooks/useProjection";
 const NO_WRITES: Transact = () => undefined;
 
 const ALEX_AGE = PLAN_DEFAULTS.currentAge;
-const ALEX_BIRTH = START_YEAR - ALEX_AGE;
+/** The primary's birth year — exported so a partner authored at the same age names it directly. */
+export const ALEX_BIRTH = START_YEAR - ALEX_AGE;
 /** Life expectancy the portfolio-lasts sentences quote — exported so assertions read it too. */
 export const LIFE_EXPECTANCY = PLAN_DEFAULTS.lifeExpectancy;
 
