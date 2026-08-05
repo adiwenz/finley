@@ -36,12 +36,17 @@ export interface RetirementEvaluation {
 }
 
 /**
- * One job the solve **ran past its authored end** to reach the age it reported — the assumption
- * behind the answer, named so it can be disclosed rather than left implicit.
+ * One job the solve **paid this household past the authored plan** to reach the age it reported
+ * — the assumption behind the answer, named so it can be disclosed rather than left implicit.
  *
  * Read back off the resolved household rather than re-derived from the selection, so this can
- * only ever name a job the projection actually paid for those extra years. A household whose
+ * only ever name a job the projection actually paid for those extra months. A household whose
  * answer needed no extra work discloses nothing, because nothing was assumed.
+ *
+ * **Paid, not merely employed.** A job whose owner has left the household — a separated partner
+ * — can have its employment run on to a candidate boundary and contribute nothing, and a
+ * disclosure crediting the answer to that work would be describing money the household never
+ * saw. Every window here is a household-paid one.
  */
 export interface ContinuedJob {
   readonly jobId: string;
@@ -64,8 +69,9 @@ export interface ContinuedJob {
   readonly ownerId: string;
   readonly ownerName: string;
   /**
-   * How old **the owner** is when the continuation stops — always their own age, never the
-   * primary's.
+   * How old **the owner** is when the continuation stops PAYING this household — always their
+   * own age, never the primary's, and the end of the money rather than the end of the
+   * employment: a partner separating mid-extension reports the separation, not the boundary.
    *
    * The distinction is the whole point of the field. `fullRetirementAge` and
    * `plannedWorkStopAge` are stated in the PRIMARY's years, because they are facts about the

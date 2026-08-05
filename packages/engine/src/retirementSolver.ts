@@ -28,9 +28,12 @@ import { createProjectionBase } from "./projectionBase";
 import { jobDisplayNames } from "./compilePerson";
 import type { ProjectionContext } from "./projectionBase";
 import {
-  authoredJobEndYearExclusive,
+  addedHouseholdPaidMonths,
   householdJobContexts,
+  householdPaidMonths,
+  householdPaidYears,
   householdWageEndYearExclusive,
+  intersectHouseholdPaidMonths,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
 } from "./householdJob";
@@ -269,14 +272,22 @@ export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): 
 }
 
 /**
- * Which jobs a stop at `age` runs past their authored end — the disclosure behind an answer, and
- * a pure read of the SAME resolution the run at that age performed.
+ * Which jobs a stop at `age` pays this household for **beyond what the authored plan pays** —
+ * the disclosure behind an answer, and a pure read of the SAME resolution the run at that age
+ * performed.
  *
- * Compared against {@link authoredJobEndYearExclusive} rather than re-derived from each person's
- * selection, so a job appears here exactly when the projection really did pay it for years the
- * plan does not contain. A selection that changed nothing at this age — because the boundary
- * falls inside the selected job's own span, so every job was merely capped — correctly reports
- * nothing.
+ * The comparison is between the two resolutions of each job — authored and hypothetical — and it
+ * is made on the **household-paid** span, never on the employment span alone. Employment is not
+ * income: a partner who separates at 60 goes on being employed to 65 as far as their job is
+ * concerned, and the household stops being paid at the separation either way. Extending that
+ * employment to a candidate 70 therefore moves `endYearExclusive` and moves not one cent, and
+ * the sentence "you could stop at 70 if their job continued through 70" would credit the answer
+ * to work that never funded it. A continuation is disclosed only where it actually paid.
+ *
+ * Read off the resolution rather than re-derived from each person's selection, so a job appears
+ * here exactly when the projection really did pay it for months the plan does not contain. A
+ * selection that changed nothing at this age — because the boundary falls inside the selected
+ * job's own span, so every job was merely capped — correctly reports nothing.
  *
  * No simulation: the household is interpreted and its jobs resolved, which is what a run does
  * before any month is computed. Cheap enough to run once for the solved age.
@@ -289,60 +300,71 @@ export function continuedJobsAt(
   const stopWorking = stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear);
   const base = createProjectionBase(scenario.plan, ctx, stopWorking);
   const household = interpretLedger(scenario.ledger, base);
-  const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
+  // The same contexts under both scopes, paired by index — one job, asked two questions. The
+  // authored pass is what the household is paid without the hypothesis; nothing else can say
+  // what the hypothesis added.
+  const contexts = householdJobContexts(household.memberships);
+  const authored = resolveHouseholdJobs(contexts, ctx.startYear, { kind: "authored" });
+  const resolved = resolveHouseholdJobs(contexts, ctx.startYear, {
     kind: "hypothetical",
     stopWorking,
   });
-  return resolved
-    .filter((r) => r.endYearExclusive > authoredJobEndYearExclusive(r.job))
-    .map((r) => {
-      // Every age on THIS value is its owner's own, unlike `fullRetirementAge` and
-      // `plannedWorkStopAge`, which are the primary's by convention. A continued job belongs to
-      // one person and the sentence names them, so "Sam's Nursing job continued through when
-      // Sam is 71" is the only reading that can be right — reporting the primary's 66 there
-      // attached a number from Alex's life to a fact about Sam's. The calendar years travel
-      // alongside so a reader can reconcile the two clocks without knowing either birth year.
-      const ownerBirthYear = r.owner.birthYear;
-      // The SAME naming the income legend uses, not a second rule: an untitled job is named
-      // after its owner rather than by its minted id, which means nothing to whoever reads it.
-      const names = jobDisplayNames(r.owner);
-      const named = (job: Job) => ({
-        jobId: job.id,
-        jobLabel: names.get(job.id) ?? job.id,
-        jobName: job.name?.trim() || null,
-      });
-      // The years the extension ADDED — everything past this job's own authored end. Overlap is
-      // measured against that window and not the whole span, because the years the job was
-      // authored for are not a consequence of continuing it.
-      const extensionFrom = authoredJobEndYearExclusive(r.job);
-      const overlaps = resolved
-        .filter((o) => o.owner.id === r.owner.id && o.job.id !== r.job.id)
-        .map((o) => ({
-          other: o,
-          // Clipped to "now" as well: a job continued from an end date already behind us
-          // overlaps on paper from that date, but the projection pays no month before 0, so
-          // reporting the earlier year would name years of doubled income that never happen.
-          from: Math.max(extensionFrom, o.job.startYear, ctx.startYear),
-          to: Math.min(r.endYearExclusive, o.endYearExclusive),
-        }))
-        .filter((w) => w.to > w.from)
-        .map((w) => ({
-          ...named(w.other.job),
-          fromAge: w.from - ownerBirthYear,
-          toAge: w.to - ownerBirthYear,
-          fromYear: w.from,
-          toYear: w.to,
-        }));
 
-      return {
+  return resolved.flatMap((r, i) => {
+    // The months the hypothesis ADDED. Overlap is measured against this window and not the whole
+    // span, because the months the job was authored for are not a consequence of continuing it —
+    // and it is already clipped to the membership and to "now", so no rule of either kind is
+    // restated here.
+    const extension = addedHouseholdPaidMonths(authored[i]!, r);
+    if (extension === null) return [];
+
+    // Every age on THIS value is its owner's own, unlike `fullRetirementAge` and
+    // `plannedWorkStopAge`, which are the primary's by convention. A continued job belongs to
+    // one person and the sentence names them, so "Sam's Nursing job continued through when
+    // Sam is 71" is the only reading that can be right — reporting the primary's 66 there
+    // attached a number from Alex's life to a fact about Sam's. The calendar years travel
+    // alongside so a reader can reconcile the two clocks without knowing either birth year.
+    const ownerBirthYear = r.owner.birthYear;
+    // The SAME naming the income legend uses, not a second rule: an untitled job is named
+    // after its owner rather than by its minted id, which means nothing to whoever reads it.
+    const names = jobDisplayNames(r.owner);
+    const named = (job: Job) => ({
+      jobId: job.id,
+      jobLabel: names.get(job.id) ?? job.id,
+      jobName: job.name?.trim() || null,
+    });
+
+    const overlaps = resolved.flatMap((o, j) => {
+      if (j === i || o.owner.id !== r.owner.id) return [];
+      // Not named `window` — the purity guard reads that as the browser global, and it is right to.
+      const both = intersectHouseholdPaidMonths(extension, householdPaidMonths(o));
+      if (both === null) return [];
+      const years = householdPaidYears(both, ctx.startYear);
+      return [
+        {
+          ...named(o.job),
+          fromAge: years.fromYear - ownerBirthYear,
+          toAge: years.toYearExclusive - ownerBirthYear,
+          fromYear: years.fromYear,
+          toYear: years.toYearExclusive,
+        },
+      ];
+    });
+
+    // The terminus is where the money stops, not where the employment does — the same reading
+    // the emission test above is made on, so the two can never tell different stories.
+    const throughYear = householdPaidYears(extension, ctx.startYear).toYearExclusive;
+    return [
+      {
         ...named(r.job),
         ownerId: r.owner.id,
         ownerName: r.owner.name,
-        throughAge: r.endYearExclusive - ownerBirthYear,
-        throughYear: r.endYearExclusive,
+        throughAge: throughYear - ownerBirthYear,
+        throughYear,
         overlaps,
-      };
-    });
+      },
+    ];
+  });
 }
 
 /**

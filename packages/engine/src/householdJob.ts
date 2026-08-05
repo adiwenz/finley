@@ -359,3 +359,76 @@ export function householdJobContexts(memberships: readonly HouseholdMembership[]
 export function householdWageEndYearExclusive(resolved: ResolvedHouseholdJob, nowYear: number): number {
   return nowYear + Math.ceil(resolved.paidEndMonthExclusive / 12);
 }
+
+/**
+ * A half-open span of months relative to "now" over which the household is actually PAID.
+ *
+ * The unit every disclosure about a continuation is computed in. Employment spans are the wrong
+ * unit for that: a job whose owner has left the household goes on being employment and stops
+ * being income, and a sentence that credits an extension with reaching age 70 when the money
+ * stopped at the separation is describing a household that does not exist. Months rather than
+ * years because a membership starts and ends on a month, and a year-grained intersection cannot
+ * tell a one-month overlap from none at all.
+ */
+export interface HouseholdPaidMonths {
+  readonly fromMonth: number;
+  readonly toMonthExclusive: number;
+}
+
+/** Empty spans are `null` everywhere below, so "no months at all" is never a subtraction away. */
+function nonEmpty(fromMonth: number, toMonthExclusive: number): HouseholdPaidMonths | null {
+  return toMonthExclusive > fromMonth ? { fromMonth, toMonthExclusive } : null;
+}
+
+/** The months a resolved job pays this household, or `null` when it pays it none. */
+export function householdPaidMonths(resolved: ResolvedHouseholdJob): HouseholdPaidMonths | null {
+  return nonEmpty(resolved.paidStartMonth, resolved.paidEndMonthExclusive);
+}
+
+/**
+ * The months a hypothesis ADDS to what the authored plan already pays this household — the
+ * evidence a continuation disclosure stands on, and `null` when it adds nothing.
+ *
+ * Both arguments must be the same job resolved under the two scopes. What is compared is the
+ * PAID span, not the employment span, which is the whole point: extending a separated partner's
+ * employment past their authored end moves `endYearExclusive` and moves no money, so it is not a
+ * continuation as far as this household is concerned and must not be reported as one.
+ *
+ * The lower bound takes the hypothetical's own paid start as well, so employment outside the
+ * membership is never counted: a partner who joins after the job was authored to end adds only
+ * the months from the join, not the months from the authored end.
+ */
+export function addedHouseholdPaidMonths(
+  authored: ResolvedHouseholdJob,
+  hypothetical: ResolvedHouseholdJob,
+): HouseholdPaidMonths | null {
+  return nonEmpty(
+    Math.max(authored.paidEndMonthExclusive, hypothetical.paidStartMonth),
+    hypothetical.paidEndMonthExclusive,
+  );
+}
+
+/** Where two paid spans coincide, or `null`. `null` in is `null` out — nothing overlaps nothing. */
+export function intersectHouseholdPaidMonths(
+  a: HouseholdPaidMonths | null,
+  b: HouseholdPaidMonths | null,
+): HouseholdPaidMonths | null {
+  if (a === null || b === null) return null;
+  return nonEmpty(Math.max(a.fromMonth, b.fromMonth), Math.min(a.toMonthExclusive, b.toMonthExclusive));
+}
+
+/**
+ * A paid span as the calendar years a reader is told about: the year the money starts arriving
+ * (rounded DOWN — it arrives during that year) through the exclusive year it stops (rounded UP,
+ * as {@link householdWageEndYearExclusive} does, for the same reason). A non-empty span always
+ * spans at least one year, so a disclosure computed from one is never a zero-length window.
+ */
+export function householdPaidYears(
+  span: HouseholdPaidMonths,
+  nowYear: number,
+): { fromYear: number; toYearExclusive: number } {
+  return {
+    fromYear: nowYear + Math.floor(span.fromMonth / 12),
+    toYearExclusive: nowYear + Math.ceil(span.toMonthExclusive / 12),
+  };
+}

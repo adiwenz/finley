@@ -1180,6 +1180,447 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(reload(planWithJobs(jobs, null)).plan.continuationJobId).toBeNull();
     expect(reload(planWithJobs(jobs)).plan.continuationJobId).toBeUndefined();
   });
+
+  it("records no continuation at a candidate that is exactly the selected job's own end", () => {
+    // The boundary of the extension rule, from the side that must NOT fire. At 65 the career was
+    // ending anyway, so nothing was assumed and the answer is unconditional — the headline may be
+    // stated flat. One year later the same plan has something to disclose, which is what makes
+    // this an assertion about the boundary rather than about a fixture that never continues.
+    const scenario = scenarioOf(planWithJobs([job("career", 35, 65)], "career"));
+
+    expect(continuedJobsAt(scenario, 65, CTX)).toEqual([]);
+    expect(continuedJobsAt(scenario, 64, CTX)).toEqual([]);
+    const [continued] = continuedJobsAt(scenario, 66, CTX);
+    expect(continued?.jobId).toBe("career");
+    expect(continued?.throughAge).toBe(66);
+  });
+
+  it("treats a FUTURE selected job by where the candidate falls against its own span", () => {
+    // One selection, three candidates, three different meanings — and the middle one is the case
+    // a "the selected job always runs to the boundary" reading gets wrong.
+    const jobs = [job("bridge", 35, 45), job("future", 50, 60)];
+    const scenario = scenarioOf(planWithJobs(jobs, "future"));
+
+    // Before it starts: it never happens at all, selected or not.
+    const before = projectFullRetirement(scenario, 48, CTX);
+    for (const age of [48, 50, 55, 59]) expect(wageAt(before, "future", monthAt(age))).toBe(0);
+    expect(continuedJobsAt(scenario, 48, CTX)).toEqual([]);
+
+    // Inside its authored span: capped like any other job, and nothing to disclose.
+    const inside = projectFullRetirement(scenario, 55, CTX);
+    expect(wageAt(inside, "future", monthAt(54))).toBeGreaterThan(0);
+    expect(wageAt(inside, "future", monthAt(55))).toBe(0);
+    expect(continuedJobsAt(scenario, 55, CTX)).toEqual([]);
+
+    // Past its authored end: extended, and said so.
+    const after = projectFullRetirement(scenario, 65, CTX);
+    expect(wageAt(after, "future", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(after, "future", monthAt(65))).toBe(0);
+    const [continued] = continuedJobsAt(scenario, 65, CTX);
+    expect(continued?.jobId).toBe("future");
+    expect(continued?.throughAge).toBe(65);
+  });
+
+  it("pays a continued COMPLETED job from the salary it was authored with, and grows it as authored", () => {
+    // "It never ended" has to be priced, and the price is the job's own authored terms — month 0
+    // is the current salary verbatim, and everything after it follows that job's own growth.
+    // Anything else would make a continuation a raise nobody entered.
+    const completed = (realGrowthPct: number): Job => ({
+      id: "past",
+      ownerId: "p1",
+      startYear: at(20),
+      endYear: at(30),
+      salary: {
+        startingSalaryCents: dollarsToCents(20_000),
+        currentSalaryCents: dollarsToCents(36_000),
+        realGrowthPct,
+      },
+    });
+    const seriesFor = (realGrowthPct: number) =>
+      projectFullRetirement(
+        scenarioOf(planWithJobs([completed(realGrowthPct), job("current", 35, 65)], "past")),
+        70,
+        CTX,
+      );
+
+    const flat = seriesFor(0);
+    // Month 0 is the authored CURRENT salary, not the starting one it was hired at.
+    expect(wageAt(flat, "past", 0)).toBe(dollarsToCents(36_000) / 12);
+    // And it really is continuous from there — no gap where the job stopped.
+    for (const age of [45, 55, 69]) expect(wageAt(flat, "past", monthAt(age))).toBeGreaterThan(0);
+    expect(wageAt(flat, "past", monthAt(70))).toBe(0);
+
+    // Real growth is the job's own field, and it still applies to the continued years: same
+    // month 0, strictly more later. Compared against the flat job rather than against an
+    // absolute figure, so this holds on whichever basis the series reports.
+    const growing = seriesFor(0.02);
+    expect(wageAt(growing, "past", 0)).toBe(wageAt(flat, "past", 0));
+    expect(wageAt(growing, "past", monthAt(60))).toBeGreaterThan(wageAt(flat, "past", monthAt(60)));
+  });
+
+  it("keeps an explicit None through adding, removing and reordering jobs", () => {
+    // `null` is a stated answer, and the initialization rule must never get a second chance at
+    // it. Editing the job list is exactly when it would: the rule fires on read, so every read
+    // after every edit is an opportunity to quietly replace the household's "no" with a default.
+    const jobs = [job("career", 35, 65), job("side", 40, 50)];
+    const p = Projection.fromState(stateOf(planWithJobs(jobs, null)), mockJurisdiction());
+    expect(p.continuationJobOf("p1")).toBeNull();
+
+    p.addJob("p1", { startYear: at(66), endYear: at(72), salary: job("x", 66, 72).salary });
+    expect(p.continuationJobOf("p1")).toBeNull();
+    p.removeJob("side");
+    expect(p.continuationJobOf("p1")).toBeNull();
+
+    // Order is not information: the same jobs listed the other way round still answer None.
+    const reversed = planWithJobs([...jobs].reverse(), null);
+    expect(continuationJobIdOf({ ...reversed, id: "p1", birthYear: BIRTH_YEAR }, START_YEAR)).toBeNull();
+
+    // And the answer is invented nowhere downstream: neither solver nor preview pays a month the
+    // plan does not contain. Every job left is authored to end by 72, so past that a preview at
+    // 75 must show no income at all — not the career run on, not the job just added run on.
+    const scenario = { plan: p.plan, ledger: p.ledger };
+    expect(solveRetirement(scenario, CTX).continuedJobs).toEqual([]);
+    const previewed = p.runAtStopWorkingAge(mockJurisdiction(), 75).series;
+    expect(incomeAt(previewed, monthAt(71))).toBeGreaterThan(0); // the added job, as authored
+    for (const age of [72, 73, 74]) expect(incomeAt(previewed, monthAt(age))).toBe(0);
+  });
+
+  it("resolves to None when the selected job is DELETED, with no stale id left anywhere", () => {
+    // A dangling selection must not become an unbounded extension. The authoring path clears it,
+    // and every reader agrees on the cleared state — solver, preview and picker alike, which is
+    // the point: a stale id that only one of them still honoured would show a household a
+    // retirement age funded by a job they had removed.
+    const jobs = [job("career", 35, 65), job("contract", 65, 70)];
+    const p = Projection.fromState(stateOf(planWithJobs(jobs, "contract")), mockJurisdiction());
+    p.removeJob("contract");
+
+    expect(p.plan.continuationJobId).toBeNull();
+    expect(p.continuationJobOf("p1")).toBeNull();
+    expect(JSON.stringify(p.toState())).not.toContain("contract");
+
+    expect(solveRetirement({ plan: p.plan, ledger: p.ledger }, CTX).continuedJobs).toEqual([]);
+    const previewed = p.runAtStopWorkingAge(mockJurisdiction(), 75).series;
+    expect(wageAt(previewed, "career", monthAt(64))).toBeGreaterThan(0);
+    expect(wageAt(previewed, "career", monthAt(65))).toBe(0);
+  });
+
+  it("answers a household with NO jobs at all, in both directions", () => {
+    // Nothing to continue and nothing to overlap. A household living off its assets can stop
+    // today — the earliest age there is — and one that cannot fund itself has no age at all,
+    // which is a different answer from stopping today and must not be reported as one.
+    const jobless = (openingDollars: number): Plan => ({
+      ...samplePlan,
+      jobs: [],
+      continuationJobId: null,
+      openingBalanceCents: dollarsToCents(openingDollars),
+    });
+
+    const funded = solveRetirement(scenarioOf(jobless(3_000_000)), CTX);
+    expect(funded.fullRetirementAge).toBe(samplePlan.currentAge);
+    expect(funded.continuedJobs).toEqual([]);
+    // No jobs is no planned stop either — a household with no wages never stops receiving them.
+    expect(funded.plannedWorkStopAge).toBeNull();
+
+    const broke = solveRetirement(scenarioOf(jobless(0)), CTX);
+    expect(broke.fullRetirementAge).toBeNull();
+    expect(broke.continuedJobs).toEqual([]);
+  });
+
+  it("compiles no income for jobs the preview's own boundary falls before", () => {
+    // The preview is the solved age made visible, so a candidate before every job the household
+    // holds has to LOOK like it: not a job paid a token amount, not a flat line at zero drawn
+    // from a compiled series — no pay path at all.
+    const jobs = [job("first", 50, 60), job("second", 62, 70)];
+    const p = Projection.fromState(stateOf(planWithJobs(jobs, "first")), mockJurisdiction());
+    const previewed = p.runAtStopWorkingAge(mockJurisdiction(), 45).series;
+
+    for (const age of [45, 50, 55, 62, 69]) {
+      const sources = previewed.months[monthAt(age)]?.flows?.incomeSources ?? [];
+      expect(sources.filter((s) => s.sourceId.startsWith("job:"))).toEqual([]);
+    }
+    expect(continuedJobsAt(scenarioOf(planWithJobs(jobs, "first")), 45, CTX)).toEqual([]);
+  });
+
+  it("discloses several overlaps deterministically, with no duplicate or empty window", () => {
+    // A continuation can cross more than one later job, and each crossing is its own sentence.
+    // The failure this guards is the shape a reader would notice first: the same job named
+    // twice, or a window from 70 to 70 that says nothing at all.
+    const jobs = [
+      job("career", 35, 65),
+      job("first", 65, 70),
+      job("second", 68, 72),
+      job("longAgo", 30, 34),
+    ];
+    const scenario = scenarioOf(planWithJobs(jobs, "career"));
+    const [continued] = continuedJobsAt(scenario, 75, CTX);
+
+    expect(continued?.overlaps).toEqual([
+      {
+        jobId: "first",
+        jobLabel: `${samplePlan.name}'s job 2`,
+        jobName: null,
+        fromAge: 65,
+        toAge: 70,
+        fromYear: at(65),
+        toYear: at(70),
+      },
+      {
+        jobId: "second",
+        jobLabel: `${samplePlan.name}'s job 3`,
+        jobName: null,
+        fromAge: 68,
+        toAge: 72,
+        fromYear: at(68),
+        toYear: at(72),
+      },
+    ]);
+    // The job that ended before "now" is not among them, and nothing is named twice or empty.
+    const ids = continued!.overlaps.map((o) => o.jobId);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const o of continued!.overlaps) expect(o.toAge).toBeGreaterThan(o.fromAge);
+    // And the read is a pure function of the scenario: asking twice says the same thing.
+    expect(continuedJobsAt(scenario, 75, CTX)).toEqual(continuedJobsAt(scenario, 75, CTX));
+  });
+
+  /**
+   * **A continuation is only a continuation where the household was PAID.**
+   *
+   * Employment and income are the same thing for a person who is in the household throughout,
+   * which is why this went unnoticed: every fixture above has one. A partner's wages belong to
+   * this household only between joining and separating, so extending their employment past an
+   * authored end can move the employment span and not one cent of income — and a sentence
+   * crediting the answer to that work describes a household that does not exist.
+   */
+  describe("and only where the household was actually paid", () => {
+    const PARTNER_ID = "p2";
+    const partnerJobAt = (
+      id: string,
+      birthYear: number,
+      startAge: number,
+      endAge: number,
+      annual = 60_000,
+    ): Job => ({
+      id,
+      ownerId: PARTNER_ID,
+      startYear: birthYear + startAge,
+      endYear: birthYear + endAge,
+      salary: {
+        startingSalaryCents: dollarsToCents(annual),
+        currentSalaryCents: dollarsToCents(annual),
+        realGrowthPct: 0,
+      },
+    });
+
+    const partnerWith = (opts: {
+      birthYear?: number;
+      jobs: readonly Job[];
+      continuationJobId: string | null;
+    }): Person => ({
+      id: PARTNER_ID,
+      name: "Partner",
+      birthYear: opts.birthYear ?? BIRTH_YEAR,
+      benefitClaimingAge: 67,
+      jobs: opts.jobs,
+      continuationJobId: opts.continuationJobId,
+    });
+
+    /**
+     * The partner joins at `joinMonth` and, where one is given, leaves at `separationMonth`.
+     * The PRIMARY selects None throughout, so every continuation these tests see is the
+     * partner's and no second extension can account for what they assert.
+     */
+    function membershipScenario(
+      partner: Person,
+      opts: { joinMonth?: number; separationMonth?: number } = {},
+    ): Scenario {
+      const plan = planWithJobs(samplePlan.jobs, null);
+      const base = createProjectionBase(plan, CTX);
+      const married = addEvent(emptyLedger, base, {
+        id: "r1",
+        type: "RelationshipEvent",
+        month: opts.joinMonth ?? 0,
+        person: partner,
+      });
+      if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+      if (opts.separationMonth === undefined) return withLedger(scenarioOf(plan), married.ledger);
+      const separated = addEvent(married.ledger, base, {
+        id: "s1",
+        type: "SeparationEvent",
+        month: opts.separationMonth,
+        partnerPersonId: PARTNER_ID,
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      });
+      if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+      return withLedger(scenarioOf(plan), separated.ledger);
+    }
+
+    it("says nothing about a job whose owner had already left before its authored end", () => {
+      // The bug, in its plainest shape. The partner's job is authored to 65 and they separate at
+      // 60, so the household's last wage from it arrives at 60 whatever the candidate is.
+      // Extending the employment to 70 adds employment and adds no money — and "you could stop
+      // at 70 if their job continued through 70" would credit the answer to work that funded
+      // none of it.
+      const partner = partnerWith({
+        jobs: [partnerJobAt("pjob", BIRTH_YEAR, 35, 65)],
+        continuationJobId: "pjob",
+      });
+      const separated = membershipScenario(partner, { separationMonth: monthAt(60) });
+
+      expect(continuedJobsAt(separated, 70, CTX)).toEqual([]);
+      expect(solveRetirement(separated, CTX).continuedJobs).toEqual([]);
+
+      // The same partner who never leaves DOES continue — so this is the separation talking,
+      // not a fixture that could never have disclosed anything.
+      const together = membershipScenario(partner);
+      expect(continuedJobsAt(together, 70, CTX).map((c) => c.jobId)).toEqual(["pjob"]);
+    });
+
+    it("discloses a continuation only through the last month the household is paid for it", () => {
+      // The partial case: the extension does add paid months, and then the separation ends them
+      // early. What is disclosed is where the money stopped — 68 — and not the boundary the
+      // employment ran to.
+      const partner = partnerWith({
+        jobs: [partnerJobAt("pjob", BIRTH_YEAR, 35, 65)],
+        continuationJobId: "pjob",
+      });
+      const scenario = membershipScenario(partner, { separationMonth: monthAt(68) });
+
+      const [continued] = continuedJobsAt(scenario, 70, CTX);
+      expect(continued?.jobId).toBe("pjob");
+      expect(continued?.throughAge).toBe(68);
+      expect(continued?.throughYear).toBe(at(68));
+      // Strictly inside the candidate: the household is told when it stops being paid, not when
+      // the hypothesis stops running.
+      expect(continued!.throughYear).toBeLessThan(at(70));
+    });
+
+    it("counts a continuation only from the JOIN, never from employment the household missed", () => {
+      // A job authored to end before the partner even joined pays this household nothing as
+      // authored, so every paid month the hypothesis produces is added — but only the ones
+      // inside the membership. The overlap window is where that shows: it opens at the join,
+      // not at the authored end five years earlier.
+      const partner = partnerWith({
+        jobs: [partnerJobAt("early", BIRTH_YEAR, 20, 35), partnerJobAt("later", BIRTH_YEAR, 35, 55)],
+        continuationJobId: "early",
+      });
+      const joined = membershipScenario(partner, { joinMonth: monthAt(45) });
+
+      const [continued] = continuedJobsAt(joined, 70, CTX);
+      expect(continued?.jobId).toBe("early");
+      expect(continued?.throughAge).toBe(70);
+      expect(continued?.overlaps).toEqual([
+        {
+          jobId: "later",
+          jobLabel: "Partner's job 2",
+          jobName: null,
+          fromAge: 45,
+          toAge: 55,
+          fromYear: at(45),
+          toYear: at(55),
+        },
+      ]);
+
+      // And it really tracks the join: the same partner in the household from the start is paid
+      // for those years, so the window opens at "now" instead.
+      const [fromTheStart] = continuedJobsAt(membershipScenario(partner), 70, CTX);
+      expect(fromTheStart?.overlaps[0]?.fromYear).toBe(START_YEAR);
+      expect(fromTheStart?.overlaps[0]?.fromAge).toBe(samplePlan.currentAge);
+    });
+
+    it("reports no overlap where two jobs overlap as EMPLOYMENT but not as household income", () => {
+      // Both spans cross on paper — the continued job runs to 70 and the later one is authored
+      // 50–60 — and the household is paid for neither crossing, because it is paid for the later
+      // job not at all: the partner separates the year it starts. Measured on employment this
+      // reports a ten-year doubling of income that never happens.
+      const partner = partnerWith({
+        jobs: [partnerJobAt("early", BIRTH_YEAR, 20, 35), partnerJobAt("late", BIRTH_YEAR, 50, 60)],
+        continuationJobId: "early",
+      });
+      const scenario = membershipScenario(partner, { separationMonth: monthAt(50) });
+
+      const [continued] = continuedJobsAt(scenario, 70, CTX);
+      expect(continued?.jobId).toBe("early");
+      expect(continued?.overlaps).toEqual([]);
+      // Paid to the separation and no further.
+      expect(continued?.throughAge).toBe(50);
+    });
+
+    it("states a genuine overlap in the OWNER's ages and the shared calendar years", () => {
+      // The case that must keep working, and the one where the two clocks visibly disagree: a
+      // partner five years older, joining part-way through. Every age here is theirs, every year
+      // is the household's, and the pair is what lets a reader reconcile them.
+      const partnerBirthYear = BIRTH_YEAR - 5;
+      const partner = partnerWith({
+        birthYear: partnerBirthYear,
+        jobs: [
+          partnerJobAt("long", partnerBirthYear, 30, 60),
+          partnerJobAt("second", partnerBirthYear, 55, 65),
+        ],
+        continuationJobId: "long",
+      });
+      const scenario = membershipScenario(partner, { joinMonth: monthAt(45) });
+
+      const [continued] = continuedJobsAt(scenario, 70, CTX);
+      expect(continued?.ownerName).toBe("Partner");
+      expect(continued?.jobId).toBe("long");
+      // The candidate is the PRIMARY's 70 — the same calendar year is the partner's 75.
+      expect(continued?.throughYear).toBe(at(70));
+      expect(continued?.throughAge).toBe(75);
+      expect(continued?.overlaps).toEqual([
+        {
+          jobId: "second",
+          jobLabel: "Partner's job 2",
+          jobName: null,
+          fromAge: 60,
+          toAge: 65,
+          fromYear: partnerBirthYear + 60,
+          toYear: partnerBirthYear + 65,
+        },
+      ]);
+    });
+
+    it("stops two differently-aged earners at ONE calendar boundary, each disclosed in their own years", () => {
+      // One household, one stop — the boundary is a calendar year precisely so a five-year age
+      // gap cannot make the two of them retire at different moments. The headline stays the
+      // primary's age; each continued job is stated in its owner's, once, with no second copy
+      // to contradict it.
+      const partnerBirthYear = BIRTH_YEAR - 5;
+      const partner = partnerWith({
+        birthYear: partnerBirthYear,
+        jobs: [partnerJobAt("theirs", partnerBirthYear, 30, 60)],
+        continuationJobId: "theirs",
+      });
+      const base = createProjectionBase(planWithJobs(samplePlan.jobs, "job-main"), CTX);
+      const married = addEvent(emptyLedger, base, {
+        id: "r1",
+        type: "RelationshipEvent",
+        month: 0,
+        person: partner,
+      });
+      if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+      const scenario = withLedger(
+        scenarioOf(planWithJobs(samplePlan.jobs, "job-main")),
+        married.ledger,
+      );
+
+      const continued = continuedJobsAt(scenario, 70, CTX);
+      expect(continued.map((c) => c.ownerId)).toEqual(["p1", PARTNER_ID]);
+      // One owner, one sentence: nothing is disclosed twice.
+      expect(new Set(continued.map((c) => c.ownerId)).size).toBe(continued.length);
+      // The same calendar year for both, and each in their own age — 70 and 75.
+      expect(continued.map((c) => c.throughYear)).toEqual([at(70), at(70)]);
+      expect(continued.map((c) => c.throughAge)).toEqual([70, 75]);
+
+      // And the projection really does stop them together, in that year.
+      const series = projectFullRetirement(scenario, 70, CTX);
+      expect(wageAt(series, "job-main", monthAt(70) - 1)).toBeGreaterThan(0);
+      expect(wageAt(series, "theirs", monthAt(70) - 1)).toBeGreaterThan(0);
+      expect(wageAt(series, "job-main", monthAt(70))).toBe(0);
+      expect(wageAt(series, "theirs", monthAt(70))).toBe(0);
+    });
+  });
 });
 
 /**
