@@ -10,8 +10,11 @@
 //               builds a dependency graph, and selects up to 3 unblocked,
 //               non-overlapping issues that can be worked concurrently.
 //   2. Execute — one implementer agent per issue runs in parallel, each in its
-//               own sandbox on its own branch. Every agent verifies typecheck +
-//               tests inside its sandbox, writes a summary file, and signals
+//               own sandbox on its own branch. The sandbox is created ONCE per
+//               issue and reused by every agent that works it (task by task,
+//               then the reviewer), so the container/worktree is provisioned
+//               once instead of per agent. Every agent verifies typecheck +
+//               tests inside that sandbox, writes a summary file, and signals
 //               done with <promise>COMPLETE</promise>.
 //   3. Review  — once an issue's implementation is complete, ONE reviewer agent
 //               reads the whole branch diff and commits refinements. Then we push
@@ -551,20 +554,20 @@ async function branchCommitCount(branch: string): Promise<number> {
 
 // One implementer agent, on one branch. Called once per task, or once for the
 // whole issue when the issue declares none.
+//
+// Runs inside the issue's persistent sandbox (see processSingleIssue), so
+// successive task agents share one container and one worktree — the toolchain
+// and `npm install` are paid for once per issue rather than once per agent.
 async function runImplementer(args: {
+  activeSandbox: sandcastle.Sandbox;
   issue: { id: string; title: string; branch: string };
   task?: IssueTask;
   taskTotal: number;
   /** Titles of the tasks already committed on this branch, for the handoff. */
   priorTasks: readonly string[];
 }) {
-  const { issue, task, taskTotal, priorTasks } = args;
-  return sandcastle.run({
-    hooks,
-    copyToWorktree,
-    sandbox,
-    cwd: REPO_ROOT,
-    branchStrategy: { type: "branch", branch: issue.branch },
+  const { activeSandbox, issue, task, taskTotal, priorTasks } = args;
+  return activeSandbox.run({
     name: task ? `implementer-task-${task.index}` : "implementer",
     // Re-prompted until it emits the completion signal (default
     // "<promise>COMPLETE</promise>") or hits this cap. Completion can't be
@@ -600,14 +603,14 @@ async function runImplementer(args: {
 // against the issue's acceptance criteria.
 //
 // Runs before the push and the human handoff, so its commits ride along with the
-// implementation rather than needing a second round trip.
-async function runReviewer(issue: { id: string; title: string; branch: string }) {
-  return sandcastle.run({
-    hooks,
-    copyToWorktree,
-    sandbox,
-    cwd: REPO_ROOT,
-    branchStrategy: { type: "branch", branch: issue.branch },
+// implementation rather than needing a second round trip. Reuses the issue's
+// sandbox, so it starts on the already-provisioned worktree the implementers
+// just committed into.
+async function runReviewer(
+  activeSandbox: sandcastle.Sandbox,
+  issue: { id: string; title: string; branch: string },
+) {
+  return activeSandbox.run({
     name: "reviewer",
     // Higher than the example's 1 because this reviewer edits, not just reports:
     // it has to get the branch green again after its own refinements. Well under
@@ -652,9 +655,31 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
   // Commits landed on the branch this run. Read after the try block so a partial
   // run still gets pushed — see the push step below.
   let totalCommits = 0;
-  // Set only when the agent's own host worktree survived the run (uncommitted
+  // Set only when the sandbox's host worktree survived teardown (uncommitted
   // changes). When present we can review in place instead of creating a new one.
   let preservedWorktreePath: string | undefined;
+
+  // ONE sandbox for the whole issue: every implementer (one per task) and the
+  // reviewer run inside it. The alternative — a sandbox per agent — reprovisions
+  // the container and re-runs `npm install` for each task, which on a five-task
+  // issue is five spin-ups to work one branch. The worktree is shared too, so a
+  // task agent sees its predecessor's tree, not just its commits.
+  //
+  // Created before the work and closed in the `finally` below, so a crash mid-issue
+  // still tears the container down rather than leaking it for the rest of the run.
+  let activeSandbox: sandcastle.Sandbox;
+  try {
+    activeSandbox = await sandcastle.createSandbox({
+      branch: issue.branch,
+      sandbox,
+      cwd: REPO_ROOT,
+      hooks,
+      copyToWorktree,
+    });
+  } catch (error: any) {
+    console.error(`🚨 [Issue #${issue.id}] Could not create sandbox: ${error.message}`);
+    return;
+  }
 
   try {
     const tasks = await fetchIssueTasks(issue.id);
@@ -703,14 +728,19 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
         const label = attemptsOnUnit > 1 ? `${base} (attempt ${attemptsOnUnit}/${CONTINUATION_ATTEMPTS})` : base;
         console.log(`🚀 [Issue #${issue.id}] Starting ${label}...`);
 
-        const result = await runImplementer({ issue, task, taskTotal: tasks.length, priorTasks: doneTasks });
+        const result = await runImplementer({
+          activeSandbox,
+          issue,
+          task,
+          taskTotal: tasks.length,
+          priorTasks: doneTasks,
+        });
 
         // Count commits before judging the run, not on the success paths only. A
         // commit exists on the branch whether or not its author got to the end,
         // and the push below is gated on this count — so attributing them only to
         // successful runs is what would leave a cut-off agent's work unpushed.
         totalCommits += result.commits.length;
-        if (result.commits.length > 0) preservedWorktreePath = result.preservedWorktreePath;
 
         // The implementer runs typecheck + tests inside its own sandbox before
         // signaling done, so success is determined entirely from the sandbox
@@ -802,23 +832,38 @@ async function processSingleIssue(issue: { id: string; title: string; branch: st
   // Non-fatal: the implementation is done and pushable regardless, so a reviewer
   // that crashes or runs out of iterations must not turn a completed issue into
   // a failed one. Its commits are added to the push below.
-  if (success && totalCommits > 0) {
-    console.log(`🔬 [Issue #${issue.id}] Implementation complete — running reviewer over ${issue.branch}...`);
-    try {
-      const review = await runReviewer(issue);
-      totalCommits += review.commits.length;
-      if (review.commits.length > 0) preservedWorktreePath = review.preservedWorktreePath;
-      if (review.completionSignal === undefined) {
-        console.warn(`⚠️ [Issue #${issue.id}] Reviewer did not signal done; keeping its ${review.commits.length} commit(s).`);
-      } else {
-        console.log(
-          review.commits.length > 0
-            ? `✓ [Issue #${issue.id}] Review complete (${review.commits.length} refinement commit(s)).`
-            : `✓ [Issue #${issue.id}] Review complete — no changes needed.`,
-        );
+  try {
+    if (success && totalCommits > 0) {
+      console.log(`🔬 [Issue #${issue.id}] Implementation complete — running reviewer over ${issue.branch}...`);
+      try {
+        const review = await runReviewer(activeSandbox, issue);
+        totalCommits += review.commits.length;
+        if (review.completionSignal === undefined) {
+          console.warn(`⚠️ [Issue #${issue.id}] Reviewer did not signal done; keeping its ${review.commits.length} commit(s).`);
+        } else {
+          console.log(
+            review.commits.length > 0
+              ? `✓ [Issue #${issue.id}] Review complete (${review.commits.length} refinement commit(s)).`
+              : `✓ [Issue #${issue.id}] Review complete — no changes needed.`,
+          );
+        }
+      } catch (reviewError: any) {
+        console.warn(`⚠️ [Issue #${issue.id}] Reviewer failed: ${reviewError.message}. Handing off the unreviewed branch.`);
       }
-    } catch (reviewError: any) {
-      console.warn(`⚠️ [Issue #${issue.id}] Reviewer failed: ${reviewError.message}. Handing off the unreviewed branch.`);
+    }
+  } finally {
+    // --- Tear down the issue's sandbox ---
+    //
+    // Every agent that will touch this branch has run, so the container/microVM
+    // has no reader left; holding it open would pin its resources for the rest
+    // of the pipeline. Teardown is also where a dirty worktree is preserved —
+    // `close()` reports the path it kept, which is the handoff surface the
+    // `worktree` review mode prefers below.
+    try {
+      const closed = await activeSandbox.close();
+      if (totalCommits > 0) preservedWorktreePath = closed.preservedWorktreePath;
+    } catch (closeError: any) {
+      console.warn(`⚠️ [Issue #${issue.id}] Sandbox teardown failed: ${closeError.message}`);
     }
   }
 
