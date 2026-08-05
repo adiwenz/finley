@@ -14,10 +14,10 @@ import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson } from "./simulate.types";
 import type { FundingSourceKind, ResolvedFunding } from "./resolvedFunding";
 import { assetAcquisitionObligation } from "./financialObligation";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
-import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
-import { RevolvingCard } from "../liability";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
+import { RevolvingCard } from "../liability/liability";
 import { monthlyIncome, monthlyExpense } from "./simulate.testSupport";
 
 const PERSON: SimPerson = { id: "p1", name: "Alice" };

@@ -21,7 +21,10 @@ const engineSrc = join(repoRoot, "packages", "engine", "src");
 const RULES = [
   {
     name: "imports app/rules code (breaks one-way dependency direction)",
-    re: /\b(?:from|import)\s*\(?\s*['"](?:@finley\/(?:rules|app)|\.\.\/(?:rules|app))/,
+    // `(?:\.\.\/)+` matches any depth of parent hops: engine sources nested one or
+    // more folders deep can still reach `rules`/`app` through `../../` — a single
+    // `\.\.\/` would let those slip past.
+    re: /\b(?:from|import)\s*\(?\s*['"](?:@finley\/(?:rules|app)|(?:\.\.\/)+(?:rules|app))/,
   },
   {
     name: "imports a Node built-in (I/O / no standalone-purity)",

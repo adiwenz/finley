@@ -23,8 +23,8 @@ const DEFAULT_MONTHLY_PAY_CENTS = dollarsToCents(5000);
 /**
  * The prepopulated Base, as {@link ScenarioInput} entries. {@link defaultBudgetTemplate} authors
  * the labels and amounts and names no id, so all this does is swap the account target's id for a
- * ref — the chart, dated overrides and `allocations()` key on whatever the engine mints, read
- * back off the built plan rather than assumed.
+ * ref — the chart, dated overrides and the `line:<id>` obligation key (`obligationBudgetLineId`
+ * in the engine) all read whatever the engine mints off the built plan rather than assume it.
  */
 const DEFAULT_BUDGET_ENTRIES: readonly BudgetLineEntry[] = defaultBudgetTemplate().map(
   ({ target, ...rest }): BudgetLineEntry => ({

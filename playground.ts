@@ -1,7 +1,7 @@
 /**
- * Scratch playground for the new `Projection` root (issue #70).
- * Run with:  npx tsx playground.ts
- * Not part of the build — delete freely.
+ * A worked tour of the `Projection` root — the sanctioned observation surface, kept working
+ * alongside `repl.ts`. Reach for the REPL to poke interactively; read this to watch the whole
+ * authoring → run → serialize arc in one pass. Run with `npm run playground`.
  */
 import {
   Projection,

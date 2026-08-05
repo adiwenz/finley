@@ -12,7 +12,7 @@
  * caller's state is untouched.
  */
 
-import type { Jurisdiction } from "../jurisdiction";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { NewLifeEvent } from "../ledger/eventTypes";
 import { addEvent, fundingLookup } from "../ledger/addEvent";
@@ -20,7 +20,7 @@ import type { FundingLookup } from "../ledger/addEvent";
 import { removeEvent } from "../ledger/removeEvent";
 import { updateEvent } from "../ledger/updateEvent";
 import { validateLedger } from "../ledger/validateLedger";
-import { createProjectionBase } from "../projectionBase";
+import { createProjectionBase } from "../compile/projectionBase";
 import type { ProjectionState } from "./state";
 import { withStateLedger } from "./state";
 

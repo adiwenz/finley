@@ -9,15 +9,15 @@
  * decides whether to say anything.
  */
 
-import type { GrowthMode } from "../cashFlowSeries";
-import type { PersonId } from "../job";
-import type { Jurisdiction } from "../jurisdiction";
-import type { Cents } from "../money";
+import type { GrowthMode } from "../money/cashFlowSeries";
+import type { PersonId } from "../job/job";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
 import type { Household } from "../ledger/household";
 import type { ProjectionSeries } from "../projection/simulate";
 import { buildSnapshot } from "../projection/snapshot";
-import { assessDti, mortgagePaymentForPurchaseCents } from "../affordability";
-import type { DtiAssessment } from "../affordability";
+import { assessDti, mortgagePaymentForPurchaseCents } from "../liability/affordability";
+import type { DtiAssessment } from "../liability/affordability";
 import { PRE_NOW_MONTH } from "../projection/nowMarker";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";

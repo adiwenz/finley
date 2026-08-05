@@ -12,24 +12,24 @@
  * cycle between them.
  */
 
-import type { BudgetTarget } from "../budgetLine";
-import { goalFundAccountId } from "../projectionBase";
-import { ageAboveMaximum } from "../plan";
+import type { BudgetTarget } from "../budget/budgetLine";
+import { goalFundAccountId } from "../compile/projectionBase";
+import { ageAboveMaximum } from "../plan/plan";
 import {
   PRIMARY_PERSON_REF,
   RETIREMENT_REF,
   WELL_KNOWN_REF_IDS,
   resolveRefs,
-} from "../scenarioRefs";
-import { ref } from "../scenarioInput";
+} from "../input/scenarioRefs";
+import { ref } from "../input/scenarioInput";
 import type {
   FromInputResult,
   JobEntry,
   Ref,
   ScenarioInput,
   ScenarioScalars,
-} from "../scenarioInput";
-import type { Projection } from "../projectionFacade";
+} from "../input/scenarioInput";
+import type { Projection } from "../facade/projectionFacade";
 import type { JobInput } from "./jobs";
 
 /**

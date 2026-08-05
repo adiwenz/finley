@@ -10,10 +10,10 @@ import type {
   BudgetLine,
   BudgetLineOverride,
   BudgetLinePatch,
-} from "../budgetLine";
-import { withLineOverride, withLinePatch, withoutLine } from "../budgetLine";
-import { compileExpenseBudgetLines } from "../compileBudget";
-import type { Cents } from "../money";
+} from "../budget/budgetLine";
+import { withLineOverride, withLinePatch, withoutLine } from "../budget/budgetLine";
+import { compileExpenseBudgetLines } from "../compile/compileBudget";
+import type { Cents } from "../money/money";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";
 import { mint } from "./mint";

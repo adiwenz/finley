@@ -11,7 +11,7 @@
  * recomputed, only re-shaped.
  */
 
-import type { Cents } from "../money";
+import type { Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {

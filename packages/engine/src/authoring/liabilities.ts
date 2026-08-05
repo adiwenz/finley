@@ -5,9 +5,9 @@
  * `./housing` off the property's id, never authored on its own.
  */
 
-import type { PersonId } from "../job";
-import type { Jurisdiction } from "../jurisdiction";
-import type { LiabilityKind } from "../liability";
+import type { PersonId } from "../job/job";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { LiabilityKind } from "../liability/liability";
 import { PRE_NOW_MONTH } from "../projection/nowMarker";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";

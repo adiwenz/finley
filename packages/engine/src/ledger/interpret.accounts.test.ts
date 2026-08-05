@@ -10,16 +10,16 @@ import { interpretLedger } from "./interpret";
 import { emptyLedger } from "./ledger";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
-import { planAccount } from "../planAccount";
+import { planAccount } from "../plan/planAccount";
 import {
   accountsOf,
   personalAccounts,
   jointAccounts,
   householdNetWorthCents,
-} from "../account";
-import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
-import type { Person } from "../person";
-import type { PersonId } from "../job";
+} from "../plan/account";
+import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
+import type { Person } from "../plan/person";
+import type { PersonId } from "../job/job";
 
 const p1 = "p1" as PersonId;
 const p2 = "p2" as PersonId;

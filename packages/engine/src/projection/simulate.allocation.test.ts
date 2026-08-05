@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { SimPerson } from "./simulate.types";
-import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../simAccount";
-import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction } from "../jurisdiction";
+import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import {
   makePerson,
   makeInvestmentAccount,

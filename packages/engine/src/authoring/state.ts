@@ -8,12 +8,12 @@
  * mutates anything.
  */
 
-import type { Plan } from "../plan";
-import { ageAboveMaximum } from "../plan";
-import type { Scenario } from "../scenario";
-import { scenarioOf, withLedger, withPlan } from "../scenario";
+import type { Plan } from "../plan/plan";
+import { ageAboveMaximum } from "../plan/plan";
+import type { Scenario } from "../plan/scenario";
+import { scenarioOf, withLedger, withPlan } from "../plan/scenario";
 import type { Ledger } from "../ledger/ledger";
-import type { ScenarioScalars } from "../scenarioInput";
+import type { ScenarioScalars } from "../input/scenarioInput";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {

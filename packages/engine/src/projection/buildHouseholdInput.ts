@@ -6,9 +6,9 @@
  * {@link Household}, so they cannot disagree.
  */
 
-import type { Jurisdiction } from "../jurisdiction";
-import { AmortizingLoan, RevolvingCard, type SimLiability } from "../liability";
-import { growthAnnualRate } from "../cashFlowSeries";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import { AmortizingLoan, RevolvingCard, type SimLiability } from "../liability/liability";
+import { growthAnnualRate } from "../money/cashFlowSeries";
 import {
   simulateHousehold,
   type HouseholdSimInput,
@@ -21,8 +21,8 @@ import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
-import { compilePerson } from "../compilePerson";
-import { membershipWindow, type JobResolutionScope } from "../householdJob";
+import { compilePerson } from "../compile/compilePerson";
+import { membershipWindow, type JobResolutionScope } from "../job/householdJob";
 
 export function buildHouseholdSimInput(
   household: Household,

@@ -62,6 +62,8 @@ Skills live in `.claude/skills/` in this repo, so they are available to you here
 * **`/vercel-react-best-practices`** — invoke whenever your change touches React or TSX (anything under `packages/app/src/`), and re-check during REFACTOR. Skip for pure engine or rules work.
 * **`/task-handoff`** — invoke before any commit that leaves the issue unfinished: a declared task with tasks after yours, or a whole-issue part that is not the last. Skip it only for the commit that finishes the issue, which deletes the handoff instead.
 
+**Explore through the REPL, not throwaway scripts.** To learn what the engine actually does, observe it through the REPL — `repl.ts`, run with `npx tsx repl.ts`, which preloads a live `Projection` — then pin what you observed as a test. Never a standalone script that gets written, read once and deleted, and never a language that cannot import `@finley/engine`: a probe outside the engine only reimplements the arithmetic and confirms its own reimplementation. Not yet knowing the expected value is not licence for a script — observe the number in the REPL, then, once it is known, write the assertion. This is the step `/tdd` refuses to let you shortcut by copying output straight into a test.
+
 ---
 
 ### 🧪 Execution Workflow: Red-Green-Refactor (RGR)

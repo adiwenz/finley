@@ -1,5 +1,5 @@
-import type { Cents } from "../money";
-import type { TaxCategory } from "../cashFlowSeries";
+import type { Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 
 /**
  * PER-PERSON attribution invariant, checked as each person is taxed and BEFORE
@@ -56,7 +56,7 @@ export function assertTaxAttributionReconciles(
  * assertPersonTaxBreakdownReconciles}. The jurisdiction's contract: Σ of its per-category
  * payroll breakdown (the increment charged this month) equals the scalar increment {@link
  * import("./waterfall").runWaterfall} charged that same person from {@link
- * import("../jurisdiction").Jurisdiction.computePayrollTaxCents}. Checked per person, before
+ * import("../jurisdiction/jurisdiction").Jurisdiction.computePayrollTaxCents}. Checked per person, before
  * aggregation, so offsetting errors across two earners cannot cancel at the household total.
  */
 export function assertPersonPayrollTaxBreakdownReconciles(

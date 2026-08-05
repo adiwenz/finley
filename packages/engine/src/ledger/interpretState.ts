@@ -5,10 +5,10 @@
  * that conversion is deterministic.
  */
 
-import type { Cents } from "../money";
-import type { GrowthMode, TaxCategory } from "../cashFlowSeries";
-import type { LiabilityKind } from "../liability";
-import type { Person } from "../person";
+import type { Cents } from "../money/money";
+import type { GrowthMode, TaxCategory } from "../money/cashFlowSeries";
+import type { LiabilityKind } from "../liability/liability";
+import type { Person } from "../plan/person";
 import type {
   AccountId,
   ChildId,
@@ -16,7 +16,7 @@ import type {
   PersonId,
   PropertyId,
   SeriesId,
-} from "../ids";
+} from "../plan/ids";
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 import type { FinancialObligation } from "../projection/financialObligation";

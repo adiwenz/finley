@@ -5,11 +5,11 @@
  */
 
 import type { SimOwnedSeries } from "../projection/simulate";
-import type { Person } from "../person";
-import type { StopWorkingBoundary } from "../householdJob";
-import type { PlanAccount } from "../planAccount";
-import type { SimGoal } from "../goal";
-import type { BudgetLine } from "../budgetLine";
+import type { Person } from "../plan/person";
+import type { StopWorkingBoundary } from "../job/householdJob";
+import type { PlanAccount } from "../plan/planAccount";
+import type { SimGoal } from "../goal/goal";
+import type { BudgetLine } from "../budget/budgetLine";
 import type {
   SharedContributionScheme,
   SurplusDestination,

@@ -7,9 +7,9 @@
  * say which events to fix rather than only that it cannot delete.
  */
 
-import type { GoalPatch, GoalPlan } from "../plan";
-import { withGoalPatch, withGoalReordered, withoutGoal } from "../plan";
-import { eventsFundedByGoal, validateGoalRemoval } from "../goalFunding";
+import type { GoalPatch, GoalPlan } from "../plan/plan";
+import { withGoalPatch, withGoalReordered, withoutGoal } from "../plan/plan";
+import { eventsFundedByGoal, validateGoalRemoval } from "../goal/goalFunding";
 import type { LifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";

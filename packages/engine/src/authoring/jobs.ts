@@ -26,31 +26,25 @@ import type {
   Job,
   JobId,
   JobIncomeOverrideInput,
-  JobPatch,
   JobPayChangeInput,
   PersonId,
-} from "../job";
+} from "../job/job";
 import {
   deferralFractionOf,
   mapJob,
   monthlyIncomeCentsOf,
   startingMonthlyIncomeCentsOf,
-  withCurrentMonthlyIncome,
-  withDeferralFraction,
   withIncomeOverride,
-  withJobPatch,
-  withMonthlyIncome,
-  withStartingMonthlyIncome,
   withoutIncomeOverride,
   withoutPayChange,
   withPayChange,
-} from "../job";
-import { MAX_LIVED_AGE } from "../plan";
-import { PRIMARY_PERSON_ID } from "../projectionBase";
-import { continuationJobIdOf } from "../householdJob";
-import type { Person } from "../person";
-import type { Jurisdiction } from "../jurisdiction";
-import type { Cents } from "../money";
+} from "../job/job";
+import { MAX_LIVED_AGE } from "../plan/plan";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
+import { continuationJobIdOf } from "../job/householdJob";
+import type { Person } from "../plan/person";
+import type { Jurisdiction } from "../jurisdiction/jurisdiction";
+import type { Cents } from "../money/money";
 import type { NewLifeEvent, RelationshipEvent } from "../ledger/eventTypes";
 import type { ProjectionState, Written } from "./state";
 import { planSite, withStatePlan } from "./state";
@@ -249,14 +243,11 @@ export function addProjectionJob(
 }
 
 /**
- * Rewrite one job wholesale, keeping its `id` and its list position — the counterpart to
- * {@link updateProjectionJob}'s field-wise patch, for a caller holding a whole new definition
- * rather than a diff.
+ * Rewrite one job wholesale, keeping its `id` and its list position — the caller hands a whole
+ * new definition, not a diff.
  *
- * The difference is what an *absent* field means. A patch carries only what it names, so it can
- * never clear a field; this replaces, so a job arriving with no `deferral` and no `name` comes
- * out with neither. That is what a form re-submitted with the 401(k) rate zeroed and the name
- * blanked has to mean.
+ * A replace clears: a job arriving with no `deferral` and no `name` comes out with neither. That
+ * is what a form re-submitted with the 401(k) rate zeroed and the name blanked has to mean.
  *
  * `ownerId` stays as it was — a job cannot change owner, so nothing an edit carries can restate
  * it.
@@ -270,22 +261,6 @@ export function replaceProjectionJob(
     assertJobAgesWithin(state, prior.ownerId, job);
     return resolveJobInput(job, prior.id, prior.ownerId);
   });
-}
-
-/**
- * Rewrite one job's fields in place, keeping its `id` — see {@link withJobPatch} for what
- * carries through.
- *
- * Editing a job changes the income the projection base compiles, but never re-validates the
- * ledger: the affordability gate is an append-time check, so a transaction already accepted
- * stays accepted. That matches the app, whose gate also fires only on append.
- */
-export function updateProjectionJob(
-  state: ProjectionState,
-  id: string,
-  patch: JobPatch,
-): ProjectionState {
-  return editPlanJob(state, id, (j) => withJobPatch(j, patch));
 }
 
 /**
@@ -363,7 +338,7 @@ function householdPerson(state: ProjectionState, personId: PersonId): Person {
 
 /**
  * Name the one job a what-if may run past its authored end for this person, or `null` for none —
- * see {@link import("../person").Person.continuationJobId}.
+ * see {@link import("../plan/person").Person.continuationJobId}.
  *
  * Plane-explicit in the same way creation is, and for the same reason: a person is on the plan
  * plane or the ledger plane, and this writes a field on the person rather than on a job.
@@ -462,16 +437,6 @@ export function replaceProjectionPartnerJob(
   );
 }
 
-/** See {@link updateProjectionJob} — the field-wise patch, on a partner's plane. */
-export function updateProjectionPartnerJob(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  jobId: string,
-  patch: JobPatch,
-): ProjectionState {
-  return editPartnerJob(state, jurisdiction, jobId, (j) => withJobPatch(j, patch));
-}
-
 /**
  * Drop a partner-owned job — see {@link removeProjectionJob}, including the continuation
  * selection it takes with it when the removed job was the one named.
@@ -494,50 +459,6 @@ export function removeProjectionPartnerJob(
 }
 
 // Adjustments to ONE job, addressed by its id alone — see the plane-agnostic note at the top.
-
-/** See {@link withMonthlyIncome} — monthly cents in, annualized salary stored. */
-export function setProjectionJobMonthlyIncome(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  id: string,
-  monthlyCents: number,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, id, (j) => withMonthlyIncome(j, monthlyCents));
-}
-
-/** See {@link withStartingMonthlyIncome} — the start anchor alone, current pay untouched. */
-export function setProjectionJobStartingMonthlyIncome(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  id: string,
-  monthlyCents: number,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, id, (j) => withStartingMonthlyIncome(j, monthlyCents));
-}
-
-/** See {@link withCurrentMonthlyIncome} — the month-0 anchor alone, start pay untouched. */
-export function setProjectionJobCurrentMonthlyIncome(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  id: string,
-  monthlyCents: number,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, id, (j) => withCurrentMonthlyIncome(j, monthlyCents));
-}
-
-/**
- * See {@link withDeferralFraction}. It exists beside {@link updateProjectionJob} because 0
- * *removes* the deferral and a positive fraction preserves the funded account and employer match
- * — an asymmetry a `deferral` patch, which replaces the whole object, cannot express.
- */
-export function setProjectionJobDeferralFraction(
-  state: ProjectionState,
-  jurisdiction: Jurisdiction,
-  id: string,
-  fraction: number,
-): ProjectionState {
-  return editJobAnywhere(state, jurisdiction, id, (j) => withDeferralFraction(j, fraction));
-}
 
 /**
  * See {@link withPayChange} — a permanent raise or cut, at most one per (job, month).
@@ -655,8 +576,8 @@ export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: s
 
 /**
  * One job's elected pre-tax 401(k) fraction of gross. Absent election reads as 0, so a caller
- * never has to distinguish "no deferral" from "deferring nothing" — the read counterpart of
- * {@link setProjectionJobDeferralFraction}, which erases a 0 rather than recording it.
+ * never has to distinguish "no deferral" from "deferring nothing" — the projection-state view
+ * of {@link import("../job/job").deferralFractionOf}.
  */
 export function jobDeferralFractionOf(state: ProjectionState, jobId: string): number {
   return deferralFractionOf(jobOrThrow(state, jobId));

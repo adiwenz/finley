@@ -5,8 +5,8 @@
  * write, so there is no write transform it names directly and no path around one.
  */
 
-import type { PlanPatch } from "../plan";
-import { withPlanPatch } from "../plan";
+import type { PlanPatch } from "../plan/plan";
+import { withPlanPatch } from "../plan/plan";
 import type { ProjectionState } from "./state";
 import { withStatePlan } from "./state";
 

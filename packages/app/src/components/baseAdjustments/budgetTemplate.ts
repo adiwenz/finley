@@ -6,7 +6,8 @@
  *   - {@link redistributeToTiers} — 50/30/20 applied non-destructively to the existing budget.
  *
  * Everything here is authored ID-FREE: a line's durable id is the engine's to mint, and the
- * chart, overrides and `allocations()` key on whatever it issued. The simulator funds
+ * chart, overrides and the `line:<id>` obligation ids (`obligationBudgetLineId` in the engine)
+ * key on whatever it issued. The simulator funds
  * account-contribution lines as well as expenses, so a seeded savings line is a real
  * contribution into the brokerage, not a vanishing expense.
  */

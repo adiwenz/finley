@@ -18,7 +18,7 @@ import {
   type TaxableByOwner,
   type TaxableByCategory,
 } from "../projection/fundingDrawStep";
-import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction";
+import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.

@@ -157,11 +157,11 @@ describe("engine surface — index.ts is a map and only a map", () => {
   });
 
   it("keeps the guard honest — the patterns do fire on the shapes they ban", () => {
-    const declares = 'export const CURRENT = 1;\nexport { Projection } from "./projectionFacade";';
+    const declares = 'export const CURRENT = 1;\nexport { Projection } from "./facade/projectionFacade";';
     expect(statementKeywords(declares).length).toBe(2);
     expect((declares.match(REEXPORT) ?? []).length).toBe(1);
 
-    const wildcard = 'export * from "./projectionFacade";';
+    const wildcard = 'export * from "./facade/projectionFacade";';
     expect(/export\s+\*/.test(wildcard)).toBe(true);
     expect((wildcard.match(REEXPORT) ?? []).length).toBe(0);
 
@@ -170,7 +170,7 @@ describe("engine surface — index.ts is a map and only a map", () => {
     expect((smuggled.match(REEXPORT) ?? []).length).toBe(0);
 
     // The name scan reads a type re-export as plainly as a value one, and across lines.
-    expect([...publishedNames('export type {\n  Job,\n  PersonId,\n} from "./job";')].sort()).toEqual(
+    expect([...publishedNames('export type {\n  Job,\n  PersonId,\n} from "./job/job";')].sort()).toEqual(
       ["Job", "PersonId"],
     );
   });

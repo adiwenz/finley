@@ -14,7 +14,15 @@
  * `useTestProjection` (see `./projectionHarness`) and write through the facade.
  */
 
-import { Projection, type JobIncomeOverrideInput, type JobPayChangeInput, type Plan } from "@finley/engine";
+import {
+  Projection,
+  RETIREMENT_ID,
+  type Job,
+  type JobIncomeOverrideInput,
+  type JobInput,
+  type JobPayChangeInput,
+  type Plan,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./projectionHarness";
 
@@ -28,6 +36,36 @@ import { stateOf } from "./projectionHarness";
  */
 function adjusted(plan: Plan, edit: (p: Projection) => void): Plan {
   return Projection.transact(stateOf(plan), usJurisdiction, edit).state.scenario.plan;
+}
+
+/**
+ * Rewrite one job wholesale through the facade's `replace*`, on whichever plane holds it. Since
+ * `JobInput` is `Omit<Job, "id" | "ownerId">`, spreading the existing job carries every field —
+ * both salary anchors, the deferral, accumulated pay changes and overrides — through unchanged,
+ * and `edit` restates only the field it means to. `id`/`ownerId` ride along in the spread and are
+ * re-stamped by the engine, never accepted as input.
+ *
+ * The plane split is not optional: `replaceJob` refuses a partner-owned id and `replacePartnerJob`
+ * a plan-owned one, whereas a job id names one job across BOTH planes or nothing — the primary's
+ * jobs stand on the plan, a partner's ride the `RelationshipEvent` that brought them in.
+ */
+function replacingJob(id: string, edit: (job: Job) => JobInput): (p: Projection) => void {
+  return (p) => {
+    const planJob = p.plan.jobs.find((j) => j.id === id);
+    if (planJob !== undefined) {
+      p.replaceJob(id, edit(planJob));
+      return;
+    }
+    for (const event of p.ledger.events) {
+      if (event.type !== "RelationshipEvent") continue;
+      const partnerJob = event.person.jobs.find((j) => j.id === id);
+      if (partnerJob !== undefined) {
+        p.replacePartnerJob(id, edit(partnerJob));
+        return;
+      }
+    }
+    throw new Error(`planFixtures: no job "${id}" in this household`);
+  };
 }
 
 /** Attach a permanent pay change to one job. */
@@ -50,15 +88,54 @@ export function addIncomeOverride(
  * wants {@link setJobCurrentMonthlyIncome} instead.
  */
 export function setJobMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return adjusted(plan, (p) => p.setJobMonthlyIncome(id, monthlyCents));
+  return adjusted(
+    plan,
+    replacingJob(id, (job) => ({
+      ...job,
+      salary: {
+        ...job.salary,
+        startingSalaryCents: monthlyCents * 12,
+        currentSalaryCents: monthlyCents * 12,
+      },
+    })),
+  );
 }
 
 /** Set only the month-0 anchor — a raise now, leaving what the job paid in the past alone. */
 export function setJobCurrentMonthlyIncome(plan: Plan, id: string, monthlyCents: number): Plan {
-  return adjusted(plan, (p) => p.setJobCurrentMonthlyIncome(id, monthlyCents));
+  return adjusted(
+    plan,
+    replacingJob(id, (job) => ({
+      ...job,
+      salary: { ...job.salary, currentSalaryCents: monthlyCents * 12 },
+    })),
+  );
 }
 
-/** Set a job's pre-tax 401(k) deferral fraction (0 removes the deferral). */
+/**
+ * Set a job's pre-tax 401(k) deferral fraction. 0 *removes* the deferral rather than recording a
+ * 0% one; a positive fraction preserves the funded account and any employer match — both facts of
+ * the employment, not the elected rate — defaulting the account to the person's retirement one for
+ * a job that had no deferral before.
+ */
 export function setJobDeferralFraction(plan: Plan, id: string, fraction: number): Plan {
-  return adjusted(plan, (p) => p.setJobDeferralFraction(id, fraction));
+  return adjusted(
+    plan,
+    replacingJob(id, (job) => {
+      if (fraction <= 0) {
+        const { deferral: _drop, ...withoutDeferral } = job;
+        return withoutDeferral;
+      }
+      return {
+        ...job,
+        deferral: {
+          deferralFraction: fraction,
+          fundAccountId: job.deferral?.fundAccountId ?? RETIREMENT_ID,
+          ...(job.deferral?.employerMatchFraction !== undefined
+            ? { employerMatchFraction: job.deferral.employerMatchFraction }
+            : {}),
+        },
+      };
+    }),
+  );
 }

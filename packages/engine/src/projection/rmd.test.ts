@@ -5,9 +5,9 @@ import {
   CAPITAL_GAINS_TAX_PROFILE,
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
-} from "../simAccount";
-import { dollarsToCents } from "../cashFlowSeries";
-import { nullJurisdiction, type Jurisdiction } from "../jurisdiction";
+} from "../plan/simAccount";
+import { dollarsToCents } from "../money/cashFlowSeries";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { simulateHousehold, type HouseholdSimInput } from "./simulate";
 import type { SimPerson } from "./simulate.types";
 

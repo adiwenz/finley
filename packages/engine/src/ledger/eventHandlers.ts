@@ -27,7 +27,7 @@ import {
   asPersonId,
   asPropertyId,
   asSeriesId,
-} from "../ids";
+} from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { assetAcquisitionObligation } from "../projection/financialObligation";
 
