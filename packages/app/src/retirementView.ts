@@ -81,9 +81,12 @@ export interface RetirementView {
 
 /**
  * What this view reads, and nothing else. Narrow on purpose: it says the view cannot author,
- * and a test standing in for it states two members rather than a whole projection.
+ * and a test standing in for it states one member rather than a whole projection.
+ *
+ * One member, since the outlook began reporting the blocked age itself: reading the plan was
+ * only ever to convert that month onto the primary's clock, which is the engine's to do.
  */
-type RetirementSource = Pick<Projection, "plan" | "retirement">;
+type RetirementSource = Pick<Projection, "retirement">;
 
 export function retirementView(
   projection: RetirementSource,
@@ -91,17 +94,14 @@ export function retirementView(
 ): RetirementView {
   // The panel reasons about the whole scenario — plan AND timeline events — exactly as the
   // net-worth graph does, because it asks the same handle.
-  const { solution, fullRetirementMonth, earlyRetireeHealth } = projection.retirement(jurisdiction);
+  const { solution, fullRetirementMonth, blockedAtAge, earlyRetireeHealth } =
+    projection.retirement(jurisdiction);
   return {
     headlineAge: solution.fullRetirementAge,
     headlineMonth: fullRetirementMonth,
     blocked: solution.blocked,
-    // The block's month expressed as the primary's age — the panel's "blocked at age N". Floored
-    // to whole years like every other age the panel shows.
-    blockedAtAge:
-      solution.blocked && solution.blockedAtMonth !== undefined
-        ? projection.plan.currentAge + Math.floor(solution.blockedAtMonth / 12)
-        : null,
+    // Read, not converted: months and ages are the engine's one clock, and it reports both.
+    blockedAtAge,
     plannedWorkStopAge: solution.plannedWorkStopAge,
     authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,

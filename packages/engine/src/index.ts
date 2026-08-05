@@ -71,7 +71,7 @@ export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCash
  * The age ceilings every authoring surface shares: {@link MAX_AGE} is the outer bound,
  * {@link AGE_LIMITS} the per-field one, {@link MAX_LIVED_AGE} the oldest a person can already be.
  */
-export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS } from "./plan";
+export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS, planHorizonMonths } from "./plan";
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
 export type { ScenarioInput, FromInputResult } from "./scenarioInput";

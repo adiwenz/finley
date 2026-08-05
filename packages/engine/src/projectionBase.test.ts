@@ -26,7 +26,7 @@ import {
 import { mockJurisdiction } from "./testing/mockJurisdiction";
 import { samplePlan, salariedJob, spendLine, healthLine } from "./testing/samplePlan";
 import { compilePersonPriorEarnings } from "./compilePerson";
-import type { Plan, GoalPlan } from "./plan";
+import { planHorizonMonths, type Plan, type GoalPlan } from "./plan";
 
 const START_YEAR = 2026;
 
@@ -418,6 +418,19 @@ describe("createProjectionBase — horizon spans to life expectancy", () => {
     expect(horizon(35, 90)).toBe((90 - 35) * 12);
     expect(horizon(25, 95)).toBe((95 - 25) * 12);
     expect(horizon(35, 95)).toBeGreaterThan(horizon(35, 65));
+  });
+
+  it("publishes that span as `planHorizonMonths`, so no caller re-derives it", () => {
+    // The reason it is published: a surface drawing the plan (a chart axis, the timeline, the
+    // event year picker) needs the same span the simulator ran, and a second derivation of it can
+    // disagree with the months it is handed — most invisibly when the series is TRUNCATED at a
+    // block and the only remaining statement of the full span is this one.
+    const plan = { ...samplePlan, currentAge: 35, lifeExpectancy: 90 };
+    expect(project(plan).months.length).toBe(planHorizonMonths(plan));
+    // Clamped rather than negative: a life expectancy at or below today's age has no months to
+    // simulate, and no caller should have to guard a negative span.
+    expect(planHorizonMonths({ currentAge: 90, lifeExpectancy: 90 })).toBe(0);
+    expect(planHorizonMonths({ currentAge: 95, lifeExpectancy: 90 })).toBe(0);
   });
 });
 

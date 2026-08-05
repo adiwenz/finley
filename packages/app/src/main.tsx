@@ -1,12 +1,11 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, SYNTHETIC_CARD_ID } from "@finley/engine";
+import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers } from "./ledgerView";
-import { planHorizonMonths } from "./config";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
@@ -128,7 +127,7 @@ export function App() {
   const chartSeries = previewResult ? previewResult.series : series;
 
   // Chart, timeline, and event picker all span "now" → life expectancy.
-  const horizonMonths = planHorizonMonths(budget.currentAge, budget.lifeExpectancy);
+  const horizonMonths = planHorizonMonths(budget);
 
   // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
   // — account descriptors and the household's liabilities, labelled by kind — never the
