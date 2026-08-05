@@ -62,8 +62,9 @@ function shapesTheCompilerMustReject(p: Projection): void {
   p.addGoal({ ...carGoal, id: "stolen" });
   // @ts-expect-error — replacing a job keeps the id it already has
   p.replaceJob("job-1", { ...longRunningJob, id: "stolen" });
-  // @ts-expect-error — a job cannot change owner; an edit patch names no `ownerId`
-  p.updateJob("job-1", { ownerId: P1 });
+  // @ts-expect-error — nor its owner: `JobInput` omits `ownerId`, so the write path the app
+  // uses cannot re-owner a job. If `ownerId` ever becomes assignable here, this goes unused.
+  p.replaceJob("job-1", { ...longRunningJob, ownerId: P1 });
   // @ts-expect-error — a partner's job is minted like any other
   p.addPartnerJob(P1, { ...longRunningJob, id: "stolen" });
 

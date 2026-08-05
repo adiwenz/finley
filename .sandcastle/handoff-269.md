@@ -3,8 +3,14 @@
 **Done so far:** Task 1 (exploration rule in `AGENTS.md`), Task 2 (make the REPL the obvious
 place to explore), Task 3 (mirror the exploration rule into the implement prompt + guard both),
 Task 4 (reimplement `planFixtures.ts` over `replaceJob` / `replacePartnerJob`), Task 5 (move
-`projectionFacade.test.ts` off the six doomed facade members).
-Tasks 6–20 remain — see the issue body.
+`projectionFacade.test.ts` off the six doomed facade members), Task 6 (re-express the ownerId
+guard in `authoringInputs.guard.test.ts` through `replaceJob`).
+Tasks 7–20 remain — see the issue body.
+
+**No caller of any of the six doomed facade members remains outside `projectionFacade.ts`'s own
+declarations** (verified: `grep -rn "\.updateJob\b" packages/` returns nothing but the facade).
+The six members and the `with*` transforms in `job.ts` still exist — tasks 7 and 8 do the actual
+deletions; task 6 removed the last non-facade-test call.
 
 ## Live constraints
 - **Exploration rule** now lives in two docs and is pinned by
@@ -31,27 +37,34 @@ Tasks 6–20 remain — see the issue body.
   (or `partnerEvent(p).person.jobs` on the partner plane) and spreads it into
   `replaceJob` / `replacePartnerJob`. Spreading `...job` is safe: `replaceProjectionJob` re-stamps
   `id`/`ownerId` off the prior record via `resolveJobInput`, so the input's copies are ignored.
+- **`authoringInputs.guard.test.ts` now proves the `ownerId` claim through `replaceJob`** (task 6).
+  The `@ts-expect-error` line is `p.replaceJob("job-1", { ...longRunningJob, ownerId: P1 })`; it
+  fires because `JobInput = Omit<Job, "id" | "ownerId">` makes `ownerId` an excess property. The
+  failure mode is intact — dropping `ownerId` from that literal leaves the directive unused and
+  `tsc` errors (verified). The file no longer names `updateJob`, so it no longer blocks task 7.
 
 ## Traps
 - The six facade members (`updateJob`, `updatePartnerJob`, `setJobMonthlyIncome`,
   `setJobStartingMonthlyIncome`, `setJobCurrentMonthlyIncome`, `setJobDeferralFraction`) and the
-  `with*` transforms in `job.ts` **still exist** on the branch — tasks 4 and 5 only moved *callers*
-  off them. Remaining owners of the deletions:
-  - **Task 6** — `packages/engine/src/authoringInputs.guard.test.ts` still calls `updateJob` once;
-    re-express that guard through `replaceJob`, keeping its failure mode (an input cannot smuggle an
-    `ownerId`). This is the last remaining call to any of the six.
-  - **Task 7** — delete the `setProjectionJob{MonthlyIncome,CurrentMonthlyIncome,DeferralFraction}`
-    delegates in `authoring/jobs.ts`. Note `authoring/jobs.test.ts` still exercises them, so that
-    suite is part of the same task.
+  `with*` transforms in `job.ts` **still exist** on the branch — tasks 4–6 only moved *callers*
+  off them. Remaining owners of the deletions (confirm exact ordering against the issue body):
+  - **Task 7 / facade-deletion step** — delete the six members from `projectionFacade.ts` (drop the
+    now-unused `JobPatch` import) and the
+    `setProjectionJob{MonthlyIncome,CurrentMonthlyIncome,DeferralFraction}` delegates in
+    `authoring/jobs.ts`. Note `authoring/jobs.test.ts` still exercises those delegates, so that
+    suite is part of the same task. Keep the reads (`jobMonthlyIncomeCents`,
+    `jobStartingMonthlyIncomeCents`, `jobDeferralFraction`) — they are live in the app.
   - **Task 8** — delete `withMonthlyIncome` / `withCurrentMonthlyIncome` / `withDeferralFraction`
     from `job.ts` once orphaned.
 - **Test-count change:** task 5 deleted the two `setJobDeferralFraction`-asymmetry `it`s
   (`projectionFacade.test.ts` went 176 → 174 `it`s; full suite 1810 → 1808 passing). Per the issue,
   this and `allocations.test.ts` are the *only* intended drops in total test count across the whole
   issue — if a later task's suite count falls unexpectedly, treat it as a regression, not a cleanup.
+  Task 6 did **not** change the count (still 1808 passing; `authoringInputs.guard.test.ts` still 7
+  tests).
 
 ## Dead ends
 - (none)
 
 ## Deferred
-- (none — everything from task 6 on is owned by its declared task)
+- (none — everything from task 7 on is owned by its declared task)
