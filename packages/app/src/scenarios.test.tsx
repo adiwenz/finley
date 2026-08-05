@@ -38,7 +38,7 @@ describe("scenarios — what the household is actually told", () => {
     // The starting point every other scenario is a variation on: one earner, the default plan,
     // an age that only arrives because their job was modelled as never having ended.
     expect(headline(alexAlone())).toBe(
-      `You could stop working at 76 if Alex's job continued through when you are 76 (2067), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 76 if Alex's job continued through when you are 76 (2067), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     expect(assumptions(alexAlone())).toEqual([]);
   });
@@ -48,7 +48,7 @@ describe("scenarios — what the household is actually told", () => {
     // "when Sam is" — because the age on a continued job is its owner's, not the reader's.
     const { projection } = alexAndSam();
     expect(headline(projection)).toBe(
-      `You could stop working at 53 if Sam's job continued through when Sam is 53 (2044), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 53 if Sam's job continued through when Sam is 53 (2044), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
   });
 
@@ -60,7 +60,7 @@ describe("scenarios — what the household is actually told", () => {
     const { projection } = alexAndSam({ separateAt: monthAt(45) });
 
     expect(headline(projection)).toBe(
-      `You can retire at 65 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+      `You can retire at 65 and have the portfolio last to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     // Not by absence of an answer: there IS a feasible age here, and it simply owes nothing to
     // Sam. Sam is not named anywhere in the reasoning.
@@ -80,7 +80,7 @@ describe("scenarios — what the household is actually told", () => {
     const { projection } = alexAndSam({ separateAt: monthAt(55) });
 
     expect(headline(projection)).toBe(
-      `You could stop working at 57 if Sam's job continued through when Sam is 55 (2046), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 57 if Sam's job continued through when Sam is 55 (2046), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     const [continued] = retirementView(projection, usJurisdiction).continuedJobs;
     expect(continued!.throughAge).toBeLessThan(
@@ -98,7 +98,7 @@ describe("scenarios — what the household is actually told", () => {
     });
 
     expect(headline(projection)).toBe(
-      `You could stop working at 54 if Sam's job 1 continued through when Sam is 54 (2045), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 54 if Sam's job 1 continued through when Sam is 54 (2045), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     expect(assumptions(projection)).toEqual([
       "This scenario assumes Sam's job 1 continued alongside Sam's job 2 from when Sam is 45 to 54 (2036–2045).",
@@ -118,7 +118,7 @@ describe("scenarios — what the household is actually told", () => {
     expect(assumptions(projection)).toEqual([]);
     // The continuation itself is still real and still disclosed — through the separation.
     expect(headline(projection)).toBe(
-      `You could stop working at 62 if Sam's job 1 continued through when Sam is 50 (2041), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 62 if Sam's job 1 continued through when Sam is 50 (2041), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
   });
 
@@ -130,7 +130,7 @@ describe("scenarios — what the household is actually told", () => {
     p.setContinuationJob(PRIMARY_PERSON_ID, null);
 
     expect(headline(p)).toBe(
-      `On these numbers the money never lasts to age ${LIFE_EXPECTANCY} — no retirement age is feasible. Structural changes are required.`,
+      `On these numbers the money never lasts to your life expectancy (age ${LIFE_EXPECTANCY}) — no retirement age is feasible. Structural changes are required.`,
     );
     expect(assumptions(p)).toEqual([]);
   });
@@ -146,7 +146,7 @@ describe("scenarios — more households the same panel has to answer", () => {
     p.replaceJob(p.plan.jobs[0]!.id, jobAt(18, 65, 12_000));
 
     expect(headline(p)).toBe(
-      `On these numbers the money never lasts to age ${LIFE_EXPECTANCY} — no retirement age is feasible. Structural changes are required.`,
+      `On these numbers the money never lasts to your life expectancy (age ${LIFE_EXPECTANCY}) — no retirement age is feasible. Structural changes are required.`,
     );
     expect(assumptions(p)).toEqual([]);
   });
@@ -159,7 +159,7 @@ describe("scenarios — more households the same panel has to answer", () => {
     const { projection } = alexAndSam({ jobs: [jobAt(35, 50, 200_000)] });
 
     expect(headline(projection)).toBe(
-      `You can retire at 45 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+      `You can retire at 45 and have the portfolio last to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     expect(retirementView(projection, usJurisdiction).continuedJobs).toEqual([]);
   });
@@ -172,10 +172,10 @@ describe("scenarios — more households the same panel has to answer", () => {
     const jobs = [jobAt(35, 55, 120_000)];
 
     expect(headline(alexAndSam({ jobs }).projection)).toBe(
-      `You can retire at 48 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+      `You can retire at 48 and have the portfolio last to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
     expect(headline(alexAndSam({ jobs, separateAt: monthAt(48) }).projection)).toBe(
-      `You can retire at 55 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+      `You can retire at 55 and have the portfolio last to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
   });
 
@@ -211,7 +211,7 @@ describe("scenarios — more households the same panel has to answer", () => {
     p.replaceJob(p.plan.jobs[0]!.id, jobAt(35, 65, 60_000));
 
     expect(headline(p)).toBe(
-      `You could stop working at 78 if Alex's job continued through when you are 78 (2069), with the portfolio lasting to age ${LIFE_EXPECTANCY}.`,
+      `You could stop working at 78 if Alex's job continued through when you are 78 (2069), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
   });
 });
