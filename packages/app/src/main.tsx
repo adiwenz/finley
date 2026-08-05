@@ -143,11 +143,13 @@ export function App() {
     for (const liability of household.liabilities) {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
-    return buildNetWorthBreakdown(chartSeries, {
-      accounts: projection.accountDescriptors(),
-      liabilityLabels,
-    });
-  }, [chartSeries, projection, household]);
+    return buildNetWorthBreakdown(
+      chartSeries,
+      { accounts: projection.accountDescriptors(), liabilityLabels },
+      // The plan's own span, so this chart ends at the same year as the total above it.
+      horizonMonths,
+    );
+  }, [chartSeries, projection, household, horizonMonths]);
 
   return (
     <>

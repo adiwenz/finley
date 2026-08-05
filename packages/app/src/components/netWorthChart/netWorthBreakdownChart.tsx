@@ -20,6 +20,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Legend,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -32,6 +33,8 @@ import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
 
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
+/** The unsimulated tail — the same failure red the total chart shades it with. */
+const STOPPED = "#9b2c2c";
 // Accounts: a green family, dark → light, one step per account so siblings read apart.
 const ACCOUNT_TONES = ["#1f3a2e", "#2f5d47", "#3f7d5f", "#5a9c7a", "#7fb89a", "#a7d0bb"];
 // Property: a single warm gold, set apart from the account greens.
@@ -216,7 +219,9 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
     ];
   }, [data.opening, data.rows, visibleBands, activeMode]);
 
-  const lastX = toAxisX(data.rows[data.rows.length - 1]?.month ?? 0);
+  // The axis spans the whole plan, matching the total chart above — see `./chartSpan`. The rows
+  // stop earlier than this whenever the projection did (blocked, or insolvent).
+  const lastX = data.xMax;
   const accountCount = data.bands.filter((b) => b.kind === "account").length;
   const peak = data.peakNetWorthCents;
   const summary =
@@ -293,6 +298,17 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
               )}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
+            {/* The stretch the projection never simulated, shaded exactly as on the chart above.
+                Declared before the bands so they paint on top of it. */}
+            {data.stopped !== null && (
+              <ReferenceArea
+                x1={data.stopped.fromX}
+                x2={data.stopped.toX}
+                fill={STOPPED}
+                fillOpacity={0.05}
+                stroke="none"
+              />
+            )}
             {/* Zero rule matters once debt stacks below it. */}
             {activeMode === "networth" && data.hasLiabilities && (
               <ReferenceLine y={0} stroke={AXIS} />

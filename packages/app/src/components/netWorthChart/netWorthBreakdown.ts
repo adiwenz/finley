@@ -13,6 +13,8 @@
  */
 
 import type { ProjectionMonth, ProjectionSeries } from "@finley/engine";
+import { toAxisX } from "../monthAxis";
+import { chartXMax, stoppedSpan, type StoppedSpan } from "./chartSpan";
 
 /** Drives colour, stacking order, and sign. */
 export type BreakdownBandKind = "account" | "property" | "liability";
@@ -75,6 +77,14 @@ export interface NetWorthBreakdownData {
    * month can be near zero.
    */
   readonly peakNetWorthCents: number | null;
+  /**
+   * The axis' right edge — the whole plan, not just the rows. Shared with the total net-worth
+   * chart above via {@link import("./chartSpan").chartXMax} so the two never end at different
+   * years while drawing the same plan.
+   */
+  readonly xMax: number;
+  /** The unsimulated tail of a blocked plan, shaded like the chart above; null otherwise. */
+  readonly stopped: StoppedSpan | null;
 }
 
 /**
@@ -108,6 +118,7 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
   meta: BreakdownMeta,
+  horizonMonths?: number,
 ): NetWorthBreakdownData {
   const accountOrder = meta.accounts.map((a) => a.id);
   const accountLabel = new Map(meta.accounts.map((a) => [a.id, a.label]));
@@ -172,6 +183,10 @@ export function buildNetWorthBreakdown(
     ? Math.max(netWorthOf(opening, bands), ...rows.map((r) => netWorthOf(r, bands)))
     : null;
 
+  // The axis spans the plan, not the rows — which stop early at a block (the series is truncated)
+  // and at insolvency (dropped above). Same span and same shaded tail as the chart above it.
+  const xMax = chartXMax(toAxisX(rows[rows.length - 1]?.month ?? 0), horizonMonths);
+
   return {
     opening,
     rows,
@@ -180,5 +195,7 @@ export function buildNetWorthBreakdown(
     hasLiabilities: liabilityBands.length > 0,
     terminalNetWorthCents: lastRow ? netWorthOf(lastRow, bands) : null,
     peakNetWorthCents,
+    xMax,
+    stopped: stoppedSpan(series, xMax),
   };
 }
