@@ -294,6 +294,40 @@ describe("Projection root — a revision cannot replace an identity", () => {
     }
   });
 
+  it("edits a holding's value, balance, and terms in one revision without coupling value to balance", () => {
+    // A holding opens at its mortgage's CURRENT balance, not price − down, so raising the home's
+    // value must NOT touch what is still owed — the reviewer's "edit it all in one place" case.
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.ownHome({
+      ownerId: P1,
+      valueCents: dollarsToCents(400_000),
+      mortgage: { balanceCents: dollarsToCents(240_000), apr: 0.06, remainingTermMonths: 240 },
+    });
+
+    // Value alone: the balance stays put (the Part-1 desync-for-holdings this guards against).
+    p.reviseTransaction(homeId, { type: "buyHome", purchasePriceCents: dollarsToCents(450_000) });
+    const afterValue = p.ledger.events.find((e) => e.id === homeId);
+    expect(afterValue?.type === "HomePurchaseEvent" && afterValue.purchasePriceCents).toBe(dollarsToCents(450_000));
+    expect(afterValue?.type === "HomePurchaseEvent" && afterValue.mortgage?.openingBalanceCents).toBe(
+      dollarsToCents(240_000),
+    );
+
+    // The balance and terms are directly settable for a holding, all through the one verb.
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      mortgageBalanceCents: dollarsToCents(200_000),
+      mortgageApr: 0.05,
+      mortgageTermMonths: 180,
+    });
+    const afterMortgage = p.ledger.events.find((e) => e.id === homeId);
+    if (afterMortgage?.type === "HomePurchaseEvent") {
+      expect(afterMortgage.mortgage?.openingBalanceCents).toBe(dollarsToCents(200_000));
+      expect(afterMortgage.mortgage?.apr).toBe(0.05);
+      expect(afterMortgage.mortgage?.termMonths).toBe(180);
+      expect(afterMortgage.purchasePriceCents).toBe(dollarsToCents(450_000)); // unchanged
+    }
+  });
+
   it("offers no way to name an identity, at the type level", () => {
     const { p, partnerId } = marriedProjection();
 

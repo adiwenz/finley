@@ -43,6 +43,42 @@ describe("summarizeEvent — one plain-language label per structural change", ()
     });
     expect(s.label).toBe("Separated");
   });
+
+  it("folds the financing mortgage into a home-purchase detail", () => {
+    const s = summarizeEvent({
+      id: "buy1",
+      type: "HomePurchaseEvent",
+      month: 36,
+      sequenceNumber: 0,
+      propertyId: "home-1",
+      ownerId: "p1",
+      purchasePriceCents: 300_000_00,
+      downPaymentCents: 60_000_00,
+      downPaymentSourceIds: [],
+      mortgage: { openingBalanceCents: 240_000_00, apr: 0.065, termMonths: 360 },
+    });
+    expect(s.label).toBe("Bought a home");
+    expect(s.detail).toContain("$300,000");
+    expect(s.detail).toContain("$60,000 down");
+    expect(s.detail).toContain("$240,000 mortgage");
+    expect(s.detail).toContain("6.5%");
+    expect(s.detail).toContain("30 yr");
+  });
+
+  it("names a cash purchase as having no mortgage", () => {
+    const s = summarizeEvent({
+      id: "own1",
+      type: "HomePurchaseEvent",
+      month: -1,
+      sequenceNumber: 0,
+      propertyId: "home-1",
+      ownerId: "p1",
+      purchasePriceCents: 400_000_00,
+      downPaymentCents: 0,
+      downPaymentSourceIds: [],
+    });
+    expect(s.detail).toBe("$400,000, no mortgage");
+  });
 });
 
 describe("timelineMarkers", () => {

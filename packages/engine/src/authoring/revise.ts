@@ -13,6 +13,7 @@ import type { Cents } from "../money/money";
 import type { LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";
+import { isPreExisting } from "../projection/nowMarker";
 
 /**
  * What may be changed about a transaction already in the log — its DATA, never its identity.
@@ -72,16 +73,23 @@ export type TransactionRevision =
   | {
       /**
        * The mortgage rides inside the purchase now, so its terms are revised here, not through a
-       * separate `takeLoan`. `openingBalanceCents` is NOT author-settable — it is recomputed from
-       * the revised `purchasePriceCents − downPaymentCents`, which is what keeps price and financed
-       * amount from drifting. `mortgageApr`/`mortgageTermMonths` revise a financed purchase's terms;
-       * they are ignored when the purchase carries no mortgage (a cash buy stays cash).
+       * separate `takeLoan`. How the financed balance moves depends on the purchase kind:
+       *
+       * - A plan-time purchase re-derives `openingBalanceCents = purchasePriceCents − downPaymentCents`,
+       *   so price and financed amount cannot drift; `mortgageBalanceCents` is IGNORED there.
+       * - A HOLDING (a home already owned) opens at the mortgage's CURRENT balance, decoupled from
+       *   value, so its balance is directly settable via `mortgageBalanceCents` and value edits leave
+       *   it alone — the "edit value, balance, and terms in one place" case.
+       *
+       * `mortgageApr`/`mortgageTermMonths` revise a financed purchase's terms; all mortgage fields
+       * are ignored when the purchase carries none (a cash buy stays cash).
        */
       readonly type: "buyHome";
       readonly month?: number;
       readonly purchasePriceCents?: Cents;
       readonly downPaymentCents?: Cents;
       readonly downPaymentSourceIds?: readonly string[];
+      readonly mortgageBalanceCents?: Cents;
       readonly mortgageApr?: number;
       readonly mortgageTermMonths?: number;
       readonly appreciationMode?: GrowthMode;
@@ -180,13 +188,18 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
       const appreciationMode = r.appreciationMode ?? current.appreciationMode;
       const purchasePriceCents = r.purchasePriceCents ?? current.purchasePriceCents;
       const downPaymentCents = r.downPaymentCents ?? current.downPaymentCents;
-      // Rebuild the embedded mortgage from the revised numbers: its balance is DERIVED
-      // (`price − down`), never carried, so changing either re-finances the purchase and the two
-      // can never drift. A cash purchase (no mortgage) has nothing to re-derive and stays cash.
+      // Rebuild the embedded mortgage from the revised numbers. For a plan-time purchase the
+      // balance is DERIVED (`price − down`), so changing either re-finances it and the two can
+      // never drift. A HOLDING opens at the mortgage's CURRENT balance instead — value and balance
+      // are independent — so its balance is carried (or set outright via `mortgageBalanceCents`)
+      // and never recomputed from value. A cash purchase (no mortgage) stays cash.
+      const openingBalanceCents = isPreExisting(current.month)
+        ? r.mortgageBalanceCents ?? current.mortgage?.openingBalanceCents ?? 0
+        : purchasePriceCents - downPaymentCents;
       const mortgage =
         current.mortgage !== undefined
           ? {
-              openingBalanceCents: purchasePriceCents - downPaymentCents,
+              openingBalanceCents,
               apr: r.mortgageApr ?? current.mortgage.apr,
               termMonths: r.mortgageTermMonths ?? current.mortgage.termMonths,
             }
