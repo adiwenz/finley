@@ -4,7 +4,7 @@ import { useState } from "react";
 import { dollarsToCents, type ProjectionResult } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import { monthLabel } from "../../format";
-import { MonthSelect, type FormProps } from "./formControls";
+import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 
 /** The form's live state — one draft, not a hook per field. The eligible-partner list and
  *  resolved selection derive from `month`/`partnerId`, never stored. */
@@ -20,13 +20,18 @@ export function SeparationForm({
   defaultMonth,
   horizonMonths,
   onAdd,
-}: FormProps & { result: ProjectionResult }) {
-  const [draft, setDraft] = useState<SeparationDraft>(() => ({
-    month: defaultMonth,
-    partnerId: "",
-    alimony: 0,
-    alimonyYears: 0,
-  }));
+  edit,
+}: FormProps & { result: ProjectionResult; edit?: EditProps<EventOf<"SeparationEvent">> }) {
+  const [draft, setDraft] = useState<SeparationDraft>(() =>
+    edit
+      ? {
+          month: edit.event.month,
+          partnerId: edit.event.partnerPersonId,
+          alimony: edit.event.alimonyMonthlyCents / 100,
+          alimonyYears: edit.event.alimonyDurationMonths / 12,
+        }
+      : { month: defaultMonth, partnerId: "", alimony: 0, alimonyYears: 0 },
+  );
   const patch = (fields: Partial<SeparationDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   // Only partners in the household by the chosen separation month — you can't separate
@@ -39,6 +44,19 @@ export function SeparationForm({
     : eligible[0]?.id ?? "";
 
   function submit() {
+    // A revision cannot re-point `partnerPersonId` — who you separated from is identity, not
+    // data — so an edit names only the month and the support terms, and the partner is fixed.
+    if (edit) {
+      edit.onRevise((p) =>
+        p.reviseTransaction(edit.event.id, {
+          type: "separate",
+          month: draft.month,
+          alimonyMonthlyCents: dollarsToCents(draft.alimony),
+          alimonyDurationMonths: draft.alimony > 0 ? draft.alimonyYears * 12 : 0,
+        }),
+      );
+      return;
+    }
     onAdd((p) =>
       p.separate({
         month: draft.month,
@@ -52,10 +70,34 @@ export function SeparationForm({
     );
   }
 
+  // The partner named on the event, for the read-only line an edit shows in place of the picker.
+  const editingPartnerName = edit
+    ? result.membersAt(edit.event.month).find((p) => p.id === edit.event.partnerPersonId)?.name ??
+      "this partner"
+    : "";
+
   return (
     <>
       <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
-      {noPartners ? (
+      {edit ? (
+        <>
+          <div className="field">
+            <span className="field-label">From</span>
+            <span>{editingPartnerName}</span>
+          </div>
+          <NumInput label="Alimony / mo" value={draft.alimony} onChange={(alimony) => patch({ alimony })} prefix="$" step={100} />
+          {draft.alimony > 0 && (
+            <NumInput
+              label="Alimony years"
+              value={draft.alimonyYears}
+              onChange={(alimonyYears) => patch({ alimonyYears })}
+              suffix="yr"
+              min={1}
+            />
+          )}
+          <p className="hint">Support terms are illustrative and vary by jurisdiction.</p>
+        </>
+      ) : noPartners ? (
         <p className="hint warn">
           No partner in the household as of {monthLabel(draft.month)} to separate from.
         </p>
@@ -84,8 +126,10 @@ export function SeparationForm({
           <p className="hint">Support terms are illustrative and vary by jurisdiction.</p>
         </>
       )}
-      <button className="btn primary" disabled={noPartners} onClick={submit}>
-        Add event
+      {/* In edit mode the partner is fixed, so the no-partner gate (an add-time concern) never
+          applies — a month moved before the partnership is a refusal the engine surfaces. */}
+      <button className="btn primary" disabled={!edit && noPartners} onClick={submit}>
+        {edit ? "Save changes" : "Add event"}
       </button>
     </>
   );

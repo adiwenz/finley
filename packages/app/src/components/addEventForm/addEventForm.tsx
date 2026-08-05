@@ -8,6 +8,7 @@ import type {
   ProjectionResult,
 } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
+import { EditEventForm } from "./editEventForm";
 import { ChildForm } from "./childForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
@@ -36,12 +37,20 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "SeparationEvent", label: "Separated" },
 ];
 
+/** An in-progress edit of a timeline event: which event, how to commit it, how to abandon it. */
+export interface EditingEvent {
+  readonly event: LifeEvent;
+  readonly onRevise: (write: (projection: Projection) => void) => void;
+  readonly onCancel: () => void;
+}
+
 export function AddEventForm({
   result,
   funding,
   defaultMonth,
   horizonMonths,
   onAdd,
+  editing,
 }: {
   /**
    * The live run. The home-purchase form asks it for the DTI advisory, and the separation
@@ -57,10 +66,38 @@ export function AddEventForm({
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
+  /**
+   * When set, this card revises an existing timeline event instead of authoring a new one —
+   * the type picker is hidden (an event's type is fixed) and the matching form opens
+   * pre-filled. Cleared by the parent once the edit commits or is cancelled.
+   */
+  editing?: EditingEvent;
 }) {
   const [kind, setKind] = useState<EventKind>("LoanEvent");
 
   const formProps = { defaultMonth, horizonMonths, onAdd };
+
+  // An edit is type-locked, so the picker gives way to the one pre-filled form for that event.
+  if (editing) {
+    return (
+      <EditEventForm
+        // Keyed by the event, because every form seeds its draft ONCE, from the event it was
+        // mounted with. Switching straight from one loan's marker to another's renders the same
+        // element type in the same position, so React would keep the mounted form — still
+        // holding the first loan's figures, ready to save them onto the second. The key is the
+        // identity that makes those two different forms. It sits here, at the dispatch
+        // boundary, so one rule covers every event type rather than each form re-deriving its
+        // own draft from a changed prop; the surrounding add-form card keeps its own state.
+        key={editing.event.id}
+        editing={editing}
+        result={result}
+        funding={funding}
+        defaultMonth={defaultMonth}
+        horizonMonths={horizonMonths}
+        onAdd={onAdd}
+      />
+    );
+  }
 
   return (
     <div className={styles.authoring}>

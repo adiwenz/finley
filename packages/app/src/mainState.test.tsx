@@ -155,6 +155,96 @@ describe("App — event ledger", () => {
     expect(incomeDollars()).toBe(8000);
   });
 
+  it("edits an authored partner from the timeline, revising the event in place", () => {
+    render(<App />);
+
+    // Author a partner joining now, unnamed (records as "Partner").
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "0" } });
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("Partner joins the household")).toBeTruthy();
+
+    // The timeline marker offers Edit beside Remove; opening it pre-fills the join form.
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    const nameField = screen.getByPlaceholderText(/Partner's name/i) as HTMLInputElement;
+    fireEvent.change(nameField, { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    // Revised in place: one marker still, now naming Sam — not removed and re-added.
+    expect(screen.getByText("Sam joins the household")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
+    // The edit surface closed on success, so the add form's type picker is back.
+    expect(screen.getByLabelText("What happened?")).toBeTruthy();
+  });
+
+  it("edits a loan's amount from the timeline, revising it in place", () => {
+    render(<App />);
+
+    // The default add is a $2,000 student loan; its marker reads the balance.
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    // The kind is fixed on a revision, so the edit form drops the type picker.
+    expect(screen.queryByRole("combobox", { name: /Type/i })).toBeNull();
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "5000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    expect(screen.getByText("student loan, $5,000")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Remove$/ })).toHaveLength(1);
+  });
+
+  /**
+   * Two events of the same type render the SAME form element in the same position, so switching
+   * between their markers is the one path where a stale draft can be saved onto the wrong event:
+   * a form seeds its draft on mount, and nothing about the second loan would remount it.
+   */
+  it("switches straight from one loan's Edit to another's, showing and saving the second", () => {
+    render(<App />);
+
+    // Two student loans: the $2,000 default, then a $7,000 one.
+    fireEvent.click(screen.getByText("Add event"));
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "7000");
+    fireEvent.click(screen.getByText("Add event"));
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+    expect(screen.getByText("student loan, $7,000")).toBeTruthy();
+
+    const editButtons = () => screen.getAllByRole("button", { name: /^Edit$/ });
+    fireEvent.click(editButtons()[0]);
+    expect(Number((screen.getByRole("spinbutton", { name: /Amount/i }) as HTMLInputElement).value)).toBe(2000);
+
+    // Straight to the other marker, with no Cancel in between — the open form must become the
+    // second loan's, not stay the first's.
+    fireEvent.click(editButtons()[1]);
+    expect(Number((screen.getByRole("spinbutton", { name: /Amount/i }) as HTMLInputElement).value)).toBe(7000);
+
+    enterNumber(screen.getByRole("spinbutton", { name: /Amount/i }), "9000");
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+
+    // Only the second loan moved; the first still reads what it always did.
+    expect(screen.getByText("student loan, $9,000")).toBeTruthy();
+    expect(screen.getByText("student loan, $2,000")).toBeTruthy();
+    expect(screen.queryByText("student loan, $7,000")).toBeNull();
+  });
+
+  it("closes the edit surface on Cancel without revising", () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.click(screen.getByText("Add event"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Partner's name/i), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+
+    // Abandoned: still the original unnamed partner, and the add form is back.
+    expect(screen.getByText("Partner joins the household")).toBeTruthy();
+    expect(screen.getByLabelText("What happened?")).toBeTruthy();
+  });
+
   it("blocks a removal whose dependent would fail, and surfaces the conflict", () => {
     render(<App />);
 

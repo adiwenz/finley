@@ -190,6 +190,13 @@ export { dollarsToCents, centsToDollars } from "./cashFlowSeries";
 // A total function of one enum value, with no projection to ask.
 export { liabilityKindLabel } from "./liability";
 
+// The "now" marker's own predicate — a total function of one month. An authoring surface has to
+// ask it: an event dated before now is a holding or an anchor, authored (and so EDITED) in the
+// vocabulary of what is already true — a balance today, how long you have been together — rather
+// than by picking a year off the plan's timeline. Re-deriving `month < 0` in the app is exactly
+// the scattered bare `-1` that naming this rule removed.
+export { isPreExisting } from "./projection/nowMarker";
+
 // Ids and thresholds the engine owns and an app has to quote back: the primary person, the
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
 export { RETIREMENT_ID } from "./ids";
