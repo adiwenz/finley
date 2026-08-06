@@ -64,16 +64,12 @@ export function compilePerson(
    */
   scope: JobResolutionScope = { kind: "authored" },
   /**
-   * When this person's money is the household's. Omitted leaves it unbounded — the shape every
-   * single-earner plan and most fixtures have, and the only safe default: a missing window must
-   * not silently stop paying someone.
+   * When this person is doing things at all — a member, and alive
+   * ({@link import("../job/personActiveWindow").personActiveWindow}). Omitted leaves it unbounded —
+   * the shape every single-earner plan and most fixtures have, and the only safe default: a
+   * missing window must not silently stop paying someone.
    */
-  membership?: SimPerson["membership"],
-  /**
-   * The exclusive month this member's life ends, already resolved against the household's
-   * fallback expectancy. Omitted (or non-finite) leaves the benefit unbounded — the legacy shape.
-   */
-  lifeEndMonthExclusive?: number,
+  activeWindow?: SimPerson["activeWindow"],
 ): SimPerson {
   return {
     id: person.id,
@@ -81,10 +77,7 @@ export function compilePerson(
     birthYear: person.birthYear,
     benefitClaimingAge: person.benefitClaimingAge,
     priorEarningsCents: compilePersonPriorEarnings(person, nowYear, scope),
-    ...(membership !== undefined ? { membership } : {}),
-    ...(lifeEndMonthExclusive !== undefined && Number.isFinite(lifeEndMonthExclusive)
-      ? { lifeEndMonthExclusive }
-      : {}),
+    ...(activeWindow !== undefined ? { activeWindow } : {}),
   };
 }
 
@@ -295,14 +288,17 @@ export function compilePersonPriorEarnings(
  */
 function compileJobIncome(
   resolved: ResolvedHouseholdJob,
-  nowYear: number,
   inflationRate: number,
   displayName: string,
 ): SimOwnedSeries | null {
   const { job, owner } = resolved;
   if (!resolved.paysHousehold) return null;
 
-  const employmentEndMonthExclusive = (resolved.endYearExclusive - nowYear) * 12;
+  // Read, never re-derived: this already has the owner's death folded in alongside the authored
+  // end and any candidate boundary, and it is the bound every permanent pay change below is
+  // tested against — so a raise authored for a year the person does not live to see is dropped
+  // by the same rule that ends the job.
+  const employmentEndMonthExclusive = resolved.employmentEndMonthExclusive;
   const naturalStart = resolved.employmentStartMonth;
   const paidStart = resolved.paidStartMonth;
   const paidEndExclusive = resolved.paidEndMonthExclusive;
@@ -393,7 +389,6 @@ function compileJobIncome(
  */
 export function compileHouseholdJobSeries(
   resolvedJobs: readonly ResolvedHouseholdJob[],
-  nowYear: number,
   inflationRate: number,
 ): SimOwnedSeries[] {
   // Display names are an owner-wide fact (they ordinal-number an owner's untitled jobs), so
@@ -406,7 +401,7 @@ export function compileHouseholdJobSeries(
       names = jobDisplayNames(resolved.owner);
       namesByOwner.set(resolved.owner.id, names);
     }
-    const compiled = compileJobIncome(resolved, nowYear, inflationRate, names.get(resolved.job.id)!);
+    const compiled = compileJobIncome(resolved, inflationRate, names.get(resolved.job.id)!);
     if (compiled) series.push(compiled);
   }
   return series;

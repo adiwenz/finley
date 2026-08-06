@@ -5,7 +5,7 @@ import { priceGovernmentBenefitBaseMonthlyCents } from "../jurisdiction/governme
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { SimOwnedSeries } from "./simulate";
-import { isHouseholdMemberAt, type SimPerson } from "./simulate.types";
+import { isPersonActiveAt, type SimPerson } from "./simulate.types";
 
 /**
  * The slice of `SimState` the government-benefit bookkeeping reads. A structural view, not
@@ -94,16 +94,16 @@ export function buildGovernmentBenefitSources(
   const sources: IncomeSourceMonth[] = [];
   const year = startYear + Math.floor(month / 12);
   for (const person of state.personsById.values()) {
-    // Membership first: a benefit belongs to the household on exactly the terms a wage does, and
-    // the roster is everyone who was EVER a member — it is never pruned, because the earnings a
-    // departed partner banked while they were here still happened. What stops is the paying. A
-    // separated partner used to keep contributing their whole benefit for the rest of the
-    // projection, since this loop was the one income path that never asked.
-    if (!isHouseholdMemberAt(person, month)) continue;
-    // And the benefit stops at the member's own expectancy — a dead member draws nothing, even
-    // as household spending runs on to fund the survivor. A wage is not gated here: it ends where
-    // its job was authored to, whatever the expectancy. Absent bound leaves it unbounded (legacy).
-    if (person.lifeEndMonthExclusive !== undefined && month >= person.lifeEndMonthExclusive) continue;
+    // The active window first: a benefit belongs to the household on exactly the terms a wage
+    // does — while its owner is a member, and while they are alive. The roster is everyone who
+    // was EVER a member and is never pruned, because the earnings a departed partner banked
+    // while they were here still happened. What stops is the paying. A separated partner used to
+    // keep contributing their whole benefit for the rest of the projection, since this loop was
+    // the one income path that never asked.
+    //
+    // A dead member draws nothing, even as household spending runs on to fund the survivor at
+    // full cost — that asymmetry is deliberate, and it is why the window is per person.
+    if (!isPersonActiveAt(person, month)) continue;
     // The person's own pin, else the jurisdiction's default (full retirement age) — never a
     // hardcoded engine age. With neither, the benefit isn't timed at all.
     const claimingAge = person.benefitClaimingAge ?? jurisdiction.defaultBenefitClaimingAge;

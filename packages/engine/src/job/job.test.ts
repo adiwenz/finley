@@ -43,7 +43,6 @@ function compilePersonIncomeSeries(person: Person, nowYear: number, inflationRat
   return compileHouseholdJobSeries(
     // Authored: no hypothetical stop, so an open-ended job runs to the horizon.
     resolveHouseholdJobs(personJobContexts(membership), nowYear, { kind: "authored" }),
-    nowYear,
     inflationRate,
   );
 }
@@ -1294,7 +1293,6 @@ describe("membership clips what the household is paid, not the job's salary path
     const membership = { person: partner([job]), ...(span ?? { startMonth: JOIN, endMonth: null }) };
     const compiled = compileHouseholdJobSeries(
       resolveHouseholdJobs(personJobContexts(membership), START_YEAR, { kind: "authored" }),
-      START_YEAR,
       0,
     );
     return compiled.length === 0 ? 0 : compiled[0]!.series.getMonthlyCents(month);

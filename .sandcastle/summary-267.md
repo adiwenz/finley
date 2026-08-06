@@ -10,8 +10,8 @@ person's own horizon.
 
 This branch closes that in the two separable fixes the issue names, plus the panel copy that ties
 them together, following the design decision recorded in the issue's comments (horizon = max across
-members; a member's expectancy bounds only their own income/benefit; household spending never steps
-down — the survivor is funded at full cost, conservative not dangerous).
+members; a member's expectancy bounds only their own income and benefit; household spending never
+steps down — the survivor is funded at full cost, conservative not dangerous).
 
 Delivered as three commits:
 
@@ -41,12 +41,30 @@ Delivered as three commits:
   is NOT bumped — nothing has ever been persisted, so there is no older shape for a version to
   distinguish, and a bump would describe a migration that never happened.
 
-- **A member's expectancy bounds ONLY the government benefit, never a wage.** The decision keeps
-  "jobs end at their stated age regardless". A first attempt folded death into the shared
-  `HouseholdMembership.endMonth`, which also clipped a partner's jobs (breaking the
-  `plannedWorkStopAge` solver tests that pin authored job ends). The bound instead lives on
-  `SimPerson.lifeEndMonthExclusive`, read only at the benefit gate. Household spending is not gated
-  by membership, so it runs on to the extended horizon and funds the survivor at full cost.
+- **A member's expectancy closes ONE window, and everything person-scoped is clipped by it.**
+  `personActiveWindow` (`job/personActiveWindow.ts`) is membership ∩ life: from the month they
+  joined to the earlier of separating and dying. A job's employment ends at `min(authored end,
+  death)`; a raise, a bonus or a missed paycheck dated outside it is not applied; a government
+  benefit is not paid outside it; and the simulator gates every income series by its owner's
+  window, which catches the event-authored streams (alimony) and anything added beside them
+  without each having to remember death for itself.
+
+  It began as two bounds with separate reach — membership clipped wages and the benefit, the
+  expectancy clipped only the benefit, by a second check written beside the first — so a wage went
+  on being paid to a household years after the earner had died, while that same person's Social
+  Security had already stopped. The two are intersected once now, so the projection, the chart's
+  job bar (`resolveJobPayDisplay`) and the household's resolved span (`resolvedJobPaySpan`) cannot
+  answer with three different end dates. `SimPerson.membership` + `lifeEndMonthExclusive` collapsed
+  into the single `SimPerson.activeWindow`, and `isHouseholdMemberAt` became `isPersonActiveAt`.
+
+  **Household spending is deliberately not in the window.** It runs unchanged to the horizon,
+  funding the survivor at full cost — conservative rather than dangerous, and the reason this is a
+  *person* window and not a household one.
+
+  Authoring keeps a matching asymmetry. A job whose START is past its owner's death is REFUSED
+  (`assertPersonEventsStillReachable`): nothing survives interpreting it. A job that merely
+  outlasts its owner is accepted and clamped at run time — it is worked until they die — because
+  refusing it would make "I'll work as long as I can" an unwritable plan.
 
 - **Horizon = max member reach, and a separation only counts while BOTH are alive.** A staying
   younger partner extends the run to their tail. A partner who separates does not — but only if the
@@ -56,7 +74,7 @@ Delivered as three commits:
   else. (Primary dies 2070, partner dies 2080, separation booked 2085 → the run reaches 2080.)
   #266's window still governs their income and benefit either way.
 
-  The rule is ONE function, `memberHorizonReach` in `job/householdJob.ts`, called by both
+  The rule is ONE function, `memberHorizonReach` in `job/personActiveWindow.ts`, called by both
   `buildHouseholdInput` (the simulated horizon) and `horizonAnchorOf` (the age the panel prints), so
   the graph and the sentence describing it cannot diverge. They used to hold separate copies, and
   both copies had the same bug: any separation, at any date, cancelled the partner's tail.
@@ -74,8 +92,8 @@ Delivered as three commits:
   the ownership each already carries — the couple events (`RelationshipEvent`, `SeparationEvent`)
   take the primary plus whoever they name, the owned events (`LoanEvent`, `HomePurchaseEvent`) take
   their `ownerId`, and a job takes its owner. A `ChildEvent` and a `DebtPayoffEvent` name no person,
-  so no death bounds them and they stay valid. A job's START is bounded and its END is not — a wage
-  ends where it was authored to, whatever the expectancy.
+  so no death bounds them and they stay valid. A job's START is what a death can strand; its END is
+  not refused but CLAMPED at run time by `personActiveWindow`.
 
   Both planes run it on the state they would produce, at their single write: `withStatePlan` for the
   plan plane (so `updatePlan` and every plan-job edit pass through it) and `appendEvent` /
@@ -120,9 +138,16 @@ Delivered as three commits:
 
 Engine:
 - `plan/person.ts` — optional `lifeExpectancy`.
-- `job/householdJob.ts` — `lifeExpectancyEndMonthExclusive(person, nowYear, fallbackAge?)`.
-- `projection/simulate.types.ts`, `compile/compilePerson.ts` — `SimPerson.lifeEndMonthExclusive`.
-- `projection/governmentBenefit.ts` — benefit stops at the member's expectancy.
+- `job/personActiveWindow.ts` (NEW) — `PersonActiveWindow`, `personActiveWindow`, plus
+  `lifeExpectancyEndMonthExclusive` / `membershipWindow` / `memberHorizonReach` moved here from
+  `job/householdJob.ts`.
+- `job/householdJob.ts` — `resolveHouseholdJob` / `resolveJobPayDisplay` intersect the active
+  window, so an employment ends at `min(authored end, death)`.
+- `projection/simulate.types.ts`, `compile/compilePerson.ts` — `SimPerson.activeWindow`,
+  `isPersonActiveAt`.
+- `projection/simulate.ts` — one active-window gate over the month's income series, shared by the
+  covered-earnings fold and the waterfall.
+- `projection/governmentBenefit.ts` — benefit stops at the window, one check rather than two.
 - `projection/buildHouseholdInput.ts` — horizon = max member reach; thread each member's life-end.
 - `compile/projectionBase.ts` — primary's expectancy on the standing Person.
   (`LedgerBaseConfig.householdLifeExpectancyAge` was added and then REMOVED: it was named for a
@@ -138,4 +163,6 @@ App:
 
 ## Verification & testing
 
-`npm run typecheck` clean, engine purity clean, **engine 1045 passed / 45 todo**, **app 675 passed**.
+`npm run typecheck` clean, engine purity clean, **130 test files / 1906 passed / 45 todo** across
+engine and app. Every pinned value was observed in the REPL (`npx tsx repl.ts`) first, per
+`AGENTS.md`.

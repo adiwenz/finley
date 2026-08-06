@@ -23,14 +23,14 @@
  * **Not run on restore.** A state arriving from outside is checked for what makes it loadable at
  * all (`./restore`), and refusing a whole imported file over one unreachable event would leave the
  * user nothing to open and no way to fix it — which is why the simulation keeps its own clamps
- * ({@link import("../job/householdJob").memberHorizonReach}) and models such a household sensibly
+ * ({@link import("../job/personActiveWindow").memberHorizonReach}) and models such a household sensibly
  * instead of relying on this.
  */
 
 import type { PersonId } from "../job/job";
 import type { LifeEvent } from "../ledger/eventTypes";
 import type { Person } from "../plan/person";
-import { lifeExpectancyEndMonthExclusive } from "../job/householdJob";
+import { lifeExpectancyEndMonthExclusive } from "../job/personActiveWindow";
 import type { ProjectionState } from "./state";
 
 /** The calendar year a plan month falls in — what a refusal quotes back, since nobody authors months. */

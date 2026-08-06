@@ -6,10 +6,11 @@ import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal"
 import { buildFlows } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
 import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
-import type {
-  HouseholdSimInput,
-  ProjectionMonth,
-  ProjectionSeries,
+import {
+  isPersonActiveAt,
+  type HouseholdSimInput,
+  type ProjectionMonth,
+  type ProjectionSeries,
 } from "./simulate.types";
 import { initSimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
@@ -103,14 +104,26 @@ export function simulateHousehold(
     const year = startYear + Math.floor(month / 12);
     const ctx: JurisdictionContext = { year };
 
+    // **The active-window gate**, applied once here and read by everything below it: an income
+    // series pays this household only while its owner is a member of it and alive. The compiled
+    // job series were already clipped to that window upstream, and re-clipping them costs
+    // nothing; what this catches is every OTHER person-scoped stream — an event-authored one
+    // like alimony, and anything later added beside it — which would otherwise have to remember
+    // death on its own, as the government benefit once did. A series whose owner is not on the
+    // roster is household-level and unbounded, which is also what an unwindowed person gets.
+    const activeIncomeSeries = input.incomeSeries.filter((s) => {
+      const owner = state.personsById.get(s.ownerId);
+      return owner === undefined || isPersonActiveAt(owner, month);
+    });
     // Fold this month's covered wages into the covered-earnings record before assembling
-    // income, so a claim landing this month sees them.
-    accumulateEarnings(state.earningsByPerson, input.incomeSeries, month, year, jurisdiction);
+    // income, so a claim landing this month sees them. Gated the same way: a benefit is priced
+    // off what a person earned, and they earn nothing after they die.
+    accumulateEarnings(state.earningsByPerson, activeIncomeSeries, month, year, jurisdiction);
     // RMDs force this year's required draw out of pre-tax accounts BEFORE the waterfall
     // runs and re-enter here as taxable ordinary income, so the withdrawal is taxed once
     // at the single chokepoint.
     const nonWithdrawalSources = [
-      ...buildIncomeSources(input.incomeSeries, month),
+      ...buildIncomeSources(activeIncomeSeries, month),
       // Last month's credited cash interest, taxed as ordinary income at accrual; a
       // non-withdrawal source, so it shrinks the gap and feeds provisional income.
       ...buildInterestAccrualSources(state),

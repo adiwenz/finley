@@ -632,8 +632,12 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // i.e. 80 years past the PRIMARY's own birth year, not 90 (which would be the partner's own
     // age at that year, and reporting that would misattribute the partner's stop as if it were
     // the primary's age).
+    //
+    // Expectancy 95 so they LIVE to work those years: a job ends at `min(authored end, death)`,
+    // and this test is about the birth-year conversion rather than the death cap — pinned on its
+    // own below.
     const scenario = twoEarnerScenario(
-      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, jobs: [partnerJob()] }),
+      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, lifeExpectancy: 95, jobs: [partnerJob()] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
   });
@@ -641,9 +645,27 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
   it("a partner job is read via its authored endYear, and nothing else", () => {
     const explicitEndYear = PRIMARY_BIRTH_YEAR + 95; // later than every other job here
     const scenario = twoEarnerScenario(
-      partnerWith({ jobs: [partnerJob({ endYear: explicitEndYear })] }),
+      // Again long-lived enough for the authored end to be the binding one.
+      partnerWith({ lifeExpectancy: 100, jobs: [partnerJob({ endYear: explicitEndYear })] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(95);
+  });
+
+  it("a partner job authored past their own death stops at the death instead", () => {
+    // The same job as above, now held by someone who does not live to finish it: authored to
+    // PRIMARY_BIRTH_YEAR + 95, expectancy 85, same birth year — so the employment ends at
+    // PRIMARY_BIRTH_YEAR + 85 and the household-wide stop is age 85, not 95.
+    //
+    // This used to report 95. `plannedWorkStopAge` reads resolved employment ends, and the
+    // resolution had no opinion about death — so the panel told a household it would be working
+    // ten years after the earner it belonged to had died.
+    const scenario = twoEarnerScenario(
+      partnerWith({
+        lifeExpectancy: 85,
+        jobs: [partnerJob({ endYear: PRIMARY_BIRTH_YEAR + 95 })],
+      }),
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(85);
   });
 
   /** Marry `partner` at month 0, then separate at `separationMonth`. */

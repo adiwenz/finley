@@ -448,9 +448,9 @@ describe("Projection root — a marriage or separation needs both partners alive
       });
 
       it("updatePlan: refuses an expectancy that lands before a job the PRIMARY starts", () => {
-        // A job is person-scoped like an event, and its START is what a death can strand: nobody
-        // takes up work in 2080 having died in 2071. Its END is deliberately not bounded — a wage
-        // ends where it was authored to, whatever the expectancy.
+        // A job is person-scoped like an event, and its START is what a death can STRAND: nobody
+        // takes up work in 2080 having died in 2071, so there is no plan left to interpret and
+        // the edit is refused. An end past the death is a different case — see below.
         const p = freshProjection();
         p.updatePlan({ lifeExpectancy: 100 });
         p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2080, endYear: 2085 });
@@ -530,9 +530,14 @@ describe("Projection root — a marriage or separation needs both partners alive
       expect(p.plan.primary.jobs).toEqual([]);
     });
 
-    it("still accepts a job that ENDS past the expectancy — a wage is not bounded by one", () => {
-      // The asymmetry is the rule, not an oversight: `Person.lifeExpectancy` bounds a benefit and
-      // not a wage, so only the job's start has to fall in a month its owner is alive for.
+    it("still accepts a job that ENDS past the expectancy — that one is clamped, not refused", () => {
+      // The asymmetry is the rule, not an oversight, and it is about what there is to do with the
+      // plan rather than about what death bounds. A job whose START is past the death describes
+      // employment nobody could take up: nothing survives interpreting it, so authoring refuses.
+      // A job that merely OUTLASTS its owner is an ordinary plan with a knowable answer — it is
+      // worked until they die — so it is accepted and clipped at run time by
+      // `personActiveWindow`. Refusing it instead would make "I'll work as long as I can" an
+      // unwritable plan.
       const p = freshProjection();
       expect(() =>
         p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2090 }),
@@ -911,6 +916,152 @@ describe("Projection root — previewing a stop-working age", () => {
       // The authored plan still holds the job, untouched — this resolves what a household PAYS.
       expect(p.state.scenario.plan.primary.jobs.map((j) => j.id)).toContain("job-later");
     });
+  });
+});
+
+/**
+ * **A death is the upper bound of everything person-scoped**, end to end through the facade.
+ *
+ * `personActiveWindow.test.ts` pins the window itself. This pins that every subsystem comes out
+ * the far side of it agreeing: what the simulation pays, what a raise or a bonus lands on, and
+ * what a chart draws are one effective end date, not three that happen to match.
+ *
+ * The fixture throughout: the sample primary is born 1986 with expectancy 85, so they die in
+ * 2071 — month 540. Sam is married at month 0, born 1996 with expectancy 90, so they die in 2086
+ * — month 720, which is also the horizon. Both facts matter. The overlap is what makes these
+ * assertions readable at all: without a partner outliving the primary the run would simply STOP
+ * at 540, and "no wage after death" and "no months after death" would be the same observation.
+ */
+describe("every person-scoped stream ends at its own person's death", () => {
+  /** Month 0 of the run is 2026; the primary dies in 2071 and Sam in 2086. */
+  const PRIMARY_DEATH = 540;
+  const SAM_DEATH = 720;
+
+  const flatSalary = (annualDollars: number) => ({
+    startingSalaryCents: dollarsToCents(annualDollars),
+    currentSalaryCents: dollarsToCents(annualDollars),
+    realGrowthPct: 0,
+  });
+
+  /**
+   * The primary and Sam, each holding one job authored to run PAST its own owner's death — the
+   * primary's to 2081 (month 660), Sam's to 2090 (month 768). Nothing here is refused: authoring
+   * a job that STARTS after its owner dies is, but a job that merely outlasts them is an ordinary
+   * plan, and what happens to it is this rule's job to say rather than the authoring guard's.
+   */
+  const household = () => {
+    const p = freshProjection();
+    const samId = p.marry({ month: 0, name: "Sam", birthYear: 1996, lifeExpectancy: 90 });
+    const primaryJob = p.addJob(P1, {
+      startYear: 2030,
+      endYear: 2081,
+      salary: flatSalary(120_000),
+    });
+    const samJob = p.addPartnerJob(samId, {
+      startYear: 2030,
+      endYear: 2090,
+      salary: flatSalary(60_000),
+    });
+    return { p, samId, primaryJob, samJob };
+  };
+
+  /** What one job's income source paid in `month`, or `null` when it booked none at all. */
+  const paidBy = (result: ReturnType<Projection["run"]>, jobId: string, month: number) =>
+    result.series.months[month]!.flows!.incomeSources.find((s) => s.sourceId === `job:${jobId}`)
+      ?.cashInflowCents ?? null;
+
+  it("stops a wage at the owner's death while the same run keeps paying the survivor's", () => {
+    // The heart of it, and the case a single-person fixture cannot show. The run reaches 720
+    // because Sam does; the primary's job was authored to 2081 and pays nothing from 540, while
+    // Sam's own job — authored past THEIR death, to 2090 — pays right up to 719.
+    const { p, primaryJob, samJob } = household();
+    const r = p.run(nullJurisdiction);
+    expect(r.series.months.length).toBe(SAM_DEATH);
+
+    expect(paidBy(r, primaryJob, PRIMARY_DEATH - 1)).toBe(3_262_036);
+    expect(paidBy(r, primaryJob, PRIMARY_DEATH)).toBeNull();
+    expect(paidBy(r, primaryJob, SAM_DEATH - 1)).toBeNull();
+
+    expect(paidBy(r, samJob, PRIMARY_DEATH - 1)).toBe(1_631_028);
+    // Alive and earning through the month the primary dies, and on to their own last month.
+    expect(paidBy(r, samJob, PRIMARY_DEATH)).toBe(1_679_959);
+    expect(paidBy(r, samJob, SAM_DEATH - 1)).toBe(2_541_090);
+  });
+
+  it("draws the job ending where it pays its last wage, on every surface", () => {
+    // The requirement that there be ONE effective end date. These three are read by three
+    // different consumers — the chart's job bar, the household's resolved span, and the series
+    // the simulator banked — and each used to be free to answer with the authored end.
+    const { p, primaryJob, samJob } = household();
+    const r = p.run(nullJurisdiction);
+
+    // 48 = the job's authored 2030 start; the end is the death, not the authored 2081.
+    expect(r.jobPayDisplay(primaryJob)).toEqual({
+      employmentSpan: { startMonth: 48, endMonthExclusive: PRIMARY_DEATH },
+      paidSpan: { startMonth: 48, endMonthExclusive: PRIMARY_DEATH },
+      // No uncounted stretch: death SHORTENS the employment rather than leaving a tail the
+      // household was not paid for. That is what separates it from a separation, which leaves
+      // the employment running and does strand a tail.
+      uncountedSpans: [],
+    });
+    expect(resolvedJobEndMonth(r.household, primaryJob)).toBe(PRIMARY_DEATH - 1);
+    expect(
+      resolvedJobPaySpan(r.household, primaryJob, { startMonth: 48, endMonthExclusive: 660 }),
+    ).toEqual({ startMonth: 48, endMonthExclusive: PRIMARY_DEATH });
+
+    // Sam's authored 2090 end (month 768) is capped at their own 720 by the same rule.
+    expect(r.jobPayDisplay(samJob)?.employmentSpan).toEqual({
+      startMonth: 48,
+      endMonthExclusive: SAM_DEATH,
+    });
+  });
+
+  it("ignores a raise and a bonus dated after the earner has died", () => {
+    // Both kinds of compensation adjustment, at once: a permanent pay change (which would have
+    // reset the salary for every later month) and a one-month bonus. Neither lands, and neither
+    // disturbs the months before — the pay at 539 is exactly what it is with no adjustments
+    // authored at all, which is the assertion that says "ignored" rather than "clipped".
+    const { p, primaryJob } = household();
+    p.addJobPayChange(primaryJob, { month: 600, kind: "setTo", cents: dollarsToCents(20_000) });
+    p.addJobIncomeOverride(primaryJob, { month: 602, kind: "addBonus", cents: dollarsToCents(50_000) });
+    const r = p.run(nullJurisdiction);
+
+    expect(paidBy(r, primaryJob, PRIMARY_DEATH - 1)).toBe(3_262_036);
+    for (const month of [PRIMARY_DEATH, 600, 602, SAM_DEATH - 1]) {
+      expect(paidBy(r, primaryJob, month)).toBeNull();
+    }
+  });
+
+  it("still applies a raise and a bonus dated while the earner is alive", () => {
+    // The control the case above is worth nothing without. The same two adjustments, moved
+    // before the death, do land: the salary is set to $20,000/month from 528 and the bonus adds
+    // $50,000 to month 530 alone, with 539 back on the raised salary.
+    const { p, primaryJob } = household();
+    p.addJobPayChange(primaryJob, { month: 528, kind: "setTo", cents: dollarsToCents(20_000) });
+    p.addJobIncomeOverride(primaryJob, { month: 530, kind: "addBonus", cents: dollarsToCents(50_000) });
+    const r = p.run(nullJurisdiction);
+
+    expect(paidBy(r, primaryJob, 527)).toBe(3_167_025); // the un-raised path
+    expect(paidBy(r, primaryJob, 528)).toBe(2_000_000);
+    expect(paidBy(r, primaryJob, 530)).toBe(7_000_000);
+    expect(paidBy(r, primaryJob, PRIMARY_DEATH - 1)).toBe(2_000_000);
+    expect(paidBy(r, primaryJob, PRIMARY_DEATH)).toBeNull();
+  });
+
+  it("does NOT step household spending down when a member dies", () => {
+    // The deliberate asymmetry, pinned so it cannot be "tidied up" into symmetry. Income is
+    // person-scoped and stops; spending is the household's and runs on to the horizon, funding
+    // the survivor at full cost. Conservative rather than dangerous — and the reason this is a
+    // PERSON window and not a household one.
+    // The whole sample plan, not `freshProjection`'s stripped one: this is the only case here
+    // that needs the budget lines, since it is about what the household SPENDS.
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    p.marry({ month: 0, name: "Sam", birthYear: 1996, lifeExpectancy: 90 });
+    const r = p.run(nullJurisdiction);
+    expect(r.series.months.length).toBe(SAM_DEATH);
+    expect(r.series.months[PRIMARY_DEATH - 1]!.flows!.expensesCents).toBe(1_688_864);
+    expect(r.series.months[600]!.flows!.expensesCents).toBe(2_016_592);
+    expect(r.series.months[SAM_DEATH - 1]!.flows!.expensesCents).toBe(2_631_197);
   });
 });
 

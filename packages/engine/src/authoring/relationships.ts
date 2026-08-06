@@ -116,9 +116,9 @@ export interface SeparateInput {
  * sense, and one a user can author by accident simply by booking an event far out.
  *
  * At or after, not merely after:
- * {@link import("../job/householdJob").lifeExpectancyEndMonthExclusive} is the first month the
+ * {@link import("../job/personActiveWindow").lifeExpectancyEndMonthExclusive} is the first month the
  * person is gone, so the month itself is already too late. This is the same boundary
- * {@link import("../job/householdJob").memberHorizonReach} uses to decide whether a separation
+ * {@link import("../job/personActiveWindow").memberHorizonReach} uses to decide whether a separation
  * takes a partner's tail out of the projection — refused here at the moment it is authored, and
  * still handled there, because an expectancy LOWERED after the fact can stand a separation that
  * was legal when written.

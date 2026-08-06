@@ -22,12 +22,12 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compile/compilePerson";
+import type { JobResolutionScope } from "../job/householdJob";
 import {
   lifeExpectancyEndMonthExclusive,
   memberHorizonReach,
-  membershipWindow,
-  type JobResolutionScope,
-} from "../job/householdJob";
+  personActiveWindow,
+} from "../job/personActiveWindow";
 import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 
 export function buildHouseholdSimInput(
@@ -126,27 +126,18 @@ export function buildHouseholdSimInput(
     base.stopWorking === undefined
       ? { kind: "authored" }
       : { kind: "hypothetical", stopWorking: base.stopWorking };
-  // The membership window rides along: the income series were clipped to it up here, but a
-  // government benefit is derived inside the sim and would otherwise be paid to a household the
-  // person has left.
-  // Each member resolved once: their household window (start..separation) and the month their own
-  // life ends. Every member states their own expectancy, so nothing is inherited here — the
-  // primary's is a default applied at `marry`, not a value read through to. The life-end bounds
-  // the government benefit inside the sim; it never touches a wage, which ends where the job was
-  // authored to.
+  // Each member resolved once, against `base.startYear` rather than the `nowYear` fallback: a
+  // life-end is a birth year plus an age placed on the calendar, and a base without `startYear`
+  // has no calendar (only a hand-built test base is ever in that state). `undefined` there means
+  // unbounded — nobody's death bounds anything when there is nowhere to place it.
   //
-  // A life-end is a birth year plus an age placed on the calendar, so it needs a real frozen
-  // "now". A base without `startYear` has none — only a hand-built test base is ever in that
-  // state — and reckoning against the `0` the job compiler falls back to would put a member's
-  // death two thousand years out and drag the horizon there. Unbounded is the honest answer:
-  // no member bounds a benefit or extends the run when there is no calendar to place them on.
-  const lifeEndOf = (person: Household["memberships"][number]["person"]) =>
-    base.startYear === undefined
-      ? Number.POSITIVE_INFINITY
-      : lifeExpectancyEndMonthExclusive(person, base.startYear);
+  // The ACTIVE WINDOW rides across the sim boundary: the compiled income series were clipped to
+  // it up here, but a government benefit is derived inside the sim and would otherwise be paid
+  // to a household its owner has left or died out of. The separation and the life-end are also
+  // kept apart, because the horizon rule below needs them apart.
   const resolvedMembers = household.memberships.map((m) => ({
-    memberWindow: membershipWindow(m),
-    lifeEnd: lifeEndOf(m.person),
+    activeWindow: personActiveWindow(m, base.startYear),
+    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, base.startYear),
     separationMonth: m.endMonth,
     person: m.person,
   }));
@@ -157,7 +148,7 @@ export function buildHouseholdSimInput(
     Number.POSITIVE_INFINITY;
 
   const persons: SimPerson[] = resolvedMembers.map((r) =>
-    compilePerson(r.person, nowYear, scope, r.memberWindow, r.lifeEnd),
+    compilePerson(r.person, nowYear, scope, r.activeWindow),
   );
 
   // The horizon is the longest-lived member's reach, not the primary's: a member present to their

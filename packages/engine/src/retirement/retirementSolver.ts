@@ -34,11 +34,10 @@ import {
   householdPaidYears,
   householdWageEndYearExclusive,
   intersectHouseholdPaidMonths,
-  lifeExpectancyEndMonthExclusive,
-  memberHorizonReach,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
 } from "../job/householdJob";
+import { lifeExpectancyEndMonthExclusive, memberHorizonReach } from "../job/personActiveWindow";
 import type { ProjectionSeries, HouseholdSimInput } from "../projection/simulate";
 import type {
   ContinuedJob,

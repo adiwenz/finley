@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { memberHorizonReach } from "./householdJob";
+import { memberHorizonReach } from "./personActiveWindow";
 
 const PRIMARY_DEATH = 540;
 const PARTNER_DEATH = 660;

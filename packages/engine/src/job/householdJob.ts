@@ -5,10 +5,10 @@
  * Three independent facts decide it, and each is authored somewhere different:
  *
  * - the **job's** own employment span (`startYear`, and an explicit `endYear`) — the only thing
- *   that ends an authored job, and nothing else about the owner does (see
- *   {@link authoredJobEndYearExclusive});
- * - the **household membership** (a partner earns for this household only between joining and
- *   separating; the primary is a member throughout).
+ *   the USER writes that ends the job (see {@link authoredJobEndYearExclusive});
+ * - the owner's {@link PersonActiveWindow} — when they are in this household at all, and when
+ *   they are alive. A job ends at `min(its authored end, its owner's death)`, because a wage is
+ *   something a person is doing and the dead do none.
  *
  * plus one that is not authored at all: the retirement solver's candidate
  * {@link StopWorkingBoundary}, a simulation-only hypothesis layered on top while a solve runs.
@@ -30,6 +30,11 @@
 import type { Job, JobId, JobPaySpan } from "./job";
 import type { Person } from "../plan/person";
 import type { HouseholdMembership } from "../ledger/household";
+import {
+  lifeExpectancyEndMonthExclusive,
+  personActiveWindow,
+  type PersonActiveWindow,
+} from "./personActiveWindow";
 
 /**
  * A household-wide simulation boundary that ends earned work, applied at resolution time in
@@ -139,9 +144,14 @@ export interface ResolvedHouseholdJob {
   readonly membership: HouseholdMembership;
   /**
    * Exclusive calendar year the EMPLOYMENT ends: the job's authored `endYear`, capped by a
-   * hypothetical {@link StopWorkingBoundary} when one is in scope.
-   * Membership is deliberately not folded in — this is about the job, not about who is paid for
-   * it, and the salary path is compiled over the whole employment either way.
+   * hypothetical {@link StopWorkingBoundary} when one is in scope, and capped again by the
+   * owner's death.
+   *
+   * Membership is deliberately not folded in — that is about who is paid for the job, not about
+   * the job, and the salary path is compiled over the whole employment either way. Death is
+   * different in kind: it does not end a claim on someone's wages, it ends the working. So a
+   * separation leaves the employment running and only narrows {@link paidEndMonthExclusive},
+   * while an expectancy that falls first shortens the employment itself.
    */
   readonly endYearExclusive: number;
   /**
@@ -164,8 +174,9 @@ export interface ResolvedHouseholdJob {
   /** First month the HOUSEHOLD is paid: the employment start, or the join, whichever is later. */
   readonly paidStartMonth: number;
   /**
-   * One past the last month the HOUSEHOLD is paid: the employment end, or a separation,
-   * whichever comes first. `+Infinity` is impossible — the employment end always bounds it.
+   * One past the last month the HOUSEHOLD is paid: the employment end or the end of the owner's
+   * {@link PersonActiveWindow}, whichever comes first. `+Infinity` is impossible — the
+   * employment end always bounds it.
    */
   readonly paidEndMonthExclusive: number;
   /**
@@ -282,102 +293,33 @@ export function continuationJobIdOf(person: Person, nowYear: number): JobId | nu
 }
 
 /**
- * A membership's window as months relative to "now", open-ended at either end where it is.
- *
- * Exported because it is the ONE statement of when a person's money belongs to this household,
- * and more than the job resolution below needs it: a benefit is as membership-bound as a wage,
- * and a second reading of `endMonth` elsewhere is a second thing to get wrong. See
- * {@link import("../projection/simulate.types").SimPerson.membership}, which carries it across
- * the sim boundary for exactly that reason.
+ * Resolve one context: intersect employment, the owner's {@link PersonActiveWindow}, and any
+ * candidate boundary.
  */
-export function membershipWindow(membership: HouseholdMembership): {
-  startMonth: number;
-  endMonthExclusive: number;
-} {
-  return {
-    startMonth: membership.startMonth,
-    // `endMonth` is the separation month — the first month they are NO LONGER a member — so it
-    // is already exclusive. `null` means still a member, i.e. no end at all.
-    endMonthExclusive: membership.endMonth ?? Number.POSITIVE_INFINITY,
-  };
-}
-
-/**
- * **How far this member's presence requires the projection to run**, or `null` when it requires
- * nothing beyond what the rest of the household already does. The single definition of the
- * horizon rule, shared by the simulation
- * ({@link import("../projection/buildHouseholdInput").buildHouseholdSimInput}) and by the anchor
- * the panel names ({@link import("../retirement/retirementSolver").horizonAnchorOf}), so the run
- * and the sentence describing it cannot disagree.
- *
- * **A separation counts only if it happens while BOTH people are alive.** You cannot leave a
- * household you have already died out of, and you cannot leave a partner who has already died —
- * so a separation dated at or after `min(this member's death, the primary's death)` is not an
- * event in either life, and the member is present until their own death like any other.
- *
- * This is what a naive "any separation ends their claim on the horizon" got wrong. Take a primary
- * who dies in 2070, a partner who dies in 2080, and a separation booked for 2085: the partner
- * never leaves while alive, so the projection has to cover them to 2080. Cutting the run at the
- * primary's 2070 would leave the survivor's last decade unmodelled — the very gap this whole
- * change exists to close — on the strength of a separation that never happens.
- *
- * At/after, not merely after: a separation in the month someone dies is already too late, because
- * `lifeEndMonthExclusive` is the first month they are gone.
- *
- * Symmetric in the two deaths by design. A separation after the PRIMARY's death is as moot as one
- * after the partner's: there is no couple left to dissolve either way, and the survivor's own
- * years are what the money still has to cover.
- */
-export function memberHorizonReach(
-  /** This member's own {@link lifeExpectancyEndMonthExclusive}. */
-  lifeEndMonthExclusive: number,
-  /** Their {@link HouseholdMembership.endMonth} — the separation, or `null` for a member who stays. */
-  separationMonth: number | null,
-  /** The PRIMARY's own life-end month, the other half of "while both are alive". */
-  primaryLifeEndMonthExclusive: number,
-): number | null {
-  const separates =
-    separationMonth !== null &&
-    separationMonth < Math.min(lifeEndMonthExclusive, primaryLifeEndMonthExclusive);
-  if (separates) return null;
-  // A member with no reckonable death (a hand-built base with no frozen "now") bounds nothing.
-  return Number.isFinite(lifeEndMonthExclusive) ? lifeEndMonthExclusive : null;
-}
-
-/**
- * The exclusive month a member's own life ends — the first month they no longer draw a government
- * benefit (a wage is untouched; it ends where its job was authored to), and the reach their
- * expectancy contributes to the projection horizon.
- * Derived from their birth year and their own expectancy age against the plan's frozen "now".
- * No fallback and no inheritance: {@link import("../plan/person").Person.lifeExpectancy} is
- * required, so the member being asked about always states one. The primary's expectancy is a
- * default applied at `marry` rather than a value read through to from here.
- */
-export function lifeExpectancyEndMonthExclusive(
-  person: Pick<Person, "birthYear" | "lifeExpectancy">,
-  nowYear: number,
-): number {
-  // Clamped at 0: a member already past their expectancy at "now" contributes no forward months
-  // rather than a negative horizon.
-  return Math.max(0, (person.birthYear + person.lifeExpectancy - nowYear) * 12);
-}
-
-/** Resolve one context: intersect employment, membership, and any candidate boundary. */
 export function resolveHouseholdJob(
   ctx: HouseholdJobContext,
   nowYear: number,
   scope: JobResolutionScope,
 ): ResolvedHouseholdJob {
   const { job, owner, membership } = ctx;
-  const endYearExclusive = employmentEndYearExclusive(job, owner, nowYear, scope);
-  const employmentEndMonthExclusive = (endYearExclusive - nowYear) * 12;
+  // The job's own end (or a hypothesis about it), then DEATH on top of it — the same `min` the
+  // owner's active window is built from, applied here in years-as-months because the employment
+  // end is the figure every pay rule downstream is bounded by. Both figures are whole years'
+  // worth of months, so the year below stays exact.
+  const scopedEndMonthExclusive =
+    (employmentEndYearExclusive(job, owner, nowYear, scope) - nowYear) * 12;
+  const employmentEndMonthExclusive = Math.min(
+    scopedEndMonthExclusive,
+    lifeExpectancyEndMonthExclusive(owner, nowYear),
+  );
+  const endYearExclusive = nowYear + employmentEndMonthExclusive / 12;
   // Clamped at 0: for a job already under way the forward series starts at the projection
   // boundary, since the authored current salary is month 0's pay verbatim.
   const employmentStartMonth = Math.max(0, (job.startYear - nowYear) * 12);
 
-  const memberWindow = membershipWindow(membership);
-  const paidStartMonth = Math.max(employmentStartMonth, memberWindow.startMonth);
-  const paidEndMonthExclusive = Math.min(employmentEndMonthExclusive, memberWindow.endMonthExclusive);
+  const active = personActiveWindow(membership, nowYear);
+  const paidStartMonth = Math.max(employmentStartMonth, active.startMonth);
+  const paidEndMonthExclusive = Math.min(employmentEndMonthExclusive, active.endMonthExclusive);
 
   return {
     job,
@@ -441,8 +383,9 @@ export interface ResolvedJobPayDisplay {
  * owns it.
  *
  * Built on {@link resolveHouseholdJob}, so the employment end it draws is the same one the
- * projection compiles, and on {@link membershipWindow}, so the edges are the same ones a wage and
- * a benefit are already clipped by. Nothing here is a second reading of a separation.
+ * projection compiles, and on {@link personActiveWindow}, so the edges are the same ones a wage
+ * and a benefit are already clipped by. Nothing here is a second reading of a separation or of a
+ * death.
  */
 export function resolveJobPayDisplay(
   ctx: HouseholdJobContext,
@@ -456,10 +399,12 @@ export function resolveJobPayDisplay(
   const startMonth = (ctx.job.startYear - nowYear) * 12;
   const endMonthExclusive = Math.max(startMonth, resolved.employmentEndMonthExclusive);
   const employmentSpan: JobPaySpan = { startMonth, endMonthExclusive };
-  const member = membershipWindow(ctx.membership);
+  // The same window the projection clipped the wage by, so a chart's employment bar, its paid
+  // stretch and the money the simulator actually banked all end on the same month.
+  const active = personActiveWindow(ctx.membership, nowYear);
 
-  const paidStartMonth = Math.max(startMonth, member.startMonth);
-  const paidEndMonthExclusive = Math.min(endMonthExclusive, member.endMonthExclusive);
+  const paidStartMonth = Math.max(startMonth, active.startMonth);
+  const paidEndMonthExclusive = Math.min(endMonthExclusive, active.endMonthExclusive);
   const paidSpan: JobPaySpan | null =
     paidEndMonthExclusive > paidStartMonth
       ? { startMonth: paidStartMonth, endMonthExclusive: paidEndMonthExclusive }

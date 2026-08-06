@@ -14,12 +14,18 @@ export interface Person {
   readonly name: string;
   readonly birthYear: number;
   /**
-   * The age this member is projected to live to — an input, never solved for. Bounds only THIS
-   * member's own government benefit: it stops at their expectancy the same way a separation window
-   * stops it (see {@link import("../job/householdJob").membershipWindow}). A wage is NOT bounded —
-   * a job ends where it was authored to, whatever the expectancy. Household spending never steps
-   * down when a member's expectancy passes either — it runs unchanged to the horizon, funding the
-   * survivor at full cost, which is conservative rather than dangerous.
+   * The age this member is projected to live to — an input, never solved for.
+   *
+   * **It closes this member's own {@link import("../job/personActiveWindow").PersonActiveWindow},
+   * and so bounds everything person-scoped about them**: their jobs end at `min(authored end,
+   * death)`, a raise or bonus dated past it never lands, and their government benefit stops
+   * there, exactly as a separation stops all three. One window, so no subsystem can be left
+   * checking death on its own — a wage used to go on being paid to a household years after the
+   * earner it belonged to had died, while their Social Security had already stopped.
+   *
+   * Household spending is deliberately NOT bounded by it: it runs unchanged to the horizon,
+   * funding the survivor at full cost, which is conservative rather than dangerous. That
+   * asymmetry is the reason the window is per person rather than per household.
    *
    * The projection horizon is the MAX of every member's expectancy month, so a partner younger
    * than the primary but with the same expectancy *age* reaches it in a later calendar year and

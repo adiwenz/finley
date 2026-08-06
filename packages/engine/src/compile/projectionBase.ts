@@ -270,7 +270,6 @@ export function createProjectionBase(
         ? { kind: "authored" }
         : { kind: "hypothetical", stopWorking },
     ),
-    startYear,
     inflationRate,
   );
 
