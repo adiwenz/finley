@@ -135,9 +135,10 @@ describe("buildIncomeChartModel", () => {
       );
       expect(reasonsByMonth.get("2")).toMatch(/job:a begins/i);
       expect(reasonsByMonth.get("4")).toMatch(/job:a ends/i);
-      // Month 3 is unchanged from month 2 and carries no reason to surface, so it stays out
-      // of the nonvisual table entirely.
-      expect(reasonsByMonth.has("3")).toBe(false);
+      // Month 3 changes nothing of its own, but it is the last month the band pays before the
+      // month-4 ending — so it surfaces as that ending's "before", not as a change.
+      expect(reasonsByMonth.get("3")).toMatch(/last reading before the change/i);
+      expect(reasonsByMonth.get("3")).not.toMatch(/changes/i);
     });
 
     it("adds a moment when a band's amount changes without beginning or ending", () => {
@@ -237,6 +238,38 @@ describe("buildIncomeChartModel", () => {
       );
       expect(reasonsByMonth.get("2")).toMatch(/job:b begins/i);
       expect(reasonsByMonth.get("3")).toMatch(/job:b ends/i);
+    });
+
+    it("states the month before a discrete change, so it is heard as a before-and-after", () => {
+      // job:b starts at month 6 with nothing else moving, so months 2-5 are unremarkable and
+      // sampling alone would leave the change to be heard against month 1.
+      const flat = source("job:a", dollarsToCents(5_000), "wages");
+      const series = {
+        months: [
+          { month: 0 },
+          ...Array.from({ length: 5 }, (_, i) => ({
+            month: i + 1,
+            flows: { incomeSources: [flat] },
+          })),
+          {
+            month: 6,
+            flows: {
+              incomeSources: [flat, source("job:b", dollarsToCents(2_000), "wages")],
+            },
+          },
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const byMonth = new Map(
+        model.accessibleMoments.map((m) => [Number(m.label.match(/month (\d+)/)![1]), m]),
+      );
+      expect(byMonth.get(6)!.reason).toMatch(/job:b begins/i);
+      // Month 5 carries no change of its own; it is here to be the "before".
+      expect(byMonth.get(5)!.reason).toMatch(/last reading before the change/i);
+      expect(byMonth.get(5)!.sources.find((s) => s.label === "job:b")!.amount).toBe("$0");
+      expect(byMonth.get(6)!.sources.find((s) => s.label === "job:b")!.amount).toBe("$2,000");
+      // Bought for one row group, not a run of them: months 2-4 stay out.
+      expect(byMonth.has(4)).toBe(false);
     });
 
     it("adds an insolvency moment naming the household's age", () => {
