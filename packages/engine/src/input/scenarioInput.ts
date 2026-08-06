@@ -150,6 +150,8 @@ export interface MarryEntry extends EventEntryCommon {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /** See {@link import("../authoring/relationships").MarryInput.lifeExpectancy}; defaults to the household's. */
+  readonly lifeExpectancy?: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }
 
@@ -175,6 +177,8 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /** See {@link import("../authoring/relationships").MarryInput.lifeExpectancy}; defaults to the household's. */
+  readonly lifeExpectancy?: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }
 

@@ -148,6 +148,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+              ...(entry.lifeExpectancy !== undefined ? { lifeExpectancy: entry.lifeExpectancy } : {}),
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );
@@ -171,6 +172,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+              ...(entry.lifeExpectancy !== undefined ? { lifeExpectancy: entry.lifeExpectancy } : {}),
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );

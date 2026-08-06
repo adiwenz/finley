@@ -328,6 +328,85 @@ describe("Projection.fromInput", () => {
 });
 
 /**
+ * A partner's life expectancy is authorable from a DOCUMENT, not only from the imperative
+ * `marry()`/`startPartnered()` calls. Without the entry field a document could state every other
+ * thing about a partner and never their expectancy, so a scenario round-tripped through
+ * `ScenarioInput` silently fell back to the household's — and the horizon it produced was not the
+ * horizon the same household authored imperatively.
+ *
+ * Observed through the run's month count, which IS the horizon: `base` puts the primary at age 30
+ * in 2026 with an expectancy of 90, so alone they reach 2086 — 720 months. A partner born 2006
+ * reaches the same age 90 in 2096, and their own stated age wherever they state one.
+ */
+describe("Projection.fromInput — a partner's life expectancy, and the horizon it sets", () => {
+  const PRIMARY_HORIZON = (90 - 30) * 12;
+  const monthsOf = (input: ScenarioInput) => built(input).run(nullJurisdiction).series.months.length;
+  /** The partner entry under test, as both an event and an anchor — the two ways one is authored. */
+  const withPartner = (partner: Record<string, unknown>): readonly ScenarioInput[] => [
+    { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 2006, ...partner }] },
+    {
+      ...base,
+      events: [
+        { type: "startPartnered", partneredForMonths: 24, name: "Sam", birthYear: 2006, ...partner },
+      ],
+    },
+  ] as readonly ScenarioInput[];
+
+  it("carries a stated expectancy onto the partner's own Person record", () => {
+    const p = built(withPartner({ lifeExpectancy: 100 })[0]!);
+    const event = p.ledger.events[0];
+    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    expect(event.person.lifeExpectancy).toBe(100);
+  });
+
+  it("leaves the field ABSENT when the document omits it — inherit-on-read, not frozen", () => {
+    // The fallback is the household's live value resolved at the sim boundary, so an omitted
+    // expectancy must not be materialized onto the Person at build time.
+    const p = built(withPartner({})[0]!);
+    const event = p.ledger.events[0];
+    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    expect(event.person.lifeExpectancy).toBeUndefined();
+  });
+
+  it.each(withPartner({ lifeExpectancy: 100 }))(
+    "runs to a partner's DISTINCT stated expectancy — the longest-lived member sets the horizon",
+    (input) => {
+      // Sam states 100 and is born 2006, reaching it in 2106: (2106 - 2026) * 12 = 960 months,
+      // well past both the primary's 720 and the 840 an inherited 90 would have given.
+      expect(monthsOf(input)).toBe((2006 + 100 - 2026) * 12);
+    },
+  );
+
+  it.each(withPartner({}))(
+    "falls back to the household's expectancy when the document states none",
+    (input) => {
+      // Unchanged behavior: Sam inherits age 90 and reaches it in 2096 → 840 months. Still past
+      // the primary's 720, because a younger member reaches the same age later.
+      expect(monthsOf(input)).toBe((2006 + 90 - 2026) * 12);
+    },
+  );
+
+  it.each(withPartner({ lifeExpectancy: 70 }))(
+    "does not SHRINK the horizon below the primary's when the partner dies first",
+    (input) => {
+      // Sam states 70 and reaches it in 2076 — a decade before the primary's 2086. The horizon is
+      // the max across members, so the primary still sets it.
+      expect(monthsOf(input)).toBe(PRIMARY_HORIZON);
+    },
+  );
+
+  it("agrees with the same household authored imperatively", () => {
+    // The point of the whole change: a document and the authoring calls it routes through must
+    // produce one horizon, or a saved scenario means something different from the one authored.
+    const imperative = Projection.init(base, nullJurisdiction);
+    imperative.marry({ month: 12, name: "Sam", birthYear: 2006, lifeExpectancy: 100 });
+    expect(monthsOf(withPartner({ lifeExpectancy: 100 })[0]!)).toBe(
+      imperative.run(nullJurisdiction).series.months.length,
+    );
+  });
+});
+
+/**
  * A document names no ids, so identity has exactly one source: the counter behind
  * `Projection`'s authoring methods. These pin that the input cannot smuggle a name past it and
  * that what it issues collides with nothing — not with the ids the engine already holds, not
