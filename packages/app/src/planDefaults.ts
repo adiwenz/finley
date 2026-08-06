@@ -109,7 +109,7 @@ export const DEFAULT_INPUT: ScenarioInput = {
   // Health is a `healthcare`-category budget line in the template above, not a plan field.
   // General inflation (CPI): income and general expenses grow at this each year.
   inflationPct: 3,
-  currentAge: DEFAULT_CURRENT_AGE,
+  birthYear: START_YEAR - DEFAULT_CURRENT_AGE,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
   // Social Security is always priced from the plan's earnings via the AIME→PIA seam the

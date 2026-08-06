@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "../index";
-import { samplePlan, stateOf } from "../testing/samplePlan";
+import { samplePlan, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { goalFundAccountId } from "../compile/projectionBase";
@@ -170,7 +170,15 @@ describe("Projection root — reordering a goal changes its funding priority", (
 
   function seededProjection(): { p: Projection; a: string; b: string; c: string } {
     // Start from an empty goal list so priority (array index) reflects only what we add.
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [], budgetLines: [], goals: [] }), nullJurisdiction);
+    const p = Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [] },
+        budgetLines: [],
+        goals: [],
+      }),
+      nullJurisdiction,
+    );
     return { p, a: p.addGoal(goal), b: p.addGoal(goal), c: p.addGoal(goal) };
   }
 
@@ -310,7 +318,7 @@ describe("Projection root — patching the plan's standing scalars", () => {
       openingBalanceCents: dollarsToCents(50000),
       savingsReturnPct: 2,
       inflationPct: 4,
-      currentAge: 41,
+      birthYear: SAMPLE_START_YEAR - 41,
       lifeExpectancy: 90,
       benefitClaimingAge: 70,
       surplusCashTo: "brokerage",
@@ -318,17 +326,19 @@ describe("Projection root — patching the plan's standing scalars", () => {
     });
 
     expect(p.plan).toMatchObject({
-      name: "Renamed",
       openingBalanceCents: dollarsToCents(50000),
       savingsReturnPct: 2,
       inflationPct: 4,
-      currentAge: 41,
-      lifeExpectancy: 90,
-      benefitClaimingAge: 70,
       surplusCashTo: "brokerage",
       sharedScheme: "even",
       // Unnamed scalars keep their authored values.
       brokerageReturnPct: samplePlan.brokerageReturnPct,
+      primary: {
+        name: "Renamed",
+        birthYear: SAMPLE_START_YEAR - 41,
+        lifeExpectancy: 90,
+        benefitClaimingAge: 70,
+      },
     });
   });
 
@@ -351,7 +361,7 @@ describe("Projection root — patching the plan's standing scalars", () => {
     p.updatePlan({ goals: [], jobs: [], budgetLines: [], inflationPct: 4 });
 
     expect(p.plan.goals.map((g) => g.id)).toContain(goalId);
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([jobId]);
     expect(p.plan.budgetLines.map((l) => l.id)).toEqual([lineId]);
     // The scalar in the same patch still lands — only the collections are refused.
     expect(p.plan.inflationPct).toBe(4);

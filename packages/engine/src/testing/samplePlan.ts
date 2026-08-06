@@ -97,7 +97,6 @@ export function salariedJob(
 }
 
 export const samplePlan = {
-  name: "Sample",
   budgetLines: [spendLine(dollarsToCents(4000)), healthLine(dollarsToCents(600))],
   openingBalanceCents: dollarsToCents(20000),
   savingsReturnPct: 5,
@@ -115,10 +114,14 @@ export const samplePlan = {
     },
   ],
   inflationPct: 3,
-  currentAge: SAMPLE_CURRENT_AGE,
-  lifeExpectancy: 85,
-  benefitClaimingAge: 67,
-  jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 })],
+  primary: {
+    id: "p1",
+    name: "Sample",
+    birthYear: SAMPLE_START_YEAR - SAMPLE_CURRENT_AGE,
+    lifeExpectancy: 85,
+    benefitClaimingAge: 67,
+    jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1 })],
+  },
 } satisfies Plan;
 
 const BARISTA_CURRENT_AGE = 45;
@@ -146,7 +149,6 @@ const baristaSupplementalJob: Job = {
 };
 
 export const baristaPlan = {
-  name: "Barista",
   budgetLines: [spendLine(dollarsToCents(5500)), healthLine(dollarsToCents(600))],
   openingBalanceCents: dollarsToCents(200000),
   savingsReturnPct: 5,
@@ -155,10 +157,14 @@ export const baristaPlan = {
   sharedScheme: "proportional",
   goals: [],
   inflationPct: 3,
-  currentAge: BARISTA_CURRENT_AGE,
-  lifeExpectancy: 90,
-  benefitClaimingAge: 67,
-  jobs: [baristaOpenEndedJob, baristaSupplementalJob],
+  primary: {
+    id: "p1",
+    name: "Barista",
+    birthYear: BARISTA_BIRTH_YEAR,
+    lifeExpectancy: 90,
+    benefitClaimingAge: 67,
+    jobs: [baristaOpenEndedJob, baristaSupplementalJob],
+  },
 } satisfies Plan;
 
 /**

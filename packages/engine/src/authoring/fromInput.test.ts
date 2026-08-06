@@ -23,7 +23,7 @@ const base: ScenarioInput = {
   brokerageReturnPct: 5,
   sharedScheme: "proportional",
   inflationPct: 2,
-  currentAge: 30,
+  birthYear: 2026 - 30,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };
@@ -38,7 +38,7 @@ function built(input: ScenarioInput): Projection {
 describe("Projection.init — the imperative half of authoring", () => {
   it("opens empty, with the counter at its start", () => {
     const p = Projection.init(base, nullJurisdiction);
-    expect(p.plan.jobs).toEqual([]);
+    expect(p.plan.primary.jobs).toEqual([]);
     expect(p.plan.goals).toEqual([]);
     expect(p.plan.budgetLines).toEqual([]);
     expect(p.ledger.events).toEqual([]);
@@ -47,9 +47,9 @@ describe("Projection.init — the imperative half of authoring", () => {
   });
 
   it("keeps the scalars it was given, and projects", () => {
-    const p = Projection.init({ ...base, currentAge: 41, lifeExpectancy: 85 }, nullJurisdiction);
-    expect(p.plan.currentAge).toBe(41);
-    expect(p.plan.lifeExpectancy).toBe(85);
+    const p = Projection.init({ ...base, birthYear: 2026 - 41, lifeExpectancy: 85 }, nullJurisdiction);
+    expect(2026 - p.plan.primary.birthYear).toBe(41);
+    expect(p.plan.primary.lifeExpectancy).toBe(85);
     // A plan with no jobs and no budget still runs — it is a scenario, just an empty one.
     expect(p.run(nullJurisdiction).series.months.length).toBeGreaterThan(0);
   });
@@ -100,19 +100,21 @@ describe("Projection.init — the imperative half of authoring", () => {
     );
     // Every age-valued scalar is bounded, each at ITS OWN ceiling rather than one shared number.
     // An age already lived stops a year below the ceiling: 120 leaves no month to project.
-    expect(() => Projection.init({ ...base, currentAge: MAX_AGE }, nullJurisdiction)).toThrow(/119/);
+    expect(() =>
+      Projection.init({ ...base, birthYear: 2026 - MAX_AGE }, nullJurisdiction),
+    ).toThrow(/119/);
     // And the claiming age stops at the top of the legal window, well below either.
     expect(() => Projection.init({ ...base, benefitClaimingAge: 71 }, nullJurisdiction)).toThrow(/70/);
   });
 
   it("accepts each ceiling itself — the bound refuses what is PAST it, not what reaches it", () => {
     const p = Projection.init(
-      { ...base, currentAge: MAX_LIVED_AGE, lifeExpectancy: MAX_AGE,
+      { ...base, birthYear: 2026 - MAX_LIVED_AGE, lifeExpectancy: MAX_AGE,
         benefitClaimingAge: AGE_LIMITS.benefitClaimingAge },
       nullJurisdiction,
     );
-    expect(p.plan.lifeExpectancy).toBe(120);
-    expect(p.plan.currentAge).toBe(119);
+    expect(p.plan.primary.lifeExpectancy).toBe(120);
+    expect(2026 - p.plan.primary.birthYear).toBe(119);
     // One year of plan left — the reason a lived age stops one short of the ceiling.
     expect(p.run(nullJurisdiction).series.months.length).toBe(12);
   });
@@ -120,7 +122,7 @@ describe("Projection.init — the imperative half of authoring", () => {
   it("refuses an over-large age on a later edit too, leaving the projection as it was", () => {
     const p = Projection.init(base, nullJurisdiction);
     expect(() => p.updatePlan({ lifeExpectancy: 950 })).toThrow(/950/);
-    expect(p.plan.lifeExpectancy).toBe(90);
+    expect(p.plan.primary.lifeExpectancy).toBe(90);
   });
 });
 
@@ -144,7 +146,7 @@ describe("Projection.fromInput", () => {
       ],
     });
 
-    const [job] = p.plan.jobs;
+    const [job] = p.plan.primary.jobs;
     expect(job.id).toMatch(/^job-\d+$/);
     expect(job.ownerId).toBe(PRIMARY_PERSON_ID);
     // The account ref resolved to a real, well-known account id — no ref survived the build.
@@ -389,7 +391,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
    */
   function allIds(p: Projection): string[] {
     const ids = [
-      ...p.plan.jobs.map((j) => j.id),
+      ...p.plan.primary.jobs.map((j) => j.id),
       ...p.plan.goals.map((g) => g.id),
       ...p.plan.budgetLines.map((l) => l.id),
     ];
@@ -475,12 +477,16 @@ describe("Projection.fromInput — the engine allocates every id", () => {
         salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 } },
     ];
     const p = built({ ...base, jobs: twoJobs, continuationJobRef: ref("early") });
-    expect(p.plan.continuationJobId).toBe(p.plan.jobs[0].id);
+    expect(p.plan.primary.continuationJobId).toBe(p.plan.primary.jobs[0].id);
 
     // `null` states None outright; omitting it leaves the choice unmade, which the engine
     // resolves on read. The two must not collapse into each other.
-    expect(built({ ...base, jobs: twoJobs, continuationJobRef: null }).plan.continuationJobId).toBeNull();
-    expect(built({ ...base, jobs: twoJobs }).plan.continuationJobId).toBeUndefined();
+    expect(
+      built({ ...base, jobs: twoJobs, continuationJobRef: null }).plan.primary.continuationJobId,
+    ).toBeNull();
+    expect(
+      built({ ...base, jobs: twoJobs }).plan.primary.continuationJobId,
+    ).toBeUndefined();
   });
 
   it("refuses a continuation job naming a ref no job declares", () => {

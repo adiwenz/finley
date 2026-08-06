@@ -286,7 +286,7 @@ describe("taxed-in-retirement — authored inputs, not just projected shape", ()
     expect(teaching.goals).toEqual([]);
     expect(healthcareMonthlyCents(teaching.budgetLines)).toBe(dollarsToCents(450));
     expect(plan().retirementReturnPct).toBe(4);
-    expect(plan().lifeExpectancy).toBe(72);
+    expect(plan().primary.lifeExpectancy).toBe(72);
   });
 });
 

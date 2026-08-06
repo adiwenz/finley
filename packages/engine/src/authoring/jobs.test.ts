@@ -35,7 +35,11 @@ const longRunningJob = {
 
 /** Empty collections so minted ids and roster counts reflect only what a test adds. */
 function emptyState(): ProjectionState {
-  return stateOf({ ...samplePlan, jobs: [], budgetLines: [] });
+  return stateOf({
+    ...samplePlan,
+    primary: { ...samplePlan.primary, jobs: [] },
+    budgetLines: [],
+  });
 }
 
 /** A state holding one partner, and their person id — the ledger plane, authored properly. */
@@ -55,8 +59,8 @@ describe("job authoring — a write derives, it does not mutate", () => {
     const before = emptyState();
     const { state: after } = addProjectionJob(before, PRIMARY_PERSON_ID as PersonId, longRunningJob);
 
-    expect(before.scenario.plan.jobs).toEqual([]);
-    expect(after.scenario.plan.jobs).toHaveLength(1);
+    expect(before.scenario.plan.primary.jobs).toEqual([]);
+    expect(after.scenario.plan.primary.jobs).toHaveLength(1);
     // The counter advanced on the derived state alone.
     expect(before.nextSeq).toBe(1);
     expect(after.nextSeq).toBe(2);
@@ -69,7 +73,7 @@ describe("job authoring — a write derives, it does not mutate", () => {
       longRunningJob,
     );
     expect(result).toBe("job-1");
-    expect(state.scenario.plan.jobs[0]?.id).toBe("job-1");
+    expect(state.scenario.plan.primary.jobs[0]?.id).toBe("job-1");
   });
 });
 
@@ -89,7 +93,7 @@ describe("job authoring — the module owns which plane a job lives on", () => {
     );
 
     // Neither plane holds the other's job…
-    expect(final.scenario.plan.jobs.map((j) => j.ownerId)).toEqual([PRIMARY_PERSON_ID]);
+    expect(final.scenario.plan.primary.jobs.map((j) => j.ownerId)).toEqual([PRIMARY_PERSON_ID]);
     expect(partnerJobs(final, partnerId).map((j) => j.ownerId)).toEqual([partnerId]);
     // …and a read spans both without being told which is which.
     expect(householdJobs(final)).toHaveLength(2);
@@ -166,7 +170,7 @@ describe("job authoring — the continuation selection", () => {
       partnerJobId,
     );
 
-    expect(chosen.scenario.plan.continuationJobId).toBe(planJobId);
+    expect(chosen.scenario.plan.primary.continuationJobId).toBe(planJobId);
     expect(relationshipFor(chosen, partnerId).person.continuationJobId).toBe(partnerJobId);
   });
 
@@ -213,12 +217,12 @@ describe("job authoring — the continuation selection", () => {
     chosen = setProjectionContinuationJob(chosen, nullJurisdiction, partnerId, partnerJobId);
 
     const primaryDropped = removeProjectionJob(chosen, planJobId);
-    expect(primaryDropped.scenario.plan.continuationJobId).toBeNull();
+    expect(primaryDropped.scenario.plan.primary.continuationJobId).toBeNull();
 
     const partnerDropped = removeProjectionPartnerJob(chosen, nullJurisdiction, partnerJobId);
     expect(relationshipFor(partnerDropped, partnerId).person.continuationJobId).toBeNull();
     // Removing one member's job leaves the other member's answer exactly as it was.
-    expect(partnerDropped.scenario.plan.continuationJobId).toBe(planJobId);
+    expect(partnerDropped.scenario.plan.primary.continuationJobId).toBe(planJobId);
   });
 
   it("leaves a selection alone when some OTHER job is removed", () => {
@@ -239,6 +243,6 @@ describe("job authoring — the continuation selection", () => {
       keptId,
     );
 
-    expect(removeProjectionJob(chosen, doomedId).scenario.plan.continuationJobId).toBe(keptId);
+    expect(removeProjectionJob(chosen, doomedId).scenario.plan.primary.continuationJobId).toBe(keptId);
   });
 });

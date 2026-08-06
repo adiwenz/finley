@@ -23,6 +23,7 @@ import { describe, it, expect } from "vitest";
 import { Projection, PRIMARY_PERSON_ID, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { DEFAULT_INPUT } from "./planDefaults";
+import { START_YEAR } from "./config";
 import { retirementView } from "./retirementView";
 import { buildNetWorthChartData } from "./components/netWorthChart/netWorthChartData";
 import { toAxisX } from "./components/monthAxis";
@@ -131,7 +132,9 @@ describe("a purchase stranded by a later edit — what the projection does with 
     // later), but "the projection stopped" (which asks them to fund the obligation differently).
     const view = retirementView(p, usJurisdiction);
     expect(view.blocked).toBe(true);
-    expect(view.blockedAtAge).toBe(DEFAULT_INPUT.currentAge + BUY_MONTH / 12);
+    expect(view.blockedAtAge).toBe(
+      START_YEAR - DEFAULT_INPUT.birthYear + BUY_MONTH / 12,
+    );
 
     // The chart's terminal marker, built from this real series rather than a hand-made one.
     const chart = buildNetWorthChartData(series);

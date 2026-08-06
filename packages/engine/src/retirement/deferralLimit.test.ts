@@ -26,8 +26,8 @@ import type { Plan } from "../plan/plan";
 import type { Scenario } from "../plan/scenario";
 
 const START_YEAR = SAMPLE_START_YEAR;
-const CURRENT_AGE = samplePlan.currentAge;
-const BIRTH_YEAR = START_YEAR - CURRENT_AGE;
+const BIRTH_YEAR = samplePlan.primary.birthYear;
+const CURRENT_AGE = START_YEAR - BIRTH_YEAR;
 const monthAt = (age: number) => (age - CURRENT_AGE) * 12;
 
 /** A flat $20k limit at every age and year: nothing here turns on how a jurisdiction indexes. */
@@ -62,7 +62,11 @@ function deferringJob(
 }
 
 /** No CPI: every figure below is the authored one, so a crossing is arithmetic and not drift. */
-const flatPlan = (jobs: readonly Job[]): Plan => ({ ...samplePlan, inflationPct: 0, jobs });
+const flatPlan = (jobs: readonly Job[]): Plan => ({
+  ...samplePlan,
+  inflationPct: 0,
+  primary: { ...samplePlan.primary, jobs },
+});
 
 /** A partner joining at `joinMonth`, optionally leaving at `separationMonth`. */
 function withPartner(

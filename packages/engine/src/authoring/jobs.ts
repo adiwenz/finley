@@ -107,7 +107,7 @@ function partnerJobSite(
 
 /** Whether the plan plane holds this job — the cheap half of the plane question. */
 function onPlan(state: ProjectionState, jobId: string): boolean {
-  return state.scenario.plan.jobs.some((j) => j.id === jobId);
+  return state.scenario.plan.primary.jobs.some((j) => j.id === jobId);
 }
 
 /**
@@ -138,7 +138,11 @@ function editPlanJob(
   nextSeq?: number,
 ): ProjectionState {
   const plan = planSite(state, "jobs", id);
-  return withStatePlan(state, { ...plan, jobs: mapJob(plan.jobs, id, f) }, nextSeq);
+  return withStatePlan(
+    state,
+    { ...plan, primary: { ...plan.primary, jobs: mapJob(plan.primary.jobs, id, f) } },
+    nextSeq,
+  );
 }
 
 /** The partner-plane counterpart of {@link editPlanJob}. */
@@ -181,9 +185,8 @@ function editJobAnywhere(
  * Refuse a job whose start or end age falls past what a person can live to.
  *
  * A job is authored in calendar YEARS, so its ages are only meaningful against whose job it is:
- * the owner's birth year turns `startYear`/`endYear` into "at what age". The primary's birth
- * year is the plan's own `startYear − currentAge`; a partner carries theirs on the event they
- * joined on.
+ * the owner's birth year turns `startYear`/`endYear` into "at what age". The primary's is
+ * `plan.primary.birthYear`; a partner carries theirs on the event they joined on.
  *
  * Both ends are bounded, because both are authored: every job states when it ends. Whether the
  * job is its owner's continuation job is deliberately not consulted — it may be carried past
@@ -205,18 +208,14 @@ function assertJobAgesWithin(state: ProjectionState, ownerId: PersonId, job: Job
   }
 }
 
-/**
- * Whose birth year to read a job's calendar years against. The primary person holds no `Person`
- * record on the plan — their age IS the plan's `currentAge` at the frozen `startYear` — so the
- * two planes answer this differently and this is where that difference is settled.
- */
+/** Whose birth year to read a job's calendar years against. */
 function birthYearOf(state: ProjectionState, personId: PersonId): number {
   for (const event of state.scenario.ledger.events) {
     if (event.type === "RelationshipEvent" && event.person.id === personId) {
       return event.person.birthYear;
     }
   }
-  return state.startYear - state.scenario.plan.currentAge;
+  return state.scenario.plan.primary.birthYear;
 }
 
 // Standing (plan-plane) jobs.
@@ -237,7 +236,11 @@ export function addProjectionJob(
   const newJob = resolveJobInput(job, id, personId);
   const plan = state.scenario.plan;
   return {
-    state: withStatePlan(state, { ...plan, jobs: [...(plan.jobs ?? []), newJob] }, nextSeq),
+    state: withStatePlan(
+      state,
+      { ...plan, primary: { ...plan.primary, jobs: [...plan.primary.jobs, newJob] } },
+      nextSeq,
+    ),
     result: id,
   };
 }
@@ -274,8 +277,11 @@ export function removeProjectionJob(state: ProjectionState, id: JobId): Projecti
   const plan = planSite(state, "jobs", id);
   return withStatePlan(state, {
     ...plan,
-    jobs: plan.jobs.filter((j) => j.id !== id),
-    ...clearedContinuation(plan.continuationJobId, id),
+    primary: {
+      ...plan.primary,
+      jobs: plan.primary.jobs.filter((j) => j.id !== id),
+      ...clearedContinuation(plan.primary.continuationJobId, id),
+    },
   });
 }
 
@@ -313,11 +319,7 @@ export function continuationJobOf(state: ProjectionState, personId: PersonId): J
   return continuationJobIdOf(person, state.startYear);
 }
 
-/**
- * The {@link Person} record behind a member id, on whichever plane holds it. The primary has none
- * — their standing data IS the plan — so one is assembled from it, exactly as
- * `createProjectionBase` does for the projection.
- */
+/** The {@link Person} record behind a member id, on whichever plane holds it. */
 function householdPerson(state: ProjectionState, personId: PersonId): Person {
   for (const event of state.scenario.ledger.events) {
     if (event.type === "RelationshipEvent" && event.person.id === personId) return event.person;
@@ -325,15 +327,7 @@ function householdPerson(state: ProjectionState, personId: PersonId): Person {
   if (personId !== PRIMARY_PERSON_ID) {
     throw new Error(`Projection: no member "${personId}" in this household`);
   }
-  const plan = state.scenario.plan;
-  return {
-    id: PRIMARY_PERSON_ID,
-    name: plan.name,
-    birthYear: state.startYear - plan.currentAge,
-    benefitClaimingAge: plan.benefitClaimingAge,
-    jobs: plan.jobs,
-    continuationJobId: plan.continuationJobId,
-  };
+  return state.scenario.plan.primary;
 }
 
 /**
@@ -367,9 +361,8 @@ export function setProjectionContinuationJob(
     }
   }
   if (personId === PRIMARY_PERSON_ID) {
-    // The primary holds no `Person` record — their standing data IS the plan — so their copy of
-    // this field lives there, exactly as their jobs do.
-    return withStatePlan(state, { ...state.scenario.plan, continuationJobId: jobId });
+    const plan = state.scenario.plan;
+    return withStatePlan(state, { ...plan, primary: { ...plan.primary, continuationJobId: jobId } });
   }
   const partner = state.scenario.ledger.events.find(
     (e): e is RelationshipEvent => e.type === "RelationshipEvent" && e.person.id === personId,
@@ -540,7 +533,7 @@ export function removeProjectionJobIncomeOverride(
  */
 export function householdJobs(state: ProjectionState): readonly Job[] {
   const s = state.scenario;
-  const jobs: Job[] = [...s.plan.jobs];
+  const jobs: Job[] = [...s.plan.primary.jobs];
   for (const event of s.ledger.events) {
     if (event.type === "RelationshipEvent") jobs.push(...event.person.jobs);
   }

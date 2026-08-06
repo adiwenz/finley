@@ -321,7 +321,13 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   };
 
   const ranWith = (monthlyIncomeCents: number) =>
-    Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] }), nullJurisdiction).run(nullJurisdiction);
+    Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [salariedJob(monthlyIncomeCents)] },
+      }),
+      nullJurisdiction,
+    ).run(nullJurisdiction);
 
   it("flags a purchase that pushes housing past the front-end guideline", () => {
     // ~$1,517/mo of mortgage against $5,000/mo gross is over 28%.
@@ -346,7 +352,10 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("flags nothing at zero gross income rather than dividing by it", () => {
-    const dti = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction)
+    const dti = Projection.fromState(
+      stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }),
+      nullJurisdiction,
+    )
       .run(nullJurisdiction)
       .assessHomePurchase(purchase);
     expect(dti.monthlyGrossCents).toBe(0);
@@ -355,7 +364,13 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("counts debt already being serviced toward the back-end ratio", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] }), nullJurisdiction);
+    const p = Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [salariedJob(dollarsToCents(12000))] },
+      }),
+      nullJurisdiction,
+    );
     // Read a year in, where the loan taken at month 0 is being serviced.
     const later = { ...purchase, month: 12 };
     const clean = p.run(nullJurisdiction).assessHomePurchase(later);

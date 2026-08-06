@@ -219,7 +219,6 @@ export function createProjectionBase(
 ): LedgerBaseConfig {
   const { startYear } = ctx;
   const inflationRate = budget.inflationPct / 100;
-  const birthYear = startYear - budget.currentAge;
 
   // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
   // the forward income series both fall out of job spans and salaries, never a scalar lever.
@@ -230,20 +229,7 @@ export function createProjectionBase(
   // explore past what the plan already said. Both are gone: a job ends where it was authored to,
   // and a candidate travels as a {@link StopWorkingBoundary} that says plainly it is a
   // hypothesis.
-  const standingPerson: Person = {
-    id: PRIMARY_PERSON_ID,
-    name: budget.name,
-    birthYear,
-    // The primary states their expectancy on the plan; copied onto the Person so every member
-    // carries theirs in one place and the horizon can take the max across them all.
-    lifeExpectancy: budget.lifeExpectancy,
-    benefitClaimingAge: budget.benefitClaimingAge,
-    jobs: budget.jobs,
-    // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
-    // `undefined` included: "not chosen yet" is a state `continuationJobIdOf` resolves on read,
-    // so defaulting it here would freeze an answer the plan never gave.
-    continuationJobId: budget.continuationJobId,
-  };
+  const standingPerson: Person = budget.primary;
 
   // Expenses are authored solely as budget lines — there is no separate general-expense
   // lever, and none for health either: a `healthcare`-category line is compiled by exactly
@@ -267,7 +253,7 @@ export function createProjectionBase(
    * The plan's own span, "now" to life expectancy — the one definition, shared with every surface
    * that draws the plan, so a chart axis and the months the simulator emitted cannot disagree.
    */
-  const horizonMonths = planHorizonMonths(budget);
+  const horizonMonths = planHorizonMonths(budget, startYear);
 
   // One forward income series per job; pre-tax 401(k) deferral and employer match ride
   // on the job.
@@ -303,7 +289,7 @@ export function createProjectionBase(
     startYear,
     // The fallback expectancy a partner who states none inherits, and the primary's own — the
     // horizon takes the max of every member's expectancy month against it.
-    householdLifeExpectancyAge: budget.lifeExpectancy,
+    householdLifeExpectancyAge: budget.primary.lifeExpectancy,
     // Authoring Persons only; SimPerson is derived at the sim boundary, never here.
     initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),

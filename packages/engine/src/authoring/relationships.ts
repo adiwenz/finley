@@ -5,7 +5,7 @@
  */
 
 import type { Job } from "../job/job";
-import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan/plan";
+import { ageAboveMaximum } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { Person } from "../plan/person";
@@ -31,10 +31,10 @@ export interface MarryInput {
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
   /**
-   * The age the partner is projected to live to. Defaults to the household's own
-   * ({@link import("../plan/plan").Plan.lifeExpectancy}); a partner younger than the primary
-   * reaches that same age in a later calendar year, which is what extends the projection horizon
-   * to cover their tail.
+   * The age the partner is projected to live to. Defaults to the primary's own
+   * ({@link import("../plan/plan").Plan.primary}`.lifeExpectancy`); a partner younger than the
+   * primary reaches that same age in a later calendar year, which is what extends the projection
+   * horizon to cover their tail.
    */
   readonly lifeExpectancy?: number;
   readonly jobs?: readonly JobInput[];
@@ -106,21 +106,15 @@ export function applyMarriage(
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
-  // A partner is a person, and the same age bound holds for them as for the primary — stated
-  // here in the three places a partner's age is actually authored. Their age is a birth YEAR on
-  // the way in, so it is read against the plan's frozen "now" rather than a wall clock.
-  const ages: readonly (readonly [string, number | undefined, number])[] = [
-    // An age they already ARE, so it stops one short of the ceiling like the primary's.
-    ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
-    ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
-    // An age they are projected TO, so it reaches the ceiling itself, like the plan's. Only
-    // checked when stated — an omitted expectancy inherits the household's, already bounded.
-    ["lifeExpectancy", input.lifeExpectancy, AGE_LIMITS.lifeExpectancy],
-  ];
-  for (const [field, age, limit] of ages) {
-    if (age !== undefined && age > limit) {
-      throw new Error(`Projection: cannot author a partner with ${field} ${age} — it may not exceed ${limit}`);
-    }
+  // A partner is a person, and the same age bound holds for them as for the primary — see
+  // {@link ageAboveMaximum}. Their age is a birth YEAR on the way in, so it is read against the
+  // plan's frozen "now" rather than a wall clock.
+  const bad = ageAboveMaximum(
+    { birthYear: input.birthYear, lifeExpectancy: input.lifeExpectancy, benefitClaimingAge: input.benefitClaimingAge },
+    state.startYear,
+  );
+  if (bad) {
+    throw new Error(`Projection: cannot author a partner with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
   }
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,

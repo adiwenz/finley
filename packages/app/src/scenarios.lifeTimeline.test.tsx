@@ -44,7 +44,7 @@ function lifeArc() {
     },
     deferral: { deferralFraction: 0.25, fundAccountId: RETIREMENT_ID },
   };
-  const alexJobId = p.plan.jobs[0]!.id;
+  const alexJobId = p.plan.primary.jobs[0]!.id;
   p.replaceJob(alexJobId, alexJob);
 
   // Sam, already a decade into the household and the same age as Alex, holding a job of their own.

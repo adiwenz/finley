@@ -20,5 +20,5 @@ export function updateProjectionPlan(
   state: ProjectionState,
   patch: PlanPatch,
 ): ProjectionState {
-  return withStatePlan(state, withPlanPatch(state.scenario.plan, patch));
+  return withStatePlan(state, withPlanPatch(state.scenario.plan, patch, state.startYear));
 }

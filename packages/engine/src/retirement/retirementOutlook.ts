@@ -103,6 +103,7 @@ export function buildRetirementOutlook(
 ): RetirementOutlook {
   const ctx = retirementContext(state, jurisdiction);
   const plan = state.scenario.plan;
+  const currentAge = ctx.startYear - plan.primary.birthYear;
   const solution = solveRetirement(state.scenario, ctx);
   return Object.freeze({
     solution,
@@ -110,13 +111,13 @@ export function buildRetirementOutlook(
     fullRetirementMonth:
       solution.fullRetirementAge === null
         ? null
-        : Math.max(0, (solution.fullRetirementAge - plan.currentAge) * 12),
+        : Math.max(0, (solution.fullRetirementAge - currentAge) * 12),
     // The block's month back on the primary's clock, for a panel that reports an age rather than
     // a month offset. `blocked` without a month cannot happen, but is read as "no age to state"
     // rather than as age `currentAge`.
     blockedAtAge:
       solution.blocked && solution.blockedAtMonth !== undefined
-        ? plan.currentAge + Math.floor(solution.blockedAtMonth / 12)
+        ? currentAge + Math.floor(solution.blockedAtMonth / 12)
         : null,
     earlyRetireeHealth: earlyRetireeHealth(state, jurisdiction, solution.fullRetirementAge),
   });

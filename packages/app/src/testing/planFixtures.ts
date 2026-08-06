@@ -51,7 +51,7 @@ function adjusted(plan: Plan, edit: (p: Projection) => void): Plan {
  */
 function replacingJob(id: string, edit: (job: Job) => JobInput): (p: Projection) => void {
   return (p) => {
-    const planJob = p.plan.jobs.find((j) => j.id === id);
+    const planJob = p.plan.primary.jobs.find((j) => j.id === id);
     if (planJob !== undefined) {
       p.replaceJob(id, edit(planJob));
       return;

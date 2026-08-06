@@ -161,9 +161,9 @@ export function RetirementPanel({
           />
           <span>
             Preview the charts as if everyone stopped working by the time{" "}
-            {budget.name ? (
+            {budget.primary.name ? (
               <>
-                {budget.name} turns <strong>{view.headlineAge}</strong>
+                {budget.primary.name} turns <strong>{view.headlineAge}</strong>
               </>
             ) : (
               <>

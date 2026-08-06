@@ -47,14 +47,14 @@ describe("jobOwnersOf", () => {
   it("gives the primary person alone on a single-earner plan, writing to the plan", () => {
     const owners = ownersOf(noEvents);
     expect(owners).toHaveLength(1);
-    expect(owners[0].name).toBe(PLAN_DEFAULTS.name);
-    expect(owners[0].jobs).toEqual(PLAN_DEFAULTS.jobs);
+    expect(owners[0].name).toBe(PLAN_DEFAULTS.primary.name);
+    expect(owners[0].jobs).toEqual(PLAN_DEFAULTS.primary.jobs);
     expect(owners[0].writeTarget).toBe("plan");
   });
 
   it("adds a partner after them, writing to the event they joined with", () => {
     const owners = ownersOf(ledgerOf(joining(60, [partnerJob])));
-    expect(owners.map((o) => o.name)).toEqual([PLAN_DEFAULTS.name, "Sam"]);
+    expect(owners.map((o) => o.name)).toEqual([PLAN_DEFAULTS.primary.name, "Sam"]);
 
     const partner = owners[1];
     expect(partner.jobs).toEqual([partnerJob]);
@@ -89,6 +89,6 @@ describe("jobOwnersOf", () => {
     // A member the ledger cannot account for has no authoring plane, so offering to edit
     // their jobs would be offering an edit that goes nowhere.
     const household = runOf(PLAN_DEFAULTS, ledgerOf(joining(60, [partnerJob]))).household;
-    expect(jobOwnersOf(household, noEvents).map((o) => o.name)).toEqual([PLAN_DEFAULTS.name]);
+    expect(jobOwnersOf(household, noEvents).map((o) => o.name)).toEqual([PLAN_DEFAULTS.primary.name]);
   });
 });

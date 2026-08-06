@@ -25,10 +25,11 @@ export interface Person {
    * than the primary but with the same expectancy *age* reaches it in a later calendar year and
    * extends the run to cover their tail — the gap this field exists to close.
    *
-   * `undefined` means **inherit the household's expectancy** ({@link Plan.lifeExpectancy}),
-   * resolved on read at the sim boundary rather than frozen here — the same "not stated, so use
-   * the household default" shape {@link continuationJobId} uses. The primary always states theirs
-   * on the plan; a partner may state their own or leave it to the household's.
+   * `undefined` means **inherit the primary's own expectancy**
+   * ({@link import("./plan").Plan.primary}`.lifeExpectancy`), resolved on read at the sim
+   * boundary rather than frozen here — the same "not stated, so use the household default" shape
+   * {@link continuationJobId} uses. The primary always states theirs; a partner may state their
+   * own or leave it to the primary's.
    */
   readonly lifeExpectancy?: number;
   /** An input, never solved for. */

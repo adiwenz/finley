@@ -144,7 +144,7 @@ describe("scenarios — more households the same panel has to answer", () => {
     // Distinct from the None scenario above, which reached this same sentence by REMOVING the
     // continuation — here the continuation is intact and simply cannot carry the numbers.
     const p = alexAlone();
-    p.replaceJob(p.plan.jobs[0]!.id, jobAt(18, 65, 12_000));
+    p.replaceJob(p.plan.primary.jobs[0]!.id, jobAt(18, 65, 12_000));
 
     expect(headline(p)).toBe(
       `On these numbers the money never lasts to your life expectancy (age ${LIFE_EXPECTANCY}) — no retirement age is feasible. Structural changes are required.`,
@@ -209,7 +209,7 @@ describe("scenarios — more households the same panel has to answer", () => {
     // saving forgone. The plan still resolves, but only on the continuation, and the earliest stop
     // lands at 78: past the 76 the from-18 default reaches on the identical wage.
     const p = alexAlone();
-    p.replaceJob(p.plan.jobs[0]!.id, jobAt(35, 65, 60_000));
+    p.replaceJob(p.plan.primary.jobs[0]!.id, jobAt(35, 65, 60_000));
 
     expect(headline(p)).toBe(
       `You could stop working at 78 if Alex's job continued through when you are 78 (2069), with the portfolio lasting to your life expectancy (age ${LIFE_EXPECTANCY}).`,

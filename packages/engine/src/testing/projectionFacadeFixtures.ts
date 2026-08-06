@@ -14,7 +14,10 @@ export const P1 = "p1" as PersonId;
 export function freshProjection(): Projection {
   // Empty job and budget-line lists so minted ids and roster lengths reflect only what each
   // test adds — the sample plan seeds a spend line that would otherwise skew the counts.
-  return Projection.fromState(stateOf({ ...samplePlan, jobs: [], budgetLines: [] }), nullJurisdiction);
+  return Projection.fromState(
+    stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] }, budgetLines: [] }),
+    nullJurisdiction,
+  );
 }
 
 /**

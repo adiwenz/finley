@@ -14,6 +14,7 @@ import type { Scenario } from "../plan/scenario";
 import { scenarioOf, withLedger, withPlan } from "../plan/scenario";
 import type { Ledger } from "../ledger/ledger";
 import type { ScenarioScalars } from "../input/scenarioInput";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {
@@ -56,16 +57,28 @@ export const CURRENT_FORMAT_VERSION = 1;
  * is exactly what `Projection.init` does rather than keeping a second, unchecked door open.
  */
 export function emptyState(scalars: ScenarioScalars): ProjectionState {
-  const { startYear, ...plan } = scalars;
+  const { startYear, name, birthYear, lifeExpectancy, benefitClaimingAge, ...rest } = scalars;
   // The age bound applies at the door as well as on every later edit — `Projection.init` is a
   // way into the plan that does not pass through `withPlanPatch`, and a horizon nobody can
   // afford to simulate is no more welcome for having arrived first.
-  const bad = ageAboveMaximum(plan);
+  const bad = ageAboveMaximum({ birthYear, lifeExpectancy, benefitClaimingAge }, startYear);
   if (bad) {
     throw new Error(`Projection: cannot open a plan with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
   }
   return {
-    scenario: scenarioOf({ ...plan, jobs: [], goals: [], budgetLines: [] }),
+    scenario: scenarioOf({
+      ...rest,
+      goals: [],
+      budgetLines: [],
+      primary: {
+        id: PRIMARY_PERSON_ID,
+        name,
+        birthYear,
+        lifeExpectancy,
+        benefitClaimingAge,
+        jobs: [],
+      },
+    }),
     startYear,
     nextSeq: 1,
     version: CURRENT_FORMAT_VERSION,
@@ -127,7 +140,8 @@ export function planSite(
 ): Plan {
   const plan = state.scenario.plan;
   const noun = collection === "budgetLines" ? "budget line" : collection.slice(0, -1);
-  if (!plan[collection].some((entry: { id: string }) => entry.id === id)) {
+  const entries = collection === "jobs" ? plan.primary.jobs : plan[collection];
+  if (!entries.some((entry: { id: string }) => entry.id === id)) {
     throw new Error(`Projection: cannot edit a ${noun} — no ${noun} "${id}" on this plan`);
   }
   return plan;

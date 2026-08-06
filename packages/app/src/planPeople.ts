@@ -27,7 +27,7 @@ export function yearOfMonth(month: number): number {
 
 /** The primary person's jobs, in plan order. */
 export function primaryJobs(plan: Plan): readonly Job[] {
-  return plan.jobs.filter((j) => j.ownerId === PRIMARY_PERSON_ID);
+  return plan.primary.jobs.filter((j) => j.ownerId === PRIMARY_PERSON_ID);
 }
 
 /**

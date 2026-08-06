@@ -136,13 +136,14 @@ export function planSurvives(series: ProjectionSeries): boolean {
   return planOutcome(series) === "survives";
 }
 
-function retirementMonth(budget: Plan, age: number): number {
-  return Math.max(0, (age - budget.currentAge) * 12);
+function retirementMonth(budget: Plan, age: number, startYear: number): number {
+  const currentAge = startYear - budget.primary.birthYear;
+  return Math.max(0, (age - currentAge) * 12);
 }
 
 /** The calendar year the primary turns `age` — the boundary a stop at `age` applies to every earner. */
-function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): number {
-  return startYear - budget.currentAge + age;
+function stopWorkingBoundaryYear(budget: Plan, age: number): number {
+  return budget.primary.birthYear + age;
 }
 
 /**
@@ -161,9 +162,11 @@ function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): 
 export function stopWorkingBoundaryAt(
   budget: Plan,
   age: number,
-  startYear: number,
+  // Kept for callers that hand it a `ProjectionContext.startYear`, though the boundary itself no
+  // longer needs "now": the primary's `birthYear` is frozen, so the year they turn `age` is fixed.
+  _startYear: number,
 ): StopWorkingBoundary {
-  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, startYear) };
+  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age) };
 }
 
 /**
@@ -177,13 +180,16 @@ function computeOnTrackFraction(
   budget: Plan,
   age: number,
   series: ProjectionSeries,
+  startYear: number,
 ): number {
   // Horizon is derived from the plan (months to life expectancy), NOT `series.months.length - 1`:
   // once a projection can truncate, the series length collapses to the blocked month and would
   // make the retirement window meaningless. This matches `createProjectionBase`'s `horizonMonths`
   // for an untruncated run, so the fraction is unchanged wherever it already worked.
-  const horizon = Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12) - 1;
-  const boundary = Math.min(retirementMonth(budget, age), horizon);
+  const currentAge = startYear - budget.primary.birthYear;
+  const lifeExpectancy = budget.primary.lifeExpectancy ?? currentAge;
+  const horizon = Math.max(0, (lifeExpectancy - currentAge) * 12) - 1;
+  const boundary = Math.min(retirementMonth(budget, age, startYear), horizon);
   // Inclusive, so ≥ 1 after the clamp: a safe denominator.
   const retirementWindow = horizon - boundary + 1;
   // -1 is defensive; callers gate on `!feasible`.
@@ -202,6 +208,7 @@ function evaluateSeries(
   budget: Plan,
   age: number,
   series: ProjectionSeries,
+  startYear: number,
 ): RetirementEvaluation {
   const outcome = planOutcome(series);
   const feasible = outcome === "survives";
@@ -211,7 +218,7 @@ function evaluateSeries(
     feasible,
     blocked,
     ...(blocked ? { blockedAtMonth: series.blockedAtMonth } : {}),
-    onTrackFraction: feasible ? 1 : blocked ? 0 : computeOnTrackFraction(budget, age, series),
+    onTrackFraction: feasible ? 1 : blocked ? 0 : computeOnTrackFraction(budget, age, series, startYear),
   };
 }
 
@@ -222,10 +229,11 @@ function evaluateSeries(
  */
 function earliestSurvivingAge(
   budget: Plan,
+  startYear: number,
   survives: (age: number) => boolean,
 ): number | null {
-  const lo = budget.currentAge;
-  const hi = budget.lifeExpectancy;
+  const lo = startYear - budget.primary.birthYear;
+  const hi = budget.primary.lifeExpectancy ?? lo;
   if (lo > hi) return null;
   if (!survives(hi)) return null;
   let a = lo;
@@ -259,7 +267,7 @@ export function evaluateFullRetirementAtAge(
   ctx: ProjectionContext,
 ): RetirementEvaluation {
   const series = projectFullRetirement(scenario, age, ctx);
-  return evaluateSeries(scenario.plan, age, series);
+  return evaluateSeries(scenario.plan, age, series, ctx.startYear);
 }
 
 /**
@@ -270,7 +278,9 @@ export function evaluateFullRetirementAtAge(
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
+  return earliestSurvivingAge(scenario.plan, ctx.startYear, (age) =>
+    evaluateFullRetirementAtAge(scenario, age, ctx).feasible,
+  );
 }
 
 /**
@@ -313,8 +323,7 @@ function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number
 export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   const year = plannedWorkStopYear(scenario, ctx);
   if (year === null) return null;
-  const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
-  return year - primaryBirthYear;
+  return year - scenario.plan.primary.birthYear;
 }
 
 /**
@@ -441,7 +450,7 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): HorizonAnchor {
   const base = createProjectionBase(scenario.plan, ctx);
   const household = interpretLedger(scenario.ledger, base);
-  const householdAge = scenario.plan.lifeExpectancy;
+  const householdAge = scenario.plan.primary.lifeExpectancy ?? ctx.startYear - scenario.plan.primary.birthYear;
   let best: { age: number; deathYear: number; isPrimary: boolean; name: string } | null = null;
   for (const m of household.memberships) {
     // A separated member leaves before their expectancy, so they never set the horizon.
@@ -473,7 +482,11 @@ export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): Ret
   // age un-blocks the stranded obligation.
   const blockProbe =
     fullRetirementAge === null
-      ? projectFullRetirement(scenario, scenario.plan.lifeExpectancy, ctx)
+      ? projectFullRetirement(
+          scenario,
+          scenario.plan.primary.lifeExpectancy ?? ctx.startYear - scenario.plan.primary.birthYear,
+          ctx,
+        )
       : undefined;
   const blocked = blockProbe?.status === "blocked";
   return {

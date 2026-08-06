@@ -31,7 +31,7 @@ const HOME = "Home down payment";
 /** Replace the primary's one job with a flat-salaried one, in place, and hand the handle back. */
 function earning(annualDollars: number) {
   const p = alexAlone();
-  p.replaceJob(p.plan.jobs[0]!.id, jobAt(18, 65, annualDollars));
+  p.replaceJob(p.plan.primary.jobs[0]!.id, jobAt(18, 65, annualDollars));
   return p;
 }
 

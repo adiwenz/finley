@@ -307,8 +307,8 @@ export function membershipWindow(membership: HouseholdMembership): {
  * benefit (a wage is untouched; it ends where its job was authored to), and the reach their
  * expectancy contributes to the projection horizon.
  * Derived from their birth year and expectancy age against the plan's frozen "now"; `fallbackAge`
- * (the household's {@link import("../plan/plan").Plan.lifeExpectancy}) stands in when the member
- * states none of their own.
+ * (the primary's own {@link import("../plan/person").Person.lifeExpectancy}) stands in when the
+ * member states none of their own.
  *
  * `Infinity` when neither the member nor the household names an expectancy — the legacy unbounded
  * membership a hand-built base with no expectancy still gets, so a fixture that never set one is

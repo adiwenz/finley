@@ -39,7 +39,7 @@ const base = {
   brokerageReturnPct: 0,
   sharedScheme: "proportional" as const,
   inflationPct: 0,
-  currentAge: 30,
+  birthYear: 2026 - 30,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };

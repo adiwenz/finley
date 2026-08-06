@@ -204,6 +204,8 @@ describe("Projection root — authoring validates against the construction-time 
 // off the pass already in hand rather than provoking another.
 
 describe("Projection.retirement — the whole question, one search", () => {
+  const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
+
   const covered = mockJurisdiction({
     publicHealthCoverageAge: 65,
     healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
@@ -225,7 +227,7 @@ describe("Projection.retirement — the whole question, one search", () => {
     const outlook = outlookOf(samplePlan);
     const age = outlook.solution.fullRetirementAge;
     expect(age).not.toBeNull();
-    expect(outlook.fullRetirementMonth).toBe((age! - samplePlan.currentAge) * 12);
+    expect(outlook.fullRetirementMonth).toBe((age! - CURRENT_AGE) * 12);
   });
 
   it("dates a BLOCK as an age, the mirror of dating the solved age as a month", () => {
@@ -251,7 +253,7 @@ describe("Projection.retirement — the whole question, one search", () => {
     const outlook = p.retirement(nullJurisdiction);
     expect(outlook.solution.blocked).toBe(true);
     // Two years out on a plan aged 40 → 42, floored to whole years like every reported age.
-    expect(outlook.blockedAtAge).toBe(samplePlan.currentAge + 2);
+    expect(outlook.blockedAtAge).toBe(CURRENT_AGE + 2);
   });
 
   it("states no blocked age for a projection that was never blocked", () => {
@@ -278,7 +280,11 @@ describe("Projection.retirement — the whole question, one search", () => {
   it("raises no health gap for a household that can never retire", () => {
     // No solved age is not an early one. Flagging here would warn about a retirement the plan
     // cannot take, which is exactly what measuring against a pinned age used to do.
-    const broke = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const broke = {
+      ...samplePlan,
+      openingBalanceCents: 0,
+      primary: { ...samplePlan.primary, jobs: [] },
+    };
     const outlook = outlookOf(broke, covered);
     expect(outlook.solution.fullRetirementAge).toBeNull();
     expect(outlook.earlyRetireeHealth.flagged).toBe(false);
@@ -300,8 +306,10 @@ describe("Projection root — previewing a stop-working age", () => {
   const wagesAt = (result: ReturnType<Projection["run"]>, month: number): number =>
     result.series.months[month]?.flows?.incomeByCategoryCents.wages ?? 0;
 
+  const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
+
   // The sample primary works an open-ended job to age 60 (`retirementAge`), from age 40.
-  const AGE_50_MONTH = (50 - samplePlan.currentAge) * 12;
+  const AGE_50_MONTH = (50 - CURRENT_AGE) * 12;
 
   it("ceases every job at the candidate age without touching the authored plan", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
@@ -322,11 +330,11 @@ describe("Projection root — previewing a stop-working age", () => {
     // question cannot be asked at all — and the solver could never find an age past the one
     // already written down.
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
-    const AGE_63_MONTH = (63 - samplePlan.currentAge) * 12;
+    const AGE_63_MONTH = (63 - CURRENT_AGE) * 12;
     expect(wagesAt(p.run(nullJurisdiction), AGE_63_MONTH)).toBe(0);
     expect(wagesAt(p.runAtStopWorkingAge(nullJurisdiction, 65), AGE_63_MONTH)).toBeGreaterThan(0);
     // The authored plan is untouched — the extension lives only in the hypothesis.
-    expect(p.plan.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 60);
+    expect(p.plan.primary.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - CURRENT_AGE + 60);
   });
 
   it("previews the SOLVED age self-consistently — the toggle shows what the headline means", () => {
@@ -343,9 +351,9 @@ describe("Projection root — previewing a stop-working age", () => {
     const preview = p.runAtStopWorkingAge(nullJurisdiction, age);
     // Work runs right up to the headline age — including past the job's authored end at 60,
     // which is the whole reason that age is reachable...
-    expect(wagesAt(preview, (age - 1 - tight.currentAge) * 12)).toBeGreaterThan(0);
+    expect(wagesAt(preview, (age - 1 - CURRENT_AGE) * 12)).toBeGreaterThan(0);
     // ...and stops there.
-    expect(wagesAt(preview, (age - tight.currentAge) * 12)).toBe(0);
+    expect(wagesAt(preview, (age - CURRENT_AGE) * 12)).toBe(0);
     // And the plan the headline promised survives really does survive in the previewed run.
     expect(preview.series.months.every((m) => m.netWorthRealCents !== null)).toBe(true);
   });
@@ -358,14 +366,14 @@ describe("Projection root — previewing a stop-working age", () => {
     const before = p.state;
     const authoredBefore = JSON.stringify(p.run(nullJurisdiction).series.months);
 
-    const AGE_63_MONTH = (63 - samplePlan.currentAge) * 12;
+    const AGE_63_MONTH = (63 - CURRENT_AGE) * 12;
     expect(wagesAt(p.runAtStopWorkingAge(nullJurisdiction, 70), AGE_63_MONTH)).toBeGreaterThan(0);
 
     // Toggling back off: the authored projection is identical, and no write ever happened.
     expect(JSON.stringify(p.run(nullJurisdiction).series.months)).toBe(authoredBefore);
     expect(wagesAt(p.run(nullJurisdiction), AGE_63_MONTH)).toBe(0);
     expect(p.state).toBe(before);
-    expect(p.plan.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 60);
+    expect(p.plan.primary.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - CURRENT_AGE + 60);
   });
 
   it("hands back a whole read-only result, answered under the run jurisdiction", () => {
@@ -385,7 +393,7 @@ describe("Projection root — previewing a stop-working age", () => {
     it("reads the authored retirement age off the authored run", () => {
       const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
       expect(resolvedJobEndMonth(p.run(nullJurisdiction).household, "job-main")).toBe(
-        (60 - samplePlan.currentAge) * 12 - 1,
+        (60 - CURRENT_AGE) * 12 - 1,
       );
     });
 
@@ -395,7 +403,7 @@ describe("Projection root — previewing a stop-working age", () => {
       const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
       const preview = p.runAtStopWorkingAge(nullJurisdiction, 65);
       expect(resolvedJobEndMonth(preview.household, "job-main")).toBe(
-        (65 - samplePlan.currentAge) * 12 - 1,
+        (65 - CURRENT_AGE) * 12 - 1,
       );
     });
 
@@ -403,7 +411,7 @@ describe("Projection root — previewing a stop-working age", () => {
       const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
       const preview = p.runAtStopWorkingAge(nullJurisdiction, 45);
       expect(resolvedJobEndMonth(preview.household, "job-main")).toBe(
-        (45 - samplePlan.currentAge) * 12 - 1,
+        (45 - CURRENT_AGE) * 12 - 1,
       );
     });
 
@@ -419,7 +427,7 @@ describe("Projection root — previewing a stop-working age", () => {
     const laterJob: Job = {
       id: "job-later",
       ownerId: "p1",
-      startYear: SAMPLE_START_YEAR - samplePlan.currentAge + 55,
+      startYear: SAMPLE_START_YEAR - CURRENT_AGE + 55,
       endYear: JOB_END_YEAR,
       salary: {
         startingSalaryCents: dollarsToCents(36000),
@@ -427,17 +435,20 @@ describe("Projection root — previewing a stop-working age", () => {
         realGrowthPct: 0,
       },
     };
-    const withLaterJob = { ...samplePlan, jobs: [...samplePlan.jobs, laterJob] };
+    const withLaterJob = {
+      ...samplePlan,
+      primary: { ...samplePlan.primary, jobs: [...samplePlan.primary.jobs, laterJob] },
+    };
     /** The job's authored start, in months from "now" — the caller's half of the span. */
-    const AUTHORED_START = (55 - samplePlan.currentAge) * 12;
-    const authoredSpan = { startMonth: AUTHORED_START, endMonthExclusive: (60 - samplePlan.currentAge) * 12 };
+    const AUTHORED_START = (55 - CURRENT_AGE) * 12;
+    const authoredSpan = { startMonth: AUTHORED_START, endMonthExclusive: (60 - CURRENT_AGE) * 12 };
 
     it("carries the caller's start and takes the end from the run", () => {
       const p = Projection.fromState(stateOf(withLaterJob), nullJurisdiction);
       expect(resolvedJobPaySpan(p.run(nullJurisdiction).household, "job-later", authoredSpan)).toEqual({
         startMonth: AUTHORED_START,
         // The authored stop at 60 — one past the last month paid.
-        endMonthExclusive: (60 - samplePlan.currentAge) * 12,
+        endMonthExclusive: (60 - CURRENT_AGE) * 12,
       });
     });
 
@@ -446,7 +457,7 @@ describe("Projection root — previewing a stop-working age", () => {
       const preview = p.runAtStopWorkingAge(nullJurisdiction, 57);
       expect(resolvedJobPaySpan(preview.household, "job-later", authoredSpan)).toEqual({
         startMonth: AUTHORED_START,
-        endMonthExclusive: (57 - samplePlan.currentAge) * 12,
+        endMonthExclusive: (57 - CURRENT_AGE) * 12,
       });
     });
 
@@ -462,7 +473,7 @@ describe("Projection root — previewing a stop-working age", () => {
         endMonthExclusive: AUTHORED_START, // pays no month at all
       });
       // The authored plan still holds the job, untouched — this resolves what a household PAYS.
-      expect(p.state.scenario.plan.jobs.map((j) => j.id)).toContain("job-later");
+      expect(p.state.scenario.plan.primary.jobs.map((j) => j.id)).toContain("job-later");
     });
   });
 });

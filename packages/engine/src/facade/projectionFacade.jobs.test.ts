@@ -28,10 +28,10 @@ describe("Projection root — editing and removing a job", () => {
 
     // Spread the job read back and restate two fields: replaceJob rewrites wholesale, so the
     // spread is what carries the unnamed fields — including the pay change — through.
-    const job = p.plan.jobs[0]!;
+    const job = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, { ...job, name: "Night job", endYear: SAMPLE_START_YEAR + 10 });
 
-    expect(p.plan.jobs[0]).toMatchObject({
+    expect(p.plan.primary.jobs[0]).toMatchObject({
       id: jobId,
       name: "Night job",
       endYear: SAMPLE_START_YEAR + 10,
@@ -53,16 +53,16 @@ describe("Projection root — editing and removing a job", () => {
     const p = freshProjection();
     p.marry({ month: 24, name: "Partner", birthYear: 1988 });
     const jobId = p.addJob(P1, plainJob);
-    const job = p.plan.jobs[0]!;
+    const job = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, { ...job, name: "Renamed", endYear: SAMPLE_START_YEAR + 10 });
-    expect(p.plan.jobs[0]?.ownerId).toBe(P1);
+    expect(p.plan.primary.jobs[0]?.ownerId).toBe(P1);
   });
 
   it("removes a job, leaving the others alone", () => {
     const p = freshProjection();
     const keep = p.addJob(P1, plainJob);
     p.removeJob(p.addJob(P1, plainJob));
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([keep]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([keep]);
   });
 
   it("refuses an id the plan does not hold, rather than reporting a write it did not make", () => {
@@ -75,7 +75,7 @@ describe("Projection root — editing and removing a job", () => {
 
     // Same state object throughout: a refusal commits nothing.
     expect(p.state).toBe(before);
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([jobId]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([jobId]);
   });
 
   it("refuses a partner's job id on the plan plane, and the reverse", () => {
@@ -97,7 +97,7 @@ describe("Projection root — editing and removing a job", () => {
     // Stating one salary means a flat history: both anchors take the same annualized figure, so
     // the historical reconstruction and the current-salary anchor agree until a pay change parts
     // them. The unnamed `realGrowthPct` rides the salary spread through.
-    const job = p.plan.jobs[0]!;
+    const job = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, {
       ...job,
       salary: {
@@ -106,7 +106,7 @@ describe("Projection root — editing and removing a job", () => {
         currentSalaryCents: monthlyCents * 12,
       },
     });
-    expect(p.plan.jobs[0]?.salary).toEqual({
+    expect(p.plan.primary.jobs[0]?.salary).toEqual({
       startingSalaryCents: dollarsToCents(9000) * 12,
       currentSalaryCents: dollarsToCents(9000) * 12,
       // The growth rate is not part of "what it pays now".
@@ -123,7 +123,7 @@ describe("Projection root — editing and removing a job", () => {
       incomeOverrides: [{ id: "adjustment-39", month: 6, kind: "addBonus", cents: dollarsToCents(5000) }],
       payChanges: [{ id: "adjustment-40", month: 12, kind: "changeBy", cents: dollarsToCents(500) }],
     });
-    expect(p.plan.jobs[0]).toMatchObject({
+    expect(p.plan.primary.jobs[0]).toMatchObject({
       id: jobId,
       name: "Day job",
       deferral: matchedJob.deferral,
@@ -140,7 +140,7 @@ describe("Projection root — editing and removing a job", () => {
     // patch could not say this: omitting `deferral` would mean "leave it as it was".
     p.replaceJob(jobId, plainJob);
 
-    expect(p.plan.jobs[0]).toEqual({
+    expect(p.plan.primary.jobs[0]).toEqual({
       id: jobId,
       // Identity survives the rewrite; the owner is not a field an edit restates.
       ownerId: P1,
@@ -164,7 +164,7 @@ describe("Projection root — editing and removing a job", () => {
     ];
     expect(new Set(ids).size).toBe(ids.length);
     // Two on the plan, one on the partner's event — three distinct ids from one counter.
-    expect(p.plan.jobs).toHaveLength(2);
+    expect(p.plan.primary.jobs).toHaveLength(2);
     expect(partnerEvent(p).person.jobs).toHaveLength(1);
   });
 
@@ -176,8 +176,8 @@ describe("Projection root — editing and removing a job", () => {
     expect(() => p.replaceJob("no-such-job", { ...plainJob, name: "Nowhere" })).toThrow(
       /no job "no-such-job"/,
     );
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([first, second]);
-    expect(p.plan.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([first, second]);
+    expect(p.plan.primary.jobs.map((j) => j.name)).toEqual(["Renamed", undefined]);
   });
 });
 
@@ -211,7 +211,7 @@ describe("Projection root — jobs on a partner's plane", () => {
     // It landed on the partner's event, owned by them — and nowhere near the plan.
     expect(partnerJobs(p).map((j) => j.id)).toEqual([partnerJobId]);
     expect(partnerJobs(p)[0]?.ownerId).toBe(partnerId);
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJobId, expect.any(String)]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([planJobId, expect.any(String)]);
   });
 
   it("carries every input field onto a partner's job", () => {
@@ -272,7 +272,7 @@ describe("Projection root — jobs on a partner's plane", () => {
     p.removePartnerJob(p.addPartnerJob(partnerId, plainJob));
 
     expect(partnerJobs(p).map((j) => j.id)).toEqual([keep]);
-    expect(p.plan.jobs.map((j) => j.id)).toEqual([planJob]);
+    expect(p.plan.primary.jobs.map((j) => j.id)).toEqual([planJob]);
   });
 
   it("refuses a partner or a job it cannot find, rather than writing nothing quietly", () => {
@@ -302,7 +302,7 @@ describe("Projection root — pay changes and one-month income overrides", () =>
     // segment, and two segments beginning together is a contradiction, not a stack.
     p.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: dollarsToCents(9500) });
 
-    expect(p.plan.jobs[0]?.payChanges).toEqual([
+    expect(p.plan.primary.jobs[0]?.payChanges).toEqual([
       { id: expect.any(String), month: 24, kind: "changeBy", cents: dollarsToCents(500) },
       { id: expect.any(String), month: 12, kind: "setTo", cents: dollarsToCents(9500) },
     ]);
@@ -316,8 +316,8 @@ describe("Projection root — pay changes and one-month income overrides", () =>
 
     // Distinct from each other and from the job's own id — one counter issues all three.
     expect(new Set([jobId, raise, bonus]).size).toBe(3);
-    expect(p.plan.jobs[0]?.payChanges?.[0]?.id).toBe(raise);
-    expect(p.plan.jobs[0]?.incomeOverrides?.[0]?.id).toBe(bonus);
+    expect(p.plan.primary.jobs[0]?.payChanges?.[0]?.id).toBe(raise);
+    expect(p.plan.primary.jobs[0]?.incomeOverrides?.[0]?.id).toBe(bonus);
   });
 
   it("removes a pay change by id, dropping the field once none are left", () => {
@@ -327,12 +327,12 @@ describe("Projection root — pay changes and one-month income overrides", () =>
     const second = p.addJobPayChange(jobId, { month: 24, kind: "setTo", cents: dollarsToCents(9500) });
 
     p.removeJobPayChange(jobId, first);
-    expect(p.plan.jobs[0]?.payChanges).toEqual([
+    expect(p.plan.primary.jobs[0]?.payChanges).toEqual([
       { id: second, month: 24, kind: "setTo", cents: dollarsToCents(9500) },
     ]);
 
     p.removeJobPayChange(jobId, second);
-    expect(p.plan.jobs[0]).not.toHaveProperty("payChanges");
+    expect(p.plan.primary.jobs[0]).not.toHaveProperty("payChanges");
   });
 
   it("attaches a one-month override and removes it, dropping the field once empty", () => {
@@ -343,12 +343,12 @@ describe("Projection root — pay changes and one-month income overrides", () =>
       kind: "addBonus",
       cents: dollarsToCents(5000),
     });
-    expect(p.plan.jobs[0]?.incomeOverrides).toEqual([
+    expect(p.plan.primary.jobs[0]?.incomeOverrides).toEqual([
       { id: bonus, month: 6, kind: "addBonus", cents: dollarsToCents(5000) },
     ]);
 
     p.removeJobIncomeOverride(jobId, bonus);
-    expect(p.plan.jobs[0]).not.toHaveProperty("incomeOverrides");
+    expect(p.plan.primary.jobs[0]).not.toHaveProperty("incomeOverrides");
   });
 
   it("stacks several one-month adjustments in one month, each keeping its own identity", () => {
@@ -367,7 +367,7 @@ describe("Projection root — pay changes and one-month income overrides", () =>
 
     // Two payments in one month is an ordinary fact. The second must not displace the first —
     // that displacement is what made a second bonus erase the first everywhere it was listed.
-    expect(p.plan.jobs[0]?.incomeOverrides).toEqual([
+    expect(p.plan.primary.jobs[0]?.incomeOverrides).toEqual([
       { id: signing, month: 6, kind: "addBonus", cents: dollarsToCents(5000) },
       { id: performance, month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
     ]);
@@ -384,7 +384,7 @@ describe("Projection root — pay changes and one-month income overrides", () =>
     p.removeJobIncomeOverride(jobId, second);
 
     // By id, so the month keeps the other two. Removing by month would have taken all three.
-    expect(p.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([first, third]);
+    expect(p.plan.primary.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([first, third]);
   });
 
   it("keeps adjustment ids stable across an unrelated edit to the same job", () => {
@@ -395,56 +395,56 @@ describe("Projection root — pay changes and one-month income overrides", () =>
 
     // Two unrelated edits, each a spread-and-replace: the pay change and override ride the spread
     // through, keeping the ids they were minted with.
-    const renamed = p.plan.jobs[0]!;
+    const renamed = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, { ...renamed, name: "Renamed" });
-    const nowPaid = p.plan.jobs[0]!;
+    const nowPaid = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, {
       ...nowPaid,
       salary: { ...nowPaid.salary, currentSalaryCents: dollarsToCents(8000) * 12 },
     });
 
-    expect(p.plan.jobs[0]?.payChanges?.map((c) => c.id)).toEqual([raise]);
-    expect(p.plan.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([bonus]);
+    expect(p.plan.primary.jobs[0]?.payChanges?.map((c) => c.id)).toEqual([raise]);
+    expect(p.plan.primary.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([bonus]);
   });
 
   it("removing an adjustment that is not there leaves the job untouched", () => {
     const p = freshProjection();
     const jobId = p.addJob(P1, plainJob);
-    const before = p.plan.jobs[0];
+    const before = p.plan.primary.jobs[0];
     p.removeJobPayChange(jobId, "adjustment-nope");
     p.removeJobIncomeOverride(jobId, "adjustment-nope");
-    expect(p.plan.jobs[0]).toEqual(before);
+    expect(p.plan.primary.jobs[0]).toEqual(before);
   });
 });
 
 describe("Projection.setContinuationJob — naming the job a what-if may continue", () => {
   it("writes the primary's answer where the primary's data lives — the plan", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const jobId = p.addJob("p1" as PersonId, plainJob);
 
     // Unset until asked: "never chosen" is a state the engine resolves on read, so authoring a
     // job must not quietly settle it.
-    expect(p.plan.continuationJobId).toBeUndefined();
+    expect(p.plan.primary.continuationJobId).toBeUndefined();
 
     p.setContinuationJob("p1" as PersonId, jobId);
-    expect(p.plan.continuationJobId).toBe(jobId);
+    expect(p.plan.primary.continuationJobId).toBe(jobId);
 
     p.setContinuationJob("p1" as PersonId, null);
-    expect(p.plan.continuationJobId).toBeNull();
+    expect(p.plan.primary.continuationJobId).toBeNull();
   });
 
   it("writes a partner's answer to their RelationshipEvent, through the same method", () => {
     // A caller names the person and nothing else. Which plane their record lives on is the
     // facade's to know — the same thing that makes `addJob` and `addPartnerJob` two methods is
     // deliberately NOT surfaced here, because this writes the person, not the job.
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
 
     p.setContinuationJob(partnerId, partnerJobId);
     expect(partnerEvent(p).person.continuationJobId).toBe(partnerJobId);
     // Nothing landed on the plan: two members, two independent answers.
-    expect(p.plan.continuationJobId).toBeUndefined();
+    expect(p.plan.primary.continuationJobId).toBeUndefined();
 
     p.setContinuationJob(partnerId, null);
     expect(partnerEvent(p).person.continuationJobId).toBeNull();
@@ -453,7 +453,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
   it("refuses a job that is not this member's, and refuses an id that is nobody's", () => {
     // Both would otherwise resolve to `null` on read — losing the choice in silence — or extend
     // one member's employment when a different member worked longer.
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
 
@@ -465,13 +465,13 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
       /no member "nobody" in this household/,
     );
     // A refused write leaves the handle exactly as it was, and still usable.
-    expect(p.plan.continuationJobId).toBeUndefined();
+    expect(p.plan.primary.continuationJobId).toBeUndefined();
     p.setContinuationJob("p1" as PersonId, planJobId);
-    expect(p.plan.continuationJobId).toBe(planJobId);
+    expect(p.plan.primary.continuationJobId).toBe(planJobId);
   });
 
   it("clears the answer when the job it names is removed, on either plane", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
@@ -479,7 +479,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
     p.setContinuationJob(partnerId, partnerJobId);
 
     p.removeJob(planJobId);
-    expect(p.plan.continuationJobId).toBeNull();
+    expect(p.plan.primary.continuationJobId).toBeNull();
     // The partner's is untouched by the primary's removal.
     expect(partnerEvent(p).person.continuationJobId).toBe(partnerJobId);
 
@@ -491,10 +491,10 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
     // The distinction the reader exists for. A member who has never been asked still has a
     // continuation job — the one they are working now — and a surface that read the raw field
     // would show "none" for them while the solve leant on that very job.
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const jobId = p.addJob("p1" as PersonId, plainJob);
 
-    expect(p.plan.continuationJobId).toBeUndefined(); // nothing stored…
+    expect(p.plan.primary.continuationJobId).toBeUndefined(); // nothing stored…
     expect(p.continuationJobOf("p1" as PersonId)).toBe(jobId); // …but the solve would use this
 
     // An explicit None is a real answer and reads as one, distinct from never having been asked.
@@ -503,7 +503,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
   });
 
   it("reads a partner's answer through the same method, and refuses a stranger", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
 
@@ -514,7 +514,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
   });
 
   it("survives a state round-trip on both planes", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
     const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
     p.setContinuationJob("p1" as PersonId, planJobId);
@@ -524,7 +524,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
       JSON.parse(JSON.stringify(p.toState())),
       nullJurisdiction,
     );
-    expect(restored.plan.continuationJobId).toBe(planJobId);
+    expect(restored.plan.primary.continuationJobId).toBe(planJobId);
     expect(partnerEvent(restored).person.continuationJobId).toBeNull();
   });
 });

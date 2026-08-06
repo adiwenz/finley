@@ -64,7 +64,14 @@ export function interpretScenarioInput(
   // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
   // checked here and reported like any other thing wrong with the input.
-  const overAge = ageAboveMaximum(scalars);
+  const overAge = ageAboveMaximum(
+    {
+      birthYear: scalars.birthYear,
+      lifeExpectancy: scalars.lifeExpectancy,
+      benefitClaimingAge: scalars.benefitClaimingAge,
+    },
+    scalars.startYear,
+  );
   if (overAge) {
     return { ok: false, error: { reason: `${overAge.field} ${overAge.age} exceeds the ${overAge.limit} maximum` } };
   }

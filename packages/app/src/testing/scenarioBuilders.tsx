@@ -32,11 +32,11 @@ import type { Transact } from "../hooks/useProjection";
 /** These panels take a write callback they never fire under a static render; a typed no-op. */
 const NO_WRITES: Transact = () => undefined;
 
-const ALEX_AGE = PLAN_DEFAULTS.currentAge;
 /** The primary's birth year — exported so a partner authored at the same age names it directly. */
-export const ALEX_BIRTH = START_YEAR - ALEX_AGE;
+export const ALEX_BIRTH = PLAN_DEFAULTS.primary.birthYear;
+const ALEX_AGE = START_YEAR - ALEX_BIRTH;
 /** Life expectancy the portfolio-lasts sentences quote — exported so assertions read it too. */
-export const LIFE_EXPECTANCY = PLAN_DEFAULTS.lifeExpectancy;
+export const LIFE_EXPECTANCY = PLAN_DEFAULTS.primary.lifeExpectancy;
 
 /** The simulation month the household reaches an age on the PRIMARY's clock. */
 export const monthAt = (age: number) => (age - ALEX_AGE) * 12;
@@ -140,7 +140,7 @@ export function netWorthSummary(p: Projection): string {
   const data = buildNetWorthBreakdown(
     result.series,
     { accounts: p.accountDescriptors(), liabilityLabels },
-    planHorizonMonths(p.plan),
+    planHorizonMonths(p.plan, START_YEAR),
   );
   const html = renderToStaticMarkup(<NetWorthBreakdownChart data={data} />);
   const summary = html.match(/data-testid="breakdown-summary"[^>]*>(.*?)<\/p>/s);
@@ -156,7 +156,7 @@ export function netWorthSummary(p: Projection): string {
  */
 export function budgetIncome(p: Projection): string {
   const result = p.run(usJurisdiction);
-  const personNames = new Map<string, string>([[PRIMARY_PERSON_ID, p.plan.name]]);
+  const personNames = new Map<string, string>([[PRIMARY_PERSON_ID, p.plan.primary.name]]);
   for (const member of result.membersAt(0)) personNames.set(member.id, member.name);
   const html = renderToStaticMarkup(
     <BaseAdjustmentsPanel
