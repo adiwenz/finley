@@ -7,6 +7,8 @@ vocabulary for the domain.
 
 ## Language
 
+### Core model and identity
+
 **Ledger**:
 The ordered, immutable list of `Event` records — the sole source of truth for the plan.
 _Avoid_: history, event log (use "ledger" specifically for the stored record list).
@@ -95,6 +97,8 @@ a **One-Time Spend**, whose split across accounts depends on their balances and 
 at simulation time.
 _Avoid_: transaction (reserve "transaction" for future ledger/persistence layers, if any).
 
+### Goals, overrides and corrections
+
 **Goal**:
 A prioritized funding target competing for cash in the allocation waterfall. Two kinds:
 **one-time goal** (accumulate to a target, then spent by an event — e.g. a house down
@@ -120,6 +124,8 @@ perturbs a single future month).
 **On-track %**:
 `projected fund balance at target date ÷ target amount`, computed from the full
 projection (future contributions + growth) — never "saved so far ÷ target."
+
+### Obligations and funding
 
 **Financial obligation**:
 An amount that must be funded in one simulation month, carrying its economic treatment and
@@ -170,6 +176,8 @@ Governed by **treatment**: an `expense` may draw on liquid accounts and credit c
 `asset-acquisition` on liquid accounts only (no bank funds a down payment on a card).
 _Avoid_: allowed accounts, valid sources.
 
+### Validity, feasibility and blocking
+
 **Structural validity**:
 Whether an authored change is well-formed — ids resolve, references exist, percentages total
 100%. The only grounds on which a change may be refused. A structurally valid plan may still
@@ -219,6 +227,8 @@ condition holds and blocking nothing (debt-to-income, blocking, insolvency). Dis
 dismissing it would not make it less true.
 _Avoid_: error, alert, dismissible warning.
 
+### The allocation waterfall
+
 **Allocation waterfall**:
 The fixed, opinionated per-month order that routes net cash flow to the month's
 **automatically-funded obligations**: per-income-source pre-tax deductions → personal cash
@@ -262,6 +272,8 @@ tool produces.
 Marks an `Account` as eligible to fund an obligation and usable by the shortfall cascade's
 drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
 (`401k`/`Roth`/`HSA`) = not liquid.
+
+### Engine purity and the jurisdiction seam
 
 **Engine purity**:
 The constraint that the engine is a pure function of its inputs — no I/O, no storage, no
@@ -310,6 +322,8 @@ honoring the anti-deception rules. Distinct from a **soft warning**, which propo
 and cannot be dismissed.
 _Avoid_: auto-adjust, automatic step (a nudge is explicitly NOT silent/automatic).
 
+### Time — backdating, holdings, anchors
+
 **Backdating** / **"now" marker**:
 Entering events dated before the present. "Now" is a distinguished point on the
 simulation timeline; history before it establishes *structure only* (who/what exists) —
@@ -335,6 +349,8 @@ pinned to the now marker and any negative month is valid. Authored by `startPart
 `haveExistingChild` / a pre-now `separate`.
 _Avoid_: backdated transaction, holding (an anchor carries no balance and no current terms
 to freeze).
+
+### Jobs, income and recommendations
 
 **Job** (income source):
 A single `CashFlowSeries` owned by a person representing one income stream. A person may
