@@ -77,13 +77,13 @@ value is earned.
 ### Scope the test run
 
 Tests sit beside their source as `*.test.ts(x)`. **Do not run `npm test` to check one change** —
-it takes ~1.5 minutes, most of it the app's panel tests, which render a real DOM. Measured:
+it takes ~70s, most of it the app's panel tests, which render a real DOM. Measured:
 
 ```bash
 npx vitest run packages/engine/src/retirement   # ~5s   — while iterating
 npx vitest run packages/engine                  # ~13s  — 1046 tests, before handing off engine work
 npx vitest run packages/app/src/goalsView.test.ts   # <1s — view-model tests
-npm test                                        # ~90s  — everything; pre-commit only
+npm test                                        # ~70s  — everything; pre-commit only
 npm run check                                   # purity + typecheck + test — the full gate
 ```
 
