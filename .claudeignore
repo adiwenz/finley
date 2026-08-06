@@ -1,0 +1,22 @@
+# Keeps agent file search on the ~670 files that are actually this project, rather than the
+# ~13,300 in the working tree. Everything here is either a dependency, a build artifact, or a
+# generated file no one reads.
+
+node_modules/
+
+# Build output and tooling caches
+dist/
+packages/*/dist/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# Generated, and large enough to swamp a search
+package-lock.json
+
+# Sandcastle run logs and scratch worktrees
+.sandcastle/logs/
+.sandcastle/worktrees/
+.claude/worktrees/
+
+.DS_Store
