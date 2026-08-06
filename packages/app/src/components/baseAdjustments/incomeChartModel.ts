@@ -137,6 +137,26 @@ function buildAccessibleMoments(
   const lastReportedBand = new Map<string, number>();
   let lastReportedSpendingNeedCents: number | null = null;
   let prevClamped: Record<string, number> | null = null;
+  /**
+   * Months to state purely as the "before" of a discrete change — see {@link addDiscreteReason}.
+   * Collected during the walk and resolved after it, so a context month is never itself treated
+   * as a change and can never pull in a context month of its own.
+   */
+  const contextMonths = new Set<number>();
+  /**
+   * A change that happens AT a month rather than drifting towards it: a band beginning or ending,
+   * the first savings withdrawal, insolvency. Each also marks the preceding month for inclusion.
+   *
+   * Without that, the row group announcing a change is the first month of the NEW value, and the
+   * old one is whatever was last read out — up to a sampling interval earlier. Social Security
+   * beginning at month 384 was heard against a reading from month 372, which is not a before-and-
+   * after so much as two unrelated facts. A discrete change is exactly where the adjacent pair
+   * carries the meaning, so it is the one place worth spending a row group to guarantee it.
+   */
+  const addDiscreteReason = (month: number, reason: string) => {
+    addReason(month, reason);
+    contextMonths.add(month - 1);
+  };
   for (const [i, r] of view.rows.entries()) {
     const clamped = clampBandsForStack(r.centsBySource);
     if (i === 0) {
@@ -152,8 +172,8 @@ function buildAccessibleMoments(
         if (before === after) continue;
         // Structural first: a band appearing or disappearing is always a moment, and it resets
         // the baseline to the figure the listener was just given either way.
-        if (before === 0) addReason(r.month, `${b.label} begins`);
-        else if (after === 0) addReason(r.month, `${b.label} ends`);
+        if (before === 0) addDiscreteReason(r.month, `${b.label} begins`);
+        else if (after === 0) addDiscreteReason(r.month, `${b.label} ends`);
         else if (driftsMaterially(lastReportedBand.get(b.id) ?? before, after)) {
           addReason(r.month, `${b.label} changes`);
         } else continue;
@@ -171,10 +191,20 @@ function buildAccessibleMoments(
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.
-  if (firstSavingsDrawdownMonth !== null) addReason(firstSavingsDrawdownMonth, "First savings withdrawal");
-  if (firstInsolventMonth !== null) addReason(firstInsolventMonth, "Plan becomes insolvent");
+  if (firstSavingsDrawdownMonth !== null) {
+    addDiscreteReason(firstSavingsDrawdownMonth, "First savings withdrawal");
+  }
+  if (firstInsolventMonth !== null) addDiscreteReason(firstInsolventMonth, "Plan becomes insolvent");
 
   const rowByMonth = new Map(view.rows.map((r) => [r.month, r]));
+  // Resolved last, and only where the month is real and says nothing already: a context row
+  // exists to be the "before" of the row group after it, so one that displaced a reason of its
+  // own, or that named a month the projection never ran, would be worse than none.
+  for (const month of contextMonths) {
+    if (rowByMonth.has(month) && !reasonsByMonth.has(month)) {
+      addReason(month, "Last reading before the change");
+    }
+  }
   return [...reasonsByMonth.keys()]
     .sort((a, b) => a - b)
     .map((month) => {
