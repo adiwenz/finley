@@ -79,43 +79,41 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
 }
 
 /**
- * How far a band or the spending need must drift from the last figure this table actually
- * REPORTED before the drift is worth another row group — 5%, a move a listener would notice
- * stated aloud.
+ * How large a MONTH-OVER-MONTH step has to be to count as something happening rather than the
+ * plan drifting — 5%, which no inflation-driven figure reaches.
  *
- * Load-bearing, and the reason it is measured against the last reported figure rather than
- * against the previous month: under inflation nearly every figure moves by a few cents every
- * single month, so an exact `!==` made a "moment" of 563 of a 660-month projection's months.
- * That is the thing {@link IncomeChartModel.accessibleMoments} promises never to be — a table
- * read out month by month is not an alternative to the chart, it is the raw series — and it
- * put ~13,500 DOM nodes on the page, 98% of this panel's total.
+ * The whole filter turns on this being a step against the previous month rather than a drift
+ * against some earlier baseline. At 3% a year every band and the spending need move about 0.25%
+ * every single month, so the exact `!==` this replaced made a "moment" of 563 of a 660-month
+ * projection's months — a table read out month by month, which is not an alternative to the
+ * chart but the raw series, and 13,500 DOM nodes, 98% of this panel's total.
  *
- * Diffing against the previous month with a threshold would instead lose the drift entirely:
- * 0.25% a month never clears 5%, so a wage that doubles over thirty years would go unmentioned.
- * Carrying the last REPORTED figure makes the threshold cumulative, so a steady ramp is sampled
- * about every 20 months and the trajectory survives at a size someone can listen to.
+ * The drift itself is deliberately NOT sampled here. This table is the narrative of what happens
+ * to the plan — a job ending, a benefit starting, the money running out. The trajectory between
+ * those points is what the chart draws, and the month-by-month detail is already reachable
+ * without sight through the editor below it, whose Month field resolves any month on demand and
+ * in more detail than a static table could carry.
  */
-const MATERIAL_DRIFT_FRACTION = 0.05;
+const DISCRETE_STEP_FRACTION = 0.05;
 
 /**
- * Has `after` moved materially from the last figure reported for this signal? Guarded against a
- * zero baseline, which only arises where the caller has already classified the month as a band
- * beginning.
+ * Did this month step, rather than drift? Guarded against a zero baseline, which only arises
+ * where the caller has already classified the month as a band beginning.
  */
-function driftsMaterially(lastReported: number, after: number): boolean {
-  const scale = Math.max(Math.abs(lastReported), 1);
-  return Math.abs(after - lastReported) / scale >= MATERIAL_DRIFT_FRACTION;
+function steps(before: number, after: number): boolean {
+  return Math.abs(after - before) / Math.max(Math.abs(before), 1) >= DISCRETE_STEP_FRACTION;
 }
 
 /**
- * Which months are worth a screen-reader user's attention, and why: the projection's start,
- * any month a band begins or ends, any month a band's amount or the spending need has drifted
- * materially ({@link MATERIAL_DRIFT_FRACTION}) from the figure last read out, the first savings
- * withdrawal, and insolvency. Walks `view.rows` once against the same clamped-at-0 band figures
- * the stacked chart draws, so the moments never quote a value the chart doesn't.
+ * Which months are worth a screen-reader user's attention, and why: the projection's start, any
+ * month a band begins or ends, any month a band's amount or the spending need steps
+ * ({@link DISCRETE_STEP_FRACTION}), the first savings withdrawal, insolvency — and the month
+ * before each of those, so a change is heard as a before-and-after. Walks `view.rows` once
+ * against the same clamped-at-0 band figures the stacked chart draws, so the moments never
+ * quote a value the chart doesn't.
  *
  * A band beginning or ending is structural and always surfaces, however small the amount: those
- * are the transitions the chart's shape is made of. Only the continuous middle is sampled.
+ * are the transitions the chart's shape is made of.
  */
 function buildAccessibleMoments(
   view: { readonly rows: readonly IncomeMonthRow[] },
@@ -131,12 +129,8 @@ function buildAccessibleMoments(
     else reasonsByMonth.set(month, [reason]);
   };
 
-  // The last figure actually READ OUT for each signal, not the previous month's — see
-  // {@link MATERIAL_DRIFT_FRACTION}. A signal's baseline moves only when that signal itself
-  // surfaces a moment, so each samples its own drift independently of the others.
-  const lastReportedBand = new Map<string, number>();
-  let lastReportedSpendingNeedCents: number | null = null;
   let prevClamped: Record<string, number> | null = null;
+  let prevSpendingNeedCents: number | null = null;
   /**
    * Months to state purely as the "before" of a discrete change — see {@link addDiscreteReason}.
    * Collected during the walk and resolved after it, so a context month is never itself treated
@@ -144,14 +138,14 @@ function buildAccessibleMoments(
    */
   const contextMonths = new Set<number>();
   /**
-   * A change that happens AT a month rather than drifting towards it: a band beginning or ending,
-   * the first savings withdrawal, insolvency. Each also marks the preceding month for inclusion.
+   * A change that happens AT a month rather than drifting towards it. Each also marks the
+   * preceding month for inclusion.
    *
-   * Without that, the row group announcing a change is the first month of the NEW value, and the
-   * old one is whatever was last read out — up to a sampling interval earlier. Social Security
-   * beginning at month 384 was heard against a reading from month 372, which is not a before-and-
-   * after so much as two unrelated facts. A discrete change is exactly where the adjacent pair
-   * carries the meaning, so it is the one place worth spending a row group to guarantee it.
+   * Without that, the row group announcing a change is the first month of the NEW value and the
+   * old one is whatever the listener last heard, which may be many months back. Social Security
+   * beginning at month 384 was heard against a reading from month 372: not a before-and-after so
+   * much as two unrelated facts. A discrete change is exactly where the adjacent pair carries the
+   * meaning, so it is worth the extra row group to guarantee it.
    */
   const addDiscreteReason = (month: number, reason: string) => {
     addReason(month, reason);
@@ -159,35 +153,25 @@ function buildAccessibleMoments(
   };
   for (const [i, r] of view.rows.entries()) {
     const clamped = clampBandsForStack(r.centsBySource);
-    if (i === 0) {
-      addReason(r.month, "Projection starts");
-      // The opening row states every figure, so it is the baseline each signal drifts from.
-      for (const b of bands) lastReportedBand.set(b.id, clamped[b.id] ?? 0);
-      lastReportedSpendingNeedCents = r.spendingNeedCents;
-    }
+    if (i === 0) addReason(r.month, "Projection starts");
     if (prevClamped !== null) {
       for (const b of bands) {
         const before = prevClamped[b.id] ?? 0;
         const after = clamped[b.id] ?? 0;
         if (before === after) continue;
-        // Structural first: a band appearing or disappearing is always a moment, and it resets
-        // the baseline to the figure the listener was just given either way.
         if (before === 0) addDiscreteReason(r.month, `${b.label} begins`);
         else if (after === 0) addDiscreteReason(r.month, `${b.label} ends`);
-        else if (driftsMaterially(lastReportedBand.get(b.id) ?? before, after)) {
-          addReason(r.month, `${b.label} changes`);
-        } else continue;
-        lastReportedBand.set(b.id, after);
+        // A raise, not the annual indexation: only a step against the month before survives.
+        else if (steps(before, after)) addDiscreteReason(r.month, `${b.label} changes`);
       }
     }
-    if (
-      lastReportedSpendingNeedCents !== null &&
-      driftsMaterially(lastReportedSpendingNeedCents, r.spendingNeedCents)
-    ) {
-      addReason(r.month, "Spending need changes");
-      lastReportedSpendingNeedCents = r.spendingNeedCents;
+    // The spending need is one figure rather than a set of bands, so it has no beginning or
+    // ending to be structural about — a new obligation shows up here as a step and nowhere else.
+    if (prevSpendingNeedCents !== null && steps(prevSpendingNeedCents, r.spendingNeedCents)) {
+      addDiscreteReason(r.month, "Spending need changes");
     }
     prevClamped = clamped;
+    prevSpendingNeedCents = r.spendingNeedCents;
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.
@@ -235,10 +219,15 @@ export interface IncomeChartAccessibleRow {
 
 /**
  * One point in time worth reading out: the projection's start, a band beginning, ending or
- * changing, a spending-need change, the first savings withdrawal, or insolvency. `label`
- * identifies *when* (age and month, so it stands alone without the moments around it); `reason`
- * says *why* this moment was picked, so a screen-reader user isn't left to infer it from the
- * numbers.
+ * stepping, a spending-need step, the first savings withdrawal, insolvency — or the month before
+ * any of those, which is there to be its "before". `label` identifies *when* (age and month, so
+ * it stands alone without the moments around it); `reason` says *why* this moment was picked, so
+ * a screen-reader user isn't left to infer it from the numbers.
+ *
+ * A narrative of what HAPPENS to the plan, deliberately not a sampling of it. The drift between
+ * those points is the chart's to draw, and any individual month is reachable without sight
+ * through the editor below, whose Month field resolves one on demand in more detail than this
+ * carries.
  */
 export interface IncomeChartAccessibleMoment {
   readonly label: string;

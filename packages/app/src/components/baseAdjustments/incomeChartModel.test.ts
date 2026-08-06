@@ -188,7 +188,7 @@ describe("buildIncomeChartModel", () => {
       expect(withdrawal?.reason).toMatch(/first savings withdrawal/i);
     });
 
-    it("samples a steady drift rather than making a moment of every month", () => {
+    it("says nothing about a steady drift — the chart draws it and the editor resolves it", () => {
       // 0.25%/month — 3% a year, the default plan's inflation, which is what made an exact
       // cents comparison call 563 of 660 months a moment.
       const months = [
@@ -204,14 +204,35 @@ describe("buildIncomeChartModel", () => {
         buildIncomeChartData({ months } as unknown as ProjectionSeries),
         { mode: "advanced" },
       );
-      // Every month drifts, so an exact comparison would surface all 240. At 5% off the last
-      // figure READ OUT, a 0.25%/month ramp resurfaces about every 20 months.
-      expect(model.accessibleMoments.length).toBeLessThan(20);
-      // The ramp is sampled, not dropped: the trajectory still reaches the listener.
-      expect(model.accessibleMoments.length).toBeGreaterThan(8);
-      // …and the last figure quoted is the one the chart really ends on.
-      const last = model.accessibleMoments.at(-1)!;
-      expect(last.reason).toMatch(/job:a changes/i);
+      // Every month differs, so the exact comparison this replaced surfaced all 240. Nothing
+      // STEPS, so the table is the projection's start and nothing else: the ramp is the chart's
+      // to draw, and any month of it is reachable through the editor's Month field.
+      expect(model.accessibleMoments).toHaveLength(1);
+      expect(model.accessibleMoments[0]!.reason).toMatch(/projection starts/i);
+    });
+
+    it("still catches a raise inside the drift — a step, not the indexation around it", () => {
+      const ramp = (i: number) => Math.round(dollarsToCents(5_000) * 1.0025 ** i);
+      const series = {
+        months: [
+          { month: 0 },
+          ...Array.from({ length: 24 }, (_, i) => ({
+            month: i + 1,
+            // A 20% raise at month 13, on top of the same 0.25%/month indexation.
+            flows: {
+              incomeSources: [source("job:a", ramp(i) * (i >= 12 ? 1.2 : 1), "wages")],
+            },
+          })),
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const byMonth = new Map(
+        model.accessibleMoments.map((m) => [Number(m.label.match(/month (\d+)/)![1]), m]),
+      );
+      expect(byMonth.get(13)!.reason).toMatch(/job:a changes/i);
+      expect(byMonth.get(12)!.reason).toMatch(/last reading before the change/i);
+      // The indexation either side of it says nothing: start, the raise, and its before.
+      expect(model.accessibleMoments).toHaveLength(3);
     });
 
     it("keeps a band's beginning and end however small the amount", () => {
