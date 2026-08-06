@@ -276,26 +276,28 @@ describe("retirementSolver — a blocked projection is a third state", () => {
   });
 });
 
-describe("retirementSolver — target mode", () => {
-  // evaluateFullRetirementAtAge reports only at-that-age facts (feasible + on-track);
-  // nearestFeasibleAge is composed by retirementView from the headline, covered there.
-  it("is 100% and feasible at a comfortably-fundable pinned age", () => {
-    // Life expectancy is the safest possible pin: feasible if any age is.
+describe("retirementSolver — evaluating one age", () => {
+  // evaluateFullRetirementAtAge reports only at-that-age facts — the verdict, and the block
+  // month when it truncated. There is no score beside them: elapsed simulation time is not a
+  // measure of success, and a plan that fails in its final year is infeasible, not 97% feasible.
+  it("is feasible at a comfortably-fundable age, and reports the verdict alone", () => {
+    // Life expectancy is the safest possible age to evaluate: feasible if any age is.
     const evaluation = evaluateFullRetirementAtAge(
       scenarioOf(samplePlan),
       samplePlan.primary.lifeExpectancy,
       CTX,
     );
-    expect(evaluation.feasible).toBe(true);
-    expect(evaluation.onTrackFraction).toBe(1);
+    expect(evaluation).toEqual({
+      retirementAge: samplePlan.primary.lifeExpectancy,
+      feasible: true,
+      blocked: false,
+    });
   });
 
-  it("is a fraction in (0,1) short of a barely-infeasible pinned age", () => {
+  it("is plainly infeasible one year short of the threshold — no partial credit", () => {
     const floor = earliestFullRetirementAge(scenarioOf(samplePlan), CTX) as number;
     const evaluation = evaluateFullRetirementAtAge(scenarioOf(samplePlan), floor - 1, CTX);
-    expect(evaluation.feasible).toBe(false);
-    expect(evaluation.onTrackFraction).toBeGreaterThan(0);
-    expect(evaluation.onTrackFraction).toBeLessThan(1);
+    expect(evaluation).toEqual({ retirementAge: floor - 1, feasible: false, blocked: false });
   });
 });
 

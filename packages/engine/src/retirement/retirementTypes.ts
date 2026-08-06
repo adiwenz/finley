@@ -15,6 +15,13 @@ export type RetirementSearch =
  * One candidate age, judged. There is no `nearestFeasibleAge` here any more: it existed to give
  * the plan's pinned age a fallback, and nothing pins an age now — the search's own answer
  * ({@link RetirementSolution.fullRetirementAge}) IS the nearest feasible age.
+ *
+ * **No score, deliberately.** There was an `onTrackFraction` here: the fraction of the
+ * retirement-to-life-expectancy window the plan stayed solvent. Elapsed simulation time is not a
+ * measure of a retirement plan's success — a plan that runs out of money in its final year is not
+ * 97% of a working plan, it is a plan that fails — and stating a high percentage beside
+ * {@link feasible}` === false` invited exactly that reading. The outcome is the verdict
+ * ({@link feasible}, {@link blocked}, {@link blockedAtMonth}) and nothing is scored alongside it.
  */
 export interface RetirementEvaluation {
   /** The age evaluated — a candidate the search is trying. */
@@ -32,18 +39,6 @@ export interface RetirementEvaluation {
   readonly blocked: boolean;
   /** The month the projection blocked; present iff {@link blocked}. */
   readonly blockedAtMonth?: number;
-  /**
-   * Fraction of the retirement-to-life-expectancy window the plan stays solvent; 1.0 when
-   * it survives. Read from WHEN the plan first fails (insolvency / negative real net
-   * worth), never from the magnitude of a net-worth dip — insolvency nulls that and
-   * phantom equity distorts it. Strictly < 1 for any infeasible plan.
-   *
-   * Nothing in the app renders this today: it scored the plan against a pinned retirement age,
-   * and no age is pinned any more. It survives as the search's own "how close was that
-   * candidate?" signal — {@link feasible} is what the search reads — and because a caller
-   * evaluating one age of their own choosing has no other way to tell a near miss from a rout.
-   */
-  readonly onTrackFraction: number;
 }
 
 /**

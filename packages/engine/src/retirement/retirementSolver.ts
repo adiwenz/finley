@@ -136,11 +136,6 @@ export function planSurvives(series: ProjectionSeries): boolean {
   return planOutcome(series) === "survives";
 }
 
-function retirementMonth(budget: Plan, age: number, startYear: number): number {
-  const currentAge = startYear - budget.primary.birthYear;
-  return Math.max(0, (age - currentAge) * 12);
-}
-
 /** The calendar year the primary turns `age` — the boundary a stop at `age` applies to every earner. */
 function stopWorkingBoundaryYear(budget: Plan, age: number): number {
   return budget.primary.birthYear + age;
@@ -170,55 +165,18 @@ export function stopWorkingBoundaryAt(
 }
 
 /**
- * On-track fraction for a plan that does NOT survive: the fraction of the
- * retirement-to-life-expectancy window it stays solvent. Read from WHEN it first fails, not
- * from how far net worth dipped — insolvency nulls the curve rather than driving it negative,
- * so the deepest value seen could be positive → a meaningless 1.0. The denominator counts the
- * window inclusively, so an infeasible plan is never 100%.
+ * Fold a projection at `age` into the evaluation fields both modes share: the verdict and, when
+ * the projection truncated, the month it stopped. Nothing is scored beside them — see
+ * {@link RetirementEvaluation} for why a "how close was it" percentage is not an answer.
  */
-function computeOnTrackFraction(
-  budget: Plan,
-  age: number,
-  series: ProjectionSeries,
-  startYear: number,
-): number {
-  // Horizon is derived from the plan (months to life expectancy), NOT `series.months.length - 1`:
-  // once a projection can truncate, the series length collapses to the blocked month and would
-  // make the retirement window meaningless. This matches `createProjectionBase`'s `horizonMonths`
-  // for an untruncated run, so the fraction is unchanged wherever it already worked.
-  const currentAge = startYear - budget.primary.birthYear;
-  const lifeExpectancy = budget.primary.lifeExpectancy ?? currentAge;
-  const horizon = Math.max(0, (lifeExpectancy - currentAge) * 12) - 1;
-  const boundary = Math.min(retirementMonth(budget, age, startYear), horizon);
-  // Inclusive, so ≥ 1 after the clamp: a safe denominator.
-  const retirementWindow = horizon - boundary + 1;
-  // -1 is defensive; callers gate on `!feasible`.
-  const firstFailureMonth = series.months.findIndex((m) => !monthSurvives(m));
-  if (firstFailureMonth < 0) return 1;
-  const solventInRetirement = Math.max(0, firstFailureMonth - boundary);
-  return Math.min(1, solventInRetirement / retirementWindow);
-}
-
-/**
- * Fold a projection at `age` into the evaluation fields both modes share. A blocked projection is
- * neither feasible nor on-track — its survival is unknowable — so it carries `blocked` and the
- * month it stopped rather than a fraction read off a truncated curve.
- */
-function evaluateSeries(
-  budget: Plan,
-  age: number,
-  series: ProjectionSeries,
-  startYear: number,
-): RetirementEvaluation {
+function evaluateSeries(age: number, series: ProjectionSeries): RetirementEvaluation {
   const outcome = planOutcome(series);
-  const feasible = outcome === "survives";
   const blocked = outcome === "blocked";
   return {
     retirementAge: age,
-    feasible,
+    feasible: outcome === "survives",
     blocked,
     ...(blocked ? { blockedAtMonth: series.blockedAtMonth } : {}),
-    onTrackFraction: feasible ? 1 : blocked ? 0 : computeOnTrackFraction(budget, age, series, startYear),
   };
 }
 
@@ -266,8 +224,7 @@ export function evaluateFullRetirementAtAge(
   age: number,
   ctx: ProjectionContext,
 ): RetirementEvaluation {
-  const series = projectFullRetirement(scenario, age, ctx);
-  return evaluateSeries(scenario.plan, age, series, ctx.startYear);
+  return evaluateSeries(age, projectFullRetirement(scenario, age, ctx));
 }
 
 /**
