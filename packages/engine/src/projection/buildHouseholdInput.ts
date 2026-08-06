@@ -24,9 +24,11 @@ import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compile/compilePerson";
 import {
   lifeExpectancyEndMonthExclusive,
+  memberHorizonReach,
   membershipWindow,
   type JobResolutionScope,
 } from "../job/householdJob";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -145,24 +147,29 @@ export function buildHouseholdSimInput(
   const resolvedMembers = household.memberships.map((m) => ({
     memberWindow: membershipWindow(m),
     lifeEnd: lifeEndOf(m.person),
+    separationMonth: m.endMonth,
     person: m.person,
   }));
+  // The other half of "while both are alive" — see {@link memberHorizonReach}. Absent only for a
+  // hand-built base holding no primary, where nothing is reckonable anyway.
+  const primaryLifeEnd =
+    resolvedMembers.find((r) => r.person.id === PRIMARY_PERSON_ID)?.lifeEnd ??
+    Number.POSITIVE_INFINITY;
 
   const persons: SimPerson[] = resolvedMembers.map((r) =>
     compilePerson(r.person, nowYear, scope, r.memberWindow, r.lifeEnd),
   );
 
-  // The horizon is the longest-lived member's reach, not the primary's. Only a member who STAYS to
-  // their death extends it: they contribute their expectancy month, covering their tail. A member
-  // who separates leaves before that — their income and benefit already stopped at separation — so
-  // they never drag the run out, even if the separation itself is dated past the primary's horizon
-  // (which would otherwise pad the run with empty months). This matches `horizonAnchorOf`, which
-  // the panel reads. `base.horizonMonths` (the primary's) is the floor, so a shorter-lived member
-  // can only fail to raise it, never shorten the run.
+  // The horizon is the longest-lived member's reach, not the primary's: a member present to their
+  // death contributes their expectancy month, covering their tail. Whether a separation takes that
+  // claim away is {@link memberHorizonReach}'s single answer, shared with `horizonAnchorOf` so the
+  // run and the sentence the panel prints about it cannot diverge.
+  //
+  // `base.horizonMonths` (the primary's) is the floor, so a shorter-lived member can only fail to
+  // raise it, never shorten the run.
   const horizonMonths = resolvedMembers.reduce((reach, r) => {
-    // A finite membership end is a separation; such a member does not extend the horizon.
-    if (Number.isFinite(r.memberWindow.endMonthExclusive)) return reach;
-    return Number.isFinite(r.lifeEnd) ? Math.max(reach, r.lifeEnd) : reach;
+    const memberReach = memberHorizonReach(r.lifeEnd, r.separationMonth, primaryLifeEnd);
+    return memberReach === null ? reach : Math.max(reach, memberReach);
   }, base.horizonMonths);
 
   return {

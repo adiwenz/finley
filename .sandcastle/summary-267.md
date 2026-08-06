@@ -48,9 +48,18 @@ Delivered as three commits:
   `SimPerson.lifeEndMonthExclusive`, read only at the benefit gate. Household spending is not gated
   by membership, so it runs on to the extended horizon and funds the survivor at full cost.
 
-- **Horizon = max member reach = `max(primary, per-member min(separation, death))`.** A staying
-  younger partner extends the run to their tail; a partner who separates before their own expectancy
-  never does (#266's window still governs them). Computed once in `buildHouseholdInput`.
+- **Horizon = max member reach, and a separation only counts while BOTH are alive.** A staying
+  younger partner extends the run to their tail. A partner who separates does not — but only if the
+  separation lands strictly before `min(their death, the primary's)`. You cannot leave a household
+  you have died out of, or leave a partner who has already died, so a separation at or after that
+  boundary is not an event in either life and the partner is covered to their own death like anyone
+  else. (Primary dies 2070, partner dies 2080, separation booked 2085 → the run reaches 2080.)
+  #266's window still governs their income and benefit either way.
+
+  The rule is ONE function, `memberHorizonReach` in `job/householdJob.ts`, called by both
+  `buildHouseholdInput` (the simulated horizon) and `horizonAnchorOf` (the age the panel prints), so
+  the graph and the sentence describing it cannot diverge. They used to hold separate copies, and
+  both copies had the same bug: any separation, at any date, cancelled the partner's tail.
 
 - **The solved age and `plannedWorkStopAge` stay in the PRIMARY's years** (unchanged): they are
   facts about the household reaching one calendar boundary. Only the *horizon* the portfolio must

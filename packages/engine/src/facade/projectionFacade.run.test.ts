@@ -104,14 +104,82 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
   });
 
-  it("does not let a partner who SEPARATES extend the horizon, even past the primary's", () => {
-    // A younger partner who would otherwise reach 660, but separates at month 600 — past the
-    // primary's own 540. Their income and benefit stopped at separation, so their tail is gone
-    // and must not pad the run: the horizon stays the primary's 540, matching horizonAnchorOf.
-    const p = freshProjection();
-    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: samplePlan.primary.lifeExpectancy });
-    p.separate({ month: 600, partnerPersonId: partnerId });
-    expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
+  // A separation only takes a partner's tail out of the run if it happens while BOTH are alive.
+  // The boundary is `min(their death, the primary's)`, and here that is the PRIMARY's month 540 —
+  // Sam, born 1996 at expectancy 85, would otherwise reach 660.
+  describe("a separation ends their claim on the horizon only while both are alive", () => {
+    const SAM_REACH = (1996 + 85 - 2026) * 12; // 660
+    const separatedAt = (month: number) => {
+      const p = freshProjection();
+      const partnerId = p.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1996,
+        lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      });
+      p.separate({ month, partnerPersonId: partnerId });
+      return p;
+    };
+
+    it("BEFORE either death: Sam leaves, and the run stops at the primary's own expectancy", () => {
+      expect(monthsOf(separatedAt(300))).toBe(PRIMARY_HORIZON);
+      // Right up to the last month it can still happen.
+      expect(monthsOf(separatedAt(PRIMARY_HORIZON - 1))).toBe(PRIMARY_HORIZON);
+    });
+
+    it("EXACTLY AT the first death: too late to happen, so Sam's tail stays in the run", () => {
+      // Month 540 is the first month the primary is gone — there is no couple left to dissolve,
+      // so the separation is not an event in either life and Sam is covered to their own 660.
+      expect(monthsOf(separatedAt(PRIMARY_HORIZON))).toBe(SAM_REACH);
+    });
+
+    it("AFTER the first death: same answer — Sam never left while alive", () => {
+      expect(monthsOf(separatedAt(600))).toBe(SAM_REACH);
+      // Including a separation booked past Sam's OWN death, which is doubly moot.
+      expect(monthsOf(separatedAt(700))).toBe(SAM_REACH);
+    });
+
+    it("covers the survivor through their death — the issue's worked example", () => {
+      // Primary dies 2070, Sam dies 2080, separation booked for 2085. Sam never leaves while
+      // alive, so the projection must run through 2080 rather than stopping at the primary's
+      // 2070 and leaving the survivor's last decade unmodelled.
+      const p = freshProjection();
+      p.updatePlan({ lifeExpectancy: 84 }); // born 1986 → dies 2070
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 84 }); // → 2080
+      p.separate({ month: (2085 - 2026) * 12, partnerPersonId: partnerId });
+      expect(monthsOf(p)).toBe((2080 - 2026) * 12);
+    });
+
+    it("agrees with the anchor the panel names, at every point around the boundary", () => {
+      // The reason the rule lives in one shared helper. The run's last month and the age the panel
+      // prints are two readings of one horizon, so a household whose graph stops at Sam's death
+      // must not be described by a sentence naming the primary's. Swept across the boundary rather
+      // than spot-checked, because divergence is exactly what a copied rule produces at the edges.
+      for (const month of [300, PRIMARY_HORIZON - 1, PRIMARY_HORIZON, 600, 700]) {
+        const p = separatedAt(month);
+        const anchor = p.retirement(nullJurisdiction).solution.horizonAnchor;
+        const ranToSam = monthsOf(p) === SAM_REACH;
+        expect({ month, named: anchor.memberName }).toEqual({
+          month,
+          named: ranToSam ? "Sam" : null,
+        });
+      }
+    });
+
+    it("is symmetric — a separation after the PARTNER's death is equally moot", () => {
+      // Sam is older and dies 2061, before the primary's 2071; the separation is booked 2065.
+      // Sam's own reach is below the primary's, so the horizon is unchanged — but the reason is
+      // that Sam never left, not that they did.
+      const p = freshProjection();
+      const partnerId = p.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1976,
+        lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      });
+      p.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId });
+      expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
+    });
   });
 });
 

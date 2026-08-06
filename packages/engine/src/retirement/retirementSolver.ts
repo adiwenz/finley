@@ -34,6 +34,8 @@ import {
   householdPaidYears,
   householdWageEndYearExclusive,
   intersectHouseholdPaidMonths,
+  lifeExpectancyEndMonthExclusive,
+  memberHorizonReach,
   resolveHouseholdJobs,
   type StopWorkingBoundary,
 } from "../job/householdJob";
@@ -394,23 +396,31 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 }
 
 /**
- * Whose expectancy the horizon rests on — the member present to the end (never separated) who
- * reaches their expectancy in the latest calendar year, and the age they reach. This mirrors the
- * horizon the sim runs (`buildHouseholdInput` takes the max member reach): a younger partner who
- * stays outlives the primary and sets it; a partner who separates leaves before their own
- * expectancy and never does. Every member states their own expectancy, so there is nothing to
- * resolve here — the same read the sim makes. Ties fall to the primary, so an all-same-age
- * household names the reader.
+ * Whose expectancy the horizon rests on — the member whose death the run has to reach, and the age
+ * they reach. The panel prints this as "Sam's life expectancy (age 85)", so it must name the member
+ * the SIM actually ran to.
+ *
+ * Which members have a claim on the horizon is not decided here: it is
+ * {@link memberHorizonReach}, the same call `buildHouseholdInput` makes, so the sentence and the
+ * run cannot tell different stories. In particular a separation only counts while both people are
+ * alive — a partner who dies before a booked separation never leaves, and is named here exactly as
+ * the run covers them.
+ *
+ * Every member states their own expectancy, so there is nothing to resolve. Ties fall to the
+ * primary, so an all-same-age household names the reader.
  *
  * No simulation: the household is interpreted and read, the way `plannedWorkStopAge` is.
  */
 export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): HorizonAnchor {
   const base = createProjectionBase(scenario.plan, ctx);
   const household = interpretLedger(scenario.ledger, base);
+  const lifeEnd = (person: { birthYear: number; lifeExpectancy: number }) =>
+    lifeExpectancyEndMonthExclusive(person, ctx.startYear);
+  const primaryLifeEnd = lifeEnd(scenario.plan.primary);
   let best: { age: number; deathYear: number; isPrimary: boolean; name: string } | null = null;
   for (const m of household.memberships) {
-    // A separated member leaves before their expectancy, so they never set the horizon.
-    if (m.endMonth !== null) continue;
+    // The one rule, shared with the sim: a member who leaves while both are alive has no claim.
+    if (memberHorizonReach(lifeEnd(m.person), m.endMonth, primaryLifeEnd) === null) continue;
     const isPrimary = m.person.id === PRIMARY_PERSON_ID;
     const age = m.person.lifeExpectancy;
     const deathYear = m.person.birthYear + age;

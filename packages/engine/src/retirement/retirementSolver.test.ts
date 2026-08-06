@@ -1945,11 +1945,32 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
     });
   });
 
-  it("ignores a separated partner — they leave before their own expectancy", () => {
-    // A younger partner who would otherwise set the horizon, but separates at month 12: gone
-    // before their expectancy, so they never anchor it and the primary does.
-    expect(
-      anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 }), 12)),
-    ).toEqual({ age: 85, memberName: null });
+  // The anchor names whoever the SIM ran to, so it applies the same both-alive rule
+  // (`memberHorizonReach`) that `buildHouseholdInput` does. Sam is born ten years after the
+  // primary at the same expectancy 85, so the primary dies at month 540 and Sam at 660, and the
+  // boundary a separation has to beat is the primary's 540.
+  describe("a separation removes the anchor only while both are alive", () => {
+    const younger = () => samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 });
+    const PRIMARY_DEATH_MONTH = (85 - 40) * 12; // 540
+
+    it("BEFORE either death: Sam leaves, so the primary anchors", () => {
+      expect(anchorOf(withPartner(younger(), 12))).toEqual({ age: 85, memberName: null });
+      expect(anchorOf(withPartner(younger(), PRIMARY_DEATH_MONTH - 1))).toEqual({
+        age: 85,
+        memberName: null,
+      });
+    });
+
+    it("EXACTLY AT the first death: too late to happen, so Sam still anchors", () => {
+      expect(anchorOf(withPartner(younger(), PRIMARY_DEATH_MONTH))).toEqual({
+        age: 85,
+        memberName: "Sam",
+      });
+    });
+
+    it("AFTER the first death: Sam anchors — they never left while alive", () => {
+      expect(anchorOf(withPartner(younger(), 600))).toEqual({ age: 85, memberName: "Sam" });
+      expect(anchorOf(withPartner(younger(), 700))).toEqual({ age: 85, memberName: "Sam" });
+    });
   });
 });

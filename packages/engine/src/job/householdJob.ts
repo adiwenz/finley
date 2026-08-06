@@ -303,6 +303,48 @@ export function membershipWindow(membership: HouseholdMembership): {
 }
 
 /**
+ * **How far this member's presence requires the projection to run**, or `null` when it requires
+ * nothing beyond what the rest of the household already does. The single definition of the
+ * horizon rule, shared by the simulation
+ * ({@link import("../projection/buildHouseholdInput").buildHouseholdSimInput}) and by the anchor
+ * the panel names ({@link import("../retirement/retirementSolver").horizonAnchorOf}), so the run
+ * and the sentence describing it cannot disagree.
+ *
+ * **A separation counts only if it happens while BOTH people are alive.** You cannot leave a
+ * household you have already died out of, and you cannot leave a partner who has already died —
+ * so a separation dated at or after `min(this member's death, the primary's death)` is not an
+ * event in either life, and the member is present until their own death like any other.
+ *
+ * This is what a naive "any separation ends their claim on the horizon" got wrong. Take a primary
+ * who dies in 2070, a partner who dies in 2080, and a separation booked for 2085: the partner
+ * never leaves while alive, so the projection has to cover them to 2080. Cutting the run at the
+ * primary's 2070 would leave the survivor's last decade unmodelled — the very gap this whole
+ * change exists to close — on the strength of a separation that never happens.
+ *
+ * At/after, not merely after: a separation in the month someone dies is already too late, because
+ * `lifeEndMonthExclusive` is the first month they are gone.
+ *
+ * Symmetric in the two deaths by design. A separation after the PRIMARY's death is as moot as one
+ * after the partner's: there is no couple left to dissolve either way, and the survivor's own
+ * years are what the money still has to cover.
+ */
+export function memberHorizonReach(
+  /** This member's own {@link lifeExpectancyEndMonthExclusive}. */
+  lifeEndMonthExclusive: number,
+  /** Their {@link HouseholdMembership.endMonth} — the separation, or `null` for a member who stays. */
+  separationMonth: number | null,
+  /** The PRIMARY's own life-end month, the other half of "while both are alive". */
+  primaryLifeEndMonthExclusive: number,
+): number | null {
+  const separates =
+    separationMonth !== null &&
+    separationMonth < Math.min(lifeEndMonthExclusive, primaryLifeEndMonthExclusive);
+  if (separates) return null;
+  // A member with no reckonable death (a hand-built base with no frozen "now") bounds nothing.
+  return Number.isFinite(lifeEndMonthExclusive) ? lifeEndMonthExclusive : null;
+}
+
+/**
  * The exclusive month a member's own life ends — the first month they no longer draw a government
  * benefit (a wage is untouched; it ends where its job was authored to), and the reach their
  * expectancy contributes to the projection horizon.
