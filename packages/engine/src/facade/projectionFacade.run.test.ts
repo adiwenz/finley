@@ -80,7 +80,8 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
   });
 
   it("extends to a younger partner's expectancy — their later years are now inside the run", () => {
-    // Sam is born 1996 (age 30 at 2026) and inherits the household's expectancy age of 85, so
+    // Sam is born 1996 (age 30 at 2026) and, stating none, takes the primary's expectancy age of
+    // 85 at `marry`, so
     // Sam reaches 85 in 2081 — eleven years past the primary's 2071. The run must cover them:
     // month (1996 + 85 - 2026) * 12 = 660, not the primary's 540.
     const p = freshProjection();

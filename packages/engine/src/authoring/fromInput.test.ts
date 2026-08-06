@@ -328,9 +328,9 @@ describe("Projection.fromInput", () => {
 });
 
 /**
- * The PRIMARY's life expectancy is required — it is the household's own fallback, the one
- * expectancy with nothing behind it to inherit from. `Person.lifeExpectancy` stays optional so a
- * partner can genuinely defer to it; `Plan.primary` is a `PrimaryPerson`, where it is not.
+ * Every person's life expectancy is required, the primary's included: `Person.lifeExpectancy` is a
+ * `number`, and the horizon is computed from it. `marry` still ACCEPTS none and resolves it to the
+ * primary's, so the authoring convenience survives — but it is applied once, at the door.
  *
  * The type says so, and these pin that the type is not the only thing saying so: `@finley/engine`
  * is published, so a JavaScript caller can omit the field, and an unstated expectancy now reaches
@@ -402,13 +402,27 @@ describe("Projection.fromInput — a partner's life expectancy, and the horizon 
     expect(event.person.lifeExpectancy).toBe(100);
   });
 
-  it("leaves the field ABSENT when the document omits it — inherit-on-read, not frozen", () => {
-    // The fallback is the household's live value resolved at the sim boundary, so an omitted
-    // expectancy must not be materialized onto the Person at build time.
+  it("resolves an omitted expectancy to the PRIMARY's, at authoring time", () => {
+    // `Person.lifeExpectancy` is required, so "no opinion" is answered once here rather than left
+    // absent for every reader to fall back on. `base` states 90, so that is what Sam gets.
     const p = built(withPartner({})[0]!);
     const event = p.ledger.events[0];
     if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
-    expect(event.person.lifeExpectancy).toBeUndefined();
+    expect(event.person.lifeExpectancy).toBe(90);
+  });
+
+  it("does not re-derive a partner's inherited expectancy when the PRIMARY's later changes", () => {
+    // The consequence of resolving at authoring time rather than on read, stated as a test: Sam
+    // took the household's 90 when they joined and keeps it. Moving the primary to 100 extends the
+    // primary's own reach and leaves Sam's alone — Sam is younger, so Sam still sets the horizon,
+    // now at their own 90 rather than a value that followed the primary's.
+    const p = built(withPartner({})[0]!);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
+    p.updatePlan({ lifeExpectancy: 100 });
+    const event = p.ledger.events[0];
+    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    expect(event.person.lifeExpectancy).toBe(90);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
   });
 
   it.each(withPartner({ lifeExpectancy: 100 }))(

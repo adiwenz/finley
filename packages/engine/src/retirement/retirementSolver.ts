@@ -398,8 +398,8 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
  * reaches their expectancy in the latest calendar year, and the age they reach. This mirrors the
  * horizon the sim runs (`buildHouseholdInput` takes the max member reach): a younger partner who
  * stays outlives the primary and sets it; a partner who separates leaves before their own
- * expectancy and never does. A member's expectancy is their own, or the household's when they
- * state none — the same resolution the sim uses. Ties fall to the primary, so an all-same-age
+ * expectancy and never does. Every member states their own expectancy, so there is nothing to
+ * resolve here — the same read the sim makes. Ties fall to the primary, so an all-same-age
  * household names the reader.
  *
  * No simulation: the household is interpreted and read, the way `plannedWorkStopAge` is.
@@ -407,20 +407,19 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): HorizonAnchor {
   const base = createProjectionBase(scenario.plan, ctx);
   const household = interpretLedger(scenario.ledger, base);
-  const householdAge = scenario.plan.primary.lifeExpectancy;
   let best: { age: number; deathYear: number; isPrimary: boolean; name: string } | null = null;
   for (const m of household.memberships) {
     // A separated member leaves before their expectancy, so they never set the horizon.
     if (m.endMonth !== null) continue;
     const isPrimary = m.person.id === PRIMARY_PERSON_ID;
-    const age = m.person.lifeExpectancy ?? householdAge;
+    const age = m.person.lifeExpectancy;
     const deathYear = m.person.birthYear + age;
     const wins =
       best === null || deathYear > best.deathYear || (deathYear === best.deathYear && isPrimary);
     if (wins) best = { age, deathYear, isPrimary, name: m.person.name };
   }
   // The primary is always a member, so `best` is set; the fallback only keeps the type total.
-  if (best === null) return { age: householdAge, memberName: null };
+  if (best === null) return { age: scenario.plan.primary.lifeExpectancy, memberName: null };
   return { age: best.age, memberName: best.isPrimary ? null : best.name };
 }
 

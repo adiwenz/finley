@@ -373,6 +373,9 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
       birthYear: PRIMARY_BIRTH_YEAR,
       benefitClaimingAge: 67,
       ...overrides,
+      // After the spread: `Partial<Person>` admits an explicit `undefined`, and the field is
+      // required. A partner who states nothing gets the primary's, which is what `marry` does.
+      lifeExpectancy: overrides.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
     };
   }
 
@@ -587,6 +590,9 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
       birthYear: PRIMARY_BIRTH_YEAR,
       benefitClaimingAge: 67,
       ...overrides,
+      // After the spread: `Partial<Person>` admits an explicit `undefined`, and the field is
+      // required. A partner who states nothing gets the primary's, which is what `marry` does.
+      lifeExpectancy: overrides.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
     };
   }
 
@@ -1074,6 +1080,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: "p2",
       name: "Partner",
       birthYear: partnerBirthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       continuationJobId: "nursing",
       jobs: [
@@ -1136,6 +1143,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: "p1",
       name: samplePlan.primary.name,
       birthYear: BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs,
       continuationJobId,
@@ -1176,6 +1184,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: "p1",
       name: samplePlan.primary.name,
       birthYear: BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs,
       continuationJobId,
@@ -1581,6 +1590,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: PARTNER_ID,
       name: "Partner",
       birthYear: opts.birthYear ?? BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs: opts.jobs,
       continuationJobId: opts.continuationJobId,
@@ -1807,6 +1817,7 @@ describe("continuationJobIdOf — what a household that never chose gets", () =>
     id: "p1",
     name: "A",
     birthYear: 1960,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
     ...(continuationJobId !== undefined ? { continuationJobId } : {}),
@@ -1868,6 +1879,8 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
     benefitClaimingAge: 67,
     jobs: [],
     ...over,
+    // See `partnerWith` above: required field, and the spread may carry an explicit `undefined`.
+    lifeExpectancy: over.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
   });
 
   function withPartner(partner: Person, separateAtMonth?: number): Scenario {

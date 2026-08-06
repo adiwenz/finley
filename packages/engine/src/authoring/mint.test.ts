@@ -124,6 +124,7 @@ describe("the floor reads adjustment ids too", () => {
                 id: "person-3" as PersonId,
                 name: "Sam",
                 birthYear: 1980,
+                lifeExpectancy: samplePlan.primary.lifeExpectancy,
                 benefitClaimingAge: 67,
                 jobs: [jobWithAdjustments("job-4", "adjustment-21")],
               },

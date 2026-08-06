@@ -109,7 +109,7 @@ export {
   applyJobIncomeOverridesAt,
   orderedIncomeOverrides,
 } from "./job/job";
-export type { Person, PrimaryPerson } from "./plan/person";
+export type { Person } from "./plan/person";
 export type { SimGoal, GoalProgress, GoalCompletion, GoalDisposal, GoalDisposition } from "./goal/goal";
 export type {
   BudgetLine,

@@ -44,8 +44,20 @@ export interface ProjectionState {
  * versions would be a promise this build cannot keep — reading a v1 file under v2 rules means
  * transforming it, and no transforms exist — so the gate there is exact equality, and it stays
  * exact until the first real migration lands.
+ *
+ * **v2** — every {@link import("../plan/person").Person} carries a REQUIRED `lifeExpectancy`. A v1
+ * state could omit it on the primary (there was no primary `Person` at all before that: the plan
+ * held one household-wide `lifeExpectancy`) and on any partner who inherited the household's. Both
+ * absences are unreadable under v2 rules, where the field is what the horizon is computed from, so
+ * the version is bumped rather than the field defaulted — a v1 file opened as if it were v2 would
+ * project `NaN` months and say nothing about why.
+ *
+ * Bumped with no transform beside it because nothing was ever persisted at v1: the shape changed
+ * inside the same unreleased line of work. A v1 file therefore cannot exist, and if one does it is
+ * refused by the exact-equality gate with "update to open this" — which is the right answer for a
+ * file this build genuinely cannot read.
  */
-export const CURRENT_FORMAT_VERSION = 1;
+export const CURRENT_FORMAT_VERSION = 2;
 
 /**
  * The one state that provably holds no id at all: the plan's scalars, three empty collections and

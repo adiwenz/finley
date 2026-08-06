@@ -25,17 +25,20 @@ export interface Person {
    * than the primary but with the same expectancy *age* reaches it in a later calendar year and
    * extends the run to cover their tail — the gap this field exists to close.
    *
-   * `undefined` means **inherit the primary's own expectancy**
-   * ({@link import("./plan").Plan.primary}`.lifeExpectancy`), resolved on read at the sim
-   * boundary rather than frozen here — the same "not stated, so use the household default" shape
-   * {@link continuationJobId} uses.
+   * **Required, and every person carries their own.** It was once optional, meaning "inherit the
+   * primary's", resolved on read at the sim boundary. That saved authoring a number for a partner
+   * who had no opinion and cost more than it saved: the field's type could not say what the
+   * projection actually ran to, every read site needed the fallback threaded to it, and a plan
+   * whose primary also stated none projected zero months. A person the engine is asked to carry to
+   * an age has that age.
    *
-   * Optional on `Person` because a PARTNER may genuinely leave it to the primary's. The primary
-   * themself always states one, and says so in the type: {@link PrimaryPerson} is what
-   * {@link import("./plan").Plan.primary} holds. Nothing else may be the fallback, so nothing else
-   * needs the field optional.
+   * The authoring convenience is kept where it belongs — at the door. `marry`/`startPartnered`
+   * still take an OPTIONAL expectancy
+   * ({@link import("../authoring/relationships").MarryInput.lifeExpectancy}) and resolve it to the
+   * primary's when omitted, so a caller with no opinion still writes nothing. The difference is
+   * that the resolution happens once, at authoring time, and what lands here is a stated number.
    */
-  readonly lifeExpectancy?: number;
+  readonly lifeExpectancy: number;
   /** An input, never solved for. */
   readonly benefitClaimingAge: number;
   readonly jobs: readonly Job[];
@@ -71,21 +74,3 @@ export interface Person {
    */
   readonly continuationJobId?: JobId | null;
 }
-
-/**
- * The primary household member: a {@link Person} whose {@link Person.lifeExpectancy} is
- * **required**.
- *
- * The primary's expectancy is the household's fallback — every other member who states none
- * inherits it — so it is the one expectancy that has nothing behind it to inherit from. Left
- * optional it made every read site invent its own answer for "the primary named no expectancy",
- * and they did not agree: the projection horizon read it as the current age (a run of ZERO
- * months), the retirement search as the low end of its own range, the budget editor's slider as
- * {@link import("./plan").MAX_AGE}. A plan could be authored with no expectancy at all, build
- * clean, and project nothing, while the editor beside it showed 120.
- *
- * Requiring it deletes all of that rather than picking one of the fallbacks to standardize on: a
- * default nobody typed is not a household's plan, and the state those fallbacks covered for is
- * now unrepresentable.
- */
-export type PrimaryPerson = Person & { readonly lifeExpectancy: number };

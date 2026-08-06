@@ -222,7 +222,7 @@ describe("scenarios — the horizon covers the longest-lived member, and the pan
     // The issue's core case: a partner younger than the primary outlives them, so the run no
     // longer ends at the primary's expectancy — it reaches the partner's, and the panel names
     // whose it is rather than printing a bare age that reads as the household's guarantee. Sam is
-    // twelve years younger and inherits the household expectancy age, so the portfolio must last
+    // twelve years younger and took the primary's expectancy age at `marry`, so the portfolio must last
     // to SAM's life expectancy.
     const p = alexAlone();
     p.marry({ month: 0, name: "Sam", birthYear: ALEX_BIRTH + 12 });

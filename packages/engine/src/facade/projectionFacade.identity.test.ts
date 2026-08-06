@@ -629,6 +629,49 @@ describe("Projection root — the serialized format declares its version", () =>
     expect(reloaded.toState().version).toBe(CURRENT_FORMAT_VERSION);
   });
 
+  it("reads version 2 — where every Person states a lifeExpectancy", () => {
+    // The bump that made the field required. v1 held one household-wide age on the plan and let a
+    // partner inherit it; under v2 the horizon is computed from each person's own, so a v1 file is
+    // not readable rather than readable-with-a-default.
+    expect(CURRENT_FORMAT_VERSION).toBe(2);
+    const v1: ProjectionState = { ...freshProjection().toState(), version: 1 };
+    expect(() => Projection.fromState(v1, nullJurisdiction)).toThrow(UnsupportedVersionError);
+  });
+
+  it("refuses a CURRENT-version state whose primary states no lifeExpectancy", () => {
+    // Not an unsupported version — the file claims a version this build reads, so the refusal is a
+    // plain invalid-plan error. This is the case the version gate cannot catch: a hand-edited or
+    // truncated v2 file, which is what restoration exists to check. Absent, the field would reach
+    // the horizon arithmetic and produce a run of NaN months.
+    const authored = freshProjection().toState();
+    const state = {
+      ...authored,
+      scenario: {
+        ...authored.scenario,
+        plan: { ...authored.scenario.plan, primary: { ...authored.scenario.plan.primary, lifeExpectancy: undefined } },
+      },
+    } as unknown as ProjectionState;
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
+      /primary states no lifeExpectancy/,
+    );
+  });
+
+  it("refuses one whose PARTNER states none, naming them", () => {
+    const p = freshProjection();
+    p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    const authored = p.toState();
+    const events = authored.scenario.ledger.events.map((e) =>
+      e.type === "RelationshipEvent" ? { ...e, person: { ...e.person, lifeExpectancy: undefined } } : e,
+    );
+    const state = {
+      ...authored,
+      scenario: { ...authored.scenario, ledger: { ...authored.scenario.ledger, events } },
+    } as unknown as ProjectionState;
+    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
+      /"Sam" states no lifeExpectancy/,
+    );
+  });
+
   it("rejects a non-current version with UnsupportedVersionError carrying file version and supported version", () => {
     const state: ProjectionState = {
       ...freshProjection().toState(),
@@ -750,6 +793,7 @@ describe("Projection root — the id counter starts clear of the plan it is give
             id: "person-4",
             name: "Partner",
             birthYear: 1988,
+            lifeExpectancy: 85,
             benefitClaimingAge: 67,
             // A partner's jobs live ON their event — a floor reading only the event's own
             // fields would hand `job-9` straight back out.

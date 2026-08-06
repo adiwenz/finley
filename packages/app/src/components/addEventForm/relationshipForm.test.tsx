@@ -23,6 +23,7 @@ const EXISTING: RelationshipEvent = {
     id: "p2",
     name: "Sam",
     birthYear: 1988,
+    lifeExpectancy: 85,
     benefitClaimingAge: 68,
     jobs: [],
   },

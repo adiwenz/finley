@@ -29,7 +29,7 @@
 
 import { PRE_NOW_MONTH } from "../projection/nowMarker";
 import type { Plan, GoalPlan } from "../plan/plan";
-import type { PrimaryPerson } from "../plan/person";
+import type { Person } from "../plan/person";
 import type { Job, JobDeferral } from "../job/job";
 import type { BudgetLine, TaxTreatment } from "../budget/budgetLine";
 import type { LiabilityKind } from "../liability/liability";
@@ -75,7 +75,7 @@ export function ref(name: string): Ref {
  * {@link ScenarioInput.continuationJobRef}). A document has no ids to point with.
  */
 type PlanScalars = Omit<Plan, "goals" | "budgetLines" | "primary"> &
-  Omit<PrimaryPerson, "id" | "jobs" | "continuationJobId">;
+  Omit<Person, "id" | "jobs" | "continuationJobId">;
 
 /**
  * The `"account"` arm of a {@link import("../budget/budgetLine").BudgetTarget}, but pointing at an

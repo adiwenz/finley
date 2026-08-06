@@ -306,26 +306,18 @@ export function membershipWindow(membership: HouseholdMembership): {
  * The exclusive month a member's own life ends — the first month they no longer draw a government
  * benefit (a wage is untouched; it ends where its job was authored to), and the reach their
  * expectancy contributes to the projection horizon.
- * Derived from their birth year and expectancy age against the plan's frozen "now"; `fallbackAge`
- * (the primary's own {@link import("../plan/person").Person.lifeExpectancy}) stands in when the
- * member states none of their own. This is the ONE inheritance: a partner may defer to the
- * primary, and the primary's is required
- * ({@link import("../plan/person").PrimaryPerson}), so the chain is one link long and bottoms out
- * in a stated number.
- *
- * `Infinity` only when no expectancy is reachable at all — a hand-built base holding no primary,
- * where there is nothing to inherit from. Unreachable for any household built from a `Plan`.
+ * Derived from their birth year and their own expectancy age against the plan's frozen "now".
+ * No fallback and no inheritance: {@link import("../plan/person").Person.lifeExpectancy} is
+ * required, so the member being asked about always states one. The primary's expectancy is a
+ * default applied at `marry` rather than a value read through to from here.
  */
 export function lifeExpectancyEndMonthExclusive(
   person: Pick<Person, "birthYear" | "lifeExpectancy">,
   nowYear: number,
-  fallbackAge?: number,
 ): number {
-  const age = person.lifeExpectancy ?? fallbackAge;
-  if (age === undefined) return Number.POSITIVE_INFINITY;
   // Clamped at 0: a member already past their expectancy at "now" contributes no forward months
   // rather than a negative horizon.
-  return Math.max(0, (person.birthYear + age - nowYear) * 12);
+  return Math.max(0, (person.birthYear + person.lifeExpectancy - nowYear) * 12);
 }
 
 /** Resolve one context: intersect employment, membership, and any candidate boundary. */

@@ -66,6 +66,7 @@ describe("Job/Person standing model — additive compilation", () => {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       // Both authored to run to 80 — well past where the fixture's own job stops at 60, which
       // is the point: the end is each job's, and holding two does not make either the one that
@@ -89,6 +90,7 @@ describe("Job/Person standing model — additive compilation", () => {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear: samplePlan.primary.birthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       jobs: [lateEndingJob],
     };
@@ -106,6 +108,7 @@ describe("Job/Person standing model — additive compilation", () => {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       jobs: [{ ...openEndedJob, endYear }],
     };
@@ -176,6 +179,7 @@ describe("Job/Person standing model — one-month income overrides", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -310,6 +314,7 @@ describe("a permanent raise and a one-month adjustment in the same month", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -415,6 +420,7 @@ describe("Job/Person standing model — permanent pay changes", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -486,6 +492,7 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -543,6 +550,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -696,6 +704,7 @@ describe("Job — human name drives the income band label (display only)", () =>
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs: [job],
   });
@@ -944,6 +953,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -1089,6 +1099,7 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -1181,6 +1192,7 @@ describe("historical pay is flat", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
@@ -1261,6 +1273,7 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "p2",
     name: "Sam",
     birthYear: BIRTH_YEAR,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });

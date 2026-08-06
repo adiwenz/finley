@@ -45,6 +45,7 @@ const owner: Person = {
   id: "p2",
   name: "Partner",
   birthYear: BIRTH_YEAR,
+  lifeExpectancy: 85,
   benefitClaimingAge: 67,
   jobs: [],
   continuationJobId: null,

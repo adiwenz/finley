@@ -24,11 +24,17 @@ Delivered as three commits:
 
 ## Key decisions & why
 
-- **`Person.lifeExpectancy` is OPTIONAL, inherit-on-read.** `undefined` means "use the household's"
-  (`Plan.lifeExpectancy`), resolved at the sim boundary — the same shape `continuationJobId` uses.
-  This kept the change off ~35 existing `Person` fixtures. The primary always carries a concrete
-  value (built from the plan); a partner stores one only when `marry({ lifeExpectancy })` states it,
-  else inherits the household's live value rather than freezing it at marriage.
+- **`Person.lifeExpectancy` is REQUIRED — every person carries their own.** It began as optional
+  ("inherit the household's", resolved at the sim boundary), which kept the change off ~35 `Person`
+  fixtures but cost more than it saved: the type could not say what the projection ran to, every read
+  site needed the fallback threaded to it, five read sites had invented DIFFERENT answers for an
+  absent one (a horizon of 0 months against a slider reading 120), and a plan whose primary also
+  stated none projected nothing. The authoring convenience stays at the door: `marry`/
+  `startPartnered` still take an optional expectancy and resolve it to the primary's, once, at that
+  call. Consequence, accepted: a partner who stated none keeps the value in force when they joined,
+  so a later edit to the primary's no longer moves them — changing it is an edit to the partner.
+  Refused rather than defaulted at both doors (`init` throws, `fromInput` answers `{ ok: false }`),
+  and `ProjectionState` is **format version 2** because of it.
 
 - **A member's expectancy bounds ONLY the government benefit, never a wage.** The decision keeps
   "jobs end at their stated age regardless". A first attempt folded death into the shared
@@ -72,8 +78,9 @@ Engine:
 - `projection/simulate.types.ts`, `compile/compilePerson.ts` — `SimPerson.lifeEndMonthExclusive`.
 - `projection/governmentBenefit.ts` — benefit stops at the member's expectancy.
 - `projection/buildHouseholdInput.ts` — horizon = max member reach; thread each member's life-end.
-- `ledger/ledgerBase.ts`, `compile/projectionBase.ts` — `householdLifeExpectancyAge`; primary's
-  expectancy on the standing Person.
+- `compile/projectionBase.ts` — primary's expectancy on the standing Person.
+  (`LedgerBaseConfig.householdLifeExpectancyAge` was added and then REMOVED: it was named for a
+  household, held one person's value, and became unnecessary once every Person states their own.)
 - `authoring/relationships.ts` — `marry`/`startPartnered` accept and validate `lifeExpectancy`.
 - `retirement/retirementTypes.ts`, `retirement/retirementSolver.ts` — `HorizonAnchor` +
   `horizonAnchorOf`, added to `RetirementSolution`.

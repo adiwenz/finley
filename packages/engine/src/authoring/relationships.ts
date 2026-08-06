@@ -31,10 +31,18 @@ export interface MarryInput {
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
   /**
-   * The age the partner is projected to live to. Defaults to the primary's own
-   * ({@link import("../plan/plan").Plan.primary}`.lifeExpectancy`); a partner younger than the
-   * primary reaches that same age in a later calendar year, which is what extends the projection
-   * horizon to cover their tail.
+   * The age the partner is projected to live to. Optional HERE — omitted, it resolves to the
+   * primary's own ({@link import("../plan/plan").Plan.primary}`.lifeExpectancy`) at this call,
+   * which is the only place the default is applied: what lands on the
+   * {@link import("../plan/person").Person} is always a stated number.
+   *
+   * A partner younger than the primary reaches the same age in a later calendar year, which is
+   * what extends the projection horizon to cover their tail.
+   *
+   * Resolved now rather than on read, so the partner's expectancy is a fact about the partner. A
+   * consequence worth stating: the household's later edits to the PRIMARY's expectancy no longer
+   * move a partner who never stated one — the partner keeps the value in force when they joined,
+   * and changing it is an edit to them.
    */
   readonly lifeExpectancy?: number;
   readonly jobs?: readonly JobInput[];
@@ -106,11 +114,15 @@ export function applyMarriage(
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
+  // Resolved BEFORE the bound check, so what is validated is what gets stored. The "no opinion"
+  // default is the primary's own expectancy — the only place it is applied, see
+  // {@link MarryInput.lifeExpectancy}.
+  const lifeExpectancy = input.lifeExpectancy ?? state.scenario.plan.primary.lifeExpectancy;
   // A partner is a person, and the same age bound holds for them as for the primary — see
   // {@link ageAboveMaximum}. Their age is a birth YEAR on the way in, so it is read against the
   // plan's frozen "now" rather than a wall clock.
   const bad = ageAboveMaximum(
-    { birthYear: input.birthYear, lifeExpectancy: input.lifeExpectancy, benefitClaimingAge: input.benefitClaimingAge },
+    { birthYear: input.birthYear, lifeExpectancy, benefitClaimingAge: input.benefitClaimingAge },
     state.startYear,
   );
   if (bad) {
@@ -131,9 +143,7 @@ export function applyMarriage(
     id,
     name: input.name,
     birthYear: input.birthYear,
-    // Stored only when stated; omitted, it inherits the household's expectancy on read, so a
-    // later change to the plan's carries to the partner rather than freezing at marriage.
-    ...(input.lifeExpectancy !== undefined ? { lifeExpectancy: input.lifeExpectancy } : {}),
+    lifeExpectancy,
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };
