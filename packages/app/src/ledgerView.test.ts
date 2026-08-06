@@ -55,7 +55,7 @@ describe("summarizeEvent — one plain-language label per structural change", ()
       purchasePriceCents: 300_000_00,
       downPaymentCents: 60_000_00,
       downPaymentSourceIds: [],
-      mortgage: { openingBalanceCents: 240_000_00, apr: 0.065, termMonths: 360 },
+      mortgage: { liabilityId: "home-1-mortgage", openingBalanceCents: 240_000_00, apr: 0.065, termMonths: 360 },
     });
     expect(s.label).toBe("Bought a home");
     expect(s.detail).toContain("$300,000");

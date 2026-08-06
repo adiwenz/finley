@@ -57,6 +57,14 @@ function buyHome(p: Projection, priceDollars: number, downDollars: number): stri
   });
 }
 
+/** The liability id `buyHome` minted alongside `homeId` — authored, not derived from it. */
+function mortgageIdOf(p: Projection, homeId: string): string {
+  const event = p.ledger.events.find((e) => e.id === homeId);
+  const mortgageId = event?.type === "HomePurchaseEvent" ? event.mortgage?.liabilityId : undefined;
+  if (mortgageId === undefined) throw new Error(`expected "${homeId}" to carry a mortgage`);
+  return mortgageId;
+}
+
 describe("a purchase stranded by a later edit — what the projection does with it", () => {
   it("originates NEITHER of two same-month homes when the first cannot be funded", () => {
     const p = household(OPENING_WHEN_AUTHORED);
@@ -83,8 +91,8 @@ describe("a purchase stranded by a later edit — what the projection does with 
     // artifacts are fabrication — a $300k property and a $240k loan against cash that never moved.
     expect(blocked.propertyValuesCents[first] ?? 0).toBe(0);
     expect(blocked.propertyValuesCents[second] ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents[`${first}-mortgage`] ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents[`${second}-mortgage`] ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents[mortgageIdOf(p, first)] ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents[mortgageIdOf(p, second)] ?? 0).toBe(0);
 
     // The sharpest statement of "no money moved and nothing was minted": the blocked month is
     // INDISTINGUISHABLE from the same household having authored no purchase at all. Written as a
@@ -110,9 +118,9 @@ describe("a purchase stranded by a later edit — what the projection does with 
 
     const blocked = series.months[BUY_MONTH]!;
     expect(blocked.propertyValuesCents[funded]).toBe(dollarsToCents(100_000));
-    expect(blocked.liabilityBalancesCents[`${funded}-mortgage`]).toBe(dollarsToCents(90_000));
+    expect(blocked.liabilityBalancesCents[mortgageIdOf(p, funded)]).toBe(dollarsToCents(90_000));
     expect(blocked.propertyValuesCents[stranded] ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents[`${stranded}-mortgage`] ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents[mortgageIdOf(p, stranded)] ?? 0).toBe(0);
     // Its down payment left the account, unlike the stranded pair's.
     const untouched = household(OPENING_AFTER_EDIT).run(usJurisdiction).series.months[BUY_MONTH]!;
     expect(blocked.accountBalancesCents.savings).toBeLessThan(

@@ -29,6 +29,7 @@ const MINTED_KINDS = [
   "payoff",
   "loan",
   "home",
+  "mortgage",
 ] as const;
 
 export type MintedKind = (typeof MINTED_KINDS)[number];
@@ -104,9 +105,15 @@ function eventIds(event: LifeEvent): readonly (string | undefined)[] {
     case "SeparationEvent":
       return [...common, event.partnerPersonId];
     case "HomePurchaseEvent":
-      // The mortgage id is DERIVED (`<propertyId>-mortgage`), not authored, so only the property
-      // and owner ids are the counter's to floor — the mortgage rides on the property's slot.
-      return [...common, event.propertyId, event.ownerId, ...event.downPaymentSourceIds];
+      // The embedded mortgage's liability id is minted just like any other — floor past it too,
+      // or a restored plan holding `mortgage-3` hands the next financed purchase the same id.
+      return [
+        ...common,
+        event.propertyId,
+        event.ownerId,
+        event.mortgage?.liabilityId,
+        ...event.downPaymentSourceIds,
+      ];
     case "LoanEvent":
       return [...common, event.liabilityId, event.ownerId];
     case "DebtPayoffEvent":

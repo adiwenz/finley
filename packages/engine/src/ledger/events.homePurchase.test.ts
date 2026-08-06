@@ -40,7 +40,7 @@ const PRICE = 30_000_000; // $300k
 const DOWN = 6_000_000; // $60k
 const FINANCED = PRICE - DOWN; // $240k
 
-/** The liability id the handler derives from `house1`'s embedded mortgage. */
+/** The liability id these fixtures author onto `house1`'s embedded mortgage. */
 const MORTGAGE_ID = "house1-mortgage";
 
 /**
@@ -87,8 +87,8 @@ function addWithBase(ledger: Ledger, base: LedgerBaseConfig, event: NewLifeEvent
 
 /**
  * Append a financed purchase the way `buyHome` composes one: ONE event carrying the mortgage
- * inline. The handler derives the securing liability (`house1-mortgage`) from it, so the financed
- * balance follows the price/down overrides automatically.
+ * inline, authored at `MORTGAGE_ID` (a real `buyHome` call mints this off the shared counter; a
+ * fixture names it directly). The financed balance follows the price/down overrides automatically.
  */
 function addFinanced(
   ledger: Ledger,
@@ -100,7 +100,10 @@ function addFinanced(
   return addWithBase(
     ledger,
     base,
-    purchase({ ...homeOverrides, mortgage: { openingBalanceCents: financed, apr: 0, termMonths: 360 } }),
+    purchase({
+      ...homeOverrides,
+      mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: financed, apr: 0, termMonths: 360 },
+    }),
   );
 }
 
@@ -121,11 +124,34 @@ describe("HomePurchaseEvent", () => {
     expect(household.liabilities[0].openingBalanceCents).toBe(FINANCED);
   });
 
-  it("derives the mortgage from one event, needing no prior liability to exist", () => {
-    // The mortgage rides inside the purchase — a single event, minted as a dependent artifact —
-    // so there is no separate loan to author first and no ordering precondition to satisfy.
+  it("materializes the SAME mortgage liability id on every interpretation of the same ledger", () => {
+    // The id lives on the authored event, not conjured fresh each time `apply` runs — so
+    // interpreting the identical ledger twice (a re-run, a reload, a re-derived projection) must
+    // land on the exact same id both times, not merely on two ids that happen not to collide.
     const base = baseWith(10_000_000);
-    const result = addEvent(emptyLedger, base, purchase({ mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 } }));
+    const ledger = addFinanced(emptyLedger, base);
+
+    const first = interpretLedger(ledger, base);
+    const second = interpretLedger(ledger, base);
+
+    expect(first.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(second.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(second.properties[0].mortgageLiabilityId).toBe(first.properties[0].mortgageLiabilityId);
+    expect(second.liabilities[0].id).toBe(first.liabilities[0].id);
+  });
+
+  it("materializes the mortgage from one event, needing no prior liability to exist", () => {
+    // The mortgage rides inside the purchase — a single event, materialized as a dependent
+    // artifact at its authored id — so there is no separate loan to author first and no ordering
+    // precondition to satisfy.
+    const base = baseWith(10_000_000);
+    const result = addEvent(
+      emptyLedger,
+      base,
+      purchase({
+        mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+      }),
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       const household = interpretLedger(result.ledger, base);
@@ -411,12 +437,13 @@ function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   });
 }
 
-describe("HomePurchaseEvent — derived mortgage id collision", () => {
-  // The mortgage's id is DERIVED (`<propertyId>-mortgage`), not authored, so a hand-edited or
-  // imported ledger can hand a standalone LoanEvent that exact id.
-  // `liabilitiesById` is a plain Map: without an explicit guard, whichever event lands second
-  // silently overwrites the first rather than failing. Every case below asserts the collision is
-  // refused explicitly, in both possible orderings, at both the authoring and the import gates.
+describe("HomePurchaseEvent — mortgage liability id collision", () => {
+  // The embedded mortgage's liability id is AUTHORED (minted off the same counter every other id
+  // draws from), not derived at interpret time — but authoring cannot stop a hand-edited or
+  // imported ledger from handing a standalone LoanEvent that exact id. `liabilitiesById` is a
+  // plain Map: without an explicit guard, whichever event lands second silently overwrites the
+  // first rather than failing. Every case below asserts the collision is refused explicitly, in
+  // both possible orderings, at both the authoring and the import gates.
 
   it("still creates and links a normal, non-colliding financed purchase's mortgage", () => {
     // The invariant added here must not disturb the ordinary path.
@@ -427,9 +454,9 @@ describe("HomePurchaseEvent — derived mortgage id collision", () => {
     expect(household.liabilities.map((l) => l.id)).toEqual([MORTGAGE_ID]);
   });
 
-  it("rejects the purchase when its derived mortgage id collides with an EARLIER standalone loan", () => {
-    // Loan authored first, taking the id the purchase's mortgage will derive; the purchase must
-    // then be refused rather than silently overwriting the standalone loan.
+  it("rejects the purchase when its authored mortgage id collides with an EARLIER standalone loan", () => {
+    // Loan authored first, taking the id the purchase's mortgage is (separately) authored to; the
+    // purchase must then be refused rather than silently overwriting the standalone loan.
     const base = baseWith(10_000_000);
     const ledger = addWithBase(emptyLedger, base, loanEvent({ liabilityId: MORTGAGE_ID, month: 1 }));
     const result = addEvent(
@@ -437,19 +464,19 @@ describe("HomePurchaseEvent — derived mortgage id collision", () => {
       base,
       purchase({
         month: 3,
-        mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+        mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
       }),
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflict).toContain(MORTGAGE_ID);
-      expect(result.conflict).toMatch(/collides|already exists/);
+      expect(result.conflict).toMatch(/already exists/);
     }
   });
 
-  it("rejects a LATER standalone loan authored against an EARLIER purchase's derived mortgage id", () => {
-    // The mirror ordering: the purchase mints its mortgage first, so the standalone loan's own
-    // "liability already exists" precondition is what refuses it — same outcome, other handler.
+  it("rejects a LATER standalone loan authored against an EARLIER purchase's mortgage id", () => {
+    // The mirror ordering: the purchase materializes its mortgage first, so the standalone loan's
+    // own "liability already exists" precondition is what refuses it — same outcome, other handler.
     const base = baseWith(10_000_000);
     const ledger = addFinanced(emptyLedger, base);
     const result = addEvent(
@@ -476,7 +503,7 @@ describe("HomePurchaseEvent — derived mortgage id collision", () => {
         {
           ...purchase({
             month: 3,
-            mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+            mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
           }),
           sequenceNumber: 2,
         },
@@ -488,20 +515,20 @@ describe("HomePurchaseEvent — derived mortgage id collision", () => {
     if (!result.ok) {
       expect(result.event.id).toBe("buy1");
       expect(result.reason).toContain(MORTGAGE_ID);
-      expect(result.reason).toMatch(/collides|already exists/);
+      expect(result.reason).toMatch(/already exists/);
     }
   });
 
   it("refuses to import a ledger whose purchase-before-loan collision was never authored through the gate", () => {
-    // Same fixture, reversed sequence: the purchase mints its mortgage first, so the loan is what
-    // strands on replay — the other ordering `validateLedger` must also catch.
+    // Same fixture, reversed sequence: the purchase materializes its mortgage first, so the loan
+    // is what strands on replay — the other ordering `validateLedger` must also catch.
     const base = baseWith(10_000_000);
     const ledger: Ledger = {
       events: [
         {
           ...purchase({
             month: 1,
-            mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+            mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
           }),
           sequenceNumber: 1,
         },
@@ -1234,7 +1261,7 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
         month: 3,
         purchasePriceCents: 30_000_000,
         downPaymentCents: 3_000_000,
-        mortgage: { openingBalanceCents: 27_000_000, apr: 0, termMonths: 360 },
+        mortgage: { liabilityId: "house2-mortgage", openingBalanceCents: 27_000_000, apr: 0, termMonths: 360 },
       }),
     );
     // Then a $70k cash home at month 1 drains savings to $30k, stranding the month-3 pair. Authored

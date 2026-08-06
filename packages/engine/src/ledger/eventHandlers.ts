@@ -272,19 +272,14 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
     }
-    // The mortgage's id is DERIVED, not authored (`<propertyId>-mortgage`), so nothing upstream —
-    // authoring's id mint, a standalone LoanEvent's `liabilityId` uniqueness — stops a hand-edited
-    // or imported ledger from handing a LoanEvent that exact id. `loan.check` catches the mirror
-    // ordering (a LoanEvent authored after this purchase already sees the derived mortgage in
-    // `liabilitiesById`); this is the other half, checked before `apply` mints and would otherwise
-    // silently overwrite whichever liability landed first.
+    // The embedded mortgage's liability id is AUTHORED (minted like any other id), so a
+    // hand-edited or imported ledger can still hand it to a standalone LoanEvent that landed
+    // first — same precondition `loan.check` applies to its own `liabilityId`, checked here
+    // before `apply` inserts and would otherwise collide with whichever liability landed first.
     if (event.mortgage !== undefined) {
-      const mortgageLiabilityId = asLiabilityId(`${event.propertyId}-mortgage`);
+      const mortgageLiabilityId = asLiabilityId(event.mortgage.liabilityId);
       if (state.liabilitiesById.has(mortgageLiabilityId)) {
-        return fail(
-          event,
-          `derived mortgage liability "${mortgageLiabilityId}" collides with an existing liability`,
-        );
+        return fail(event, `liability "${mortgageLiabilityId}" already exists`);
       }
     }
     // A holding (a home already owned at "now") opens at its current value with no acquisition:
@@ -336,12 +331,13 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     return ok;
   },
   apply(event, state, context) {
-    // Mortgage: a dependent artifact minted here from the embedded terms, not a separate event.
-    // Its id is derived (`<propertyId>-mortgage`) and its `causedByEventId` is this purchase, so
-    // deleting the purchase drops it and revising the purchase rebuilds it — no cross-event
+    // Mortgage: a dependent artifact materialized here from the embedded terms, not a separate
+    // event — but its id is AUTHORED (`event.mortgage.liabilityId`, minted by authoring), never
+    // derived or minted here. `causedByEventId` is this purchase, so deleting the purchase drops
+    // it and revising the purchase rebuilds it under the SAME authored id — no cross-event
     // precondition, no cascade edge. A cash purchase / owned-outright home omits `mortgage`.
     const mortgageLiabilityId =
-      event.mortgage !== undefined ? asLiabilityId(`${event.propertyId}-mortgage`) : null;
+      event.mortgage !== undefined ? asLiabilityId(event.mortgage.liabilityId) : null;
     if (event.mortgage !== undefined && mortgageLiabilityId !== null) {
       insertLiability(
         state,
@@ -359,8 +355,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
         event,
       );
     }
-    // Property: the appreciating stock. Its balance nets against the derived mortgage above to
-    // give equity; a cash purchase leaves `mortgageLiabilityId` null.
+    // Property: the appreciating stock. Its balance nets against the mortgage above to give
+    // equity; a cash purchase leaves `mortgageLiabilityId` null.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,

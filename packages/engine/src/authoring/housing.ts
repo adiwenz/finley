@@ -132,21 +132,24 @@ export function assessHomePurchase(
 }
 
 /**
- * Author the purchase as ONE event carrying the financing terms inline: the handler mints the
- * mortgage as a dependent artifact derived from this event, so there is no second event to order
- * before it. The financed balance is `purchasePriceCents − downPaymentCents` — the revision
- * recomputes it when either changes, which is what keeps price and mortgage from drifting apart.
+ * Author the purchase as ONE event carrying the financing terms inline: the mortgage rides as a
+ * dependent artifact of this event (no second event to order before it), but its identity is
+ * minted right here — off the SAME counter the property/event id draws from, one call after the
+ * other — never derived or conjured at interpret time. The financed balance is
+ * `purchasePriceCents − downPaymentCents` — the revision recomputes it when either changes, which
+ * is what keeps price and mortgage from drifting apart.
  *
- * The derived mortgage liability id is parent-suffixed (`<propertyId>-mortgage`) inside the
- * handler, so a sort groups it under its home. Answers with the property id; subject to the
- * down-payment hard block, which fires on this event.
+ * Answers with the property id; subject to the down-payment hard block, which fires on this event.
  */
 export function applyHomePurchase(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   input: BuyHomeInput,
 ): Written<string> {
-  const { id, nextSeq } = mint(state, "home");
+  const { id, nextSeq: afterHome } = mint(state, "home");
+  // One counter, threaded property → mortgage: the mortgage draws the next id off the same
+  // monotonic run, so the two never collide and a restored plan's counter floors past both.
+  const { id: mortgageLiabilityId, nextSeq } = mint({ ...state, nextSeq: afterHome }, "mortgage");
   return {
     state: appendEvent(
       state,
@@ -161,6 +164,7 @@ export function applyHomePurchase(
         downPaymentCents: input.downPaymentCents,
         downPaymentSourceIds: input.downPaymentSourceIds,
         mortgage: {
+          liabilityId: mortgageLiabilityId,
           openingBalanceCents: input.purchasePriceCents - input.downPaymentCents,
           apr: input.mortgageApr,
           termMonths: input.mortgageTermMonths,
@@ -189,7 +193,13 @@ export function applyOwnHome(
   jurisdiction: Jurisdiction,
   input: OwnHomeInput,
 ): Written<string> {
-  const { id, nextSeq } = mint(state, "home");
+  const { id, nextSeq: afterHome } = mint(state, "home");
+  // A holding's mortgage is optional, so the second mint only fires when there is one — an
+  // owned-outright home leaves the counter exactly where the property id left it.
+  const mintedMortgage =
+    input.mortgage !== undefined ? mint({ ...state, nextSeq: afterHome }, "mortgage") : undefined;
+  const mortgageLiabilityId = mintedMortgage?.id;
+  const nextSeq = mintedMortgage?.nextSeq ?? afterHome;
   return {
     state: appendEvent(
       state,
@@ -205,9 +215,10 @@ export function applyOwnHome(
         // holding branch in the handler skips the draw and the affordability gate entirely.
         downPaymentCents: 0,
         downPaymentSourceIds: [],
-        ...(input.mortgage !== undefined
+        ...(input.mortgage !== undefined && mortgageLiabilityId !== undefined
           ? {
               mortgage: {
+                liabilityId: mortgageLiabilityId,
                 openingBalanceCents: input.mortgage.balanceCents,
                 apr: input.mortgage.apr,
                 termMonths: input.mortgage.remainingTermMonths,

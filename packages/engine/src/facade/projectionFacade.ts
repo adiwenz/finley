@@ -491,9 +491,9 @@ export class Projection {
   }
 
   /**
-   * The mortgage liability id derives from the minted property id, parent-suffixed
-   * (`<propertyId>-mortgage`) so a sort groups it under its home. Subject to the down-payment
-   * hard block.
+   * The financing mortgage's liability id is minted alongside the property id, off the same
+   * counter — authoring identity, not something interpretation derives. Subject to the
+   * down-payment hard block.
    */
   buyHome(input: BuyHomeInput): string {
     return this.write((state) => applyHomePurchase(state, this.validationJurisdiction, input));

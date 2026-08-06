@@ -78,17 +78,29 @@ export interface SeparationEvent extends EventBase {
 }
 
 /**
- * The financing mortgage embedded in a purchase — the amortizing terms the handler mints a
- * {@link LiabilityDef} from. A dependent artifact with no independent life: it is re-derived on
- * every interpret, so deleting the purchase drops it and revising the purchase rebuilds it, with
- * no cross-event precondition or cascade edge to maintain. Absent ⇒ a cash purchase / a home
- * owned outright.
+ * The financing mortgage embedded in a purchase — the amortizing terms the handler materializes a
+ * {@link LiabilityDef} from, at the authored {@link liabilityId}. That id is minted by authoring
+ * (the same centralized counter every other id comes off), never derived or minted during
+ * interpretation: `homePurchase.apply` only ever materializes the liability under the id it is
+ * given. The liability is still a DEPENDENT artifact with no independent life — no separate
+ * `LoanEvent` ever names it, so deleting the purchase drops it and revising the purchase rebuilds
+ * it under the same id — but its identity is owned by authoring, not conjured at interpret time.
+ * Absent ⇒ a cash purchase / a home owned outright.
  *
  * `openingBalanceCents` is stored uniformly but computed differently by the two authoring verbs:
  * `buyHome` derives it as `purchasePriceCents − downPaymentCents` (and its revision recomputes it
  * when either changes), while `ownHome` opens a holding at the mortgage's CURRENT balance.
  */
 export interface EmbeddedMortgage {
+  /**
+   * Minted once, by authoring, when financing is added to this purchase — `applyHomePurchase`,
+   * `applyOwnHome`, or a `buyHome` revision that turns a cash purchase into a financed one. A
+   * revision that only edits terms on an already-financed purchase carries this id through
+   * unchanged; one that removes financing drops the whole `mortgage` object, id included. A LATER
+   * revision that re-finances mints a FRESH id — this one is never reused once its mortgage is
+   * gone.
+   */
+  readonly liabilityId: string;
   readonly openingBalanceCents: Cents;
   readonly apr: number;
   readonly termMonths: number;
@@ -99,10 +111,10 @@ export interface EmbeddedMortgage {
  * payment as one-time outflows. Does NOT touch any budget item — ceasing to rent is a separate,
  * user-authored decision. Subject to the down-payment hard block.
  *
- * The financing mortgage rides along as {@link mortgage}, and the handler mints the securing
- * {@link LiabilityDef} (id `<propertyId>-mortgage`, `causedByEventId` this event) as a dependent
- * artifact — so a pre-existing home reuses the same primitive as a plain property holding, and a
- * cash purchase omits `mortgage` entirely.
+ * The financing mortgage rides along as {@link mortgage}, and the handler materializes the
+ * securing {@link LiabilityDef} at `mortgage.liabilityId` (`causedByEventId` this event) — so a
+ * pre-existing home reuses the same primitive as a plain property holding, and a cash purchase
+ * omits `mortgage` entirely.
  */
 export interface HomePurchaseEvent extends EventBase {
   readonly type: "HomePurchaseEvent";

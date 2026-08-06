@@ -162,7 +162,12 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       purchasePriceCents: dollarsToCents(200_000),
       downPaymentCents: dollarsToCents(22_000),
       downPaymentSourceIds: [SAVINGS_ID],
-      mortgage: { openingBalanceCents: dollarsToCents(178_000), apr: 0.06, termMonths: 360 },
+      mortgage: {
+        liabilityId: "house1-mortgage",
+        openingBalanceCents: dollarsToCents(178_000),
+        apr: 0.06,
+        termMonths: 360,
+      },
     });
     if (!withHome.ok) throw new Error(`purchase rejected: ${withHome.conflict}`);
     const withDrain = addEvent(withHome.ledger, base, {

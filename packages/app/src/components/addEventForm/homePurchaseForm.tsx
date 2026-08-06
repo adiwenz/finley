@@ -164,7 +164,7 @@ export function HomePurchaseForm({
       );
       return;
     }
-    // `buyHome` mints the property id and derives `<propertyId>-mortgage` from it.
+    // `buyHome` mints the property id and, alongside it, the mortgage's own liability id.
     onAdd((p) =>
       p.buyHome({
         month: draft.month,

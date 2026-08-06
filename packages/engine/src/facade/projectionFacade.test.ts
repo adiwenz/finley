@@ -135,9 +135,9 @@ describe("Projection root — one root for standing + ledger writes", () => {
   });
 
   it("composes one event carrying the mortgage inline, deriving its financed balance", () => {
-    // A financed purchase is a SINGLE event now: the mortgage terms ride inside it and the handler
-    // mints the securing liability (`${propertyId}-mortgage`) as a dependent artifact. The financed
-    // balance is derived `price − down`, so the authoring layer never states it.
+    // A financed purchase is a SINGLE event now: the mortgage terms ride inside it, at a liability
+    // id minted alongside the property id. The financed balance is derived `price − down`, so the
+    // authoring layer never states it.
     const p = freshProjection();
     const homeId = p.buyHome({
       month: 0,
@@ -156,6 +156,8 @@ describe("Projection root — one root for standing + ledger writes", () => {
     expect(home.type).toBe("HomePurchaseEvent");
     if (home.type === "HomePurchaseEvent") {
       expect(home.propertyId).toBe("home-1");
+      // Minted off the same counter as the property id, one call after it.
+      expect(home.mortgage?.liabilityId).toBe("mortgage-2");
       expect(home.mortgage?.openingBalanceCents).toBe(dollarsToCents(90000)); // price − down
       expect(home.mortgage?.apr).toBe(6);
       expect(home.mortgage?.termMonths).toBe(360);

@@ -155,10 +155,10 @@ describe("ownHome — a home already owned at start", () => {
       mortgage: { balanceCents: 24_000_000, apr: 0, remainingTermMonths: 240 },
     });
     expect(homeId).toMatch(/^home-\d+$/);
-    const mortgageId = `${homeId}-mortgage`;
 
     // ONE event carrying the mortgage inline, dated `-1` — never a caller-supplied month. The
-    // handler mints the securing liability from it; there is no separate loan event to sort first.
+    // handler materializes the securing liability at its authored id; there is no separate loan
+    // event to sort first.
     const events = p.state.scenario.ledger.events;
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("HomePurchaseEvent");
@@ -166,6 +166,10 @@ describe("ownHome — a home already owned at start", () => {
     expect(events[0]?.type === "HomePurchaseEvent" && events[0].mortgage?.openingBalanceCents).toBe(
       24_000_000,
     );
+    const mortgageId =
+      events[0]?.type === "HomePurchaseEvent" ? events[0].mortgage?.liabilityId : undefined;
+    if (mortgageId === undefined) throw new Error("expected a minted mortgage liability id");
+    expect(mortgageId).toMatch(/^mortgage-\d+$/);
 
     // On the books at "now": the property opens at its full value and the mortgage at its full
     // balance, and savings is untouched — a holding draws no down payment (contrast `buyHome`).
@@ -250,15 +254,17 @@ describe("ScenarioInput — the declarative surface for anchors and holdings", (
         },
       ],
     });
-    // A single holding event carries the mortgage inline; the handler derives its liability.
+    // A single holding event carries the mortgage inline, materialized at its authored id.
     expect(p.ledger.events).toHaveLength(1);
     const property = p.ledger.events.find((e) => e.type === "HomePurchaseEvent");
     if (property?.type !== "HomePurchaseEvent") throw new Error("expected an expanded home holding");
     expect(property.month).toBe(PRE_NOW_MONTH);
     expect(property.mortgage?.openingBalanceCents).toBe(24_000_000);
+    const mortgageId = property.mortgage?.liabilityId;
+    if (mortgageId === undefined) throw new Error("expected a minted mortgage liability id");
     const { series } = p.run(nullJurisdiction);
     expect(series.opening.propertyValuesCents[property.propertyId]).toBe(40_000_000);
-    expect(series.opening.liabilityBalancesCents[`${property.propertyId}-mortgage`]).toBe(24_000_000);
+    expect(series.opening.liabilityBalancesCents[mortgageId]).toBe(24_000_000);
   });
 
   it("dates a declarative pre-now separation against the partner it names", () => {

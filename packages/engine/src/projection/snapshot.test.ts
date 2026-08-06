@@ -389,8 +389,7 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
   };
 }
 
-/** A financed purchase — one event carrying the mortgage inline, from which the handler derives
- * the securing `house1-mortgage` liability. */
+/** A financed purchase — one event carrying the mortgage inline, authored at `house1-mortgage`. */
 function purchaseFixture(): NewLifeEvent {
   return {
     id: "buy1",
@@ -401,7 +400,12 @@ function purchaseFixture(): NewLifeEvent {
     purchasePriceCents: PROPERTY_PRICE,
     downPaymentCents: PROPERTY_DOWN,
     downPaymentSourceIds: ["savings"],
-    mortgage: { openingBalanceCents: PROPERTY_FINANCED, apr: 0, termMonths: 360 },
+    mortgage: {
+      liabilityId: "house1-mortgage",
+      openingBalanceCents: PROPERTY_FINANCED,
+      apr: 0,
+      termMonths: 360,
+    },
   } as NewLifeEvent;
 }
 
