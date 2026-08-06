@@ -182,7 +182,10 @@ describe("RelationshipForm — editing an existing partner", () => {
       month: 24,
       name: "Sam",
       birthYear: 1988,
-        benefitClaimingAge: 68,
+      // Seeded from the partner on the timeline and sent back unchanged — a revision is the only
+      // way to edit an expectancy, since nothing defaults one.
+      lifeExpectancy: 85,
+      benefitClaimingAge: 68,
     });
   });
 

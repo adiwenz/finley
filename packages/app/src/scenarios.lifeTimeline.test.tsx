@@ -52,6 +52,7 @@ function lifeArc() {
     partneredForMonths: 120,
     name: "Sam",
     birthYear: ALEX_BIRTH,
+    lifeExpectancy: LIFE_EXPECTANCY,
     jobs: [jobAt(30, 60, 90_000, ALEX_BIRTH)],
   });
 

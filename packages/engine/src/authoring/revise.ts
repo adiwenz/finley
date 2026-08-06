@@ -40,6 +40,12 @@ export type TransactionRevision =
       readonly month?: number;
       readonly name?: string;
       readonly birthYear?: number;
+      /**
+       * Optional the way every field on a revision is — omitted means "leave it alone", never
+       * "default it". A partner's expectancy is required at `marry` and never inherited from the
+       * primary, so this is the only way to change one after the fact.
+       */
+      readonly lifeExpectancy?: number;
       readonly benefitClaimingAge?: number;
     }
   | {
@@ -125,6 +131,7 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
           ...current.person,
           name: r.name ?? current.person.name,
           birthYear: r.birthYear ?? current.person.birthYear,
+          lifeExpectancy: r.lifeExpectancy ?? current.person.lifeExpectancy,
           benefitClaimingAge: r.benefitClaimingAge ?? current.person.benefitClaimingAge,
         },
       } as NewLifeEvent;

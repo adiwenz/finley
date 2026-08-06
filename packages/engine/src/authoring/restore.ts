@@ -49,15 +49,15 @@ function assertSupportedVersion(version: number | undefined): void {
  * Every person in the state states a life expectancy — the primary on the plan, and each partner
  * on the `RelationshipEvent` that brought them in.
  *
- * The version gate above already refuses the shape that could legitimately omit it (v1, where the
- * plan held one household-wide age and a partner could inherit it). This catches the case
- * restoration exists for: a file declaring the CURRENT version whose contents do not match it —
- * hand-edited, truncated, or written by something other than `toJSON`. Checked here rather than
- * left to the projection because the field is what the horizon is computed from, and its absence
- * surfaces as a run of `NaN` months rather than as anything a reader could act on.
+ * The field is required, and the version says nothing about it: the shape changed while this build
+ * was the only thing writing states, so no file carries the older one and the version was not
+ * bumped. What is left is the case restoration exists for — a state whose contents are simply
+ * wrong, hand-edited, truncated, or written by something other than `toJSON`. Checked here rather
+ * than left to the projection because the field is what the horizon is computed from, and its
+ * absence surfaces as a run of `NaN` months rather than as anything a reader could act on.
  *
- * A generic invalid-plan `Error`, not {@link UnsupportedVersionError}: the file claims a version
- * this build reads, so "update to open this" would be a lie. It is simply not a valid state.
+ * A generic invalid-plan `Error`, not {@link UnsupportedVersionError}: the version is the one this
+ * build reads, so "update to open this" would be a lie. It is simply not a valid state.
  */
 function assertEveryPersonHasLifeExpectancy(state: ProjectionState): void {
   const stated = (age: unknown): boolean => typeof age === "number" && Number.isFinite(age);
@@ -79,7 +79,7 @@ function assertEveryPersonHasLifeExpectancy(state: ProjectionState): void {
  *
  *  1. **Version first.** A foreign shape must be refused as unsupported, not dragged through a
  *     replay that would blame some arbitrary event for a mismatch the whole file carries.
- *  2. **Shape checked**, for what the version alone cannot promise — see
+ *  2. **Shape checked**, for what the version does not promise — see
  *     {@link assertEveryPersonHasLifeExpectancy}. Before the counters and the replay, for the same
  *     reason the version is: a state missing a field the horizon is derived from should be refused
  *     as itself, not as a replay failure at some arbitrary event.

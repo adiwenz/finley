@@ -26,17 +26,17 @@ export interface Person {
    * extends the run to cover their tail — the gap this field exists to close.
    *
    * **Required, and every person carries their own.** It was once optional, meaning "inherit the
-   * primary's", resolved on read at the sim boundary. That saved authoring a number for a partner
-   * who had no opinion and cost more than it saved: the field's type could not say what the
-   * projection actually ran to, every read site needed the fallback threaded to it, and a plan
-   * whose primary also stated none projected zero months. A person the engine is asked to carry to
-   * an age has that age.
+   * primary's", resolved on read at the sim boundary. That saved authoring one number and cost far
+   * more: the field's type could not say what the projection actually ran to, every read site
+   * needed the fallback threaded to it, five of them had invented DIFFERENT answers for an absent
+   * one, and a plan whose primary also stated none projected zero months. A person the engine is
+   * asked to carry to an age has that age.
    *
-   * The authoring convenience is kept where it belongs — at the door. `marry`/`startPartnered`
-   * still take an OPTIONAL expectancy
-   * ({@link import("../authoring/relationships").MarryInput.lifeExpectancy}) and resolve it to the
-   * primary's when omitted, so a caller with no opinion still writes nothing. The difference is
-   * that the resolution happens once, at authoring time, and what lands here is a stated number.
+   * Nothing anywhere defaults it, and a partner does NOT fall back to the primary's:
+   * `marry`/`startPartnered` require one too
+   * ({@link import("../authoring/relationships").MarryInput.lifeExpectancy}). How long a person
+   * lives is a fact about them, not about whoever they married — and a partner ten years younger
+   * silently handed age 90 would extend the projection horizon by a decade nobody chose.
    */
   readonly lifeExpectancy: number;
   /** An input, never solved for. */

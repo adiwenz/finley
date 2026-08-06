@@ -37,8 +37,21 @@ describe("ExistingPartnerForm", () => {
       partneredForMonths: 120,
       name: "Partner",
       birthYear: currentYear - 45,
+      // The field's own default, not a value inherited from the primary: the engine requires a
+      // partner's own expectancy, so the form shows one the user can see and change.
+      lifeExpectancy: 90,
     });
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries an entered life expectancy through — theirs, not the household's", () => {
+    const { startPartnered } = renderForm();
+    enterNumber(spin(/Their age today/i), "45");
+    enterNumber(spin(/Their life expectancy/i), "97");
+    fireEvent.click(btn(/^Add$/));
+    expect(startPartnered).toHaveBeenCalledWith(
+      expect.objectContaining({ lifeExpectancy: 97 }),
+    );
   });
 
   it("carries an entered name through unchanged", () => {

@@ -69,7 +69,7 @@ describe("Projection.init — the imperative half of authoring", () => {
       label: "Rent", category: "needs", target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: 150_000 },
     });
-    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1994 });
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy });
 
     // Every id off the one counter, in the shape `mint` issues, all distinct.
     const ids = [jobId, goalId, lineId, partnerId];
@@ -200,7 +200,7 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994,
+        { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
           jobs: [
             { startYear: 2027, endYear: 2060,
               salary: { startingSalaryCents: 6_000_000, currentSalaryCents: 6_000_000, realGrowthPct: 1 },
@@ -228,7 +228,7 @@ describe("Projection.fromInput", () => {
       {
         ...base,
         events: [
-          { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994 },
+          { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy },
           { type: "separate", month: 24, partnerRef: ref("sam") },
           { type: "separate", month: 36, partnerRef: ref("sam") },
         ],
@@ -275,7 +275,7 @@ describe("Projection.fromInput", () => {
   it("refuses a partner older than the maximum — a partner is a person, held to the same bound", () => {
     // Authored as a birth YEAR, so the age is read against the plan's frozen "now" (2026).
     const result = Projection.fromInput(
-      { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1850 }] },
+      { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1850, lifeExpectancy: base.lifeExpectancy }] },
       nullJurisdiction,
     );
     expect(result.ok).toBe(false);
@@ -287,7 +287,7 @@ describe("Projection.fromInput", () => {
   it("holds a partner's claiming age to its ceiling — the only target age they carry", () => {
     const marryWith = (extra: Record<string, number>) =>
       Projection.fromInput(
-        { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, ...extra }] },
+        { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy, ...extra }] },
         nullJurisdiction,
       );
     expect(marryWith({ benefitClaimingAge: 71 }).ok).toBe(false);
@@ -320,7 +320,7 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", month: 12, name: "Sam", birthYear: 1994, benefitClaimingAge: 70 },
+        { type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy, benefitClaimingAge: 70 },
       ],
     });
     expect(p.ledger.events).toHaveLength(1);
@@ -372,19 +372,25 @@ describe("Projection — the primary's life expectancy is required, not defaulte
 
 /**
  * A partner's life expectancy is authorable from a DOCUMENT, not only from the imperative
- * `marry()`/`startPartnered()` calls. Without the entry field a document could state every other
- * thing about a partner and never their expectancy, so a scenario round-tripped through
- * `ScenarioInput` silently fell back to the household's — and the horizon it produced was not the
- * horizon the same household authored imperatively.
+ * `marry()`/`startPartnered()` calls — and is REQUIRED on both entries, never defaulted from the
+ * primary. How long a partner lives is a fact about them; inheriting the primary's would put a
+ * number nobody chose behind the projection horizon, since a partner younger than the primary
+ * reaches the same age in a later calendar year and silently extends the run.
  *
  * Observed through the run's month count, which IS the horizon: `base` puts the primary at age 30
  * in 2026 with an expectancy of 90, so alone they reach 2086 — 720 months. A partner born 2006
- * reaches the same age 90 in 2096, and their own stated age wherever they state one.
+ * reaches whatever age they state, twenty years later than the primary reaches the same one.
  */
 describe("Projection.fromInput — a partner's life expectancy, and the horizon it sets", () => {
   const PRIMARY_HORIZON = (90 - 30) * 12;
   const monthsOf = (input: ScenarioInput) => built(input).run(nullJurisdiction).series.months.length;
-  /** The partner entry under test, as both an event and an anchor — the two ways one is authored. */
+  /**
+   * The partner entry under test, as both an event and an anchor — the two ways one is authored.
+   *
+   * Cast through `unknown` because one case here is deliberately an INVALID document: a partner
+   * stating no expectancy no longer type-checks, and the refusal it earns is exactly what the
+   * published-JavaScript path has to give.
+   */
   const withPartner = (partner: Record<string, unknown>): readonly ScenarioInput[] => [
     { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 2006, ...partner }] },
     {
@@ -393,7 +399,7 @@ describe("Projection.fromInput — a partner's life expectancy, and the horizon 
         { type: "startPartnered", partneredForMonths: 24, name: "Sam", birthYear: 2006, ...partner },
       ],
     },
-  ] as readonly ScenarioInput[];
+  ] as unknown as readonly ScenarioInput[];
 
   it("carries a stated expectancy onto the partner's own Person record", () => {
     const p = built(withPartner({ lifeExpectancy: 100 })[0]!);
@@ -402,26 +408,29 @@ describe("Projection.fromInput — a partner's life expectancy, and the horizon 
     expect(event.person.lifeExpectancy).toBe(100);
   });
 
-  it("resolves an omitted expectancy to the PRIMARY's, at authoring time", () => {
-    // `Person.lifeExpectancy` is required, so "no opinion" is answered once here rather than left
-    // absent for every reader to fall back on. `base` states 90, so that is what Sam gets.
-    const p = built(withPartner({})[0]!);
-    const event = p.ledger.events[0];
-    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
-    expect(event.person.lifeExpectancy).toBe(90);
-  });
+  it.each(withPartner({}))(
+    "REFUSES a partner stating none — nothing is inherited from the primary",
+    (input) => {
+      // The type requires it; this is the published-JavaScript path, and the refusal it must give
+      // rather than quietly reaching for the primary's 90.
+      const result = Projection.fromInput(input, nullJurisdiction);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected refusal");
+      expect(result.error.reason).toMatch(/without a lifeExpectancy/);
+    },
+  );
 
-  it("does not re-derive a partner's inherited expectancy when the PRIMARY's later changes", () => {
-    // The consequence of resolving at authoring time rather than on read, stated as a test: Sam
-    // took the household's 90 when they joined and keeps it. Moving the primary to 100 extends the
-    // primary's own reach and leaves Sam's alone — Sam is younger, so Sam still sets the horizon,
-    // now at their own 90 rather than a value that followed the primary's.
-    const p = built(withPartner({})[0]!);
+  it("keeps the partner's expectancy independent of the primary's, before and after an edit", () => {
+    // Two people, two facts. Sam states 90 and the primary states 90, but they are not the same
+    // number: moving the primary to 100 moves the primary's reach and leaves Sam's alone.
+    const p = built(withPartner({ lifeExpectancy: 90 })[0]!);
     expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
     p.updatePlan({ lifeExpectancy: 100 });
     const event = p.ledger.events[0];
     if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
     expect(event.person.lifeExpectancy).toBe(90);
+    // Sam still outlives the primary (2096 vs 2096 — a tie the primary loses on birth year), so
+    // the horizon is unchanged by the primary's longer life.
     expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
   });
 
@@ -429,17 +438,8 @@ describe("Projection.fromInput — a partner's life expectancy, and the horizon 
     "runs to a partner's DISTINCT stated expectancy — the longest-lived member sets the horizon",
     (input) => {
       // Sam states 100 and is born 2006, reaching it in 2106: (2106 - 2026) * 12 = 960 months,
-      // well past both the primary's 720 and the 840 an inherited 90 would have given.
+      // well past the primary's 720.
       expect(monthsOf(input)).toBe((2006 + 100 - 2026) * 12);
-    },
-  );
-
-  it.each(withPartner({}))(
-    "falls back to the household's expectancy when the document states none",
-    (input) => {
-      // Unchanged behavior: Sam inherits age 90 and reaches it in 2096 → 840 months. Still past
-      // the primary's 720, because a younger member reaches the same age later.
-      expect(monthsOf(input)).toBe((2006 + 90 - 2026) * 12);
     },
   );
 
@@ -504,7 +504,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     events: [
       { type: "takeLoan", ref: ref("REF-student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
         openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
-      { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994,
+      { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
         jobs: [{ startYear: 2027, endYear: 2060,
           salary: { startingSalaryCents: 5_000_000, currentSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
       { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },

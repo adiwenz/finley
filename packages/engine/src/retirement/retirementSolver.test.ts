@@ -27,6 +27,21 @@ import { RETIREMENT_ID } from "../plan/ids";
 import type { ProjectionMonth } from "../projection/simulate";
 import type { ProjectionContext } from "../compile/projectionBase";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
+
+/**
+ * What a partner fixture may vary. An explicit list, NOT `Partial<Person>`: a partial of a type
+ * whose fields are required says every one of them may be absent, which is the opposite of what
+ * `Person` means — and it silently re-admits `undefined` for `lifeExpectancy`, the field the
+ * horizon is computed from, so a builder spreading it had to patch the value back afterwards.
+ * Naming the four things these fixtures actually change makes the builders total by construction.
+ */
+interface PartnerOverrides {
+  readonly id?: PersonId;
+  readonly birthYear?: number;
+  /** Theirs, never the primary's — the engine requires one and infers nothing. */
+  readonly lifeExpectancy?: number;
+  readonly continuationJobId?: JobId | null;
+}
 import {
   samplePlan,
   baristaPlan,
@@ -40,7 +55,7 @@ import {
 import { Projection } from "../facade/projectionFacade";
 import type { Plan } from "../plan/plan";
 import type { Person } from "../plan/person";
-import type { Job } from "../job/job";
+import type { Job, JobId, PersonId } from "../job/job";
 import type { Scenario } from "../plan/scenario";
 import type { ProjectionSeries } from "../projection/simulate";
 
@@ -366,16 +381,14 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
     };
   }
 
-  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+  function partnerWith(overrides: PartnerOverrides & { jobs: readonly Job[] }): Person {
     return {
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       ...overrides,
-      // After the spread: `Partial<Person>` admits an explicit `undefined`, and the field is
-      // required. A partner who states nothing gets the primary's, which is what `marry` does.
-      lifeExpectancy: overrides.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
     };
   }
 
@@ -583,16 +596,14 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     };
   }
 
-  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+  function partnerWith(overrides: PartnerOverrides & { jobs: readonly Job[] }): Person {
     return {
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       ...overrides,
-      // After the spread: `Partial<Person>` admits an explicit `undefined`, and the field is
-      // required. A partner who states nothing gets the primary's, which is what `marry` does.
-      lifeExpectancy: overrides.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
     };
   }
 
@@ -1872,15 +1883,14 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
   // samplePlan: primary age 40, expectancy 85. The anchor is whose expectancy the run ends at.
   const anchorOf = (scenario: Scenario) => solveRetirement(scenario, CTX).horizonAnchor;
 
-  const samPartner = (over: Partial<Person>): Person => ({
+  const samPartner = (over: PartnerOverrides): Person => ({
     id: "p2",
     name: "Sam",
     birthYear: PRIMARY_BIRTH_YEAR,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs: [],
     ...over,
-    // See `partnerWith` above: required field, and the spread may carry an explicit `undefined`.
-    lifeExpectancy: over.lifeExpectancy ?? samplePlan.primary.lifeExpectancy,
   });
 
   function withPartner(partner: Person, separateAtMonth?: number): Scenario {
@@ -1913,7 +1923,7 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
     expect(anchorOf(scenarioOf(samplePlan))).toEqual({ age: 85, memberName: null });
   });
 
-  it("names a younger partner who outlives the primary, at their inherited expectancy", () => {
+  it("names a younger partner who outlives the primary, at their own stated expectancy", () => {
     // Born 10 years after the primary, same expectancy age 85 → reaches it in a later calendar
     // year, so the run ends at Sam's 85, not the primary's.
     expect(anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 })))).toEqual({

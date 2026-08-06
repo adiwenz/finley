@@ -209,7 +209,7 @@ export function alexAndSam(
 ) {
   const p = alexAlone();
   p.setContinuationJob(PRIMARY_PERSON_ID, null);
-  const sam = p.marry({ month: opts.joinAt ?? 0, name: "Sam", birthYear: ALEX_BIRTH });
+  const sam = p.marry({ month: opts.joinAt ?? 0, name: "Sam", birthYear: ALEX_BIRTH, lifeExpectancy: LIFE_EXPECTANCY });
   const jobIds = (opts.jobs ?? [jobAt(35, 50, 60_000)]).map((j) => p.addPartnerJob(sam, j));
   p.setContinuationJob(sam, jobIds[0]!);
   if (opts.separateAt !== undefined) p.separate({ month: opts.separateAt, partnerPersonId: sam });

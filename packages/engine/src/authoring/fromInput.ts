@@ -68,7 +68,7 @@ export function interpretScenarioInput(
     typeof scalars.lifeExpectancy !== "number" ||
     !Number.isFinite(scalars.lifeExpectancy)
   ) {
-    return { ok: false, error: { reason: "lifeExpectancy is required — the primary's own expectancy is what every other member inherits" } };
+    return { ok: false, error: { reason: "lifeExpectancy is required — the plan states how long the primary lives" } };
   }
   // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
@@ -157,7 +157,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
-              ...(entry.lifeExpectancy !== undefined ? { lifeExpectancy: entry.lifeExpectancy } : {}),
+              lifeExpectancy: entry.lifeExpectancy,
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );
@@ -181,7 +181,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
-              ...(entry.lifeExpectancy !== undefined ? { lifeExpectancy: entry.lifeExpectancy } : {}),
+              lifeExpectancy: entry.lifeExpectancy,
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );

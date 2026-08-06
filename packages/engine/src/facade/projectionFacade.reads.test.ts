@@ -226,6 +226,7 @@ describe("Projection reads — over authored state", () => {
       month: 0,
       name: "Sam",
       birthYear: SAMPLE_START_YEAR - 38,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       jobs: [
         { ...plainJob, salary: { startingSalaryCents: dollarsToCents(60000), currentSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
       ],
@@ -277,7 +278,7 @@ describe("ProjectionResult reads — over one run", () => {
 
   it("reports who is in the household at a month, and only from the month they joined", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
-    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38 });
+    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const result = p.run(RUN_JURISDICTION);
     expect(result.membersAt(0).map((m) => m.id)).toEqual(["p1"]);
     expect(result.membersAt(24).map((m) => m.name)).toContain("Sam");

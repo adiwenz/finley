@@ -56,7 +56,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
     p.addJob(P1, plainJob); // another standing edit
     expect(p.state.scenario.ledger.events).toHaveLength(1);
 
-    p.marry({ month: 24, name: "Partner", birthYear: 1988 }); // a transaction AFTER standing edits
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }); // a transaction AFTER standing edits
     expect(p.state.scenario.plan.primary.lifeExpectancy).toBe(95);
     expect(p.state.scenario.plan.primary.jobs).toHaveLength(1);
   });
@@ -71,7 +71,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
 
   it("marry() adds a partner as a ledger event", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     expect(partnerId).toBe("person-1");
     expect(p.state.scenario.ledger.events[0]).toMatchObject({ type: "RelationshipEvent" });
   });
@@ -83,6 +83,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
       month: 24,
       name: "Partner",
       birthYear: 1988,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       jobs: [plainJob, plainJob],
     });
     const partnerJobs = partnerEvent(p).person.jobs;
@@ -98,7 +99,7 @@ describe("Projection root — one root for standing + ledger writes", () => {
 
   it("marry() preserves a partner job's explicit id override and steps the counter past it", () => {
     const p = freshProjection();
-    p.marry({ month: 24, name: "Partner", birthYear: 1988, jobs: [plainJob] });
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy, jobs: [plainJob] });
     // The partner's job is minted like any other, off the same counter the marriage drew from.
     const nested = partnerEvent(p).person.jobs[0]?.id;
     expect(nested).toMatch(/^job-\d+$/);

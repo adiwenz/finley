@@ -45,7 +45,7 @@ function emptyState(): ProjectionState {
 /** A state holding one partner, and their person id — the ledger plane, authored properly. */
 function withPartner(): { state: ProjectionState; partnerId: PersonId } {
   const p = Projection.fromState(emptyState(), nullJurisdiction);
-  const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+  const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
   return { state: p.toState(), partnerId };
 }
 

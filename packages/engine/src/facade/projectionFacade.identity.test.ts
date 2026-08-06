@@ -124,11 +124,11 @@ describe("Projection root — creating writes mint deterministic ids", () => {
     // owner, so no write ever needs to name an existing one.
     const p = freshProjection();
     expect(p.addJob(P1, plainJob)).toBe("job-1");
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     expect(p.addPartnerJob(partnerId, plainJob)).toMatch(/^job-\d+$/);
     // Including the jobs a partner arrives with, nested inside the marriage.
     const q = freshProjection();
-    q.marry({ month: 24, name: "Kim", birthYear: 1990, jobs: [plainJob] });
+    q.marry({ month: 24, name: "Kim", birthYear: 1990, lifeExpectancy: samplePlan.primary.lifeExpectancy, jobs: [plainJob] });
     expect(partnerEvent(q).person.jobs[0]?.id).toMatch(/^job-\d+$/);
   });
 
@@ -144,7 +144,7 @@ describe("Projection root — creating writes mint deterministic ids", () => {
 describe("Projection root — one counter across both planes, across a round trip", () => {
   it("never reissues a partner job's id after a state round trip", () => {
     const authored = freshProjection();
-    const partnerId = authored.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = authored.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const partnerJobId = authored.addPartnerJob(partnerId, plainJob);
     const planJobId = authored.addJob(P1, plainJob);
 
@@ -159,7 +159,7 @@ describe("Projection root — one counter across both planes, across a round tri
     const minted = [
       reloaded.addPartnerJob(partnerId, plainJob),
       reloaded.addJob(P1, plainJob),
-      reloaded.marry({ month: 36, name: "Kim", birthYear: 1990 }),
+      reloaded.marry({ month: 36, name: "Kim", birthYear: 1990, lifeExpectancy: samplePlan.primary.lifeExpectancy }),
     ];
     for (const id of minted) expect(held.has(id)).toBe(false);
     expect(new Set(minted).size).toBe(minted.length);
@@ -219,7 +219,7 @@ describe("Projection root — one counter across both planes, across a round tri
     // The id arrives by IMPORT, which is now the only way one can: no authoring path lets a
     // caller name a job, so `fromState` is exactly what the floor exists for.
     const seeded = freshProjection();
-    const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const state = seeded.toState();
     const imported: ProjectionState = {
       ...state,
@@ -246,7 +246,7 @@ describe("Projection root — one counter across both planes, across a round tri
 
   it("keeps the counter monotonic while writes alternate between the planes", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const minted: string[] = [];
     for (let i = 0; i < 4; i++) {
       minted.push(p.addJob(P1, plainJob));
@@ -629,20 +629,12 @@ describe("Projection root — the serialized format declares its version", () =>
     expect(reloaded.toState().version).toBe(CURRENT_FORMAT_VERSION);
   });
 
-  it("reads version 2 — where every Person states a lifeExpectancy", () => {
-    // The bump that made the field required. v1 held one household-wide age on the plan and let a
-    // partner inherit it; under v2 the horizon is computed from each person's own, so a v1 file is
-    // not readable rather than readable-with-a-default.
-    expect(CURRENT_FORMAT_VERSION).toBe(2);
-    const v1: ProjectionState = { ...freshProjection().toState(), version: 1 };
-    expect(() => Projection.fromState(v1, nullJurisdiction)).toThrow(UnsupportedVersionError);
-  });
-
-  it("refuses a CURRENT-version state whose primary states no lifeExpectancy", () => {
-    // Not an unsupported version — the file claims a version this build reads, so the refusal is a
-    // plain invalid-plan error. This is the case the version gate cannot catch: a hand-edited or
-    // truncated v2 file, which is what restoration exists to check. Absent, the field would reach
-    // the horizon arithmetic and produce a run of NaN months.
+  it("refuses a state whose primary states no lifeExpectancy", () => {
+    // A plain invalid-plan error, not an unsupported version: the version is the one this build
+    // reads, and the field's absence makes the state wrong rather than old. Nothing was ever
+    // written with the older shape, so there is no version to tell them apart by — this is the
+    // hand-edited or truncated case restoration exists to check. Absent, the field would reach the
+    // horizon arithmetic and produce a run of NaN months.
     const authored = freshProjection().toState();
     const state = {
       ...authored,
@@ -658,7 +650,7 @@ describe("Projection root — the serialized format declares its version", () =>
 
   it("refuses one whose PARTNER states none, naming them", () => {
     const p = freshProjection();
-    p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const authored = p.toState();
     const events = authored.scenario.ledger.events.map((e) =>
       e.type === "RelationshipEvent" ? { ...e, person: { ...e.person, lifeExpectancy: undefined } } : e,
@@ -944,7 +936,7 @@ describe("Projection root — the counter floors ids it did not mint", () => {
 
   it("has nothing to floor after a revision, because a revision introduces no id", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     // The shared counter floors both ids and sequence numbers, so the marriage's own event
     // (which takes the first sequence number) steps the counter one past it — the first
     // authored job is `job-2`, a harmless gap, the same as any other construction path.
@@ -1138,7 +1130,7 @@ describe("Projection root — id counter round-trips through serialization", () 
   it("only ever raises a counter, never renumbers what is already authored", () => {
     const p = freshProjection();
     p.addJob(P1, plainJob);
-    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const before = p.toJSON();
 
     const reloaded = Projection.fromState(JSON.parse(JSON.stringify(before)), nullJurisdiction);
@@ -1165,7 +1157,7 @@ describe("Projection root — id counter round-trips through serialization", () 
     // the counters again, a plan reopened daily would climb without ever being edited.
     const p = freshProjection();
     p.addJob(P1, plainJob);
-    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
 
     const once = Projection.fromState(JSON.parse(JSON.stringify(p.toJSON())), nullJurisdiction).toJSON();
     const twice = Projection.fromState(JSON.parse(JSON.stringify(once)), nullJurisdiction).toJSON();

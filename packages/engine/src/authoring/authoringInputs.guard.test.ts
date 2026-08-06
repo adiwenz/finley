@@ -198,7 +198,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       ...base,
       events: [
         {
-          type: "marry", month: 12, name: "Sam", birthYear: 1994,
+          type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
           jobs: [{ ...longRunningJob, ref: ref("samJob"), deferral: { deferralFraction: 0.05 } }],
         },
       ],

@@ -53,7 +53,7 @@ describe("ScenarioInput shape", () => {
 
   it("maps each event variant to its own discriminant", () => {
     const entries: readonly EventEntry[] = [
-      { type: "marry", month: 12, name: "Sam", birthYear: 1994 },
+      { type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: 90 },
       { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },
       { type: "takeLoan", month: 0, ownerRef: ref("primary"), openingBalanceCents: 100_000,
         apr: 0.2, kind: "creditCard", creditLimitCents: 500_000 },

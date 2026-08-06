@@ -31,20 +31,18 @@ export interface MarryInput {
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
   /**
-   * The age the partner is projected to live to. Optional HERE — omitted, it resolves to the
-   * primary's own ({@link import("../plan/plan").Plan.primary}`.lifeExpectancy`) at this call,
-   * which is the only place the default is applied: what lands on the
-   * {@link import("../plan/person").Person} is always a stated number.
+   * The age the partner is projected to live to — REQUIRED, and never defaulted from the primary.
+   *
+   * A partner is a person, and how long they live is a fact about them, not about whoever they
+   * married. Falling back to the primary's would put a number nobody chose behind the projection
+   * horizon: a partner ten years younger inheriting age 90 silently extends the run a decade, and
+   * the household never said that. Whoever authors a partner says how long they live, the same way
+   * they say when they were born.
    *
    * A partner younger than the primary reaches the same age in a later calendar year, which is
    * what extends the projection horizon to cover their tail.
-   *
-   * Resolved now rather than on read, so the partner's expectancy is a fact about the partner. A
-   * consequence worth stating: the household's later edits to the PRIMARY's expectancy no longer
-   * move a partner who never stated one — the partner keeps the value in force when they joined,
-   * and changing it is an edit to them.
    */
-  readonly lifeExpectancy?: number;
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -64,8 +62,8 @@ export interface StartPartneredInput {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
-  /** See {@link MarryInput.lifeExpectancy}; defaults to the household's. */
-  readonly lifeExpectancy?: number;
+  /** See {@link MarryInput.lifeExpectancy} — required, never defaulted from the primary. */
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -114,10 +112,13 @@ export function applyMarriage(
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
-  // Resolved BEFORE the bound check, so what is validated is what gets stored. The "no opinion"
-  // default is the primary's own expectancy — the only place it is applied, see
-  // {@link MarryInput.lifeExpectancy}.
-  const lifeExpectancy = input.lifeExpectancy ?? state.scenario.plan.primary.lifeExpectancy;
+  // Required, with no fallback to the primary's — see {@link MarryInput.lifeExpectancy}. The type
+  // says so, and `@finley/engine` is published, so a JavaScript caller is checked too: absent, it
+  // would reach the horizon arithmetic and answer `NaN` months.
+  if (typeof input.lifeExpectancy !== "number" || !Number.isFinite(input.lifeExpectancy)) {
+    throw new Error("Projection: cannot author a partner without a lifeExpectancy");
+  }
+  const lifeExpectancy = input.lifeExpectancy;
   // A partner is a person, and the same age bound holds for them as for the primary — see
   // {@link ageAboveMaximum}. Their age is a birth YEAR on the way in, so it is read against the
   // plan's frozen "now" rather than a wall clock.

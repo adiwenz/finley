@@ -51,7 +51,7 @@ describe("Projection root — editing and removing a job", () => {
     // (`Omit<Job, "id" | "ownerId">`), so even a wholesale replace cannot restate it — the engine
     // re-stamps the owner off the prior record — and the owner it was created with is preserved.
     const p = freshProjection();
-    p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const jobId = p.addJob(P1, plainJob);
     const job = p.plan.primary.jobs[0]!;
     p.replaceJob(jobId, { ...job, name: "Renamed", endYear: SAMPLE_START_YEAR + 10 });
@@ -82,7 +82,7 @@ describe("Projection root — editing and removing a job", () => {
     // The two families do not reach across: a job is authored where its owner is, and asking
     // the wrong plane is the same caller error as asking for a job that does not exist.
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const planJob = p.addJob(P1, plainJob);
     const partnerJob = p.addPartnerJob(partnerId, plainJob);
 
@@ -156,7 +156,7 @@ describe("Projection root — editing and removing a job", () => {
     // must still draw from ONE counter, since a job's id keys its income band whichever plane
     // it sits on.
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const ids = [
       p.addJob(P1, plainJob),
       p.addPartnerJob(partnerId, plainJob),
@@ -191,7 +191,7 @@ describe("Projection root — jobs on a partner's plane", () => {
   /** A projection holding one partner, and that partner's id. */
   function withPartner(): { p: Projection; partnerId: PersonId } {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     return { p, partnerId };
   }
 
@@ -438,7 +438,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
     // facade's to know — the same thing that makes `addJob` and `addPartnerJob` two methods is
     // deliberately NOT surfaced here, because this writes the person, not the job.
     const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
 
     p.setContinuationJob(partnerId, partnerJobId);
@@ -454,7 +454,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
     // Both would otherwise resolve to `null` on read — losing the choice in silence — or extend
     // one member's employment when a different member worked longer.
     const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
 
     expect(() => p.setContinuationJob(partnerId, planJobId)).toThrow(/belongs to/);
@@ -472,7 +472,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
 
   it("clears the answer when the job it names is removed, on either plane", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
     p.setContinuationJob("p1" as PersonId, planJobId);
@@ -504,7 +504,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
 
   it("reads a partner's answer through the same method, and refuses a stranger", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const partnerJobId = p.addPartnerJob(partnerId, plainJob);
 
     expect(p.continuationJobOf(partnerId)).toBe(partnerJobId);
@@ -515,7 +515,7 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
 
   it("survives a state round-trip on both planes", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }), nullJurisdiction);
-    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988 }) as PersonId;
+    const partnerId = p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
     const planJobId = p.addJob("p1" as PersonId, plainJob);
     p.setContinuationJob("p1" as PersonId, planJobId);
     p.setContinuationJob(partnerId, null);

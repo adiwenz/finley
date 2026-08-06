@@ -34,7 +34,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 
   it("separate() ends a partnership authored by marry()", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const separationId = p.separate({
       month: 60,
       partnerPersonId: partnerId,
@@ -56,7 +56,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 
   it("separate() is refused before the partnering it would end", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const before = p.state;
     expect(() => p.separate({ month: 12, partnerPersonId: partnerId })).toThrow(
       /cannot apply transaction — .*before partnering at month 24/,
@@ -104,7 +104,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 describe("Projection root — a transaction can be removed, revised, or swapped wholesale", () => {
   function marriedProjection(): { p: Projection; partnerId: string } {
     const p = freshProjection();
-    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) };
   }
 
   it("removes a transaction by id, not by position", () => {
@@ -201,12 +201,12 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
 describe("Projection root — a revision cannot replace an identity", () => {
   const marriedProjection = (): { p: Projection; partnerId: string } => {
     const p = freshProjection();
-    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) };
   };
 
   it("keeps the event id, the person id and every nested job id across a marry revision", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const jobId = p.addPartnerJob(partnerId, plainJob);
     const before = partnerEvent(p);
 
@@ -215,6 +215,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
       month: 30,
       name: "Renamed",
       birthYear: 1990,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 70,
     });
 

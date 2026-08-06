@@ -51,7 +51,7 @@ describe("Projection root — run(jurisdiction) → immutable result, no mutatio
   it("surfaces the interpreted household and a report built from the same series", () => {
     const p = freshProjection();
     p.addJob(P1, plainJob);
-    p.marry({ month: 12, name: "Partner", birthYear: 1990 });
+    p.marry({ month: 12, name: "Partner", birthYear: 1990, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const result = p.run(nullJurisdiction);
 
     // The household the snapshot panel and owner picker read — both partners present.
@@ -85,7 +85,7 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     // Sam reaches 85 in 2081 — eleven years past the primary's 2071. The run must cover them:
     // month (1996 + 85 - 2026) * 12 = 660, not the primary's 540.
     const p = freshProjection();
-    p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     expect(monthsOf(p)).toBe((1996 + 85 - 2026) * 12);
     expect(monthsOf(p)).toBeGreaterThan(PRIMARY_HORIZON);
   });
@@ -100,7 +100,7 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     // An older partner (born 1976, age 50) at the same expectancy age reaches 85 in 2061 —
     // before the primary — so the primary still sets the horizon.
     const p = freshProjection();
-    p.marry({ month: 12, name: "Sam", birthYear: 1976 });
+    p.marry({ month: 12, name: "Sam", birthYear: 1976, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
   });
 
@@ -109,7 +109,7 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     // primary's own 540. Their income and benefit stopped at separation, so their tail is gone
     // and must not pad the run: the horizon stays the primary's 540, matching horizonAnchorOf.
     const p = freshProjection();
-    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996 });
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     p.separate({ month: 600, partnerPersonId: partnerId });
     expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
   });
@@ -190,7 +190,7 @@ describe("Projection root — authoring validates against the construction-time 
     // under another: run() takes its own jurisdiction and never consults the authoring one,
     // so one scenario still re-runs under whatever rules a caller asks for.
     const p = nestProjection(flatCapitalGains(0.5));
-    p.marry({ month: 12, name: "Partner", birthYear: 1990 });
+    p.marry({ month: 12, name: "Partner", birthYear: 1990, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     expect(p.run(nullJurisdiction).jurisdictionId).toBe(nullJurisdiction.id);
     expect(p.run(flatCapitalGains(0.5)).jurisdictionId).toBe("test-capital-gains");
     expect(p.run(mockJurisdiction()).jurisdictionId).toBe("mock");

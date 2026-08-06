@@ -45,19 +45,13 @@ export interface ProjectionState {
  * transforming it, and no transforms exist — so the gate there is exact equality, and it stays
  * exact until the first real migration lands.
  *
- * **v2** — every {@link import("../plan/person").Person} carries a REQUIRED `lifeExpectancy`. A v1
- * state could omit it on the primary (there was no primary `Person` at all before that: the plan
- * held one household-wide `lifeExpectancy`) and on any partner who inherited the household's. Both
- * absences are unreadable under v2 rules, where the field is what the horizon is computed from, so
- * the version is bumped rather than the field defaulted — a v1 file opened as if it were v2 would
- * project `NaN` months and say nothing about why.
- *
- * Bumped with no transform beside it because nothing was ever persisted at v1: the shape changed
- * inside the same unreleased line of work. A v1 file therefore cannot exist, and if one does it is
- * refused by the exact-equality gate with "update to open this" — which is the right answer for a
- * file this build genuinely cannot read.
+ * **Not bumped for a shape change nothing has written yet.** `Person.lifeExpectancy` became
+ * required while this build was still the only thing producing states, so there is no file in
+ * existence carrying the older shape and nothing for a new version to distinguish. A bump would
+ * describe a migration that never happened. `./restore` still checks that every person states one
+ * — see `assertEveryPersonHasLifeExpectancy` — because a state can be wrong without being old.
  */
-export const CURRENT_FORMAT_VERSION = 2;
+export const CURRENT_FORMAT_VERSION = 1;
 
 /**
  * The one state that provably holds no id at all: the plan's scalars, three empty collections and
@@ -70,8 +64,8 @@ export const CURRENT_FORMAT_VERSION = 2;
  */
 export function emptyState(scalars: ScenarioScalars): ProjectionState {
   const { startYear, name, birthYear, lifeExpectancy, benefitClaimingAge, ...rest } = scalars;
-  // The primary's expectancy is REQUIRED — it is the household's own fallback, so there is nothing
-  // behind it to inherit from — and `@finley/engine` is published, so the type is not the only
+  // Every person's expectancy is REQUIRED, the primary's included, and nothing defaults one —
+  // and `@finley/engine` is published, so the type is not the only
   // guard: a JavaScript caller omitting it would otherwise reach `planHorizonMonths` and produce a
   // horizon of `NaN` months. Refused rather than defaulted, for the reason `MAX_AGE` is refused
   // rather than clamped: a plan projected to an age it does not state is a plan whose numbers

@@ -24,17 +24,22 @@ Delivered as three commits:
 
 ## Key decisions & why
 
-- **`Person.lifeExpectancy` is REQUIRED — every person carries their own.** It began as optional
-  ("inherit the household's", resolved at the sim boundary), which kept the change off ~35 `Person`
-  fixtures but cost more than it saved: the type could not say what the projection ran to, every read
-  site needed the fallback threaded to it, five read sites had invented DIFFERENT answers for an
-  absent one (a horizon of 0 months against a slider reading 120), and a plan whose primary also
-  stated none projected nothing. The authoring convenience stays at the door: `marry`/
-  `startPartnered` still take an optional expectancy and resolve it to the primary's, once, at that
-  call. Consequence, accepted: a partner who stated none keeps the value in force when they joined,
-  so a later edit to the primary's no longer moves them — changing it is an edit to the partner.
-  Refused rather than defaulted at both doors (`init` throws, `fromInput` answers `{ ok: false }`),
-  and `ProjectionState` is **format version 2** because of it.
+- **`Person.lifeExpectancy` is REQUIRED — every person carries their own, and NOTHING defaults it.**
+  It began as optional ("inherit the household's", resolved at the sim boundary), which kept the
+  change off ~35 `Person` fixtures but cost more than it saved: the type could not say what the
+  projection ran to, every read site needed the fallback threaded to it, five read sites had
+  invented DIFFERENT answers for an absent one (a horizon of 0 months against a slider reading 120),
+  and a plan whose primary also stated none projected nothing.
+
+  A partner does not fall back to the primary's either: `marry`/`startPartnered` require one. How
+  long a person lives is a fact about them, not about whoever they married, and a partner ten years
+  younger silently handed age 90 would extend the horizon by a decade nobody chose. Both partner
+  forms therefore ask for it, opening on a visible, editable default rather than an inferred one.
+
+  Refused rather than defaulted at every door: `Projection.init` and `marry` throw, `fromInput`
+  answers `{ ok: false }`, and `restoreState` checks every person on the way in. The format version
+  is NOT bumped — nothing has ever been persisted, so there is no older shape for a version to
+  distinguish, and a bump would describe a migration that never happened.
 
 - **A member's expectancy bounds ONLY the government benefit, never a wage.** The decision keeps
   "jobs end at their stated age regardless". A first attempt folded death into the shared
@@ -64,7 +69,7 @@ Delivered as three commits:
   `lifeEndMonthExclusive` even while still a member, and the min of separation and expectancy governs
   when both apply.
 - **Anchor (RED→GREEN):** `retirementSolver.test.ts` — `horizonAnchor` names the primary (null) when
-  nobody outlives them, a younger partner (at their inherited or own expectancy) when they do, and
+  nobody outlives them, a younger partner (at their own stated expectancy) when they do, and
   ignores a separated partner.
 - **End-to-end:** `scenarios.test.tsx` renders the real panel — a younger partner makes the survival
   sentence read "Sam's life expectancy (age 85)", a same-age partner keeps "your life expectancy".
