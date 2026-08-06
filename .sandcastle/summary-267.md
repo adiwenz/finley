@@ -61,6 +61,16 @@ Delivered as three commits:
   the graph and the sentence describing it cannot diverge. They used to hold separate copies, and
   both copies had the same bug: any separation, at any date, cancelled the partner's tail.
 
+- **An impossible date is REFUSED at authoring.** `marry` and `separate` both throw for a month at
+  or after `min(the primary's death, the partner's)` — the same boundary — because each is a thing a
+  couple does. Refused before the first mint, so nothing is issued and abandoned; `fromInput` turns
+  it into `{ ok: false }` and the app's `useProjection` already renders a thrown write as a conflict
+  message, so the reason is written to survive the `Projection: cannot X —` prefix being stripped.
+
+  The horizon rule above still stands rather than being made unreachable by this: an expectancy
+  revised DOWN can strand a separation that was perfectly legal when it was written, which is the
+  path the regression tests take to build one.
+
 - **The solved age and `plannedWorkStopAge` stay in the PRIMARY's years** (unchanged): they are
   facts about the household reaching one calendar boundary. Only the *horizon* the portfolio must
   last to is re-anchored, and the panel names whose it is via a new `RetirementSolution.horizonAnchor`

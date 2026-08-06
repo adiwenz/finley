@@ -107,47 +107,44 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
   // A separation only takes a partner's tail out of the run if it happens while BOTH are alive.
   // The boundary is `min(their death, the primary's)`, and here that is the PRIMARY's month 540 —
   // Sam, born 1996 at expectancy 85, would otherwise reach 660.
+  //
+  // Authoring now REFUSES a separation dated at or after that boundary, so a posthumous one can
+  // only arrive the way a real user produces it: booked while both were long-lived, then left
+  // stranded by an expectancy revised DOWN underneath it. That is the sequence these build, and it
+  // is why the horizon still has to handle the case rather than assuming authoring prevented it.
   describe("a separation ends their claim on the horizon only while both are alive", () => {
     const SAM_REACH = (1996 + 85 - 2026) * 12; // 660
-    const separatedAt = (month: number) => {
+
+    /** Book a separation at `month` while both live long, then lower both to expectancy 85. */
+    const strandedAt = (month: number) => {
       const p = freshProjection();
-      const partnerId = p.marry({
-        month: 12,
-        name: "Sam",
-        birthYear: 1996,
-        lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      p.updatePlan({ lifeExpectancy: 100 }); // dies 2086
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+      p.separate({ month, partnerPersonId: partnerId }); // legal against those expectancies
+      p.updatePlan({ lifeExpectancy: samplePlan.primary.lifeExpectancy }); // primary now dies at 540
+      p.reviseTransaction(partnerId, {
+        type: "marry",
+        lifeExpectancy: samplePlan.primary.lifeExpectancy, // Sam now dies at 660
       });
-      p.separate({ month, partnerPersonId: partnerId });
       return p;
     };
 
     it("BEFORE either death: Sam leaves, and the run stops at the primary's own expectancy", () => {
-      expect(monthsOf(separatedAt(300))).toBe(PRIMARY_HORIZON);
+      expect(monthsOf(strandedAt(300))).toBe(PRIMARY_HORIZON);
       // Right up to the last month it can still happen.
-      expect(monthsOf(separatedAt(PRIMARY_HORIZON - 1))).toBe(PRIMARY_HORIZON);
+      expect(monthsOf(strandedAt(PRIMARY_HORIZON - 1))).toBe(PRIMARY_HORIZON);
     });
 
     it("EXACTLY AT the first death: too late to happen, so Sam's tail stays in the run", () => {
       // Month 540 is the first month the primary is gone — there is no couple left to dissolve,
       // so the separation is not an event in either life and Sam is covered to their own 660.
-      expect(monthsOf(separatedAt(PRIMARY_HORIZON))).toBe(SAM_REACH);
+      expect(monthsOf(strandedAt(PRIMARY_HORIZON))).toBe(SAM_REACH);
     });
 
     it("AFTER the first death: same answer — Sam never left while alive", () => {
-      expect(monthsOf(separatedAt(600))).toBe(SAM_REACH);
-      // Including a separation booked past Sam's OWN death, which is doubly moot.
-      expect(monthsOf(separatedAt(700))).toBe(SAM_REACH);
-    });
-
-    it("covers the survivor through their death — the issue's worked example", () => {
-      // Primary dies 2070, Sam dies 2080, separation booked for 2085. Sam never leaves while
-      // alive, so the projection must run through 2080 rather than stopping at the primary's
-      // 2070 and leaving the survivor's last decade unmodelled.
-      const p = freshProjection();
-      p.updatePlan({ lifeExpectancy: 84 }); // born 1986 → dies 2070
-      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 84 }); // → 2080
-      p.separate({ month: (2085 - 2026) * 12, partnerPersonId: partnerId });
-      expect(monthsOf(p)).toBe((2080 - 2026) * 12);
+      expect(monthsOf(strandedAt(600))).toBe(SAM_REACH);
+      // Including a separation stranded past Sam's OWN death, which is doubly moot.
+      expect(monthsOf(strandedAt(700))).toBe(SAM_REACH);
     });
 
     it("agrees with the anchor the panel names, at every point around the boundary", () => {
@@ -156,7 +153,7 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
       // must not be described by a sentence naming the primary's. Swept across the boundary rather
       // than spot-checked, because divergence is exactly what a copied rule produces at the edges.
       for (const month of [300, PRIMARY_HORIZON - 1, PRIMARY_HORIZON, 600, 700]) {
-        const p = separatedAt(month);
+        const p = strandedAt(month);
         const anchor = p.retirement(nullJurisdiction).solution.horizonAnchor;
         const ranToSam = monthsOf(p) === SAM_REACH;
         expect({ month, named: anchor.memberName }).toEqual({
@@ -166,22 +163,109 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
       }
     });
 
-    it("is symmetric — a separation after the PARTNER's death is equally moot", () => {
-      // Sam is older and dies 2061, before the primary's 2071; the separation is booked 2065.
-      // Sam's own reach is below the primary's, so the horizon is unchanged — but the reason is
-      // that Sam never left, not that they did.
+    it("covers the survivor through their death — the issue's worked example", () => {
+      // Primary dies 2070, Sam dies 2080, separation booked for 2085. Sam never leaves while
+      // alive, so the projection must run through 2080 rather than stopping at the primary's
+      // 2070 and leaving the survivor's last decade unmodelled.
       const p = freshProjection();
-      const partnerId = p.marry({
-        month: 12,
-        name: "Sam",
-        birthYear: 1976,
-        lifeExpectancy: samplePlan.primary.lifeExpectancy,
-      });
+      p.updatePlan({ lifeExpectancy: 100 });
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+      p.separate({ month: (2085 - 2026) * 12, partnerPersonId: partnerId });
+      p.updatePlan({ lifeExpectancy: 84 }); // born 1986 → dies 2070
+      p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 84 }); // → dies 2080
+      expect(monthsOf(p)).toBe((2080 - 2026) * 12);
+    });
+
+    it("is symmetric — a separation after the PARTNER's death is equally moot", () => {
+      // Sam is older and ends up dying 2061, before the primary's 2071, with the separation
+      // booked 2065. Sam's own reach is below the primary's, so the horizon is unchanged — but
+      // the reason is that Sam never left, not that they did, and the binding death here is the
+      // PARTNER's rather than the primary's.
+      const p = freshProjection();
+      p.updatePlan({ lifeExpectancy: 100 });
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1976, lifeExpectancy: 95 });
       p.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId });
+      p.updatePlan({ lifeExpectancy: samplePlan.primary.lifeExpectancy });
+      p.reviseTransaction(partnerId, {
+        type: "marry",
+        lifeExpectancy: samplePlan.primary.lifeExpectancy, // Sam now dies 2061
+      });
       expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
     });
   });
 });
+
+/**
+ * A marriage and a separation are both things a COUPLE does, so neither can be dated at or after
+ * `min(the primary's death, the partner's)`. Refused at the moment it is authored rather than
+ * silently modelled — a plan holding an event nobody could have lived through is a plan whose own
+ * timeline disagrees with the answer beside it.
+ *
+ * The sample primary is born 1986 at expectancy 85, so they are gone from month 540 (2071).
+ */
+describe("Projection root — a marriage or separation needs both partners alive", () => {
+  const marriedTo = (birthYear: number, lifeExpectancy: number) => {
+    const p = freshProjection();
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear, lifeExpectancy });
+    return { p, partnerId };
+  };
+
+  it("refuses a separation dated AT the first death, naming who dies and when", () => {
+    const { p, partnerId } = marriedTo(1996, samplePlan.primary.lifeExpectancy);
+    expect(() => p.separate({ month: 540, partnerPersonId: partnerId })).toThrow(
+      /cannot separate — a separation in 2071 needs both partners alive.*live only to 2071/,
+    );
+  });
+
+  it("refuses one dated after it, and accepts the last month that still works", () => {
+    const { p, partnerId } = marriedTo(1996, samplePlan.primary.lifeExpectancy);
+    expect(() => p.separate({ month: 600, partnerPersonId: partnerId })).toThrow(/cannot separate/);
+    // The boundary is exclusive on the death month, so 539 is still a month both are alive in.
+    expect(() => p.separate({ month: 539, partnerPersonId: partnerId })).not.toThrow();
+  });
+
+  it("bounds a separation by the PARTNER's death when they go first", () => {
+    // Sam is born 1976 at expectancy 85 → gone from 2061, a decade before the primary.
+    const { p, partnerId } = marriedTo(1976, samplePlan.primary.lifeExpectancy);
+    expect(() => p.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId })).toThrow(
+      /Sam is projected to live only to 2061/,
+    );
+  });
+
+  it("refuses a marriage dated after the primary's death, and mints nothing", () => {
+    const p = freshProjection();
+    const before = p.toState().nextSeq;
+    expect(() =>
+      p.marry({ month: 600, name: "Sam", birthYear: 1996, lifeExpectancy: 85 }),
+    ).toThrow(/a marriage in 2076 needs both partners alive/);
+    // Refused before the first mint, so no id was issued and then abandoned.
+    expect(p.toState().nextSeq).toBe(before);
+    expect(p.ledger.events).toEqual([]);
+  });
+
+  it("refuses marrying someone the plan has already buried", () => {
+    // Sam is born 1950 at expectancy 60 → gone since 2010, long before the wedding.
+    const p = freshProjection();
+    expect(() =>
+      p.marry({ month: 12, name: "Sam", birthYear: 1950, lifeExpectancy: 60 }),
+    ).toThrow(/Sam is projected to live only to 2010/);
+  });
+
+  it("still accepts a partnering anchored in the PAST — a negative month precedes any death", () => {
+    const p = freshProjection();
+    expect(() =>
+      p.startPartnered({ partneredForMonths: 24, name: "Sam", birthYear: 1996, lifeExpectancy: 85 }),
+    ).not.toThrow();
+  });
+
+  it("refuses a separation naming nobody, rather than booking one against no partner", () => {
+    const p = freshProjection();
+    expect(() => p.separate({ month: 12, partnerPersonId: "person-nope" })).toThrow(
+      /no partner "person-nope" in this timeline/,
+    );
+  });
+});
+
 
 describe("Projection root — authoring validates against the construction-time jurisdiction", () => {
   /**

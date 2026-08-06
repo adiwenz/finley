@@ -5,6 +5,7 @@
  */
 
 import type { Job } from "../job/job";
+import { lifeExpectancyEndMonthExclusive } from "../job/householdJob";
 import { ageAboveMaximum } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
@@ -106,6 +107,50 @@ export interface SeparateInput {
   readonly childSupportMonthlyCents?: number;
 }
 
+/**
+ * Refuse an event that takes TWO living people at a month one of them will not see.
+ *
+ * A marriage and a separation are both things a couple does, so neither can be dated at or after
+ * `min(the primary's death, the partner's)`. You cannot marry someone the plan has already buried,
+ * and you cannot leave a household you have died out of — an "impossible date" in the plainest
+ * sense, and one a user can author by accident simply by booking an event far out.
+ *
+ * At or after, not merely after: {@link lifeExpectancyEndMonthExclusive} is the first month the
+ * person is gone, so the month itself is already too late. This is the same boundary
+ * {@link import("../job/householdJob").memberHorizonReach} uses to decide whether a separation
+ * takes a partner's tail out of the projection — refused here at the moment it is authored, and
+ * still handled there, because an expectancy LOWERED after the fact can stand a separation that
+ * was legal when written.
+ */
+function assertBothAliveAt(
+  state: ProjectionState,
+  month: number,
+  partner: Pick<Person, "name" | "birthYear" | "lifeExpectancy">,
+  verb: "marry" | "separate",
+): void {
+  const primary = state.scenario.plan.primary;
+  const ends = [
+    { who: primary.name.trim() || "the primary", person: primary },
+    { who: partner.name.trim() || "the partner", person: partner },
+  ].map((e) => ({
+    ...e,
+    month: lifeExpectancyEndMonthExclusive(e.person, state.startYear),
+    year: e.person.birthYear + e.person.lifeExpectancy,
+  }));
+  // The one who goes first is what bounds the couple; ties name the primary.
+  const first = ends[0]!.month <= ends[1]!.month ? ends[0]! : ends[1]!;
+  if (month < first.month) return;
+  const at = state.startYear + Math.floor(month / 12);
+  const noun = verb === "marry" ? "marriage" : "separation";
+  // Everything the reader needs sits AFTER the em-dash: the app strips the `Projection: cannot X —`
+  // prefix before showing this (see `useProjection`'s `conflictOf`), so a reason that leaned on the
+  // prefix for the date would reach them without one.
+  throw new Error(
+    `Projection: cannot ${verb} — a ${noun} in ${at} needs both partners alive, and ` +
+      `${first.who} is projected to live only to ${first.year}`,
+  );
+}
+
 /** Answers with the minted `"person-N"` id. */
 export function applyMarriage(
   state: ProjectionState,
@@ -129,6 +174,8 @@ export function applyMarriage(
   if (bad) {
     throw new Error(`Projection: cannot author a partner with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
   }
+  // Before the first mint, so a refused marriage leaves no id issued behind it.
+  assertBothAliveAt(state, input.month, { ...input, lifeExpectancy }, "marry");
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,
   // so the partner and their jobs draw distinct ids from the same monotonic run. The owner is
@@ -247,6 +294,15 @@ export function applySeparation(
   jurisdiction: Jurisdiction,
   input: SeparateInput,
 ): Written<string> {
+  const partner = state.scenario.ledger.events.find(
+    (e) => e.type === "RelationshipEvent" && e.person.id === input.partnerPersonId,
+  );
+  if (partner === undefined || partner.type !== "RelationshipEvent") {
+    throw new Error(
+      `Projection: cannot separate — no partner "${input.partnerPersonId}" in this timeline`,
+    );
+  }
+  assertBothAliveAt(state, input.month, partner.person, "separate");
   const { id, nextSeq } = mint(state, "separation");
   return {
     state: appendEvent(
