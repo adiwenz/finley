@@ -79,11 +79,43 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
 }
 
 /**
+ * How far a band or the spending need must drift from the last figure this table actually
+ * REPORTED before the drift is worth another row group — 5%, a move a listener would notice
+ * stated aloud.
+ *
+ * Load-bearing, and the reason it is measured against the last reported figure rather than
+ * against the previous month: under inflation nearly every figure moves by a few cents every
+ * single month, so an exact `!==` made a "moment" of 563 of a 660-month projection's months.
+ * That is the thing {@link IncomeChartModel.accessibleMoments} promises never to be — a table
+ * read out month by month is not an alternative to the chart, it is the raw series — and it
+ * put ~13,500 DOM nodes on the page, 98% of this panel's total.
+ *
+ * Diffing against the previous month with a threshold would instead lose the drift entirely:
+ * 0.25% a month never clears 5%, so a wage that doubles over thirty years would go unmentioned.
+ * Carrying the last REPORTED figure makes the threshold cumulative, so a steady ramp is sampled
+ * about every 20 months and the trajectory survives at a size someone can listen to.
+ */
+const MATERIAL_DRIFT_FRACTION = 0.05;
+
+/**
+ * Has `after` moved materially from the last figure reported for this signal? Guarded against a
+ * zero baseline, which only arises where the caller has already classified the month as a band
+ * beginning.
+ */
+function driftsMaterially(lastReported: number, after: number): boolean {
+  const scale = Math.max(Math.abs(lastReported), 1);
+  return Math.abs(after - lastReported) / scale >= MATERIAL_DRIFT_FRACTION;
+}
+
+/**
  * Which months are worth a screen-reader user's attention, and why: the projection's start,
- * any month a band begins, ends or changes amount, any month the spending need changes, the
- * first savings withdrawal, and insolvency. Walks `view.rows` once, diffing each month's
- * clamped-at-0 band figures (the same figures the stacked chart draws) against the month
- * before, so the moments never quote a value the chart doesn't.
+ * any month a band begins or ends, any month a band's amount or the spending need has drifted
+ * materially ({@link MATERIAL_DRIFT_FRACTION}) from the figure last read out, the first savings
+ * withdrawal, and insolvency. Walks `view.rows` once against the same clamped-at-0 band figures
+ * the stacked chart draws, so the moments never quote a value the chart doesn't.
+ *
+ * A band beginning or ending is structural and always surfaces, however small the amount: those
+ * are the transitions the chart's shape is made of. Only the continuous middle is sampled.
  */
 function buildAccessibleMoments(
   view: { readonly rows: readonly IncomeMonthRow[] },
@@ -99,26 +131,43 @@ function buildAccessibleMoments(
     else reasonsByMonth.set(month, [reason]);
   };
 
+  // The last figure actually READ OUT for each signal, not the previous month's — see
+  // {@link MATERIAL_DRIFT_FRACTION}. A signal's baseline moves only when that signal itself
+  // surfaces a moment, so each samples its own drift independently of the others.
+  const lastReportedBand = new Map<string, number>();
+  let lastReportedSpendingNeedCents: number | null = null;
   let prevClamped: Record<string, number> | null = null;
-  let prevSpendingNeedCents: number | null = null;
   for (const [i, r] of view.rows.entries()) {
     const clamped = clampBandsForStack(r.centsBySource);
-    if (i === 0) addReason(r.month, "Projection starts");
+    if (i === 0) {
+      addReason(r.month, "Projection starts");
+      // The opening row states every figure, so it is the baseline each signal drifts from.
+      for (const b of bands) lastReportedBand.set(b.id, clamped[b.id] ?? 0);
+      lastReportedSpendingNeedCents = r.spendingNeedCents;
+    }
     if (prevClamped !== null) {
       for (const b of bands) {
         const before = prevClamped[b.id] ?? 0;
         const after = clamped[b.id] ?? 0;
         if (before === after) continue;
+        // Structural first: a band appearing or disappearing is always a moment, and it resets
+        // the baseline to the figure the listener was just given either way.
         if (before === 0) addReason(r.month, `${b.label} begins`);
         else if (after === 0) addReason(r.month, `${b.label} ends`);
-        else addReason(r.month, `${b.label} changes`);
+        else if (driftsMaterially(lastReportedBand.get(b.id) ?? before, after)) {
+          addReason(r.month, `${b.label} changes`);
+        } else continue;
+        lastReportedBand.set(b.id, after);
       }
     }
-    if (prevSpendingNeedCents !== null && prevSpendingNeedCents !== r.spendingNeedCents) {
+    if (
+      lastReportedSpendingNeedCents !== null &&
+      driftsMaterially(lastReportedSpendingNeedCents, r.spendingNeedCents)
+    ) {
       addReason(r.month, "Spending need changes");
+      lastReportedSpendingNeedCents = r.spendingNeedCents;
     }
     prevClamped = clamped;
-    prevSpendingNeedCents = r.spendingNeedCents;
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.

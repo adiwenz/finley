@@ -187,6 +187,58 @@ describe("buildIncomeChartModel", () => {
       expect(withdrawal?.reason).toMatch(/first savings withdrawal/i);
     });
 
+    it("samples a steady drift rather than making a moment of every month", () => {
+      // 0.25%/month — 3% a year, the default plan's inflation, which is what made an exact
+      // cents comparison call 563 of 660 months a moment.
+      const months = [
+        { month: 0 },
+        ...Array.from({ length: 240 }, (_, i) => ({
+          month: i + 1,
+          flows: {
+            incomeSources: [source("job:a", Math.round(dollarsToCents(5_000) * 1.0025 ** i), "wages")],
+          },
+        })),
+      ] as unknown as ProjectionSeries["months"];
+      const model = buildIncomeChartModel(
+        buildIncomeChartData({ months } as unknown as ProjectionSeries),
+        { mode: "advanced" },
+      );
+      // Every month drifts, so an exact comparison would surface all 240. At 5% off the last
+      // figure READ OUT, a 0.25%/month ramp resurfaces about every 20 months.
+      expect(model.accessibleMoments.length).toBeLessThan(20);
+      // The ramp is sampled, not dropped: the trajectory still reaches the listener.
+      expect(model.accessibleMoments.length).toBeGreaterThan(8);
+      // …and the last figure quoted is the one the chart really ends on.
+      const last = model.accessibleMoments.at(-1)!;
+      expect(last.reason).toMatch(/job:a changes/i);
+    });
+
+    it("keeps a band's beginning and end however small the amount", () => {
+      // Below the drift threshold in absolute terms, but structural: the chart's shape changes.
+      const series = {
+        months: [
+          { month: 0 },
+          { month: 1, flows: { incomeSources: [source("job:a", dollarsToCents(5_000), "wages")] } },
+          {
+            month: 2,
+            flows: {
+              incomeSources: [
+                source("job:a", dollarsToCents(5_000), "wages"),
+                source("job:b", 1, "wages"),
+              ],
+            },
+          },
+          { month: 3, flows: { incomeSources: [source("job:a", dollarsToCents(5_000), "wages")] } },
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const reasonsByMonth = new Map(
+        model.accessibleMoments.map((m) => [m.label.match(/month (\d+)/)![1], m.reason]),
+      );
+      expect(reasonsByMonth.get("2")).toMatch(/job:b begins/i);
+      expect(reasonsByMonth.get("3")).toMatch(/job:b ends/i);
+    });
+
     it("adds an insolvency moment naming the household's age", () => {
       const insolventSeries = {
         months: [

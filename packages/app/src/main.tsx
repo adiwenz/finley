@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useMemo, useState } from "react";
+import { StrictMode, useCallback, useDeferredValue, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -97,12 +97,33 @@ export function App() {
     [ledger, editingId],
   );
   const insolventMonth = result.firstInsolventMonth;
+  /**
+   * The retirement solve is a SEARCH, not a pass: a binary search over candidate stop-working
+   * ages, each a full simulation to life expectancy, plus one run of the authored plan — seven
+   * simulations against the default plan, ~5× the cost of the graph's single `run` above.
+   *
+   * So it is deferred rather than computed on the render that commits an edit. React paints the
+   * charts, the editor and the snapshot from the fresh `projection` immediately, then re-renders
+   * this memo against the new one in the background; until it lands, every surface below reads
+   * the previous solve. Without this, each committed keystroke waited on the whole search before
+   * anything could paint.
+   *
+   * Deferred rather than GATED on the retirement panel being open, which was the obvious move
+   * and is wrong: the solved age is not panel-local. It dates the graph's retirement reference
+   * line, bounds the Base + Adjustments quickstart's savings line, and is what `previewResult`
+   * simulates at — all of them visible with the panel untouched.
+   *
+   * Stale for a frame is honest here in a way it would not be on an authoring surface: these are
+   * read-only overlays on a plan the user is still typing into. Every editable surface below
+   * stays on the undeferred `projection`.
+   */
+  const solvedProjection = useDeferredValue(projection);
   // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
   // live ledger — so "when can we retire?" reflects every event the user added (a child, a
   // new expense, a separation), not the bare plan.
   const retirement = useMemo(
-    () => retirementView(projection, usJurisdiction),
-    [projection],
+    () => retirementView(solvedProjection, usJurisdiction),
+    [solvedProjection],
   );
 
   // The "what if everyone stopped working at the solved age" run — the same non-mutating

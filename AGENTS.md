@@ -77,14 +77,13 @@ value is earned.
 ### Scope the test run
 
 Tests sit beside their source as `*.test.ts(x)`. **Do not run `npm test` to check one change** —
-it takes 2.5–3.5 minutes, nearly all of it the app's panel tests, which render a DOM of ~13,700
-nodes (the default plan spans 660 months and the panels draw per-month elements). Measured:
+it takes ~1.5 minutes, most of it the app's panel tests, which render a real DOM. Measured:
 
 ```bash
 npx vitest run packages/engine/src/retirement   # ~5s   — while iterating
 npx vitest run packages/engine                  # ~13s  — 1046 tests, before handing off engine work
 npx vitest run packages/app/src/goalsView.test.ts   # <1s — view-model tests
-npm test                                        # ~3min — everything; pre-commit only
+npm test                                        # ~90s  — everything; pre-commit only
 npm run check                                   # purity + typecheck + test — the full gate
 ```
 
@@ -92,9 +91,9 @@ npm run check                                   # purity + typecheck + test — 
 
 **Prefer the view-model seam.** A behaviour expressed as a `*View.ts` function tests two to
 three orders of magnitude faster than the same behaviour through a rendered panel —
-`jobEditing.test.ts` runs 16 tests in 27ms; `goalsView.test.ts` 17 in 466ms; one
-`baseAdjustmentsPanel.test.tsx` test can take 10s. Render a panel only when the assertion is
-genuinely about the DOM.
+`jobEditing.test.ts` runs 16 tests in 27ms; `goalsView.test.ts` 17 in 466ms; a single
+`mainState.test.tsx` case renders the whole `App` and costs 1–5s. Render a panel only when the
+assertion is genuinely about the DOM.
 
 ## Not product code
 
