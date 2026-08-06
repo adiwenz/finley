@@ -135,8 +135,8 @@ describe("Projection root — authoring validates against the construction-time 
     // weaker check invisible before, now reachable only by asking for it explicitly.
     const p = nestProjection(nullJurisdiction);
     expect(() => p.buyHome(buyFromNest)).not.toThrow();
-    // Two events: the financing mortgage and the property that secures against it.
-    expect(p.ledger.events).toHaveLength(2);
+    // One event: the mortgage rides inside the purchase, minted as a dependent artifact.
+    expect(p.ledger.events).toHaveLength(1);
   });
 
   it("keeps run(jurisdiction) independent of the authoring jurisdiction", () => {

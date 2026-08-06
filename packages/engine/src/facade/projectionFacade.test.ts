@@ -134,11 +134,10 @@ describe("Projection root — one root for standing + ledger writes", () => {
     expect(auto).not.toHaveProperty("creditLimitCents");
   });
 
-  it("composes the mortgage loan first, then the property that secures against it", () => {
-    // A purchase is two events now: the financing `LoanEvent` and the property naming it. The
-    // mortgage id is parent-suffixed `${propertyId}-mortgage`, so a sort groups it under its home
-    // (matching the `${partnerId}-job-N` convention), and the loan is emitted first so it replays
-    // before the property, whose precondition requires the securing liability to exist.
+  it("composes one event carrying the mortgage inline, deriving its financed balance", () => {
+    // A financed purchase is a SINGLE event now: the mortgage terms ride inside it, at a liability
+    // id minted alongside the property id. The financed balance is derived `price − down`, so the
+    // authoring layer never states it.
     const p = freshProjection();
     const homeId = p.buyHome({
       month: 0,
@@ -151,18 +150,17 @@ describe("Projection root — one root for standing + ledger writes", () => {
     });
     expect(homeId).toBe("home-1");
 
-    const [mortgage, home] = p.state.scenario.ledger.events;
-    expect(mortgage.type).toBe("LoanEvent");
-    if (mortgage.type === "LoanEvent") {
-      expect(mortgage.id).toBe("home-1-mortgage");
-      expect(mortgage.liabilityId).toBe("home-1-mortgage");
-      expect(mortgage.kind).toBe("mortgage");
-      expect(mortgage.openingBalanceCents).toBe(dollarsToCents(90000)); // price − down
-    }
+    const events = p.state.scenario.ledger.events;
+    expect(events).toHaveLength(1);
+    const [home] = events;
     expect(home.type).toBe("HomePurchaseEvent");
     if (home.type === "HomePurchaseEvent") {
       expect(home.propertyId).toBe("home-1");
-      expect(home.securedByLiabilityId).toBe("home-1-mortgage");
+      // Minted off the same counter as the property id, one call after it.
+      expect(home.mortgage?.liabilityId).toBe("mortgage-2");
+      expect(home.mortgage?.openingBalanceCents).toBe(dollarsToCents(90000)); // price − down
+      expect(home.mortgage?.apr).toBe(6);
+      expect(home.mortgage?.termMonths).toBe(360);
     }
   });
 

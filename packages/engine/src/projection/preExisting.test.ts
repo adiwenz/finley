@@ -155,15 +155,21 @@ describe("ownHome — a home already owned at start", () => {
       mortgage: { balanceCents: 24_000_000, apr: 0, remainingTermMonths: 240 },
     });
     expect(homeId).toMatch(/^home-\d+$/);
-    const mortgageId = `${homeId}-mortgage`;
 
-    // The mortgage LoanEvent sorts first (the property's precondition needs it to exist), and both
-    // holdings are dated `-1`, never a caller-supplied month.
+    // ONE event carrying the mortgage inline, dated `-1` — never a caller-supplied month. The
+    // handler materializes the securing liability at its authored id; there is no separate loan
+    // event to sort first.
     const events = p.state.scenario.ledger.events;
-    expect(events[0]?.type).toBe("LoanEvent");
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("HomePurchaseEvent");
     expect(events[0]?.month).toBe(PRE_NOW_MONTH);
-    expect(events[1]?.type).toBe("HomePurchaseEvent");
-    expect(events[1]?.month).toBe(PRE_NOW_MONTH);
+    expect(events[0]?.type === "HomePurchaseEvent" && events[0].mortgage?.openingBalanceCents).toBe(
+      24_000_000,
+    );
+    const mortgageId =
+      events[0]?.type === "HomePurchaseEvent" ? events[0].mortgage?.liabilityId : undefined;
+    if (mortgageId === undefined) throw new Error("expected a minted mortgage liability id");
+    expect(mortgageId).toMatch(/^mortgage-\d+$/);
 
     // On the books at "now": the property opens at its full value and the mortgage at its full
     // balance, and savings is untouched — a holding draws no down payment (contrast `buyHome`).
@@ -183,7 +189,7 @@ describe("ownHome — a home already owned at start", () => {
     const events = p.state.scenario.ledger.events;
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("HomePurchaseEvent");
-    expect(events[0]?.type === "HomePurchaseEvent" && events[0].securedByLiabilityId).toBeUndefined();
+    expect(events[0]?.type === "HomePurchaseEvent" && events[0].mortgage).toBeUndefined();
 
     const { series } = p.run(nullJurisdiction);
     expect(series.opening.propertyValuesCents[homeId]).toBe(40_000_000);
@@ -235,7 +241,7 @@ describe("ScenarioInput — the declarative surface for anchors and holdings", (
     expect(loan?.month).toBe(PRE_NOW_MONTH);
   });
 
-  it("routes an ownHome entry through the facade, expanding to a mortgage holding and its property", () => {
+  it("routes an ownHome entry through the facade, embedding the mortgage in one holding event", () => {
     const p = built({
       ...base,
       events: [
@@ -248,18 +254,17 @@ describe("ScenarioInput — the declarative surface for anchors and holdings", (
         },
       ],
     });
+    // A single holding event carries the mortgage inline, materialized at its authored id.
+    expect(p.ledger.events).toHaveLength(1);
     const property = p.ledger.events.find((e) => e.type === "HomePurchaseEvent");
-    const mortgage = p.ledger.events.find((e) => e.type === "LoanEvent");
-    expect(property?.month).toBe(PRE_NOW_MONTH);
-    expect(mortgage?.month).toBe(PRE_NOW_MONTH);
-    // The property names the mortgage, and both are holdings on the books at "now".
-    if (property?.type !== "HomePurchaseEvent" || mortgage?.type !== "LoanEvent") {
-      throw new Error("expected an expanded home holding");
-    }
-    expect(property.securedByLiabilityId).toBe(mortgage.liabilityId);
+    if (property?.type !== "HomePurchaseEvent") throw new Error("expected an expanded home holding");
+    expect(property.month).toBe(PRE_NOW_MONTH);
+    expect(property.mortgage?.openingBalanceCents).toBe(24_000_000);
+    const mortgageId = property.mortgage?.liabilityId;
+    if (mortgageId === undefined) throw new Error("expected a minted mortgage liability id");
     const { series } = p.run(nullJurisdiction);
     expect(series.opening.propertyValuesCents[property.propertyId]).toBe(40_000_000);
-    expect(series.opening.liabilityBalancesCents[mortgage.liabilityId]).toBe(24_000_000);
+    expect(series.opening.liabilityBalancesCents[mortgageId]).toBe(24_000_000);
   });
 
   it("dates a declarative pre-now separation against the partner it names", () => {

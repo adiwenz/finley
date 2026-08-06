@@ -389,21 +389,7 @@ function propertyBase(openingCents: number): LedgerBaseConfig {
   };
 }
 
-/** The financing mortgage and the property naming it — the two events a purchase decomposes to. */
-function mortgageFixture(): NewLifeEvent {
-  return {
-    id: "mtg1",
-    type: "LoanEvent",
-    month: 3,
-    liabilityId: "mtg1",
-    ownerId: "p1",
-    kind: "mortgage",
-    openingBalanceCents: PROPERTY_FINANCED,
-    apr: 0,
-    termMonths: 360,
-  } as NewLifeEvent;
-}
-
+/** A financed purchase — one event carrying the mortgage inline, authored at `house1-mortgage`. */
 function purchaseFixture(): NewLifeEvent {
   return {
     id: "buy1",
@@ -414,18 +400,19 @@ function purchaseFixture(): NewLifeEvent {
     purchasePriceCents: PROPERTY_PRICE,
     downPaymentCents: PROPERTY_DOWN,
     downPaymentSourceIds: ["savings"],
-    securedByLiabilityId: "mtg1",
+    mortgage: {
+      liabilityId: "house1-mortgage",
+      openingBalanceCents: PROPERTY_FINANCED,
+      apr: 0,
+      termMonths: 360,
+    },
   } as NewLifeEvent;
 }
 
-/** Appends the mortgage first (so it replays before the property) then the property. */
 function addPurchase(base: LedgerBaseConfig): Ledger {
-  const step = (l: Ledger, e: NewLifeEvent): Ledger => {
-    const r = addEvent(l, base, e);
-    if (!r.ok) throw new Error(`event rejected: ${r.conflict}`);
-    return r.ledger;
-  };
-  return step(step(emptyLedger, mortgageFixture()), purchaseFixture());
+  const r = addEvent(emptyLedger, base, purchaseFixture());
+  if (!r.ok) throw new Error(`event rejected: ${r.conflict}`);
+  return r.ledger;
 }
 
 describe("buildSnapshot — properties", () => {

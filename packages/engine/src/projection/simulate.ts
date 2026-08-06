@@ -162,8 +162,9 @@ export function simulateHousehold(
       (p) => p.causedByEventId !== undefined && omittedEventIds.has(p.causedByEventId),
     );
     const suppressedPropertyIds = new Set(suppressedProperties.map((p) => p.id));
-    // The mortgage is reached through the property, not through its own `causedByEventId`: that id
-    // is the synthesized `LoanEvent`'s (`<propertyId>-mortgage`), never the purchase event's.
+    // The mortgage is a dependent artifact of the purchase, reached through the property's
+    // `mortgageLiabilityId`. It shares the purchase event's `causedByEventId`, so suppressing the
+    // property suppresses the loan it would originate with it.
     const suppressedLiabilityIds = new Set(
       suppressedProperties.flatMap((p) =>
         p.mortgageLiabilityId != null ? [p.mortgageLiabilityId] : [],

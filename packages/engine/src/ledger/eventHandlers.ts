@@ -18,8 +18,10 @@ import type {
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
-import type { InterpretContext, InterpretState, SeriesDef } from "./interpretState";
+import type { InterpretContext, InterpretState, LiabilityDef, SeriesDef } from "./interpretState";
 import type { AccountTransfer } from "./transfers";
+import type { LiabilityKind } from "../liability/liability";
+import type { Cents } from "../money/money";
 import {
   asAccountId,
   asChildId,
@@ -27,6 +29,8 @@ import {
   asPersonId,
   asPropertyId,
   asSeriesId,
+  type LiabilityId,
+  type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { assetAcquisitionObligation } from "../projection/financialObligation";
@@ -176,6 +180,49 @@ const separation: EventHandler<SeparationEvent> = {
   },
 };
 
+/**
+ * The amortizing (non-revolving) {@link LiabilityDef} both a term {@link LoanEvent} and a purchase
+ * mortgage mint — one builder so the two handlers cannot drift on how a scheduled loan opens. A
+ * revolving card is the one liability this does NOT build: it carries a credit limit, not a term,
+ * so the card arm of `loan.apply` stays inline. `startMonth` records whatever month it is given —
+ * month 0 for a plan-time origination, the now marker for a debt already carried — so a holding
+ * needs no special case.
+ */
+function amortizingLiability(params: {
+  id: LiabilityId;
+  causedByEventId: string;
+  ownerId: PersonId;
+  startMonth: number;
+  openingBalanceCents: Cents;
+  apr: number;
+  termMonths: number;
+  kind: Exclude<LiabilityKind, "creditCard">;
+}): LiabilityDef {
+  return { ...params, transfers: [] };
+}
+
+/**
+ * Insert a liability, refusing to silently overwrite an existing entry — the invariant a
+ * liability id, once taken (authored `LoanEvent` or a purchase's derived mortgage), stays taken.
+ * `check` is expected to have already refused a collision before `apply` runs; this is the
+ * backstop for anything that reaches `apply` without one (a future caller, a bug in `check`
+ * itself) so a collision throws loudly instead of one liability quietly replacing another.
+ */
+function insertLiability(
+  state: InterpretState,
+  id: LiabilityId,
+  def: LiabilityDef,
+  event: LifeEvent,
+): void {
+  if (state.liabilitiesById.has(id)) {
+    throw new Error(
+      `Interpretation invariant violated: liability "${id}" already exists, ` +
+        `colliding with ${event.type} "${event.id}"`,
+    );
+  }
+  state.liabilitiesById.set(id, def);
+}
+
 const loan: EventHandler<LoanEvent> = {
   check(event, state) {
     if (state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -189,25 +236,25 @@ const loan: EventHandler<LoanEvent> = {
     return ok;
   },
   apply(event, state) {
+    const id = asLiabilityId(event.liabilityId);
+    // The fields every kind shares; the kind-owned tail (`creditLimitCents` vs. `termMonths`)
+    // rides on top. A revolving card is built inline — it carries a limit, not a term, so it is
+    // the one liability `amortizingLiability` does NOT construct.
     const common = {
-      id: asLiabilityId(event.liabilityId),
+      id,
       causedByEventId: event.id,
       ownerId: asPersonId(event.ownerId),
-      // A loan originates at the month it is authored for, month 0 included — the same rule
-      // a Year-0 property/mortgage follows. A debt the household ALREADY carries is the same
-      // event dated at the now marker (`startMonth = -1`, minted by `carryLoan`); this handler
-      // records whatever month it is given, so the holding needs no special case.
       startMonth: event.month,
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
-      transfers: [],
     };
-    // Carry exactly the field the event's kind owns into the derived LiabilityDef.
-    state.liabilitiesById.set(
-      asLiabilityId(event.liabilityId),
+    insertLiability(
+      state,
+      id,
       event.kind === "creditCard"
-        ? { ...common, kind: event.kind, creditLimitCents: event.creditLimitCents }
-        : { ...common, kind: event.kind, termMonths: event.termMonths },
+        ? { ...common, transfers: [], kind: event.kind, creditLimitCents: event.creditLimitCents }
+        : amortizingLiability({ ...common, termMonths: event.termMonths, kind: event.kind }),
+      event,
     );
   },
 };
@@ -219,21 +266,21 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     const misdated = holdingMonthFault(event.month);
     if (misdated) return fail(event, misdated);
-    // The securing loan is a separate event; naming a liability that has not replayed yet is a
-    // dangling reference. Requiring it to exist forces the loan to sort first (same rule
-    // `debtPayoff` uses) and, symmetrically, blocks removing that loan while this property still
-    // names it — the removal replay strands here with this message.
-    if (
-      event.securedByLiabilityId !== undefined &&
-      !state.liabilitiesById.has(asLiabilityId(event.securedByLiabilityId))
-    ) {
-      return fail(event, `securing liability "${event.securedByLiabilityId}" not found`);
-    }
     if (!ownerExists(state, event.ownerId)) {
       return fail(event, `owner "${event.ownerId}" not found`);
     }
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
+    }
+    // The embedded mortgage's liability id is AUTHORED (minted like any other id), so a
+    // hand-edited or imported ledger can still hand it to a standalone LoanEvent that landed
+    // first — same precondition `loan.check` applies to its own `liabilityId`, checked here
+    // before `apply` inserts and would otherwise collide with whichever liability landed first.
+    if (event.mortgage !== undefined) {
+      const mortgageLiabilityId = asLiabilityId(event.mortgage.liabilityId);
+      if (state.liabilitiesById.has(mortgageLiabilityId)) {
+        return fail(event, `liability "${mortgageLiabilityId}" already exists`);
+      }
     }
     // A holding (a home already owned at "now") opens at its current value with no acquisition:
     // it names no funding source, draws no down payment, and skips the §4.5 gate below. Only a
@@ -284,8 +331,32 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     return ok;
   },
   apply(event, state, context) {
-    // Property: the appreciating stock. The securing loan, if any, was minted by its own
-    // LoanEvent (which sorted first); this only records the link so equity nets the two.
+    // Mortgage: a dependent artifact materialized here from the embedded terms, not a separate
+    // event — but its id is AUTHORED (`event.mortgage.liabilityId`, minted by authoring), never
+    // derived or minted here. `causedByEventId` is this purchase, so deleting the purchase drops
+    // it and revising the purchase rebuilds it under the SAME authored id — no cross-event
+    // precondition, no cascade edge. A cash purchase / owned-outright home omits `mortgage`.
+    const mortgageLiabilityId =
+      event.mortgage !== undefined ? asLiabilityId(event.mortgage.liabilityId) : null;
+    if (event.mortgage !== undefined && mortgageLiabilityId !== null) {
+      insertLiability(
+        state,
+        mortgageLiabilityId,
+        amortizingLiability({
+          id: mortgageLiabilityId,
+          causedByEventId: event.id,
+          ownerId: asPersonId(event.ownerId),
+          startMonth: event.month,
+          openingBalanceCents: event.mortgage.openingBalanceCents,
+          apr: event.mortgage.apr,
+          termMonths: event.mortgage.termMonths,
+          kind: "mortgage",
+        }),
+        event,
+      );
+    }
+    // Property: the appreciating stock. Its balance nets against the mortgage above to give
+    // equity; a cash purchase leaves `mortgageLiabilityId` null.
     state.propertiesById.set(asPropertyId(event.propertyId), {
       id: asPropertyId(event.propertyId),
       causedByEventId: event.id,
@@ -296,10 +367,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       appreciationMode:
         event.appreciationMode ??
         { type: "inflationLinked", annualRate: context.annualInflationRate },
-      mortgageLiabilityId:
-        event.securedByLiabilityId !== undefined
-          ? asLiabilityId(event.securedByLiabilityId)
-          : null,
+      mortgageLiabilityId,
     });
     // A holding is already on the books at "now" — it was acquired off the timeline, so there is
     // no down payment to draw here; the property simply opens at its current value.

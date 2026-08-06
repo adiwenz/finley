@@ -40,11 +40,13 @@ const PRICE = 30_000_000; // $300k
 const DOWN = 6_000_000; // $60k
 const FINANCED = PRICE - DOWN; // $240k
 
+/** The liability id these fixtures author onto `house1`'s embedded mortgage. */
+const MORTGAGE_ID = "house1-mortgage";
+
 /**
- * The property half of a purchase — a slimmed `HomePurchaseEvent` that acquires the home and
- * drains the down payment. Financing is a separate `LoanEvent` ({@link mortgage}); a bare
- * `purchase()` is a cash acquisition (no `securedByLiabilityId`), which the down-payment gate
- * scrutinises identically since the gate never depends on the mortgage.
+ * A `HomePurchaseEvent` that acquires the home and drains the down payment. A bare `purchase()` is
+ * a cash acquisition (no embedded `mortgage`), which the down-payment gate scrutinises identically
+ * since the gate never depends on the mortgage; pass a `mortgage` override to finance it.
  */
 function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   return {
@@ -60,13 +62,13 @@ function purchase(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   } as NewLifeEvent;
 }
 
-/** The financing mortgage a purchase names — a `LoanEvent` the property secures against. */
-function mortgage(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
+/** A standalone amortizing `LoanEvent` — genuinely separate debt, not a purchase mortgage. */
+function loanEvent(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   return {
-    id: "mtg1",
+    id: "loan1",
     type: "LoanEvent",
     month: 3,
-    liabilityId: "mtg1",
+    liabilityId: "loan1",
     ownerId: "p1",
     kind: "mortgage",
     openingBalanceCents: FINANCED,
@@ -84,20 +86,25 @@ function addWithBase(ledger: Ledger, base: LedgerBaseConfig, event: NewLifeEvent
 }
 
 /**
- * Append a financed purchase the way `buyHome` composes one: the mortgage first (so it replays
- * before the home, whose precondition needs it present), then the property securing it at the
- * same month. The financed balance follows the price/down overrides.
+ * Append a financed purchase the way `buyHome` composes one: ONE event carrying the mortgage
+ * inline, authored at `MORTGAGE_ID` (a real `buyHome` call mints this off the shared counter; a
+ * fixture names it directly). The financed balance follows the price/down overrides automatically.
  */
 function addFinanced(
   ledger: Ledger,
   base: LedgerBaseConfig,
   homeOverrides: Partial<NewLifeEvent> = {},
 ): Ledger {
-  const o = homeOverrides as { month?: number; purchasePriceCents?: number; downPaymentCents?: number };
-  const month = o.month ?? 3;
+  const o = homeOverrides as { purchasePriceCents?: number; downPaymentCents?: number };
   const financed = (o.purchasePriceCents ?? PRICE) - (o.downPaymentCents ?? DOWN);
-  const withMortgage = addWithBase(ledger, base, mortgage({ month, openingBalanceCents: financed }));
-  return addWithBase(withMortgage, base, purchase({ ...homeOverrides, securedByLiabilityId: "mtg1" }));
+  return addWithBase(
+    ledger,
+    base,
+    purchase({
+      ...homeOverrides,
+      mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: financed, apr: 0, termMonths: 360 },
+    }),
+  );
 }
 
 describe("HomePurchaseEvent", () => {
@@ -109,33 +116,48 @@ describe("HomePurchaseEvent", () => {
     expect(household.properties).toHaveLength(1);
     expect(household.properties[0].id).toBe("house1");
     expect(household.properties[0].openingValueCents).toBe(PRICE);
-    expect(household.properties[0].mortgageLiabilityId).toBe("mtg1");
+    expect(household.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
 
     expect(household.liabilities).toHaveLength(1);
-    expect(household.liabilities[0].id).toBe("mtg1");
+    expect(household.liabilities[0].id).toBe(MORTGAGE_ID);
     expect(household.liabilities[0].kind).toBe("mortgage");
     expect(household.liabilities[0].openingBalanceCents).toBe(FINANCED);
   });
 
-  it("rejects a purchase whose securing liability has not been minted", () => {
-    // The link is referential: naming a liability no prior event created is a dangling pointer,
-    // caught the same way `debtPayoff` catches a missing liability.
+  it("materializes the SAME mortgage liability id on every interpretation of the same ledger", () => {
+    // The id lives on the authored event, not conjured fresh each time `apply` runs — so
+    // interpreting the identical ledger twice (a re-run, a reload, a re-derived projection) must
+    // land on the exact same id both times, not merely on two ids that happen not to collide.
     const base = baseWith(10_000_000);
-    const result = addEvent(emptyLedger, base, purchase({ securedByLiabilityId: "ghost" }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.conflict).toMatch(/securing liability "ghost" not found/);
+    const ledger = addFinanced(emptyLedger, base);
+
+    const first = interpretLedger(ledger, base);
+    const second = interpretLedger(ledger, base);
+
+    expect(first.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(second.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(second.properties[0].mortgageLiabilityId).toBe(first.properties[0].mortgageLiabilityId);
+    expect(second.liabilities[0].id).toBe(first.liabilities[0].id);
   });
 
-  it("requires the mortgage to be ordered before the property it secures", () => {
-    // Same-month events replay in append order, so the mortgage appended second would replay
-    // second and the property would strand — the ordering the precondition enforces.
+  it("materializes the mortgage from one event, needing no prior liability to exist", () => {
+    // The mortgage rides inside the purchase — a single event, materialized as a dependent
+    // artifact at its authored id — so there is no separate loan to author first and no ordering
+    // precondition to satisfy.
     const base = baseWith(10_000_000);
-    const outOfOrder = addEvent(emptyLedger, base, purchase({ securedByLiabilityId: "mtg1" }));
-    expect(outOfOrder.ok).toBe(false);
-
-    // Loan first, then the property: accepted.
-    const inOrder = addFinanced(emptyLedger, base);
-    expect(interpretLedger(inOrder, base).properties[0].mortgageLiabilityId).toBe("mtg1");
+    const result = addEvent(
+      emptyLedger,
+      base,
+      purchase({
+        mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const household = interpretLedger(result.ledger, base);
+      expect(household.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+      expect(household.liabilities.map((l) => l.id)).toEqual([MORTGAGE_ID]);
+    }
   });
 
   it("acquires a cash home with no securing liability", () => {
@@ -158,7 +180,7 @@ describe("HomePurchaseEvent", () => {
     // The three moves cancel.
     const m3 = series.months[3];
     expect(m3.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
-    expect(m3.liabilityBalancesCents.mtg1).toBe(FINANCED);
+    expect(m3.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
     expect(m3.propertyValuesCents.house1).toBe(PRICE);
     expect(m3.netWorthNominalCents).toBe(10_000_000);
   });
@@ -177,7 +199,7 @@ describe("HomePurchaseEvent", () => {
 
     const m0 = series.months[0];
     expect(m0.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
-    expect(m0.liabilityBalancesCents.mtg1).toBe(FINANCED);
+    expect(m0.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
     expect(m0.propertyValuesCents.house1).toBe(PRICE);
     expect(m0.netWorthNominalCents).toBe(10_000_000);
   });
@@ -364,37 +386,48 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
   });
 });
 
-describe("removeEvent — a decomposed home purchase", () => {
-  it("removing the property leaves the standalone mortgage — 'sold the house, still owe'", () => {
-    // The property names its mortgage, not the reverse, so there is no causedBy edge to pull the
-    // loan out with the home. The mortgage is a plain liability that outlives the house.
+describe("removeEvent — a financed home purchase", () => {
+  it("removing the purchase drops its derived mortgage — the two share one life", () => {
+    // The mortgage is a dependent artifact minted from this event, not a separate ledger event.
+    // Deleting the purchase re-interprets a ledger without it, so nothing re-derives the mortgage
+    // and the liability vanishes — no orphan left behind.
     const base = baseWith(10_000_000);
     const ledger = addFinanced(emptyLedger, base);
+    // One event only: a financed purchase no longer splits into a purchase plus a loan.
+    expect(ledger.events).toHaveLength(1);
     const result = removeEvent(ledger, "buy1", base);
     expect(result.ok).toBe(true);
     if (result.ok) {
       const household = interpretLedger(result.ledger, base);
       expect(household.properties).toHaveLength(0);
-      expect(household.liabilities.map((l) => l.id)).toEqual(["mtg1"]);
+      expect(household.liabilities).toHaveLength(0);
     }
   });
 
-  it("blocks removing the mortgage while the property still names it", () => {
-    // The property's precondition strands on replay: removing the loan the house is secured by
-    // would leave a dangling reference, so the removal is refused and names the offending event.
+  it("blocks the delete when a payoff still targets the derived mortgage", () => {
+    // A DebtPayoffEvent aimed at `house1-mortgage` outlives the purchase only if the purchase does.
+    // Removing the purchase drops the mortgage, so the payoff strands on replay ("liability not
+    // found for payoff") and Strategy A refuses the removal, naming the offending event.
     const base = baseWith(10_000_000);
-    const ledger = addFinanced(emptyLedger, base);
-    const result = removeEvent(ledger, "mtg1", base);
+    const ledger = addWithBase(addFinanced(emptyLedger, base), base, {
+      id: "payoff1",
+      type: "DebtPayoffEvent",
+      month: 6,
+      liabilityId: MORTGAGE_ID,
+      accountId: "savings",
+      amountCents: 1_000_000,
+    } as NewLifeEvent);
+    const result = removeEvent(ledger, "buy1", base);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.conflict).toContain("buy1");
-      expect(result.conflict).toMatch(/securing liability "mtg1" not found/);
+      expect(result.conflict).toContain("payoff1");
+      expect(result.conflict).toMatch(/liability "house1-mortgage" not found for payoff/);
     }
   });
 });
 
 /** The property half of a HOLDING — a pre-existing home dated at the now marker, opening at its
- * current value with no down payment. Owned outright unless a `securedByLiabilityId` is added. */
+ * current value with no down payment. Owned outright unless a `mortgage` override is added. */
 function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   return purchase({
     month: PRE_NOW_MONTH,
@@ -403,6 +436,115 @@ function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
     ...overrides,
   });
 }
+
+describe("HomePurchaseEvent — mortgage liability id collision", () => {
+  // The embedded mortgage's liability id is AUTHORED (minted off the same counter every other id
+  // draws from), not derived at interpret time — but authoring cannot stop a hand-edited or
+  // imported ledger from handing a standalone LoanEvent that exact id. `liabilitiesById` is a
+  // plain Map: without an explicit guard, whichever event lands second silently overwrites the
+  // first rather than failing. Every case below asserts the collision is refused explicitly, in
+  // both possible orderings, at both the authoring and the import gates.
+
+  it("still creates and links a normal, non-colliding financed purchase's mortgage", () => {
+    // The invariant added here must not disturb the ordinary path.
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
+    const household = interpretLedger(ledger, base);
+    expect(household.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(household.liabilities.map((l) => l.id)).toEqual([MORTGAGE_ID]);
+  });
+
+  it("rejects the purchase when its authored mortgage id collides with an EARLIER standalone loan", () => {
+    // Loan authored first, taking the id the purchase's mortgage is (separately) authored to; the
+    // purchase must then be refused rather than silently overwriting the standalone loan.
+    const base = baseWith(10_000_000);
+    const ledger = addWithBase(emptyLedger, base, loanEvent({ liabilityId: MORTGAGE_ID, month: 1 }));
+    const result = addEvent(
+      ledger,
+      base,
+      purchase({
+        month: 3,
+        mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain(MORTGAGE_ID);
+      expect(result.conflict).toMatch(/already exists/);
+    }
+  });
+
+  it("rejects a LATER standalone loan authored against an EARLIER purchase's mortgage id", () => {
+    // The mirror ordering: the purchase materializes its mortgage first, so the standalone loan's
+    // own "liability already exists" precondition is what refuses it — same outcome, other handler.
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
+    const result = addEvent(
+      ledger,
+      base,
+      loanEvent({ liabilityId: MORTGAGE_ID, month: 6 }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain(MORTGAGE_ID);
+      expect(result.conflict).toMatch(/already exists/);
+    }
+  });
+
+  it("refuses to import a ledger whose loan-before-purchase collision was never authored through the gate", () => {
+    // Bypassing `addEvent` entirely, a raw ledger carries a standalone loan and a colliding
+    // financed purchase, loan first. `validateLedger` — the restore/import entry point — replays
+    // in (month, sequenceNumber) order and must refuse rather than let the purchase's mortgage
+    // silently replace the loan in `liabilitiesById`.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [
+        { ...loanEvent({ liabilityId: MORTGAGE_ID, month: 1 }), sequenceNumber: 1 },
+        {
+          ...purchase({
+            month: 3,
+            mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+          }),
+          sequenceNumber: 2,
+        },
+      ] as unknown as Ledger["events"],
+      nextSequenceNumber: 3,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.event.id).toBe("buy1");
+      expect(result.reason).toContain(MORTGAGE_ID);
+      expect(result.reason).toMatch(/already exists/);
+    }
+  });
+
+  it("refuses to import a ledger whose purchase-before-loan collision was never authored through the gate", () => {
+    // Same fixture, reversed sequence: the purchase materializes its mortgage first, so the loan
+    // is what strands on replay — the other ordering `validateLedger` must also catch.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [
+        {
+          ...purchase({
+            month: 1,
+            mortgage: { liabilityId: MORTGAGE_ID, openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+          }),
+          sequenceNumber: 1,
+        },
+        { ...loanEvent({ liabilityId: MORTGAGE_ID, month: 3 }), sequenceNumber: 2 },
+      ] as unknown as Ledger["events"],
+      nextSequenceNumber: 3,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.event.id).toBe("loan1");
+      expect(result.reason).toContain(MORTGAGE_ID);
+      expect(result.reason).toMatch(/already exists/);
+    }
+  });
+});
 
 describe("HomePurchaseEvent — a holding (a home already owned at start)", () => {
   it("opens the property at its value with no down-payment draw, drawing on no source", () => {
@@ -442,7 +584,7 @@ describe("HomePurchaseEvent — a holding (a home already owned at start)", () =
 
   it("rejects a loan holding dated at a negative month other than the now marker", () => {
     const base = baseWith(10_000_000);
-    const result = addEvent(emptyLedger, base, mortgage({ month: -5 }));
+    const result = addEvent(emptyLedger, base, loanEvent({ month: -5 }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.conflict).toMatch(/now marker/);
   });
@@ -722,7 +864,7 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     );
     // The tax is the household's loss, not the home's: equity is still price − financed.
     expect(at.propertyValuesCents.house1).toBe(PRICE);
-    expect(at.liabilityBalancesCents.mtg1).toBe(FINANCED);
+    expect(at.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
   });
 
   it("conserves net worth for a cash-funded down payment (no gain → no tax)", () => {
@@ -1090,7 +1232,7 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
     const blocked = series.months[3];
     // No fictional equity: neither the home nor its mortgage originate.
     expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents["house1-mortgage"] ?? 0).toBe(0);
     // The affordable cash home DID execute — blocking is scoped to the one stranded purchase.
     expect(blocked.propertyValuesCents.house0).toBe(7_000_000);
     // Savings retains the $30k the stranded draw never took.
@@ -1110,13 +1252,8 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
     // authored: the first leaves $40k, and the second is gated against that remainder... so author
     // the second cheaply enough to pass, at a $30k down payment.
     const withFirst = addFinanced(emptyLedger, base);
-    const withSecondMortgage = addWithBase(
-      withFirst,
-      base,
-      mortgage({ id: "mtg2", liabilityId: "mtg2", month: 3, openingBalanceCents: 27_000_000 }),
-    );
     const withSecond = addWithBase(
-      withSecondMortgage,
+      withFirst,
       base,
       purchase({
         id: "buy2",
@@ -1124,7 +1261,7 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
         month: 3,
         purchasePriceCents: 30_000_000,
         downPaymentCents: 3_000_000,
-        securedByLiabilityId: "mtg2",
+        mortgage: { liabilityId: "house2-mortgage", openingBalanceCents: 27_000_000, apr: 0, termMonths: 360 },
       }),
     );
     // Then a $70k cash home at month 1 drains savings to $30k, stranding the month-3 pair. Authored
@@ -1159,8 +1296,8 @@ describe("HomePurchaseEvent — a purchase stranded by a later edit blocks the p
     expect(blocked.propertyValuesCents.house1 ?? 0).toBe(0);
     expect(blocked.propertyValuesCents.house2 ?? 0).toBe(0);
     // NEITHER mortgage was originated.
-    expect(blocked.liabilityBalancesCents.mtg1 ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents.mtg2 ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents["house1-mortgage"] ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents["house2-mortgage"] ?? 0).toBe(0);
     // The month-1 cash home still stands, and net worth is the genuine $100k.
     expect(blocked.propertyValuesCents.house0).toBe(7_000_000);
     expect(blocked.netWorthNominalCents).toBe(10_000_000);

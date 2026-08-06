@@ -273,7 +273,7 @@ describe("sub-forms — editing an existing event", () => {
     });
   });
 
-  it("HomePurchaseForm edits the property's own fields; the mortgage rate is edited elsewhere", () => {
+  it("HomePurchaseForm edits price, down, and the embedded mortgage terms in one revision", () => {
     const HOME: EventOf<"HomePurchaseEvent"> = {
       type: "HomePurchaseEvent",
       id: "prop-1",
@@ -285,7 +285,7 @@ describe("sub-forms — editing an existing event", () => {
       downPaymentCents: 60_000_00,
       // Empty so the funding filter is not in play — the picker's plumbing is its own test.
       downPaymentSourceIds: [],
-      securedByLiabilityId: "prop-1-mortgage",
+      mortgage: { liabilityId: "prop-1-mortgage", openingBalanceCents: 240_000_00, apr: 0.065, termMonths: 360 },
     };
     const { p, onRevise } = stubProjection();
     render(
@@ -301,10 +301,12 @@ describe("sub-forms — editing an existing event", () => {
 
     expect(Number(spin(/Price/i).value)).toBe(300_000);
     expect(Number(spin(/Down payment/i).value)).toBe(60_000);
-    // A `buyHome` revision cannot touch the financing loan, so the mortgage fields drop out —
-    // they are revised through the mortgage's own timeline marker.
-    expect(screen.queryByRole("spinbutton", { name: /Mortgage APR/i })).toBeNull();
-    expect(screen.queryByRole("spinbutton", { name: /Term/i })).toBeNull();
+    // The mortgage rides inside the purchase now, so its rate and term are edited right here,
+    // prefilled from the embedded terms (6.5% over 30 years).
+    expect(Number(spin(/Mortgage APR/i).value)).toBe(6.5);
+    expect(Number(spin(/Term/i).value)).toBe(30);
+    // A plan-time purchase derives the balance from price − down, so it shows no balance field.
+    expect(screen.queryByRole("spinbutton", { name: /Mortgage balance/i })).toBeNull();
 
     enterNumber(spin(/Price/i), "320000");
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
@@ -314,6 +316,8 @@ describe("sub-forms — editing an existing event", () => {
       purchasePriceCents: 320_000_00,
       downPaymentCents: 60_000_00,
       downPaymentSourceIds: [],
+      mortgageApr: 0.065,
+      mortgageTermMonths: 360,
     });
   });
 });
@@ -363,7 +367,7 @@ describe("sub-forms — editing something already true on day one", () => {
     purchasePriceCents: 400_000_00,
     downPaymentCents: 0,
     downPaymentSourceIds: [],
-    securedByLiabilityId: "home-1-mortgage",
+    mortgage: { liabilityId: "home-1-mortgage", openingBalanceCents: 240_000_00, apr: 0.06, termMonths: 360 },
   };
 
   it("ChildForm dates an existing child by their age today, and keeps birth = that month", () => {
@@ -408,7 +412,7 @@ describe("sub-forms — editing something already true on day one", () => {
     });
   });
 
-  it("HomePurchaseForm edits an owned home's value alone — no date, no down payment to fund", () => {
+  it("HomePurchaseForm edits an owned home's value, balance, and terms together — no date, no down payment", () => {
     const { p, onRevise } = stubProjection();
     render(
       <HomePurchaseForm
@@ -426,15 +430,24 @@ describe("sub-forms — editing something already true on day one", () => {
     // A holding drew nothing when it opened, so neither the amount nor the drain order is asked.
     expect(screen.queryByRole("spinbutton", { name: /Down payment/i })).toBeNull();
     expect(screen.queryByText(/Down payment paid from/i)).toBeNull();
+    // The mortgage is edited in the SAME place — balance (decoupled from value for a holding),
+    // rate, and term all prefilled from the embedded terms.
+    expect(Number(spin(/Mortgage balance/i).value)).toBe(240_000);
+    expect(Number(spin(/Mortgage APR/i).value)).toBe(6);
+    expect(Number(spin(/Term/i).value)).toBe(30);
 
     enterNumber(spin(/Current value/i), "425000");
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    // Raising the value does not touch the balance sent — the engine keeps the two independent.
     expect(p.reviseTransaction).toHaveBeenCalledWith("home-1", {
       type: "buyHome",
       month: -1,
       purchasePriceCents: 425_000_00,
       downPaymentCents: 0,
       downPaymentSourceIds: [],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+      mortgageBalanceCents: 240_000_00,
     });
   });
 });
