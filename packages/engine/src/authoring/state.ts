@@ -15,6 +15,7 @@ import { scenarioOf, withLedger, withPlan } from "../plan/scenario";
 import type { Ledger } from "../ledger/ledger";
 import type { ScenarioScalars } from "../input/scenarioInput";
 import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
+import { assertPersonEventsStillReachable } from "./reachability";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {
@@ -113,17 +114,27 @@ export interface Written<R> {
  * `state` with `plan` swapped in, carrying the ledger through so no standing write drops the
  * timeline. `nextSeq` moves with it when the write minted an id, so the plan and the counter
  * that named its contents land as ONE new state.
+ *
+ * **The prospective state is checked before it is returned** — see
+ * {@link assertPersonEventsStillReachable}. A plan patch can move the primary's `birthYear` or
+ * `lifeExpectancy`, and so the month they die, which everything they take part in is dated
+ * against: every marriage and separation in the timeline, every loan and home they own, every job
+ * they start. Here rather than in `./planScalars` because this is the plan plane's ONE write, so
+ * there is no standing edit that reaches a plan around the check — the same reason the ledger
+ * plane's version lives in `./eventWrite` rather than in each authoring verb.
  */
 export function withStatePlan(
   state: ProjectionState,
   plan: Plan,
   nextSeq?: number,
 ): ProjectionState {
-  return {
+  const next = {
     ...state,
     scenario: withPlan(state.scenario, plan),
     ...(nextSeq !== undefined ? { nextSeq } : {}),
   };
+  assertPersonEventsStillReachable(next);
+  return next;
 }
 
 /** The ledger-plane counterpart of {@link withStatePlan}, carrying the plan through. */

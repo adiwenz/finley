@@ -13,7 +13,6 @@ import type { Cents } from "../money/money";
 import type { LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";
-import { assertSeparationsStillReachable } from "./relationships";
 
 /**
  * What may be changed about a transaction already in the log — its DATA, never its identity.
@@ -254,11 +253,10 @@ export function reviseProjectionTransaction(
         `which a "${revision.type}" revision does not address`,
     );
   }
-  const next = replaceEvent(state, jurisdiction, id, revisedEvent(current, revision));
   // A `marry` revision may move that partner's `birthYear` or `lifeExpectancy`, and so the month
-  // they die — which their own separation is dated against. Checked on the prospective state, for
-  // the reason `updateProjectionPlan` checks it: an edit that strands a separation past a death is
-  // refused, rather than leaving an event nobody lives to see.
-  assertSeparationsStillReachable(next);
-  return next;
+  // they die — which everything that partner takes part in is dated against: their own separation,
+  // any loan or home they own, any job they start. `replaceEvent` checks the prospective state for
+  // exactly that, so an edit that strands one past a death is refused rather than leaving an event
+  // nobody lives to see.
+  return replaceEvent(state, jurisdiction, id, revisedEvent(current, revision));
 }

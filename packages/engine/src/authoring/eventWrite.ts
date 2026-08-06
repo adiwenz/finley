@@ -23,6 +23,26 @@ import { validateLedger } from "../ledger/validateLedger";
 import { createProjectionBase } from "../compile/projectionBase";
 import type { ProjectionState } from "./state";
 import { withStateLedger } from "./state";
+import { assertPersonEventsStillReachable } from "./reachability";
+
+/**
+ * The state a ledger write produces, once every person-scoped event in it is known to happen while
+ * the people it takes are alive — or a refusal naming the first that does not.
+ *
+ * On the APPEND as well as the revision, and that pairing is the point. A revision can move a
+ * partner's `birthYear` or `lifeExpectancy`, and so the month they die, under events already
+ * written; an append can date a new loan or wedding past a death that is already on the books.
+ * Guarding only one of the two would leave a household that can author an unreachable event and
+ * then be refused every subsequent edit for carrying it — the check would brick the plan instead
+ * of protecting it. Guarding both keeps the invariant true of every state authoring ever produces,
+ * which is what lets an edit be refused for what IT changes and nothing else.
+ *
+ * {@link dropEvent} needs none: removing an event cannot strand one.
+ */
+function reachable(next: ProjectionState): ProjectionState {
+  assertPersonEventsStillReachable(next);
+  return next;
+}
 
 /**
  * The replay context every ledger write validates against: the plan compiled under
@@ -104,7 +124,7 @@ export function appendEvent(
   if (!result.ok) {
     throw new Error(`Projection: cannot apply transaction — ${result.conflict}`);
   }
-  return withStateLedger(state, result.ledger, nextSeq);
+  return reachable(withStateLedger(state, result.ledger, nextSeq));
 }
 
 /**
@@ -131,7 +151,7 @@ export function replaceEvent(
   if (!result.ok) {
     throw new Error(`Projection: cannot revise transaction — ${result.conflict}`);
   }
-  return withStateLedger(state, result.ledger, nextSeq);
+  return reachable(withStateLedger(state, result.ledger, nextSeq));
 }
 
 /**

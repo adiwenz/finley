@@ -5,7 +5,6 @@
  */
 
 import type { Job } from "../job/job";
-import { lifeExpectancyEndMonthExclusive } from "../job/householdJob";
 import { ageAboveMaximum } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
@@ -13,6 +12,7 @@ import type { Person } from "../plan/person";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";
+import { earliestDeath, yearOfMonth } from "./reachability";
 import { resolveJobInput, type JobInput } from "./jobs";
 
 /**
@@ -115,97 +115,43 @@ export interface SeparateInput {
  * and you cannot leave a household you have died out of — an "impossible date" in the plainest
  * sense, and one a user can author by accident simply by booking an event far out.
  *
- * At or after, not merely after: {@link lifeExpectancyEndMonthExclusive} is the first month the
+ * At or after, not merely after:
+ * {@link import("../job/householdJob").lifeExpectancyEndMonthExclusive} is the first month the
  * person is gone, so the month itself is already too late. This is the same boundary
  * {@link import("../job/householdJob").memberHorizonReach} uses to decide whether a separation
  * takes a partner's tail out of the projection — refused here at the moment it is authored, and
  * still handled there, because an expectancy LOWERED after the fact can stand a separation that
  * was legal when written.
+ *
+ * This is the WRITE-time half of the rule, kept for the sentence it can say: it knows the verb the
+ * caller used, so it blames the wedding rather than "this change". The other half — an edit that
+ * moves a death under an event already written — is {@link assertPersonEventsStillReachable}, and
+ * both reckon the death through the same {@link earliestDeath}.
  */
-function firstDeath(
-  state: ProjectionState,
-  partner: Pick<Person, "name" | "birthYear" | "lifeExpectancy">,
-): { readonly who: string; readonly month: number; readonly year: number } {
-  const primary = state.scenario.plan.primary;
-  const ends = [
-    { who: primary.name.trim() || "the primary", person: primary },
-    { who: partner.name.trim() || "the partner", person: partner },
-  ].map((e) => ({
-    who: e.who,
-    month: lifeExpectancyEndMonthExclusive(e.person, state.startYear),
-    year: e.person.birthYear + e.person.lifeExpectancy,
-  }));
-  // The one who goes first is what bounds the couple; ties name the primary.
-  return ends[0]!.month <= ends[1]!.month ? ends[0]! : ends[1]!;
-}
-
-/** The calendar year a plan month falls in — what a refusal quotes back, since nobody authors months. */
-function yearOfMonth(state: ProjectionState, month: number): number {
-  return state.startYear + Math.floor(month / 12);
-}
-
 function assertBothAliveAt(
   state: ProjectionState,
   month: number,
   partner: Pick<Person, "name" | "birthYear" | "lifeExpectancy">,
   verb: "marry" | "separate",
 ): void {
-  const first = firstDeath(state, partner);
+  const primary = state.scenario.plan.primary;
+  // The primary first, so a tie names them — the order `earliestDeath` reads.
+  const first = earliestDeath(
+    [
+      { ...primary, role: "the primary" },
+      { ...partner, role: "the partner" },
+    ],
+    state.startYear,
+  );
   if (month < first.month) return;
   const noun = verb === "marry" ? "marriage" : "separation";
   // Everything the reader needs sits AFTER the em-dash: the app strips the `Projection: cannot X —`
   // prefix before showing this (see `useProjection`'s `conflictOf`), so a reason that leaned on the
   // prefix for the date would reach them without one.
   throw new Error(
-    `Projection: cannot ${verb} — a ${noun} in ${yearOfMonth(state, month)} needs both partners ` +
-      `alive, and ${first.who} is projected to live only to ${first.year}`,
+    `Projection: cannot ${verb} — a ${noun} in ${yearOfMonth(state.startYear, month)} needs both ` +
+      `partners alive, and ${first.who} is projected to live only to ${first.year}`,
   );
-}
-
-/**
- * Every separation in `state` still happens while both partners are alive, or a refusal naming the
- * one that does not.
- *
- * {@link assertBothAliveAt} guards the moment a separation is WRITTEN, against the expectancies in
- * force then. This guards the other direction: an edit that moves a death EARLIER can strand a
- * separation that was perfectly legal when it was authored. Lower the primary's life expectancy
- * under a separation booked for 2085 and it becomes an event nobody lives to see, with no second
- * write to catch it.
- *
- * So the edit is rejected rather than the separation left unreachable. Called with the state the
- * edit WOULD produce, and checking every separation rather than only the ones the edit obviously
- * touches: one lowered expectancy is the primary's, and the primary is a partner in all of them.
- *
- * Not called on restore. A state arriving from outside is checked for what makes it loadable at
- * all (`./restore`), and refusing a whole imported file over a stranded separation would leave the
- * user nothing to open and no way to fix it — which is why the simulation keeps its own clamp
- * ({@link import("../job/householdJob").memberHorizonReach}) and models such a household sensibly
- * instead of relying on this.
- */
-export function assertSeparationsStillReachable(state: ProjectionState): void {
-  const events = state.scenario.ledger.events;
-  const personOf = (partnerPersonId: PersonId): Person | undefined => {
-    for (const e of events) {
-      if (e.type === "RelationshipEvent" && e.person.id === partnerPersonId) return e.person;
-    }
-    return undefined;
-  };
-  for (const event of events) {
-    if (event.type !== "SeparationEvent") continue;
-    const partner = personOf(event.partnerPersonId);
-    // A separation whose partner is not in the timeline is a different problem, and the ledger's
-    // own gate owns it. Nothing to compare a death against here.
-    if (partner === undefined) continue;
-    const first = firstDeath(state, partner);
-    if (event.month < first.month) continue;
-    // The EDIT is what is refused, not the separation — that is already written, and was legal when
-    // it was. So the message names the edit's consequence rather than blaming the older event.
-    throw new Error(
-      `Projection: cannot apply this change — it would strand the ` +
-        `${yearOfMonth(state, event.month)} separation: ${first.who} is projected to live only to ` +
-        `${first.year}, and a separation needs both partners alive`,
-    );
-  }
 }
 
 /** Answers with the minted `"person-N"` id. */

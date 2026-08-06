@@ -68,12 +68,23 @@ Delivered as three commits:
   write as a conflict, so each reason is written to survive the `Projection: cannot X —` prefix
   being stripped.
 
-  The other direction is an EDIT that strands a separation legal when written:
-  `assertSeparationsStillReachable` revalidates every separation against the state an edit would
-  produce, and both `updateProjectionPlan` and `reviseProjectionTransaction` call it. Lowering
-  either party's `lifeExpectancy` or moving either `birthYear` under a booked separation is refused
-  and moves nothing. An edit that keeps it reachable still lands, and a household with no
-  separation is untouched — lowering an expectancy stays an ordinary edit.
+  The other direction is an EDIT that strands something legal when written, and it is not about
+  separations: `assertPersonEventsStillReachable` (`authoring/reachability.ts`) revalidates every
+  PERSON-SCOPED thing against the state an edit would produce. Which things those are is read off
+  the ownership each already carries — the couple events (`RelationshipEvent`, `SeparationEvent`)
+  take the primary plus whoever they name, the owned events (`LoanEvent`, `HomePurchaseEvent`) take
+  their `ownerId`, and a job takes its owner. A `ChildEvent` and a `DebtPayoffEvent` name no person,
+  so no death bounds them and they stay valid. A job's START is bounded and its END is not — a wage
+  ends where it was authored to, whatever the expectancy.
+
+  Both planes run it on the state they would produce, at their single write: `withStatePlan` for the
+  plan plane (so `updatePlan` and every plan-job edit pass through it) and `appendEvent` /
+  `replaceEvent` for the ledger plane (so `reviseTransaction` and every authoring verb do). Guarding
+  the APPEND as well as the edit is what keeps the invariant true of every authored state — without
+  it a household that booked a posthumous loan would be refused every later edit for carrying it.
+  Lowering either party's `lifeExpectancy` or moving either `birthYear` under one of these is
+  refused and moves nothing; an edit that keeps everything reachable still lands, and a household
+  with nothing far-future is untouched — lowering an expectancy stays an ordinary edit.
 
 - **The simulation keeps its own horizon clamp anyway.** With both authoring doors closed, a
   posthumous separation can now only arrive by RESTORATION — a file from another build, hand-edited,

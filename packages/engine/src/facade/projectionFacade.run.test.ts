@@ -11,7 +11,7 @@ import { mockJurisdiction } from "../testing/mockJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { goalFundAccountId } from "../compile/projectionBase";
-import { type Job } from "../job/job";
+import { type Job, type PersonId } from "../job/job";
 import { P1, freshProjection, JOB_END_YEAR, plainJob, partnerEvent } from "../testing/projectionFacadeFixtures";
 
 describe("Projection root — run(jurisdiction) → immutable result, no mutation", () => {
@@ -301,9 +301,9 @@ describe("Projection root — a marriage or separation needs both partners alive
     ).not.toThrow();
   });
 
-  // The other direction. A separation legal when written can be STRANDED by a later edit that moves
-  // a death earlier — and no second write to the separation happens, so nothing would catch it.
-  // Both edit paths therefore revalidate every separation against the state they would produce.
+  // The other direction. Anything scoped to a person and legal when written can be STRANDED by a
+  // later edit that moves a death earlier — and no second write to that thing happens, so nothing
+  // would catch it. Both edit paths therefore revalidate the whole state they would produce.
   describe("an edit that would strand an existing separation is refused", () => {
     /** A household with a separation in 2076, legal against expectancies of 100 and 95. */
     const withLateSeparation = () => {
@@ -367,6 +367,177 @@ describe("Projection root — a marriage or separation needs both partners alive
       p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 85 });
       expect(() => p.updatePlan({ lifeExpectancy: 70 })).not.toThrow();
       expect(p.plan.primary.lifeExpectancy).toBe(70);
+    });
+  });
+
+  // A separation is one person-scoped thing among several, and the rule is not about separations:
+  // anything that names a person through the ownership it already carries — the marriage itself, a
+  // loan somebody takes out, a job somebody starts — is bounded by that person's death, and an edit
+  // that moves the death under one of them is refused the same way. Both edit paths, both people.
+  describe("the same refusal covers every person-scoped event, not only separations", () => {
+    /**
+     * A household married in 2076, legal against expectancies of 100 and 95 — the wedding itself
+     * is the far-future event here, so nothing but the marriage is at stake.
+     */
+    const marriedLate = () => {
+      const p = freshProjection();
+      p.updatePlan({ lifeExpectancy: 100 }); // the primary dies 2086
+      const partnerId = p.marry({ month: 600, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+      return { p, partnerId };
+    };
+
+    /** The same household, married at once, with a far-future thing hung off each person. */
+    const marriedEarly = () => {
+      const p = freshProjection();
+      p.updatePlan({ lifeExpectancy: 100 });
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+      return { p, partnerId };
+    };
+
+    const studentLoan = (month: number, ownerId: string) => ({
+      month,
+      ownerId: ownerId as PersonId,
+      kind: "studentLoan" as const,
+      openingBalanceCents: dollarsToCents(20000),
+      apr: 5,
+      termMonths: 120,
+    });
+
+    describe("1. a relationship start", () => {
+      it("updatePlan: refuses a primary expectancy that lands before their own wedding", () => {
+        const { p } = marriedLate();
+        expect(() => p.updatePlan({ lifeExpectancy: 85 })).toThrow(
+          /would strand the 2076 marriage.*live only to 2071.*a marriage needs both partners alive/,
+        );
+        expect(p.plan.primary.lifeExpectancy).toBe(100);
+      });
+
+      it("reviseTransaction: refuses a partner expectancy that lands before the same wedding", () => {
+        const { p, partnerId } = marriedLate();
+        expect(() => p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 60 })).toThrow(
+          /would strand the 2076 marriage.*Sam is projected to live only to 2056/,
+        );
+        expect(partnerEvent(p).person.lifeExpectancy).toBe(95);
+      });
+    });
+
+    // 2. a separation — the block above, which covers both edit paths and both partners.
+
+    describe("3. another person-scoped event — a loan, and a job", () => {
+      it("updatePlan: refuses an expectancy that lands before a loan the PRIMARY owns", () => {
+        // A loan is owner-scoped, not couple-scoped, so the refusal says so: its owner, not both
+        // partners. Month 660 is 2081; the primary at 85 is gone from 2071.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        p.takeLoan(studentLoan(660, p.plan.primary.id));
+        expect(() => p.updatePlan({ lifeExpectancy: 85 })).toThrow(
+          /would strand the 2081 loan.*live only to 2071.*a loan needs its owner alive/,
+        );
+        expect(p.plan.primary.lifeExpectancy).toBe(100);
+      });
+
+      it("reviseTransaction: refuses a partner expectancy that lands before a loan THEY own", () => {
+        // Month 700 is 2084, and the primary's own 2086 death does not bound it — a loan takes
+        // only its owner. Sam at 80 is gone from 2076.
+        const { p, partnerId } = marriedEarly();
+        p.takeLoan(studentLoan(700, partnerId));
+        expect(() => p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 80 })).toThrow(
+          /would strand the 2084 loan.*Sam is projected to live only to 2076.*its owner alive/,
+        );
+        expect(partnerEvent(p).person.lifeExpectancy).toBe(95);
+      });
+
+      it("updatePlan: refuses an expectancy that lands before a job the PRIMARY starts", () => {
+        // A job is person-scoped like an event, and its START is what a death can strand: nobody
+        // takes up work in 2080 having died in 2071. Its END is deliberately not bounded — a wage
+        // ends where it was authored to, whatever the expectancy.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2080, endYear: 2085 });
+        expect(() => p.updatePlan({ lifeExpectancy: 85 })).toThrow(
+          /would strand the 2080 job.*live only to 2071.*a job needs its owner alive/,
+        );
+        expect(p.plan.primary.lifeExpectancy).toBe(100);
+      });
+
+      it("reviseTransaction: refuses a partner expectancy that lands before a job THEY start", () => {
+        const { p, partnerId } = marriedEarly();
+        p.addPartnerJob(partnerId, { ...plainJob, startYear: 2080, endYear: 2085 });
+        expect(() => p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 80 })).toThrow(
+          /would strand the 2080 job.*Sam is projected to live only to 2076/,
+        );
+        expect(partnerEvent(p).person.lifeExpectancy).toBe(95);
+      });
+
+      it("leaves a HOUSEHOLD event alone — a child names no person, so no death bounds one", () => {
+        // The line the rule draws: a person-scoped thing is one the event's own fields name a
+        // person on. A `ChildEvent` names none, so an expectancy that falls before it strands
+        // nothing and the edit lands.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        p.haveChild({ month: 700, name: "Kid", annualCostCents: 0 }); // 2084
+        expect(() => p.updatePlan({ lifeExpectancy: 85 })).not.toThrow();
+        expect(p.plan.primary.lifeExpectancy).toBe(85);
+      });
+    });
+
+    describe("4. no event stranded — the edit lands", () => {
+      it("updatePlan: a lowered primary expectancy that still clears everything", () => {
+        const { p, partnerId } = marriedEarly();
+        p.takeLoan(studentLoan(12, p.plan.primary.id));
+        p.addPartnerJob(partnerId, plainJob);
+        expect(() => p.updatePlan({ lifeExpectancy: 70 })).not.toThrow();
+        expect(p.plan.primary.lifeExpectancy).toBe(70);
+      });
+
+      it("reviseTransaction: a lowered partner expectancy that still clears everything", () => {
+        const { p, partnerId } = marriedEarly();
+        p.takeLoan(studentLoan(24, partnerId));
+        p.addPartnerJob(partnerId, plainJob);
+        expect(() =>
+          p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 70 }),
+        ).not.toThrow();
+        expect(partnerEvent(p).person.lifeExpectancy).toBe(70);
+      });
+    });
+  });
+
+  // The other half of the same invariant. An edit is refused for what IT strands, which is only
+  // meaningful if authoring could never have written something unreachable in the first place —
+  // otherwise a household that booked a posthumous loan would be refused every later edit for
+  // carrying it, and the guard would brick the plan instead of protecting it.
+  describe("authoring cannot write a person-scoped event past its own owner's death", () => {
+    it("refuses a loan dated after its owner dies", () => {
+      const p = freshProjection();
+      expect(() =>
+        p.takeLoan({
+          month: 900, // 2101, long past the primary's 2071
+          ownerId: p.plan.primary.id as PersonId,
+          kind: "studentLoan",
+          openingBalanceCents: dollarsToCents(20000),
+          apr: 5,
+          termMonths: 120,
+        }),
+      ).toThrow(/would strand the 2101 loan.*live only to 2071/);
+      expect(p.ledger.events).toEqual([]);
+    });
+
+    it("refuses a job that starts after its owner dies", () => {
+      const p = freshProjection();
+      expect(() =>
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2080, endYear: 2085 }),
+      ).toThrow(/would strand the 2080 job.*live only to 2071/);
+      expect(p.plan.primary.jobs).toEqual([]);
+    });
+
+    it("still accepts a job that ENDS past the expectancy — a wage is not bounded by one", () => {
+      // The asymmetry is the rule, not an oversight: `Person.lifeExpectancy` bounds a benefit and
+      // not a wage, so only the job's start has to fall in a month its owner is alive for.
+      const p = freshProjection();
+      expect(() =>
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2090 }),
+      ).not.toThrow();
+      expect(p.plan.primary.jobs).toHaveLength(1);
     });
   });
 

@@ -9,7 +9,6 @@ import type { PlanPatch } from "../plan/plan";
 import { withPlanPatch } from "../plan/plan";
 import type { ProjectionState } from "./state";
 import { withStatePlan } from "./state";
-import { assertSeparationsStillReachable } from "./relationships";
 
 /**
  * Patch the plan's standing scalars — opening balance, the return and inflation rates, the
@@ -18,15 +17,14 @@ import { assertSeparationsStillReachable } from "./relationships";
  * budget-line edit goes through the module that mints its id and enforces its rules.
  *
  * A patch that moves the primary's `birthYear` or `lifeExpectancy` moves the month they die, which
- * every separation in the timeline is dated against — the primary is a partner in all of them. The
- * prospective state is therefore checked before it is returned, so an edit that would strand a
- * separation past somebody's death is refused instead of quietly leaving one unreachable.
+ * everything the primary takes part in is dated against — every marriage and separation in the
+ * timeline, every loan and home they own, every job they start. {@link withStatePlan} checks the
+ * prospective state for exactly that, so an edit that would strand one of them past somebody's
+ * death is refused here rather than quietly leaving an event nobody lives to see.
  */
 export function updateProjectionPlan(
   state: ProjectionState,
   patch: PlanPatch,
 ): ProjectionState {
-  const next = withStatePlan(state, withPlanPatch(state.scenario.plan, patch, state.startYear));
-  assertSeparationsStillReachable(next);
-  return next;
+  return withStatePlan(state, withPlanPatch(state.scenario.plan, patch, state.startYear));
 }
