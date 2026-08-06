@@ -201,6 +201,28 @@ function amortizingLiability(params: {
   return { ...params, transfers: [] };
 }
 
+/**
+ * Insert a liability, refusing to silently overwrite an existing entry — the invariant a
+ * liability id, once taken (authored `LoanEvent` or a purchase's derived mortgage), stays taken.
+ * `check` is expected to have already refused a collision before `apply` runs; this is the
+ * backstop for anything that reaches `apply` without one (a future caller, a bug in `check`
+ * itself) so a collision throws loudly instead of one liability quietly replacing another.
+ */
+function insertLiability(
+  state: InterpretState,
+  id: LiabilityId,
+  def: LiabilityDef,
+  event: LifeEvent,
+): void {
+  if (state.liabilitiesById.has(id)) {
+    throw new Error(
+      `Interpretation invariant violated: liability "${id}" already exists, ` +
+        `colliding with ${event.type} "${event.id}"`,
+    );
+  }
+  state.liabilitiesById.set(id, def);
+}
+
 const loan: EventHandler<LoanEvent> = {
   check(event, state) {
     if (state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -226,11 +248,13 @@ const loan: EventHandler<LoanEvent> = {
       openingBalanceCents: event.openingBalanceCents,
       apr: event.apr,
     };
-    state.liabilitiesById.set(
+    insertLiability(
+      state,
       id,
       event.kind === "creditCard"
         ? { ...common, transfers: [], kind: event.kind, creditLimitCents: event.creditLimitCents }
         : amortizingLiability({ ...common, termMonths: event.termMonths, kind: event.kind }),
+      event,
     );
   },
 };
@@ -247,6 +271,21 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
+    }
+    // The mortgage's id is DERIVED, not authored (`<propertyId>-mortgage`), so nothing upstream —
+    // authoring's id mint, a standalone LoanEvent's `liabilityId` uniqueness — stops a hand-edited
+    // or imported ledger from handing a LoanEvent that exact id. `loan.check` catches the mirror
+    // ordering (a LoanEvent authored after this purchase already sees the derived mortgage in
+    // `liabilitiesById`); this is the other half, checked before `apply` mints and would otherwise
+    // silently overwrite whichever liability landed first.
+    if (event.mortgage !== undefined) {
+      const mortgageLiabilityId = asLiabilityId(`${event.propertyId}-mortgage`);
+      if (state.liabilitiesById.has(mortgageLiabilityId)) {
+        return fail(
+          event,
+          `derived mortgage liability "${mortgageLiabilityId}" collides with an existing liability`,
+        );
+      }
     }
     // A holding (a home already owned at "now") opens at its current value with no acquisition:
     // it names no funding source, draws no down payment, and skips the §4.5 gate below. Only a
@@ -304,7 +343,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     const mortgageLiabilityId =
       event.mortgage !== undefined ? asLiabilityId(`${event.propertyId}-mortgage`) : null;
     if (event.mortgage !== undefined && mortgageLiabilityId !== null) {
-      state.liabilitiesById.set(
+      insertLiability(
+        state,
         mortgageLiabilityId,
         amortizingLiability({
           id: mortgageLiabilityId,
@@ -316,6 +356,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
           termMonths: event.mortgage.termMonths,
           kind: "mortgage",
         }),
+        event,
       );
     }
     // Property: the appreciating stock. Its balance nets against the derived mortgage above to

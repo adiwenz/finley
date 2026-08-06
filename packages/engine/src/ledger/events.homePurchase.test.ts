@@ -411,6 +411,114 @@ function holding(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   });
 }
 
+describe("HomePurchaseEvent — derived mortgage id collision", () => {
+  // The mortgage's id is DERIVED (`<propertyId>-mortgage`), not authored, so a hand-edited or
+  // imported ledger can hand a standalone LoanEvent that exact id.
+  // `liabilitiesById` is a plain Map: without an explicit guard, whichever event lands second
+  // silently overwrites the first rather than failing. Every case below asserts the collision is
+  // refused explicitly, in both possible orderings, at both the authoring and the import gates.
+
+  it("still creates and links a normal, non-colliding financed purchase's mortgage", () => {
+    // The invariant added here must not disturb the ordinary path.
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
+    const household = interpretLedger(ledger, base);
+    expect(household.properties[0].mortgageLiabilityId).toBe(MORTGAGE_ID);
+    expect(household.liabilities.map((l) => l.id)).toEqual([MORTGAGE_ID]);
+  });
+
+  it("rejects the purchase when its derived mortgage id collides with an EARLIER standalone loan", () => {
+    // Loan authored first, taking the id the purchase's mortgage will derive; the purchase must
+    // then be refused rather than silently overwriting the standalone loan.
+    const base = baseWith(10_000_000);
+    const ledger = addWithBase(emptyLedger, base, loanEvent({ liabilityId: MORTGAGE_ID, month: 1 }));
+    const result = addEvent(
+      ledger,
+      base,
+      purchase({
+        month: 3,
+        mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain(MORTGAGE_ID);
+      expect(result.conflict).toMatch(/collides|already exists/);
+    }
+  });
+
+  it("rejects a LATER standalone loan authored against an EARLIER purchase's derived mortgage id", () => {
+    // The mirror ordering: the purchase mints its mortgage first, so the standalone loan's own
+    // "liability already exists" precondition is what refuses it — same outcome, other handler.
+    const base = baseWith(10_000_000);
+    const ledger = addFinanced(emptyLedger, base);
+    const result = addEvent(
+      ledger,
+      base,
+      loanEvent({ liabilityId: MORTGAGE_ID, month: 6 }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain(MORTGAGE_ID);
+      expect(result.conflict).toMatch(/already exists/);
+    }
+  });
+
+  it("refuses to import a ledger whose loan-before-purchase collision was never authored through the gate", () => {
+    // Bypassing `addEvent` entirely, a raw ledger carries a standalone loan and a colliding
+    // financed purchase, loan first. `validateLedger` — the restore/import entry point — replays
+    // in (month, sequenceNumber) order and must refuse rather than let the purchase's mortgage
+    // silently replace the loan in `liabilitiesById`.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [
+        { ...loanEvent({ liabilityId: MORTGAGE_ID, month: 1 }), sequenceNumber: 1 },
+        {
+          ...purchase({
+            month: 3,
+            mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+          }),
+          sequenceNumber: 2,
+        },
+      ] as unknown as Ledger["events"],
+      nextSequenceNumber: 3,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.event.id).toBe("buy1");
+      expect(result.reason).toContain(MORTGAGE_ID);
+      expect(result.reason).toMatch(/collides|already exists/);
+    }
+  });
+
+  it("refuses to import a ledger whose purchase-before-loan collision was never authored through the gate", () => {
+    // Same fixture, reversed sequence: the purchase mints its mortgage first, so the loan is what
+    // strands on replay — the other ordering `validateLedger` must also catch.
+    const base = baseWith(10_000_000);
+    const ledger: Ledger = {
+      events: [
+        {
+          ...purchase({
+            month: 1,
+            mortgage: { openingBalanceCents: FINANCED, apr: 0, termMonths: 360 },
+          }),
+          sequenceNumber: 1,
+        },
+        { ...loanEvent({ liabilityId: MORTGAGE_ID, month: 3 }), sequenceNumber: 2 },
+      ] as unknown as Ledger["events"],
+      nextSequenceNumber: 3,
+    };
+    const result = validateLedger(ledger, base);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.event.id).toBe("loan1");
+      expect(result.reason).toContain(MORTGAGE_ID);
+      expect(result.reason).toMatch(/already exists/);
+    }
+  });
+});
+
 describe("HomePurchaseEvent — a holding (a home already owned at start)", () => {
   it("opens the property at its value with no down-payment draw, drawing on no source", () => {
     // A near-empty account: a holding names no source and drains nothing, so the purchase stands
